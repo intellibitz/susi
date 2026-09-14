@@ -20,8 +20,9 @@ impl ReflexSynthesizer {
             impl SusiTool for {}Reflex {{\n\
                 fn name(&self) -> String {{ \"{}\".to_string() }}\n\
                 fn description(&self) -> String {{ \"Synthesized reflex for {}\".to_string() }}\n\
-                fn execute(&self, arg: &str, _ws: &std::path::Path) -> EaiResult<String> {{\n\
-                    Ok(format!(\"Synthesized reflex executed for intent '{}' with arg: {{}}\", arg))\n\
+                fn execute(&self, arg: &serde_json::Value, _ws: &std::path::Path) -> EaiResult<String> {{\n\
+                    let arg_str = if let Some(s) = arg.as_str() {{ s.to_string() }} else {{ arg.to_string() }};\n\
+                    Ok(format!(\"Synthesized reflex executed for intent '{}' with arg: {{}}\", arg_str))\n\
                 }}\n\
             }}\n\n\
             #[cfg(test)]\n\

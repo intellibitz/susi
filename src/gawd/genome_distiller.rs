@@ -15,7 +15,7 @@ impl GenomeDistiller {
         let mut samples = Vec::new();
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-        // 1. Distill AGENTS.md (Governance)
+        // 1. Distill AGENTS.md (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {
             samples.push(ReasoningSample {
                 intent: format!("What is the mandate for rule {}?", rule.title),
@@ -25,17 +25,38 @@ impl GenomeDistiller {
             });
         }
 
-        // 2. Distill ASPIRATIONS.md (Vision)
-        // Note: build.rs already parses these into rules, we can use them for synthetic training.
-        samples.push(ReasoningSample {
-            intent: "Explain the Substrate Ingestion Motion.".to_string(),
-            blackboard_context: "architectural_roadmap".to_string(),
-            successful_outcome: "The Substrate Ingestion Motion is the process by which susi distills learned experience into a native Tier 2 reasoning model.".to_string(),
-            timestamp,
-        });
+        // 2. Distill WORKFLOW_STEPS
+        for step in AlphaSelf::WORKFLOW_STEPS {
+            samples.push(ReasoningSample {
+                intent: format!("Explain workflow step {}: {}.", step.id, step.title),
+                blackboard_context: "susi_workflow_lookup".to_string(),
+                successful_outcome: format!("Workflow Step {}: {}. Imperative: {}", step.id, step.title, step.imperative),
+                timestamp,
+            });
+        }
 
-        // 3. Distill TOPOLOGY.md (Structure)
-        for comp in AlphaSelf::AOA_COMPONENTS {
+        // 3. Distill PULSE_AXIOMS
+        for axiom in AlphaSelf::PULSE_AXIOMS {
+            samples.push(ReasoningSample {
+                intent: format!("What is pulse axiom {}?", axiom.title),
+                blackboard_context: "susi_pulse_axioms".to_string(),
+                successful_outcome: format!("Pulse Axiom {}: {}. Imperative: {}", axiom.id, axiom.title, axiom.imperative),
+                timestamp,
+            });
+        }
+
+        // 4. Distill AUTONOMY_PROTOCOLS
+        for proto in AlphaSelf::AUTONOMY_PROTOCOLS {
+            samples.push(ReasoningSample {
+                intent: format!("What is autonomy protocol {}?", proto.title),
+                blackboard_context: "susi_autonomy_protocols".to_string(),
+                successful_outcome: format!("Autonomy Protocol {}: {}. Imperative: {}", proto.id, proto.title, proto.imperative),
+                timestamp,
+            });
+        }
+
+        // 5. Distill TOPOLOGY.md Components
+        for comp in AlphaSelf::COMPONENTS {
             samples.push(ReasoningSample {
                 intent: format!("What is the role of {} in the substrate?", comp.name),
                 blackboard_context: "topology_lookup".to_string(),

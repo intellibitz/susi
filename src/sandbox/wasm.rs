@@ -14,10 +14,12 @@ impl WasiSandbox {
         let mut store = Store::default();
         let module = Module::new(&store, wasm_bytes).map_err(|e| EaiError::process(format!("WASM Module Error: {}", e)))?;
 
+        let output = wasmer_wasi::Pipe::new();
         // Restricted Filesystem Access
         let mut wasi_state_builder = WasiState::new("susi-isolated-tool");
         wasi_state_builder
             .args(args)
+            .stdout(Box::new(output.clone()))
             .preopen_dir(workspace).map_err(|e| EaiError::process(format!("WASI Preopen Error: {}", e)))?;
 
         let wasi_env = wasi_state_builder
@@ -29,10 +31,18 @@ impl WasiSandbox {
 
         let start = instance.exports.get_function("_start").map_err(|e| EaiError::process(format!("WASI Start Error: {}", e)))?;
 
-        // Redirect stdout/stderr would be better, but for bootstrap we just execute
         start.call(&mut store, &[]).map_err(|e| EaiError::process(format!("WASI Execution Error: {}", e)))?;
 
-        Ok("WASI tool executed successfully in isolated sandbox.".to_string())
+        let mut result = String::new();
+        use std::io::Read;
+        let mut reader = output;
+        reader.read_to_string(&mut result).map_err(|e| EaiError::process(format!("Failed to read WASI output: {}", e)))?;
+
+        Ok(if result.trim().is_empty() {
+            "WASI tool executed successfully in isolated sandbox.".to_string()
+        } else {
+            result.trim().to_string()
+        })
     }
 
     /// Hardened Shell Isolation: Wrap sensitive commands in a restricted environment

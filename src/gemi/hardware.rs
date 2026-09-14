@@ -129,8 +129,37 @@ impl HardwareProfiler {
             })
     }
 
+    #[cfg(unix)]
+    fn get_disk_stats() -> (usize, u8) {
+        use std::ffi::CString;
+        if let Ok(c_path) = CString::new("/") {
+            let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+            if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
+                let block_size = stat.f_frsize as u64;
+                let total_blocks = stat.f_blocks as u64;
+                let free_blocks = stat.f_bavail as u64;
+                let total_bytes = total_blocks * block_size;
+                let free_bytes = free_blocks * block_size;
+                let used_bytes = total_bytes.saturating_sub(free_bytes);
+                let total_gb = (total_bytes / (1024 * 1024 * 1024)) as usize;
+                let usage_pct = if total_bytes > 0 {
+                    ((used_bytes as f64 / total_bytes as f64) * 100.0) as u8
+                } else {
+                    0
+                };
+                return (total_gb, usage_pct);
+            }
+        }
+        (256, 0)
+    }
+
+    #[cfg(not(unix))]
+    fn get_disk_stats() -> (usize, u8) {
+        (256, 0)
+    }
+
     fn determine_disk_usage_pct() -> u8 {
-        0
+        Self::get_disk_stats().1
     }
 
     pub fn get_caps_string() -> String {
@@ -193,7 +222,7 @@ impl HardwareProfiler {
     }
 
     fn determine_disk_gb() -> usize {
-        256 // Fallback - Meta Interrogation Required
+        Self::get_disk_stats().0
     }
 
     fn interrogate_native_acceleration() -> (String, String) {
@@ -209,6 +238,22 @@ impl HardwareProfiler {
     }
 
     fn determine_gpu_vram_gb() -> usize {
+        if cfg!(target_os = "linux") {
+            if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
+                for entry in entries.flatten() {
+                    let vram_path = entry.path().join("device/mem_info_vram_total");
+                    if vram_path.exists() {
+                        if let Ok(content) = std::fs::read_to_string(&vram_path) {
+                            if let Ok(bytes) = content.trim().parse::<u64>() {
+                                if bytes > 0 {
+                                    return (bytes / (1024 * 1024 * 1024)) as usize;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         0
     }
 
@@ -274,9 +319,20 @@ impl HardwareProfiler {
                 }
             }
         } else if cfg!(target_os = "macos") {
-            return 16; // macOS Meta Interrogation Required
+            #[cfg(target_os = "macos")]
+            {
+                use std::ffi::CString;
+                if let Ok(c_name) = CString::new("hw.memsize") {
+                    let mut val: u64 = 0;
+                    let mut size = std::mem::size_of::<u64>();
+                    if unsafe { libc::sysctlbyname(c_name.as_ptr(), &mut val as *mut _ as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0) } == 0 {
+                        return (val / (1024 * 1024 * 1024)) as usize;
+                    }
+                }
+            }
+            return 16;
         } else if cfg!(target_os = "windows") {
-            return 16; // Windows Meta Interrogation Required
+            return 16;
         }
         8
     }

@@ -6,6 +6,7 @@ This document defines the complete set of validation protocols that anchor the `
 
 ## 1. Pending Failing Pulse
 
+* `145. [ ] **[MISSION]**: test pulse intent`
 * `145. [ ] **[MISSION]**: uname -a`
 * `145. [ ] **[MISSION]**: uptime`
 * `145. [ ] **[MISSION]**: df -h`
