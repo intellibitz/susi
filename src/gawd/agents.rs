@@ -2,7 +2,9 @@
 // RULE 11: Agents must add functionality directly to the susi engine.
 // RULE 31: Substrate Purity & Meta-Only Mandate - Neural Swarm Synthesis
 
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::RwLock;
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use dashmap::DashMap;
 use crate::error::EaiResult;
@@ -621,7 +623,7 @@ impl AgentMetaRegistry {
         if registry_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&registry_path) {
                 if let Ok(agents) = serde_json::from_str::<Vec<AgentProfile>>(&content) {
-                    let mut registry = self.agents.write().unwrap();
+                    let mut registry = self.agents.write();
                     let mut unique_agents = Vec::new();
                     for a in agents {
                         if !unique_agents.iter().any(|x: &AgentProfile| x.name == a.name) {
@@ -637,7 +639,7 @@ impl AgentMetaRegistry {
         // Bootstrap Provisioning (Rule 31)
         let new_agents = self.bootstrap_data();
         {
-            let mut registry = self.agents.write().unwrap();
+            let mut registry = self.agents.write();
             *registry = new_agents.clone();
         }
         let _ = std::fs::create_dir_all(registry_path.parent().unwrap());
@@ -672,7 +674,7 @@ impl AgentMetaRegistry {
 
     pub fn register_agent(&self, profile: AgentProfile) {
         {
-            let mut agents = self.agents.write().unwrap();
+            let mut agents = self.agents.write();
             if !agents.iter().any(|a| a.name == profile.name) {
                 agents.push(profile);
             }
@@ -682,7 +684,7 @@ impl AgentMetaRegistry {
 
     pub fn update_rank(&self, name: &str, delta: f32, source: &str) {
         {
-            let mut agents = self.agents.write().unwrap();
+            let mut agents = self.agents.write();
             if let Some(agent) = agents.iter_mut().find(|a| a.name == name) {
                 let old_rank = agent.base_rank;
                 agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
@@ -699,16 +701,16 @@ impl AgentMetaRegistry {
     fn save(&self) {
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
         let registry_path = home.join(".susi/agent_registry.json");
-        let agents = self.agents.read().unwrap();
+        let agents = self.agents.read();
         let _ = std::fs::write(&registry_path, serde_json::to_string_pretty(&*agents).unwrap_or_default());
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
-        self.agents.read().unwrap().clone()
+        self.agents.read().clone()
     }
 
     pub fn get_checksum(&self) -> u64 {
-        let agents = self.agents.read().unwrap();
+        let agents = self.agents.read();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
         for agent in agents.iter() {
@@ -866,39 +868,17 @@ impl GawdAgentFleet {
         use std::io::Write;
         let agents = Self::synthesize_fleet(&goal, &workspace);
         let agents_len = agents.len();
-        let mut results = Vec::new();
-        let (tx, rx) = flume::unbounded();
 
-        println!("- [Swarm Dispatch] Initializing parallel execution for {} agents...", agents_len);
+        println!("- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...", agents_len);
         let _ = std::io::stdout().flush();
 
-        for agent in agents {
-            let g = goal.clone();
-            let w = workspace.clone();
-            let bb = Arc::clone(&blackboard);
-            let tx_clone = tx.clone();
-            std::thread::spawn(move || {
-                let name = agent.name();
-                let start = std::time::Instant::now();
-                let (sub_tx, sub_rx) = flume::unbounded();
-                std::thread::spawn(move || {
-                    let res = agent.execute(&g, &w, &bb).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
-                    let _ = sub_tx.send(res);
-                });
+        let results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
+            let name = agent.name();
+            let start = std::time::Instant::now();
+            let res = agent.execute(&goal, &workspace, &blackboard).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
+            let elapsed = start.elapsed();
 
-                let res = match sub_rx.recv_timeout(std::time::Duration::from_secs(60)) {
-                    Ok(r) => r,
-                    Err(_) => "[TIMEOUT] Agent execution exceeded hardware limit (60s).".to_string(),
-                };
-                let elapsed = start.elapsed();
-                let _ = tx_clone.send((name, res, elapsed));
-            });
-        }
-        drop(tx);
-
-        while let Ok((name, res, elapsed)) = rx.recv() {
             if !res.trim().is_empty() && !res.contains("Query reflex audited") {
-                // Stream detailed component trace live into thinking block
                 let line_count = res.lines().count();
                 if line_count > 1 {
                     println!("- [Swarm Flux Trace] {}: [Generated {} lines of payload/content] (Latency: {:?})", name, line_count, elapsed);
@@ -906,9 +886,9 @@ impl GawdAgentFleet {
                     println!("- [Swarm Flux Trace] {}: {} (Latency: {:?})", name, res.trim(), elapsed);
                 }
             }
-            results.push((name, res));
             let _ = std::io::stdout().flush();
-        }
+            (name, res)
+        }).collect();
 
         results
     }

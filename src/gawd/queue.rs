@@ -1,8 +1,9 @@
 // SUSI Substrate Pulse Queue
 // Mandate 30: Non-Blocking Pulse Ingestion & Mandate 31: Serialized Pulse Execution
+// Refactored to use genuinely lock-free crossbeam SegQueue (Aspiration 27 & Mandate 39)
 
-use std::sync::{Mutex, OnceLock};
-use std::collections::VecDeque;
+use crossbeam::queue::SegQueue;
+use std::sync::OnceLock;
 use std::path::{Path, PathBuf};
 use tracing::info;
 use crate::error::EaiResult;
@@ -16,13 +17,15 @@ pub struct PulseEntry {
 }
 
 pub struct SubstratePulseQueue {
-    queue: Mutex<VecDeque<PulseEntry>>,
+    priority_queue: SegQueue<PulseEntry>,
+    standard_queue: SegQueue<PulseEntry>,
 }
 
 impl SubstratePulseQueue {
     fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
+            priority_queue: SegQueue::new(),
+            standard_queue: SegQueue::new(),
         }
     }
 
@@ -31,10 +34,9 @@ impl SubstratePulseQueue {
         INSTANCE.get_or_init(Self::new)
     }
 
-    /// Non-Blocking Ingestion (Aspiration 31)
+    /// Truly Lock-Free Non-Blocking Ingestion (Aspiration 27 & 31)
     pub fn ingest(&self, intent: &str, workspace: &Path, version: &str) -> EaiResult<()> {
-        info!(intent = %intent, "Ingesting new pulse into substrate queue");
-        let mut queue = self.queue.lock().unwrap();
+        info!(intent = %intent, "Ingesting new pulse into lock-free substrate queue");
 
         let priority = if intent.to_lowercase().contains("stop") || intent.to_lowercase().contains("wait") || intent.to_lowercase().contains("correction") {
             1
@@ -50,27 +52,28 @@ impl SubstratePulseQueue {
         };
 
         if priority > 0 {
-            // Priority Insertion: Insert at the front (or after other high-priority entries)
-            queue.push_front(entry);
+            self.priority_queue.push(entry);
         } else {
-            queue.push_back(entry);
+            self.standard_queue.push(entry);
         }
 
         Ok(())
     }
 
     pub fn pop(&self) -> Option<PulseEntry> {
-        let mut queue = self.queue.lock().unwrap();
-        queue.pop_front()
+        if let Some(entry) = self.priority_queue.pop() {
+            Some(entry)
+        } else {
+            self.standard_queue.pop()
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        let queue = self.queue.lock().unwrap();
-        queue.is_empty()
+        self.priority_queue.is_empty() && self.standard_queue.is_empty()
     }
 
     pub fn clear(&self) {
-        let mut queue = self.queue.lock().unwrap();
-        queue.clear();
+        while self.priority_queue.pop().is_some() {}
+        while self.standard_queue.pop().is_some() {}
     }
 }
