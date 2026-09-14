@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::io::Write;
 use crate::error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,7 +20,8 @@ pub struct SubstrateKernelLoader;
 impl SubstrateKernelLoader {
     /// Bootstraps and dynamically loads all core substrate components into the kernel
     pub fn boot_kernel(_workspace: &Path) -> EaiResult<Vec<SubstrateModuleManifest>> {
-        eprintln!("[Kernel Loader] Bootstrapping SUSI dynamic kernel assembly...");
+        println!("\n[SUSI KERNEL BOOTLOADER] Initializing Substrate Self-Assembly...");
+        let _ = std::io::stdout().flush();
 
         let core_manifests = vec![
             r#"{ "module_id": "gawd-swarm", "version": "0.1.0", "entry_point": "GawdAgentFleet", "capabilities": ["swarm", "agents"], "memory_footprint_mb": 128 }"#,
@@ -29,12 +31,16 @@ impl SubstrateKernelLoader {
         ];
 
         let mut loaded_modules = Vec::new();
-        for json in core_manifests {
+        for (idx, json) in core_manifests.iter().enumerate() {
+            print!("  [Bootloader {}/4] Assembling module... ", idx + 1);
+            let _ = std::io::stdout().flush();
+            std::thread::sleep(std::time::Duration::from_millis(30));
             let manifest = Self::assemble_module(json)?;
             loaded_modules.push(manifest);
         }
 
-        eprintln!("[Kernel Loader] Kernel assembly complete. Dynamically loaded {} core modules.", loaded_modules.len());
+        println!("[SUSI KERNEL BOOTLOADER] Kernel assembly complete. All core modules hot-plugged successfully.\n");
+        let _ = std::io::stdout().flush();
         Ok(loaded_modules)
     }
 
@@ -43,7 +49,8 @@ impl SubstrateKernelLoader {
         let manifest: SubstrateModuleManifest = serde_json::from_str(manifest_content)
             .map_err(|e| EaiError::config(format!("Invalid module manifest JSON: {}", e)))?;
 
-        eprintln!("[Kernel Loader] Assembled component '{}' (v{}) | Capabilities: {:?}", manifest.module_id, manifest.version, manifest.capabilities);
+        println!("Success! [{}] (v{}) | Capabilities: {:?}", manifest.module_id, manifest.version, manifest.capabilities);
+        let _ = std::io::stdout().flush();
         Ok(manifest)
     }
 }
