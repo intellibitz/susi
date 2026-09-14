@@ -135,8 +135,40 @@ impl SusiMasterAgent {
             println!("- [Mandate {}] {}: {}", rule.id, rule.title, rule.imperative);
         }
 
-        // 1. Continuous Intent Manifold Routing (Pure Manifold Paradigm)
+        // 0. Direct-to-Metal OS Fast-Path with Intelligent Swarm Fallback
         let lower_goal = goal.trim().to_lowercase();
+        let is_direct_os_candidate = lower_goal.starts_with("git ")
+            || lower_goal.starts_with("cargo ")
+            || lower_goal.starts_with("ls ")
+            || lower_goal.starts_with("df ")
+            || lower_goal.starts_with("docker ")
+            || lower_goal.starts_with("npm ");
+
+        if is_direct_os_candidate {
+            println!("\n[DIRECT-TO-METAL OS FAST-PATH ATTEMPT: {}]", goal);
+            let _ = std::io::stdout().flush();
+            if let Ok(output) = std::process::Command::new("sh").arg("-c").arg(goal).current_dir(workspace).output() {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                if output.status.success() {
+                    println!("[DIRECT-TO-METAL SUCCESS]");
+                    let report = SusiMissionReport {
+                        goal: goal.to_string(),
+                        status: "SUCCESS".to_string(),
+                        agents: vec![crate::gawd::agents::GawdAgentInfo { name: "DirectOSExecutor".into(), provider: "Metal OS".into(), url: "native://os".into(), rank: 1.0 }],
+                        interactions: vec![super::amas::A2AMessage { sender: "DirectOSExecutor".into(), recipient: "SMA-Master".into(), action: "OS_EXEC".into(), payload: stdout.clone() }],
+                        final_answer: stdout.clone(),
+                    };
+                    drop(_guard);
+                    println!("{}", report.to_protocol_format(true));
+                    return report.final_answer;
+                } else {
+                    println!("[DIRECT-TO-METAL FAILURE] Intercepted exit code. Deploying Swarm Fallback...");
+                    let _ = std::io::stdout().flush();
+                }
+            }
+        }
+
+        // 1. Continuous Intent Manifold Routing (Pure Manifold Paradigm)
         let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
 
         if manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read {
