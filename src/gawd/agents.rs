@@ -867,7 +867,7 @@ impl GawdAgentFleet {
         let agents = Self::synthesize_fleet(&goal, &workspace);
         let agents_len = agents.len();
         let mut results = Vec::new();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = flume::unbounded();
 
         println!("- [Swarm Dispatch] Initializing parallel execution for {} agents...", agents_len);
         let _ = std::io::stdout().flush();
@@ -880,7 +880,7 @@ impl GawdAgentFleet {
             std::thread::spawn(move || {
                 let name = agent.name();
                 let start = std::time::Instant::now();
-                let (sub_tx, sub_rx) = std::sync::mpsc::channel();
+                let (sub_tx, sub_rx) = flume::unbounded();
                 std::thread::spawn(move || {
                     let res = agent.execute(&g, &w, &bb).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
                     let _ = sub_tx.send(res);

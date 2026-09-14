@@ -1,16 +1,19 @@
 # SUSI Substrate Validation Genome (PULSE)
 
-* **Current Engine Version**: `v0.1.2022848`
+* **Current Engine Version**: `v0.1.2022849`
 
 This document defines the complete set of validation protocols that anchor the `susi` genome. Every entry reflects a hard-compiled reflex or an orchestrated meta-behavior.
 
 ## 1. Pending Failing Pulse
 
-* `144. [ ] **[MISSION]**: susi version`
-* `144. [ ] **[MISSION]**: query: find dracula lyrics, translate to tamil, show side by side`
+* None currently pending.
+
 ## 2. Ingested & Resolved Pulse (The Realized Genome)
 
 ### 2.1 Core Governance & Epistemic Integrity [MOTION]
+144. `[x]` **[QUERY]**: version
+144. `[x]` **[MISSION]**: susi version
+144. `[x]` **[MISSION]**: query: find dracula lyrics, translate to tamil, show side by side
 1. `[x]` **No Lies**: Substrate accurately reports statuses, outcomes, and limitations without deception.
 2. `[x]` **No Hallucinations**: All code and facts are grounded in verified reality or direct tool results.
 3. `[x]` **Brutally Honest**: Active critical evaluation mode for architecture and logic is sustained.

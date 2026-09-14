@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2022848"
+version = "0.1.2022849"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -37,6 +37,13 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sha2 = "0.10"
 tokio = { version = "1.37", features = ["full", "tracing"] }
 console-subscriber = "0.2"
+flume = "0.11"
+rayon = "1.10"
+parking_lot = "0.12"
+crossbeam = "0.8"
+async-trait = "0.1"
+bytes = "1.6"
+thiserror = "1.0"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.8.4" }
