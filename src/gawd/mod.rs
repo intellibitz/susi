@@ -3,6 +3,7 @@ pub mod axiom;
 pub mod brain;
 pub mod ama;
 pub mod amas;
+pub mod evidence;
 pub mod pkb;
 pub mod queue;
 pub mod reflex_synth;
