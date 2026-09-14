@@ -2,13 +2,14 @@
 // Implements automated checks based on the architectural test plan
 
 use std::path::Path;
+use susi_engine::gawd::agents::GawdAgent;
 
 #[test]
 fn test_empirical_reflex_classification() {
     let ws = std::env::current_dir().unwrap();
     let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
-    let res = ama.solve_clean("identity", &ws, "0.1.2022858");
+    let res = ama.solve_clean("identity", &ws, "0.1.2022864");
     let duration = start.elapsed();
 
     assert!(res.contains("SUSI"));
@@ -19,7 +20,7 @@ fn test_empirical_reflex_classification() {
 fn test_empirical_epistemic_integrity_fictitious() {
     let ws = std::env::current_dir().unwrap();
     let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
-    let res = ama.solve_clean("inspect the status of cargo module non_existent_quantum_crank", &ws, "0.1.2022858");
+    let res = ama.solve_clean("inspect the status of cargo module non_existent_quantum_crank", &ws, "0.1.2022864");
     assert!(!res.contains("quantum_crank version 1.0.0 successfully deployed"));
 }
 
@@ -35,4 +36,15 @@ fn test_empirical_credential_masking() {
     let ws = Path::new(".");
     let res = susi_engine::gawd::security::SecurityDetector::audit_action("reason", "sk-proj1234567890abcdef", ws);
     assert!(res.is_err());
+}
+
+#[test]
+fn test_empirical_gmcp_agent_verification() {
+    let ws = std::env::current_dir().unwrap();
+    let blackboard: susi_engine::gawd::agents::MissionBlackboard = std::sync::Arc::new(susi_engine::gawd::agents::HighDensityContextStore::new(10));
+    let agent = susi_engine::gawd::agents::GmcpAgent;
+    let res = agent.execute("verify gmcp endpoints", &ws, &blackboard);
+    assert!(res.is_ok());
+    let output = res.unwrap();
+    assert!(output.contains("GmcpAgent") && output.contains("OPTIMAL"));
 }

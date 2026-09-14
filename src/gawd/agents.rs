@@ -239,6 +239,30 @@ impl GawdAgent for EvolutionAgent {
     }
 }
 
+/// GMCP Protocol Agent: Initializes MCP server endpoints and verifies communication health
+pub struct GmcpAgent;
+
+impl GawdAgent for GmcpAgent {
+    fn name(&self) -> String { "GmcpAgent".into() }
+    fn rank(&self) -> f32 { 0.95 }
+    fn execute(&self, _goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        let registry = crate::gmcp::tools::ToolRegistry::global();
+        let tool_count = registry.tools.len();
+
+        // Test status / tool endpoint communication
+        let status_res = crate::gmcp::tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), workspace);
+        let healthy = status_res.contains("Operational");
+
+        let res = format!(
+            "[GmcpAgent]: MCP server endpoints initialized. Total registered tools: {}. Endpoint health status: {}",
+            tool_count, if healthy { "OPTIMAL (Healthy)" } else { "DEGRADED" }
+        );
+
+        blackboard.insert(self.name(), res.clone());
+        Ok(res)
+    }
+}
+
 /// vLLM High-Throughput Bridge Agent (Aspiration 9)
 pub struct VllmBridgeAgent;
 
@@ -713,6 +737,7 @@ impl GawdAgentFleet {
             Arc::new(SafetyAgent),
             Arc::new(SecurityAgent),
             Arc::new(EvolutionAgent),
+            Arc::new(GmcpAgent),
         ];
 
         let lower_goal = goal.to_lowercase();
