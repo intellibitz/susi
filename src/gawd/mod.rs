@@ -3,6 +3,8 @@ pub mod axiom;
 pub mod brain;
 pub mod ama;
 pub mod amas;
+pub mod bus;
+pub mod dag;
 pub mod evidence;
 pub mod kernel_loader;
 pub mod pkb;
