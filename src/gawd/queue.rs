@@ -3,7 +3,7 @@
 
 use std::sync::{Mutex, OnceLock};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::info;
 use crate::error::EaiResult;
 
@@ -32,7 +32,7 @@ impl SubstratePulseQueue {
     }
 
     /// Non-Blocking Ingestion (Aspiration 31)
-    pub fn ingest(&self, intent: &str, workspace: &PathBuf, version: &str) -> EaiResult<()> {
+    pub fn ingest(&self, intent: &str, workspace: &Path, version: &str) -> EaiResult<()> {
         info!(intent = %intent, "Ingesting new pulse into substrate queue");
         let mut queue = self.queue.lock().unwrap();
 
@@ -44,7 +44,7 @@ impl SubstratePulseQueue {
 
         let entry = PulseEntry {
             intent: intent.to_string(),
-            workspace: workspace.clone(),
+            workspace: workspace.to_path_buf(),
             version: version.to_string(),
             priority,
         };

@@ -350,7 +350,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             match substrate_shared.try_write() {
                 Ok(guard) => break guard,
                 Err(_) => {
-                    if wait_start.elapsed().as_secs() > 10 && wait_start.elapsed().as_secs() % 10 == 0 {
+                    if wait_start.elapsed().as_secs() > 10 && wait_start.elapsed().as_secs().is_multiple_of(10) {
                         print!(" [Substrate Contention Detected: Waiting for background agent] ");
                     } else {
                         print!(".");

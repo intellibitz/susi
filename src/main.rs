@@ -143,7 +143,7 @@ fn run_shell(workspace: &std::path::Path) {
             let trimmed = input.trim();
             if trimmed.is_empty() { continue; }
             if trimmed == "exit" || trimmed == "quit" { break; }
-            let _ = queue.ingest(trimmed, &workspace.to_path_buf(), SUSI_VERSION);
+            let _ = queue.ingest(trimmed, workspace, SUSI_VERSION);
         } else {
             break;
         }
@@ -309,7 +309,7 @@ fn main() {
                 std::io::stdout().flush().ok();
                 std::process::exit(0);
             }
-            Ok(None) => return,
+            Ok(None) => (),
             Err(e) => {
                 error!("stdin error: {}", e);
                 std::process::exit(1);

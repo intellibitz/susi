@@ -31,7 +31,7 @@ fn main() {
             .args(&args)
             .status();
 
-        if let Err(_) = status {
+        if status.is_err() {
             eprintln!("susi substrate engine not found. Please run 'susi install'.");
         }
     }
