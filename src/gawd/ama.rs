@@ -135,40 +135,27 @@ impl SusiMasterAgent {
             println!("- [Mandate {}] {}: {}", rule.id, rule.title, rule.imperative);
         }
 
-        // 1. Continuous Intent Manifold Routing (Dynamic Impact & Risk Profiling)
+        // 1. Continuous Intent Manifold Routing (Pure Manifold Paradigm)
         let lower_goal = goal.trim().to_lowercase();
         let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
-        let is_query = manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read;
-        let is_motion = manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Mutate || manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Write;
 
-        if is_query || is_motion {
-            let path_type = if is_query { format!("QUERY (Risk: {:?})", manifold.risk_profile) } else { format!("ADMIN MISSION (Scope: {:?}, Risk: {:?})", manifold.scope_of_impact, manifold.risk_profile) };
-            println!("\n[INTENT MANIFOLD ROUTING: {}]", path_type);
+        if manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read {
+            println!("\n[INTENT MANIFOLD ROUTING: READ (Risk: {:?})]", manifold.risk_profile);
             let (interactions, agents) = SusiSupervisor::supervise_mission(goal, workspace);
 
-            let final_answer = if is_query {
-                for msg in &interactions {
-                    println!("- [Swarm Flux] {}: {}", msg.sender, msg.payload.chars().take(100).collect::<String>());
-                }
+            for msg in &interactions {
+                println!("- [Swarm Flux] {}: {}", msg.sender, msg.payload.chars().take(100).collect::<String>());
+            }
 
-                if lower_goal.contains("identity") {
-                    crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
-                } else if lower_goal.contains("version") {
-                    format!("SUSI Engine Version: v{}", version)
-                } else if lower_goal.contains("status") {
-                    format!("SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB", hw.cpu_brand, hw.ram_gb)
-                } else {
-                    let models = crate::gemi::models::ModelManager::list_models(workspace);
-                    format!("Models Roster: {} discovered.", models.len())
-                }
+            let final_answer = if lower_goal.contains("identity") {
+                crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+            } else if lower_goal.contains("version") {
+                format!("SUSI Engine Version: v{}", version)
+            } else if lower_goal.contains("status") {
+                format!("SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB", hw.cpu_brand, hw.ram_gb)
             } else {
-                // Motion Fast-Path (Aspiration 23): Bypass Tier 2 Inference for administrative actions
-                for msg in &interactions {
-                    if msg.sender != "ConsensusMaster" {
-                        println!("- [Swarm Flux] {}: {}", msg.sender, msg.payload.chars().take(100).collect::<String>());
-                    }
-                }
-                SusiSupervisor::gather_weighted_wisdom(&interactions, &agents)
+                let models = crate::gemi::models::ModelManager::list_models(workspace);
+                format!("Models Roster: {} discovered.", models.len())
             };
 
             println!("\n[SUBSTRATE CONFIGURATION & LIMITS]");
