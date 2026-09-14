@@ -168,6 +168,9 @@ fn main() {
     let home = get_home_dir();
     let global_dir = home.join(".susi");
 
+    // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
+    let _ = susi_engine::gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
+
     let cli = Cli::parse();
 
     if !matches!(cli.command, Some(Commands::DaemonStart { .. })) {
