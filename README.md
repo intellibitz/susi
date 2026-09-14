@@ -1,6 +1,6 @@
 # susi: Exponential Intelligence for Any AI (EAI)
 
-![SUSI Version](https://img.shields.io/badge/version-v0.1.2022872-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.1.2022873-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **susi** is a high-performance, local-first, native Rust execution engine designed for universal AI model orchestration, non-blocking asynchronous intent ingestion, and work-stealing multi-agent swarm execution. It transforms static LLM interactions into a grounded, concurrent intelligence substrate governed by rigorous epistemics and empirical verification.
 

@@ -34,10 +34,10 @@ impl SusiMissionReport {
         }
 
         let primary_step = serde_json::json!({
-            "thought": full_thinking_trace.trim(),
             "action": "supervise_mission_swarm",
             "action_input": { "goal": self.goal },
-            "observation": "Swarm telemetry converged successfully"
+            "observation": "Swarm telemetry converged successfully",
+            "thought": full_thinking_trace.trim()
         });
 
         format!(
