@@ -1,6 +1,6 @@
 # SUSI Operational Workflow
 
-* **Current Engine Version**: `v0.1.2022896`
+* **Current Engine Version**: `v0.1.2022897`
 
 This document defines the Meta-Workflow for substrate evolution and the Federated Parallelism logic of the active `susi` engine under the **Continuous Intent Manifold** architecture.
 
