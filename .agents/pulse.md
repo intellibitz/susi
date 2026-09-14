@@ -6,6 +6,12 @@ This document defines the complete set of validation protocols that anchor the `
 
 ## 1. Pending Failing Pulse
 
+* `145. [ ] **[MISSION]**: uname -a`
+* `145. [ ] **[MISSION]**: uptime`
+* `145. [ ] **[MISSION]**: df -h`
+* `145. [ ] **[MISSION]**: ls -la`
+* `145. [ ] **[MISSION]**: cargo --version`
+* `145. [ ] **[MISSION]**: git status`
 * `145. [ ] **[MISSION]**: find ~/Downloads`
 * None currently pending.
 
