@@ -191,9 +191,16 @@ impl SusiMasterAgent {
             println!("- [Max Swarm Agents] {} (Hardware Scaled)", crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents());
 
             println!("\n[FAST-PATH COMPLETE]");
+            let report = SusiMissionReport {
+                goal: goal.to_string(),
+                status: "SUCCESS".to_string(),
+                agents: agents.clone(),
+                interactions,
+                final_answer,
+            };
             drop(_guard);
-            println!("<result>\n{}\n</result>", final_answer);
-            return final_answer;
+            println!("{}", report.to_protocol_format(true));
+            return report.final_answer;
         }
 
         // MICRO-DETAILED SUBSTRATE TELEMETRY (Aspiration 28 & 29)
@@ -278,13 +285,9 @@ impl SusiMasterAgent {
                 println!("[MISSION COMPLETE] Consensus reached.");
                 let _ = std::io::stdout().flush();
 
-                // Explicitly dropping guard here to close thinking before result
                 drop(_guard);
 
-                println!("<result>");
-                let _ = std::io::stdout().flush();
-                println!("{}", report.final_answer.trim());
-                println!("</result>");
+                println!("{}", report.to_protocol_format(true));
                 let _ = std::io::stdout().flush();
 
                 report.final_answer
@@ -295,11 +298,17 @@ impl SusiMasterAgent {
 
                 drop(_guard);
 
-                let err_msg = format!("SMA Engine Error: {}", e);
-                println!("<result>\n{}\n</result>", err_msg);
+                let err_report = SusiMissionReport {
+                    goal: goal.to_string(),
+                    status: "FAILED".to_string(),
+                    agents: Vec::new(),
+                    interactions: Vec::new(),
+                    final_answer: format!("SMA Engine Error: {}", e),
+                };
+                println!("{}", err_report.to_protocol_format(true));
                 let _ = std::io::stdout().flush();
 
-                err_msg
+                err_report.final_answer
             }
         }
     }
