@@ -13,7 +13,7 @@ fn main() {
     let pulse_md_raw = fs::read_to_string(".agents/pulse.md").expect("Missing pulse.md");
     let topology_md_raw = fs::read_to_string(".agents/TOPOLOGY.md").expect("Missing TOPOLOGY.md");
     let workflow_md_raw = fs::read_to_string(".agents/WORKFLOW.md").expect("Missing WORKFLOW.md");
-    let creators_md_raw = fs::read_to_string(".agents/CREATORS.md").unwrap_or_default();
+    let autonomy_md_raw = fs::read_to_string(".agents/AUTONOMY.md").unwrap_or_default();
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
     // SUSI Version Synchronization Hook (Aspiration 1)
@@ -30,7 +30,7 @@ fn main() {
     let pulse_md = sync_version(".agents/pulse.md", &pulse_md_raw, version);
     let topology_md = sync_version(".agents/TOPOLOGY.md", &topology_md_raw, version);
     let workflow_md = sync_version(".agents/WORKFLOW.md", &workflow_md_raw, version);
-    let creators_md = sync_version(".agents/CREATORS.md", &creators_md_raw, version);
+    let autonomy_md = sync_version(".agents/AUTONOMY.md", &autonomy_md_raw, version);
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -115,9 +115,9 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 7. CREATORS.md -> GEN_CREATOR_PROTOCOLS (140-159)
-    generated_code.push_str("pub const GEN_CREATOR_PROTOCOLS: &[SusiAxiomRule] = &[\n");
-    for line in creators_md.lines() {
+    // 7. AUTONOMY.md -> GEN_AUTONOMY_PROTOCOLS (140-159)
+    generated_code.push_str("pub const GEN_AUTONOMY_PROTOCOLS: &[SusiAxiomRule] = &[\n");
+    for line in autonomy_md.lines() {
         if let Some(rule) = parse_list_item(line) {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 140, rule.1, rule.2));
         }
@@ -223,7 +223,7 @@ fn main() {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 80, rule.1, rule.2));
         }
     }
-    for line in creators_md.lines() {
+    for line in autonomy_md.lines() {
         if let Some(rule) = parse_list_item(line) {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 140, rule.1, rule.2));
         }
@@ -235,7 +235,7 @@ fn main() {
     println!("cargo:rerun-if-changed=.agents/AGENTS.md");
     println!("cargo:rerun-if-changed=.agents/ASPIRATIONS.md");
     println!("cargo:rerun-if-changed=.agents/BUILD.md");
-    println!("cargo:rerun-if-changed=.agents/CREATORS.md");
+    println!("cargo:rerun-if-changed=.agents/AUTONOMY.md");
     println!("cargo:rerun-if-changed=.agents/pulse.md");
     println!("cargo:rerun-if-changed=.agents/RUNTIME.md");
     println!("cargo:rerun-if-changed=.agents/TOPOLOGY.md");

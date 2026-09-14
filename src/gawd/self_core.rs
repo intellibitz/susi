@@ -38,12 +38,12 @@ impl AlphaSelf {
     pub const PULSE_MD: &'static str = include_str!("../../.agents/pulse.md");
     pub const TOPOLOGY_MD: &'static str = include_str!("../../.agents/TOPOLOGY.md");
     pub const WORKFLOW_MD: &'static str = include_str!("../../.agents/WORKFLOW.md");
-    pub const CREATORS_MD: &'static str = include_str!("../../.agents/CREATORS.md");
+    pub const AUTONOMY_MD: &'static str = include_str!("../../.agents/AUTONOMY.md");
 
     pub const RULES: &[SusiAxiomRule] = GEN_RULES;
     pub const WORKFLOW_STEPS: &[SusiAxiomRule] = GEN_WORKFLOW_STEPS;
     pub const PULSE_AXIOMS: &[SusiAxiomRule] = GEN_PULSE_AXIOMS;
-    pub const CREATOR_PROTOCOLS: &[SusiAxiomRule] = GEN_CREATOR_PROTOCOLS;
+    pub const AUTONOMY_PROTOCOLS: &[SusiAxiomRule] = GEN_AUTONOMY_PROTOCOLS;
 
     // 5 Pillar Component Topology
     pub const AOA_COMPONENTS: &[SusiComponentSpec] = GEN_AOA_COMPONENTS;
