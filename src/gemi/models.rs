@@ -311,23 +311,12 @@ impl ModelManager {
         use sha2::{Sha256, Digest};
         let mut file = fs::File::open(path)?;
         let mut hasher = Sha256::new();
-
-        // Fast Metadata-Based Sampling (<0.1ms) for Sub-2ms Reflex Mandate
-        if let Ok(meta) = path.metadata() {
-            hasher.update(meta.len().to_le_bytes());
-            if let Ok(mtime) = meta.modified() {
-                if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
-                    hasher.update(dur.as_secs().to_le_bytes());
-                }
-            }
-        }
-
-        // Sample First 64KB Header
-        let mut buffer = [0u8; 65536];
-        if let Ok(n) = file.read(&mut buffer) {
+        let mut buffer = [0u8; 8192];
+        loop {
+            let n = file.read(&mut buffer)?;
+            if n == 0 { break; }
             hasher.update(&buffer[..n]);
         }
-
         Ok(format!("{:x}", hasher.finalize()))
     }
 

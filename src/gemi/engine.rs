@@ -183,7 +183,7 @@ impl GemiEngine {
             return power_res;
         }
 
-        let final_msg = "SMA-Tier2-Inference: Local model inference completed successfully.".to_string();
+        let final_msg = "[FAIL] SMA-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string();
         callback(final_msg.clone());
         final_msg
     }

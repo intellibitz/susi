@@ -189,7 +189,7 @@ fn main() {
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {
                 let cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
-                let server = tiny_http::Server::http(format!("0.0.0.0:{}", cfg.gemi_port)).expect("Failed to bind GEMI port");
+                let server = tiny_http::Server::http(format!("127.0.0.1:{}", cfg.gemi_port)).expect("Failed to bind GEMI port");
                 GemiServer::start_http_server(cwd.clone(), server);
             }
             Commands::Status => {

@@ -19,7 +19,7 @@ impl SusiRuntimeAdmin {
             let ama = crate::gawd::ama::SusiMasterAgent::new();
             loop {
                 // Mandate: Use Swarm for all runtime mandates
-                let _ = ama.process_intent("perform full substrate audit, hardware optimization, and evolutionary maintenance", &ws);
+                let _ = ama.solve_stream("perform full substrate audit, hardware optimization, and evolutionary maintenance", &ws, crate::SUSI_VERSION);
                 thread::sleep(Duration::from_secs(3600)); // Foundational Audit Every Hour
             }
         });
