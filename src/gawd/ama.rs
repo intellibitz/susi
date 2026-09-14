@@ -135,21 +135,15 @@ impl SusiMasterAgent {
             println!("- [Mandate {}] {}: {}", rule.id, rule.title, rule.imperative);
         }
 
-        // 1. Fast-Path Query Interception (Mandate 11 & 31)
-        // Bypasses the heavy inference loop for substrate-level interrogation.
+        // 1. Continuous Intent Manifold Routing (Dynamic Impact & Risk Profiling)
         let lower_goal = goal.trim().to_lowercase();
-        let is_query = lower_goal == "identity" || lower_goal == "susi identity"
-            || lower_goal == "version" || lower_goal == "susi version"
-            || lower_goal == "status" || lower_goal == "susi status"
-            || lower_goal == "models" || lower_goal == "susi models";
-
-        let is_motion = lower_goal.contains("admin mission") || lower_goal.contains("motion")
-            || lower_goal.contains("sync") || lower_goal.contains("audit")
-            || lower_goal.contains("release") || lower_goal.contains("verify");
+        let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
+        let is_query = manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read;
+        let is_motion = manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Mutate || manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Write;
 
         if is_query || is_motion {
-            let path_type = if is_query { "QUERY" } else { "ADMIN MISSION" };
-            println!("\n[{} FAST-PATH DETECTED]", path_type);
+            let path_type = if is_query { format!("QUERY (Risk: {:?})", manifold.risk_profile) } else { format!("ADMIN MISSION (Scope: {:?}, Risk: {:?})", manifold.scope_of_impact, manifold.risk_profile) };
+            println!("\n[INTENT MANIFOLD ROUTING: {}]", path_type);
             let (interactions, agents) = SusiSupervisor::supervise_mission(goal, workspace);
 
             let final_answer = if is_query {

@@ -7,6 +7,7 @@ pub mod bus;
 pub mod dag;
 pub mod evidence;
 pub mod kernel_loader;
+pub mod manifold;
 pub mod pkb;
 pub mod queue;
 pub mod reflex_synth;
