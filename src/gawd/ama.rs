@@ -135,7 +135,7 @@ impl SusiMasterAgent {
             println!("- [Mandate {}] {}: {}", rule.id, rule.title, rule.imperative);
         }
 
-        // 0. Direct-to-Metal OS Fast-Path with Intelligent Swarm Fallback
+        // 0. Swarm-Driven OS/Hardware Execution with Intelligent Fallback
         let lower_goal = goal.trim().to_lowercase();
         let is_direct_os_candidate = lower_goal.starts_with("git ")
             || lower_goal.starts_with("cargo ")
@@ -145,26 +145,24 @@ impl SusiMasterAgent {
             || lower_goal.starts_with("npm ");
 
         if is_direct_os_candidate {
-            println!("\n[DIRECT-TO-METAL OS FAST-PATH ATTEMPT: {}]", goal);
+            println!("\n[SWARM OS/HARDWARE SUBSTRATE EXECUTION: {}]", goal);
             let _ = std::io::stdout().flush();
-            if let Ok(output) = std::process::Command::new("sh").arg("-c").arg(goal).current_dir(workspace).output() {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                if output.status.success() {
-                    println!("[DIRECT-TO-METAL SUCCESS]");
-                    let report = SusiMissionReport {
-                        goal: goal.to_string(),
-                        status: "SUCCESS".to_string(),
-                        agents: vec![crate::gawd::agents::GawdAgentInfo { name: "DirectOSExecutor".into(), provider: "Metal OS".into(), url: "native://os".into(), rank: 1.0 }],
-                        interactions: vec![super::amas::A2AMessage { sender: "DirectOSExecutor".into(), recipient: "SMA-Master".into(), action: "OS_EXEC".into(), payload: stdout.clone() }],
-                        final_answer: stdout.clone(),
-                    };
-                    drop(_guard);
-                    println!("{}", report.to_protocol_format(true));
-                    return report.final_answer;
-                } else {
-                    println!("[DIRECT-TO-METAL FAILURE] Intercepted exit code. Deploying Swarm Fallback...");
-                    let _ = std::io::stdout().flush();
-                }
+            let exec_res = crate::gmcp::tools::ToolRegistry::execute_tool("exec_command", &serde_json::json!(goal), workspace);
+            if !exec_res.contains("[FAIL]") && !exec_res.contains("[CAPABILITY_GAP]") {
+                println!("[SWARM OS/HARDWARE SUCCESS]");
+                let report = SusiMissionReport {
+                    goal: goal.to_string(),
+                    status: "SUCCESS".to_string(),
+                    agents: vec![crate::gawd::agents::GawdAgentInfo { name: "HardwareAgent".into(), provider: "SUSI Swarm".into(), url: "native://hardware".into(), rank: 1.0 }],
+                    interactions: vec![super::amas::A2AMessage { sender: "HardwareAgent".into(), recipient: "SMA-Master".into(), action: "SWARM_OS_EXEC".into(), payload: exec_res.clone() }],
+                    final_answer: exec_res.clone(),
+                };
+                drop(_guard);
+                println!("{}", report.to_protocol_format(true));
+                return report.final_answer;
+            } else {
+                println!("[SWARM OS/HARDWARE INTERCEPTION] Safety or execution failure detected. Deploying Full Swarm Fallback...");
+                let _ = std::io::stdout().flush();
             }
         }
 
