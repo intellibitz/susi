@@ -13,8 +13,6 @@ fn main() {
     let pulse_md_raw = fs::read_to_string(".agents/pulse.md").expect("Missing pulse.md");
     let topology_md_raw = fs::read_to_string(".agents/TOPOLOGY.md").expect("Missing TOPOLOGY.md");
     let workflow_md_raw = fs::read_to_string(".agents/WORKFLOW.md").expect("Missing WORKFLOW.md");
-    let missions_md_raw = fs::read_to_string(".agents/MISSIONS.md").unwrap_or_default();
-    let queries_md_raw = fs::read_to_string(".agents/QUERIES.md").unwrap_or_default();
     let creators_md_raw = fs::read_to_string(".agents/CREATORS.md").unwrap_or_default();
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
@@ -32,8 +30,6 @@ fn main() {
     let pulse_md = sync_version(".agents/pulse.md", &pulse_md_raw, version);
     let topology_md = sync_version(".agents/TOPOLOGY.md", &topology_md_raw, version);
     let workflow_md = sync_version(".agents/WORKFLOW.md", &workflow_md_raw, version);
-    let missions_md = sync_version(".agents/MISSIONS.md", &missions_md_raw, version);
-    let queries_md = sync_version(".agents/QUERIES.md", &queries_md_raw, version);
     let creators_md = sync_version(".agents/CREATORS.md", &creators_md_raw, version);
 
     // Sync README badge
@@ -119,25 +115,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 7. MISSIONS.md -> GEN_MISSION_PROTOCOLS (100-119)
-    generated_code.push_str("pub const GEN_MISSION_PROTOCOLS: &[SusiAxiomRule] = &[\n");
-    for line in missions_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
-        }
-    }
-    generated_code.push_str("];\n\n");
-
-    // 8. QUERIES.md -> GEN_QUERY_PROTOCOLS (120-139)
-    generated_code.push_str("pub const GEN_QUERY_PROTOCOLS: &[SusiAxiomRule] = &[\n");
-    for line in queries_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 120, rule.1, rule.2));
-        }
-    }
-    generated_code.push_str("];\n\n");
-
-    // 9. CREATORS.md -> GEN_CREATOR_PROTOCOLS (140-159)
+    // 7. CREATORS.md -> GEN_CREATOR_PROTOCOLS (140-159)
     generated_code.push_str("pub const GEN_CREATOR_PROTOCOLS: &[SusiAxiomRule] = &[\n");
     for line in creators_md.lines() {
         if let Some(rule) = parse_list_item(line) {
@@ -146,7 +124,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 10. TOPOLOGY.md -> Pillar-based Components
+    // 8. TOPOLOGY.md -> Pillar-based Components
     let mut current_pillar = "";
     generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut agents = String::from("pub const GEN_AGENT_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -202,7 +180,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 8. Unified RULES List
+    // 9. Unified RULES List
     generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
     for line in agents_md.lines() {
         if let Some(rule) = parse_list_item(line) {
@@ -245,16 +223,6 @@ fn main() {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 80, rule.1, rule.2));
         }
     }
-    for line in missions_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
-        }
-    }
-    for line in queries_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 120, rule.1, rule.2));
-        }
-    }
     for line in creators_md.lines() {
         if let Some(rule) = parse_list_item(line) {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 140, rule.1, rule.2));
@@ -268,9 +236,7 @@ fn main() {
     println!("cargo:rerun-if-changed=.agents/ASPIRATIONS.md");
     println!("cargo:rerun-if-changed=.agents/BUILD.md");
     println!("cargo:rerun-if-changed=.agents/CREATORS.md");
-    println!("cargo:rerun-if-changed=.agents/MISSIONS.md");
     println!("cargo:rerun-if-changed=.agents/pulse.md");
-    println!("cargo:rerun-if-changed=.agents/QUERIES.md");
     println!("cargo:rerun-if-changed=.agents/RUNTIME.md");
     println!("cargo:rerun-if-changed=.agents/TOPOLOGY.md");
     println!("cargo:rerun-if-changed=.agents/WORKFLOW.md");
