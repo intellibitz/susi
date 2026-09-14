@@ -139,6 +139,7 @@ impl SusiMasterAgent {
         let lower_goal = goal.trim().to_lowercase();
         let is_direct_os_candidate = lower_goal.starts_with("git ")
             || lower_goal.starts_with("cargo ")
+            || lower_goal.starts_with("find ")
             || lower_goal.starts_with("ls ")
             || lower_goal.starts_with("df ")
             || lower_goal.starts_with("docker ")
