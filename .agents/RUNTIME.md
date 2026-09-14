@@ -1,6 +1,6 @@
 # SUSI Runtime Mandates
 
-* **Current Engine Version**: `v0.1.2022865`
+* **Current Engine Version**: `v0.1.2022866`
 
 This document defines the operational directives for environment establishment, maintenance, and safety across both the `alpha-self` (core host) and `alpha-world` (mutable workspace) boundaries.
 

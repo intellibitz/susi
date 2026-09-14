@@ -116,7 +116,7 @@ impl GawdAgent for DynamicAgent {
         let bb_state = blackboard.to_json();
 
         let prompt = format!(
-            "AGENT_ROLE: {}\nMISSION_PROFILE: {}\nGOAL: {}\n\n[BLACKBOARD_CONTEXT]: {}\n\n[INSTRUCTION]: Fulfill your role in the swarm. Use current blackboard state to coordinate and avoid redundancy. Output verified actions only.",
+            "AGENT_ROLE: {}\nMISSION_PROFILE: {}\nGOAL: {}\n\n[BLACKBOARD_CONTEXT]: {}\n\n[INSTRUCTION]: Fulfill your role in the swarm using the following ReAct JSON schema for your execution step:\n{{\n  \"thought\": \"internal reasoning\",\n  \"action\": \"tool_name\",\n  \"action_input\": {{...}},\n  \"observation\": \"...\"\n}}\nOutput valid ReAct JSON or structured evidence only.",
             self.agent_name, self.mission_profile, goal, bb_state
         );
 
