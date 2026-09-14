@@ -146,17 +146,27 @@ impl SusiSupervisor {
             let _ = std::io::stdout().flush();
         }
 
-        /*
-        /*
-        // Cluster Consensus Protocol: Broadcast blackboard to high-tier peers
-        let nodes = Self::rank_peers_for_goal(goal);
-        for node in nodes.iter().take(2) {
-            if node.node_id != "susi-local-master" {
-                let _ = Self::dispatch_peer_task(&node.address, "init_blackboard", goal);
+        // 3. Active Distributed Swarm Consensus Protocol (Full Integration)
+        let cluster_nodes = Self::rank_peers_for_goal(goal);
+        let active_peers_count = cluster_nodes.iter().filter(|n| n.node_id != "susi-local-master" && n.is_active).count();
+        if active_peers_count > 0 {
+            println!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
+            let _ = std::io::stdout().flush();
+            for node in cluster_nodes.iter().take(2) {
+                if node.node_id != "susi-local-master" && node.is_active {
+                    let addr = node.address.clone();
+                    let node_id = node.node_id.clone();
+                    let g = goal.to_string();
+                    let bb = Arc::clone(&blackboard);
+                    std::thread::spawn(move || {
+                        let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
+                        if !remote_res.contains("unreachable") {
+                            bb.insert(format!("PeerNode_{}", node_id), remote_res);
+                        }
+                    });
+                }
             }
         }
-        */
-        */
 
         // 4. Exponential Swarm Execution (Converging on Blackboard)
         let swarm_logs = GawdAgentFleet::dispatch_explosive_swarm(goal.to_string(), workspace.to_path_buf(), Arc::clone(&blackboard));
