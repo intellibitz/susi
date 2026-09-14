@@ -25,22 +25,27 @@ impl SusiMissionReport {
         let mut steps = Vec::new();
         for msg in &self.interactions {
             steps.push(serde_json::json!({
-                "thought": format!("Swarm agent {} processed task state under action {}", msg.sender, msg.action),
+                "thought": format!("Agent {} evaluated task progression under action {}", msg.sender, msg.action),
                 "action": msg.action,
                 "action_input": { "payload": msg.payload },
                 "observation": format!("Executed by {}", msg.sender)
             }));
         }
 
-        let thinking_payload = serde_json::json!({
-            "status": self.status,
-            "agents_recruited": self.agents.len(),
-            "steps": steps
-        });
+        let primary_step = if let Some(first) = steps.first() {
+            first.clone()
+        } else {
+            serde_json::json!({
+                "thought": "Initializing swarm mission reasoning loop",
+                "action": "synthesize_fleet",
+                "action_input": { "goal": self.goal },
+                "observation": "Fleet recruited and operational"
+            })
+        };
 
         format!(
             "thinking --> {}\n\n: result (final user-facing output) -->\n\n{}",
-            serde_json::to_string_pretty(&thinking_payload).unwrap_or_default(),
+            serde_json::to_string_pretty(&primary_step).unwrap_or_default(),
             self.final_answer.trim()
         )
     }
