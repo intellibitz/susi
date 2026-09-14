@@ -41,7 +41,7 @@ impl SusiMissionReport {
         });
 
         format!(
-            "thinking --> {}\n\n: result (final user-facing output) -->\n\n{}",
+            "{}\n\n{}",
             serde_json::to_string_pretty(&primary_step).unwrap_or_default(),
             self.final_answer.trim()
         )
