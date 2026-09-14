@@ -316,10 +316,7 @@ fn main() {
             }
         }
     } else {
-        // No command and no intent provided
-        use clap::CommandFactory;
-        let mut cmd = Cli::command();
-        cmd.print_help().unwrap();
-        println!();
+        // No command and no intent provided -> Launch persistent SUSI Pulse Shell
+        run_shell(&cwd);
     }
 }
