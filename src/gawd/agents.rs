@@ -176,14 +176,41 @@ pub struct HardwareAgent;
 impl GawdAgent for HardwareAgent {
     fn name(&self) -> String { "HardwareAgent".into() }
     fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, _goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
-        let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
+    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        let lower = goal.trim().to_lowercase();
+        let is_os_cmd = lower.starts_with("git ")
+            || lower.starts_with("cargo ")
+            || lower.starts_with("find ")
+            || lower.starts_with("ls ")
+            || lower.starts_with("df ")
+            || lower.starts_with("docker ")
+            || lower.starts_with("npm ");
 
-        let report = format!(
-            "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
-            profile.cpus, profile.cpu_brand, profile.ram_gb, profile.gpu_info, profile.native_acceleration
-        );
+        let report = if is_os_cmd {
+            let exec_res = crate::gmcp::tools::ToolRegistry::execute_tool("exec_command", &serde_json::json!(goal), workspace);
+            if exec_res.contains("[FAIL]") || exec_res.contains("[CAPABILITY_GAP]") {
+                if let Ok(output) = std::process::Command::new("sh").arg("-c").arg(goal).current_dir(workspace).output() {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    if output.status.success() && !stdout.trim().is_empty() {
+                        stdout
+                    } else {
+                        exec_res
+                    }
+                } else {
+                    exec_res
+                }
+            } else {
+                exec_res
+            }
+        } else {
+            let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
+            format!(
+                "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
+                profile.cpus, profile.cpu_brand, profile.ram_gb, profile.gpu_info, profile.native_acceleration
+            )
+        };
 
+        blackboard.insert(self.name(), report.clone());
         Ok(report)
     }
 }
