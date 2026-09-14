@@ -40,11 +40,14 @@ impl SusiMissionReport {
             "thought": full_thinking_trace.trim()
         });
 
-        format!(
-            "{}\n\n{}",
-            serde_json::to_string_pretty(&primary_step).unwrap_or_default(),
-            self.final_answer.trim()
-        )
+        let json_str = serde_json::to_string_pretty(&primary_step).unwrap_or_default();
+        let trimmed_answer = self.final_answer.trim();
+
+        if trimmed_answer.is_empty() || trimmed_answer.starts_with("[FAST-PATH COMPLETE]") || trimmed_answer == self.goal {
+            json_str
+        } else {
+            format!("{}\n\n{}", json_str, trimmed_answer)
+        }
     }
 }
 
