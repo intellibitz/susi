@@ -1,6 +1,6 @@
 # SUSI Substrate Topology
 
-* **Current Engine Version**: `v0.1.2022860`
+* **Current Engine Version**: `v0.1.2022861`
 
 This document defines the structural native components and orchestrated meta-layers of the `susi` substrate, organized into five functional pillars.
 

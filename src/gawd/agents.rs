@@ -431,24 +431,34 @@ pub struct LibraryScoutAgent;
 impl GawdAgent for LibraryScoutAgent {
     fn name(&self) -> String { "LibraryScoutAgent".into() }
     fn rank(&self) -> f32 { 0.85 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
-        // High-Level Library Scouting Protocol
-        // Real implementation would interrogate crates.io API
+    fn execute(&self, goal: &str, workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
         let lower_goal = goal.to_lowercase();
+        let query_term = if lower_goal.contains("async") { "async" }
+            else if lower_goal.contains("json") { "json" }
+            else if lower_goal.contains("inference") { "inference" }
+            else if lower_goal.contains("web") { "http" }
+            else { "rust" };
 
-        let recommendation = if lower_goal.contains("async") || lower_goal.contains("concurrency") {
-            "tokio, async-trait, crossbeam"
-        } else if lower_goal.contains("json") || lower_goal.contains("serialization") {
-            "serde, serde_json"
-        } else if lower_goal.contains("inference") || lower_goal.contains("tensor") {
-            "candle-core, tch-rs, ndarray"
-        } else if lower_goal.contains("web") || lower_goal.contains("http") {
-            "reqwest, axum, tiny_http"
-        } else {
-            "anyhow, log, clap"
-        };
+        let url = format!("https://crates.io/api/v1/crates?q={}&per_page=3", query_term);
+        if let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_secs(2)).call() {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                if let Some(crates) = json["crates"].as_array() {
+                    let mut recs = Vec::new();
+                    for c in crates {
+                        if let Some(name) = c["name"].as_str() {
+                            recs.push(name.to_string());
+                        }
+                    }
+                    if !recs.is_empty() {
+                        return Ok(format!("[Library Scout Live API]: Recommended crates from crates.io for query '{}': {}", query_term, recs.join(", ")));
+                    }
+                }
+            }
+        }
 
-        Ok(format!("[Library Scout]: Based on the goal, I recommend evaluating the following SOTA open-source crates: {}.", recommendation))
+        let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}", goal);
+        let ws = workspace.to_path_buf();
+        Ok(crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws))
     }
 }
 
