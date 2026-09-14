@@ -21,24 +21,28 @@ pub struct SusiMissionReport {
 }
 
 impl SusiMissionReport {
-    pub fn to_protocol_format(&self, is_ide_environment: bool) -> String {
-        if is_ide_environment {
-            let mut thinking = format!("[SUSI Substrate Swarm Report - Status: {}]\n", self.status);
-            for agent in &self.agents {
-                thinking.push_str(&format!("- [Agent] {} ({})\n", agent.name, agent.provider));
-            }
-            for msg in &self.interactions {
-                thinking.push_str(&format!("- [Swarm Flux] {}: {}\n", msg.sender, msg.payload));
-            }
-
-            format!(
-                "<thinking>\n{}\n</thinking>\n\n<result>\n{}\n</result>",
-                thinking.trim(),
-                self.final_answer.trim()
-            )
-        } else {
-            self.final_answer.clone()
+    pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
+        let mut steps = Vec::new();
+        for msg in &self.interactions {
+            steps.push(serde_json::json!({
+                "thought": format!("Swarm agent {} processed task state under action {}", msg.sender, msg.action),
+                "action": msg.action,
+                "action_input": { "payload": msg.payload },
+                "observation": format!("Executed by {}", msg.sender)
+            }));
         }
+
+        let thinking_payload = serde_json::json!({
+            "status": self.status,
+            "agents_recruited": self.agents.len(),
+            "steps": steps
+        });
+
+        format!(
+            "thinking --> {}\n\n: result (final user-facing output) -->\n\n{}",
+            serde_json::to_string_pretty(&thinking_payload).unwrap_or_default(),
+            self.final_answer.trim()
+        )
     }
 }
 
