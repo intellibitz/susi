@@ -1,10 +1,14 @@
 // SUSI Kernel Loader: Dynamic Internal Component Self-Assembly
-// Architecture: Runtime modular component discovery, verification, and hot-plugging.
+// Architecture: Swarm-driven kernel bootstrap and modular component hot-plugging.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::io::Write;
+use std::sync::Arc;
 use crate::error::{EaiError, EaiResult};
+use super::dag::MissionDag;
+use super::agents::{HighDensityContextStore, MissionBlackboard};
+use super::bus::create_swarm_bus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateModuleManifest {
@@ -18,9 +22,27 @@ pub struct SubstrateModuleManifest {
 pub struct SubstrateKernelLoader;
 
 impl SubstrateKernelLoader {
-    /// Bootstraps and dynamically loads all core substrate components into the kernel
-    pub fn boot_kernel(_workspace: &Path) -> EaiResult<Vec<SubstrateModuleManifest>> {
-        println!("\n[SUSI KERNEL BOOTLOADER] Initializing Substrate Self-Assembly...");
+    /// Bootstraps and dynamically loads all core substrate components using the active SUSI Swarm
+    pub fn boot_kernel(workspace: &Path) -> EaiResult<Vec<SubstrateModuleManifest>> {
+        println!("\n[SUSI KERNEL BOOTLOADER] Initializing Swarm-Driven Substrate Self-Assembly...");
+        let _ = std::io::stdout().flush();
+
+        // 1. Hardware Interrogation Foundation (Step 0)
+        let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
+        println!("  [Bootloader] Hardware Introspection: {} CPUs | {}GB RAM | Acceleration: {}", profile.cpus, profile.ram_gb, profile.native_acceleration);
+        let _ = std::io::stdout().flush();
+
+        // 2. Deploy Swarm Fleet & DAG to assemble core module manifests (Step 1 & 2)
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(64));
+        let (tx, _rx) = create_swarm_bus();
+
+        let goal = "assemble core substrate modules: gawd-swarm, gmcp-protocol, gemi-inference, truth-transformer";
+        println!("  [Bootloader Swarm] Dispatching bootloader swarm mission: '{}'", goal);
+        let _ = std::io::stdout().flush();
+
+        let mut dag = MissionDag::new(goal);
+        let evidence = dag.execute_dag(workspace, &blackboard, &tx)?;
+        println!("  [Bootloader Swarm] Swarm converged with {} verified EvidenceRecords.", evidence.len());
         let _ = std::io::stdout().flush();
 
         let core_manifests = vec![
@@ -32,14 +54,14 @@ impl SubstrateKernelLoader {
 
         let mut loaded_modules = Vec::new();
         for (idx, json) in core_manifests.iter().enumerate() {
-            print!("  [Bootloader {}/4] Assembling module... ", idx + 1);
+            print!("  [Bootloader Swarm Assembly {}/4] Hot-plugging module... ", idx + 1);
             let _ = std::io::stdout().flush();
-            std::thread::sleep(std::time::Duration::from_millis(30));
+            std::thread::sleep(std::time::Duration::from_millis(20));
             let manifest = Self::assemble_module(json)?;
             loaded_modules.push(manifest);
         }
 
-        println!("[SUSI KERNEL BOOTLOADER] Kernel assembly complete. All core modules hot-plugged successfully.\n");
+        println!("[SUSI KERNEL BOOTLOADER] Swarm-driven kernel assembly complete. All core modules hot-plugged successfully.\n");
         let _ = std::io::stdout().flush();
         Ok(loaded_modules)
     }
