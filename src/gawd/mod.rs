@@ -4,6 +4,7 @@ pub mod brain;
 pub mod ama;
 pub mod amas;
 pub mod evidence;
+pub mod kernel_loader;
 pub mod pkb;
 pub mod queue;
 pub mod reflex_synth;

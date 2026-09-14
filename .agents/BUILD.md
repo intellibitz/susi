@@ -1,6 +1,6 @@
 # SUSI Build & Deployment Substrate
 
-* **Current Engine Version**: `v0.1.2022876`
+* **Current Engine Version**: `v0.1.2022877`
 
 This document defines the mechanics of the `susi` binary lifecycle, release orchestration, and deployment protocols.
 
