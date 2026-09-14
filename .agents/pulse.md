@@ -1,6 +1,6 @@
 # SUSI Substrate Validation Genome (PULSE)
 
-* **Current Engine Version**: `v0.1.2022870`
+* **Current Engine Version**: `v0.1.2022871`
 
 This document defines the complete set of validation protocols that anchor the `susi` genome. Every entry reflects a hard-compiled reflex or an orchestrated meta-behavior.
 

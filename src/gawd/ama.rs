@@ -22,26 +22,23 @@ pub struct SusiMissionReport {
 
 impl SusiMissionReport {
     pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
-        let mut steps = Vec::new();
-        for msg in &self.interactions {
-            steps.push(serde_json::json!({
-                "thought": format!("Agent {} evaluated task progression under action {}", msg.sender, msg.action),
-                "action": msg.action,
-                "action_input": { "payload": msg.payload },
-                "observation": format!("Executed by {}", msg.sender)
-            }));
+        let mut full_thinking_trace = String::new();
+        full_thinking_trace.push_str(&format!("SUSI Mission Goal: {}\nStatus: {}\nAgents Recruited: {}\n\n", self.goal, self.status, self.agents.len()));
+
+        for agent in &self.agents {
+            full_thinking_trace.push_str(&format!("- [Agent] {} ({})\n", agent.name, agent.provider));
         }
 
-        let primary_step = if let Some(first) = steps.first() {
-            first.clone()
-        } else {
-            serde_json::json!({
-                "thought": "Initializing swarm mission reasoning loop",
-                "action": "synthesize_fleet",
-                "action_input": { "goal": self.goal },
-                "observation": "Fleet recruited and operational"
-            })
-        };
+        for msg in &self.interactions {
+            full_thinking_trace.push_str(&format!("- [{}] Action: {} | Payload: {}\n", msg.sender, msg.action, msg.payload));
+        }
+
+        let primary_step = serde_json::json!({
+            "thought": full_thinking_trace.trim(),
+            "action": "supervise_mission_swarm",
+            "action_input": { "goal": self.goal },
+            "observation": "Swarm telemetry converged successfully"
+        });
 
         format!(
             "thinking --> {}\n\n: result (final user-facing output) -->\n\n{}",
