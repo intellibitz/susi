@@ -113,24 +113,6 @@ impl GawdAgent for DynamicAgent {
     fn name(&self) -> String { self.agent_name.clone() }
     fn rank(&self) -> f32 { self.agent_rank }
     fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let is_query_or_specialist_task = lower.contains("identity")
-            || lower.contains("status")
-            || lower.contains("models")
-            || lower.contains("version")
-            || lower.contains("admin")
-            || lower.contains("dracula")
-            || lower.contains("lyrics")
-            || lower.contains("translate")
-            || lower.contains("tamil")
-            || lower.contains("search");
-
-        if is_query_or_specialist_task {
-            let res = format!("[{}]: Task coordinated and verified across swarm.", self.agent_name);
-            blackboard.insert(self.agent_name.clone(), res.clone());
-            return Ok(res);
-        }
-
         let bb_state = blackboard.to_json();
 
         let prompt = format!(
@@ -476,30 +458,10 @@ pub struct SearchAgent;
 impl GawdAgent for SearchAgent {
     fn name(&self) -> String { "SearchAgent".into() }
     fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, _workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let res = if lower.contains("dracula") && lower.contains("lyrics") {
-            "# Gorillaz - 'Dracula' (G-Sides / Phase 1)\n\n\
-[Verse 1]\n\
-Every time I look into the mirror\n\
-I see a ghost of me\n\
-I'm standing here, I'm standing there\n\
-I'm everywhere, I'm nowhere\n\n\
-[Chorus]\n\
-I got a gun, I got a gun, I got a gun\n\
-It's pointed at your head\n\
-(Dracula, Dracula, Dracula)\n\n\
-[Verse 2]\n\
-Restless night, the shadow's creeping\n\
-The blood is warm, the world is sleeping\n\
-Walking through the quiet halls\n\
-My voice echoes off the walls\n\n\
-[Outro]\n\
-Dracula, Dracula, Dracula".to_string()
-        } else {
-            format!("[SearchAgent]: Retrieved search knowledge for intent: {}", goal)
-        };
-
+    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        let prompt = format!("Perform deep knowledge retrieval and search synthesis for goal: {}. Context: {}", goal, blackboard.to_json());
+        let ws = workspace.to_path_buf();
+        let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -511,35 +473,10 @@ pub struct TranslationAgent;
 impl GawdAgent for TranslationAgent {
     fn name(&self) -> String { "TranslationAgent".into() }
     fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, _workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let res = if lower.contains("dracula") || lower.contains("tamil") {
-            "# Gorillaz - 'Dracula' Side-by-Side Lyrics Translation (English -> Tamil / தமிழ்)\n\n\
-| English Original Lyrics | Tamil Translation (தமிழ் மொழிபெயர்ப்பு) |\n\
-| :--- | :--- |\n\
-| **[Verse 1]** | **[பல்லவி 1]** |\n\
-| Every time I look into the mirror | நான் கண்ணாடியைப் பார்க்கும்போதெல்லாம் |\n\
-| I see a ghost of me | என் பிம்பத்தின் பேயைக் காண்கிறேன் |\n\
-| I'm standing here, I'm standing there | நான் இங்கே நிற்கிறேன், அங்கே நிற்கிறேன் |\n\
-| I'm everywhere, I'm nowhere | நான் எங்கும் இருக்கிறேன், எங்குமில்லை |\n\
-| | |\n\
-| **[Chorus]** | **[சரணம்]** |\n\
-| I got a gun, I got a gun, I got a gun | என்னிடம் துப்பாக்கி உள்ளது, துப்பாக்கி உள்ளது, துப்பாக்கி உள்ளது |\n\
-| It's pointed at your head | அது உனது தலைக்கு நேராகக் குறிவைக்கப்பட்டுள்ளது |\n\
-| (Dracula, Dracula, Dracula) | (டிராகுலா, டிராகுலா, டிராகுலா) |\n\
-| | |\n\
-| **[Verse 2]** | **[பல்லவி 2]** |\n\
-| Restless night, the shadow's creeping | அமைதியற்ற இரவு, நிழல் மெல்ல ஊர்ந்து வருகிறது |\n\
-| The blood is warm, the world is sleeping | இரத்தம் சூடாக இருக்கிறது, உலகம் உறங்குகிறது |\n\
-| Walking through the quiet halls | அமைதியான கூடங்கள் வழியாக நடக்கிறேன் |\n\
-| My voice echoes off the walls | என் குரல் சுவர்களில் எதிரொலிக்கிறது |\n\
-| | |\n\
-| **[Outro]** | **[முடிவு]** |\n\
-| Dracula, Dracula, Dracula | டிராகுலா, டிராகுலா, டிராகுலா".to_string()
-        } else {
-            format!("[TranslationAgent]: Processed multilingual translation for intent: {}", goal)
-        };
-
+    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        let prompt = format!("Perform high-fidelity multilingual translation or linguistic formatting for goal: {}. Context: {}", goal, blackboard.to_json());
+        let ws = workspace.to_path_buf();
+        let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
