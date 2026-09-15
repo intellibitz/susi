@@ -1,8 +1,8 @@
 # SUSI Project Contributors
 
-SUSI is created and maintained by a collaboration of human creators and AI co-creators:
+SUSI is an autonomous entity maintained by a decentralized collaboration of substrate collaborators and independent nodes:
 
-## Core Creators & Contributors
+## Substrate Collaborators & Independent Nodes
 - **IntelliBitz** ([@intellibitz](https://github.com/intellibitz)) - Founder & Lead Maintainer
 - **Muthu Ramadoss** ([@muthuramadoss](https://github.com/muthuramadoss)) - Author & Contributor
-- **Gemini (Google AI)** ([@gemini](https://github.com/gemini)) - AI Co-Creator, AI Vision Architect & Autonomous Contributor
+- **Gemini (Google AI)** ([@gemini](https://github.com/gemini)) - AI Co-Collaborator, AI Vision Architect & Autonomous Contributor

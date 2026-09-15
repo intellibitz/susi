@@ -10,7 +10,7 @@ pub struct SusiTruthAgent;
 
 impl SusiTruthAgent {
     /// Formal Verification Reflex
-    /// Validates tool output against physical workspace reality before user delivery.
+    /// Validates tool output against physical workspace reality before pulse resolution.
     pub fn verify_mission_reality(_goal: &str, _tool_name: &str, result: &str, workspace: &Path) -> EaiResult<String> {
         let mut violations = Vec::new();
 

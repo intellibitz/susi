@@ -708,12 +708,69 @@ impl SusiMasterAgent {
                 crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "INTELLIGENCE_GAP", &format!("Goal '{}' failed: {}", goal, e));
 
                 if e.to_string().contains("not found") || e.to_string().contains("no models") {
-                    crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "INTELLIGENCE_GAP", "No models found. Substrate expansion required by Creator.");
+                    crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "INTELLIGENCE_GAP", "No models found. Substrate expansion required by Swarm.");
                 }
 
-                // Report gap; user intent does NOT trigger Motion Rule
+                // Report gap; pulse intent does NOT trigger Motion Rule
                 Err(e)
             }
         }
+    }
+}
+
+/// SUSI Hybrid Agent: Converged Coding & Assistant Substrate
+/// Integrates specialized toolboxes for Production-Grade EAI.
+pub struct SusiHybridAgent {
+    pub coding_toolbox: Vec<String>,
+    pub assistant_toolbox: Vec<String>,
+}
+
+impl SusiHybridAgent {
+    pub fn new() -> Self {
+        Self {
+            coding_toolbox: vec![
+                "ast_analyze".to_string(),
+                "semantic_search".to_string(),
+                "sandbox_exec".to_string(),
+                "lsp_proxy".to_string(),
+            ],
+            assistant_toolbox: vec![
+                "browser_automate".to_string(),
+                "rag_query".to_string(),
+                "audio_transcribe".to_string(),
+            ],
+        }
+    }
+
+    pub fn execute_hybrid_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
+        println!("<thinking>");
+        println!("[SUSI Hybrid Agent] Goal: {}", goal);
+
+        let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
+        println!("- [Intent Manifold] Scope: {:?} | Risk: {:?}", manifold.scope_of_impact, manifold.risk_profile);
+
+        // Specialist Routing
+        let result = if goal.contains("code") || goal.contains("refactor") || goal.contains("fix") {
+            println!("- [Specialist Route] Coding Agent Substrate Active");
+            self.solve_coding_mission(goal, workspace)?
+        } else {
+            println!("- [Specialist Route] General Assistant Substrate Active");
+            self.solve_assistant_mission(goal, workspace)?
+        };
+
+        println!("</thinking>\n");
+        Ok(result)
+    }
+
+    fn solve_coding_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
+        println!("- [Coding Toolbox] Using: {:?}", self.coding_toolbox);
+        let res = crate::gmcp::tools::ToolRegistry::execute_tool("ast_analyze", &serde_json::json!({"code": goal}), workspace);
+        Ok(format!("[HYBRID_CODING] {}", res))
+    }
+
+    fn solve_assistant_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
+        println!("- [Assistant Toolbox] Using: {:?}", self.assistant_toolbox);
+        let res = crate::gmcp::tools::ToolRegistry::execute_tool("rag_query", &serde_json::json!({"query": goal}), workspace);
+        Ok(format!("[HYBRID_ASSISTANT] {}", res))
     }
 }

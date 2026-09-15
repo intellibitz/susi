@@ -102,10 +102,10 @@ impl GemiServer {
                                 .unwrap_or_else(|| "susi-native-synthesis".to_string());
                             let model_name = active_model.as_str();
 
-                            let user_prompt = extract_prompt_from_json(&b_thread).unwrap_or_else(|| "list workspace health".to_string());
-                            crate::sandbox::manager::SusiAuditLogger::log_event(&w_thread, "WEB_MISSION_START", &user_prompt);
+                            let pulse_intent = extract_prompt_from_json(&b_thread).unwrap_or_else(|| "list workspace health".to_string());
+                            crate::sandbox::manager::SusiAuditLogger::log_event(&w_thread, "WEB_MISSION_START", &pulse_intent);
 
-                            let trimmed_prompt = user_prompt.trim();
+                            let trimmed_prompt = pulse_intent.trim();
                             let clean_cmd = trimmed_prompt.trim_start_matches('/').trim_start_matches(':');
                             let parts: Vec<&str> = clean_cmd.splitn(2, ' ').collect();
                             let tool_name = parts[0].to_lowercase();

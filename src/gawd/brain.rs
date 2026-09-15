@@ -1,5 +1,5 @@
 // SUSI Core Runtime Substrate: Unified Operational Status Tracking
-// Unifies Self (Compiled Binary Instructions), System Environment (Hardware/OS), and User (Configurations/Workspace).
+// Unifies Self (Compiled Binary Instructions), System Environment (Hardware/OS), and Node (Configurations/Workspace).
 
 use std::path::{Path, PathBuf};
 use super::self_core::AlphaSelf;

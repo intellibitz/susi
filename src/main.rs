@@ -42,7 +42,7 @@ enum Commands {
     Models,
     /// Select or override active model
     SelectModel { model: String },
-    /// Parallel deep scan of user home for local models
+    /// Parallel deep scan of substrate home for local models
     DeepScan,
     /// Autonomous web-scouting of open-source MCP servers
     McpScout,

@@ -358,7 +358,7 @@ impl SwarmTaskManager {
             if let Some(c) = self.cancel_map.get(task_id) {
                 c.store(true, Ordering::Release);
             }
-            *r.result.write() = Some("Killed by user".to_string());
+            *r.result.write() = Some("Killed by pulse".to_string());
             return true;
         }
         false

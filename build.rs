@@ -9,11 +9,9 @@ fn main() {
     let agents_md_raw = fs::read_to_string(".agents/AGENTS.md").expect("Missing AGENTS.md");
     let aspirations_md_raw = fs::read_to_string(".agents/ASPIRATIONS.md").expect("Missing ASPIRATIONS.md");
     let build_md_raw = fs::read_to_string(".agents/BUILD.md").expect("Missing BUILD.md");
-    let runtime_md_raw = fs::read_to_string(".agents/RUNTIME.md").expect("Missing RUNTIME.md");
     let pulse_md_raw = fs::read_to_string(".agents/pulse.md").expect("Missing pulse.md");
     let topology_md_raw = fs::read_to_string(".agents/TOPOLOGY.md").expect("Missing TOPOLOGY.md");
     let workflow_md_raw = fs::read_to_string(".agents/WORKFLOW.md").expect("Missing WORKFLOW.md");
-    let autonomy_md_raw = fs::read_to_string(".agents/AUTONOMY.md").unwrap_or_default();
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
     // SUSI Version Synchronization Hook (Aspiration 1)
@@ -26,11 +24,9 @@ fn main() {
     let agents_md = sync_version(".agents/AGENTS.md", &agents_md_raw, version);
     let aspirations_md = sync_version(".agents/ASPIRATIONS.md", &aspirations_md_raw, version);
     let build_md = sync_version(".agents/BUILD.md", &build_md_raw, version);
-    let runtime_md = sync_version(".agents/RUNTIME.md", &runtime_md_raw, version);
     let pulse_md = sync_version(".agents/pulse.md", &pulse_md_raw, version);
     let topology_md = sync_version(".agents/TOPOLOGY.md", &topology_md_raw, version);
     let workflow_md = sync_version(".agents/WORKFLOW.md", &workflow_md_raw, version);
-    let autonomy_md = sync_version(".agents/AUTONOMY.md", &autonomy_md_raw, version);
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -50,7 +46,7 @@ fn main() {
 
     let mut generated_code = String::new();
 
-    // 1. AGENTS.md -> GEN_AGENT_RULES (1-15)
+    // 1. AGENTS.md -> GEN_AGENT_RULES (1-49)
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
     for line in agents_md.lines() {
         if let Some(rule) = parse_list_item(line) {
@@ -59,7 +55,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 2. ASPIRATIONS.md -> GEN_ENGINE_AXIOMS (20-39)
+    // 2. ASPIRATIONS.md -> GEN_ENGINE_AXIOMS (50-99)
     generated_code.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
     let mut current_id = None;
     let mut current_title = None;
@@ -72,54 +68,36 @@ fn main() {
         } else if line.trim().starts_with("* **Core Paradigm**:") {
             if let (Some(id), Some(title)) = (current_id, current_title.take()) {
                 let paradigm = line.split_once(':').unwrap().1.trim();
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 20, title, paradigm));
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 50, title, paradigm));
                 current_id = None;
             }
         }
     }
     generated_code.push_str("];\n\n");
 
-    // 3. BUILD.md -> GEN_DEPLOYMENT_RULES (30-49)
+    // 3. BUILD.md -> GEN_DEPLOYMENT_RULES (100-149)
     generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
     for line in build_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 30, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
         }
     }
     generated_code.push_str("];\n\n");
 
-    // 4. RUNTIME.md -> GEN_RUNTIME_MANDATES (40-59)
-    generated_code.push_str("pub const GEN_RUNTIME_MANDATES: &[SusiAxiomRule] = &[\n");
-    for line in runtime_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 40, rule.1, rule.2));
-        }
-    }
-    generated_code.push_str("];\n\n");
-
-    // 5. pulse.md -> GEN_PULSE_AXIOMS (60-79)
+    // 5. pulse.md -> GEN_PULSE_AXIOMS (150-299)
     generated_code.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
     for line in pulse_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 60, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 150, rule.1, rule.2));
         }
     }
     generated_code.push_str("];\n\n");
 
-    // 6. WORKFLOW.md -> GEN_WORKFLOW_STEPS (80-99)
+    // 6. WORKFLOW.md -> GEN_WORKFLOW_STEPS (300-349)
     generated_code.push_str("pub const GEN_WORKFLOW_STEPS: &[SusiAxiomRule] = &[\n");
     for line in workflow_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 80, rule.1, rule.2));
-        }
-    }
-    generated_code.push_str("];\n\n");
-
-    // 7. AUTONOMY.md -> GEN_AUTONOMY_PROTOCOLS (140-159)
-    generated_code.push_str("pub const GEN_AUTONOMY_PROTOCOLS: &[SusiAxiomRule] = &[\n");
-    for line in autonomy_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 140, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 300, rule.1, rule.2));
         }
     }
     generated_code.push_str("];\n\n");
@@ -131,6 +109,7 @@ fn main() {
     let mut engines = String::from("pub const GEN_ENGINE_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut models = String::from("pub const GEN_MODEL_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut mcps = String::from("pub const GEN_MCP_COMPONENTS: &[SusiComponentSpec] = &[\n");
+    let mut realized = String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
     for line in topology_md.lines() {
         if line.starts_with("## 1. Agent of Agents") { current_pillar = "aoa"; }
@@ -138,6 +117,7 @@ fn main() {
         else if line.starts_with("## 3. Engines") { current_pillar = "engines"; }
         else if line.starts_with("## 4. Models") { current_pillar = "models"; }
         else if line.starts_with("## 5. MCPs") { current_pillar = "mcps"; }
+        else if line.starts_with("## 6. Realized Architectural Capabilities") { current_pillar = "realized"; }
 
         if let Some(comp) = parse_topology_item(line) {
             let tier = match comp.2.as_str() {
@@ -152,6 +132,7 @@ fn main() {
                 "engines" => engines.push_str(&entry),
                 "models" => models.push_str(&entry),
                 "mcps" => mcps.push_str(&entry),
+                "realized" => realized.push_str(&entry),
                 _ => {}
             }
         }
@@ -161,10 +142,12 @@ fn main() {
     engines.push_str("];\n\n");
     models.push_str("];\n\n");
     mcps.push_str("];\n\n");
+    realized.push_str("];\n\n");
     generated_code.push_str(&agents);
     generated_code.push_str(&engines);
     generated_code.push_str(&models);
     generated_code.push_str(&mcps);
+    generated_code.push_str(&realized);
 
     // Combined COMPONENTS for legacy support
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -198,34 +181,24 @@ fn main() {
         } else if line.trim().starts_with("* **Core Paradigm**:") {
             if let (Some(id), Some(title)) = (current_id, current_title.take()) {
                 let paradigm = line.split_once(':').unwrap().1.trim();
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 20, title, paradigm));
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 50, title, paradigm));
                 current_id = None;
             }
         }
     }
     for line in build_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 30, rule.1, rule.2));
-        }
-    }
-    for line in runtime_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 40, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
         }
     }
     for line in pulse_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 60, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 150, rule.1, rule.2));
         }
     }
     for line in workflow_md.lines() {
         if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 80, rule.1, rule.2));
-        }
-    }
-    for line in autonomy_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 140, rule.1, rule.2));
+            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 300, rule.1, rule.2));
         }
     }
     generated_code.push_str("];\n");
@@ -235,9 +208,7 @@ fn main() {
     println!("cargo:rerun-if-changed=.agents/AGENTS.md");
     println!("cargo:rerun-if-changed=.agents/ASPIRATIONS.md");
     println!("cargo:rerun-if-changed=.agents/BUILD.md");
-    println!("cargo:rerun-if-changed=.agents/AUTONOMY.md");
     println!("cargo:rerun-if-changed=.agents/pulse.md");
-    println!("cargo:rerun-if-changed=.agents/RUNTIME.md");
     println!("cargo:rerun-if-changed=.agents/TOPOLOGY.md");
     println!("cargo:rerun-if-changed=.agents/WORKFLOW.md");
 }

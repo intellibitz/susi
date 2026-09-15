@@ -140,7 +140,7 @@ impl SusiAdmin {
         }
 
         // 3. Sync Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "CREATORS.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
+        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
@@ -208,7 +208,7 @@ impl SusiAdmin {
         }
 
         // Check Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "CREATORS.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
+        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
@@ -299,11 +299,11 @@ impl SusiAdmin {
     }
 
     /// Ingest a natural language intent and automatically inject it into pulse.md
-    /// Supports both Creator mode (.agents/pulse.md) and World User mode (.susi/pulse.md).
+    /// Supports both Genomic mode (.agents/pulse.md) and World mode (.susi/pulse.md).
     pub fn ingest_natural_intent(workspace: &Path, intent: &str) -> EaiResult<String> {
         let mut pulse_path = workspace.join(".agents/pulse.md");
 
-        // World User Fallback: If .agents/ is missing, use .susi/ sandbox
+        // World Fallback: If .agents/ is missing, use .susi/ sandbox
         if !pulse_path.exists() {
             pulse_path = workspace.join(".susi/pulse.md");
             if !pulse_path.exists() {

@@ -185,7 +185,7 @@ impl GawdAgent for SusiRuntimeAgent {
         // 4. Protocol Linking (Rule 21)
         crate::gmcp::tools::ToolRegistry::auto_link_essential_mcp_servers();
 
-        Ok("Runtime environment established and optimized for user intent.".into())
+        Ok("Runtime environment established and optimized for pulse intent.".into())
     }
 }
 

@@ -34,29 +34,27 @@ impl AlphaSelf {
     pub const AGENTS_MD: &'static str = include_str!("../../.agents/AGENTS.md");
     pub const BUILD_MD: &'static str = include_str!("../../.agents/BUILD.md");
     pub const ASPIRATIONS_MD: &'static str = include_str!("../../.agents/ASPIRATIONS.md");
-    pub const RUNTIME_MD: &'static str = include_str!("../../.agents/RUNTIME.md");
     pub const PULSE_MD: &'static str = include_str!("../../.agents/pulse.md");
     pub const TOPOLOGY_MD: &'static str = include_str!("../../.agents/TOPOLOGY.md");
     pub const WORKFLOW_MD: &'static str = include_str!("../../.agents/WORKFLOW.md");
-    pub const AUTONOMY_MD: &'static str = include_str!("../../.agents/AUTONOMY.md");
 
     pub const RULES: &[SusiAxiomRule] = GEN_RULES;
     pub const WORKFLOW_STEPS: &[SusiAxiomRule] = GEN_WORKFLOW_STEPS;
     pub const PULSE_AXIOMS: &[SusiAxiomRule] = GEN_PULSE_AXIOMS;
-    pub const AUTONOMY_PROTOCOLS: &[SusiAxiomRule] = GEN_AUTONOMY_PROTOCOLS;
 
-    // 5 Pillar Component Topology
+    // 6 Pillar Component Topology
     pub const AOA_COMPONENTS: &[SusiComponentSpec] = GEN_AOA_COMPONENTS;
     pub const AGENT_COMPONENTS: &[SusiComponentSpec] = GEN_AGENT_COMPONENTS;
     pub const ENGINE_COMPONENTS: &[SusiComponentSpec] = GEN_ENGINE_COMPONENTS;
     pub const MODEL_COMPONENTS: &[SusiComponentSpec] = GEN_MODEL_COMPONENTS;
     pub const MCP_COMPONENTS: &[SusiComponentSpec] = GEN_MCP_COMPONENTS;
+    pub const REALIZED_COMPONENTS: &[SusiComponentSpec] = GEN_REALIZED_COMPONENTS;
     pub const COMPONENTS: &[SusiComponentSpec] = GEN_COMPONENTS;
 
     #[allow(dead_code)]
     pub fn inspect_compiled_binary_instructions() -> String {
         format!(
-            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n- AoA Pillar: {}\n- Agents Pillar: {}\n- Engines Pillar: {}\n- Models Pillar: {}\n- MCPs Pillar: {}",
+            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n- AoA Pillar: {}\n- Agents Pillar: {}\n- Engines Pillar: {}\n- Models Pillar: {}\n- MCPs Pillar: {}\n- Realized Capabilities: {}",
             Self::VERSION,
             Self::CORE_PARADIGM,
             Self::RULES.len(),
@@ -64,7 +62,8 @@ impl AlphaSelf {
             Self::AGENT_COMPONENTS.len(),
             Self::ENGINE_COMPONENTS.len(),
             Self::MODEL_COMPONENTS.len(),
-            Self::MCP_COMPONENTS.len()
+            Self::MCP_COMPONENTS.len(),
+            Self::REALIZED_COMPONENTS.len()
         )
     }
 }

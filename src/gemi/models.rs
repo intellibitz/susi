@@ -454,7 +454,7 @@ impl ModelManager {
 
         cfg.save(global_dir)?;
 
-        Ok(format!("Deep scan complete. Discovered and registered {} new local model directories to user config.", new_paths_added))
+        Ok(format!("Deep scan complete. Discovered and registered {} new local model directories to substrate configuration.", new_paths_added))
     }
 
     fn recursive_scan_model_dir_for_paths(dir: &Path, discovered_folders: &mut Vec<String>, visited: &mut std::collections::HashSet<PathBuf>) {

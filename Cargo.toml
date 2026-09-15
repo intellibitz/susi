@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2022909"
+version = "0.1.2022910"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -45,6 +45,25 @@ async-trait = "0.1"
 bytes = "1.6"
 thiserror = "1.0"
 schemars = "0.8"
+rmcp = { version = "0.3", features = ["server", "client"] }
+rig-core = "0.15"
+async-openai = "0.28"
+qdrant-client = "1.11"
+fastembed = "4.0"
+ignore = "0.4"
+tree-sitter = "0.22"
+syn = { version = "2.0", features = ["full"] }
+similar = "2.5"
+bollard = "0.17"
+tempfile = "3.12"
+tower-lsp = "0.20"
+ropey = "1.6"
+tantivy = "0.22"
+text-splitter = "0.18"
+headless_chrome = "1.0"
+symphonia = "0.5"
+regex = "1.11"
+governor = "0.7"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.8.4" }

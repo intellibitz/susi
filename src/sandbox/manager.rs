@@ -74,7 +74,7 @@ impl Default for AdminTemplatesConfig {
             install_mission: "admin mission: initialize sandboxed .susi environment and provision weights".to_string(),
             uninstall_mission: "admin mission: remove and clean up sandboxed .susi environment".to_string(),
             select_model_mission: "admin mission: select and override active model substrate to {}".to_string(),
-            deep_scan_mission: "admin mission: perform parallel deep-scan of user home for local models and register them".to_string(),
+            deep_scan_mission: "admin mission: perform parallel deep-scan of substrate home for local models and register them".to_string(),
             mcp_scout_mission: "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them".to_string(),
             audit_mission: "admin mission: perform compliance audit and technical verification".to_string(),
             verify_mission: "admin mission: verify version alignment across manifest and documents".to_string(),
@@ -314,6 +314,37 @@ impl SusiConfig {
 }
 
 impl SandboxManager {
+    pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
+        use bollard::Docker;
+        use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, LogOutput};
+        use futures_util::stream::StreamExt;
+
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
+
+        let config = Config {
+            image: Some("alpine:latest"),
+            cmd: Some(vec!["sh", "-c", cmd]),
+            ..Default::default()
+        };
+
+        let container = docker.create_container(None::<CreateContainerOptions<String>>, config).await
+            .map_err(|e| EaiError::process(format!("Container creation failed: {}", e)))?;
+
+        docker.start_container(&container.id, None::<StartContainerOptions<String>>).await
+            .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
+
+        let mut logs = docker.logs(&container.id, None);
+        let mut output = String::new();
+        while let Some(log) = logs.next().await {
+            if let Ok(LogOutput::StdOut { message }) = log {
+                output.push_str(&String::from_utf8_lossy(&message));
+            }
+        }
+
+        Ok(output)
+    }
+
     pub fn ensure_global_sandbox(global_dir: &Path) -> EaiResult<()> {
         if !global_dir.exists() {
             fs::create_dir_all(global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
