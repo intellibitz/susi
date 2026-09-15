@@ -273,7 +273,15 @@ impl SandboxManager {
         }
         let config_path = SusiConfig::get_config_path(global_dir);
         if !config_path.exists() {
-            let default_cfg = SusiConfig::default();
+            let default_cfg_file = Path::new("config.default.json");
+            let default_cfg = if default_cfg_file.is_file() {
+                fs::read_to_string(default_cfg_file)
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<SusiConfig>(&c).ok())
+                    .unwrap_or_default()
+            } else {
+                SusiConfig::default()
+            };
             let json = serde_json::to_string_pretty(&default_cfg).unwrap();
             fs::write(config_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
         }

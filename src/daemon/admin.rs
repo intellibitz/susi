@@ -177,6 +177,12 @@ impl SusiAdmin {
             }
         }
 
+        // 5. Synchronize Default Configuration Manifest (config.default.json)
+        let default_cfg = crate::sandbox::manager::SusiConfig::default();
+        if let Ok(cfg_json) = serde_json::to_string_pretty(&default_cfg) {
+            let _ = fs::write(workspace.join("config.default.json"), cfg_json + "\n");
+        }
+
         Ok(version.to_string())
     }
 

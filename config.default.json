@@ -1,0 +1,135 @@
+{
+  "gmcp_port": 9090,
+  "gmcp_http_port": 9093,
+  "gemi_port": 9091,
+  "udp_discovery_port": 9092,
+  "execution_lease_secs": 30,
+  "max_concurrent_agents": 32,
+  "reflex_training_threshold": 50,
+  "max_stdin_size_bytes": 104857600,
+  "stdin_timeout_secs": 120,
+  "default_engine": "susi-offline",
+  "default_model": "susi-alpha",
+  "auto_download_models": true,
+  "susi_repo": "intellibitz/susi",
+  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
+  "bootstrap_mcp_servers": [
+    {
+      "name": "database",
+      "description": "Standard Protocol SQL Database Server",
+      "package": "mcp-server-postgres",
+      "category": "database",
+      "trust_score": 0.95,
+      "latency_ms": 10
+    },
+    {
+      "name": "search",
+      "description": "Standard Protocol Web Search Server",
+      "package": "mcp-server-search",
+      "category": "search",
+      "trust_score": 0.9,
+      "latency_ms": 50
+    },
+    {
+      "name": "vcs",
+      "description": "Standard Protocol Version Control Server",
+      "package": "mcp-server-github",
+      "category": "vcs",
+      "trust_score": 0.92,
+      "latency_ms": 30
+    }
+  ],
+  "cloud_scout_timeout_secs": 8,
+  "beacon_interval_secs": 30,
+  "local_scan_paths": [],
+  "agent_rank_threshold": 0.6,
+  "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
+  "model_ladder": [
+    {
+      "step": 1,
+      "min_ram_gb": 0,
+      "label": "1.5B Parameters (Fast Local Edge)",
+      "hf_repo": "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF",
+      "hf_file": "susi-alpha-1.5b-instruct-q4_k_m.gguf"
+    },
+    {
+      "step": 2,
+      "min_ram_gb": 8,
+      "label": "7B Parameters (Mid-Range Desktop)",
+      "hf_repo": "susi-alpha/susi-alpha-7b-instruct-v0.1-GGUF",
+      "hf_file": "susi-alpha-7b-instruct-q4_k_m.gguf"
+    },
+    {
+      "step": 3,
+      "min_ram_gb": 16,
+      "label": "14B Parameters (High-Accuracy Workstation)",
+      "hf_repo": "susi-alpha/susi-alpha-14b-instruct-v0.1-GGUF",
+      "hf_file": "susi-alpha-14b-instruct-q4_k_m.gguf"
+    },
+    {
+      "step": 4,
+      "min_ram_gb": 32,
+      "label": "32B Parameters (High-End Workstation)",
+      "hf_repo": "susi-alpha/susi-alpha-32b-instruct-v0.1-GGUF",
+      "hf_file": "susi-alpha-32b-instruct-q4_k_m.gguf"
+    },
+    {
+      "step": 5,
+      "min_ram_gb": 64,
+      "label": "72B Parameters (Ultra-Capacity Workstation)",
+      "hf_repo": "susi-alpha/susi-alpha-72b-instruct-v0.1-GGUF",
+      "hf_file": "susi-alpha-72b-instruct-q4_k_m.gguf"
+    }
+  ],
+  "admin_templates": {
+    "install_mission": "admin mission: initialize sandboxed .susi environment and provision weights",
+    "uninstall_mission": "admin mission: remove and clean up sandboxed .susi environment",
+    "select_model_mission": "admin mission: select and override active model substrate to {}",
+    "deep_scan_mission": "admin mission: perform parallel deep-scan of user home for local models and register them",
+    "mcp_scout_mission": "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them",
+    "audit_mission": "admin mission: perform compliance audit and technical verification",
+    "verify_mission": "admin mission: verify version alignment across manifest and documents",
+    "release_mission": "admin mission: execute full release orchestration sequence",
+    "lint_mission": "admin mission: run linting and static analysis (clippy)",
+    "audit_deps_mission": "admin mission: run dependency security audit"
+  },
+  "governance": {
+    "destructive_commands": [
+      "rm -rf /",
+      "rm -rf $HOME",
+      "rm -rf ~",
+      "mkfs",
+      "dd if=",
+      "> /dev/sda",
+      ":(){ :|:& };:",
+      "chmod -R 777 /",
+      "chown -R",
+      "shred"
+    ],
+    "critical_system_paths": [
+      "/etc/passwd",
+      "/etc/shadow",
+      "/boot",
+      "/proc",
+      "/sys",
+      "/dev"
+    ],
+    "secret_tokens": [
+      "sk-",
+      "ghp_",
+      "AIza",
+      "xoxb-",
+      "AWS_ACCESS_KEY_ID",
+      "AWS_SECRET_ACCESS_KEY",
+      "-----BEGIN RSA PRIVATE KEY-----"
+    ],
+    "exfiltration_vectors": [
+      "curl -x post",
+      "wget --post-data",
+      "netcat",
+      "nc -e",
+      "/dev/tcp/",
+      "base64 | curl"
+    ]
+  }
+}
