@@ -86,6 +86,8 @@ enum AdminCommands {
     Lint,
     /// Run cargo audit
     AuditDeps,
+    /// Dynamic configuration hot-reload
+    Reload,
 }
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
@@ -179,20 +181,21 @@ fn main() {
 
     if let Some(command) = cli.command {
         let ama = SusiMasterAgent::new();
+        let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
-                let answer = ama.solve_clean("admin mission: initialize sandboxed .susi environment and provision weights", &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_templates.install_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Uninstall => {
-                let answer = ama.solve_clean("admin mission: remove and clean up sandboxed .susi environment", &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_templates.uninstall_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {
-                let cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
-                let server = tiny_http::Server::http(format!("127.0.0.1:{}", cfg.gemi_port)).expect("Failed to bind GEMI port");
+                let gemi_cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+                let server = tiny_http::Server::http(format!("127.0.0.1:{}", gemi_cfg.gemi_port)).expect("Failed to bind GEMI port");
                 GemiServer::start_http_server(cwd.clone(), server);
             }
             Commands::Status => {
@@ -204,16 +207,16 @@ fn main() {
                 println!("{}", answer);
             }
             Commands::SelectModel { model } => {
-                let intent = format!("admin mission: select and override active model substrate to {}", model);
+                let intent = cfg.admin_templates.select_model_mission.replace("{}", &model);
                 let answer = ama.solve_clean(&intent, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::DeepScan => {
-                let answer = ama.solve_clean("admin mission: perform parallel deep-scan of user home for local models and register them", &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_templates.deep_scan_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::McpScout => {
-                let answer = ama.solve_clean("admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them", &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_templates.mcp_scout_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Pulse { intent } => {
@@ -224,7 +227,7 @@ fn main() {
                 }
             }
             Commands::Audit => {
-                let answer = ama.solve_clean("admin mission: perform compliance audit and technical verification", &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_templates.audit_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Admin { subcommand } => {
@@ -243,24 +246,36 @@ fn main() {
                         }
                     }
                     AdminCommands::Audit => {
-                        let answer = ama.solve_clean("admin mission: perform compliance audit and technical verification", &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_templates.audit_mission, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Verify => {
-                        let answer = ama.solve_clean("admin mission: verify version alignment across manifest and documents", &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_templates.verify_mission, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Release => {
-                        let answer = ama.solve_clean("admin mission: execute full release orchestration sequence", &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_templates.release_mission, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Lint => {
-                        let answer = ama.solve_clean("admin mission: run linting and static analysis (clippy)", &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_templates.lint_mission, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::AuditDeps => {
-                        let answer = ama.solve_clean("admin mission: run dependency security audit", &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_templates.audit_deps_mission, &cwd, SUSI_VERSION);
                         println!("{}", answer);
+                    }
+                    AdminCommands::Reload => {
+                        match susi_engine::sandbox::manager::SusiConfig::reload(&global_dir) {
+                            Ok(reloaded) => {
+                                println!("Dynamic configuration reloaded successfully from {}.", global_dir.join("config.json").display());
+                                println!("- Engine: {}", reloaded.default_engine);
+                                println!("- Model: {}", reloaded.default_model);
+                                println!("- Model Ladder Steps: {}", reloaded.model_ladder.len());
+                                println!("- MCP Bootstrap Servers: {}", reloaded.bootstrap_mcp_servers.len());
+                            }
+                            Err(e) => eprintln!("Config reload failed: {}", e),
+                        }
                     }
                 }
             }

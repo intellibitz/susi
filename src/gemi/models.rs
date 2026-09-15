@@ -590,7 +590,7 @@ impl ModelManager {
         let ladder = HardwareProfiler::get_progressive_model_ladder();
         if let Some(best_step) = ladder.last() {
             let models_dir = global_dir.join("models");
-            let model_path = models_dir.join(best_step.hf_file);
+            let model_path = models_dir.join(&best_step.hf_file);
             let tokenizer_path = models_dir.join("tokenizer.json");
 
             let needs_upgrade = match &best_local {

@@ -19,13 +19,14 @@ impl SusiAdmin {
 
         // 1. Audit Security Patterns (No hardcoded keys)
         let mut secret_found = false;
-        let patterns = ["sk-", "ghp_", "AIza"];
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let patterns = &cfg.governance.secret_tokens;
         let src_dir = workspace.join("src");
         if let Ok(entries) = fs::read_dir(&src_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                if path.is_file() && !file_name.contains("security.rs") && !file_name.contains("admin.rs") {
+                if path.is_file() && !file_name.contains("security.rs") && !file_name.contains("admin.rs") && !file_name.contains("manager.rs") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         for p in patterns {
                             if content.contains(p) {

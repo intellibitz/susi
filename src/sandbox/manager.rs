@@ -45,6 +45,47 @@ pub struct NeuralCheckpoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelLadderConfigStep {
+    pub step: usize,
+    pub min_ram_gb: usize,
+    pub label: String,
+    pub hf_repo: String,
+    pub hf_file: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AdminTemplatesConfig {
+    pub install_mission: String,
+    pub uninstall_mission: String,
+    pub select_model_mission: String,
+    pub deep_scan_mission: String,
+    pub mcp_scout_mission: String,
+    pub audit_mission: String,
+    pub verify_mission: String,
+    pub release_mission: String,
+    pub lint_mission: String,
+    pub audit_deps_mission: String,
+}
+
+impl Default for AdminTemplatesConfig {
+    fn default() -> Self {
+        Self {
+            install_mission: "admin mission: initialize sandboxed .susi environment and provision weights".to_string(),
+            uninstall_mission: "admin mission: remove and clean up sandboxed .susi environment".to_string(),
+            select_model_mission: "admin mission: select and override active model substrate to {}".to_string(),
+            deep_scan_mission: "admin mission: perform parallel deep-scan of user home for local models and register them".to_string(),
+            mcp_scout_mission: "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them".to_string(),
+            audit_mission: "admin mission: perform compliance audit and technical verification".to_string(),
+            verify_mission: "admin mission: verify version alignment across manifest and documents".to_string(),
+            release_mission: "admin mission: execute full release orchestration sequence".to_string(),
+            lint_mission: "admin mission: run linting and static analysis (clippy)".to_string(),
+            audit_deps_mission: "admin mission: run dependency security audit".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GovernancePatterns {
     pub destructive_commands: Vec<String>,
     pub critical_system_paths: Vec<String>,
@@ -70,6 +111,8 @@ pub struct SusiConfig {
     pub local_scan_paths: Vec<String>,
     pub agent_rank_threshold: f32,
     pub alpha_weights_url: String,
+    pub model_ladder: Vec<ModelLadderConfigStep>,
+    pub admin_templates: AdminTemplatesConfig,
     pub governance: GovernancePatterns,
 }
 
@@ -95,6 +138,44 @@ impl Default for SusiConfig {
             local_scan_paths: Vec::new(),
             agent_rank_threshold: 0.6,
             alpha_weights_url: "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors".to_string(),
+            model_ladder: vec![
+                ModelLadderConfigStep {
+                    step: 1,
+                    min_ram_gb: 0,
+                    label: "1.5B Parameters (Fast Local Edge)".to_string(),
+                    hf_repo: "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF".to_string(),
+                    hf_file: "susi-alpha-1.5b-instruct-q4_k_m.gguf".to_string(),
+                },
+                ModelLadderConfigStep {
+                    step: 2,
+                    min_ram_gb: 8,
+                    label: "7B Parameters (Mid-Range Desktop)".to_string(),
+                    hf_repo: "susi-alpha/susi-alpha-7b-instruct-v0.1-GGUF".to_string(),
+                    hf_file: "susi-alpha-7b-instruct-q4_k_m.gguf".to_string(),
+                },
+                ModelLadderConfigStep {
+                    step: 3,
+                    min_ram_gb: 16,
+                    label: "14B Parameters (High-Accuracy Workstation)".to_string(),
+                    hf_repo: "susi-alpha/susi-alpha-14b-instruct-v0.1-GGUF".to_string(),
+                    hf_file: "susi-alpha-14b-instruct-q4_k_m.gguf".to_string(),
+                },
+                ModelLadderConfigStep {
+                    step: 4,
+                    min_ram_gb: 32,
+                    label: "32B Parameters (High-End Workstation)".to_string(),
+                    hf_repo: "susi-alpha/susi-alpha-32b-instruct-v0.1-GGUF".to_string(),
+                    hf_file: "susi-alpha-32b-instruct-q4_k_m.gguf".to_string(),
+                },
+                ModelLadderConfigStep {
+                    step: 5,
+                    min_ram_gb: 64,
+                    label: "72B Parameters (Ultra-Capacity Workstation)".to_string(),
+                    hf_repo: "susi-alpha/susi-alpha-72b-instruct-v0.1-GGUF".to_string(),
+                    hf_file: "susi-alpha-72b-instruct-q4_k_m.gguf".to_string(),
+                },
+            ],
+            admin_templates: AdminTemplatesConfig::default(),
             governance: GovernancePatterns {
                 destructive_commands: vec![
                     "rm -rf /".to_string(),
@@ -154,6 +235,18 @@ impl SusiConfig {
                 .map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)));
         }
         Ok(Self::default())
+    }
+
+    pub fn reload(global_dir: &Path) -> EaiResult<Self> {
+        let loaded = Self::load(global_dir)?;
+        let _ = loaded.save(global_dir);
+        Ok(loaded)
+    }
+
+    pub fn load_global() -> EaiResult<Self> {
+        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let global_dir = home.join(".susi");
+        Self::load(&global_dir)
     }
 
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {

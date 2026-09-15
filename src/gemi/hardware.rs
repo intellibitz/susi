@@ -357,45 +357,26 @@ impl HardwareProfiler {
 
     pub fn get_progressive_model_ladder() -> Vec<ModelLadderStep> {
         let ram_gb = Self::determine_total_ram_gb();
-        let mut ladder = vec![
-            ModelLadderStep {
-                step: 1,
-                label: "1.5B Parameters (Fast Local Edge)",
-                hf_repo: "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF",
-                hf_file: "susi-alpha-1.5b-instruct-q4_k_m.gguf",
-            },
-        ];
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-        if ram_gb >= 8 {
-            ladder.push(ModelLadderStep {
-                step: 2,
-                label: "7B Parameters (Mid-Range Desktop)",
-                hf_repo: "susi-alpha/susi-alpha-7b-instruct-v0.1-GGUF",
-                hf_file: "susi-alpha-7b-instruct-q4_k_m.gguf",
-            });
+        let mut ladder = Vec::new();
+        for step in cfg.model_ladder {
+            if ram_gb >= step.min_ram_gb {
+                ladder.push(ModelLadderStep {
+                    step: step.step,
+                    label: step.label,
+                    hf_repo: step.hf_repo,
+                    hf_file: step.hf_file,
+                });
+            }
         }
-        if ram_gb >= 16 {
+
+        if ladder.is_empty() {
             ladder.push(ModelLadderStep {
-                step: 3,
-                label: "14B Parameters (High-Accuracy Workstation)",
-                hf_repo: "susi-alpha/susi-alpha-14b-instruct-v0.1-GGUF",
-                hf_file: "susi-alpha-14b-instruct-q4_k_m.gguf",
-            });
-        }
-        if ram_gb >= 32 {
-            ladder.push(ModelLadderStep {
-                step: 4,
-                label: "32B Parameters (High-End Workstation)",
-                hf_repo: "susi-alpha/susi-alpha-32b-instruct-v0.1-GGUF",
-                hf_file: "susi-alpha-32b-instruct-q4_k_m.gguf",
-            });
-        }
-        if ram_gb >= 64 {
-            ladder.push(ModelLadderStep {
-                step: 5,
-                label: "72B Parameters (Ultra-Capacity Workstation)",
-                hf_repo: "susi-alpha/susi-alpha-72b-instruct-v0.1-GGUF",
-                hf_file: "susi-alpha-72b-instruct-q4_k_m.gguf",
+                step: 1,
+                label: "1.5B Parameters (Fast Local Edge)".to_string(),
+                hf_repo: "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF".to_string(),
+                hf_file: "susi-alpha-1.5b-instruct-q4_k_m.gguf".to_string(),
             });
         }
 
@@ -403,12 +384,12 @@ impl HardwareProfiler {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelLadderStep {
     pub step: usize,
-    pub label: &'static str,
-    pub hf_repo: &'static str,
-    pub hf_file: &'static str,
+    pub label: String,
+    pub hf_repo: String,
+    pub hf_file: String,
 }
 
 #[cfg(test)]
