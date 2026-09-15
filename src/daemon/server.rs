@@ -442,6 +442,7 @@ impl SusiDaemon {
     }
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
+        let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
         eprintln!("[A2A Cluster UDP] Discovery listener active on {}", socket.local_addr().unwrap());
         let mut buf = [0u8; 512];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {

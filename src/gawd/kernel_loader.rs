@@ -30,7 +30,7 @@ impl SubstrateKernelLoader {
             let _ = std::io::stdout().flush();
         }
 
-        let core_manifests = vec![
+        let core_manifests = [
             r#"{ "module_id": "gawd-swarm", "version": "0.1.0", "entry_point": "GawdAgentFleet", "capabilities": ["swarm", "agents"], "memory_footprint_mb": 128 }"#,
             r#"{ "module_id": "gmcp-protocol", "version": "0.1.0", "entry_point": "ToolRegistry", "capabilities": ["mcp", "tools", "rpc"], "memory_footprint_mb": 64 }"#,
             r#"{ "module_id": "gemi-inference", "version": "0.1.0", "entry_point": "GemiEngine", "capabilities": ["candle", "llm", "reasoning"], "memory_footprint_mb": 1024 }"#,

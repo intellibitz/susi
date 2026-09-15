@@ -6,7 +6,8 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::path::Path;
 use std::time::Duration;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use super::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
@@ -96,7 +97,7 @@ impl SusiSupervisor {
                                      0
                                  };
 
-                                 let mut peers = t_shared.write().unwrap();
+                                 let mut peers = t_shared.write();
                                  let addr_str = format!("{}:9090", src.ip());
                                  if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
                                      p.trust_score = (p.trust_score + 0.05).min(1.0);
@@ -127,7 +128,7 @@ impl SusiSupervisor {
             shared
         });
 
-        peers_lock.read().unwrap().clone()
+        peers_lock.read().clone()
     }
 
     pub fn supervise_mission(goal: &str, workspace: &Path) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
@@ -274,10 +275,20 @@ impl SusiSupervisor {
         }
 
         // 6. Autonomous Substrate Distillation (Rule 23)
-        let ws = workspace.to_path_buf();
-        std::thread::spawn(move || {
-            let _ = super::reflex_trainer::ReflexTrainer::audit_distillation_state(&ws);
-        });
+        static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !DISTILLATION_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let ws = workspace.to_path_buf();
+            std::thread::spawn(move || {
+                struct Guard;
+                impl Drop for Guard {
+                    fn drop(&mut self) {
+                        DISTILLATION_AUDIT_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                let _guard = Guard;
+                let _ = super::reflex_trainer::ReflexTrainer::audit_distillation_state(&ws);
+            });
+        }
 
         (a2a_logs, fleet_info)
     }

@@ -2,7 +2,8 @@
 // 100% Rust implementation for memory-efficient multi-threaded reasoning
 
 use std::path::Path;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use crate::error::EaiResult;
 
@@ -30,8 +31,8 @@ impl PagedKVStore {
     }
 
     pub fn store_page(&self, page_id: u64, data: Vec<f32>) -> EaiResult<()> {
-        let mut pages = self.pages.write().unwrap();
-        let mut lru = self.lru.write().unwrap();
+        let mut pages = self.pages.write();
+        let mut lru = self.lru.write();
 
         if pages.len() >= self.max_pages && !pages.contains_key(&page_id) {
             // Mandate: Strict LRU Eviction (Aspiration 6)
@@ -47,8 +48,8 @@ impl PagedKVStore {
     }
 
     pub fn get_page(&self, page_id: u64) -> Option<Vec<f32>> {
-        let pages = self.pages.read().unwrap();
-        let mut lru = self.lru.write().unwrap();
+        let pages = self.pages.read();
+        let mut lru = self.lru.write();
 
         if let Some(data) = pages.get(&page_id) {
             // Update LRU position on access
@@ -62,8 +63,8 @@ impl PagedKVStore {
     }
 
     pub fn clear(&self) {
-        let mut pages = self.pages.write().unwrap();
-        let mut lru = self.lru.write().unwrap();
+        let mut pages = self.pages.write();
+        let mut lru = self.lru.write();
         pages.clear();
         lru.clear();
     }
@@ -86,7 +87,7 @@ impl RadixAttentionStore {
     }
 
     pub fn match_prefix(&self, tokens: &[u32]) -> Option<(usize, u64)> {
-        let nodes = self.nodes.read().unwrap();
+        let nodes = self.nodes.read();
         let mut longest_match = 0;
         let mut target_page = 0;
 
@@ -101,7 +102,7 @@ impl RadixAttentionStore {
     }
 
     pub fn register_prefix(&self, tokens: Vec<u32>, page_id: u64) {
-        let mut nodes = self.nodes.write().unwrap();
+        let mut nodes = self.nodes.write();
         nodes.insert(tokens, page_id);
     }
 }

@@ -3,7 +3,8 @@
 
 use anyhow::{Result, anyhow};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use super::alpha::SusiAlphaModel;
@@ -29,20 +30,20 @@ impl SusiPulse {
         // Neural Synchronization (Cache Invalidation)
         {
             let fingerprint = SusiAlphaModel::get_model_fingerprint(&global_dir);
-            let mut current = CURRENT_FINGERPRINT.write().unwrap();
+            let mut current = CURRENT_FINGERPRINT.write();
             if *current != fingerprint {
                 if workspace.join(".agents").exists() && std::env::var("SUSI_VERBOSE").is_ok() {
                     eprintln!("[Tier 0 Reflex] Neural substrate evolved. Invalidating cache...");
                 }
                 *current = fingerprint;
-                let mut cache = REFLEX_CACHE.write().unwrap();
+                let mut cache = REFLEX_CACHE.write();
                 cache.clear();
             }
         }
 
         // Sub-100us Reflex Cache
         {
-            let cache = REFLEX_CACHE.read().unwrap();
+            let cache = REFLEX_CACHE.read();
             if let Some(cached_action) = cache.get(prompt_trimmed) {
                 return Ok(cached_action.clone());
             }
@@ -61,7 +62,7 @@ impl SusiPulse {
                     }
 
                     // Populate Cache
-                    let mut cache = REFLEX_CACHE.write().unwrap();
+                    let mut cache = REFLEX_CACHE.write();
                     cache.insert(prompt_trimmed.to_string(), final_action.clone());
 
                     return Ok(final_action);

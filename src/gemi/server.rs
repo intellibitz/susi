@@ -32,7 +32,7 @@ impl GemiServer {
             let body_thread = body_str.clone();
 
             thread::spawn(move || {
-                let (tx, rx) = std::sync::mpsc::channel::<Result<Response<std::io::Cursor<Vec<u8>>>, String>>();
+                let (tx, rx) = flume::bounded::<Result<Response<std::io::Cursor<Vec<u8>>>, String>>(1);
                 let w_thread = workspace_thread;
                 let m_thread = method_thread;
                 let u_thread = url_thread;

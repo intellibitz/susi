@@ -270,10 +270,20 @@ impl GawdAgent for EvolutionAgent {
             return Ok(res);
         }
 
-        let ws = workspace.to_path_buf();
-        std::thread::spawn(move || {
-            let _ = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
-        });
+        static DRIFT_AUDIT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let ws = workspace.to_path_buf();
+            std::thread::spawn(move || {
+                struct AuditGuard;
+                impl Drop for AuditGuard {
+                    fn drop(&mut self) {
+                        DRIFT_AUDIT_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                let _guard = AuditGuard;
+                let _ = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
+            });
+        }
         let res = "Evolutionary health: Substrate Optimal.".to_string();
         blackboard.insert(self.name(), res.clone());
         Ok(res)
@@ -407,7 +417,7 @@ impl GawdAgent for VllmBridgeAgent {
 
         // Local vLLM Proxy Fallback (OpenAI-compatible)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let vllm_url = std::env::var("VLLM_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.vllm_api_base);
+        let vllm_url = std::env::var("VLLM_API_BASE").unwrap_or(cfg.inference_endpoints.vllm_api_base);
         let body = serde_json::json!({
             "model": "vllm-substrate",
             "prompt": goal,
@@ -446,7 +456,7 @@ impl GawdAgent for SglangBridgeAgent {
 
         // Local SGLang Proxy Fallback
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let sglang_url = std::env::var("SGLANG_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.sglang_api_base);
+        let sglang_url = std::env::var("SGLANG_API_BASE").unwrap_or(cfg.inference_endpoints.sglang_api_base);
         let body = serde_json::json!({
             "model": "sglang-substrate",
             "prompt": goal,
@@ -484,7 +494,7 @@ impl GawdAgent for LlamaCppBridgeAgent {
 
         // Local llama-server Proxy (Standard Port 8080)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let llama_url = std::env::var("LLAMA_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.llama_api_base);
+        let llama_url = std::env::var("LLAMA_API_BASE").unwrap_or(cfg.inference_endpoints.llama_api_base);
         let body = serde_json::json!({
             "prompt": goal,
             "n_predict": 512,
@@ -522,7 +532,7 @@ impl GawdAgent for TensorRtBridgeAgent {
 
         // Local Triton Inference Server Proxy
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let triton_url = std::env::var("TRITON_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.triton_api_base);
+        let triton_url = std::env::var("TRITON_API_BASE").unwrap_or(cfg.inference_endpoints.triton_api_base);
         let body = serde_json::json!({
             "text_input": goal,
             "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
@@ -559,7 +569,7 @@ impl GawdAgent for LmdeployBridgeAgent {
 
         // Local LMDeploy Proxy (OpenAI-compatible)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let lmdeploy_url = std::env::var("LMDEPLOY_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.lmdeploy_api_base);
+        let lmdeploy_url = std::env::var("LMDEPLOY_API_BASE").unwrap_or(cfg.inference_endpoints.lmdeploy_api_base);
         let body = serde_json::json!({
             "model": "susi-turbomind",
             "prompt": goal,

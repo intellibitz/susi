@@ -659,7 +659,7 @@ impl SusiMasterAgent {
         Ok(res.final_answer)
     }
 
-    pub fn solve_with_feedback(&self, goal: &str, workspace: &Path, feedback_tx: std::sync::mpsc::Sender<String>) -> EaiResult<String> {
+    pub fn solve_with_feedback(&self, goal: &str, workspace: &Path, feedback_tx: flume::Sender<String>) -> EaiResult<String> {
         let goal = self.sanitize_input(goal)?;
         let _ = feedback_tx.send(format!("[SMA] Initiating mission for goal: '{}'", goal));
 

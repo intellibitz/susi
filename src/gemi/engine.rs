@@ -4,7 +4,8 @@
 
 use std::path::{Path, PathBuf};
 use std::io::Write;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::RwLock;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use crate::error::{EaiError, EaiResult};
@@ -34,7 +35,7 @@ impl InferenceHost {
 
         // 1. Concurrent Read Access (Aspiration 22 Mandate)
         {
-            let map = cache.read().unwrap();
+            let map = cache.read();
             if let Some(m) = map.get(model_path) {
                 return Ok(Arc::clone(m));
             }
@@ -110,7 +111,7 @@ impl InferenceHost {
 
         // 3. Exclusive Write Access for Cache Registration
         {
-            let mut map = cache.write().unwrap();
+            let mut map = cache.write();
             // Double-check if another thread loaded it in the meantime
             if let Some(m) = map.get(model_path) {
                 return Ok(Arc::clone(m));
@@ -348,8 +349,8 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let wait_start = std::time::Instant::now();
         let mut substrate = loop {
             match substrate_shared.try_write() {
-                Ok(guard) => break guard,
-                Err(_) => {
+                Some(guard) => break guard,
+                None => {
                     if wait_start.elapsed().as_secs() > 10 && wait_start.elapsed().as_secs().is_multiple_of(10) {
                         print!(" [Substrate Contention Detected: Waiting for background agent] ");
                     } else {
@@ -444,12 +445,11 @@ impl NativeInferenceEngine for SusiGgufEngine {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::mpsc;
     use std::thread;
 
     #[test]
     fn test_competitive_racing_logic() {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = flume::unbounded();
         let tx1 = tx.clone();
         thread::spawn(move || {
             thread::sleep(std::time::Duration::from_millis(50));

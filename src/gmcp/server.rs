@@ -63,7 +63,7 @@ impl GmcpServer {
                     let server_handler_thread = server_handler;
 
                     thread::spawn(move || {
-                        let (tx, rx) = std::sync::mpsc::channel();
+                        let (tx, rx) = flume::bounded(1);
                         let b_thread = body_thread.clone();
                         let w_thread = workspace_thread.clone();
 

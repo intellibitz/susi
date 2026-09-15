@@ -89,10 +89,18 @@ impl GmcpClient {
                             .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
                             .unwrap_or(false);
 
-                        if is_stale {
+                        static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                        if is_stale && !REGISTRY_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
                             let url = cfg.mcp_registry_url.clone();
                             let reg_p = registry_path.clone();
                             std::thread::spawn(move || {
+                                struct FetchGuard;
+                                impl Drop for FetchGuard {
+                                    fn drop(&mut self) {
+                                        REGISTRY_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                                    }
+                                }
+                                let _guard = FetchGuard;
                                 if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(500)).call() {
                                     let mut reader = resp.into_reader();
                                     if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
@@ -114,18 +122,28 @@ impl GmcpClient {
         let _ = fs::write(&registry_path, serde_json::to_string_pretty(&entries).unwrap_or_default());
 
         // Spawn background fetch for initial registry population
-        let url = cfg.mcp_registry_url;
-        let reg_p = registry_path;
-        std::thread::spawn(move || {
-            if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
-                let mut reader = resp.into_reader();
-                if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
-                    if !remote_entries.is_empty() {
-                        let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+        static INIT_FETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if !INIT_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let url = cfg.mcp_registry_url;
+            let reg_p = registry_path;
+            std::thread::spawn(move || {
+                struct InitGuard;
+                impl Drop for InitGuard {
+                    fn drop(&mut self) {
+                        INIT_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
-            }
-        });
+                let _guard = InitGuard;
+                if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
+                    let mut reader = resp.into_reader();
+                    if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
+                        if !remote_entries.is_empty() {
+                            let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+                        }
+                    }
+                }
+            });
+        }
 
         entries
     }
