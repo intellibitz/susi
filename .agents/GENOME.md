@@ -1,6 +1,6 @@
 # SUSI Substrate Genome: The Sovereign Identity
 
-* **Current Engine Version**: `v0.1.2022919`
+* **Current Engine Version**: `v0.1.2022920`
 
 This document defines the immutable ethical, operational, and structural genome of the `susi` substrate.
 

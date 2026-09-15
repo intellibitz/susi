@@ -1,6 +1,6 @@
 # SUSI Substrate Roadmap: The Sovereign Will
 
-* **Current Engine Version**: `v0.1.2022919`
+* **Current Engine Version**: `v0.1.2022920`
 
 This document defines the structural roadmap and future evolution goals of the `susi` substrate.
 

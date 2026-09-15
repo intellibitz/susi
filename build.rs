@@ -99,8 +99,19 @@ fn main() {
     // 5. PULSE.md -> GEN_PULSE_AXIOMS (150-299)
     generated_code.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
     for line in pulse_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 150, rule.1, rule.2));
+        let line = line.trim();
+        if line.starts_with('|') && line.contains("EV-") {
+            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            if parts.len() >= 6 {
+                let id_str = parts[1];
+                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq: usize = seq_str.parse().unwrap_or(0);
+                if seq > 0 {
+                    let title = format!("{} [{}]", parts[3], parts[2]);
+                    let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
+                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 150, title, imperative));
+                }
+            }
         }
     }
     generated_code.push_str("];\n\n");
@@ -227,8 +238,19 @@ fn main() {
         }
     }
     for line in pulse_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 150, rule.1, rule.2));
+        let line = line.trim();
+        if line.starts_with('|') && line.contains("EV-") {
+            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            if parts.len() >= 6 {
+                let id_str = parts[1];
+                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq: usize = seq_str.parse().unwrap_or(0);
+                if seq > 0 {
+                    let title = format!("{} [{}]", parts[3], parts[2]);
+                    let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
+                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 150, title, imperative));
+                }
+            }
         }
     }
     generated_code.push_str("];\n");
