@@ -59,19 +59,19 @@ fn main() {
 
     // 2. ROADMAP.md -> GEN_ENGINE_AXIOMS (50-99)
     generated_code.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    let mut current_id = None;
-    let mut current_title = None;
     for line in roadmap_md.lines() {
-        if line.starts_with("### [Aspiration") {
-            if let Some(caps) = parse_aspiration_header(line) {
-                current_id = Some(caps.0);
-                current_title = Some(caps.1);
-            }
-        } else if line.trim().starts_with("* **Core Paradigm**:") {
-            if let (Some(id), Some(title)) = (current_id, current_title.take()) {
-                let paradigm = line.split_once(':').unwrap().1.trim();
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 50, title, paradigm));
-                current_id = None;
+        let line = line.trim();
+        if line.starts_with('|') && line.contains("VC-") {
+            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            if parts.len() >= 5 {
+                let id_str = parts[1];
+                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq: usize = seq_str.parse().unwrap_or(0);
+                if seq > 0 {
+                    let title = format!("{} {}", parts[3], parts[2]);
+                    let imperative = parts[4].to_string();
+                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 50, title, imperative));
+                }
             }
         }
     }
@@ -204,19 +204,19 @@ fn main() {
             }
         }
     }
-    let mut current_id = None;
-    let mut current_title = None;
     for line in roadmap_md.lines() {
-        if line.starts_with("### [Aspiration") {
-            if let Some(caps) = parse_aspiration_header(line) {
-                current_id = Some(caps.0);
-                current_title = Some(caps.1);
-            }
-        } else if line.trim().starts_with("* **Core Paradigm**:") {
-            if let (Some(id), Some(title)) = (current_id, current_title.take()) {
-                let paradigm = line.split_once(':').unwrap().1.trim();
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", id + 50, title, paradigm));
-                current_id = None;
+        let line = line.trim();
+        if line.starts_with('|') && line.contains("VC-") {
+            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+            if parts.len() >= 5 {
+                let id_str = parts[1];
+                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq: usize = seq_str.parse().unwrap_or(0);
+                if seq > 0 {
+                    let title = format!("{} {}", parts[3], parts[2]);
+                    let imperative = parts[4].to_string();
+                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 50, title, imperative));
+                }
             }
         }
     }
@@ -283,15 +283,7 @@ fn parse_list_item(line: &str) -> Option<(usize, String, String)> {
     None
 }
 
-fn parse_aspiration_header(line: &str) -> Option<(usize, String)> {
-    let line = line.trim_start_matches('#').trim();
-    if !line.starts_with("[Aspiration") { return None; }
-    let parts: Vec<&str> = line.splitn(2, ']').collect();
-    if parts.len() < 2 { return None; }
-    let id: usize = parts[0].trim_start_matches("[Aspiration").trim().parse().ok()?;
-    let title = parts[1].trim();
-    Some((id, title.to_string()))
-}
+
 
 fn parse_table_row(line: &str) -> Option<(String, String, String)> {
     let line = line.trim();
