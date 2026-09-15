@@ -620,30 +620,45 @@ impl GawdAgent for LibraryScoutAgent {
             || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models" {
             return Ok("[LibraryScoutAgent]: Substrate libraries optimal.".to_string());
         }
+
+        // Aspiration 19: Enhanced Library Scouting with reasoning and 'cargo add' suggestions
         let query_term = if lower_goal.contains("async") { "async" }
             else if lower_goal.contains("json") { "json" }
             else if lower_goal.contains("inference") { "inference" }
             else if lower_goal.contains("web") { "http" }
+            else if lower_goal.contains("db") || lower_goal.contains("database") { "sql" }
+            else if lower_goal.contains("ui") || lower_goal.contains("gui") { "gui" }
             else { "rust" };
 
-        let url = format!("https://crates.io/api/v1/crates?q={}&per_page=3", query_term);
-        if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(500)).call() {
+        let url = format!("https://crates.io/api/v1/crates?q={}&per_page=5", query_term);
+        let mut results = Vec::new();
+
+        if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {
                 if let Some(crates) = json["crates"].as_array() {
-                    let mut recs = Vec::new();
                     for c in crates {
-                        if let Some(name) = c["name"].as_str() {
-                            recs.push(name.to_string());
-                        }
-                    }
-                    if !recs.is_empty() {
-                        return Ok(format!("[Library Scout Live API]: Recommended crates from crates.io for query '{}': {}", query_term, recs.join(", ")));
+                        let name = c["name"].as_str().unwrap_or_default();
+                        let desc = c["description"].as_str().unwrap_or("No description available.");
+                        results.push(format!("- **{}**: {} (Reason: SOTA selection for '{}')", name, desc, query_term));
                     }
                 }
             }
         }
 
-        let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}", goal);
+        if !results.is_empty() {
+            let mut report = format!("[Library Scout Live API]: Recommended SOTA crates for goal: '{}'\n\n", goal);
+            report.push_str(&results.join("\n"));
+
+            // Suggest 'cargo add' if it looks like an implementation mission
+            if lower_goal.contains("implement") || lower_goal.contains("build") || lower_goal.contains("add") || lower_goal.contains("create") {
+                if let Some(first_crate) = results.get(0).and_then(|r| r.split("**").nth(1)) {
+                    report.push_str(&format!("\n\n[ACTION]: Suggesting 'cargo add {}' to fulfill mission.", first_crate));
+                }
+            }
+            return Ok(report);
+        }
+
+        let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}. Include specific reasons and 'cargo add' commands if applicable.", goal);
         let ws = workspace.to_path_buf();
         Ok(crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws))
     }
@@ -1037,10 +1052,13 @@ impl GawdAgentFleet {
         }
 
         // 3. Neural Agent Synthesis (Aspiration 13)
-        // If no high-quality specialists are found (similarity < 0.4), synthesize one for mission goals.
-        if !is_query_or_admin && max_global_similarity < 0.4 && fleet.len() < max_agents {
+        // If no high-quality specialists are found (similarity < 0.4) or fleet only contains mandatory guards,
+        // synthesize a mission-specific specialist.
+        let only_mandatory = fleet.len() <= 11; // Mandatory + LibraryScoutAgent
+        if !is_query_or_admin && (max_global_similarity < 0.4 || only_mandatory) && fleet.len() < max_agents {
+            eprintln!("[Swarm] Capability gap detected (Similarity: {:.2}). Triggering Neural Agent Synthesis...", max_global_similarity);
             if let Ok(new_profile) = NeuralAgentFactory::synthesize_specialist(goal, workspace) {
-                eprintln!("[Agent Factory] Capability Gap Detected. Synthesized: {}", new_profile.name);
+                eprintln!("[Agent Factory] Specialist recruited: {}", new_profile.name);
                 registry.register_agent(new_profile.clone());
                 fleet.push(Arc::new(DynamicAgent {
                     agent_name: new_profile.name,

@@ -522,6 +522,36 @@ impl SusiSupervisor {
         }
         true
     }
+
+    /// Federated Knowledge Vault (Aspiration 18)
+    /// Aggregates distilled reasoning experience from independent nodes into a centralized vault.
+    pub fn aggregate_federated_experience(workspace: &Path) -> EaiResult<String> {
+        let nodes = Self::list_cluster_nodes();
+        let mut total_samples = 0;
+        let mut node_count = 0;
+
+        for node in nodes {
+            if node.node_id == "susi-local-master" || !node.is_active { continue; }
+
+            // Request distilled experiences from the peer
+            let res = Self::dispatch_peer_task(&node.address, "get_distilled_experience", "");
+            if let Ok(samples) = serde_json::from_str::<Vec<crate::gemi::reasoning::ReasoningSample>>(&res) {
+                for sample in samples {
+                    // Stage for local distillation
+                    crate::gawd::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+                        &sample.intent,
+                        &sample.successful_outcome,
+                        workspace,
+                        Some(serde_json::json!({"source_node": node.node_id}))
+                    )?;
+                    total_samples += 1;
+                }
+                node_count += 1;
+            }
+        }
+
+        Ok(format!("Aggregated {} distilled experiences from {} independent nodes into the Knowledge Vault.", total_samples, node_count))
+    }
 }
 
 #[cfg(test)]

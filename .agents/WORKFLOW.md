@@ -1,6 +1,6 @@
 # SUSI Operational Workflow
 
-* **Current Engine Version**: `v0.1.2022909`
+* **Current Engine Version**: `v0.1.2022910`
 
 This document defines the self-contained Meta-Workflow for substrate evolution and the Federated Parallelism logic of the active `susi` engine under the **Continuous Intent Manifold** architecture, governed by the high-tier Agent of Agents (AoA) and Swarm Master Authority (SMA).
 
