@@ -1,6 +1,6 @@
 # SUSI Universal Agent Governance
 
-* **Current Engine Version**: `v0.1.2022907`
+* **Current Engine Version**: `v0.1.2022908`
 
 This document defines the immutable ethical and operational guardrails for all agents operating within the `susi` substrate.
 
