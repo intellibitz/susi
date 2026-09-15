@@ -140,7 +140,7 @@ impl SusiAdmin {
         }
 
         // 3. Sync Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md"];
+        let governance_files = ["IDENTITY.md", "ROADMAP.md", "EVIDENCE.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
@@ -208,7 +208,7 @@ impl SusiAdmin {
         }
 
         // Check Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md"];
+        let governance_files = ["IDENTITY.md", "ROADMAP.md", "EVIDENCE.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
@@ -298,87 +298,77 @@ impl SusiAdmin {
         ("[MISSION]", "Dynamic Task Fulfillment")
     }
 
-    /// Ingest a natural language intent and automatically inject it into pulse.md
-    /// Supports both Genomic mode (.agents/pulse.md) and World mode (.susi/pulse.md).
+    /// Ingest a natural language intent and automatically inject it into EVIDENCE.md
+    /// Supports both Genomic mode (.agents/EVIDENCE.md) and World mode (.susi/EVIDENCE.md).
     pub fn ingest_natural_intent(workspace: &Path, intent: &str) -> EaiResult<String> {
-        let mut pulse_path = workspace.join(".agents/pulse.md");
+        let mut evidence_path = workspace.join(".agents/EVIDENCE.md");
 
         // World Fallback: If .agents/ is missing, use .susi/ sandbox
-        if !pulse_path.exists() {
-            pulse_path = workspace.join(".susi/pulse.md");
-            if !pulse_path.exists() {
-                 // Synthesize a new local pulse from hard-compiled genome if missing
+        if !evidence_path.exists() {
+            evidence_path = workspace.join(".susi/EVIDENCE.md");
+            if !evidence_path.exists() {
+                 // Synthesize a new local evidence from hard-compiled genome if missing
                  let _ = fs::create_dir_all(workspace.join(".susi"));
-                 fs::write(&pulse_path, crate::gawd::self_core::AlphaSelf::PULSE_MD)?;
+                 fs::write(&evidence_path, crate::gawd::self_core::AlphaSelf::EVIDENCE_MD)?;
             }
         }
 
         // 1. Dynamic Neural Cascade Classifier (Tier 0 Reflex -> Tier 2 GEMI -> Motion)
         let (prefix, _category) = Self::classify_natural_intent(workspace, intent);
 
-        // 2. Read pulse.md and find the last index in section 2
-        let content = fs::read_to_string(&pulse_path)?;
+        // 2. Read EVIDENCE.md and find the last index
+        let content = fs::read_to_string(&evidence_path)?;
         let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
 
-        // 2.5 Prevent Duplicate Intent Ingestion (Rule: pulse contains only unique entries)
+        // 2.5 Prevent Duplicate Intent Ingestion
         let intent_trimmed = intent.trim().to_lowercase();
-        let is_duplicate = lines.iter().any(|l| {
-            let l_lower = l.to_lowercase();
-            if let Some(idx) = l_lower.find("**: ") {
-                let existing = l_lower[idx + 4..].trim_end_matches('`').trim();
-                existing == intent_trimmed
-            } else if let Some(idx) = l_lower.find("**: ") {
-                let existing = l_lower[idx + 4..].trim_end_matches('`').trim();
-                existing == intent_trimmed
-            } else if let Some(idx) = l_lower.find("**:") {
-                let existing = l_lower[idx + 3..].trim_end_matches('`').trim();
-                existing == intent_trimmed
-            } else {
-                false
-            }
-        });
+        let is_duplicate = lines.iter().any(|l| l.to_lowercase().contains(&intent_trimmed));
 
         if is_duplicate {
-            return Ok(format!("Intent '{}' is already present in pulse.md ({})", intent, prefix));
+            return Ok(format!("Intent '{}' is already present in memory ({})", intent, prefix));
         }
 
         let last_index = lines.iter()
             .filter_map(|l| {
-                let trimmed = l.trim();
-                if trimmed.is_empty() || !trimmed.chars().next().unwrap().is_ascii_digit() { return None; }
-                trimmed.split('.').next()?.parse::<usize>().ok()
+                if l.contains("EV-") {
+                     let parts: Vec<&str> = l.split('|').collect();
+                     if parts.len() > 1 {
+                         return parts[1].split('-').last().and_then(|s| s.trim().parse::<usize>().ok());
+                     }
+                }
+                None
             })
             .max()
             .unwrap_or(0);
 
         let new_index = last_index + 1;
-        let entry = format!("{}. [ ] **{}**: {}", new_index, prefix, intent);
+        let version_suffix = "2022920"; // Update dynamically if possible
+        let id = format!("EV-{}-{:03}", version_suffix, new_index);
+
+        let entry = format!("| {} | {} | {} | [manual](symbol://manual) | STAGED |", id, prefix, intent);
 
         // 3. Inject into Section 1 (Pending)
         let mut section1_start = None;
         for (i, line) in lines.iter().enumerate() {
-            if line.contains("## 1. Pending Failing Pulse") {
+            if line.contains("## 1. Pending failing Pulse") || line.contains("## 1. Pending") {
                 section1_start = Some(i);
                 break;
             }
         }
 
         if let Some(start) = section1_start {
-             // Find insertion point (after header, before next section)
              let mut insert_pos = start + 1;
-             while insert_pos < lines.len() && (lines[insert_pos].trim().is_empty() || lines[insert_pos].trim().starts_with("(No pending")) {
-                 if lines[insert_pos].trim().starts_with("(No pending") {
-                     lines.remove(insert_pos);
-                     continue;
-                 }
+             while insert_pos < lines.len() && (lines[insert_pos].trim().is_empty() || lines[insert_pos].trim().starts_with("---")) {
                  insert_pos += 1;
              }
-             lines.insert(insert_pos, format!("* `{}`", entry));
+             lines.insert(insert_pos, entry);
+        } else {
+            lines.push(entry);
         }
 
-        fs::write(&pulse_path, lines.join("\n") + "\n")?;
+        fs::write(&evidence_path, lines.join("\n") + "\n")?;
 
-        Ok(format!("Intent ingested successfully as {} into pulse.md", prefix))
+        Ok(format!("Intent ingested successfully as {} into sovereign memory", prefix))
     }
 
     pub fn execute_autonomous_evolution_cycle(workspace: &Path) -> EaiResult<String> {

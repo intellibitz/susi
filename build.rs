@@ -6,9 +6,9 @@ fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
 
-    let genome_md_raw = fs::read_to_string(".agents/GENOME.md").expect("Missing GENOME.md");
+    let identity_md_raw = fs::read_to_string(".agents/IDENTITY.md").expect("Missing IDENTITY.md");
     let roadmap_md_raw = fs::read_to_string(".agents/ROADMAP.md").expect("Missing ROADMAP.md");
-    let pulse_md_raw = fs::read_to_string(".agents/PULSE.md").expect("Missing PULSE.md");
+    let evidence_md_raw = fs::read_to_string(".agents/EVIDENCE.md").expect("Missing EVIDENCE.md");
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
     // SUSI Version Synchronization Hook
@@ -18,9 +18,9 @@ fn main() {
         .and_then(|l| l.split('"').nth(1))
         .expect("Could not find version in Cargo.toml");
 
-    let genome_md = sync_version(".agents/GENOME.md", &genome_md_raw, version);
+    let identity_md = sync_version(".agents/IDENTITY.md", &identity_md_raw, version);
     let roadmap_md = sync_version(".agents/ROADMAP.md", &roadmap_md_raw, version);
-    let pulse_md = sync_version(".agents/PULSE.md", &pulse_md_raw, version);
+    let evidence_md = sync_version(".agents/EVIDENCE.md", &evidence_md_raw, version);
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -40,10 +40,10 @@ fn main() {
 
     let mut generated_code = String::new();
 
-    // 1. GENOME.md (Constitutional Mandates) -> GEN_AGENT_RULES (1-49)
+    // 1. IDENTITY.md (Constitutional Mandates) -> GEN_AGENT_RULES (1-49)
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
     let mut active_section = "";
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
         else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
         else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
@@ -78,10 +78,10 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 3. GENOME.md (Build & Deployment Protocols) -> GEN_DEPLOYMENT_RULES (100-149)
+    // 3. IDENTITY.md (Build & Deployment Protocols) -> GEN_DEPLOYMENT_RULES (100-149)
     generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
         else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
         else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
@@ -96,9 +96,9 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 5. PULSE.md -> GEN_PULSE_AXIOMS (150-299)
+    // 5. EVIDENCE.md -> GEN_PULSE_AXIOMS (150-299)
     generated_code.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    for line in pulse_md.lines() {
+    for line in evidence_md.lines() {
         let line = line.trim();
         if line.starts_with('|') && line.contains("EV-") {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
@@ -116,7 +116,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 8. GENOME.md -> Pillar-based Components
+    // 8. IDENTITY.md -> Pillar-based Components
     let mut current_pillar = "";
     generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut agents = String::from("pub const GEN_AGENT_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -125,7 +125,7 @@ fn main() {
     let mut mcps = String::from("pub const GEN_MCP_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut realized = String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
         else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
         else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
@@ -169,7 +169,7 @@ fn main() {
     // Combined COMPONENTS for legacy support
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
     current_pillar = "";
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
         else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
         else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
@@ -194,7 +194,7 @@ fn main() {
     // 9. Unified RULES List
     generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
         else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
         else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
@@ -224,7 +224,7 @@ fn main() {
         }
     }
     active_section = "";
-    for line in genome_md.lines() {
+    for line in identity_md.lines() {
         if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
         else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
         else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
@@ -237,7 +237,7 @@ fn main() {
             }
         }
     }
-    for line in pulse_md.lines() {
+    for line in evidence_md.lines() {
         let line = line.trim();
         if line.starts_with('|') && line.contains("EV-") {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
@@ -257,9 +257,9 @@ fn main() {
 
     fs::write(&dest_path, generated_code).unwrap();
 
-    println!("cargo:rerun-if-changed=.agents/GENOME.md");
+    println!("cargo:rerun-if-changed=.agents/IDENTITY.md");
     println!("cargo:rerun-if-changed=.agents/ROADMAP.md");
-    println!("cargo:rerun-if-changed=.agents/PULSE.md");
+    println!("cargo:rerun-if-changed=.agents/EVIDENCE.md");
 }
 
 fn parse_list_item(line: &str) -> Option<(usize, String, String)> {

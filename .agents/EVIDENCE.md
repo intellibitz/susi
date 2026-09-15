@@ -1,6 +1,6 @@
 # SUSI Substrate Experience: The Sovereign Memory
 
-* **Current Engine Version**: `v0.1.2022920`
+* **Current Engine Version**: `v0.1.2022921`
 
 This document defines the sovereign ledger of validation protocols that anchor the `susi` genome. Every entry reflects a hard-compiled reflex, deep symbolic anchor, or an orchestrated meta-behavior.
 

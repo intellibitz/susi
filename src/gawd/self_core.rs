@@ -31,8 +31,8 @@ impl AlphaSelf {
     pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     pub const CORE_PARADIGM: &'static str = "EAI (Exponential Intelligence for Any AI) - Intelligence Reflex & Execution Substrate";
 
-    pub const GENOME_MD: &'static str = include_str!("../../.agents/GENOME.md");
-    pub const PULSE_MD: &'static str = include_str!("../../.agents/PULSE.md");
+    pub const IDENTITY_MD: &'static str = include_str!("../../.agents/IDENTITY.md");
+    pub const EVIDENCE_MD: &'static str = include_str!("../../.agents/EVIDENCE.md");
     pub const ROADMAP_MD: &'static str = include_str!("../../.agents/ROADMAP.md");
 
     pub const RULES: &[SusiAxiomRule] = GEN_RULES;
@@ -71,9 +71,9 @@ mod tests {
     #[test]
     fn test_compiled_genome_accuracy() {
         assert_eq!(AlphaSelf::VERSION, env!("CARGO_PKG_VERSION"));
-        assert!(!AlphaSelf::RULES.is_empty(), "GENOME.md axioms must be compiled into binary");
-        assert!(!AlphaSelf::COMPONENTS.is_empty(), "GENOME.md components must be compiled into binary");
-        assert!(!AlphaSelf::PULSE_AXIOMS.is_empty(), "PULSE.md axioms must be compiled into binary");
+        assert!(!AlphaSelf::RULES.is_empty(), "IDENTITY.md axioms must be compiled into binary");
+        assert!(!AlphaSelf::COMPONENTS.is_empty(), "IDENTITY.md components must be compiled into binary");
+        assert!(!AlphaSelf::PULSE_AXIOMS.is_empty(), "EVIDENCE.md axioms must be compiled into binary");
 
         let summary = AlphaSelf::inspect_compiled_binary_instructions();
         assert!(summary.contains(env!("CARGO_PKG_VERSION")));

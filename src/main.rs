@@ -46,7 +46,7 @@ enum Commands {
     DeepScan,
     /// Autonomous web-scouting of open-source MCP servers
     McpScout,
-    /// Ingest a natural language intent into pulse.md
+    /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
         intent: Vec<String>
