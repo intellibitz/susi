@@ -44,11 +44,10 @@ fn main() {
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
     let mut active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
-        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
-        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
+        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
         if active_section == "constitutional" {
             if let Some(rule) = parse_list_item(line) {
@@ -82,11 +81,10 @@ fn main() {
     generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
-        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
-        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
+        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
         if active_section == "build" {
             if let Some(rule) = parse_list_item(line) {
@@ -117,7 +115,7 @@ fn main() {
     generated_code.push_str("];\n\n");
 
     // 8. IDENTITY.md -> Pillar-based Components
-    let mut current_pillar = "";
+    active_section = "";
     generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut agents = String::from("pub const GEN_AGENT_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut engines = String::from("pub const GEN_ENGINE_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -126,30 +124,36 @@ fn main() {
     let mut realized = String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
     for line in identity_md.lines() {
-        if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
-        else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
-        else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
-        else if line.starts_with("### 2.4 Models") { current_pillar = "models"; }
-        else if line.starts_with("### 2.5 MCPs") { current_pillar = "mcps"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { current_pillar = "realized"; }
-        else if line.starts_with("## 4. Operational Workflow") { current_pillar = "workflow"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
+        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
-        if current_pillar != "workflow" && current_pillar != "" {
-            if let Some(comp) = parse_topology_item(line) {
+        if active_section == "topology" {
+            if let Some(comp) = parse_table_row(line) {
                 let tier = match comp.2.as_str() {
                     "0" => "SusiCoreTier::Tier0Reflex",
                     "2" => "SusiCoreTier::Tier2Reasoning",
                     _ => "SusiCoreTier::Tier1Swarm",
                 };
                 let entry = format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1);
-                match current_pillar {
-                    "aoa" => generated_code.push_str(&entry),
-                    "agents" => agents.push_str(&entry),
-                    "engines" => engines.push_str(&entry),
-                    "models" => models.push_str(&entry),
-                    "mcps" => mcps.push_str(&entry),
-                    "realized" => realized.push_str(&entry),
-                    _ => {}
+
+                // Heuristic categorization for legacy compatibility
+                let name_lower = comp.0.to_lowercase();
+                if name_lower.contains("gawd") || name_lower.contains("admin") || name_lower.contains("loader") || name_lower.contains("daemon") || name_lower.contains("evolutionmanager") {
+                    generated_code.push_str(&entry); // AOA
+                } else if name_lower.contains("agent") || name_lower.contains("factory") || name_lower.contains("scout") {
+                    agents.push_str(&entry);
+                } else if name_lower.contains("susi-") || name_lower.contains("engine") || name_lower.contains("substrate") || name_lower.contains("gemi") || name_lower.contains("synthesizer") {
+                    if name_lower.contains("model") {
+                        models.push_str(&entry);
+                    } else {
+                        engines.push_str(&entry);
+                    }
+                } else if name_lower.contains("mcp") || name_lower.contains("server") || name_lower.contains("host") || name_lower.contains("evidence") {
+                    mcps.push_str(&entry);
+                } else {
+                    realized.push_str(&entry);
                 }
             }
         }
@@ -168,18 +172,14 @@ fn main() {
 
     // Combined COMPONENTS for legacy support
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
-    current_pillar = "";
+    active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
-        else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
-        else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
-        else if line.starts_with("### 2.4 Models") { current_pillar = "models"; }
-        else if line.starts_with("### 2.5 MCPs") { current_pillar = "mcps"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { current_pillar = "realized"; }
-        else if line.starts_with("## 4. Operational Workflow") { current_pillar = "workflow"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
-        if current_pillar != "workflow" && current_pillar != "" {
-            if let Some(comp) = parse_topology_item(line) {
+        if active_section == "topology" {
+            if let Some(comp) = parse_table_row(line) {
                 let tier = match comp.2.as_str() {
                     "0" => "SusiCoreTier::Tier0Reflex",
                     "2" => "SusiCoreTier::Tier2Reasoning",
@@ -195,11 +195,8 @@ fn main() {
     generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
-        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
-        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
         if active_section == "constitutional" {
             if let Some(rule) = parse_list_item(line) {
@@ -225,11 +222,8 @@ fn main() {
     }
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
-        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
-        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
-        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
+        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
 
         if active_section == "build" {
             if let Some(rule) = parse_list_item(line) {
@@ -254,6 +248,7 @@ fn main() {
         }
     }
     generated_code.push_str("];\n");
+
 
     fs::write(&dest_path, generated_code).unwrap();
 
@@ -298,19 +293,17 @@ fn parse_aspiration_header(line: &str) -> Option<(usize, String)> {
     Some((id, title.to_string()))
 }
 
-fn parse_topology_item(line: &str) -> Option<(String, String, String)> {
+fn parse_table_row(line: &str) -> Option<(String, String, String)> {
     let line = line.trim();
-    if line.is_empty() || !line.chars().next().unwrap().is_ascii_digit() { return None; }
-    let parts: Vec<&str> = line.splitn(2, '.').collect();
-    if parts.len() < 2 { return None; }
-    let content = parts[1].trim();
-    let sub_parts: Vec<&str> = content.splitn(2, ':').collect();
-    if sub_parts.len() < 2 { return None; }
-    let name = sub_parts[0].trim_matches('*').trim();
-    let desc_tier: Vec<&str> = sub_parts[1].splitn(2, "(Tier:").collect();
-    let description = desc_tier[0].trim();
-    let tier = if desc_tier.len() > 1 { desc_tier[1].trim_end_matches(')').trim() } else { "1" };
-    Some((name.to_string(), description.to_string(), tier.to_string()))
+    if !line.starts_with('|') || line.contains("Symbol | Tier") || line.contains(":---") { return None; }
+    let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+    if parts.len() >= 4 {
+        let symbol = parts[1].trim_matches('*').trim().to_string();
+        let tier = parts[2].to_string();
+        let function = parts[3].to_string();
+        return Some((symbol, function, tier));
+    }
+    None
 }
 
 fn sync_version(path: &str, content: &str, version: &str) -> String {
