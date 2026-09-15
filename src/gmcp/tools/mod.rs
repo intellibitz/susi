@@ -16,12 +16,10 @@ use crate::gemi::models::ModelManager;
 use crate::error::{EaiError, EaiResult};
 
 // Specialist Integrations
-use tree_sitter::Parser;
 use tantivy::{Index, TantivyDocument, schema::*, collector::TopDocs, query::QueryParser};
-use bollard::Docker;
 use headless_chrome::Browser;
 use qdrant_client::Qdrant;
-use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use fastembed::TextEmbedding;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpTool {

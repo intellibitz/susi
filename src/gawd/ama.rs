@@ -5,7 +5,6 @@
 use std::path::Path;
 use std::io::Write;
 use serde::{Deserialize, Serialize};
-use tracing::{info_span, debug};
 use crate::error::EaiResult;
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};

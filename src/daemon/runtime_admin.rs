@@ -2,7 +2,7 @@
 // RULE 3: Reality Check Always On - Hardware-Aware Self-Tuning
 // RULE 23: Substrate Ingestion Motion - Autonomous Experience Distillation
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 use crate::error::EaiResult;
 use crate::gemi::hardware::HardwareProfiler;

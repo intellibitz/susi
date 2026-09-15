@@ -8,7 +8,6 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use dashmap::DashMap;
 use crate::error::EaiResult;
-use crate::gmcp::ProtocolDispatcher;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

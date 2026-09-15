@@ -14,7 +14,6 @@ use crate::gemi::hardware::HardwareProfiler;
 
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
-use candle_transformers::models::quantized_mistral as mixtral;
 use tokenizers::Tokenizer;
 
 pub enum ModelSubstrate {
