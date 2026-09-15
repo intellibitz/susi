@@ -37,7 +37,9 @@ pub struct ClusterPeerNode {
 pub struct SusiSupervisor;
 
 impl SusiSupervisor {
-    pub const UDP_DISCOVERY_PORT: u16 = 9092;
+    pub fn get_udp_discovery_port() -> u16 {
+        crate::sandbox::manager::SusiConfig::load_global().map(|c| c.udp_discovery_port).unwrap_or(9092)
+    }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
         static DISCOVERED_PEERS: OnceLock<Arc<RwLock<Vec<ClusterPeerNode>>>> = OnceLock::new();
@@ -59,7 +61,7 @@ impl SusiSupervisor {
 
             // Zero-Config Background Discovery Loop
             std::thread::spawn(move || {
-                let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", Self::UDP_DISCOVERY_PORT));
+                let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
                     let _ = socket.set_read_timeout(Some(Duration::from_millis(100)));
@@ -116,7 +118,7 @@ impl SusiSupervisor {
                             }
                         }
                         // Periodic Beacon (Near-Instantaneous Global Swarm Consensus)
-                        let _ = socket.send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", Self::UDP_DISCOVERY_PORT));
+                        let _ = socket.send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", Self::get_udp_discovery_port()));
                         std::thread::sleep(Duration::from_millis(500));
                     }
                 }
@@ -367,7 +369,7 @@ impl SusiSupervisor {
         if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
             let _ = socket.set_broadcast(true);
             let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
-            let _ = socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", Self::UDP_DISCOVERY_PORT));
+            let _ = socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", Self::get_udp_discovery_port()));
 
             let mut buf = [0u8; 512];
             while let Ok((amt, src)) = socket.recv_from(&mut buf) {

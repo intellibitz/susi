@@ -100,6 +100,11 @@ pub struct SusiConfig {
     pub gmcp_http_port: u16,
     pub gemi_port: u16,
     pub udp_discovery_port: u16,
+    pub execution_lease_secs: u64,
+    pub max_concurrent_agents: usize,
+    pub reflex_training_threshold: usize,
+    pub max_stdin_size_bytes: usize,
+    pub stdin_timeout_secs: u64,
     pub default_engine: String,
     pub default_model: String,
     pub auto_download_models: bool,
@@ -123,6 +128,11 @@ impl Default for SusiConfig {
             gmcp_http_port: 9093,
             gemi_port: 9091,
             udp_discovery_port: 9092,
+            execution_lease_secs: 30,
+            max_concurrent_agents: 32,
+            reflex_training_threshold: 50,
+            max_stdin_size_bytes: 100 * 1024 * 1024,
+            stdin_timeout_secs: 120,
             default_engine: "susi-offline".to_string(),
             default_model: "susi-alpha".to_string(),
             auto_download_models: true,
@@ -449,6 +459,28 @@ mod tests {
         let _ = SandboxManager::ensure_global_sandbox(dir);
         let cfg = SusiConfig::load(dir).expect("Failed to load config");
         assert_eq!(cfg.gmcp_port, 9090);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_susi_config_hot_reload_lifecycle() {
+        let dir = Path::new("test_hot_reload_cfg");
+        let _ = fs::create_dir_all(dir);
+        let _ = SandboxManager::ensure_global_sandbox(dir);
+
+        let mut cfg = SusiConfig::load(dir).expect("Failed to load initial config");
+        assert_eq!(cfg.execution_lease_secs, 30);
+        assert_eq!(cfg.max_concurrent_agents, 32);
+
+        // Modify config externally and verify dynamic reload
+        cfg.execution_lease_secs = 45;
+        cfg.max_concurrent_agents = 64;
+        cfg.save(dir).expect("Failed to save updated config");
+
+        let reloaded = SusiConfig::reload(dir).expect("Failed to reload config");
+        assert_eq!(reloaded.execution_lease_secs, 45);
+        assert_eq!(reloaded.max_concurrent_agents, 64);
+
         let _ = fs::remove_dir_all(dir);
     }
 

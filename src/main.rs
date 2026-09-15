@@ -11,9 +11,6 @@ use std::io::{self, Read, Write, IsTerminal};
 use std::path::PathBuf;
 use tracing::{info, warn, error};
 
-const MAX_STDIN_SIZE: usize = 100 * 1024 * 1024;  // Fluid Scaling: 100MB baseline limit
-const STDIN_TIMEOUT_SECS: u64 = 120; // Increased to 2 minutes
-
 #[derive(Parser)]
 #[command(name = "susi")]
 #[command(version = SUSI_VERSION)]
@@ -92,11 +89,15 @@ enum AdminCommands {
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
+    let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let max_size = cfg.max_stdin_size_bytes;
+    let timeout_secs = cfg.stdin_timeout_secs;
+
     #[cfg(unix)]
     {
         use std::os::unix::io::AsRawFd;
         let fd = stdin.as_raw_fd();
-        let timeout = libc::timeval { tv_sec: STDIN_TIMEOUT_SECS as _, tv_usec: 0 };
+        let timeout = libc::timeval { tv_sec: timeout_secs as _, tv_usec: 0 };
         unsafe {
             libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_RCVTIMEO,
                 &timeout as *const _ as *const libc::c_void,
@@ -104,10 +105,10 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
         }
     }
     let mut buffer = Vec::new();
-    let mut limited = stdin.take(MAX_STDIN_SIZE as u64);
+    let mut limited = stdin.take(max_size as u64);
     limited.read_to_end(&mut buffer)?;
-    if buffer.len() >= MAX_STDIN_SIZE {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("Input exceeds {} bytes limit", MAX_STDIN_SIZE)));
+    if buffer.len() >= max_size {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("Input exceeds {} bytes limit", max_size)));
     }
     let content = String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let trimmed = content.trim();

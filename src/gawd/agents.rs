@@ -894,15 +894,13 @@ impl NeuralAgentFactory {
 pub struct GawdAgentFleet;
 
 impl GawdAgentFleet {
-    /// Absolute limit for concurrent swarm participants to prevent resource exhaustion.
-    pub const MAX_CONCURRENT_AGENTS: usize = 32; // Scaling for high-density multi-threaded swarms
-
     pub fn get_max_concurrent_agents() -> usize {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         // Mandate: Never cause OOM. Cap at 90% utilization.
         // Heuristic: Each agent requires ~512MB RAM for context/inference overhead.
         let ram_based_limit = (hw.available_ram_gb * 1024 / 512).max(1);
-        ram_based_limit.min(Self::MAX_CONCURRENT_AGENTS)
+        ram_based_limit.min(cfg.max_concurrent_agents)
     }
 
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.

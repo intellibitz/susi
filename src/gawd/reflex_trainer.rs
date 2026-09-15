@@ -8,8 +8,6 @@ use crate::gemi::alpha::SusiAlphaModel;
 pub struct ReflexTrainer;
 
 impl ReflexTrainer {
-    const TRAINING_THRESHOLD: usize = 50;
-
     /// Checks if the substrate needs a retraining cycle based on learned wisdom volume.
     pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
         let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
@@ -19,8 +17,9 @@ impl ReflexTrainer {
         if staged_file.exists() {
             let content = std::fs::read_to_string(&staged_file).unwrap_or_default();
             let count = content.lines().count();
+            let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-            if count >= Self::TRAINING_THRESHOLD {
+            if count >= cfg.reflex_training_threshold {
                 eprintln!("[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...", count);
                 match SusiAlphaModel::train_on_staged_data(&global_dir) {
                     Ok(report) => {

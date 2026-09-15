@@ -1,6 +1,6 @@
 # SUSI Substrate Topology
 
-* **Current Engine Version**: `v0.1.2022904`
+* **Current Engine Version**: `v0.1.2022905`
 
 This document defines the structural native components and orchestrated meta-layers of the `susi` substrate under the **Continuous Intent Manifold** architecture.
 

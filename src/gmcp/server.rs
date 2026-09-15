@@ -73,11 +73,13 @@ impl GmcpServer {
                         });
 
                         // Enforce a fluid execution lease (Aspiration 20)
-                        let response_json = rx.recv_timeout(std::time::Duration::from_secs(30)) // 30 second execution lease
+                        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+                        let lease_secs = cfg.execution_lease_secs;
+                        let response_json = rx.recv_timeout(std::time::Duration::from_secs(lease_secs))
                             .unwrap_or_else(|_| {
                                 json!({
                                     "jsonrpc": "2.0",
-                                    "error": { "code": -32000, "message": "Mission Timeout: Substrate saturation exceeded 30s lease." }
+                                    "error": { "code": -32000, "message": format!("Mission Timeout: Substrate saturation exceeded {}s lease.", lease_secs) }
                                 }).to_string()
                             });
 
