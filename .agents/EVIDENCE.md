@@ -1,6 +1,13 @@
+---
+schema = "susi/evidence/v1"
+version = "0.1.2022922"
+monotonic_range = "EV-2022919-001..EV-2022919-053"
+last_verification = 2026-09-15T17:07:44Z
+epistemic_score = 1.0
+---
+
 # SUSI Substrate Experience: The Sovereign Memory
 
-* **Current Engine Version**: `v0.1.2022921`
 
 This document defines the sovereign ledger of validation protocols that anchor the `susi` genome. Every entry reflects a hard-compiled reflex, deep symbolic anchor, or an orchestrated meta-behavior.
 
@@ -32,8 +39,8 @@ This document defines the sovereign ledger of validation protocols that anchor t
 | EV-2022919-018 | MANDATE | Dynamic Intent Resolution: Anti-hardcoding query matcher policy | [manifold.rs](file:///src/gawd/manifold.rs) | Realized |
 | EV-2022919-019 | MANDATE | Reality Grounding: Automatic intent path correction protocol | [manifold.rs](file:///src/gawd/manifold.rs) | Verified |
 | EV-2022919-020 | MANDATE | Substrate Sovereignty: Enforced isolation of ephemeral state | [AlphaSelf](class://AlphaSelf) | Enforced |
-| EV-2022919-021 | MANDATE | Alpha-Self Evolution: Motion/Aspiration/Topology meta-axiom | [GENOME.md](file:///.agents/GENOME.md) | Meta-axiom |
-| EV-2022919-022 | MANDATE | Genomic Pulse Formalization: Validation tracking via ledger | [PULSE.md](file:///.agents/PULSE.md) | Formalized |
+| EV-2022919-021 | MANDATE | Alpha-Self Evolution: Motion/Aspiration/Topology meta-axiom | [IDENTITY.md](file:///.agents/IDENTITY.md) | Meta-axiom |
+| EV-2022919-022 | MANDATE | Genomic Pulse Formalization: Validation tracking via ledger | [EVIDENCE.md](file:///.agents/EVIDENCE.md) | Formalized |
 | EV-2022919-023 | MOTION | Absolute Transparency: Glass-box trace visibility integration | [telemetry.rs](file:///src/gawd/telemetry.rs) | Codified |
 | EV-2022919-024 | MOTION | Omni-Trace Reasoning: Full visibility of execution steps | [telemetry.rs](file:///src/gawd/telemetry.rs) | Codified |
 | EV-2022919-025 | MOTION | Synchronous Trace & Display telemetry protocol | [telemetry.rs](file:///src/gawd/telemetry.rs) | Active |
@@ -46,7 +53,7 @@ This document defines the sovereign ledger of validation protocols that anchor t
 | EV-2022919-032 | MANDATE | Platform Independence: Zero platform bias across all environments | [AlphaSelf](class://AlphaSelf) | Zero Bias |
 | EV-2022919-033 | MANDATE | Multi-Modal Fusion: 1024-dimensional unified projection space | [unified.rs](file:///src/gemi/unified.rs) | 1024-dim |
 | EV-2022919-034 | MANDATE | Self-Validation: Autonomous foundational hardware health test | [admin.rs](file:///src/gawd/admin.rs) | Autonomous |
-| EV-2022919-035 | MANDATE | Unified Interaction Interface: Verifiable typed test entry link | [PULSE.md](file:///.agents/PULSE.md) | Verifiable |
+| EV-2022919-035 | MANDATE | Unified Interaction Interface: Verifiable typed test entry link | [EVIDENCE.md](file:///.agents/EVIDENCE.md) | Verifiable |
 | EV-2022919-036 | MANDATE | Hardware-Only Limit: System potentials bound to machine limits | [hardware.rs](file:///src/gawd/hardware.rs) | Physical constraints |
 | EV-2022919-037 | MANDATE | Optimal Async Orchestration: Complete non-blocking operations | [swarm.rs](file:///src/gawd/swarm.rs) | Non-blocking |
 | EV-2022919-038 | MANDATE | Universal Swarm Operation: GAWD Swarm handles all operations | [SusiSupervisor](class://SusiSupervisor) | 100% Swarm |
@@ -64,4 +71,4 @@ This document defines the sovereign ledger of validation protocols that anchor t
 | EV-2022919-050 | MANDATE | Multimodal Engines: Saturated Vision/Audio spectrum logic | [unified.rs](file:///src/gemi/unified.rs) | Operational |
 | EV-2022919-051 | MANDATE | Neural Weights: Native Alpha and Reasoning vault provisioning | [.susi/models/](file:///.susi/models/) | Provisioned |
 | EV-2022919-052 | MANDATE | GMCP Infrastructure: expose functional RPC, HTTP, UDP servers | [gmcp/](file:///src/gmcp/) | Functional |
-| EV-2022919-053 | REFINE | Sovereign Ledger Refactor for High-Fidelity Symbolic Memory | [PULSE.md](file:///.agents/PULSE.md) | High Fidelity, Tests: 100% |
+| EV-2022919-053 | REFINE | Sovereign Ledger Refactor for High-Fidelity Symbolic Memory | [EVIDENCE.md](file:///.agents/EVIDENCE.md) | High Fidelity, Tests: 100% |

@@ -146,11 +146,27 @@ impl SusiAdmin {
             if path.exists() {
                 let content = fs::read_to_string(&path)?;
                 let mut updated = Vec::new();
+                let mut in_frontmatter = false;
+                let mut frontmatter_count = 0;
                 for line in content.lines() {
-                    if line.trim().starts_with("* **Current Engine Version**: `v") {
+                    let trimmed = line.trim();
+                    if trimmed == "---" {
+                        frontmatter_count += 1;
+                        in_frontmatter = frontmatter_count == 1;
+                        updated.push(line.to_string());
+                        continue;
+                    }
+
+                    if in_frontmatter && trimmed.starts_with("version = \"") {
+                        updated.push(format!("version = \"{}\"", version));
+                    } else if !in_frontmatter && trimmed.starts_with("* **Current Engine Version**: `v") {
                         updated.push(format!("* **Current Engine Version**: `v{}`", version));
                     } else {
                         updated.push(line.to_string());
+                    }
+
+                    if frontmatter_count == 2 {
+                        in_frontmatter = false;
                     }
                 }
                 fs::write(&path, updated.join("\n") + "\n")?;
@@ -213,8 +229,9 @@ impl SusiAdmin {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
                 let content = fs::read_to_string(&path)?;
-                let expected_line = format!("* **Current Engine Version**: `v{}`", version);
-                if !content.contains(&expected_line) {
+                let expected_line = format!("version = \"{}\"", version);
+                let expected_legacy = format!("* **Current Engine Version**: `v{}`", version);
+                if !content.contains(&expected_line) && !content.contains(&expected_legacy) {
                     return Err(EaiError::config(format!("{}: version is out of sync with Cargo.toml (v{}). Run 'susi admin sync'.", file_name, version)));
                 }
             }

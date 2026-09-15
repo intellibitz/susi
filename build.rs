@@ -18,9 +18,9 @@ fn main() {
         .and_then(|l| l.split('"').nth(1))
         .expect("Could not find version in Cargo.toml");
 
-    let identity_md = sync_version(".agents/IDENTITY.md", &identity_md_raw, version);
-    let roadmap_md = sync_version(".agents/ROADMAP.md", &roadmap_md_raw, version);
-    let evidence_md = sync_version(".agents/EVIDENCE.md", &evidence_md_raw, version);
+    let identity_md = skip_frontmatter(&sync_version(".agents/IDENTITY.md", &identity_md_raw, version));
+    let roadmap_md = skip_frontmatter(&sync_version(".agents/ROADMAP.md", &roadmap_md_raw, version));
+    let evidence_md = skip_frontmatter(&sync_version(".agents/EVIDENCE.md", &evidence_md_raw, version));
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -316,10 +316,29 @@ fn parse_topology_item(line: &str) -> Option<(String, String, String)> {
 fn sync_version(path: &str, content: &str, version: &str) -> String {
     let mut updated = Vec::new();
     let mut changed = false;
+    let mut in_frontmatter = false;
+    let mut frontmatter_count = 0;
+
     for line in content.lines() {
-        if line.trim().starts_with("* **Current Engine Version**: `v") {
+        let trimmed = line.trim();
+        if trimmed == "---" {
+            frontmatter_count += 1;
+            in_frontmatter = frontmatter_count == 1;
+            updated.push(line.to_string());
+            continue;
+        }
+
+        if in_frontmatter && trimmed.starts_with("version = \"") {
+            let new_line = format!("version = \"{}\"", version);
+            if new_line != trimmed {
+                updated.push(new_line);
+                changed = true;
+            } else {
+                updated.push(line.to_string());
+            }
+        } else if !in_frontmatter && (trimmed.starts_with("* **Current Engine Version**: `v") || trimmed.starts_with("* **Current Engine Version**: v")) {
             let new_line = format!("* **Current Engine Version**: `v{}`", version);
-            if new_line != line.trim() {
+            if new_line != trimmed {
                 updated.push(new_line);
                 changed = true;
             } else {
@@ -328,10 +347,24 @@ fn sync_version(path: &str, content: &str, version: &str) -> String {
         } else {
             updated.push(line.to_string());
         }
+
+        if frontmatter_count == 2 {
+            in_frontmatter = false;
+        }
     }
     let result = updated.join("\n") + "\n";
     if changed {
         fs::write(path, &result).ok();
     }
     result
+}
+
+fn skip_frontmatter(content: &str) -> String {
+    if content.starts_with("---") {
+        let parts: Vec<&str> = content.splitn(3, "---").collect();
+        if parts.len() == 3 {
+            return parts[2].trim_start().to_string();
+        }
+    }
+    content.to_string()
 }

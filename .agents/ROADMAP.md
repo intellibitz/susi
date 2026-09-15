@@ -1,6 +1,12 @@
+---
+schema = "susi/roadmap/v1"
+version = "0.1.2022922"
+strategic_priority = "Federation"
+target_version = "0.2.0"
+---
+
 # SUSI Substrate Roadmap: The Sovereign Will
 
-* **Current Engine Version**: `v0.1.2022921`
 
 This document defines the structural roadmap and future evolution goals of the `susi` substrate.
 

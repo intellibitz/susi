@@ -1,6 +1,12 @@
+---
+schema = "susi/identity/v1"
+version = "0.1.2022922"
+pillars = ["Epistemic", "Operational", "Swarm", "Evolution", "Safety", "Concurrency"]
+topology_tier = 1
+---
+
 # SUSI Substrate Identity: The Sovereign Self
 
-* **Current Engine Version**: `v0.1.2022921`
 
 This document defines the immutable ethical, operational, and structural genome of the `susi` substrate.
 
