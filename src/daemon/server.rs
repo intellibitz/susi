@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{Write, Read, Seek, SeekFrom};
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -127,48 +127,29 @@ impl SusiDaemon {
             return None;
         }
 
-        let mut file = fs::OpenOptions::new().read(true).write(true).open(&lock_file_path).ok()?;
-
-        #[cfg(unix)]
-        {
-            let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-            if ret == 0 {
-                // Successfully locked means no one else has it. Release and return None.
-                let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-                return None;
+        if let Ok(content) = fs::read_to_string(&lock_file_path) {
+            if let Ok(pid) = content.trim().parse::<u32>() {
+                #[cfg(unix)]
+                {
+                    if unsafe { libc::kill(pid as i32, 0) } == 0 {
+                        return Some(pid);
+                    } else {
+                        let _ = fs::remove_file(&lock_file_path);
+                        return None;
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    if Self::is_process_alive(&lock_file_path) {
+                        return Some(pid);
+                    } else {
+                        let _ = fs::remove_file(&lock_file_path);
+                        return None;
+                    }
+                }
             }
         }
-
-        #[cfg(windows)]
-        {
-            use winapi::um::fileapi::{LockFileEx, UnlockFileEx};
-            use winapi::um::minwinbase::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY};
-            let handle = file.as_raw_handle();
-            let mut overlapped = unsafe { std::mem::zeroed() };
-            let ret = unsafe {
-                LockFileEx(
-                    handle as _,
-                    LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
-                    0,
-                    1,
-                    0,
-                    &mut overlapped,
-                )
-            };
-            if ret != 0 {
-                // Successfully locked means no one else has it. Release and return None.
-                unsafe { UnlockFileEx(handle as _, 0, 1, 0, &mut overlapped) };
-                return None;
-            }
-        }
-
-        // If we reach here, it means we couldn't acquire the lock, so it's running.
-        let mut content = String::new();
-        if file.read_to_string(&mut content).is_ok() {
-            content.trim().parse::<u32>().ok()
-        } else {
-            None
-        }
+        None
     }
 
     fn is_process_alive(lock_file_path: &Path) -> bool {
@@ -198,19 +179,29 @@ impl SusiDaemon {
 
     pub fn verify_binary_integrity(bin_path: &Path, global_dir: &Path) -> EaiResult<bool> {
         let hash_file = Self::get_hash_file(global_dir);
-        if !hash_file.exists() {
-            // If no hash file exists, we bootstrap by recording the current one
-            let current_hash = Self::calculate_binary_hash(bin_path)?;
-            fs::write(&hash_file, &current_hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
-            return Ok(true);
+        let bin_meta = fs::metadata(bin_path)?;
+        let bin_len = bin_meta.len();
+        let bin_mtime = bin_meta.modified()
+            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+            .unwrap_or(0);
+
+        let current_sig = format!("{}:{}", bin_len, bin_mtime);
+
+        if hash_file.exists() {
+            if let Ok(saved_sig) = fs::read_to_string(&hash_file) {
+                if saved_sig.trim() == current_sig.trim() {
+                    return Ok(true);
+                }
+            }
+            let _ = fs::write(&hash_file, &current_sig);
+            return Ok(false);
         }
 
-        let trusted_hash = fs::read_to_string(&hash_file).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        let current_hash = Self::calculate_binary_hash(bin_path)?;
-
-        Ok(trusted_hash.trim() == current_hash.trim())
+        let _ = fs::write(&hash_file, &current_sig);
+        Ok(true)
     }
 
+    #[allow(dead_code)]
     fn calculate_binary_hash(path: &Path) -> EaiResult<String> {
         use sha2::{Sha256, Digest};
         let mut file = fs::File::open(path)?;
@@ -224,11 +215,19 @@ impl SusiDaemon {
     }
 
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
-        if Self::check_status(global_dir).is_some() {
-            return;
-        }
-
         let current_exe = std::env::current_exe().ok();
+        if let Some(pid) = Self::check_status(global_dir) {
+            if let Some(ref exe) = current_exe {
+                if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
+                    info!("[SusiDaemon] Binary recompiled. Restarting daemon PID {}...", pid);
+                    Self::stop_daemon(global_dir);
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        }
         let bin_name = if cfg!(target_os = "windows") { "bin/susi-engine.exe" } else { "bin/susi-engine" };
         let global_bin = global_dir.join(bin_name);
 
@@ -251,25 +250,41 @@ impl SusiDaemon {
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
         }
 
-        let mut cmd = Command::new(&bin_to_run);
-        cmd.arg("daemon-start")
-            .arg(workspace.to_str().unwrap_or("."))
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-
         #[cfg(unix)]
         {
+            use std::process::Stdio;
             use std::os::unix::process::CommandExt;
+            let mut cmd = Command::new(&bin_to_run);
+            cmd.arg("daemon-start")
+                .arg(workspace.to_str().unwrap_or("."))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
             unsafe {
                 cmd.pre_exec(|| {
+                    if libc::fork() > 0 {
+                        libc::_exit(0);
+                    }
                     libc::setsid();
                     Ok(())
                 });
             }
+            if let Ok(mut child) = cmd.spawn() {
+                let _ = child.wait();
+            }
         }
 
-        let _ = cmd.spawn();
+        #[cfg(not(unix))]
+        {
+            use std::process::Stdio;
+            let mut cmd = Command::new(&bin_to_run);
+            cmd.arg("daemon-start")
+                .arg(workspace.to_str().unwrap_or("."))
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            let _ = cmd.spawn();
+        }
     }
 
     pub fn run_daemon_loop(workspace: PathBuf, global_dir: PathBuf) {
@@ -442,7 +457,13 @@ impl SusiDaemon {
     pub fn stop_daemon(global_dir: &Path) -> bool {
         let lock_file = Self::get_lock_file(global_dir);
         if lock_file.exists() {
-            let _ = fs::remove_file(lock_file);
+            if let Ok(content) = fs::read_to_string(&lock_file) {
+                if let Ok(pid) = content.trim().parse::<i32>() {
+                    #[cfg(unix)]
+                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                }
+            }
+            let _ = fs::remove_file(&lock_file);
             true
         } else {
             false

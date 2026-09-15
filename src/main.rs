@@ -273,21 +273,7 @@ fn main() {
             }
         }
     } else if !cli.intent.is_empty() {
-        let mut goal = cli.intent.join(" ");
-        #[cfg(unix)]
-        if !io::stdin().is_terminal() {
-            use std::os::unix::io::AsRawFd;
-            let fd = io::stdin().as_raw_fd();
-            let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-            let ret = unsafe { libc::poll(&mut poll_fd, 1, 0) };
-            if ret > 0 && (poll_fd.revents & libc::POLLIN) != 0 {
-                let mut buffer = String::new();
-                if io::stdin().read_to_string(&mut buffer).is_ok() {
-                    let trimmed = buffer.trim();
-                    if !trimmed.is_empty() { goal = format!("{}\n\n[INPUT DATA]:\n{}", goal, trimmed); }
-                }
-            }
-        }
+        let goal = cli.intent.join(" ");
 
         let ama = SusiMasterAgent::new();
         match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
@@ -295,13 +281,13 @@ fn main() {
                 info!("Natural intent ingested successfully: {}", msg);
                 let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                std::process::exit(0);
+                unsafe { libc::_exit(0); }
             }
             Err(e) => {
                 warn!("Natural intent ingestion failed: {}. Falling back to direct swarm solving.", e);
                 let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                std::process::exit(0);
+                unsafe { libc::_exit(0); }
             }
         }
     } else if !io::stdin().is_terminal() {
@@ -310,7 +296,7 @@ fn main() {
                 let ama = SusiMasterAgent::new();
                 let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                std::process::exit(0);
+                unsafe { libc::_exit(0); }
             }
             Ok(None) => (),
             Err(e) => {

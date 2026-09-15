@@ -265,6 +265,8 @@ impl SusiAdmin {
 
         // Fast-Path Reflex for Standard Queries/Motions
         if lower == "identity" || lower == "status" || lower == "models" || lower == "version" ||
+           lower == "ls" || lower.starts_with("ls ") || lower == "dir" ||
+           lower.contains("who am i") || lower.contains("whoami") ||
            lower.starts_with("susi status") || lower.starts_with("susi identity") || lower.starts_with("susi models") {
             return ("[QUERY]", "Zero-Mutation Interrogation");
         }

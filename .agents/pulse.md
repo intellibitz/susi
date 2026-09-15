@@ -6,6 +6,9 @@ This document defines the complete set of validation protocols that anchor the `
 
 ## 1. Pending Failing Pulse
 
+* `145. [ ] **[MISSION]**: find too sweet lyrics, translate to tamil, show side by side`
+* `145. [ ] **[QUERY]**: who am i`
+* `145. [ ] **[MISSION]**: ls`
 * `145. [ ] **[MISSION]**: test pulse intent`
 * `145. [ ] **[MISSION]**: uname -a`
 * `145. [ ] **[MISSION]**: uptime`

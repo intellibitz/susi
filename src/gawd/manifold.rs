@@ -32,7 +32,9 @@ impl IntentManifold {
     pub fn analyze(intent: &str) -> Self {
         let lower = intent.to_lowercase();
 
-        let scope_of_impact = if lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version") {
+        let scope_of_impact = if lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
+            || lower == "ls" || lower.starts_with("ls ") || lower == "dir" || lower.contains("list directory") || lower.contains("list files")
+            || lower.contains("who am i") || lower.contains("whoami") {
             ScopeOfImpact::Read
         } else if lower.contains("write") || lower.contains("save") || lower.contains("edit") || lower.contains("file") {
             ScopeOfImpact::Write

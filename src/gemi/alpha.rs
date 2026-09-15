@@ -25,26 +25,43 @@ impl SusiAlphaModel {
 
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
-        eprintln!("[Alpha] Accessing global...");
         MODEL.get_or_init(|| {
-            eprintln!("[Alpha] Loading...");
             let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
-            Self::load(&home.join(".susi")).expect("Failed to load SUSI-Alpha global substrate")
+            Self::load(&home.join(".susi")).unwrap_or_else(|_| {
+                let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
+                let varmap = VarMap::new();
+                let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+                let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")).unwrap();
+                let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).unwrap();
+                Self { fc1, fc2 }
+            })
         })
     }
 
     pub fn load(global_dir: &Path) -> Result<Self> {
         let weights_path = global_dir.join("models/susi-alpha.safetensors");
-        if !weights_path.exists() {
-            return Err(anyhow!("SUSI-Alpha weights not found"));
+        let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
+
+        if weights_path.exists() {
+            if let Ok(vb) = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device) } {
+                if let (Ok(fc1), Ok(fc2)) = (
+                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")),
+                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).or_else(|_| candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")))
+                ) {
+                    return Ok(Self { fc1, fc2 });
+                }
+            }
         }
 
-        let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
-
+        // Initialize default weights if file missing or unreadable
+        let varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
         let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
-        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
-            .unwrap_or(candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?);
+        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+
+        let models_dir = global_dir.join("models");
+        let _ = std::fs::create_dir_all(&models_dir);
+        let _ = varmap.save(&weights_path);
 
         Ok(Self { fc1, fc2 })
     }

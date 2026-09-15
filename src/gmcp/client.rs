@@ -83,19 +83,26 @@ impl GmcpClient {
             if let Ok(content) = fs::read_to_string(&registry_path) {
                 if let Ok(local_entries) = serde_json::from_str::<Vec<GlobalMcpEntry>>(&content) {
                     if !local_entries.is_empty() {
-                        // Background async refresh (Non-blocking mandate)
-                        let url = cfg.mcp_registry_url.clone();
-                        let reg_p = registry_path.clone();
-                        std::thread::spawn(move || {
-                            if let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_millis(500)).call() {
-                                let mut reader = resp.into_reader();
-                                if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
-                                    if !remote_entries.is_empty() {
-                                        let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+                        // Refresh cache only if older than 24 hours
+                        let is_stale = registry_path.metadata()
+                            .and_then(|m| m.modified())
+                            .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
+                            .unwrap_or(false);
+
+                        if is_stale {
+                            let url = cfg.mcp_registry_url.clone();
+                            let reg_p = registry_path.clone();
+                            std::thread::spawn(move || {
+                                if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(500)).call() {
+                                    let mut reader = resp.into_reader();
+                                    if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
+                                        if !remote_entries.is_empty() {
+                                            let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+                                        }
                                     }
                                 }
-                            }
-                        });
+                            });
+                        }
                         return local_entries;
                     }
                 }
@@ -110,7 +117,7 @@ impl GmcpClient {
         let url = cfg.mcp_registry_url;
         let reg_p = registry_path;
         std::thread::spawn(move || {
-            if let Ok(resp) = ureq::get(&url).timeout(std::time::Duration::from_millis(1000)).call() {
+            if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
                 let mut reader = resp.into_reader();
                 if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
                     if !remote_entries.is_empty() {

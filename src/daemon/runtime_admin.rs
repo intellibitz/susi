@@ -16,10 +16,8 @@ impl SusiRuntimeAdmin {
     pub fn start_administration_cycle(workspace: &Path) {
         let ws = workspace.to_path_buf();
         thread::spawn(move || {
-            let ama = crate::gawd::ama::SusiMasterAgent::new();
             loop {
-                // Mandate: Use Swarm for all runtime mandates
-                let _ = ama.solve_stream("perform full substrate audit, hardware optimization, and evolutionary maintenance", &ws, crate::SUSI_VERSION);
+                let _ = Self::execute_full_audit(&ws);
                 thread::sleep(Duration::from_secs(3600)); // Foundational Audit Every Hour
             }
         });

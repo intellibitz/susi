@@ -62,6 +62,7 @@ impl SusiSupervisor {
                 let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", Self::UDP_DISCOVERY_PORT));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
+                    let _ = socket.set_read_timeout(Some(Duration::from_millis(100)));
 
                     let mut buf = [0u8; 1024];
                     loop {
@@ -77,6 +78,9 @@ impl SusiSupervisor {
                             }
 
                             if msg.starts_with("SUSI_PONG") || msg.starts_with("SUSI_PING") {
+                                 if src.ip().is_loopback() {
+                                     continue; // Skip self/loopback discovery
+                                 }
                                  let parts: Vec<&str> = msg.split(':').collect();
                                  let caps = if parts.len() > 1 {
                                      parts[1].split(',').map(|s| s.to_string()).collect()
@@ -148,7 +152,7 @@ impl SusiSupervisor {
 
         // 3. Active Distributed Swarm Consensus Protocol (Full Integration)
         let cluster_nodes = Self::rank_peers_for_goal(goal);
-        let active_peers_count = cluster_nodes.iter().filter(|n| n.node_id != "susi-local-master" && n.is_active).count();
+        let active_peers_count = cluster_nodes.iter().filter(|n| n.node_id != "susi-local-master" && !n.address.starts_with("127.0.0.1") && !n.address.starts_with("localhost") && n.is_active).count();
         if active_peers_count > 0 {
             println!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
             let _ = std::io::stdout().flush();
@@ -217,7 +221,9 @@ impl SusiSupervisor {
             }
 
             let lower_goal = goal.to_lowercase();
-            let is_query = lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version") || lower_goal.contains("admin");
+            let is_query = lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version") || lower_goal.contains("admin")
+                || lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir"
+                || lower_goal.contains("who am i") || lower_goal.contains("whoami");
             let is_direct_synthesis = is_query || blackboard.contains_key("TranslationAgent") || blackboard.contains_key("SearchAgent");
 
             // Consensus Hardening: Include every model agent response in final results

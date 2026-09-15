@@ -149,6 +149,13 @@ impl SusiMasterAgent {
 
             let final_answer = if lower_goal.contains("identity") {
                 crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+            } else if lower_goal.contains("who am i") || lower_goal.contains("whoami") {
+                let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "unknown_user".into());
+                let host = crate::gemi::hardware::HardwareProfiler::get_profile().hostname;
+                format!("System User Identity: {}@{}\n\nSUSI Substrate Identity:\n{}", user, host, crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions())
+            } else if lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir" || lower_goal.contains("list directory") || lower_goal.contains("list files") {
+                let cmd = if lower_goal.starts_with("ls ") { goal } else { "ls -la" };
+                crate::gmcp::tools::ToolRegistry::execute_tool("exec_command", &serde_json::json!(cmd), workspace)
             } else if lower_goal.contains("version") {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {
