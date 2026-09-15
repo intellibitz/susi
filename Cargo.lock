@@ -6049,7 +6049,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi-engine"
-version = "0.1.2022911"
+version = "0.1.2022912"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -6066,6 +6066,7 @@ dependencies = [
  "dashmap 6.2.1",
  "fastembed",
  "flume",
+ "futures",
  "governor",
  "headless_chrome",
  "hf-hub",
@@ -6102,6 +6103,7 @@ dependencies = [
  "tiny_http",
  "tokenizers",
  "tokio",
+ "tokio-stream",
  "tower-lsp",
  "tracing",
  "tracing-subscriber",

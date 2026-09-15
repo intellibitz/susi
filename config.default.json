@@ -85,7 +85,7 @@
     "install_mission": "admin mission: initialize sandboxed .susi environment and provision weights",
     "uninstall_mission": "admin mission: remove and clean up sandboxed .susi environment",
     "select_model_mission": "admin mission: select and override active model substrate to {}",
-    "deep_scan_mission": "admin mission: perform parallel deep-scan of user home for local models and register them",
+    "deep_scan_mission": "admin mission: perform parallel deep-scan of substrate home for local models and register them",
     "mcp_scout_mission": "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them",
     "audit_mission": "admin mission: perform compliance audit and technical verification",
     "verify_mission": "admin mission: verify version alignment across manifest and documents",

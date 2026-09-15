@@ -1,6 +1,6 @@
 # SUSI Substrate Genome & Constitutional Mandates
 
-* **Current Engine Version**: `v0.1.2022911`
+* **Current Engine Version**: `v0.1.2022912`
 
 This document defines the immutable ethical, operational, and structural guardrails for the `susi` substrate.
 

@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2022912"
+version = "0.1.2022913"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -64,6 +64,8 @@ headless_chrome = "1.0"
 symphonia = "0.5"
 regex = "1.11"
 governor = "0.7"
+futures = "0.3"
+tokio-stream = "0.1"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.8.4" }

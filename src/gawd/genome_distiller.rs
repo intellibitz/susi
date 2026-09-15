@@ -45,17 +45,7 @@ impl GenomeDistiller {
             });
         }
 
-        // 4. Distill AUTONOMY_PROTOCOLS
-        for proto in AlphaSelf::AUTONOMY_PROTOCOLS {
-            samples.push(ReasoningSample {
-                intent: format!("What is autonomy protocol {}?", proto.title),
-                blackboard_context: "susi_autonomy_protocols".to_string(),
-                successful_outcome: format!("Autonomy Protocol {}: {}. Imperative: {}", proto.id, proto.title, proto.imperative),
-                timestamp,
-            });
-        }
-
-        // 5. Distill TOPOLOGY.md Components
+        // 4. Distill TOPOLOGY.md Components
         for comp in AlphaSelf::COMPONENTS {
             samples.push(ReasoningSample {
                 intent: format!("What is the role of {} in the substrate?", comp.name),

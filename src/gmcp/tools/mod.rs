@@ -528,14 +528,12 @@ impl CoreTools {
     pub fn rag_query(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let query = arg.get("query").and_then(|v| v.as_str()).ok_or_else(|| EaiError::protocol("Missing query"))?;
 
-        let model = TextEmbedding::try_new(InitOptions {
-            model_name: EmbeddingModel::BGESmallENV15,
-            show_download_progress: false,
-            ..Default::default()
-        }).map_err(|e| EaiError::intelligence(e.to_string()))?;
+        // Initialize with default options to ensure compilation
+        let model = TextEmbedding::try_new(Default::default())
+            .map_err(|e| EaiError::inference(e.to_string()))?;
 
-        let embeddings = model.embed(vec![query], None).map_err(|e| EaiError::intelligence(e.to_string()))?;
-        let vector = embeddings.get(0).ok_or_else(|| EaiError::intelligence("Embedding failed"))?.clone();
+        let embeddings = model.embed(vec![query], None).map_err(|e| EaiError::inference(e.to_string()))?;
+        let vector = embeddings.get(0).ok_or_else(|| EaiError::inference("Embedding failed"))?.clone();
 
         let rt = tokio::runtime::Runtime::new().map_err(|e| EaiError::process(e.to_string()))?;
         rt.block_on(async {
@@ -586,54 +584,55 @@ impl ToolRegistry {
         })
     }
 
-    fn register_rmcp_tool<F>(
+    fn register_meta_tool<F>(
         registry: &ToolRegistry,
-        tool_attr: rmcp::model::Tool,
+        name: &str,
+        desc: &str,
         category: MetaCategory,
         handler: F,
     ) where
         F: Fn(&serde_json::Value, &Path) -> EaiResult<String> + Send + Sync + 'static,
     {
         let tool = MetaTool {
-            tool_name: tool_attr.name.into_owned(),
-            tool_desc: tool_attr.description.unwrap_or_default().into_owned(),
+            tool_name: name.to_string(),
+            tool_desc: desc.to_string(),
             category,
             handler: Arc::new(handler),
         };
-        registry.tools.insert(tool.tool_name.clone(), Arc::new(tool));
+        registry.tools.insert(name.to_string(), Arc::new(tool));
     }
 
     fn bootstrap(&self) {
-        Self::register_rmcp_tool(self, CoreTools::status_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::status);
-        Self::register_rmcp_tool(self, CoreTools::identity_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::identity);
-        Self::register_rmcp_tool(self, CoreTools::distill_genome_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::distill_genome);
-        Self::register_rmcp_tool(self, CoreTools::self_validate_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::self_validate);
-        Self::register_rmcp_tool(self, CoreTools::list_models_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::list_models);
-        Self::register_rmcp_tool(self, CoreTools::select_model_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::select_model);
-        Self::register_rmcp_tool(self, CoreTools::scout_model_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::scout_model);
-        Self::register_rmcp_tool(self, CoreTools::train_reflexes_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::train_reflexes);
-        Self::register_rmcp_tool(self, CoreTools::read_file_tool_attr(), MetaCategory::WorkspaceIo, CoreTools::read_file);
-        Self::register_rmcp_tool(self, CoreTools::write_file_tool_attr(), MetaCategory::WorkspaceIo, CoreTools::write_file);
-        Self::register_rmcp_tool(self, CoreTools::exec_command_tool_attr(), MetaCategory::WorkspaceIo, CoreTools::exec_command);
-        Self::register_rmcp_tool(self, CoreTools::tasks_list_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::tasks_list);
-        Self::register_rmcp_tool(self, CoreTools::tasks_pause_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::tasks_pause);
-        Self::register_rmcp_tool(self, CoreTools::tasks_resume_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::tasks_resume);
-        Self::register_rmcp_tool(self, CoreTools::tasks_kill_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::tasks_kill);
-        Self::register_rmcp_tool(self, CoreTools::mcp_registry_tool_attr(), MetaCategory::McpProxy, CoreTools::mcp_registry);
-        Self::register_rmcp_tool(self, CoreTools::mcp_configure_tool_attr(), MetaCategory::McpProxy, CoreTools::mcp_configure);
-        Self::register_rmcp_tool(self, CoreTools::agent_register_tool_attr(), MetaCategory::IntelligenceBridge, CoreTools::agent_register);
-        Self::register_rmcp_tool(self, CoreTools::reason_tool_attr(), MetaCategory::SystemPrimitive, CoreTools::reason);
-        Self::register_rmcp_tool(self, CoreTools::power_reason_tool_attr(), MetaCategory::IntelligenceBridge, CoreTools::power_reason);
-        Self::register_rmcp_tool(self, CoreTools::meta_scout_agents_tool_attr(), MetaCategory::IntelligenceBridge, CoreTools::meta_scout_agents);
-        Self::register_rmcp_tool(self, CoreTools::meta_rank_agents_tool_attr(), MetaCategory::IntelligenceBridge, CoreTools::meta_rank_agents);
+        Self::register_meta_tool(self, "status", "SUSI Substrate status report", MetaCategory::SystemPrimitive, CoreTools::status);
+        Self::register_meta_tool(self, "identity", "SUSI substrate identity report", MetaCategory::SystemPrimitive, CoreTools::identity);
+        Self::register_meta_tool(self, "distill_genome", "Distill the hard-compiled genome into the Tier 2 reasoning model", MetaCategory::SystemPrimitive, CoreTools::distill_genome);
+        Self::register_meta_tool(self, "self_validate", "Execute autonomous substrate self-validation", MetaCategory::SystemPrimitive, CoreTools::self_validate);
+        Self::register_meta_tool(self, "list_models", "List available model substrates", MetaCategory::SystemPrimitive, CoreTools::list_models);
+        Self::register_meta_tool(self, "select_model", "Select or override active model substrate", MetaCategory::SystemPrimitive, CoreTools::select_model);
+        Self::register_meta_tool(self, "scout_model", "Scout or install model substrate", MetaCategory::SystemPrimitive, CoreTools::scout_model);
+        Self::register_meta_tool(self, "train_reflexes", "Manually trigger native neural reflex distillation", MetaCategory::SystemPrimitive, CoreTools::train_reflexes);
+        Self::register_meta_tool(self, "read_file", "Read file content in workspace", MetaCategory::WorkspaceIo, CoreTools::read_file);
+        Self::register_meta_tool(self, "write_file", "Write content to workspace file", MetaCategory::WorkspaceIo, CoreTools::write_file);
+        Self::register_meta_tool(self, "exec_command", "Execute command in workspace", MetaCategory::WorkspaceIo, CoreTools::exec_command);
+        Self::register_meta_tool(self, "tasks_list", "List active and historical swarm tasks with liveness telemetry", MetaCategory::SystemPrimitive, CoreTools::tasks_list);
+        Self::register_meta_tool(self, "tasks_pause", "Pause a running task by task_id", MetaCategory::SystemPrimitive, CoreTools::tasks_pause);
+        Self::register_meta_tool(self, "tasks_resume", "Resume a paused task by task_id", MetaCategory::SystemPrimitive, CoreTools::tasks_resume);
+        Self::register_meta_tool(self, "tasks_kill", "Kill a running or stalled task by task_id", MetaCategory::SystemPrimitive, CoreTools::tasks_kill);
+        Self::register_meta_tool(self, "mcp_registry", "Interrogate global MCP registry and benchmark servers", MetaCategory::McpProxy, CoreTools::mcp_registry);
+        Self::register_meta_tool(self, "mcp_configure", "Configure external MCP server", MetaCategory::McpProxy, CoreTools::mcp_configure);
+        Self::register_meta_tool(self, "agent_register", "Dynamically register a new agent profile", MetaCategory::IntelligenceBridge, CoreTools::agent_register);
+        Self::register_meta_tool(self, "reason", "Execute swarm reasoning substrate", MetaCategory::SystemPrimitive, CoreTools::reason);
+        Self::register_meta_tool(self, "power_reason", "Delegate complex reasoning to Power-Tier MCP remotes", MetaCategory::IntelligenceBridge, CoreTools::power_reason);
+        Self::register_meta_tool(self, "meta_scout_agents", "Discover agent capabilities from connected remotes", MetaCategory::IntelligenceBridge, CoreTools::meta_scout_agents);
+        Self::register_meta_tool(self, "meta_rank_agents", "Report current agent expertise hierarchy", MetaCategory::IntelligenceBridge, CoreTools::meta_rank_agents);
 
         // SPECIALIST TOOLBOXES: Type 1 (Coding) & Type 2 (Assistant)
-        Self::register_rmcp_tool(self, CoreTools::ast_analyze_tool_attr(), MetaCategory::CodingSpecialist, CoreTools::ast_analyze);
-        Self::register_rmcp_tool(self, CoreTools::semantic_search_tool_attr(), MetaCategory::CodingSpecialist, CoreTools::semantic_search);
-        Self::register_rmcp_tool(self, CoreTools::sandbox_exec_tool_attr(), MetaCategory::CodingSpecialist, CoreTools::sandbox_exec);
-        Self::register_rmcp_tool(self, CoreTools::browser_automate_tool_attr(), MetaCategory::AssistantSpecialist, CoreTools::browser_automate);
-        Self::register_rmcp_tool(self, CoreTools::rag_query_tool_attr(), MetaCategory::AssistantSpecialist, CoreTools::rag_query);
-        Self::register_rmcp_tool(self, CoreTools::audio_transcribe_tool_attr(), MetaCategory::AssistantSpecialist, CoreTools::audio_transcribe);
+        Self::register_meta_tool(self, "ast_analyze", "Structural AST code analysis via tree-sitter", MetaCategory::CodingSpecialist, CoreTools::ast_analyze);
+        Self::register_meta_tool(self, "semantic_search", "Fast embedded search via tantivy", MetaCategory::CodingSpecialist, CoreTools::semantic_search);
+        Self::register_meta_tool(self, "sandbox_exec", "Isolated Docker execution via bollard", MetaCategory::CodingSpecialist, CoreTools::sandbox_exec);
+        Self::register_meta_tool(self, "browser_automate", "DOM access and web automation via headless_chrome", MetaCategory::AssistantSpecialist, CoreTools::browser_automate);
+        Self::register_meta_tool(self, "rag_query", "Semantic memory retrieval via Qdrant/FastEmbed", MetaCategory::AssistantSpecialist, CoreTools::rag_query);
+        Self::register_meta_tool(self, "audio_transcribe", "Production-grade transcription substrate", MetaCategory::AssistantSpecialist, CoreTools::audio_transcribe);
 
         // DYNAMIC DISCOVERY: Synthesized Native Reflexes (Rule 11)
         crate::gmcp::reflexes::register_synthesized_reflexes(self);

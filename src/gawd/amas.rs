@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use super::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 use crate::gemi::hardware::HardwareProfiler;
 use crate::sandbox::manager::NeuralCheckpoint;
+use crate::error::EaiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AMessage {

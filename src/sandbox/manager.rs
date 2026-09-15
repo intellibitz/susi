@@ -317,7 +317,7 @@ impl SandboxManager {
     pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
         use bollard::Docker;
         use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, LogOutput};
-        use futures_util::stream::StreamExt;
+        use futures::stream::StreamExt;
 
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
@@ -334,7 +334,7 @@ impl SandboxManager {
         docker.start_container(&container.id, None::<StartContainerOptions<String>>).await
             .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
 
-        let mut logs = docker.logs(&container.id, None);
+        let mut logs = docker.logs::<String>(&container.id, None);
         let mut output = String::new();
         while let Some(log) = logs.next().await {
             if let Ok(LogOutput::StdOut { message }) = log {

@@ -14,13 +14,12 @@ use crate::gemi::hardware::HardwareProfiler;
 
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
-use candle_transformers::models::quantized_mixtral as mixtral;
+use candle_transformers::models::quantized_mistral as mixtral;
 use tokenizers::Tokenizer;
 
 pub enum ModelSubstrate {
     Llama(llama::ModelWeights),
     Gemma(llama::ModelWeights),
-    Mixtral(mixtral::ModelWeights),
     Generic(llama::ModelWeights),
 }
 
@@ -131,33 +130,21 @@ impl InferenceHost {
             }
         });
 
+        let weights_result = llama::ModelWeights::from_gguf(model_data, &mut file, device);
+        is_loading.store(false, std::sync::atomic::Ordering::SeqCst); // Stop keep-alive
+
+        let weights = weights_result.map_err(|e| {
+            EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e))
+        })?;
+
+        println!("- [Substrate Operation] Model substrate ready.");
+        let _ = std::io::stdout().flush();
+        pb.finish_and_clear();
+
         let substrate = match arch.as_str() {
-            "mixtral" => {
-                let weights_result = mixtral::ModelWeights::from_gguf(model_data, &mut file, device);
-                is_loading.store(false, std::sync::atomic::Ordering::SeqCst); // Stop keep-alive
-                let weights = weights_result.map_err(|e| {
-                    EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e))
-                })?;
-                println!("- [Substrate Operation] Model substrate ready.");
-                let _ = std::io::stdout().flush();
-                pb.finish_and_clear();
-                ModelSubstrate::Mixtral(weights)
-            }
-            _ => {
-                let weights_result = llama::ModelWeights::from_gguf(model_data, &mut file, device);
-                is_loading.store(false, std::sync::atomic::Ordering::SeqCst); // Stop keep-alive
-                let weights = weights_result.map_err(|e| {
-                    EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e))
-                })?;
-                println!("- [Substrate Operation] Model substrate ready.");
-                let _ = std::io::stdout().flush();
-                pb.finish_and_clear();
-                match arch.as_str() {
-                    "gemma" => ModelSubstrate::Gemma(weights),
-                    "llama" => ModelSubstrate::Llama(weights),
-                    _ => ModelSubstrate::Generic(weights),
-                }
-            }
+            "gemma" => ModelSubstrate::Gemma(weights),
+            "llama" | "mixtral" => ModelSubstrate::Llama(weights),
+            _ => ModelSubstrate::Generic(weights),
         };
 
         let shared = Arc::new(RwLock::new(substrate));
@@ -466,9 +453,6 @@ impl NativeInferenceEngine for SusiGgufEngine {
 
             let logits = match &mut *substrate {
                 ModelSubstrate::Llama(w) | ModelSubstrate::Gemma(w) | ModelSubstrate::Generic(w) => {
-                    w.forward(&input, pos)
-                }
-                ModelSubstrate::Mixtral(w) => {
                     w.forward(&input, pos)
                 }
             }.map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;

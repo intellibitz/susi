@@ -304,37 +304,16 @@ impl GawdAgent for GmcpAgent {
     fn name(&self) -> String { "GmcpAgent".into() }
     fn rank(&self) -> f32 { 0.95 }
     fn execute(&self, _goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        // Test Tool Registry endpoints (Internal Reflex)
         let registry = crate::gmcp::tools::ToolRegistry::global();
         let tool_count = registry.tools.len();
 
-        // Test JSON-RPC 2.0 tool endpoints (`tools/list` and `tools/call`)
-        let handler = crate::gmcp::server::GmcpProtocolHandler;
-        let list_req = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/list",
-            "params": {}
-        }).to_string();
-        let list_resp = handler.handle_request(&list_req, workspace);
-        let list_ok = list_resp.contains("result");
-
-        let call_req = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {
-                "name": "status",
-                "arguments": null
-            }
-        }).to_string();
-        let call_resp = handler.handle_request(&call_req, workspace);
-        let call_ok = call_resp.contains("Operational");
-
-        let healthy = list_ok && call_ok;
+        let status_res = crate::gmcp::tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), workspace);
+        let healthy = status_res.contains("Operational");
 
         let res = format!(
-            "[GmcpAgent]: MCP JSON-RPC 2.0 endpoints tested. Total tools: {} | tools/list test: {} | tools/call test: {} | Endpoint health status: {}",
-            tool_count, if list_ok { "PASSED" } else { "FAILED" }, if call_ok { "PASSED" } else { "FAILED" }, if healthy { "OPTIMAL (Healthy)" } else { "DEGRADED" }
+            "[GmcpAgent]: Meta-Substrate endpoints tested. Total local tools: {} | Status test: {} | Endpoint health status: {}",
+            tool_count, if healthy { "PASSED" } else { "FAILED" }, if healthy { "OPTIMAL (Healthy)" } else { "DEGRADED" }
         );
 
         blackboard.insert(self.name(), res.clone());

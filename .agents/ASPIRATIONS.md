@@ -1,6 +1,6 @@
 # SUSI Architectural Aspirations
 
-* **Current Engine Version**: `v0.1.2022911`
+* **Current Engine Version**: `v0.1.2022912`
 
 This document defines the structural roadmap and future evolution goals of the `susi` substrate.
 
