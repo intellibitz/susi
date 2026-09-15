@@ -172,11 +172,11 @@ impl GemiServer {
                 });
 
                 // Enforce a fluid execution lease (Aspiration 20)
-                let response = rx.recv_timeout(std::time::Duration::from_secs(600)) // 10 minute fluid lease
+                let response = rx.recv_timeout(std::time::Duration::from_secs(30)) // 30 second execution lease
                     .unwrap_or_else(|_| {
                         let payload = json!({
                             "error": "Mission Timeout",
-                            "message": "The intelligence substrate exceeded the 600-second execution lease."
+                            "message": "The intelligence substrate exceeded the 30-second execution lease."
                         }).to_string();
                         Ok(Response::from_string(payload)
                             .with_status_code(504)

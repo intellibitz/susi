@@ -174,7 +174,7 @@ impl SusiMasterAgent {
             println!("- [Auto-Download] {}", cfg.auto_download_models);
             println!("- [Agent Threshold] {}", cfg.agent_rank_threshold);
             println!("- [Cloud Scout Timeout] {}s", cfg.cloud_scout_timeout_secs);
-            println!("- [Execution Lease] 600s (Aspiration 20 Fluid Limit)");
+            println!("- [Execution Lease] 30s (Aspiration 20 Fluid Limit)");
             println!("- [Agent Timeout] 60s (Swarm Flux Guard)");
             println!("- [Max Swarm Agents] {} (Hardware Scaled)", crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents());
 
@@ -229,7 +229,7 @@ impl SusiMasterAgent {
         println!("- [Auto-Download] {}", cfg.auto_download_models);
         println!("- [Agent Threshold] {}", cfg.agent_rank_threshold);
         println!("- [Cloud Scout Timeout] {}s", cfg.cloud_scout_timeout_secs);
-        println!("- [Execution Lease] 600s (Aspiration 20 Fluid Limit)");
+        println!("- [Execution Lease] 30s (Aspiration 20 Fluid Limit)");
         println!("- [Agent Timeout] 60s (Swarm Flux Guard)");
         println!("- [Max Swarm Agents] {} (Hardware Scaled)", crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents());
 
@@ -330,10 +330,15 @@ impl SusiMasterAgent {
         debug!(target: "susi::gawd::ama", mission_goal = %goal, reasoning_prompt = %reasoning_prompt, "Synthesized mission reasoning prompt");
 
         // Aspiration 30: Synchronous Trace (Thinking block contains streaming tokens)
-        let final_answer = crate::gemi::engine::GemiEngine::generate_reasoning_stream(&reasoning_prompt, workspace, &|token| {
-            print!("{}", token);
-            let _ = std::io::stdout().flush();
-        });
+        let final_answer = if !swarm_context.trim().is_empty() && (swarm_context.contains("###") || swarm_context.contains("| English") || swarm_context.contains("CONVERGENCE_SCORE")) {
+            println!("{}", swarm_context);
+            swarm_context
+        } else {
+            crate::gemi::engine::GemiEngine::generate_reasoning_stream(&reasoning_prompt, workspace, &|token| {
+                print!("{}", token);
+                let _ = std::io::stdout().flush();
+            })
+        };
 
         println!("\n- [Substrate Verification] Finalizing epistemic chain...");
         let _ = std::io::stdout().flush();
