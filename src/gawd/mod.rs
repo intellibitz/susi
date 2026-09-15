@@ -18,5 +18,6 @@ pub mod safety;
 pub mod security;
 pub mod self_core;
 pub mod truth;
+pub mod task_manager;
 
 pub use ama::SusiMasterAgent;

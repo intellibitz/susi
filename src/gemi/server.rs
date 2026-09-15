@@ -171,17 +171,14 @@ impl GemiServer {
                     let _ = tx.send(result);
                 });
 
-                // Enforce a fluid execution lease (Aspiration 20)
-                let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-                let lease_secs = cfg.execution_lease_secs;
-                let response = rx.recv_timeout(std::time::Duration::from_secs(lease_secs))
+                let response = rx.recv()
                     .unwrap_or_else(|_| {
                         let payload = json!({
-                            "error": "Mission Timeout",
-                            "message": format!("The intelligence substrate exceeded the {}-second execution lease.", lease_secs)
+                            "error": "Mission Interrupted",
+                            "message": "The intelligence substrate mission was cancelled or failed."
                         }).to_string();
                         Ok(Response::from_string(payload)
-                            .with_status_code(504)
+                            .with_status_code(500)
                             .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap()))
                     });
 

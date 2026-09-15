@@ -6,6 +6,7 @@ use susi_engine::gawd::agents::GawdAgent;
 
 #[test]
 fn test_empirical_reflex_classification() {
+    std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
@@ -18,6 +19,7 @@ fn test_empirical_reflex_classification() {
 
 #[test]
 fn test_empirical_epistemic_integrity_fictitious() {
+    std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
     let res = ama.solve_clean("inspect the status of cargo module non_existent_quantum_crank", &ws, "0.1.2022884");

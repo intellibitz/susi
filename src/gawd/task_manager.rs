@@ -1,0 +1,370 @@
+// SUSI Universal Swarm Task Manager & Empirical Telemetry Watchdog
+// Mandate 11: Hardware-Only Limit - No Artificial Software Timeouts.
+// Mandate 33: Glass Box Transparency & Omni-Trace Task Control.
+
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tracing::warn;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TaskStatus {
+    Running = 0,
+    Paused = 1,
+    Completed = 2,
+    Failed = 3,
+    Stalled = 4,
+    Killed = 5,
+}
+
+impl From<u8> for TaskStatus {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => TaskStatus::Running,
+            1 => TaskStatus::Paused,
+            2 => TaskStatus::Completed,
+            3 => TaskStatus::Failed,
+            4 => TaskStatus::Stalled,
+            5 => TaskStatus::Killed,
+            _ => TaskStatus::Failed,
+        }
+    }
+}
+
+impl Serialize for TaskStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(match self {
+            TaskStatus::Running => "Running",
+            TaskStatus::Paused => "Paused",
+            TaskStatus::Completed => "Completed",
+            TaskStatus::Failed => "Failed",
+            TaskStatus::Stalled => "Stalled",
+            TaskStatus::Killed => "Killed",
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(match s.as_str() {
+            "Running" => TaskStatus::Running,
+            "Paused" => TaskStatus::Paused,
+            "Completed" => TaskStatus::Completed,
+            "Failed" => TaskStatus::Failed,
+            "Stalled" => TaskStatus::Stalled,
+            "Killed" => TaskStatus::Killed,
+            _ => TaskStatus::Failed,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskRecord {
+    pub task_id: String,
+    pub name: String,
+    pub intent: String,
+    pub start_time_secs: u64,
+    pub expected_idle_ms: u64,
+    pub status: Arc<AtomicU8>,
+    pub last_progress_secs: Arc<AtomicU64>,
+    pub progress_count: Arc<AtomicU64>,
+    pub result: Arc<parking_lot::RwLock<Option<String>>>,
+}
+
+impl Serialize for TaskRecord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("TaskRecord", 9)?;
+        state.serialize_field("task_id", &self.task_id)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("intent", &self.intent)?;
+        state.serialize_field("status", &TaskStatus::from(self.status.load(Ordering::Acquire)))?;
+        state.serialize_field("start_time_secs", &self.start_time_secs)?;
+        state.serialize_field("expected_idle_ms", &self.expected_idle_ms)?;
+        state.serialize_field("last_progress_secs", &self.last_progress_secs.load(Ordering::Acquire))?;
+        state.serialize_field("progress_count", &self.progress_count.load(Ordering::Acquire))?;
+        state.serialize_field("result", &*self.result.read())?;
+        state.end()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntentTelemetryProfile {
+    pub intent_category: String,
+    pub sample_count: u64,
+    pub avg_latency_ms: u64,
+    pub p99_idle_interval_ms: u64,
+}
+
+/// Empirical Telemetry History Store ("SUSI Never Trusts Words")
+pub struct TelemetryHistoryStore {
+    profiles: DashMap<String, IntentTelemetryProfile>,
+}
+
+impl TelemetryHistoryStore {
+    pub fn global() -> &'static Self {
+        static STORE: OnceLock<TelemetryHistoryStore> = OnceLock::new();
+        STORE.get_or_init(|| {
+            let store = TelemetryHistoryStore {
+                profiles: DashMap::new(),
+            };
+            store.load_history();
+            store
+        })
+    }
+
+    fn get_history_file() -> PathBuf {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        home.join(".susi/telemetry_history.json")
+    }
+
+    fn load_history(&self) {
+        let file = Self::get_history_file();
+        if file.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&file) {
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, IntentTelemetryProfile>>(&content) {
+                    for (k, v) in map {
+                        self.profiles.insert(k, v);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn save_history(&self) {
+        let file = Self::get_history_file();
+        if let Some(parent) = file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let mut map = std::collections::HashMap::new();
+        for r in self.profiles.iter() {
+            map.insert(r.key().clone(), r.value().clone());
+        }
+        if let Ok(json) = serde_json::to_string_pretty(&map) {
+            let _ = std::fs::write(file, json);
+        }
+    }
+
+    pub fn record_execution_telemetry(&self, category: &str, elapsed_ms: u64, max_observed_idle_ms: u64) {
+        let mut profile = self.profiles.entry(category.to_string()).or_insert_with(|| IntentTelemetryProfile {
+            intent_category: category.to_string(),
+            sample_count: 0,
+            avg_latency_ms: elapsed_ms,
+            p99_idle_interval_ms: max_observed_idle_ms.max(200),
+        });
+
+        profile.sample_count += 1;
+        let count = profile.sample_count;
+        profile.avg_latency_ms = ((profile.avg_latency_ms * (count - 1)) + elapsed_ms) / count;
+        profile.p99_idle_interval_ms = profile.p99_idle_interval_ms.max(max_observed_idle_ms.max(200));
+
+        self.save_history();
+    }
+
+    pub fn get_idle_threshold_ms(&self, category: &str) -> u64 {
+        let norm_cat = category.to_lowercase();
+        if norm_cat.starts_with("ls") || norm_cat == "status" || norm_cat == "whoami" || norm_cat == "version" || norm_cat == "identity" {
+            return self.profiles.get(&norm_cat).map(|p| (p.p99_idle_interval_ms * 3).max(3000)).unwrap_or(5000);
+        }
+        if let Some(profile) = self.profiles.get(&norm_cat) {
+            (profile.p99_idle_interval_ms * 3).max(5000)
+        } else {
+            if norm_cat.contains("build") || norm_cat.contains("test") || norm_cat.contains("install") { 120_000 }
+            else if norm_cat.contains("reason") || norm_cat.contains("inference") { 60_000 }
+            else { 30_000 }
+        }
+    }
+}
+
+pub struct TaskHandle {
+    pub task_id: String,
+    pub cancel_flag: Arc<AtomicBool>,
+    pub pause_flag: Arc<AtomicBool>,
+    pub last_progress_secs: Arc<AtomicU64>,
+    pub progress_count: Arc<AtomicU64>,
+    pub status: Arc<AtomicU8>,
+    pub result: Arc<parking_lot::RwLock<Option<String>>>,
+    pub name: String,
+    start_time: Instant,
+}
+
+impl TaskHandle {
+    pub fn report_progress(&self) {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        self.last_progress_secs.store(now, Ordering::Release);
+        self.progress_count.fetch_add(1, Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_flag.load(Ordering::Acquire)
+    }
+
+    pub fn check_pause(&self) {
+        while self.pause_flag.load(Ordering::Acquire) && !self.is_cancelled() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    pub fn mark_completed(&self, res_text: &str) {
+        self.status.store(TaskStatus::Completed as u8, Ordering::Release);
+        *self.result.write() = Some(res_text.to_string());
+        let elapsed = self.start_time.elapsed().as_millis() as u64;
+        TelemetryHistoryStore::global().record_execution_telemetry(&self.name, elapsed, 100);
+    }
+
+    pub fn mark_failed(&self, err: &str) {
+        self.status.store(TaskStatus::Failed as u8, Ordering::Release);
+        *self.result.write() = Some(err.to_string());
+    }
+}
+
+pub struct SwarmTaskManager {
+    pub tasks: DashMap<String, TaskRecord>,
+    pub cancel_map: DashMap<String, Arc<AtomicBool>>,
+    pub pause_map: DashMap<String, Arc<AtomicBool>>,
+}
+
+impl SwarmTaskManager {
+    pub fn global() -> &'static Self {
+        static MANAGER: OnceLock<SwarmTaskManager> = OnceLock::new();
+        MANAGER.get_or_init(|| {
+            let manager = SwarmTaskManager {
+                tasks: DashMap::new(),
+                cancel_map: DashMap::new(),
+                pause_map: DashMap::new(),
+            };
+            manager.start_watchdog();
+            manager
+        })
+    }
+
+    pub fn register_task(&self, name: &str, intent: &str) -> Arc<TaskHandle> {
+        let task_id = format!("task_{}_{}", SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0), rand_id());
+        let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let idle_threshold = TelemetryHistoryStore::global().get_idle_threshold_ms(intent);
+
+        let status = Arc::new(AtomicU8::new(TaskStatus::Running as u8));
+        let last_progress_secs = Arc::new(AtomicU64::new(now_secs));
+        let progress_count = Arc::new(AtomicU64::new(0));
+        let result = Arc::new(parking_lot::RwLock::new(None));
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let pause_flag = Arc::new(AtomicBool::new(false));
+
+        let record = TaskRecord {
+            task_id: task_id.clone(),
+            name: name.to_string(),
+            intent: intent.to_string(),
+            status: Arc::clone(&status),
+            start_time_secs: now_secs,
+            expected_idle_ms: idle_threshold,
+            last_progress_secs: Arc::clone(&last_progress_secs),
+            progress_count: Arc::clone(&progress_count),
+            result: Arc::clone(&result),
+        };
+
+        self.tasks.insert(task_id.clone(), record);
+        self.cancel_map.insert(task_id.clone(), Arc::clone(&cancel_flag));
+        self.pause_map.insert(task_id.clone(), Arc::clone(&pause_flag));
+
+        Arc::new(TaskHandle {
+            task_id,
+            cancel_flag,
+            pause_flag,
+            last_progress_secs,
+            progress_count,
+            status,
+            result,
+            name: name.to_string(),
+            start_time: Instant::now(),
+        })
+    }
+
+    fn start_watchdog(&self) {
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(Duration::from_millis(1000));
+                let mgr = SwarmTaskManager::global();
+                let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+
+                // Zero-Lock Iteration Phase
+                for r in mgr.tasks.iter() {
+                    let record = r.value();
+                    if record.status.load(Ordering::Acquire) == TaskStatus::Running as u8 {
+                        let last_prog = record.last_progress_secs.load(Ordering::Acquire);
+                        let idle = now_secs.saturating_sub(last_prog);
+                        let thresh = (record.expected_idle_ms / 1000).max(1);
+
+                        if idle > thresh {
+                            // Attempt atomic stall marking
+                            if record.status.compare_exchange(TaskStatus::Running as u8, TaskStatus::Stalled as u8, Ordering::SeqCst, Ordering::Acquire).is_ok() {
+                                warn!("[SwarmWatchdog] Task {} ({}) stalled (idle {}s > thresh {}s)", record.task_id, record.name, idle, thresh);
+                                if let Some(cancel) = mgr.cancel_map.get(&record.task_id) {
+                                    cancel.store(true, Ordering::Release);
+                                }
+                                *record.result.write() = Some(format!("Stalled: {}s idle", idle));
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn list_tasks(&self) -> Vec<TaskRecord> {
+        self.tasks.iter().map(|r| r.value().clone()).collect()
+    }
+
+    pub fn pause_task(&self, task_id: &str) -> bool {
+        if let Some(r) = self.tasks.get(task_id) {
+            r.status.store(TaskStatus::Paused as u8, Ordering::Release);
+            if let Some(p) = self.pause_map.get(task_id) {
+                p.store(true, Ordering::Release);
+            }
+            return true;
+        }
+        false
+    }
+
+    pub fn resume_task(&self, task_id: &str) -> bool {
+        if let Some(r) = self.tasks.get(task_id) {
+            r.status.store(TaskStatus::Running as u8, Ordering::Release);
+            if let Some(p) = self.pause_map.get(task_id) {
+                p.store(false, Ordering::Release);
+            }
+            return true;
+        }
+        false
+    }
+
+    pub fn kill_task(&self, task_id: &str) -> bool {
+        if let Some(r) = self.tasks.get(task_id) {
+            r.status.store(TaskStatus::Killed as u8, Ordering::Release);
+            if let Some(c) = self.cancel_map.get(task_id) {
+                c.store(true, Ordering::Release);
+            }
+            *r.result.write() = Some("Killed by user".to_string());
+            return true;
+        }
+        false
+    }
+}
+
+fn rand_id() -> u32 {
+    (SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) % 100000) as u32
+}

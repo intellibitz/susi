@@ -202,28 +202,102 @@ impl ToolRegistry {
             let clean = arg_s.trim();
             if clean.is_empty() { return Err(EaiError::protocol("Usage: exec_command <cmd>")); }
 
+            let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task("exec_command", clean);
+
             let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
-            if args.is_empty() { return Err(EaiError::protocol("Command cannot be empty")); }
+            if args.is_empty() {
+                task_handle.mark_failed("Command cannot be empty");
+                return Err(EaiError::protocol("Command cannot be empty"));
+            }
 
             println!("- [Substrate Operation] Executing: {}", clean);
             let _ = std::io::stdout().flush();
+            task_handle.report_progress();
 
             // Set GIT_TERMINAL_PROMPT=0 to prevent interactive hangs (Aspiration 28 Transparency)
-            let out = Command::new(&args[0])
+            let mut child = Command::new(&args[0])
                 .args(&args[1..])
                 .env("GIT_TERMINAL_PROMPT", "0")
                 .current_dir(workspace)
-                .output()
-                .map_err(|e| EaiError::process(format!("Exec failed: {}", e)))?;
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| {
+                    task_handle.mark_failed(&format!("Exec spawn failed: {}", e));
+                    EaiError::process(format!("Exec failed: {}", e))
+                })?;
 
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+            let mut stdout = child.stdout.take();
+            let mut stderr = child.stderr.take();
 
-            if !out.status.success() {
-                let err_msg = if stderr.is_empty() { "Command failed with zero output (potential hang/kill)".to_string() } else { stderr };
-                Err(EaiError::process(err_msg))
+            let mut stdout_buf = Vec::new();
+            let mut stderr_buf = Vec::new();
+
+            loop {
+                task_handle.check_pause();
+                if task_handle.is_cancelled() {
+                    let _ = child.kill();
+                    task_handle.mark_failed("Task cancelled or stalled");
+                    return Err(EaiError::process("Execution killed due to stall or cancel request".to_string()));
+                }
+
+                if let Ok(Some(status)) = child.try_wait() {
+                    if let Some(mut reader) = stdout.take() {
+                        use std::io::Read;
+                        let _ = reader.read_to_end(&mut stdout_buf);
+                    }
+                    if let Some(mut reader) = stderr.take() {
+                        use std::io::Read;
+                        let _ = reader.read_to_end(&mut stderr_buf);
+                    }
+
+                    let stdout_str = String::from_utf8_lossy(&stdout_buf).to_string();
+                    let stderr_str = String::from_utf8_lossy(&stderr_buf).to_string();
+
+                    if !status.success() {
+                        let err_msg = if stderr_str.is_empty() { "Command failed with non-zero exit status".to_string() } else { stderr_str };
+                        task_handle.mark_failed(&err_msg);
+                        return Err(EaiError::process(err_msg));
+                    } else {
+                        task_handle.mark_completed(&stdout_str);
+                        return Ok(stdout_str);
+                    }
+                }
+
+                task_handle.report_progress();
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        });
+
+        Self::register_meta_tool(self, "tasks_list", "List active and historical swarm tasks with liveness telemetry", MetaCategory::SystemPrimitive, |_arg, _ws| {
+            let tasks = crate::gawd::task_manager::SwarmTaskManager::global().list_tasks();
+            serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
+        });
+
+        Self::register_meta_tool(self, "tasks_pause", "Pause a running task by task_id", MetaCategory::SystemPrimitive, |arg, _ws| {
+            let id = arg.get("task_id").and_then(|v| v.as_str()).or_else(|| arg.as_str()).unwrap_or("").trim();
+            if crate::gawd::task_manager::SwarmTaskManager::global().pause_task(id) {
+                Ok(format!("Task '{}' paused.", id))
             } else {
-                Ok(stdout)
+                Err(EaiError::protocol(format!("Task '{}' not found.", id)))
+            }
+        });
+
+        Self::register_meta_tool(self, "tasks_resume", "Resume a paused task by task_id", MetaCategory::SystemPrimitive, |arg, _ws| {
+            let id = arg.get("task_id").and_then(|v| v.as_str()).or_else(|| arg.as_str()).unwrap_or("").trim();
+            if crate::gawd::task_manager::SwarmTaskManager::global().resume_task(id) {
+                Ok(format!("Task '{}' resumed.", id))
+            } else {
+                Err(EaiError::protocol(format!("Task '{}' not found.", id)))
+            }
+        });
+
+        Self::register_meta_tool(self, "tasks_kill", "Kill a running or stalled task by task_id", MetaCategory::SystemPrimitive, |arg, _ws| {
+            let id = arg.get("task_id").and_then(|v| v.as_str()).or_else(|| arg.as_str()).unwrap_or("").trim();
+            if crate::gawd::task_manager::SwarmTaskManager::global().kill_task(id) {
+                Ok(format!("Task '{}' killed.", id))
+            } else {
+                Err(EaiError::protocol(format!("Task '{}' not found.", id)))
             }
         });
 

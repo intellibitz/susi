@@ -321,11 +321,23 @@ impl ModelManager {
     }
 
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
+        static MODEL_SCAN_CACHE: once_cell::sync::Lazy<parking_lot::RwLock<Option<(std::time::Instant, Vec<ModelInfo>)>>> =
+            once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
+
+        {
+            let cache = MODEL_SCAN_CACHE.read();
+            if let Some((ts, ref list)) = *cache {
+                if ts.elapsed().as_secs() < 60 {
+                    return list.clone();
+                }
+            }
+        }
+
         let mut discovered = Vec::new();
         let mut visited = std::collections::HashSet::new();
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let global_dir = home.join(".susi");
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         if workspace.is_dir() { Self::recursive_scan_model_dir(workspace, &mut discovered, &mut visited, 0); }
         let global_models_dir = global_dir.join("models");
@@ -336,6 +348,12 @@ impl ModelManager {
         }
         discovered.sort_by(|a, b| a.model_id.cmp(&b.model_id));
         discovered.dedup_by(|a, b| a.model_id == b.model_id);
+
+        {
+            let mut cache = MODEL_SCAN_CACHE.write();
+            *cache = Some((std::time::Instant::now(), discovered.clone()));
+        }
+
         discovered
     }
 
@@ -502,30 +520,48 @@ impl ModelManager {
 
                     match fs::File::create(&dest_path) {
                         Ok(mut file) => {
-                            let mut source = pb.wrap_read(resp.into_reader());
-                            match std::io::copy(&mut source, &mut file) {
-                                Ok(_) => {
-                                    pb.finish_with_message("Download complete");
-                                    // 1. Download Verification (Rule 31 Hardening)
-                                    let actual_checksum = Self::calculate_simple_checksum(&dest_path).unwrap_or_default();
-
-                                    // 2. Track Provenance
-                                    let provenance = ModelProvenance {
-                                        source_url: target.to_string(),
-                                        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
-                                        original_checksum: Some(actual_checksum.clone()),
-                                    };
-
-                                    let prov_file = dest_path.with_extension("provenance.json");
-                                    let _ = fs::write(&prov_file, serde_json::to_string_pretty(&provenance).unwrap_or_default());
-
-                                    Self::save_download_progress(target, expected_bytes, expected_bytes, "COMPLETED");
-                                    return format!("SUCCESS: Downloaded to {}. Checksum: {}", dest_path.display(), actual_checksum);
+                            let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task("install_model", query_or_url);
+                            use std::io::Read;
+                            let mut buffer = [0u8; 65536]; // 64KB chunks
+                            let mut reader = pb.wrap_read(resp.into_reader());
+                            loop {
+                                task_handle.check_pause();
+                                if task_handle.is_cancelled() {
+                                    let _ = fs::remove_file(&dest_path);
+                                    return format!("ERROR: Download cancelled by Swarm Watchdog.");
                                 }
-                                Err(e) => return format!("ERROR: Copy failed: {}", e),
+                                let n = match reader.read(&mut buffer) {
+                                    Ok(n) => n,
+                                    Err(e) => return format!("ERROR: Read failed: {}", e),
+                                };
+                                if n == 0 { break; }
+                                if let Err(e) = std::io::Write::write_all(&mut file, &buffer[..n]) {
+                                    return format!("ERROR: Write failed: {}", e);
+                                }
+                                task_handle.report_progress();
                             }
+                            pb.finish_with_message("Download complete");
+                            // 1. Download Verification (Rule 31 Hardening)
+                            let actual_checksum = Self::calculate_simple_checksum(&dest_path).unwrap_or_default();
+
+                            // 2. Track Provenance
+                            let provenance = ModelProvenance {
+                                source_url: target.to_string(),
+                                timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs(),
+                                original_checksum: Some(actual_checksum.clone()),
+                            };
+
+                            let prov_file = dest_path.with_extension("provenance.json");
+                            let _ = fs::write(&prov_file, serde_json::to_string_pretty(&provenance).unwrap_or_default());
+
+                            Self::save_download_progress(target, expected_bytes, expected_bytes, "COMPLETED");
+                            task_handle.mark_completed("Download complete");
+                            return format!("SUCCESS: Downloaded to {}. Checksum: {}", dest_path.display(), actual_checksum);
                         }
-                        Err(e) => return format!("ERROR: File create failed: {}", e),
+                        Err(e) => {
+                            // Can't mark failed here because task_handle is not in scope, just return error
+                            return format!("ERROR: File create failed: {}", e);
+                        }
                     }
                 }
                 Err(e) => return format!("ERROR: HTTP Request failed: {}", e),

@@ -179,12 +179,15 @@ impl HardwareProfiler {
         // Zero-Lock Device Cache (Aspiration 24 & Sub-2ms Mandate)
         static DEVICE_CACHE: OnceLock<Device> = OnceLock::new();
         DEVICE_CACHE.get_or_init(|| {
-            // Attempt CUDA initialization with panic safety
-            let cuda_attempt = std::panic::catch_unwind(|| {
-                Device::new_cuda(0)
-            });
-            if let Ok(Ok(cuda_dev)) = cuda_attempt {
-                return cuda_dev;
+            #[cfg(feature = "cuda")]
+            {
+                // Attempt CUDA initialization with panic safety
+                let cuda_attempt = std::panic::catch_unwind(|| {
+                    Device::new_cuda(0)
+                });
+                if let Ok(Ok(cuda_dev)) = cuda_attempt {
+                    return cuda_dev;
+                }
             }
 
             // Attempt Metal initialization with panic safety

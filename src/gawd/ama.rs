@@ -98,7 +98,6 @@ impl SusiMasterAgent {
 
     pub fn solve_stream(&self, goal: &str, workspace: &Path, version: &str) -> String {
         use std::io::Write;
-        use crate::gawd::amas::SusiSupervisor;
 
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let (engine_type, active_model_id) = crate::gemi::models::ModelManager::get_active_engine_and_model();
@@ -141,11 +140,6 @@ impl SusiMasterAgent {
 
         if manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read {
             println!("\n[INTENT MANIFOLD ROUTING: READ (Risk: {:?})]", manifold.risk_profile);
-            let (interactions, agents) = SusiSupervisor::supervise_mission(goal, workspace);
-
-            for msg in &interactions {
-                println!("- [Swarm Flux] {}: {}", msg.sender, msg.payload.chars().take(100).collect::<String>());
-            }
 
             let final_answer = if lower_goal.contains("identity") {
                 crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
@@ -160,9 +154,15 @@ impl SusiMasterAgent {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {
                 format!("SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB", hw.cpu_brand, hw.ram_gb)
-            } else {
+            } else if lower_goal.contains("models") {
                 let models = crate::gemi::models::ModelManager::list_models(workspace);
-                format!("Models Roster: {} discovered.", models.len())
+                let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
+                for m in &models {
+                    out.push_str(&format!("- [{}] {} ({})\n", if m.is_local { "LOCAL" } else { "CLOUD" }, m.name, m.model_id));
+                }
+                out
+            } else {
+                format!("Administrative query result for goal: {}", goal)
             };
 
             println!("\n[SUBSTRATE CONFIGURATION & LIMITS]");
@@ -174,16 +174,15 @@ impl SusiMasterAgent {
             println!("- [Auto-Download] {}", cfg.auto_download_models);
             println!("- [Agent Threshold] {}", cfg.agent_rank_threshold);
             println!("- [Cloud Scout Timeout] {}s", cfg.cloud_scout_timeout_secs);
-            println!("- [Execution Lease] 30s (Aspiration 20 Fluid Limit)");
-            println!("- [Agent Timeout] 60s (Swarm Flux Guard)");
+            println!("- [Execution Lease] UNLIMITED (Fast-Path Read)");
             println!("- [Max Swarm Agents] {} (Hardware Scaled)", crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents());
 
             println!("\n[FAST-PATH COMPLETE]");
             let report = SusiMissionReport {
                 goal: goal.to_string(),
                 status: "SUCCESS".to_string(),
-                agents: agents.clone(),
-                interactions,
+                agents: Vec::new(),
+                interactions: Vec::new(),
                 final_answer,
             };
             drop(_guard);

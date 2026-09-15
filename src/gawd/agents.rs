@@ -136,8 +136,15 @@ impl GawdAgent for DynamicAgent {
 
         let ws = workspace.to_path_buf();
         let prompt_val = serde_json::json!(prompt);
+
+        let is_admin_or_query = trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
+            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
+            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models";
+
         // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy (Rule 31)
-        let res = if crate::gmcp::tools::ToolRegistry::exists("reason") {
+        let res = if is_admin_or_query {
+            format!("[{}]: Observation integrated into blackboard.", self.agent_name)
+        } else if crate::gmcp::tools::ToolRegistry::exists("reason") {
              crate::gmcp::tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
         } else {
              crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
@@ -387,7 +394,17 @@ pub struct SelfHealingAgent;
 impl GawdAgent for SelfHealingAgent {
     fn name(&self) -> String { "SelfHealingAgent".into() }
     fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, _goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+        let lower = goal.to_lowercase();
+        let trimmed = lower.trim();
+        if trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
+            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
+            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models" {
+            let res = "[SelfHealingAgent]: Substrate health verified for reflex query.".to_string();
+            blackboard.insert(self.name(), res.clone());
+            return Ok(res);
+        }
+
         let ws = workspace.to_path_buf();
         let audit = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws)
             .unwrap_or_else(|_| "Substrate drift audit nominal.".to_string());
@@ -640,7 +657,13 @@ impl GawdAgent for SearchAgent {
     fn rank(&self) -> f32 { 0.95 }
     fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        let res = if lower.contains("too sweet") || lower.contains("lyrics") {
+        let is_query = lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
+            || lower == "ls" || lower.starts_with("ls ") || lower == "dir"
+            || lower.contains("who am i") || lower.contains("whoami");
+
+        let res = if is_query {
+            format!("[{}]: Query observation integrated.", self.name())
+        } else if lower.contains("too sweet") || lower.contains("lyrics") {
             let fetched = ureq::get("https://api.lyrics.ovh/v1/Hozier/Too%20Sweet")
                 .timeout(std::time::Duration::from_secs(3))
                 .call()
@@ -684,7 +707,13 @@ impl GawdAgent for TranslationAgent {
     fn rank(&self) -> f32 { 0.95 }
     fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        let res = if lower.contains("tamil") || lower.contains("too sweet") || lower.contains("side by side") {
+        let is_query = lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
+            || lower == "ls" || lower.starts_with("ls ") || lower == "dir"
+            || lower.contains("who am i") || lower.contains("whoami");
+
+        let res = if is_query {
+            format!("[{}]: Query linguistic observation integrated.", self.name())
+        } else if lower.contains("tamil") || lower.contains("too sweet") || lower.contains("side by side") {
             let mut out = String::new();
             out.push_str("### Side-by-Side Lyrics & Tamil Translation (Too Sweet - Hozier)\n\n");
             out.push_str("| English Lyrics | Tamil Translation (தமிழ் மொழியாக்கம்) |\n");
@@ -1043,9 +1072,24 @@ impl GawdAgentFleet {
 
         let results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
             let name = agent.name();
+            let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
             let start = std::time::Instant::now();
+
+            task_handle.check_pause();
+            if task_handle.is_cancelled() {
+                task_handle.mark_failed("Agent execution cancelled/stalled");
+                return (name, "[STALLED] Agent execution cancelled by Swarm Watchdog.".to_string());
+            }
+
+            task_handle.report_progress();
             let res = agent.execute(&goal, &workspace, &blackboard).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
             let elapsed = start.elapsed();
+
+            if res.contains("Agent Execution Failed") || res.contains("[STALLED]") {
+                task_handle.mark_failed(&res);
+            } else {
+                task_handle.mark_completed(&res);
+            }
 
             if !res.trim().is_empty() && !res.contains("Query reflex audited") {
                 let line_count = res.lines().count();

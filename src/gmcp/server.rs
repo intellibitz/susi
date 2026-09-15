@@ -72,16 +72,12 @@ impl GmcpServer {
                             let _ = tx.send(response_json);
                         });
 
-                        // Enforce a fluid execution lease (Aspiration 20)
-                        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-                        let lease_secs = cfg.execution_lease_secs;
-                        let response_json = rx.recv_timeout(std::time::Duration::from_secs(lease_secs))
-                            .unwrap_or_else(|_| {
-                                json!({
-                                    "jsonrpc": "2.0",
-                                    "error": { "code": -32000, "message": format!("Mission Timeout: Substrate saturation exceeded {}s lease.", lease_secs) }
-                                }).to_string()
-                            });
+                        let response_json = rx.recv().unwrap_or_else(|_| {
+                            json!({
+                                "jsonrpc": "2.0",
+                                "error": { "code": -32000, "message": "Mission Interrupted: Task cancelled or failed." }
+                            }).to_string()
+                        });
 
                         let response = Response::from_string(response_json)
                             .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
@@ -167,6 +163,44 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": "RELEASED"
+                }).to_string()
+            }
+            Some("tasks/list") => {
+                let tasks = crate::gawd::task_manager::SwarmTaskManager::global().list_tasks();
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": { "tasks": tasks }
+                }).to_string()
+            }
+            Some("tasks/pause") => {
+                let arg = extract_tool_val(line).unwrap_or(json!(null));
+                let task_id = if let Some(s) = arg.as_str() { s } else { arg.get("task_id").and_then(|v| v.as_str()).unwrap_or("") };
+                let success = crate::gawd::task_manager::SwarmTaskManager::global().pause_task(task_id);
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": if success { "PAUSED" } else { "NOT_FOUND" }
+                }).to_string()
+            }
+            Some("tasks/resume") => {
+                let arg = extract_tool_val(line).unwrap_or(json!(null));
+                let task_id = if let Some(s) = arg.as_str() { s } else { arg.get("task_id").and_then(|v| v.as_str()).unwrap_or("") };
+                let success = crate::gawd::task_manager::SwarmTaskManager::global().resume_task(task_id);
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": if success { "RESUMED" } else { "NOT_FOUND" }
+                }).to_string()
+            }
+            Some("tasks/kill") => {
+                let arg = extract_tool_val(line).unwrap_or(json!(null));
+                let task_id = if let Some(s) = arg.as_str() { s } else { arg.get("task_id").and_then(|v| v.as_str()).unwrap_or("") };
+                let success = crate::gawd::task_manager::SwarmTaskManager::global().kill_task(task_id);
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": if success { "KILLED" } else { "NOT_FOUND" }
                 }).to_string()
             }
             Some("tools/call") => {

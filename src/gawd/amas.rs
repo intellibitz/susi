@@ -81,8 +81,8 @@ impl SusiSupervisor {
                             }
 
                             if msg.starts_with("SUSI_PONG") || msg.starts_with("SUSI_PING") {
-                                 if src.ip().is_loopback() {
-                                     continue; // Skip self/loopback discovery
+                                 if src.ip().is_loopback() || std::net::TcpListener::bind((src.ip(), 0)).is_ok() {
+                                     continue; // Skip self/local interface discovery
                                  }
                                  let parts: Vec<&str> = msg.split(':').collect();
                                  let caps = if parts.len() > 1 {
@@ -191,7 +191,12 @@ impl SusiSupervisor {
         }
 
         // 4.1 Reactive Swarm Reinforcement (Tier 1 Hardening)
-        if has_gap {
+        let lower_goal = goal.to_lowercase();
+        let is_query_or_read = lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version")
+            || lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir"
+            || lower_goal.contains("who am i") || lower_goal.contains("whoami");
+
+        if has_gap && !is_query_or_read {
             eprintln!("[Swarm Supervisor] Capability gap detected. Dispatching Reinforcement Wave...");
             let reinforcement_goal = format!("REINFORCE_MISSION: {}\n[PREVIOUS_FAILURES]: {:?}", goal, a2a_logs);
             let extra_swarm = GawdAgentFleet::dispatch_explosive_swarm(reinforcement_goal, workspace.to_path_buf(), Arc::clone(&blackboard));
