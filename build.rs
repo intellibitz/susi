@@ -6,25 +6,21 @@ fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
 
-    let agents_md_raw = fs::read_to_string(".agents/AGENTS.md").expect("Missing AGENTS.md");
-    let aspirations_md_raw = fs::read_to_string(".agents/ASPIRATIONS.md").expect("Missing ASPIRATIONS.md");
-    let build_md_raw = fs::read_to_string(".agents/BUILD.md").expect("Missing BUILD.md");
-    let pulse_md_raw = fs::read_to_string(".agents/pulse.md").expect("Missing pulse.md");
-    let topology_md_raw = fs::read_to_string(".agents/TOPOLOGY.md").expect("Missing TOPOLOGY.md");
+    let genome_md_raw = fs::read_to_string(".agents/GENOME.md").expect("Missing GENOME.md");
+    let roadmap_md_raw = fs::read_to_string(".agents/ROADMAP.md").expect("Missing ROADMAP.md");
+    let pulse_md_raw = fs::read_to_string(".agents/PULSE.md").expect("Missing PULSE.md");
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
-    // SUSI Version Synchronization Hook (Aspiration 1)
+    // SUSI Version Synchronization Hook
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");
     let version = cargo_toml.lines()
         .find(|l| l.trim().starts_with("version = \""))
         .and_then(|l| l.split('"').nth(1))
         .expect("Could not find version in Cargo.toml");
 
-    let agents_md = sync_version(".agents/AGENTS.md", &agents_md_raw, version);
-    let aspirations_md = sync_version(".agents/ASPIRATIONS.md", &aspirations_md_raw, version);
-    let build_md = sync_version(".agents/BUILD.md", &build_md_raw, version);
-    let pulse_md = sync_version(".agents/pulse.md", &pulse_md_raw, version);
-    let topology_md = sync_version(".agents/TOPOLOGY.md", &topology_md_raw, version);
+    let genome_md = sync_version(".agents/GENOME.md", &genome_md_raw, version);
+    let roadmap_md = sync_version(".agents/ROADMAP.md", &roadmap_md_raw, version);
+    let pulse_md = sync_version(".agents/PULSE.md", &pulse_md_raw, version);
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -44,20 +40,29 @@ fn main() {
 
     let mut generated_code = String::new();
 
-    // 1. AGENTS.md -> GEN_AGENT_RULES (1-49)
+    // 1. GENOME.md (Constitutional Mandates) -> GEN_AGENT_RULES (1-49)
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
-    for line in agents_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+    let mut active_section = "";
+    for line in genome_md.lines() {
+        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
+        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
+        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+
+        if active_section == "constitutional" {
+            if let Some(rule) = parse_list_item(line) {
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+            }
         }
     }
     generated_code.push_str("];\n\n");
 
-    // 2. ASPIRATIONS.md -> GEN_ENGINE_AXIOMS (50-99)
+    // 2. ROADMAP.md -> GEN_ENGINE_AXIOMS (50-99)
     generated_code.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
     let mut current_id = None;
     let mut current_title = None;
-    for line in aspirations_md.lines() {
+    for line in roadmap_md.lines() {
         if line.starts_with("### [Aspiration") {
             if let Some(caps) = parse_aspiration_header(line) {
                 current_id = Some(caps.0);
@@ -73,16 +78,25 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 3. BUILD.md -> GEN_DEPLOYMENT_RULES (100-149)
+    // 3. GENOME.md (Build & Deployment Protocols) -> GEN_DEPLOYMENT_RULES (100-149)
     generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
-    for line in build_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+    active_section = "";
+    for line in genome_md.lines() {
+        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
+        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
+        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+
+        if active_section == "build" {
+            if let Some(rule) = parse_list_item(line) {
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+            }
         }
     }
     generated_code.push_str("];\n\n");
 
-    // 5. pulse.md -> GEN_PULSE_AXIOMS (150-299)
+    // 5. PULSE.md -> GEN_PULSE_AXIOMS (150-299)
     generated_code.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
     for line in pulse_md.lines() {
         if let Some(rule) = parse_list_item(line) {
@@ -91,7 +105,7 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 8. TOPOLOGY.md -> Pillar-based Components
+    // 8. GENOME.md -> Pillar-based Components
     let mut current_pillar = "";
     generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut agents = String::from("pub const GEN_AGENT_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -100,16 +114,16 @@ fn main() {
     let mut mcps = String::from("pub const GEN_MCP_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut realized = String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
-    for line in topology_md.lines() {
-        if line.starts_with("## 1. Agent of Agents") { current_pillar = "aoa"; }
-        else if line.starts_with("## 2. Agents") { current_pillar = "agents"; }
-        else if line.starts_with("## 3. Engines") { current_pillar = "engines"; }
-        else if line.starts_with("## 4. Models") { current_pillar = "models"; }
-        else if line.starts_with("## 5. MCPs") { current_pillar = "mcps"; }
-        else if line.starts_with("## 6. Realized Architectural Capabilities") { current_pillar = "realized"; }
-        else if line.starts_with("## 7. Operational Workflow") { current_pillar = "workflow"; }
+    for line in genome_md.lines() {
+        if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
+        else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
+        else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
+        else if line.starts_with("### 2.4 Models") { current_pillar = "models"; }
+        else if line.starts_with("### 2.5 MCPs") { current_pillar = "mcps"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { current_pillar = "realized"; }
+        else if line.starts_with("## 4. Operational Workflow") { current_pillar = "workflow"; }
 
-        if current_pillar != "workflow" {
+        if current_pillar != "workflow" && current_pillar != "" {
             if let Some(comp) = parse_topology_item(line) {
                 let tier = match comp.2.as_str() {
                     "0" => "SusiCoreTier::Tier0Reflex",
@@ -144,16 +158,16 @@ fn main() {
     // Combined COMPONENTS for legacy support
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
     current_pillar = "";
-    for line in topology_md.lines() {
-        if line.starts_with("## 1. Agent of Agents") { current_pillar = "aoa"; }
-        else if line.starts_with("## 2. Agents") { current_pillar = "agents"; }
-        else if line.starts_with("## 3. Engines") { current_pillar = "engines"; }
-        else if line.starts_with("## 4. Models") { current_pillar = "models"; }
-        else if line.starts_with("## 5. MCPs") { current_pillar = "mcps"; }
-        else if line.starts_with("## 6. Realized Architectural Capabilities") { current_pillar = "realized"; }
-        else if line.starts_with("## 7. Operational Workflow") { current_pillar = "workflow"; }
+    for line in genome_md.lines() {
+        if line.starts_with("### 2.1 Agent of Agents") { current_pillar = "aoa"; }
+        else if line.starts_with("### 2.2 Agents") { current_pillar = "agents"; }
+        else if line.starts_with("### 2.3 Engines") { current_pillar = "engines"; }
+        else if line.starts_with("### 2.4 Models") { current_pillar = "models"; }
+        else if line.starts_with("### 2.5 MCPs") { current_pillar = "mcps"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { current_pillar = "realized"; }
+        else if line.starts_with("## 4. Operational Workflow") { current_pillar = "workflow"; }
 
-        if current_pillar != "workflow" {
+        if current_pillar != "workflow" && current_pillar != "" {
             if let Some(comp) = parse_topology_item(line) {
                 let tier = match comp.2.as_str() {
                     "0" => "SusiCoreTier::Tier0Reflex",
@@ -168,14 +182,23 @@ fn main() {
 
     // 9. Unified RULES List
     generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
-    for line in agents_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+    active_section = "";
+    for line in genome_md.lines() {
+        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
+        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
+        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+
+        if active_section == "constitutional" {
+            if let Some(rule) = parse_list_item(line) {
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+            }
         }
     }
     let mut current_id = None;
     let mut current_title = None;
-    for line in aspirations_md.lines() {
+    for line in roadmap_md.lines() {
         if line.starts_with("### [Aspiration") {
             if let Some(caps) = parse_aspiration_header(line) {
                 current_id = Some(caps.0);
@@ -189,9 +212,18 @@ fn main() {
             }
         }
     }
-    for line in build_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+    active_section = "";
+    for line in genome_md.lines() {
+        if line.starts_with("## 1. Constitutional Mandates") { active_section = "constitutional"; }
+        else if line.starts_with("## 2. Substrate Topology") { active_section = "topology"; }
+        else if line.starts_with("## 3. Realized Architectural Capabilities") { active_section = "topology"; }
+        else if line.starts_with("## 4. Operational Workflow") { active_section = "topology"; }
+        else if line.starts_with("## 5. Build & Deployment Protocols") { active_section = "build"; }
+
+        if active_section == "build" {
+            if let Some(rule) = parse_list_item(line) {
+                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+            }
         }
     }
     for line in pulse_md.lines() {
@@ -203,11 +235,9 @@ fn main() {
 
     fs::write(&dest_path, generated_code).unwrap();
 
-    println!("cargo:rerun-if-changed=.agents/AGENTS.md");
-    println!("cargo:rerun-if-changed=.agents/ASPIRATIONS.md");
-    println!("cargo:rerun-if-changed=.agents/BUILD.md");
-    println!("cargo:rerun-if-changed=.agents/pulse.md");
-    println!("cargo:rerun-if-changed=.agents/TOPOLOGY.md");
+    println!("cargo:rerun-if-changed=.agents/GENOME.md");
+    println!("cargo:rerun-if-changed=.agents/ROADMAP.md");
+    println!("cargo:rerun-if-changed=.agents/PULSE.md");
 }
 
 fn parse_list_item(line: &str) -> Option<(usize, String, String)> {

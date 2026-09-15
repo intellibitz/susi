@@ -1,6 +1,6 @@
-# SUSI Substrate Validation Genome (PULSE)
+# SUSI Substrate Experience: The Sovereign Memory
 
-* **Current Engine Version**: `v0.1.2022918`
+* **Current Engine Version**: `v0.1.2022919`
 
 This document defines the complete set of validation protocols that anchor the `susi` genome. Every entry reflects a hard-compiled reflex or an orchestrated meta-behavior.
 
@@ -28,8 +28,8 @@ This document defines the complete set of validation protocols that anchor the `
 13. `[x]` **Dynamic Intent Resolution**: Anti-hardcoding mandate for query matchers is realized. (Verified via: src/gawd/manifold.rs)
 14. `[x]` **Reality Grounding**: Automated correction of intent assumptions against empirical paths. (Verified via: src/gawd/manifold.rs)
 15. `[x]` **Substrate Sovereignty**: Isolation boundaries for ephemeral state are enforced. (Verified via: src/gawd/self_core.rs)
-16. `[x]` **Alpha-Self Evolution**: The Motion -> Aspiration -> Topology -> Workflow pipeline is the meta-axiom. (Verified via: .agents/AGENTS.md)
-17. `[x]` **Genomic Pulse Formalization**: Renamed master trigger to `pulse.md` to distinguish it from standard unit testing. (Verified via: .agents/pulse.md)
+16. `[x]` **Alpha-Self Evolution**: The Motion -> Aspiration -> Topology -> Workflow pipeline is the meta-axiom. (Verified via: .agents/GENOME.md)
+17. `[x]` **Genomic Pulse Formalization**: Master trigger is formalized as PULSE.md to distinguish it from standard unit testing. (Verified via: .agents/PULSE.md)
 18. `[x]` **MOTION**: Codify the 'Absolute Transparency' mandate. (Verified via: src/gawd/telemetry.rs)
 19. `[x]` **MOTION**: Codify the 'Omni-Trace Reasoning' mandate. (Verified via: src/gawd/telemetry.rs)
 20. `[x]` **MOTION**: Implement the 'Synchronous Trace & Display' protocol. (Verified via: src/gawd/telemetry.rs)
@@ -44,7 +44,7 @@ This document defines the complete set of validation protocols that anchor the `
 18. `[x]` **Platform Independence**: Zero platform bias across Linux, macOS, and Windows. (Verified via: src/gawd/self_core.rs)
 31. `[x]` **Multi-Modal Fusion**: 1024-dimensional unified neural projection space. (Verified via: src/gemi/unified.rs)
 32. `[x]` **Self-Validation**: Autonomous foundational readiness testing on host hardware. (Verified via: src/gawd/admin.rs)
-33. `[x]` **Unified Interaction Interface**: Every swarm vision anchored in a verifiable typed test entry. (Verified via: .agents/pulse.md)
+33. `[x]` **Unified Interaction Interface**: Every swarm vision anchored in a verifiable typed test entry. (Verified via: .agents/PULSE.md)
 102. `[x]` **Hardware-Only Limit**: Physical hardware is the sole constraint on system potential. (Verified via: src/gawd/hardware.rs)
 103. `[x]` **Optimal Async Orchestration**: Non-blocking I/O and mandatory multi-threading. (Verified via: src/gawd/swarm.rs)
 104. `[x]` **Universal Swarm Operation**: 100% of operations execute through the GAWD Swarm. (Verified via: src/gawd/amas.rs)
