@@ -93,6 +93,27 @@
     "lint_mission": "admin mission: run linting and static analysis (clippy)",
     "audit_deps_mission": "admin mission: run dependency security audit"
   },
+  "inference_endpoints": {
+    "vllm_api_base": "http://localhost:8000/v1",
+    "sglang_api_base": "http://localhost:30000/v1",
+    "llama_api_base": "http://localhost:8080/v1",
+    "triton_api_base": "http://localhost:8001/v2/models/susi_model/generate",
+    "lmdeploy_api_base": "http://localhost:23333/v1"
+  },
+  "discoverable_assets": [
+    {
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "name": "SusiReflexCloud-v2",
+      "provider": "SUSI Hub",
+      "url": "https://susi.ai/reflex/v2"
+    },
+    {
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "name": "DistilledRouter-1B",
+      "provider": "HuggingFace",
+      "url": "https://huggingface.co/susi/distilled-router"
+    }
+  ],
   "governance": {
     "destructive_commands": [
       "rm -rf /",

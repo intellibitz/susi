@@ -86,6 +86,36 @@ impl Default for AdminTemplatesConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InferenceEndpointsConfig {
+    pub vllm_api_base: String,
+    pub sglang_api_base: String,
+    pub llama_api_base: String,
+    pub triton_api_base: String,
+    pub lmdeploy_api_base: String,
+}
+
+impl Default for InferenceEndpointsConfig {
+    fn default() -> Self {
+        Self {
+            vllm_api_base: "http://localhost:8000/v1".to_string(),
+            sglang_api_base: "http://localhost:30000/v1".to_string(),
+            llama_api_base: "http://localhost:8080/v1".to_string(),
+            triton_api_base: "http://localhost:8001/v2/models/susi_model/generate".to_string(),
+            lmdeploy_api_base: "http://localhost:23333/v1".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoverableAssetConfig {
+    pub tier: String,
+    pub name: String,
+    pub provider: String,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GovernancePatterns {
     pub destructive_commands: Vec<String>,
     pub critical_system_paths: Vec<String>,
@@ -118,6 +148,8 @@ pub struct SusiConfig {
     pub alpha_weights_url: String,
     pub model_ladder: Vec<ModelLadderConfigStep>,
     pub admin_templates: AdminTemplatesConfig,
+    pub inference_endpoints: InferenceEndpointsConfig,
+    pub discoverable_assets: Vec<DiscoverableAssetConfig>,
     pub governance: GovernancePatterns,
 }
 
@@ -186,6 +218,21 @@ impl Default for SusiConfig {
                 },
             ],
             admin_templates: AdminTemplatesConfig::default(),
+            inference_endpoints: InferenceEndpointsConfig::default(),
+            discoverable_assets: vec![
+                DiscoverableAssetConfig {
+                    tier: "Tier 0: SUSI-Alpha (Reflex)".to_string(),
+                    name: "SusiReflexCloud-v2".to_string(),
+                    provider: "SUSI Hub".to_string(),
+                    url: "https://susi.ai/reflex/v2".to_string(),
+                },
+                DiscoverableAssetConfig {
+                    tier: "Tier 0: SUSI-Alpha (Reflex)".to_string(),
+                    name: "DistilledRouter-1B".to_string(),
+                    provider: "HuggingFace".to_string(),
+                    url: "https://huggingface.co/susi/distilled-router".to_string(),
+                },
+            ],
             governance: GovernancePatterns {
                 destructive_commands: vec![
                     "rm -rf /".to_string(),

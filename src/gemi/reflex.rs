@@ -14,20 +14,16 @@ pub struct ReflexEngine;
 
 impl ReflexEngine {
     pub fn scout_tier0_assets() -> Vec<crate::gawd::agents::DiscoverableAsset> {
-        vec![
-            crate::gawd::agents::DiscoverableAsset {
-                tier: "Tier 0: SUSI-Alpha (Reflex)".to_string(),
-                name: "SusiReflexCloud-v2".to_string(),
-                provider: "SUSI Hub".to_string(),
-                url: "https://susi.ai/reflex/v2".to_string(),
-            },
-            crate::gawd::agents::DiscoverableAsset {
-                tier: "Tier 0: SUSI-Alpha (Reflex)".to_string(),
-                name: "DistilledRouter-1B".to_string(),
-                provider: "HuggingFace".to_string(),
-                url: "https://huggingface.co/susi/distilled-router".to_string(),
-            },
-        ]
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        cfg.discoverable_assets
+            .into_iter()
+            .map(|a| crate::gawd::agents::DiscoverableAsset {
+                tier: a.tier,
+                name: a.name,
+                provider: a.provider,
+                url: a.url,
+            })
+            .collect()
     }
 
     /// Attempts to solve the mission using the Tier 0 SusiPulse Bootstrap Brain.

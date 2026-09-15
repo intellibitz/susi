@@ -406,7 +406,8 @@ impl GawdAgent for VllmBridgeAgent {
         }
 
         // Local vLLM Proxy Fallback (OpenAI-compatible)
-        let vllm_url = std::env::var("VLLM_API_BASE").unwrap_or_else(|_| "http://localhost:8000/v1".to_string());
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let vllm_url = std::env::var("VLLM_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.vllm_api_base);
         let body = serde_json::json!({
             "model": "vllm-substrate",
             "prompt": goal,
@@ -444,7 +445,8 @@ impl GawdAgent for SglangBridgeAgent {
         }
 
         // Local SGLang Proxy Fallback
-        let sglang_url = std::env::var("SGLANG_API_BASE").unwrap_or_else(|_| "http://localhost:30000/v1".to_string());
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let sglang_url = std::env::var("SGLANG_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.sglang_api_base);
         let body = serde_json::json!({
             "model": "sglang-substrate",
             "prompt": goal,
@@ -481,7 +483,8 @@ impl GawdAgent for LlamaCppBridgeAgent {
         }
 
         // Local llama-server Proxy (Standard Port 8080)
-        let llama_url = std::env::var("LLAMA_API_BASE").unwrap_or_else(|_| "http://localhost:8080/v1".to_string());
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let llama_url = std::env::var("LLAMA_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.llama_api_base);
         let body = serde_json::json!({
             "prompt": goal,
             "n_predict": 512,
@@ -518,7 +521,8 @@ impl GawdAgent for TensorRtBridgeAgent {
         }
 
         // Local Triton Inference Server Proxy
-        let triton_url = std::env::var("TRITON_API_BASE").unwrap_or_else(|_| "http://localhost:8001/v2/models/susi_model/generate".to_string());
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let triton_url = std::env::var("TRITON_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.triton_api_base);
         let body = serde_json::json!({
             "text_input": goal,
             "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
@@ -554,7 +558,8 @@ impl GawdAgent for LmdeployBridgeAgent {
         }
 
         // Local LMDeploy Proxy (OpenAI-compatible)
-        let lmdeploy_url = std::env::var("LMDEPLOY_API_BASE").unwrap_or_else(|_| "http://localhost:23333/v1".to_string());
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let lmdeploy_url = std::env::var("LMDEPLOY_API_BASE").unwrap_or_else(|_| cfg.inference_endpoints.lmdeploy_api_base);
         let body = serde_json::json!({
             "model": "susi-turbomind",
             "prompt": goal,
