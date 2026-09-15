@@ -11,7 +11,6 @@ fn main() {
     let build_md_raw = fs::read_to_string(".agents/BUILD.md").expect("Missing BUILD.md");
     let pulse_md_raw = fs::read_to_string(".agents/pulse.md").expect("Missing pulse.md");
     let topology_md_raw = fs::read_to_string(".agents/TOPOLOGY.md").expect("Missing TOPOLOGY.md");
-    let workflow_md_raw = fs::read_to_string(".agents/WORKFLOW.md").expect("Missing WORKFLOW.md");
     let readme_md_raw = fs::read_to_string("README.md").unwrap_or_default();
 
     // SUSI Version Synchronization Hook (Aspiration 1)
@@ -26,7 +25,6 @@ fn main() {
     let build_md = sync_version(".agents/BUILD.md", &build_md_raw, version);
     let pulse_md = sync_version(".agents/pulse.md", &pulse_md_raw, version);
     let topology_md = sync_version(".agents/TOPOLOGY.md", &topology_md_raw, version);
-    let workflow_md = sync_version(".agents/WORKFLOW.md", &workflow_md_raw, version);
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -93,15 +91,6 @@ fn main() {
     }
     generated_code.push_str("];\n\n");
 
-    // 6. WORKFLOW.md -> GEN_WORKFLOW_STEPS (300-349)
-    generated_code.push_str("pub const GEN_WORKFLOW_STEPS: &[SusiAxiomRule] = &[\n");
-    for line in workflow_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 300, rule.1, rule.2));
-        }
-    }
-    generated_code.push_str("];\n\n");
-
     // 8. TOPOLOGY.md -> Pillar-based Components
     let mut current_pillar = "";
     generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
@@ -118,22 +107,25 @@ fn main() {
         else if line.starts_with("## 4. Models") { current_pillar = "models"; }
         else if line.starts_with("## 5. MCPs") { current_pillar = "mcps"; }
         else if line.starts_with("## 6. Realized Architectural Capabilities") { current_pillar = "realized"; }
+        else if line.starts_with("## 7. Operational Workflow") { current_pillar = "workflow"; }
 
-        if let Some(comp) = parse_topology_item(line) {
-            let tier = match comp.2.as_str() {
-                "0" => "SusiCoreTier::Tier0Reflex",
-                "2" => "SusiCoreTier::Tier2Reasoning",
-                _ => "SusiCoreTier::Tier1Swarm",
-            };
-            let entry = format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1);
-            match current_pillar {
-                "aoa" => generated_code.push_str(&entry),
-                "agents" => agents.push_str(&entry),
-                "engines" => engines.push_str(&entry),
-                "models" => models.push_str(&entry),
-                "mcps" => mcps.push_str(&entry),
-                "realized" => realized.push_str(&entry),
-                _ => {}
+        if current_pillar != "workflow" {
+            if let Some(comp) = parse_topology_item(line) {
+                let tier = match comp.2.as_str() {
+                    "0" => "SusiCoreTier::Tier0Reflex",
+                    "2" => "SusiCoreTier::Tier2Reasoning",
+                    _ => "SusiCoreTier::Tier1Swarm",
+                };
+                let entry = format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1);
+                match current_pillar {
+                    "aoa" => generated_code.push_str(&entry),
+                    "agents" => agents.push_str(&entry),
+                    "engines" => engines.push_str(&entry),
+                    "models" => models.push_str(&entry),
+                    "mcps" => mcps.push_str(&entry),
+                    "realized" => realized.push_str(&entry),
+                    _ => {}
+                }
             }
         }
     }
@@ -151,14 +143,25 @@ fn main() {
 
     // Combined COMPONENTS for legacy support
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
+    current_pillar = "";
     for line in topology_md.lines() {
-        if let Some(comp) = parse_topology_item(line) {
-            let tier = match comp.2.as_str() {
-                "0" => "SusiCoreTier::Tier0Reflex",
-                "2" => "SusiCoreTier::Tier2Reasoning",
-                _ => "SusiCoreTier::Tier1Swarm",
-            };
-            generated_code.push_str(&format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1));
+        if line.starts_with("## 1. Agent of Agents") { current_pillar = "aoa"; }
+        else if line.starts_with("## 2. Agents") { current_pillar = "agents"; }
+        else if line.starts_with("## 3. Engines") { current_pillar = "engines"; }
+        else if line.starts_with("## 4. Models") { current_pillar = "models"; }
+        else if line.starts_with("## 5. MCPs") { current_pillar = "mcps"; }
+        else if line.starts_with("## 6. Realized Architectural Capabilities") { current_pillar = "realized"; }
+        else if line.starts_with("## 7. Operational Workflow") { current_pillar = "workflow"; }
+
+        if current_pillar != "workflow" {
+            if let Some(comp) = parse_topology_item(line) {
+                let tier = match comp.2.as_str() {
+                    "0" => "SusiCoreTier::Tier0Reflex",
+                    "2" => "SusiCoreTier::Tier2Reasoning",
+                    _ => "SusiCoreTier::Tier1Swarm",
+                };
+                generated_code.push_str(&format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1));
+            }
         }
     }
     generated_code.push_str("];\n\n");
@@ -196,11 +199,6 @@ fn main() {
             generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 150, rule.1, rule.2));
         }
     }
-    for line in workflow_md.lines() {
-        if let Some(rule) = parse_list_item(line) {
-            generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 300, rule.1, rule.2));
-        }
-    }
     generated_code.push_str("];\n");
 
     fs::write(&dest_path, generated_code).unwrap();
@@ -210,7 +208,6 @@ fn main() {
     println!("cargo:rerun-if-changed=.agents/BUILD.md");
     println!("cargo:rerun-if-changed=.agents/pulse.md");
     println!("cargo:rerun-if-changed=.agents/TOPOLOGY.md");
-    println!("cargo:rerun-if-changed=.agents/WORKFLOW.md");
 }
 
 fn parse_list_item(line: &str) -> Option<(usize, String, String)> {

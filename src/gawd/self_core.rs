@@ -36,10 +36,8 @@ impl AlphaSelf {
     pub const ASPIRATIONS_MD: &'static str = include_str!("../../.agents/ASPIRATIONS.md");
     pub const PULSE_MD: &'static str = include_str!("../../.agents/pulse.md");
     pub const TOPOLOGY_MD: &'static str = include_str!("../../.agents/TOPOLOGY.md");
-    pub const WORKFLOW_MD: &'static str = include_str!("../../.agents/WORKFLOW.md");
 
     pub const RULES: &[SusiAxiomRule] = GEN_RULES;
-    pub const WORKFLOW_STEPS: &[SusiAxiomRule] = GEN_WORKFLOW_STEPS;
     pub const PULSE_AXIOMS: &[SusiAxiomRule] = GEN_PULSE_AXIOMS;
 
     // 6 Pillar Component Topology
@@ -77,7 +75,6 @@ mod tests {
         assert_eq!(AlphaSelf::VERSION, env!("CARGO_PKG_VERSION"));
         assert!(!AlphaSelf::RULES.is_empty(), "AGENTS.md axioms must be compiled into binary");
         assert!(!AlphaSelf::COMPONENTS.is_empty(), "TOPOLOGY.md components must be compiled into binary");
-        assert!(!AlphaSelf::WORKFLOW_STEPS.is_empty(), "WORKFLOW.md steps must be compiled into binary");
         assert!(!AlphaSelf::PULSE_AXIOMS.is_empty(), "pulse.md axioms must be compiled into binary");
 
         let summary = AlphaSelf::inspect_compiled_binary_instructions();

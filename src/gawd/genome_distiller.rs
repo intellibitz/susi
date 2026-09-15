@@ -25,15 +25,7 @@ impl GenomeDistiller {
             });
         }
 
-        // 2. Distill WORKFLOW_STEPS
-        for step in AlphaSelf::WORKFLOW_STEPS {
-            samples.push(ReasoningSample {
-                intent: format!("Explain workflow step {}: {}.", step.id, step.title),
-                blackboard_context: "susi_workflow_lookup".to_string(),
-                successful_outcome: format!("Workflow Step {}: {}. Imperative: {}", step.id, step.title, step.imperative),
-                timestamp,
-            });
-        }
+
 
         // 3. Distill PULSE_AXIOMS
         for axiom in AlphaSelf::PULSE_AXIOMS {

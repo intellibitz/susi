@@ -140,7 +140,7 @@ impl SusiAdmin {
         }
 
         // 3. Sync Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
+        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
@@ -208,7 +208,7 @@ impl SusiAdmin {
         }
 
         // Check Governance Files (.agents/*.md)
-        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md", "WORKFLOW.md"];
+        let governance_files = ["AGENTS.md", "ASPIRATIONS.md", "BUILD.md", "MISSIONS.md", "QUERIES.md", "RUNTIME.md", "MOTIONS.md", "TOPOLOGY.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
