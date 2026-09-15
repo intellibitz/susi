@@ -186,8 +186,11 @@ fn main() {
         match command {
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
+                println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
                 let answer = ama.solve_clean(&cfg.admin_templates.install_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
+                println!("\n[SOVEREIGN HANDSHAKE]");
+                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION);
             }
             Commands::Uninstall => {
                 let answer = ama.solve_clean(&cfg.admin_templates.uninstall_mission, &cwd, SUSI_VERSION);
@@ -200,6 +203,12 @@ fn main() {
                 GemiServer::start_http_server(cwd.clone(), server);
             }
             Commands::Status => {
+                let id_file = global_dir.join("identity.key");
+                if id_file.exists() {
+                    if let Ok(id) = std::fs::read_to_string(id_file) {
+                        println!("[SUBSTRATE IDENTITY]: {}", id.trim());
+                    }
+                }
                 let answer = ama.solve_clean("status", &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }

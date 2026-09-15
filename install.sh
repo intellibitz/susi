@@ -192,29 +192,77 @@ if [ "$INSTALLED" = "0" ]; then
     exit 1
 fi
 
-# 4. Engine Initialization
+# 4. Engine Initialization & Sovereign Handshake
 if [ -x "$GLOBAL_BIN_DIR/susi" ]; then
-    "$GLOBAL_BIN_DIR/susi" install >/dev/null 2>&1 || true
+    echo "Registering substrate identity and performing hardware audit..."
+    "$GLOBAL_BIN_DIR/susi" install
 fi
 
-# 5. Model Substrate Check (Optional but recommended for offline mode)
+# 5. Persistence Management (Daemon Auto-Start)
+if [[ "$PLATFORM" == "linux" ]]; then
+    if command -v systemctl >/dev/null 2>&1 && [ "$EUID" -ne 0 ]; then
+        echo "Registering susi daemon with systemd (User Session)..."
+        mkdir -p "$HOME/.config/systemd/user"
+        cat <<EOF > "$HOME/.config/systemd/user/susi.service"
+[Unit]
+Description=susi Intelligence Substrate Daemon
+After=network.target
+
+[Service]
+ExecStart=$GLOBAL_BIN_DIR/susi daemon-start --workspace $HOME
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+        systemctl --user daemon-reload
+        systemctl --user enable susi.service
+        systemctl --user start susi.service
+    fi
+elif [[ "$PLATFORM" == "macos" ]]; then
+    echo "Registering susi daemon with launchd..."
+    LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
+    cat <<EOF > "$LAUNCHD_PLIST"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.susi.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$GLOBAL_BIN_DIR/susi</string>
+        <string>daemon-start</string>
+        <string>--workspace</string>
+        <string>$HOME</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>
+EOF
+    launchctl load "$LAUNCHD_PLIST" 2>/dev/null || true
+fi
+
+# 6. Intelligence Substrate Provisioning (Proof of Life Handshake)
 MODEL_DIR="$GLOBAL_SUSI_DIR/models"
-ALPHA_MODEL="$MODEL_DIR/susi-alpha.safetensors"
-if [ ! -f "$ALPHA_MODEL" ]; then
-    if [ -n "$SUSI_WEIGHTS_URL" ]; then
-        echo "Downloading susi-alpha intelligence substrate from custom URL..."
-        if command -v curl >/dev/null 2>&1; then
-            curl -sSfL "$SUSI_WEIGHTS_URL" -o "$ALPHA_MODEL"
-        elif command -v wget >/dev/null 2>&1; then
-            wget -q "$SUSI_WEIGHTS_URL" -O "$ALPHA_MODEL"
-        fi
-    else
-        echo "Intelligence substrate (susi-alpha.safetensors) missing."
-        echo "Note: Native reflex weights can be downloaded later using '/scout_model susi-alpha'."
+REFLEX_MODEL="$MODEL_DIR/susi-alpha.safetensors"
+if [ ! -f "$REFLEX_MODEL" ]; then
+    echo "Fetching Reflex-Alpha intelligence substrate (Proof of Life)..."
+    # The engine's 'install' command already enqueues weights, but we force a tiny fetch for immediate response
+    # Using the default HF URL from config if not provided
+    WEIGHTS_URL="${SUSI_WEIGHTS_URL:-https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors}"
+    if command -v curl >/dev/null 2>&1; then
+        curl -sSfL "$WEIGHTS_URL" -o "$REFLEX_MODEL"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "$WEIGHTS_URL" -O "$REFLEX_MODEL"
     fi
 fi
 
-# 6. PATH Management
+# 7. PATH Management
 if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
     CONFIG_FILES=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
     for config in "${CONFIG_FILES[@]}"; do
