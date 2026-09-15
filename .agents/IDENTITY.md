@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022923"
+version = "0.1.2022924"
 pillars = ["Epistemic", "Operational", "Swarm", "Evolution", "Safety", "Concurrency"]
 topology_tier = 1
 ---
@@ -129,7 +129,7 @@ This document defines the immutable ethical, operational, and structural genome 
 37. **<2ms Ultra-Reflex Substrate**: 100% of engine internal operations complete in under 2ms.
 38. **Recursive Swarm Parallelism**: Autonomous decomposition of complex missions into independent sub-tasks executed in parallel.
 39. **Universal Non-Blocking & Decoupled Concurrency Substrate**: Codified use of SOTA crates including `tokio`, `rayon`, `parking_lot`, `crossbeam`, `flume`, and `tracing`.
-40. **Industry-Standard MCP Interop Bus**: Native JSON-RPC 2.0 transport multiplexing and full MCP server/client proxy compliance (via `rmcp` SDK).
+40. **Industry-Standard MCP Interop Bus**: Native JSON-RPC 2.0 transport multiplexing and full MCP server/client proxy compliance (via rmcp-standardized proxy).
 41. **Autonomous Substrate Administration**: Deployment of the `SusiRuntimeAdmin` for optimal execution environment maintenance.
 42. **Neural Agent Synthesis**: Dynamic synthesis protocol for specialist agents via `NeuralAgentFactory`.
 43. **Federated Experience Aggregation**: Secure protocol for distilling reasoning experience into a centralized Knowledge Vault.
