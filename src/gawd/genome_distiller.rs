@@ -15,7 +15,7 @@ impl GenomeDistiller {
         let mut samples = Vec::new();
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
-        // 1. Distill AGENTS.md (Governance Axiom Rules)
+        // 1. Distill IDENTITY.md (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {
             samples.push(ReasoningSample {
                 intent: format!("What is the mandate for rule {}?", rule.title),
@@ -37,7 +37,7 @@ impl GenomeDistiller {
             });
         }
 
-        // 4. Distill TOPOLOGY.md Components
+        // 4. Distill IDENTITY.md Components
         for comp in AlphaSelf::COMPONENTS {
             samples.push(ReasoningSample {
                 intent: format!("What is the role of {} in the substrate?", comp.name),

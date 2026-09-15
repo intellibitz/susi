@@ -234,7 +234,7 @@ impl GawdAgent for HardwareAgent {
     }
 }
 
-/// Safety Governance Agent (RUNTIME.md Mandate 14 & 15)
+/// Safety Governance Agent (IDENTITY.md Mandate 36 & 37)
 pub struct SafetyAgent;
 
 impl GawdAgent for SafetyAgent {
@@ -248,7 +248,7 @@ impl GawdAgent for SafetyAgent {
     }
 }
 
-/// Security Governance Agent (RUNTIME.md Mandate 16 & 17)
+/// Security Governance Agent (IDENTITY.md Mandate 38 & 39)
 pub struct SecurityAgent;
 
 impl GawdAgent for SecurityAgent {
@@ -262,7 +262,7 @@ impl GawdAgent for SecurityAgent {
     }
 }
 
-/// Autonomous Drift & Evolution Agent (RUNTIME.md Mandate 3 & 4)
+/// Autonomous Drift & Evolution Agent (IDENTITY.md Mandate 32 & 33)
 pub struct EvolutionAgent;
 
 impl GawdAgent for EvolutionAgent {
@@ -943,7 +943,7 @@ impl GawdAgentFleet {
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
     /// RULE 31 Hardening: Uses semantic centroids to match agents.
     pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
-        // 1. Mandatory Substrate Guards & Preparation (RUNTIME.md Mandates)
+        // 1. Mandatory Substrate Guards & Preparation (IDENTITY.md Mandates)
         let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![
             Arc::new(SusiRuntimeAgent),
             Arc::new(HardwareAgent),
