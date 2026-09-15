@@ -88,7 +88,7 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     fi
 
     if [ "$DEPLOYED" = "1" ]; then
-        pkill -f susi || true
+        pkill -f susi-engine || true
 
         BIN_EXE=""
         ENGINE_EXE="-engine"
@@ -176,7 +176,7 @@ if [ "$INSTALLED" = "0" ]; then
         fi
 
         if [ -f "$ENGINE_SRC" ] && [ -f "$LAUNCHER_SRC" ]; then
-            pkill -f susi || true
+            pkill -f susi-engine || true
             rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
             cp "$ENGINE_SRC" "$GLOBAL_BIN_DIR/susi-engine"
             cp "$LAUNCHER_SRC" "$GLOBAL_BIN_DIR/susi"
