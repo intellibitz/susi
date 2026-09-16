@@ -1096,11 +1096,8 @@ pub struct NeuralAgentFactory;
 
 impl NeuralAgentFactory {
     pub fn synthesize_specialist(goal: &str, workspace: &Path) -> EaiResult<AgentProfile> {
-        let prompt = format!(
-            "MISSION_GOAL: {}\n\n[INSTRUCTION]: You are the SUSI Agent Factory. Detect the capability gap and synthesize a NEW specialist agent profile. \
-            Output in JSON format: {{\"name\": \"...\", \"description\": \"...\", \"categories\": [\"...\"], \"semantic_anchors\": [\"...\"], \"base_rank\": 0.9}}",
-            goal
-        );
+        let prompts = crate::sandbox::manager::SusiPrompts::load_global();
+        let prompt = prompts.agent_factory_prompt.replace("{goal}", goal);
 
         let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {

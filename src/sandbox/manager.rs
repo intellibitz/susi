@@ -79,6 +79,86 @@ pub struct NeuralCheckpoint {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatTemplateConfig {
+    pub chatml: String,
+    pub llama3: String,
+    pub gemma: String,
+}
+
+impl Default for ChatTemplateConfig {
+    fn default() -> Self {
+        Self {
+            chatml: "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n".to_string(),
+            llama3: "<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n".to_string(),
+            gemma: "<start_of_turn>user\n{system}\n{prompt}<end_of_turn>\n<start_of_turn>model\n".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SusiPrompts {
+    pub system_identity: String,
+    pub agent_factory_prompt: String,
+    pub truth_verifier_prompt: String,
+    pub intent_planner_prompt: String,
+    pub consensus_wisdom_prompt: String,
+    pub chat_templates: ChatTemplateConfig,
+}
+
+impl Default for SusiPrompts {
+    fn default() -> Self {
+        Self {
+            system_identity: "You are SUSI, Exponential Intelligence Substrate v{version}.".to_string(),
+            agent_factory_prompt: "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: You are the SUSI Agent Factory. Detect the capability gap and synthesize a specialist agent specification in JSON.".to_string(),
+            truth_verifier_prompt: "Verify if tool {tool} output '{result}' matches physical reality in {workspace}.".to_string(),
+            intent_planner_prompt: "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: Decompose this intent into a sequence of executable sub-goals. Output as a comma-separated list.".to_string(),
+            consensus_wisdom_prompt: "MISSION_GOAL: {goal}\n\n[WEIGHTED_WISDOM]:\n{wisdom}\n\n[INSTRUCTION]: Resolve conflicts using rank-weighted consensus. Output final verified answer.".to_string(),
+            chat_templates: ChatTemplateConfig::default(),
+        }
+    }
+}
+
+impl SusiPrompts {
+    pub fn load_global() -> Self {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let prompts_file = home.join(".susi/prompts.json");
+        if prompts_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&prompts_file) {
+                if let Ok(p) = serde_json::from_str::<SusiPrompts>(&content) {
+                    return p;
+                }
+            }
+        }
+        let default_prompts = Self::default();
+        let _ = fs::create_dir_all(home.join(".susi"));
+        if let Ok(json) = serde_json::to_string_pretty(&default_prompts) {
+            let _ = fs::write(&prompts_file, json);
+        }
+        default_prompts
+    }
+
+    pub fn format_chat_prompt(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
+        let lower = model_name.to_lowercase();
+        if lower.contains("gemma") {
+            self.chat_templates.gemma
+                .replace("{system}", system_prompt)
+                .replace("{prompt}", user_prompt)
+        } else if lower.contains("llama") {
+            self.chat_templates.llama3
+                .replace("{system}", system_prompt)
+                .replace("{prompt}", user_prompt)
+        } else {
+            self.chat_templates.chatml
+                .replace("{system}", system_prompt)
+                .replace("{prompt}", user_prompt)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelLadderConfigStep {
     pub step: usize,
     pub min_ram_gb: usize,
@@ -874,5 +954,17 @@ mod tests {
         assert_eq!(rolled_back, "original code");
 
         let _ = fs::remove_dir_all(ws);
+    }
+
+    #[test]
+    fn test_susi_prompts_template_lifecycle() {
+        let prompts = SusiPrompts::default();
+        let formatted = prompts.format_chat_prompt("Qwen2.5-32B", "System Text", "User Text");
+        assert!(formatted.contains("System Text"));
+        assert!(formatted.contains("User Text"));
+        assert!(formatted.contains("<|im_start|>"));
+
+        let gemma_fmt = prompts.format_chat_prompt("Gemma-2-27B", "Sys", "Usr");
+        assert!(gemma_fmt.contains("<start_of_turn>"));
     }
 }

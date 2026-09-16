@@ -327,10 +327,10 @@ impl SusiSupervisor {
                     full_synthesis
                 }
             } else {
-                let consensus_prompt = format!(
-                    "MISSION_GOAL: {}\n\n[WEIGHTED_WISDOM]:\n{}\n\n[INSTRUCTION]: Resolve conflicts using rank-weighted priority and synthesize a unified high-fidelity mission answer.",
-                    goal, weighted_wisdom
-                );
+                let prompts = crate::sandbox::manager::SusiPrompts::load_global();
+                let consensus_prompt = prompts.consensus_wisdom_prompt
+                    .replace("{goal}", goal)
+                    .replace("{wisdom}", &weighted_wisdom);
                 println!("- [Consensus Master] Synthesizing swarm wisdom...");
                 let _ = std::io::stdout().flush();
                 crate::gemi::engine::GemiEngine::generate_reasoning_stream(
