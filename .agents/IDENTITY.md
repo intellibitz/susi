@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022941"
+version = "0.1.2022942"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -45,7 +45,7 @@ This document defines the immutable genome of the `susi` substrate.
     - **`global susi`** / **`susi daemon`** / **`susi-engine`**: The persistent background service, systemd daemon, global model repository (`~/.susi/models`), network ports, and hardware governor.
     - **`local susi`** / **`susi CLI`** / **`susi in <folder>`**: The workspace-specific CLI invocation, current working directory target, local file scraper, and task executor.
     - **`susi repo`** / **`susi source`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
-32. **Zero-IDE-Hang Guarantee (Non-Blocking IDE Interop)**: `susi` must NEVER cause the IDE to hang or force the user to press the manual red stop button. All IDE-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before IDE timeouts occur.
+32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
 
 ## 2. Pillar II: THE BODY (Topological Reality)
 
