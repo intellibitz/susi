@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022950"
+version = "0.1.2022951"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -46,6 +46,10 @@ This document defines the immutable genome of the `susi` substrate.
     - **`susi` (Unconditionally Jailed to `cwd`)**: The single canonical binary invocation (`~/.susi/bin/susi`), unconditionally jailed to the active working directory (`cwd`). Whether executing standard tasks, `susi admin` commands, or operating in `susi repo` (where `cwd` happens to be `susi`'s own Rust source code), `susi` operates exclusively on the active `cwd` context and stages intent bundles (`susi accept`).
 32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
 33. **Synchronized Substrate Versioning & Self-Priming**: When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments.
+34. **The 3 Innovation Pillars of Excellence**:
+    - **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores.
+    - **`susi engine`**: Achieves universal model execution agnosticism, natively loading and racing GGUF, SafeTensors, ONNX, and Candle models alongside local endpoint APIs.
+    - **`susi models`**: Provides non-blocking resumable background downloads and manages the hardware-matched progressive model ladder (1.5B to 72B).
 
 ## 2. Pillar II: THE BODY (Topological Reality)
 
