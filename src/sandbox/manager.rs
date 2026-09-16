@@ -97,6 +97,22 @@ impl Default for ChatTemplateConfig {
 }
 
 impl ChatTemplateConfig {
+    pub fn from_file(path: &str) -> Self {
+        let p = Path::new(path);
+        if p.is_file() {
+            if let Ok(content) = fs::read_to_string(p) {
+                if let Ok(cfg) = serde_json::from_str::<ChatTemplateConfig>(&content) {
+                    return cfg;
+                }
+            }
+        }
+        Self::default()
+    }
+
+    pub fn get(&self, model_name: &str) -> Option<&String> {
+        self.templates.get(model_name)
+    }
+
     pub fn render(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
         let lower = model_name.to_lowercase();
         let lower_clean = lower.replace('-', "").replace('_', "");
