@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022954"
+version = "0.1.2022955"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -50,6 +50,7 @@ This document defines the immutable genome of the `susi` substrate.
     - **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores.
     - **`susi engine`**: Achieves universal model execution agnosticism, natively loading and racing GGUF, SafeTensors, ONNX, and Candle models alongside local endpoint APIs.
     - **`susi models`**: Provides non-blocking resumable background downloads and manages the hardware-matched progressive model ladder (1.5B to 72B).
+35. **Registry + Trait + Config Substrate Pattern**: All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source code is strictly prohibited. Adding a new model, tool, or provider must be doable 100% via configuration or self-registering traits without editing source code.
 
 ## 2. Pillar II: THE BODY (Topological Reality)
 
