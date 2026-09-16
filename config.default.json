@@ -49,29 +49,29 @@
       "step": 1,
       "min_ram_gb": 0,
       "label": "1.5B Parameters (Fast Local Edge)",
-      "hf_repo": "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF",
-      "hf_file": "susi-alpha-1.5b-instruct-q4_k_m.gguf"
+      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf"
     },
     {
       "step": 2,
       "min_ram_gb": 8,
       "label": "7B Parameters (Mid-Range Desktop)",
-      "hf_repo": "susi-alpha/susi-alpha-7b-instruct-v0.1-GGUF",
-      "hf_file": "susi-alpha-7b-instruct-q4_k_m.gguf"
+      "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+      "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     },
     {
       "step": 3,
       "min_ram_gb": 16,
       "label": "14B Parameters (High-Accuracy Workstation)",
-      "hf_repo": "susi-alpha/susi-alpha-14b-instruct-v0.1-GGUF",
-      "hf_file": "susi-alpha-14b-instruct-q4_k_m.gguf"
+      "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf"
     },
     {
       "step": 4,
       "min_ram_gb": 32,
       "label": "32B Parameters (High-End Workstation)",
-      "hf_repo": "susi-alpha/susi-alpha-32b-instruct-v0.1-GGUF",
-      "hf_file": "susi-alpha-32b-instruct-q4_k_m.gguf"
+      "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
+      "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf"
     },
     {
       "step": 5,
