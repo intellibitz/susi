@@ -55,32 +55,42 @@ pub struct ModelLadderConfigStep {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct AdminTemplatesConfig {
-    pub install_mission: String,
-    pub uninstall_mission: String,
-    pub select_model_mission: String,
-    pub deep_scan_mission: String,
-    pub mcp_scout_mission: String,
-    pub audit_mission: String,
-    pub verify_mission: String,
-    pub release_mission: String,
-    pub lint_mission: String,
-    pub audit_deps_mission: String,
+pub struct AdminPulsesConfig {
+    #[serde(alias = "install_mission")]
+    pub install_pulse: String,
+    #[serde(alias = "uninstall_mission")]
+    pub uninstall_pulse: String,
+    #[serde(alias = "select_model_mission")]
+    pub select_model_pulse: String,
+    #[serde(alias = "deep_scan_mission")]
+    pub deep_scan_pulse: String,
+    #[serde(alias = "mcp_scout_mission")]
+    pub mcp_scout_pulse: String,
+    #[serde(alias = "audit_mission")]
+    pub audit_pulse: String,
+    #[serde(alias = "verify_mission")]
+    pub verify_pulse: String,
+    #[serde(alias = "release_mission")]
+    pub release_pulse: String,
+    #[serde(alias = "lint_mission")]
+    pub lint_pulse: String,
+    #[serde(alias = "audit_deps_mission")]
+    pub audit_deps_pulse: String,
 }
 
-impl Default for AdminTemplatesConfig {
+impl Default for AdminPulsesConfig {
     fn default() -> Self {
         Self {
-            install_mission: "admin mission: initialize sandboxed .susi environment and provision weights".to_string(),
-            uninstall_mission: "admin mission: remove and clean up sandboxed .susi environment".to_string(),
-            select_model_mission: "admin mission: select and override active model substrate to {}".to_string(),
-            deep_scan_mission: "admin mission: perform parallel deep-scan of substrate home for local models and register them".to_string(),
-            mcp_scout_mission: "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them".to_string(),
-            audit_mission: "admin mission: perform compliance audit and technical verification".to_string(),
-            verify_mission: "admin mission: verify version alignment across manifest and documents".to_string(),
-            release_mission: "admin mission: execute full release orchestration sequence".to_string(),
-            lint_mission: "admin mission: run linting and static analysis (clippy)".to_string(),
-            audit_deps_mission: "admin mission: run dependency security audit".to_string(),
+            install_pulse: "admin pulse: initialize sandboxed .susi environment and provision weights".to_string(),
+            uninstall_pulse: "admin pulse: remove and clean up sandboxed .susi environment".to_string(),
+            select_model_pulse: "admin pulse: select and override active model substrate to {}".to_string(),
+            deep_scan_pulse: "admin pulse: perform parallel deep-scan of substrate home for local models and register them".to_string(),
+            mcp_scout_pulse: "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them".to_string(),
+            audit_pulse: "admin pulse: perform compliance audit and technical verification".to_string(),
+            verify_pulse: "admin pulse: verify version alignment across manifest and documents".to_string(),
+            release_pulse: "admin pulse: execute full release orchestration sequence".to_string(),
+            lint_pulse: "admin pulse: run linting and static analysis (clippy)".to_string(),
+            audit_deps_pulse: "admin pulse: run dependency security audit".to_string(),
         }
     }
 }
@@ -147,7 +157,8 @@ pub struct SusiConfig {
     pub agent_rank_threshold: f32,
     pub alpha_weights_url: String,
     pub model_ladder: Vec<ModelLadderConfigStep>,
-    pub admin_templates: AdminTemplatesConfig,
+    #[serde(alias = "admin_templates")]
+    pub admin_pulses: AdminPulsesConfig,
     pub inference_endpoints: InferenceEndpointsConfig,
     pub discoverable_assets: Vec<DiscoverableAssetConfig>,
     pub governance: GovernancePatterns,
@@ -241,7 +252,7 @@ impl Default for SusiConfig {
                     hf_file: "Qwen2.5-72B-Instruct-Q4_K_M.gguf".to_string(),
                 },
             ],
-            admin_templates: AdminTemplatesConfig::default(),
+            admin_pulses: AdminPulsesConfig::default(),
             inference_endpoints: InferenceEndpointsConfig::default(),
             discoverable_assets: vec![
                 DiscoverableAssetConfig {

@@ -83,7 +83,7 @@ impl SusiRuntimeAdmin {
 
         // Security Hardening (Required for substrate safety)
         info!("[Readiness] Scanning for exfiltration vectors and security leaks...");
-        let sec_res = ama.solve_clean("admin mission: scan workspace for high-risk exfiltration vectors and security leaks. Mask if found.", workspace, crate::SUSI_VERSION);
+        let sec_res = ama.solve_clean("admin pulse: scan workspace for high-risk exfiltration vectors and security leaks. Mask if found.", workspace, crate::SUSI_VERSION);
         if sec_res.contains("VIOLATION") || sec_res.contains("MASKED") {
             println!("\n[READINESS: SECURITY PROTOCOLS ENGAGED]");
             println!("{}\n", sec_res);
@@ -106,7 +106,7 @@ impl SusiRuntimeAdmin {
 
         // Check for Bloat/Lint
         let lint_res = ama.solve_clean(
-            &cfg.admin_templates.lint_mission,
+            &cfg.admin_pulses.lint_pulse,
             workspace,
             crate::SUSI_VERSION,
         );
@@ -119,7 +119,7 @@ impl SusiRuntimeAdmin {
 
         // Check for Dependencies
         let dep_res = ama.solve_clean(
-            &cfg.admin_templates.audit_deps_mission,
+            &cfg.admin_pulses.audit_deps_pulse,
             workspace,
             crate::SUSI_VERSION,
         );
@@ -131,7 +131,7 @@ impl SusiRuntimeAdmin {
         }
 
         // Check for Sovereign Sync
-        let sync_res = ama.solve_clean("admin mission: execute full motion rule sequence (check -> test -> sync -> push) if stable.", workspace, crate::SUSI_VERSION);
+        let sync_res = ama.solve_clean("admin pulse: execute full motion rule sequence (check -> test -> sync -> push) if stable.", workspace, crate::SUSI_VERSION);
         if sync_res.contains("PUSHED") || sync_res.contains("SYNCED") {
             pending_tasks.push((
                 "Sovereign Sync: Synchronize verified workspace state to remote origin",

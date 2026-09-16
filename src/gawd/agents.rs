@@ -94,9 +94,10 @@ impl HighDensityContextStore {
     }
 }
 
-/// Mission Blackboard: Shared state for swarm agents to converge on the "Chain of Truth".
+/// Swarm Blackboard: Shared state for swarm agents to converge on the "Chain of Truth".
 /// Optimized for High-Density Context Mapping (Aspiration 6) and Lock-Free Substrate (Aspiration 24).
-pub type MissionBlackboard = Arc<HighDensityContextStore>;
+pub type SwarmBlackboard = Arc<HighDensityContextStore>;
+pub type MissionBlackboard = SwarmBlackboard;
 
 /// Core Intelligence Trait for SUSI Swarm Agents
 pub trait GawdAgent: Send + Sync {
@@ -1454,7 +1455,7 @@ impl GawdAgentFleet {
         let mut max_global_similarity = 0.0f32;
 
         // Neural Semantic pass: identified via Tier 0 Vector space
-        if !lower_goal.contains("admin mission") {
+        if !lower_goal.contains("admin mission") && !lower_goal.contains("admin pulse") {
             if let Ok(goal_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
                 goal,
                 Some(&available_agents),

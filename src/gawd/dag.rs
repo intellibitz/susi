@@ -21,6 +21,8 @@ pub struct MissionDag {
     pub nodes: Vec<TaskNode>,
 }
 
+pub type SwarmDag = MissionDag;
+
 impl MissionDag {
     pub fn new(initial_goal: &str) -> Self {
         Self {

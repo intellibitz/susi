@@ -9,6 +9,15 @@ use std::path::Path;
 pub struct SusiTruthAgent;
 
 impl SusiTruthAgent {
+    pub fn verify_swarm_reality(
+        goal: &str,
+        tool_name: &str,
+        result: &str,
+        workspace: &Path,
+    ) -> EaiResult<String> {
+        Self::verify_mission_reality(goal, tool_name, result, workspace)
+    }
+
     /// Formal Verification Reflex
     /// Validates tool output against physical workspace reality before pulse resolution.
     pub fn verify_mission_reality(

@@ -19,6 +19,8 @@ pub struct SusiMissionReport {
     pub final_answer: String,
 }
 
+pub type SusiSwarmReport = SusiMissionReport;
+
 impl SusiMissionReport {
     pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
         let mut full_thinking_trace = String::new();

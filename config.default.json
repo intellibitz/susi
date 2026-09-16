@@ -81,17 +81,17 @@
       "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf"
     }
   ],
-  "admin_templates": {
-    "install_mission": "admin mission: initialize sandboxed .susi environment and provision weights",
-    "uninstall_mission": "admin mission: remove and clean up sandboxed .susi environment",
-    "select_model_mission": "admin mission: select and override active model substrate to {}",
-    "deep_scan_mission": "admin mission: perform parallel deep-scan of substrate home for local models and register them",
-    "mcp_scout_mission": "admin mission: perform autonomous web-scouting of open-source MCP servers and benchmark them",
-    "audit_mission": "admin mission: perform compliance audit and technical verification",
-    "verify_mission": "admin mission: verify version alignment across manifest and documents",
-    "release_mission": "admin mission: execute full release orchestration sequence",
-    "lint_mission": "admin mission: run linting and static analysis (clippy)",
-    "audit_deps_mission": "admin mission: run dependency security audit"
+  "admin_pulses": {
+    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
+    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
+    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
+    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
+    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
+    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
+    "verify_pulse": "admin pulse: verify version alignment across manifest and documents",
+    "release_pulse": "admin pulse: execute full release orchestration sequence",
+    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
+    "audit_deps_pulse": "admin pulse: run dependency security audit"
   },
   "inference_endpoints": {
     "vllm_api_base": "http://localhost:8000/v1",

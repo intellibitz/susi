@@ -219,18 +219,18 @@ fn main() {
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
-                let answer = ama.solve_clean(&cfg.admin_templates.install_mission, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses.install_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
 
                 println!("\n[AGGRESSIVE PRIMING: Enqueuing Optimal Substrate]");
                 println!("- The daemon will autonomously provision the highest-tier model compatible with your hardware.");
-                println!("- This mission runs in the background. Check progress with 'susi status'.");
+                println!("- This pulse runs in the background. Check progress with 'susi status'.");
 
                 println!("\n[SOVEREIGN HANDSHAKE]");
                 let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &|_| {});
             }
             Commands::Uninstall => {
-                let answer = ama.solve_clean(&cfg.admin_templates.uninstall_mission, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses.uninstall_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
@@ -258,16 +258,16 @@ fn main() {
                 println!("{}", answer);
             }
             Commands::SelectModel { model } => {
-                let intent = cfg.admin_templates.select_model_mission.replace("{}", &model);
+                let intent = cfg.admin_pulses.select_model_pulse.replace("{}", &model);
                 let answer = ama.solve_clean(&intent, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::DeepScan => {
-                let answer = ama.solve_clean(&cfg.admin_templates.deep_scan_mission, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses.deep_scan_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::McpScout => {
-                let answer = ama.solve_clean(&cfg.admin_templates.mcp_scout_mission, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses.mcp_scout_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Pulse { intent } => {
@@ -278,7 +278,7 @@ fn main() {
                 }
             }
             Commands::Audit => {
-                let answer = ama.solve_clean(&cfg.admin_templates.audit_mission, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses.audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Admin { subcommand } => {
@@ -297,23 +297,23 @@ fn main() {
                         }
                     }
                     AdminCommands::Audit => {
-                        let answer = ama.solve_clean(&cfg.admin_templates.audit_mission, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses.audit_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Verify => {
-                        let answer = ama.solve_clean(&cfg.admin_templates.verify_mission, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses.verify_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Release => {
-                        let answer = ama.solve_clean(&cfg.admin_templates.release_mission, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses.release_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Lint => {
-                        let answer = ama.solve_clean(&cfg.admin_templates.lint_mission, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses.lint_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::AuditDeps => {
-                        let answer = ama.solve_clean(&cfg.admin_templates.audit_deps_mission, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses.audit_deps_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Reload => {
