@@ -86,7 +86,7 @@ fn main() {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
             if parts.len() >= 5 {
                 let id_str = parts[1];
-                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq_str = id_str.split('-').next_back().unwrap_or("0");
                 let seq: usize = seq_str.parse().unwrap_or(0);
                 if seq > 0 {
                     let title = format!("{} {}", parts[3], parts[2]);
@@ -138,7 +138,7 @@ fn main() {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
             if parts.len() >= 6 {
                 let id_str = parts[1];
-                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq_str = id_str.split('-').next_back().unwrap_or("0");
                 let seq: usize = seq_str.parse().unwrap_or(0);
                 if seq > 0 {
                     let title = format!("{} [{}]", parts[3], parts[2]);
@@ -290,7 +290,7 @@ fn main() {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
             if parts.len() >= 5 {
                 let id_str = parts[1];
-                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq_str = id_str.split('-').next_back().unwrap_or("0");
                 let seq: usize = seq_str.parse().unwrap_or(0);
                 if seq > 0 {
                     let title = format!("{} {}", parts[3], parts[2]);
@@ -330,7 +330,7 @@ fn main() {
             let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
             if parts.len() >= 6 {
                 let id_str = parts[1];
-                let seq_str = id_str.split('-').last().unwrap_or("0");
+                let seq_str = id_str.split('-').next_back().unwrap_or("0");
                 let seq: usize = seq_str.parse().unwrap_or(0);
                 if seq > 0 {
                     let title = format!("{} [{}]", parts[3], parts[2]);

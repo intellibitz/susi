@@ -154,7 +154,7 @@ impl ModelDownloadController {
     pub fn list_active(&self) -> Vec<ModelDownloadProgress> {
         let mut list = Vec::new();
         for r in self.active_downloads.iter() {
-            if let Some(prog) = self.get_progress(&r.key()) {
+            if let Some(prog) = self.get_progress(r.key()) {
                 list.push(prog);
             } else {
                 list.push(ModelDownloadProgress {
@@ -544,6 +544,7 @@ impl ModelManager {
         Ok(format!("{:x}", hasher.finalize()))
     }
 
+    #[allow(clippy::type_complexity)]
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
         static MODEL_SCAN_CACHE: once_cell::sync::Lazy<
             parking_lot::RwLock<Option<(std::time::Instant, Vec<ModelInfo>)>>,
@@ -1158,9 +1159,7 @@ impl ModelManager {
                 5_000_000_000u64
             };
 
-            let status = if test_mode {
-                "COMPLETED_VERIFIED"
-            } else if size >= threshold {
+            let status = if test_mode || size >= threshold {
                 "COMPLETED_VERIFIED"
             } else if size > 0 {
                 "PARTIAL_DOWNLOAD"
@@ -1240,15 +1239,9 @@ impl ModelManager {
                         .map(|meta| meta.len() as f32 / 1e9)
                         .unwrap_or(0.0);
 
-                    if best_step.step >= 5 && local_size_gb < 35.0 {
-                        true
-                    } else if best_step.step >= 4 && local_size_gb < 15.0 {
-                        true
-                    } else if best_step.step >= 3 && local_size_gb < 5.0 {
-                        true
-                    } else {
-                        false
-                    }
+                    best_step.step >= 5 && local_size_gb < 35.0
+                        || best_step.step >= 4 && local_size_gb < 15.0
+                        || best_step.step >= 3 && local_size_gb < 5.0
                 }
             };
 
@@ -1278,7 +1271,7 @@ impl ModelManager {
 
         // 1. Hardware Stats
         let hw = HardwareProfiler::get_profile();
-        report.push_str(&format!("[HARDWARE STATS]:\n"));
+        report.push_str("[HARDWARE STATS]:\n");
         report.push_str(&format!("- CPU Cores: {}\n", hw.cpus));
         report.push_str(&format!(
             "- Total RAM: {} GB (Available: {} GB)\n",
@@ -1299,7 +1292,7 @@ impl ModelManager {
 
         // 2. Repository & Path Stats
         let models_dir = Self::get_models_dir();
-        report.push_str(&format!("[STORAGE REPOSITORY STATS]:\n"));
+        report.push_str("[STORAGE REPOSITORY STATS]:\n");
         report.push_str(&format!("- Active Model Directory: {:?}\n", models_dir));
         let verif_results = Self::verify_local_models(workspace);
         report.push_str(&format!(
@@ -1312,18 +1305,18 @@ impl ModelManager {
                 vr.model_id, vr.file_size_formatted, vr.is_valid_gguf, vr.checksum_verified
             ));
         }
-        report.push_str("\n");
+        report.push('\n');
 
         // 3. Network Stats
         let (net_ok, net_msg, latency) = Self::check_network_status();
-        report.push_str(&format!("[NETWORK STATS]:\n"));
+        report.push_str("[NETWORK STATS]:\n");
         report.push_str(&format!("- Reachable: {}\n", net_ok));
         report.push_str(&format!("- Message: {}\n", net_msg));
         report.push_str(&format!("- Latency: {} ms\n\n", latency));
 
         // 4. Background Download Controller Stats
         let active = ModelDownloadController::global().list_active();
-        report.push_str(&format!("[BACKGROUND DOWNLOAD CONTROLLER STATS]:\n"));
+        report.push_str("[BACKGROUND DOWNLOAD CONTROLLER STATS]:\n");
         report.push_str(&format!(
             "- Active Background Downloads: {}\n",
             active.len()

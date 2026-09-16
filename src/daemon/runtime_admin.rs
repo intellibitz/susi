@@ -211,7 +211,7 @@ impl SusiRuntimeAdmin {
     /// Realizes [Aspiration 15]: Empirical Self-Validation
     pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
         let profile = HardwareProfiler::get_profile();
-        let mut report = format!("# SUSI Substrate Self-Validation Report\n\n");
+        let mut report = "# SUSI Substrate Self-Validation Report\n\n".to_string();
         report.push_str(&format!(
             "- **Hardware Profile**: {} | {}GB RAM | {}\n",
             profile.cpu_brand, profile.ram_gb, profile.gpu_info

@@ -952,6 +952,12 @@ pub struct SusiHybridAgent {
     pub assistant_toolbox: Vec<String>,
 }
 
+impl Default for SusiHybridAgent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SusiHybridAgent {
     pub fn new() -> Self {
         Self {

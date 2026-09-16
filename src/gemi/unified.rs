@@ -154,7 +154,7 @@ impl ReflexInferenceKernel {
         let q_heads = 8;
         let kv_heads = 2;
         let head_dim = 64;
-        let seq_len = tokens.len().max(1).min(32); // Keep small for ultra-reflex sub-2ms bounds
+        let seq_len = tokens.len().clamp(1, 32); // Keep small for ultra-reflex sub-2ms bounds
 
         let raw_features: Vec<f32> = (0..seq_len * q_heads * head_dim)
             .map(|i| {

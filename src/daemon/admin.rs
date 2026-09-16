@@ -429,7 +429,7 @@ impl SusiAdmin {
                     if parts.len() > 1 {
                         return parts[1]
                             .split('-')
-                            .last()
+                            .next_back()
                             .and_then(|s| s.trim().parse::<usize>().ok());
                     }
                 }

@@ -976,7 +976,7 @@ impl GawdAgent for LibraryScoutAgent {
                 || lower_goal.contains("add")
                 || lower_goal.contains("create")
             {
-                if let Some(first_crate) = results.get(0).and_then(|r| r.split("**").nth(1)) {
+                if let Some(first_crate) = results.first().and_then(|r| r.split("**").nth(1)) {
                     report.push_str(&format!(
                         "\n\n[ACTION]: Suggesting 'cargo add {}' to fulfill mission.",
                         first_crate

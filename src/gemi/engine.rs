@@ -48,7 +48,7 @@ impl InferenceHost {
         // Anti-Thundering-Herd Lock: Ensure only one thread loads the model from disk
         static LOAD_LOCKS: once_cell::sync::Lazy<
             dashmap::DashMap<PathBuf, Arc<std::sync::Mutex<()>>>,
-        > = once_cell::sync::Lazy::new(|| dashmap::DashMap::new());
+        > = once_cell::sync::Lazy::new(dashmap::DashMap::new);
         let load_mutex = LOAD_LOCKS
             .entry(model_path.to_path_buf())
             .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))

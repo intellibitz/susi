@@ -129,7 +129,7 @@ impl CoreTools {
                     serde_json::from_str::<crate::gemi::models::ModelDownloadProgress>(&content)
                 {
                     if progress.status == "IN_PROGRESS" {
-                        out.push_str(&format!("\n[SUBSTRATE PROVISIONING ACTIVE]\n"));
+                        out.push_str("\n[SUBSTRATE PROVISIONING ACTIVE]\n");
                         out.push_str(&format!("- Target: {}\n", progress.model_name));
                         out.push_str(&format!(
                             "- Progress: {:.2}% ({:.2}GB / {:.2}GB)\n",
@@ -856,7 +856,7 @@ impl CoreTools {
             .embed(vec![query], None)
             .map_err(|e| EaiError::inference(e.to_string()))?;
         let vector = embeddings
-            .get(0)
+            .first()
             .ok_or_else(|| EaiError::inference("Embedding failed"))?
             .clone();
 

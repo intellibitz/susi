@@ -35,30 +35,20 @@ pub struct ModelInfo {
     pub provenance: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum TrustLevel {
     Conservative, // Level 1: Propose everything
+    #[default]
     Balanced,     // Level 2 (Default): Silent auto-fix formatting/caches, Grouped cards for code edits
     Autonomous,   // Level 3: Hands-free execution + 1-click susi undo
 }
 
-impl Default for TrustLevel {
-    fn default() -> Self {
-        TrustLevel::Balanced
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum RiskTier {
+    #[default]
     Tier0ZeroRisk,
     Tier1LowRisk,
     Tier2HighRisk,
-}
-
-impl Default for RiskTier {
-    fn default() -> Self {
-        RiskTier::Tier0ZeroRisk
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
