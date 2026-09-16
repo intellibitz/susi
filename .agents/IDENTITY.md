@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022949"
+version = "0.1.2022950"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -41,11 +41,9 @@ This document defines the immutable genome of the `susi` substrate.
 28. **Async Defaults**: Default to `tokio` for all non-blocking operations.
 29. **Data Parallelism**: Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning.
 30. **Locking Standard**: Mandatory use of `parking_lot` when atomics are insufficient.
-31. **Unambiguous Substrate Nomenclature (Universal 4-Axiom Model)**:
-    - **Single Canonical Binary**: A single binary suite lives at `~/.susi/bin/` (`susi` launcher and `susi-engine`), serving the entire system without duplicate binary scattering.
-    - **`global susi`**: The persistent background service (`susi.service`) running on user hardware. Manages CPU/GPU saturation, OS environment care, network ports, and central model weights (`~/.susi/models`).
-    - **`susi`**: The CLI / task invocation, unconditionally jailed to the active working directory (`cwd`). Operates on local project context and stages intent bundles (`susi accept`).
-    - **`susi repo`**: The dimension of `susi` where the active `cwd` happens to be `susi`'s own Rust source code repository (`/intellibitz/susi`).
+31. **Strict 2-Form Substrate Axiom**: The substrate exists in exactly two operational forms:
+    - **`global susi` (The Background Service)**: The persistent background daemon (`susi.service`) running on user hardware. Manages CPU/GPU saturation, OS environment care, network ports, and central model weights (`~/.susi/models`).
+    - **`susi` (Unconditionally Jailed to `cwd`)**: The single canonical binary invocation (`~/.susi/bin/susi`), unconditionally jailed to the active working directory (`cwd`). Whether executing standard tasks, `susi admin` commands, or operating in `susi repo` (where `cwd` happens to be `susi`'s own Rust source code), `susi` operates exclusively on the active `cwd` context and stages intent bundles (`susi accept`).
 32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
 33. **Synchronized Substrate Versioning & Self-Priming**: When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments.
 
