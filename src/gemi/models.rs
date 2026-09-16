@@ -872,6 +872,12 @@ impl ModelManager {
         let mut resp = request.send().map_err(|e| e.to_string())?;
         let status = resp.status();
         if status.is_client_error() || status.is_server_error() {
+            if status.as_u16() == 416 && start_pos > 0 {
+                // HTTP 416 Range Not Satisfiable means byte range exceeds server file size (file already fully downloaded)
+                Self::save_download_progress(file_name, target, start_pos, start_pos, "COMPLETED");
+                task_handle.mark_completed("Download already complete");
+                return Ok(());
+            }
             if status.as_u16() == 401 || status.as_u16() == 403 || status.as_u16() == 404 {
                 let _ = Self::trigger_ladder_fallback();
             }

@@ -41,6 +41,10 @@ This document defines the immutable genome of the `susi` substrate.
 28. **Async Defaults**: Default to `tokio` for all non-blocking operations.
 29. **Data Parallelism**: Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning.
 30. **Locking Standard**: Mandatory use of `parking_lot` when atomics are insufficient.
+31. **Unambiguous Substrate Nomenclature**: Strictly distinguish substrate scopes across all interactions and sessions:
+    - **`global susi`** / **`susi daemon`** / **`susi-engine`**: The persistent background service, systemd daemon, global model repository (`~/.susi/models`), network ports, and hardware governor.
+    - **`local susi`** / **`susi CLI`** / **`susi in <folder>`**: The workspace-specific CLI invocation, current working directory target, local file scraper, and task executor.
+    - **`susi repo`** / **`susi source`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
 
 ## 2. Pillar II: THE BODY (Topological Reality)
 
