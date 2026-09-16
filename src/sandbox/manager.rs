@@ -80,18 +80,42 @@ pub struct NeuralCheckpoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatTemplateConfig {
-    pub chatml: String,
-    pub llama3: String,
-    pub gemma: String,
+    #[serde(flatten)]
+    pub templates: std::collections::HashMap<String, String>,
 }
 
 impl Default for ChatTemplateConfig {
     fn default() -> Self {
-        Self {
-            chatml: "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n".to_string(),
-            llama3: "<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n".to_string(),
-            gemma: "<start_of_turn>user\n{system}\n{prompt}<end_of_turn>\n<start_of_turn>model\n".to_string(),
-        }
+        let mut templates = std::collections::HashMap::new();
+        templates.insert("chatml".to_string(), "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n".to_string());
+        templates.insert("llama3".to_string(), "<|start_header_id|>system<|end_header_id|>\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n".to_string());
+        templates.insert("gemma".to_string(), "<start_of_turn>user\n{system}\n{prompt}<end_of_turn>\n<start_of_turn>model\n".to_string());
+        templates.insert("mistral".to_string(), "[INST] {system}\n{prompt} [/INST]".to_string());
+        templates.insert("phi3".to_string(), "<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>\n".to_string());
+        Self { templates }
+    }
+}
+
+impl ChatTemplateConfig {
+    pub fn render(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
+        let lower = model_name.to_lowercase();
+        let lower_clean = lower.replace('-', "").replace('_', "");
+
+        let matched_key = self.templates.keys().find(|k| {
+            let k_clean = k.to_lowercase().replace('-', "").replace('_', "");
+            lower_clean.contains(&k_clean)
+        }).map(|s| s.as_str());
+
+        let template_key = matched_key.unwrap_or("chatml");
+
+        let template = self.templates.get(template_key)
+            .or_else(|| self.templates.get("chatml"))
+            .cloned()
+            .unwrap_or_else(|| "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n".to_string());
+
+        template
+            .replace("{system}", system_prompt)
+            .replace("{prompt}", user_prompt)
     }
 }
 
@@ -141,20 +165,7 @@ impl SusiPrompts {
     }
 
     pub fn format_chat_prompt(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
-        let lower = model_name.to_lowercase();
-        if lower.contains("gemma") {
-            self.chat_templates.gemma
-                .replace("{system}", system_prompt)
-                .replace("{prompt}", user_prompt)
-        } else if lower.contains("llama") {
-            self.chat_templates.llama3
-                .replace("{system}", system_prompt)
-                .replace("{prompt}", user_prompt)
-        } else {
-            self.chat_templates.chatml
-                .replace("{system}", system_prompt)
-                .replace("{prompt}", user_prompt)
-        }
+        self.chat_templates.render(model_name, system_prompt, user_prompt)
     }
 }
 
@@ -1056,5 +1067,20 @@ mod tests {
 
         let gemma_fmt = prompts.format_chat_prompt("Gemma-2-27B", "Sys", "Usr");
         assert!(gemma_fmt.contains("<start_of_turn>"));
+    }
+
+    #[test]
+    fn test_dynamic_chat_template_rendering() {
+        let mut cfg = ChatTemplateConfig::default();
+        cfg.templates.insert("deepseek".to_string(), "### System:\n{system}\n\n### User:\n{prompt}\n\n### Assistant:\n".to_string());
+
+        let mistral_fmt = cfg.render("Mistral-7B-Instruct", "Sys", "Usr");
+        assert!(mistral_fmt.contains("[INST]"));
+
+        let phi_fmt = cfg.render("Phi-3-Mini", "Sys", "Usr");
+        assert!(phi_fmt.contains("<|user|>"));
+
+        let deepseek_fmt = cfg.render("DeepSeek-R1-Distill", "Sys", "Usr");
+        assert!(deepseek_fmt.contains("### Assistant:"));
     }
 }
