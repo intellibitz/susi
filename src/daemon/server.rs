@@ -288,6 +288,9 @@ impl SusiDaemon {
     }
 
     pub fn run_daemon_loop(workspace: PathBuf, global_dir: PathBuf) {
+        if cfg!(test) {
+            return;
+        }
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
@@ -324,6 +327,9 @@ impl SusiDaemon {
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::daemon::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
+
+        // Spawn Autonomous Background Model Provisioner & Resumable Downloader
+        crate::gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
         let (gemi_server, gemi_port) = Self::bind_http_with_fallback(cfg.gemi_port, "GEMI", &workspace);
@@ -408,13 +414,20 @@ impl SusiDaemon {
         match tiny_http::Server::http(&addr) {
             Ok(server) => (server, port),
             Err(_) => {
+                // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
+                if Self::attempt_port_reclaim(port) {
+                    if let Ok(server) = tiny_http::Server::http(&addr) {
+                        return (server, port);
+                    }
+                }
+
                 let server = tiny_http::Server::http("0.0.0.0:0").expect("Failed to bind to random port");
                 let new_port = server.server_addr().to_ip().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
-                    "PORT_COLLISION",
-                    &format!("{} default port {} occupied. Randomized to {}", name, port, new_port)
+                    "SELF_HEALING_RANDOMIZATION",
+                    &format!("{} default port {} occupied. Reclaim failed. Randomized to {}", name, port, new_port)
                 );
                 eprintln!("[SusiDaemon] {} port collision! Randomized to {}", name, new_port);
                 (server, new_port)
@@ -427,18 +440,54 @@ impl SusiDaemon {
         match std::net::UdpSocket::bind(&addr) {
             Ok(socket) => (socket, port),
             Err(_) => {
+                // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
+                if Self::attempt_port_reclaim(port) {
+                    if let Ok(socket) = std::net::UdpSocket::bind(&addr) {
+                        return (socket, port);
+                    }
+                }
+
                 let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("Failed to bind random UDP port");
                 let new_port = socket.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
-                    "UDP_PORT_COLLISION",
-                    &format!("UDP Discovery port {} occupied. Randomized to {}", port, new_port)
+                    "SELF_HEALING_RANDOMIZATION",
+                    &format!("UDP Discovery port {} occupied. Reclaim failed. Randomized to {}", port, new_port)
                 );
                 eprintln!("[SusiDaemon] UDP port collision! Randomized to {}", new_port);
                 (socket, new_port)
             }
         }
+    }
+
+    /// Aggressive Port Reclaim: Interrogates the process holding a port and evicts it if it's a susi instance.
+    fn attempt_port_reclaim(port: u16) -> bool {
+        #[cfg(unix)]
+        {
+            // Use fuser or lsof to find the PID
+            let output = Command::new("sh")
+                .arg("-c")
+                .arg(format!("fuser {}/tcp 2>/dev/null", port))
+                .output();
+
+            if let Ok(out) = output {
+                let pid_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if let Ok(pid) = pid_str.parse::<i32>() {
+                    // Check if this process is a susi-engine or susi
+                    let comm_output = fs::read_to_string(format!("/proc/{}/comm", pid));
+                    if let Ok(comm) = comm_output {
+                        if comm.contains("susi") {
+                            eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
+                            unsafe { libc::kill(pid, libc::SIGKILL); }
+                            thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {

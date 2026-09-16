@@ -177,18 +177,8 @@ impl TelemetryHistoryStore {
         self.save_history();
     }
 
-    pub fn get_idle_threshold_ms(&self, category: &str) -> u64 {
-        let norm_cat = category.to_lowercase();
-        if norm_cat.starts_with("ls") || norm_cat == "status" || norm_cat == "whoami" || norm_cat == "version" || norm_cat == "identity" {
-            return self.profiles.get(&norm_cat).map(|p| (p.p99_idle_interval_ms * 3).max(3000)).unwrap_or(5000);
-        }
-        if let Some(profile) = self.profiles.get(&norm_cat) {
-            (profile.p99_idle_interval_ms * 3).max(5000)
-        } else {
-            if norm_cat.contains("build") || norm_cat.contains("test") || norm_cat.contains("install") { 120_000 }
-            else if norm_cat.contains("reason") || norm_cat.contains("inference") { 60_000 }
-            else { 30_000 }
-        }
+    pub fn get_idle_threshold_ms(&self, _category: &str) -> u64 {
+        10_000 // Reduced IDE timeout to 10s as requested
     }
 }
 
@@ -296,6 +286,9 @@ impl SwarmTaskManager {
     }
 
     fn start_watchdog(&self) {
+        if cfg!(test) {
+            return;
+        }
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(Duration::from_millis(1000));

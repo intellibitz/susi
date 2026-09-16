@@ -102,8 +102,62 @@ impl CoreTools {
         let hardware = HardwareProfiler::get_profile();
         let mut out = format!("SUSI Engine Version: {}\n", crate::SUSI_VERSION);
         out.push_str(&format!("System Environment: {} CPUs | RAM: {}GB | {}\n", hardware.cpus, hardware.ram_gb, hardware.gpu_info));
-        out.push_str("Status: Operational.\n");
+
+        // Report Background Provisioning Progress
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let progress_file = home.join(".susi/download_progress.json");
+        if progress_file.exists() {
+            if let Ok(content) = fs::read_to_string(&progress_file) {
+                if let Ok(progress) = serde_json::from_str::<crate::gemi::models::ModelDownloadProgress>(&content) {
+                    if progress.status == "IN_PROGRESS" {
+                        out.push_str(&format!("\n[SUBSTRATE PROVISIONING ACTIVE]\n"));
+                        out.push_str(&format!("- Target: {}\n", progress.model_name));
+                        out.push_str(&format!("- Progress: {:.2}% ({:.2}GB / {:.2}GB)\n",
+                            progress.percentage,
+                            progress.bytes_downloaded as f32 / 1e9,
+                            progress.expected_bytes as f32 / 1e9));
+                    }
+                }
+            }
+        }
+
+        out.push_str("\nStatus: Operational.\n");
         Ok(out)
+    }
+
+    #[tool(name = "sovereign_dashboard", description = "Report on autonomous invisible work performed by the substrate")]
+    pub fn sovereign_dashboard(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let log_content = crate::sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 100);
+        let mut report = "# SUSI Sovereign Dashboard - Invisible Work Audit\n\n".to_string();
+
+        let mut self_heals = 0;
+        let mut security_hardens = 0;
+        let mut optimizations = 0;
+        let mut memory_distillations = 0;
+
+        for line in log_content.lines() {
+            if line.contains("SELF_HEALING") { self_heals += 1; }
+            if line.contains("SECURITY_HARDENING") || line.contains("MASKED") { security_hardens += 1; }
+            if line.contains("OPTIMIZATION") || line.contains("BLOAT_REJECTION") { optimizations += 1; }
+            if line.contains("MEMORY_CONSOLIDATION") { memory_distillations += 1; }
+        }
+
+        report.push_str(&format!("- **Autonomous Self-Heals**: {}\n", self_heals));
+        report.push_str(&format!("- **Security Hardening Pulses**: {}\n", security_hardens));
+        report.push_str(&format!("- **Bloat Rejection Optimizations**: {}\n", optimizations));
+        report.push_str(&format!("- **Neural Memory Distillations**: {}\n\n", memory_distillations));
+
+        report.push_str("### Recent Autonomous Activity Trace:\n");
+        for line in log_content.lines().rev().take(10) {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                let ts = entry["ts"].as_u64().unwrap_or(0);
+                let ev_type = entry["type"].as_str().unwrap_or("INFO");
+                let details = entry["details"].as_str().unwrap_or("");
+                report.push_str(&format!("- [{}] **{}**: {}\n", ts, ev_type, details));
+            }
+        }
+
+        Ok(report)
     }
 
     #[tool(name = "identity", description = "SUSI substrate identity report")]
@@ -168,6 +222,12 @@ impl CoreTools {
         }
         let res = ModelManager::install_model(arg_s.trim());
         Ok(res)
+    }
+
+    #[tool(name = "verify_model_download_agent", description = "Verify model download agent, check network status, and ensure 32b and 72b models are provisioned")]
+    pub fn verify_model_download_agent(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let report = ModelManager::verify_and_provision_32b_and_72b_models(workspace)?;
+        Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| "Report serialization failed".to_string()))
     }
 
     #[tool(name = "train_reflexes", description = "Manually trigger native neural reflex distillation")]
@@ -603,6 +663,7 @@ impl ToolRegistry {
     fn bootstrap(&self) {
         Self::register_meta_tool(self, "status", "SUSI Substrate status report", MetaCategory::SystemPrimitive, CoreTools::status);
         Self::register_meta_tool(self, "identity", "SUSI substrate identity report", MetaCategory::SystemPrimitive, CoreTools::identity);
+        Self::register_meta_tool(self, "sovereign_dashboard", "Report on autonomous invisible work performed by the substrate", MetaCategory::SystemPrimitive, CoreTools::sovereign_dashboard);
         Self::register_meta_tool(self, "distill_genome", "Distill the hard-compiled genome into the Tier 2 reasoning model", MetaCategory::SystemPrimitive, CoreTools::distill_genome);
         Self::register_meta_tool(self, "self_validate", "Execute autonomous substrate self-validation", MetaCategory::SystemPrimitive, CoreTools::self_validate);
         Self::register_meta_tool(self, "list_models", "List available model substrates", MetaCategory::SystemPrimitive, CoreTools::list_models);

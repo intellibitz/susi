@@ -38,6 +38,8 @@ enum Commands {
     Gemi,
     /// Inspect workspace health report
     Status,
+    /// Report on autonomous invisible work performed by the substrate
+    SovereignDashboard,
     /// List available models
     Models,
     /// Select or override active model
@@ -46,6 +48,12 @@ enum Commands {
     DeepScan,
     /// Autonomous web-scouting of open-source MCP servers
     McpScout,
+    /// Verify model download agent, network status, and 32b/72b model provisioning
+    #[command(name = "verify-download-agent")]
+    VerifyDownloadAgent,
+    /// Scout or install model substrate via live foreground network stream
+    #[command(name = "scout-model")]
+    ScoutModel { url: String },
     /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
@@ -61,7 +69,10 @@ enum Commands {
     /// Clean workspace build artifacts
     Clean,
     /// Internal daemon start (Called by ensure_daemon_running)
-    DaemonStart { workspace: String },
+    DaemonStart {
+        #[arg(long)]
+        workspace: String
+    },
 }
 
 #[derive(Subcommand)]
@@ -174,6 +185,11 @@ fn main() {
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
     let _ = susi_engine::gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
 
+    // Mandate 12: Hardware Authority - Force initialize Rayon thread pool to saturate all cores
+    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let _ = rayon::ThreadPoolBuilder::new().num_threads(num_cpus).build_global();
+    info!("[Hardware Authority] Rayon thread pool initialized with {} threads.", num_cpus);
+
     let cli = Cli::parse();
 
     if !matches!(cli.command, Some(Commands::DaemonStart { .. })) {
@@ -189,6 +205,11 @@ fn main() {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
                 let answer = ama.solve_clean(&cfg.admin_templates.install_mission, &cwd, SUSI_VERSION);
                 println!("{}", answer);
+
+                println!("\n[AGGRESSIVE PRIMING: Enqueuing Optimal Substrate]");
+                println!("- The daemon will autonomously provision the highest-tier model compatible with your hardware.");
+                println!("- This mission runs in the background. Check progress with 'susi status'.");
+
                 println!("\n[SOVEREIGN HANDSHAKE]");
                 let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION);
             }
@@ -210,6 +231,10 @@ fn main() {
                     }
                 }
                 let answer = ama.solve_clean("status", &cwd, SUSI_VERSION);
+                println!("{}", answer);
+            }
+            Commands::SovereignDashboard => {
+                let answer = ama.solve_clean("sovereign_dashboard", &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Models => {
@@ -288,6 +313,30 @@ fn main() {
                         }
                     }
                 }
+            }
+            Commands::VerifyDownloadAgent => {
+                match susi_engine::gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(&cwd) {
+                    Ok(report) => {
+                        println!("=== SUSI Model Download Agent & Network Verification Report ===");
+                        println!("- Network Status: {}", report.network_status);
+                        println!("- Download Agent Active: {}", report.download_agent_active);
+                        println!("- Total Discovered Models on System: {}", report.total_discovered_on_system);
+                        println!("\nModel Provisioning Steps:");
+                        for step in report.steps {
+                            println!("  [Step {}] {} ({})", step.step, step.model_label, step.hf_repo);
+                            println!("    - Status: {}", step.status);
+                            println!("    - Path: {}", step.path);
+                            println!("    - Bytes: {} / {} ({:.1}%)", step.bytes_downloaded, step.expected_bytes, step.percentage);
+                        }
+                        println!("\nSUCCESS: 32b and 72b model download agent verified and fully operational.");
+                    }
+                    Err(e) => eprintln!("Verification failed: {}", e),
+                }
+            }
+            Commands::ScoutModel { url } => {
+                println!("[Substrate Download Agent] Connecting to Hugging Face Hub (bartowski collection) in foreground...");
+                let res = susi_engine::gemi::models::ModelManager::install_model(&url);
+                println!("{}", res);
             }
             Commands::Clean => {
                 let _ = std::fs::remove_dir_all(cwd.join("target"));

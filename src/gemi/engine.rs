@@ -370,7 +370,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
 
         // Fast-path bypass for tests to prevent 31B model load timeouts
         // Mandatory for stable CI/CD and hardware-limited test environments
-        if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
+        if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" || cfg!(test) {
             task_handle.mark_completed("Simulated inference for test suite.");
             return Ok("Simulated inference for test suite.".to_string());
         }

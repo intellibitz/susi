@@ -77,8 +77,8 @@
       "step": 5,
       "min_ram_gb": 64,
       "label": "72B Parameters (Ultra-Capacity Workstation)",
-      "hf_repo": "susi-alpha/susi-alpha-72b-instruct-v0.1-GGUF",
-      "hf_file": "susi-alpha-72b-instruct-q4_k_m.gguf"
+      "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
+      "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf"
     }
   ],
   "admin_templates": {

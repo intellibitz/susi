@@ -167,4 +167,26 @@ impl ProtocolKnowledgeBase {
         }
         Ok(())
     }
+
+    /// Autonomous consolidation of mission memory: Index successful missions for Tier 0 retrieval.
+    pub fn consolidate_recent_interactions(workspace: &Path) -> EaiResult<usize> {
+        let memory_file = workspace.join(".susi/memory.jsonl");
+        if !memory_file.exists() { return Ok(0); }
+
+        let content = std::fs::read_to_string(&memory_file)?;
+        let mut count = 0;
+        for line in content.lines() {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                let intent = entry["intent"].as_str().unwrap_or("");
+                let outcome = entry["outcome"].as_str().unwrap_or("");
+
+                // Only consolidate successful, complex reasoning ( > 100 chars )
+                if outcome.len() > 100 && !outcome.contains("[FAIL]") {
+                    Self::stage_distillation_pair(intent, outcome, workspace, None)?;
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
+    }
 }

@@ -92,18 +92,21 @@ impl MissionDag {
                     self.nodes[idx].completed = true;
                     executed_count += 1;
 
-                    let record = EvidenceRecord {
-                        agent_id: self.nodes[idx].title.clone(),
-                        rank: 0.95,
-                        timestamp: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
-                        claim: super::evidence::Claim {
+                    let record = EvidenceRecord::new(
+                        self.nodes[idx].title.clone(),
+                        0.95,
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        super::evidence::Claim {
                             subject: self.nodes[idx].title.clone(),
                             predicate: "achieved_goal".to_string(),
                             value: output.chars().take(120).collect(),
                         },
-                        source: super::evidence::EvidenceSource::AgentObservation { observation: output.clone() },
-                        confidence: 0.92,
-                    };
+                        super::evidence::EvidenceSource::AgentObservation {
+                            observation: output.clone(),
+                            reasoning_trace: "DAG Work-Stealing Parallel Loop".to_string()
+                        },
+                        0.92,
+                    );
 
                     bb.insert(format!("TaskNode_{}", idx), output);
                     all_evidence.push(record);

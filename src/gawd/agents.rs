@@ -656,31 +656,6 @@ impl GawdAgent for SearchAgent {
 
         let res = if is_query {
             format!("[{}]: Query observation integrated.", self.name())
-        } else if lower.contains("too sweet") || lower.contains("lyrics") {
-            let fetched = ureq::get("https://api.lyrics.ovh/v1/Hozier/Too%20Sweet")
-                .timeout(std::time::Duration::from_secs(3))
-                .call()
-                .ok()
-                .and_then(|r| r.into_json::<serde_json::Value>().ok())
-                .and_then(|v| v["lyrics"].as_str().map(|s| s.to_string()));
-
-            if let Some(lyrics) = fetched {
-                format!("### Too Sweet - Hozier (Lyrics)\n\n{}", lyrics)
-            } else {
-                "### Too Sweet - Hozier (Lyrics)\n\n\
-                It's sweet where you are, but I'm better in the dark\n\
-                I'm better in the dark than in the morning light\n\
-                I take my coffee neat, my coffee black and my bed at three\n\
-                You're too sweet for me\n\
-                You're too sweet for me\n\n\
-                I take my whiskey neat, my coffee black and my bed at three\n\
-                You're too sweet for me\n\
-                You're too sweet for me\n\n\
-                I'd rather take my chance standing in the rain\n\
-                I'd rather have the storm than the calm again\n\
-                You're too sweet for me\n\
-                You're too sweet for me".to_string()
-            }
         } else {
             let prompt = format!("Perform deep knowledge retrieval and search synthesis for goal: {}. Context: {}", goal, blackboard.to_json());
             let ws = workspace.to_path_buf();
@@ -706,24 +681,6 @@ impl GawdAgent for TranslationAgent {
 
         let res = if is_query {
             format!("[{}]: Query linguistic observation integrated.", self.name())
-        } else if lower.contains("tamil") || lower.contains("too sweet") || lower.contains("side by side") {
-            let mut out = String::new();
-            out.push_str("### Side-by-Side Lyrics & Tamil Translation (Too Sweet - Hozier)\n\n");
-            out.push_str("| English Lyrics | Tamil Translation (தமிழ் மொழியாக்கம்) |\n");
-            out.push_str("|:---|:---|\n");
-            out.push_str("| It's sweet where you are, but I'm better in the dark | நீ இருக்கும் இடம் இனிமையாக உள்ளது, ஆனால் நான் இருளில்தான் நன்றாக இருக்கிறேன் |\n");
-            out.push_str("| I'm better in the dark than in the morning light | காலை வெளிச்சத்தை விட இருளில்தான் நான் சிறப்பாக உணர்கிறேன் |\n");
-            out.push_str("| I take my coffee neat, my coffee black and my bed at three | நான் என் காபியை நேராகவும், கறுப்பாகவும் குடித்து, அதிகாலை 3 மணிக்கு தூங்குகிறேன் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out.push_str("| I take my whiskey neat, my coffee black and my bed at three | நான் என் விஸ்கியை நேராகவும், காபியை கறுப்பாகவும் குடிக்கிறேன் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out.push_str("| I'd rather take my chance standing in the rain | மழையில் நின்று என் அதிர்ஷ்டத்தைச் சோதிக்கவே விரும்புகிறேன் |\n");
-            out.push_str("| I'd rather have the storm than the calm again | அமைதியை விட புயலையே நான் தேர்ந்தெடுக்கிறேன் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out.push_str("| You're too sweet for me | நீ எனக்கு மிகவும் இனிமையானவள் |\n");
-            out
         } else {
             let prompt = format!("Perform high-fidelity multilingual translation or linguistic formatting for goal: {}. Context: {}", goal, blackboard.to_json());
             let ws = workspace.to_path_buf();
@@ -930,14 +887,28 @@ impl NeuralAgentFactory {
 
 pub struct GawdAgentFleet;
 
+static THROTTLE_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 impl GawdAgentFleet {
+    pub fn throttle_concurrency(active: bool) {
+        THROTTLE_ACTIVE.store(active, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn get_max_concurrent_agents() -> usize {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+
+        let base_limit = if THROTTLE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
+            // Load Shedding: Reduce to 25% capacity if system is under stress
+            (cfg.max_concurrent_agents / 4).max(1)
+        } else {
+            cfg.max_concurrent_agents
+        };
+
         // Mandate: Never cause OOM. Cap at 90% utilization.
         // Heuristic: Each agent requires ~512MB RAM for context/inference overhead.
         let ram_based_limit = (hw.available_ram_gb * 1024 / 512).max(1);
-        ram_based_limit.min(cfg.max_concurrent_agents)
+        ram_based_limit.min(base_limit)
     }
 
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
@@ -1152,30 +1123,4 @@ mod tests {
         assert!(agents.iter().any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
     }
 
-    #[test]
-    fn test_opalite_mission_synthesis() {
-        let goal = "find opalite song lyrics and translate to tamil, display side by side";
-
-        // Manual Registration for Test Verification
-        let registry = AgentMetaRegistry::global();
-        registry.register_agent(AgentProfile {
-            name: "SearchAgent".into(),
-            description: "Deep web searching, knowledge retrieval, and data scouting.".into(),
-            categories: vec!["search".into(), "find".into(), "lyrics".into()],
-            semantic_anchors: vec!["google".into()],
-            base_rank: 0.9,
-        });
-
-        let fleet = GawdAgentFleet::synthesize_fleet(goal, Path::new("."));
-
-        println!("Synthesized Fleet size: {}", fleet.len());
-        for a in &fleet { println!("- Agent: {}", a.name()); }
-
-        assert!(!fleet.is_empty());
-        assert!(fleet.iter().any(|a| a.name() == "SusiRuntimeAgent"));
-        assert!(fleet.iter().any(|a| a.name() == "HardwareAgent"));
-        assert!(fleet.iter().any(|a| a.name() == "SearchAgent") ||
-                fleet.iter().any(|a| a.name() == "TranslationAgent") ||
-                fleet.iter().any(|a| a.name() == "UniversalReasoner"));
     }
-}

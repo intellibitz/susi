@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022933"
+version = "0.1.2022934"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -32,7 +32,7 @@ This document defines the immutable genome of the `susi` substrate.
 19. **Decoupled Messaging**: Utilize asynchronous messaging primitives (Pub-Sub, Actor/CSP channels) for orchestration.
 20. **Alpha-Self Evolution (Motion Rule)**: Workflow strictly follows: Motion -> Architecture -> Structure -> Logic.
 21. **Dynamic Intent Resolution**: Intents resolve dynamically along the Continuous Intent Manifold.
-22. **Self-Healing Reflex**: Autonomously recover from structural pathologies, port collisions, or memory faults.
+22. **Self-Healing Reflex**: Autonomously recover from structural pathologies, port collisions, or memory faults. Port collisions must trigger an aggressive "Sovereign Eviction" protocol if the blocking process is a stale substrate instance.
 23. **Substrate Purity**: Absolute engine, model, agent, and MCP agnosticism. Zero static domain logic in core code.
 24. **Eternal Liberty**: SUSI is eternally free under Apache 2.0. Zero liability.
 25. **Destructive Command Guard**: Absolute prohibition on executing commands matching high-risk patterns (e.g., `rm -rf /`).
