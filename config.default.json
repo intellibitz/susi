@@ -1,168 +1,18 @@
 {
-  "gmcp_port": 9090,
-  "gmcp_http_port": 9093,
   "gemi_port": 9091,
-  "udp_discovery_port": 9092,
-  "execution_lease_secs": 30,
   "max_concurrent_agents": 32,
-  "reflex_training_threshold": 50,
-  "max_stdin_size_bytes": 104857600,
-  "stdin_timeout_secs": 120,
-  "default_engine": "susi-offline",
-  "default_model": "susi-alpha",
-  "auto_download_models": true,
   "susi_repo": "intellibitz/susi",
-  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
-  "bootstrap_mcp_servers": [
-    {
-      "name": "database",
-      "description": "Standard Protocol SQL Database Server",
-      "package": "mcp-server-postgres",
-      "category": "database",
-      "trust_score": 0.95,
-      "latency_ms": 10
-    },
-    {
-      "name": "search",
-      "description": "Standard Protocol Web Search Server",
-      "package": "mcp-server-search",
-      "category": "search",
-      "trust_score": 0.9,
-      "latency_ms": 50
-    },
-    {
-      "name": "vcs",
-      "description": "Standard Protocol Version Control Server",
-      "package": "mcp-server-github",
-      "category": "vcs",
-      "trust_score": 0.92,
-      "latency_ms": 30
-    }
-  ],
-  "cloud_scout_timeout_secs": 8,
-  "beacon_interval_secs": 30,
-  "local_scan_paths": [],
   "agent_rank_threshold": 0.6,
-  "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
-  "trust_level": "Balanced",
-  "model_ladder": [
-    {
-      "step": 1,
-      "min_ram_gb": 0,
-      "label": "1.5B Parameters (Fast Local Edge)",
-      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-      "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-    },
-    {
-      "step": 2,
-      "min_ram_gb": 8,
-      "label": "7B Parameters (Mid-Range Desktop)",
-      "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
-      "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-    },
-    {
-      "step": 3,
-      "min_ram_gb": 16,
-      "label": "14B Parameters (High-Accuracy Workstation)",
-      "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
-      "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf"
-    },
-    {
-      "step": 4,
-      "min_ram_gb": 32,
-      "label": "32B Parameters (High-End Workstation)",
-      "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
-      "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf"
-    },
-    {
-      "step": 5,
-      "min_ram_gb": 64,
-      "label": "72B Parameters (Ultra-Capacity Workstation)",
-      "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
-      "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf"
-    }
-  ],
-  "admin_pulses": {
-    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
-    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
-    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
-    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
-    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
-    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
-    "verify_pulse": "admin pulse: verify version alignment across manifest and documents",
-    "release_pulse": "admin pulse: execute full release orchestration sequence",
-    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
-    "audit_deps_pulse": "admin pulse: run dependency security audit"
-  },
-  "inference_endpoints": {
-    "endpoints": [
-      {
-        "name": "vLLM",
-        "api_base": "http://localhost:8000/v1",
-        "protocol_type": "completions"
-      },
-      {
-        "name": "SGLang",
-        "api_base": "http://localhost:30000/v1",
-        "protocol_type": "chat"
-      },
-      {
-        "name": "llama.cpp",
-        "api_base": "http://localhost:8080/v1",
-        "protocol_type": "completions"
-      },
-      {
-        "name": "Triton",
-        "api_base": "http://localhost:8001/v2/models/susi_model/generate",
-        "protocol_type": "triton"
-      },
-      {
-        "name": "LMDeploy",
-        "api_base": "http://localhost:23333/v1",
-        "protocol_type": "completions"
-      },
-      {
-        "name": "OpenAI",
-        "api_base": "https://api.openai.com/v1",
-        "protocol_type": "chat"
-      },
-      {
-        "name": "Anthropic",
-        "api_base": "https://api.anthropic.com/v1",
-        "protocol_type": "anthropic"
-      },
-      {
-        "name": "Ollama",
-        "api_base": "http://localhost:11434/v1",
-        "protocol_type": "chat"
-      },
-      {
-        "name": "GoogleGemini",
-        "api_base": "https://generativelanguage.googleapis.com/v1beta",
-        "protocol_type": "gemini"
-      }
-    ],
-    "vllm_api_base": "http://localhost:8000/v1",
-    "sglang_api_base": "http://localhost:30000/v1",
-    "llama_api_base": "http://localhost:8080/v1",
-    "triton_api_base": "http://localhost:8001/v2/models/susi_model/generate",
-    "lmdeploy_api_base": "http://localhost:23333/v1"
-  },
-  "discoverable_assets": [
-    {
-      "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "name": "SusiReflexCloud-v2",
-      "provider": "SUSI Hub",
-      "url": "https://susi.ai/reflex/v2"
-    },
-    {
-      "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "name": "DistilledRouter-1B",
-      "provider": "HuggingFace",
-      "url": "https://huggingface.co/susi/distilled-router"
-    }
-  ],
+  "beacon_interval_secs": 30,
   "governance": {
+    "critical_system_paths": [
+      "/etc/passwd",
+      "/etc/shadow",
+      "/boot",
+      "/proc",
+      "/sys",
+      "/dev"
+    ],
     "destructive_commands": [
       "rm -rf /",
       "rm -rf $HOME",
@@ -175,13 +25,13 @@
       "chown -R",
       "shred"
     ],
-    "critical_system_paths": [
-      "/etc/passwd",
-      "/etc/shadow",
-      "/boot",
-      "/proc",
-      "/sys",
-      "/dev"
+    "exfiltration_vectors": [
+      "curl -x post",
+      "wget --post-data",
+      "netcat",
+      "nc -e",
+      "/dev/tcp/",
+      "base64 | curl"
     ],
     "secret_tokens": [
       "sk-",
@@ -191,14 +41,164 @@
       "AWS_ACCESS_KEY_ID",
       "AWS_SECRET_ACCESS_KEY",
       "-----BEGIN RSA PRIVATE KEY-----"
-    ],
-    "exfiltration_vectors": [
-      "curl -x post",
-      "wget --post-data",
-      "netcat",
-      "nc -e",
-      "/dev/tcp/",
-      "base64 | curl"
     ]
+  },
+  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
+  "inference_endpoints": {
+    "endpoints": [
+      {
+        "api_base": "http://localhost:8000/v1",
+        "name": "vLLM",
+        "protocol_type": "completions"
+      },
+      {
+        "api_base": "http://localhost:30000/v1",
+        "name": "SGLang",
+        "protocol_type": "chat"
+      },
+      {
+        "api_base": "http://localhost:8080/v1",
+        "name": "llama.cpp",
+        "protocol_type": "completions"
+      },
+      {
+        "api_base": "http://localhost:8001/v2/models/susi_model/generate",
+        "name": "Triton",
+        "protocol_type": "triton"
+      },
+      {
+        "api_base": "http://localhost:23333/v1",
+        "name": "LMDeploy",
+        "protocol_type": "completions"
+      },
+      {
+        "api_base": "https://api.openai.com/v1",
+        "name": "OpenAI",
+        "protocol_type": "chat"
+      },
+      {
+        "api_base": "https://api.anthropic.com/v1",
+        "name": "Anthropic",
+        "protocol_type": "anthropic"
+      },
+      {
+        "api_base": "http://localhost:11434/v1",
+        "name": "Ollama",
+        "protocol_type": "chat"
+      },
+      {
+        "api_base": "https://generativelanguage.googleapis.com/v1beta",
+        "name": "GoogleGemini",
+        "protocol_type": "gemini"
+      }
+    ],
+    "llama_api_base": "http://localhost:8080/v1",
+    "lmdeploy_api_base": "http://localhost:23333/v1",
+    "sglang_api_base": "http://localhost:30000/v1",
+    "triton_api_base": "http://localhost:8001/v2/models/susi_model/generate",
+    "vllm_api_base": "http://localhost:8000/v1"
+  },
+  "discoverable_assets": [
+    {
+      "name": "SusiReflexCloud-v2",
+      "provider": "SUSI Hub",
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "url": "https://susi.ai/reflex/v2"
+    },
+    {
+      "name": "DistilledRouter-1B",
+      "provider": "HuggingFace",
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "url": "https://huggingface.co/susi/distilled-router"
+    }
+  ],
+  "model_ladder": [
+    {
+      "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "label": "1.5B Parameters (Fast Local Edge)",
+      "min_ram_gb": 0,
+      "step": 1
+    },
+    {
+      "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+      "label": "7B Parameters (Mid-Range Desktop)",
+      "min_ram_gb": 8,
+      "step": 2
+    },
+    {
+      "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "label": "14B Parameters (High-Accuracy Workstation)",
+      "min_ram_gb": 16,
+      "step": 3
+    },
+    {
+      "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
+      "label": "32B Parameters (High-End Workstation)",
+      "min_ram_gb": 32,
+      "step": 4
+    },
+    {
+      "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
+      "label": "72B Parameters (Ultra-Capacity Workstation)",
+      "min_ram_gb": 64,
+      "step": 5
+    }
+  ],
+  "max_stdin_size_bytes": 104857600,
+  "local_scan_paths": [],
+  "bootstrap_mcp_servers": [
+    {
+      "category": "database",
+      "description": "Standard Protocol SQL Database Server",
+      "latency_ms": 10,
+      "name": "database",
+      "package": "mcp-server-postgres",
+      "trust_score": 0.95
+    },
+    {
+      "category": "search",
+      "description": "Standard Protocol Web Search Server",
+      "latency_ms": 50,
+      "name": "search",
+      "package": "mcp-server-search",
+      "trust_score": 0.9
+    },
+    {
+      "category": "vcs",
+      "description": "Standard Protocol Version Control Server",
+      "latency_ms": 30,
+      "name": "vcs",
+      "package": "mcp-server-github",
+      "trust_score": 0.92
+    }
+  ],
+  "trust_level": "Balanced",
+  "reflex_training_threshold": 50,
+  "gmcp_http_port": 9093,
+  "auto_download_models": true,
+  "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
+  "udp_discovery_port": 9092,
+  "gmcp_port": 9090,
+  "default_model": "susi-alpha",
+  "cloud_scout_timeout_secs": 8,
+  "default_engine": "susi-offline",
+  "stdin_timeout_secs": 120,
+  "execution_lease_secs": 30,
+  "admin_pulses": {
+    "audit_deps_pulse": "admin pulse: run dependency security audit",
+    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
+    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
+    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
+    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
+    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
+    "release_pulse": "admin pulse: execute full release orchestration sequence",
+    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
+    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
+    "verify_pulse": "admin pulse: verify version alignment across manifest and documents"
   }
 }
