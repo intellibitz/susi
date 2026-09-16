@@ -1166,20 +1166,20 @@ impl GawdAgentFleet {
             || lower_goal.contains("who am i")
             || lower_goal.contains("whoami");
 
-        if lower_goal.contains("admin")
-            || lower_goal.contains("sync")
-            || lower_goal.contains("audit")
-            || lower_goal.contains("release")
-            || lower_goal.contains("verify")
-            || lower_goal.contains("deep-scan")
-            || lower_goal.contains("install")
-            || lower_goal.contains("uninstall")
-        {
-            fleet.push(Arc::new(AdminAgent));
-        }
-
         // Schema-Driven High-Throughput Remote Bridge Integration
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let routing = cfg.agent_routing();
+
+        if let Some(admin_keys) = routing.get("AdminAgent") {
+            if admin_keys.iter().any(|k| lower_goal.contains(k)) {
+                fleet.push(Arc::new(AdminAgent));
+            }
+        } else {
+            if lower_goal.contains("admin") || lower_goal.contains("sync") || lower_goal.contains("install") {
+                fleet.push(Arc::new(AdminAgent));
+            }
+        }
+
         for endpoint in &cfg.inference_endpoints().endpoints {
             let env_var_name = format!("{}_API_BASE", endpoint.name.to_uppercase().replace('.', "_"));
             if std::env::var(&env_var_name).is_ok() {
@@ -1194,18 +1194,24 @@ impl GawdAgentFleet {
 
         fleet.push(Arc::new(LibraryScoutAgent));
 
-        if lower_goal.contains("search")
-            || lower_goal.contains("lyrics")
-            || lower_goal.contains("find")
-            || lower_goal.contains("dracula")
-        {
-            fleet.push(Arc::new(SearchAgent));
+        if let Some(search_keys) = routing.get("SearchAgent") {
+            if search_keys.iter().any(|k| lower_goal.contains(k)) {
+                fleet.push(Arc::new(SearchAgent));
+            }
+        } else {
+            if lower_goal.contains("search") || lower_goal.contains("find") {
+                fleet.push(Arc::new(SearchAgent));
+            }
         }
-        if lower_goal.contains("translate")
-            || lower_goal.contains("tamil")
-            || lower_goal.contains("language")
-        {
-            fleet.push(Arc::new(TranslationAgent));
+
+        if let Some(trans_keys) = routing.get("TranslationAgent") {
+            if trans_keys.iter().any(|k| lower_goal.contains(k)) {
+                fleet.push(Arc::new(TranslationAgent));
+            }
+        } else {
+            if lower_goal.contains("translate") || lower_goal.contains("language") {
+                fleet.push(Arc::new(TranslationAgent));
+            }
         }
 
         fleet.push(Arc::new(DynamicAgent {

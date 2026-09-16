@@ -368,6 +368,16 @@ pub struct DiscoverableAssetConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
+pub struct ModelScoringHeuristics {
+    #[serde(flatten)]
+    pub fields: DynamicRegistry,
+    pub size_gb_multipliers: HashMap<String, f32>,
+    pub native_candle_bonus: f32,
+    pub system_ram_buffer_gb: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct GovernancePatterns {
     #[serde(flatten)]
     pub patterns: DynamicRegistry,
@@ -500,6 +510,12 @@ impl SusiConfig {
     }
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
         self.get("model_ladder").unwrap_or_default()
+    }
+    pub fn agent_routing(&self) -> HashMap<String, Vec<String>> {
+        self.get("agent_routing").unwrap_or_default()
+    }
+    pub fn model_scoring_heuristics(&self) -> ModelScoringHeuristics {
+        self.get("model_scoring_heuristics").unwrap_or_default()
     }
 }
 

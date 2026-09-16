@@ -311,6 +311,8 @@ impl ModelManager {
 
         let vram_budget_gb = hw.gpu_vram_gb as f32;
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let heuristics = cfg.model_scoring_heuristics();
 
         for m in local_models {
             let mut model_size_gb: f32 = 4.0;
@@ -321,17 +323,15 @@ impl ModelManager {
                 }
             } else {
                 let name_lower = m.model_id().to_lowercase();
-                if name_lower.contains("70b") || name_lower.contains("72b") {
-                    model_size_gb = 40.0;
-                } else if name_lower.contains("32b") || name_lower.contains("33b") {
-                    model_size_gb = 20.0;
-                } else if name_lower.contains("13b") || name_lower.contains("14b") {
-                    model_size_gb = 9.0;
-                } else if name_lower.contains("7b") || name_lower.contains("8b") {
-                    model_size_gb = 4.5;
-                } else {
-                    model_size_gb = 2.0;
+                let mut found = false;
+                for (key, val) in &heuristics.size_gb_multipliers {
+                    if name_lower.contains(key) {
+                        model_size_gb = *val;
+                        found = true;
+                        break;
+                    }
                 }
+                if !found { model_size_gb = 2.0; }
             }
 
             let mut score = 0.0f32;
@@ -348,7 +348,7 @@ impl ModelManager {
                 }
             }
             if m.provider() == "NativeCandle" {
-                score += 15.0;
+                score += heuristics.native_candle_bonus;
             }
             scored_models.push((score, m));
         }
