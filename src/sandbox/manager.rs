@@ -35,6 +35,50 @@ pub struct ModelInfo {
     pub provenance: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TrustLevel {
+    Conservative, // Level 1: Propose everything
+    Balanced,     // Level 2 (Default): Silent auto-fix formatting/caches, Grouped cards for code edits
+    Autonomous,   // Level 3: Hands-free execution + 1-click susi undo
+}
+
+impl Default for TrustLevel {
+    fn default() -> Self {
+        TrustLevel::Balanced
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RiskTier {
+    Tier0ZeroRisk,
+    Tier1LowRisk,
+    Tier2HighRisk,
+}
+
+impl Default for RiskTier {
+    fn default() -> Self {
+        RiskTier::Tier0ZeroRisk
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StagedFix {
+    pub file_path: String,
+    pub original_content: String,
+    pub staged_content: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntentBundle {
+    pub bundle_id: String,
+    pub title: String,
+    pub risk_tier: RiskTier,
+    pub description: String,
+    pub staged_fixes: Vec<StagedFix>,
+    pub applied: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NeuralCheckpoint {
     pub intent: String,
@@ -156,6 +200,7 @@ pub struct SusiConfig {
     pub local_scan_paths: Vec<String>,
     pub agent_rank_threshold: f32,
     pub alpha_weights_url: String,
+    pub trust_level: TrustLevel,
     pub model_ladder: Vec<ModelLadderConfigStep>,
     #[serde(alias = "admin_templates")]
     pub admin_pulses: AdminPulsesConfig,
@@ -215,6 +260,7 @@ impl Default for SusiConfig {
             alpha_weights_url:
                 "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors"
                     .to_string(),
+            trust_level: TrustLevel::Balanced,
             model_ladder: vec![
                 ModelLadderConfigStep {
                     step: 1,
@@ -587,6 +633,100 @@ impl SusiBackupManager {
     }
 }
 
+pub struct IntentBundleManager;
+
+impl IntentBundleManager {
+    pub fn get_staged_bundles(workspace: &Path) -> Vec<IntentBundle> {
+        let bundles_file = workspace.join(".susi/staged_bundles.json");
+        if bundles_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&bundles_file) {
+                return serde_json::from_str(&content).unwrap_or_default();
+            }
+        }
+        Vec::new()
+    }
+
+    pub fn save_staged_bundles(workspace: &Path, bundles: &[IntentBundle]) -> EaiResult<()> {
+        let susi_dir = workspace.join(".susi");
+        let _ = fs::create_dir_all(&susi_dir);
+        let bundles_file = susi_dir.join("staged_bundles.json");
+        let json = serde_json::to_string_pretty(bundles)
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        fs::write(bundles_file, json).map_err(|e| EaiError::filesystem(e.to_string()))
+    }
+
+    pub fn stage_bundle(workspace: &Path, bundle: IntentBundle) -> EaiResult<()> {
+        let mut bundles = Self::get_staged_bundles(workspace);
+        bundles.retain(|b| b.bundle_id != bundle.bundle_id);
+        bundles.push(bundle);
+        Self::save_staged_bundles(workspace, &bundles)
+    }
+
+    pub fn accept_all(workspace: &Path) -> EaiResult<String> {
+        let mut bundles = Self::get_staged_bundles(workspace);
+        if bundles.is_empty() {
+            return Ok("No staged intent bundles to accept.".to_string());
+        }
+
+        let mut accepted_count = 0;
+        let mut files_changed = 0;
+
+        for bundle in &mut bundles {
+            if !bundle.applied {
+                for fix in &bundle.staged_fixes {
+                    let target_path = workspace.join(&fix.file_path);
+                    if let Some(parent) = target_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    fs::write(&target_path, &fix.staged_content)
+                        .map_err(|e| EaiError::filesystem(e.to_string()))?;
+                    files_changed += 1;
+                }
+                bundle.applied = true;
+                accepted_count += 1;
+            }
+        }
+
+        Self::save_staged_bundles(workspace, &bundles)?;
+        Ok(format!(
+            "SUCCESS: Accepted {} intent bundles across {} files.",
+            accepted_count, files_changed
+        ))
+    }
+
+    pub fn rollback_all(workspace: &Path) -> EaiResult<String> {
+        let mut bundles = Self::get_staged_bundles(workspace);
+        if bundles.is_empty() {
+            return Ok("No staged intent bundles to rollback.".to_string());
+        }
+
+        let mut reverted_files = 0;
+        for bundle in &mut bundles {
+            if bundle.applied {
+                for fix in &bundle.staged_fixes {
+                    let target_path = workspace.join(&fix.file_path);
+                    if !fix.original_content.is_empty() {
+                        let _ = fs::write(&target_path, &fix.original_content);
+                    } else if target_path.exists() {
+                        let _ = fs::remove_file(&target_path);
+                    }
+                    reverted_files += 1;
+                }
+                bundle.applied = false;
+            }
+        }
+
+        let susi_dir = workspace.join(".susi");
+        let bundles_file = susi_dir.join("staged_bundles.json");
+        let _ = fs::remove_file(bundles_file);
+
+        Ok(format!(
+            "SUCCESS: Rolled back staged fixes across {} files.",
+            reverted_files
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,6 +786,43 @@ mod tests {
         SusiMemory::save_interaction(ws, "hello", "world");
         let memory_file = ws.join(".susi/memory.jsonl");
         assert!(memory_file.is_file());
+        let _ = fs::remove_dir_all(ws);
+    }
+
+    #[test]
+    fn test_intent_bundle_staging_and_rollback_lifecycle() {
+        let ws = Path::new("test_bundle_ws");
+        let _ = fs::create_dir_all(ws);
+
+        let test_file = ws.join("test_code.txt");
+        let _ = fs::write(&test_file, "original code");
+
+        let bundle = IntentBundle {
+            bundle_id: "b1".to_string(),
+            title: "Test Hygiene Bundle".to_string(),
+            risk_tier: RiskTier::Tier0ZeroRisk,
+            description: "Test fix".to_string(),
+            staged_fixes: vec![StagedFix {
+                file_path: "test_code.txt".to_string(),
+                original_content: "original code".to_string(),
+                staged_content: "refactored code".to_string(),
+                description: "Refactor".to_string(),
+            }],
+            applied: false,
+        };
+
+        IntentBundleManager::stage_bundle(ws, bundle).expect("Staging failed");
+        let staged = IntentBundleManager::get_staged_bundles(ws);
+        assert_eq!(staged.len(), 1);
+
+        IntentBundleManager::accept_all(ws).expect("Accept failed");
+        let content = fs::read_to_string(&test_file).unwrap_or_default();
+        assert_eq!(content, "refactored code");
+
+        IntentBundleManager::rollback_all(ws).expect("Rollback failed");
+        let rolled_back = fs::read_to_string(&test_file).unwrap_or_default();
+        assert_eq!(rolled_back, "original code");
+
         let _ = fs::remove_dir_all(ws);
     }
 }

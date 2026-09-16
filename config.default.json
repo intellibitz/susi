@@ -44,6 +44,7 @@
   "local_scan_paths": [],
   "agent_rank_threshold": 0.6,
   "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
+  "trust_level": "Balanced",
   "model_ladder": [
     {
       "step": 1,

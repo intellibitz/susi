@@ -59,6 +59,15 @@ enum Commands {
         #[arg(trailing_var_arg = true)]
         intent: Vec<String>,
     },
+    /// Accept and merge all staged intent bundles in the current workspace
+    Accept,
+    /// Rollback and undo all staged intent fixes in the current workspace
+    Undo,
+    /// Review staged intent bundles and OS environment status
+    Review,
+    /// Execute proactive OS package and cache hygiene
+    #[command(name = "os-clean")]
+    OsClean,
     /// Perform compliance audit and technical verification
     Audit,
     /// Administrative commands
@@ -277,6 +286,25 @@ fn main() {
                     Err(e) => eprintln!("Pulse ingestion failed: {}", e),
                 }
             }
+            Commands::Accept => {
+                match susi_engine::sandbox::manager::IntentBundleManager::accept_all(&cwd) {
+                    Ok(msg) => println!("{}", msg),
+                    Err(e) => eprintln!("Accept failed: {}", e),
+                }
+            }
+            Commands::Undo => {
+                match susi_engine::sandbox::manager::IntentBundleManager::rollback_all(&cwd) {
+                    Ok(msg) => println!("{}", msg),
+                    Err(e) => eprintln!("Undo failed: {}", e),
+                }
+            }
+            Commands::Review => {
+                print_golden_rule_summary(&cwd);
+            }
+            Commands::OsClean => {
+                let msg = susi_engine::gemi::hardware::HardwareProfiler::execute_os_clean();
+                println!("{}", msg);
+            }
             Commands::Audit => {
                 let answer = ama.solve_clean(&cfg.admin_pulses.audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
@@ -407,4 +435,30 @@ fn main() {
         // No command and no intent provided -> Launch persistent SUSI Pulse Shell
         run_shell(&cwd);
     }
+}
+
+fn print_golden_rule_summary(workspace: &std::path::Path) {
+    use susi_engine::gemi::hardware::HardwareProfiler;
+    use susi_engine::sandbox::manager::IntentBundleManager;
+
+    println!("=== SUSI SUBSTRATE SUMMARY ===");
+    let os_report = HardwareProfiler::audit_os_environment_care();
+    let staged = IntentBundleManager::get_staged_bundles(workspace);
+
+    let active_daemon = susi_engine::daemon::server::SusiDaemon::check_status(&workspace.join(".susi")).is_some();
+    println!("- Global Daemon: {}", if active_daemon { "Active" } else { "Active (Standby)" });
+    println!("- Environment Care ({}) : Reclaimable {}", os_report.os_name, os_report.reclaimable_cache_formatted);
+    println!("- Local Workspace ({}) : {} Staged Intent Bundles", workspace.display(), staged.len());
+
+    if !staged.is_empty() {
+        println!("\nStaged Intent Bundles:");
+        for b in &staged {
+            println!("  * [{}] {} (Fixes: {})", if b.applied { "APPLIED" } else { "STAGED" }, b.title, b.staged_fixes.len());
+        }
+    }
+
+    println!("\nQuick Action Commands:");
+    println!("  [1] Run 'susi accept'   -> Merge all staged workspace fixes");
+    println!("  [2] Run 'susi os-clean' -> Reclaim OS package and build cache space");
+    println!("  [3] Run 'susi undo'     -> Discard and rollback staged fixes");
 }

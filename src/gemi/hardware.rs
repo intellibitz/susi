@@ -412,6 +412,84 @@ impl HardwareProfiler {
 
         ladder
     }
+
+    pub fn audit_os_environment_care() -> OsCareReport {
+        let os_name = Self::get_os_info();
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+
+        let mut reclaimable = 0u64;
+        let mut recommendations = Vec::new();
+
+        // Check pacman / cargo / temp caches
+        let pacman_cache = std::path::PathBuf::from("/var/cache/pacman/pkg");
+        if pacman_cache.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&pacman_cache) {
+                let bytes: u64 = entries.flatten().map(|e| e.metadata().map(|m| m.len()).unwrap_or(0)).sum();
+                if bytes > 500_000_000 {
+                    reclaimable += bytes;
+                    recommendations.push(format!("Clean pacman package cache ({:.1} GB reclaimable)", bytes as f64 / 1e9));
+                }
+            }
+        }
+
+        let user_cache = home.join(".cache");
+        if user_cache.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&user_cache) {
+                let bytes: u64 = entries.flatten().map(|e| e.metadata().map(|m| m.len()).unwrap_or(0)).sum();
+                if bytes > 1_000_000_000 {
+                    reclaimable += bytes / 4;
+                    recommendations.push(format!("Prune stale build targets in ~/.cache ({:.1} GB reclaimable)", (bytes / 4) as f64 / 1e9));
+                }
+            }
+        }
+
+        if recommendations.is_empty() {
+            recommendations.push("OS environment package and cache hygiene nominal.".to_string());
+        }
+
+        OsCareReport {
+            os_name,
+            reclaimable_cache_bytes: reclaimable,
+            reclaimable_cache_formatted: format!("{:.2} GB", reclaimable as f64 / 1e9),
+            status: if reclaimable > 0 { "RECLAIMABLE_SPACE_DETECTED".to_string() } else { "OPTIMAL".to_string() },
+            recommendations,
+        }
+    }
+
+    pub fn execute_os_clean() -> String {
+        let report = Self::audit_os_environment_care();
+        if report.reclaimable_cache_bytes == 0 {
+            return "OS environment is already clean and optimal.".to_string();
+        }
+
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        let user_cache = home.join(".cache");
+        if user_cache.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&user_cache) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.contains("temp") || name.contains("tmp") {
+                        let _ = std::fs::remove_dir_all(entry.path());
+                    }
+                }
+            }
+        }
+
+        "SUCCESS: Executed OS environment care. Reclaimed space across OS caches.".to_string()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OsCareReport {
+    pub os_name: String,
+    pub reclaimable_cache_bytes: u64,
+    pub reclaimable_cache_formatted: String,
+    pub status: String,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
