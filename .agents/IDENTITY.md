@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022944"
+version = "0.1.2022945"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -46,6 +46,7 @@ This document defines the immutable genome of the `susi` substrate.
     - **`local susi`** / **`susi CLI`** / **`susi in <folder>`**: The workspace-specific CLI invocation, current working directory target, local file scraper, and task executor.
     - **`susi repo`** / **`susi source`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
 32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
+33. **Synchronized Substrate Versioning & Self-Priming**: When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments.
 
 ## 2. Pillar II: THE BODY (Topological Reality)
 
@@ -79,11 +80,15 @@ This document defines the immutable genome of the `susi` substrate.
 | **GEMI Server** | 1 | RESTful endpoint (Port 44075) for reasoning and model management. |
 | **Evidence IR Substrate** | 1 | Structured provenance pipeline (`EvidenceRecord`, `Claim`). |
 
-## 3. Pillar III: THE MIND (Execution Causal Chain)
+## 3. Pillar III: THE MIND (Execution Causal Chain & Priming Spheres)
 
 1. **Pulse Ingestion**: Non-blocking asynchronous listener stages intents in the lock-free `SubstratePulseQueue`.
 2. **Swarm Synthesis**: GAWD constructs a Dynamic Execution Graph (DAG), recruiting specialists via `NeuralAgentFactory`.
 3. **Truth Convergence**: Swarm outputs are verified via `TruthTransformer` and distilled into machine-verifiable `EvidenceRecord`s.
+4. **The 3 Priming Spheres**:
+   - **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware, provisions model ladder weights, hosts persistent ports, and maintains global evidence ledgers.
+   - **`local susi` Primes `AlphaWorld`**: Jailed to `cwd`, `local susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).
+   - **`susi` Primes `susi repo`**: Operating in its own source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`.
 
 ## 4. Pillar IV: THE ENGINE (Substrate Immunity Protocols)
 
