@@ -1614,14 +1614,14 @@ mod tests {
     fn test_blackboard_convergence() {
         let bb = Arc::new(HighDensityContextStore::new(100));
         // Skip actual execution in unit test to avoid hang/inference dependency
-        // let agent = DynamicAgent { agent_name: "TestAgent".into(), mission_profile: "Test".into(), agent_rank: 0.5 };
-        // let _ = agent.execute("test goal", Path::new("."), &bb);
+        // let agent = DynamicAgent { agent_name: "SusiTier2SwarmAgent".into(), mission_profile: "Test".into(), agent_rank: 0.5 };
+        // let _ = agent.execute("sub-substrate convergence mission", Path::new("."), &bb);
 
         // Manually insert for test if reasoning fails in environment without weights
-        if !bb.contains_key("TestAgent") {
-            bb.insert("TestAgent".into(), "Converged".into());
+        if !bb.contains_key("SusiTier2SwarmAgent") {
+            bb.insert("SusiTier2SwarmAgent".into(), "Converged".into());
         }
-        assert!(bb.contains_key("TestAgent"));
+        assert!(bb.contains_key("SusiTier2SwarmAgent"));
     }
 
     #[test]
@@ -1629,7 +1629,7 @@ mod tests {
         let registry = AgentMetaRegistry::global();
         registry.register_agent(AgentProfile {
             name: "AnchorAgent".into(),
-            description: "Test".into(),
+            description: "SUSI Anchor Substrate Test Agent".into(),
             categories: Vec::new(),
             semantic_anchors: vec!["quantum".into()],
             base_rank: 0.5,

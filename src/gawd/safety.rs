@@ -32,7 +32,7 @@ impl SafetyDetector {
         }
 
         // 2. Critical Path Check (Dynamic)
-        if tool_name == "write_file" || tool_name == "exec_command" || tool_name == "SMA_SOLVE" {
+        if tool_name == "write_file" || tool_name == "exec_command" || tool_name == "SUSI_SOLVE" {
             for path in &patterns.critical_system_paths {
                 if lower_arg.contains(&path.to_lowercase()) {
                     return Err(EaiError::governance(format!(

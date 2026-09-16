@@ -1,4 +1,4 @@
-// SUSI Master Agent (SMA): The Orchestration Substrate
+// SUSI Intelligence Substrate: The Orchestration Substrate
 // RULE 11: Agents must add functionality directly to the susi engine via ToolRegistry.
 // Agents must not simulate or "fake" susi capabilities by performing logic themselves.
 
@@ -330,7 +330,7 @@ impl SusiMasterAgent {
                     status: "FAILED".to_string(),
                     agents: Vec::new(),
                     interactions: Vec::new(),
-                    final_answer: format!("SMA Engine Error: {}", e),
+                    final_answer: format!("SUSI Engine Error: {}", e),
                 };
                 println!("{}", err_report.to_protocol_format(true));
                 err_report.final_answer
@@ -419,7 +419,7 @@ impl SusiMasterAgent {
 
         let verified_final = match super::truth::TruthTransformer::verify_mission_reality(
             &goal,
-            "SMA_SOLVE",
+            "SUSI_SOLVE",
             &verified,
             workspace,
         ) {
@@ -565,7 +565,7 @@ impl SusiMasterAgent {
 
             let final_answer = if is_motion {
                 // Tier 1 GAWD Swarm Dispatch for Motions & Core Workspace Mutations
-                format!("SMA-Motion-Convergence ({}):\n\n{}", version, swarm_context)
+                format!("SUSI-Motion-Convergence ({}):\n\n{}", version, swarm_context)
             } else if !swarm_context.trim().is_empty()
                 && !swarm_context.contains("No valid wisdom gathered")
             {
@@ -586,7 +586,7 @@ impl SusiMasterAgent {
                     workspace,
                 );
                 format!(
-                    "SMA-Tier2-Mission-Synthesis ({} via {}):\n\n{}",
+                    "SUSI-Tier2-Mission-Synthesis ({} via {}):\n\n{}",
                     version, model_name, local_inference
                 )
             };
@@ -600,7 +600,7 @@ impl SusiMasterAgent {
                     // 5. Reality Verification (Rule 15)
                     match super::truth::TruthTransformer::verify_mission_reality(
                         &current_goal,
-                        "SMA_SOLVE",
+                        "SUSI_SOLVE",
                         &ans,
                         workspace,
                     ) {
@@ -855,11 +855,11 @@ impl SusiMasterAgent {
         feedback_tx: flume::Sender<String>,
     ) -> EaiResult<String> {
         let goal = self.sanitize_input(goal)?;
-        let _ = feedback_tx.send(format!("[SMA] Initiating mission for goal: '{}'", goal));
+        let _ = feedback_tx.send(format!("[SUSI] Initiating mission for goal: '{}'", goal));
 
         // Mandate: Use multi-threaded swarm for all runtime setup and audits
         let _ = feedback_tx.send(
-            "[SMA] Dispatching multi-threaded swarm for setup, audit, and mission execution..."
+            "[SUSI] Dispatching multi-threaded swarm for setup, audit, and mission execution..."
                 .to_string(),
         );
         let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
@@ -870,7 +870,7 @@ impl SusiMasterAgent {
 
         // Step 4: Final Synthesis
         let _ = feedback_tx.send(format!(
-            "[SMA] Mission synthesized across {} agents. Verifying reality...",
+            "[SUSI] Mission synthesized across {} agents. Verifying reality...",
             agents.len()
         ));
 
@@ -878,7 +878,7 @@ impl SusiMasterAgent {
             .unwrap_or_else(|| "susi-alpha.safetensors".to_string());
 
         let ans = format!(
-            "SMA-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
+            "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
             crate::SUSI_VERSION,
             model_name,
             goal,
@@ -887,7 +887,7 @@ impl SusiMasterAgent {
 
         let verified = super::truth::TruthTransformer::verify_mission_reality(
             &goal,
-            "SMA_SOLVE",
+            "SUSI_SOLVE",
             &ans,
             workspace,
         )?;

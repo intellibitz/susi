@@ -10,7 +10,7 @@ fn test_empirical_reflex_classification() {
     let ws = std::env::current_dir().unwrap();
     let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
-    let res = ama.solve_clean("identity", &ws, "0.1.2022884");
+    let res = ama.solve_clean("identity", &ws, susi_engine::SUSI_VERSION);
     let duration = start.elapsed();
 
     assert!(res.contains("SUSI"));
@@ -25,7 +25,7 @@ fn test_empirical_epistemic_integrity_fictitious() {
     let res = ama.solve_clean(
         "inspect the status of cargo module non_existent_quantum_crank",
         &ws,
-        "0.1.2022884",
+        susi_engine::SUSI_VERSION,
     );
     assert!(!res.contains("quantum_crank version 1.0.0 successfully deployed"));
 }

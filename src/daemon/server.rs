@@ -1,4 +1,4 @@
-// Always-On SMA Master Daemon Process Manager
+// Always-On SUSI Substrate Daemon Process Manager
 // 100% Rust implementation managing GMCP (Port 9090), GEMI (Port 9091) & A2A Cluster UDP (Port 9092)
 
 use std::fs;
@@ -126,7 +126,7 @@ impl DaemonLock {
 
 impl SusiDaemon {
     pub fn get_lock_file(global_dir: &Path) -> PathBuf {
-        global_dir.join("sma.lock")
+        global_dir.join("substrate.lock")
     }
 
     pub fn check_status(global_dir: &Path) -> Option<u32> {
@@ -588,7 +588,7 @@ mod tests {
     fn test_lock_file_path() {
         let tmp_dir = std::env::temp_dir();
         let path = SusiDaemon::get_lock_file(&tmp_dir);
-        assert_eq!(path, tmp_dir.join("sma.lock"));
+        assert_eq!(path, tmp_dir.join("substrate.lock"));
     }
 
     #[test]

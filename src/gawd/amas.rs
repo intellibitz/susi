@@ -1,4 +1,4 @@
-// SMAS: Universal EAI Swarm Supervisor
+// SUSI: Universal EAI Swarm Supervisor
 // Tier 1 AOA Protocol governing Exponential Explosive Intelligence Swarms
 
 use parking_lot::RwLock;
@@ -230,7 +230,7 @@ impl SusiSupervisor {
             }
             a2a_logs.push(A2AMessage {
                 sender: name,
-                recipient: "SMA-Master".to_string(),
+                recipient: "SUSI-Master".to_string(),
                 action: "MISSION_FLUX".to_string(),
                 payload: output,
             });
@@ -264,7 +264,7 @@ impl SusiSupervisor {
             for (name, output) in extra_swarm {
                 a2a_logs.push(A2AMessage {
                     sender: format!("{}_Reinforcement", name),
-                    recipient: "SMA-Master".to_string(),
+                    recipient: "SUSI-Master".to_string(),
                     action: "REINFORCEMENT_FLUX".to_string(),
                     payload: output,
                 });
@@ -361,7 +361,7 @@ impl SusiSupervisor {
 
             a2a_logs.push(A2AMessage {
                 sender: "ConsensusMaster".into(),
-                recipient: "SMA-Master".into(),
+                recipient: "SUSI-Master".into(),
                 action: "STATE_CONVERGENCE".into(),
                 payload: final_payload,
             });

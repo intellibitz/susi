@@ -37,8 +37,8 @@ fn test_tool_registry_and_execution() {
     assert!(res.contains("SUSI Engine Version"));
 
     // Test Read/Write Tool
-    let test_file = "integration_test.txt";
-    let test_content = "SUSI_INTEGRATION_TEST_SUCCESS";
+    let test_file = "susi_substrate_empirical_test.txt";
+    let test_content = "SUSI_SUBSTRATE_EMPIRICAL_INTEGRATION_TEST_SUCCESS";
 
     let write_arg = serde_json::json!({
         "path": test_file,
@@ -63,7 +63,7 @@ fn test_backup_logic() {
     let _ = fs::remove_dir_all(&test_ws);
     let _ = fs::create_dir_all(&test_ws);
 
-    fs::write(test_ws.join("data.txt"), "some data").unwrap();
+    fs::write(test_ws.join("data.txt"), "substrate native context stream").unwrap();
 
     let res = susi_engine::sandbox::manager::SusiBackupManager::backup_work(&test_ws);
     assert!(res.is_ok());
