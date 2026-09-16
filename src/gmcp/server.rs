@@ -147,8 +147,10 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                 let tool_name = extract_tool_name(line).unwrap_or_default();
                 let tool_arg = extract_tool_val(line).unwrap_or(json!(null));
 
-                // Fully Meta Dispatch via ToolRegistry
-                let result_text = ToolRegistry::execute_tool(&tool_name, &tool_arg, workspace);
+                // SUSI Is Swarm: Route all GMCP operations through the Substrate Master Agent
+                let intent = format!("{} {}", tool_name, tool_arg);
+                let ama = crate::gawd::ama::SusiMasterAgent::new();
+                let result_text = ama.solve_clean(&intent, workspace, crate::SUSI_VERSION);
 
                 json!({
                     "jsonrpc": "2.0",

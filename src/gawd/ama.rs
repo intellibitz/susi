@@ -2,12 +2,12 @@
 // RULE 11: Agents must add functionality directly to the susi engine via ToolRegistry.
 // Agents must not simulate or "fake" susi capabilities by performing logic themselves.
 
+use std::io::Write;
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
 use super::axiom::AxiomSubstrate;
 use crate::error::EaiResult;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,11 +109,13 @@ impl SusiMasterAgent {
     /// Primary entry point for all natural language intents.
     /// Streams thinking and results back live in real-time.
     pub fn solve_clean(&self, goal: &str, workspace: &Path, version: &str) -> String {
-        self.solve_stream(goal, workspace, version)
+        self.solve_stream(goal, workspace, version, &|piece| {
+                        print!("{}", piece);
+            let _ = std::io::stdout().flush();
+        })
     }
 
-    pub fn solve_stream(&self, goal: &str, workspace: &Path, version: &str) -> String {
-        use std::io::Write;
+    pub fn solve_stream(&self, goal: &str, workspace: &Path, version: &str, _callback: &dyn Fn(String)) -> String {
 
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
@@ -298,7 +300,7 @@ impl SusiMasterAgent {
         }
 
         let start = std::time::Instant::now();
-        let res = self.solve_with_streaming_trace(goal, workspace, version);
+        let res = self.solve_with_streaming_trace(goal, workspace, version, &|_| {});
         let elapsed = start.elapsed();
 
         println!("\n- [Swarm Execution Latency] {:?}", elapsed);
@@ -343,6 +345,7 @@ impl SusiMasterAgent {
         goal: &str,
         workspace: &Path,
         _version: &str,
+        _callback: &dyn Fn(String),
     ) -> EaiResult<SusiMissionReport> {
         let goal = self.sanitize_input(goal)?;
 
@@ -392,10 +395,7 @@ impl SusiMasterAgent {
             crate::gemi::engine::GemiEngine::generate_reasoning_stream(
                 &reasoning_prompt,
                 workspace,
-                &|token| {
-                    print!("{}", token);
-                    let _ = std::io::stdout().flush();
-                },
+                _callback,
             )
         };
 

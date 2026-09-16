@@ -147,7 +147,7 @@ fn run_shell(workspace: &std::path::Path) {
         queue.register_consumer();
         loop {
             if let Some(pulse) = queue.pop() {
-                let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION);
+                let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION, &|_| {});
             } else {
                 std::thread::park(); // Zero-latency, zero-CPU waiting until a pulse is ingested
             }
@@ -227,7 +227,7 @@ fn main() {
                 println!("- This mission runs in the background. Check progress with 'susi status'.");
 
                 println!("\n[SOVEREIGN HANDSHAKE]");
-                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION);
+                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &|_| {});
             }
             Commands::Uninstall => {
                 let answer = ama.solve_clean(&cfg.admin_templates.uninstall_mission, &cwd, SUSI_VERSION);
@@ -369,7 +369,7 @@ fn main() {
         match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
             Ok(msg) => {
                 info!("Natural intent ingested successfully: {}", msg);
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
+                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &|_| {});
                 std::io::stdout().flush().ok();
                 unsafe {
                     libc::_exit(0);
@@ -380,7 +380,7 @@ fn main() {
                     "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
                     e
                 );
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
+                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &|_| {});
                 std::io::stdout().flush().ok();
                 unsafe {
                     libc::_exit(0);
@@ -391,7 +391,7 @@ fn main() {
         match read_stdin_bounded() {
             Ok(Some(input)) => {
                 let ama = SusiMasterAgent::new();
-                let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION);
+                let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION, &|_| {});
                 std::io::stdout().flush().ok();
                 unsafe {
                     libc::_exit(0);

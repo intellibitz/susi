@@ -429,7 +429,7 @@ impl SusiDaemon {
                 if let Some(pulse) = queue.pop() {
                     // Serialized Execution (Mandate 31)
                     info!("[SubstratePulseQueue] Processing Pulse: {}", pulse.intent);
-                    let _ = ama.solve_stream(&pulse.intent, &workspace_pulse, crate::SUSI_VERSION);
+                    let _ = ama.solve_stream(&pulse.intent, &workspace_pulse, crate::SUSI_VERSION, &|_| {});
                 }
                 thread::sleep(Duration::from_millis(100));
             }

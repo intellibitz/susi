@@ -212,8 +212,8 @@ impl GemiServer {
                                 let m_name = model_name.to_string();
                                 let prompt_clone = trimmed_prompt.to_string();
                                 let w_clone = w_thread.clone();
-                                let tool_name_clone = tool_name.clone();
-                                let tool_arg_clone = tool_arg.to_string();
+                                let _tool_name_clone = tool_name.clone();
+                                let _tool_arg_clone = tool_arg.to_string();
 
                                 let (chunk_tx, chunk_rx) = flume::unbounded::<String>();
 
@@ -221,18 +221,10 @@ impl GemiServer {
                                 rayon::spawn(move || {
                                     let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\"}},\"finish_reason\":null}}]}}\n\n"));
 
-                                    if ToolRegistry::exists(&tool_name_clone) {
-                                        let resp = ToolRegistry::execute_tool(
-                                            &tool_name_clone,
-                                            &serde_json::json!(tool_arg_clone),
-                                            &w_clone,
-                                        );
-                                        let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_resp}}},\"finish_reason\":null}}]}}\n\n", json_resp=serde_json::to_string(&resp).unwrap_or_default()));
-                                    } else {
-                                        let _ = crate::gemi::engine::GemiEngine::generate_reasoning_stream(&prompt_clone, &w_clone, &|piece| {
-                                            let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n", json_piece=serde_json::to_string(&piece).unwrap_or_default()));
-                                        });
-                                    }
+                                    let ama = SusiMasterAgent::new();
+                                    let _ = ama.solve_stream(&prompt_clone, &w_clone, crate::SUSI_VERSION, &|piece| {
+                                        let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n", json_piece=serde_json::to_string(&piece).unwrap_or_default()));
+                                    });
                                     let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n"));
                                     let _ = chunk_tx.send("data: [DONE]\n\n".to_string());
                                 });
