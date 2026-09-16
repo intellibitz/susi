@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022946"
+version = "0.1.2022947"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -42,9 +42,9 @@ This document defines the immutable genome of the `susi` substrate.
 29. **Data Parallelism**: Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning.
 30. **Locking Standard**: Mandatory use of `parking_lot` when atomics are insufficient.
 31. **Unambiguous Substrate Nomenclature**: Strictly distinguish substrate scopes across all interactions and sessions:
-    - **`global susi`** / **`susi daemon`** / **`susi-engine`**: The persistent background service, systemd daemon, global model repository (`~/.susi/models`), network ports, and hardware governor.
-    - **`local susi`** / **`susi CLI`** / **`susi in <folder>`**: The workspace-specific CLI invocation, current working directory target, local file scraper, and task executor.
-    - **`susi repo`** / **`susi source`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
+    - **`global susi`** / **`susi daemon`**: The persistent background service, systemd daemon, global model repository (`~/.susi/models`), network ports, and hardware/OS governor.
+    - **`susi`**: The workspace CLI / task operating in the current working directory (`cwd`), jailed to the active working folder.
+    - **`susi repo`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
 32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
 33. **Synchronized Substrate Versioning & Self-Priming**: When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments.
 
