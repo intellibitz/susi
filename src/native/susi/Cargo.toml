@@ -1,6 +1,6 @@
 [package]
 name = "susi"
-version = "0.1.2022953"
+version = "0.1.2022954"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "SUSI Intelligence Substrate Lightweight Native CLI Binary Launcher"

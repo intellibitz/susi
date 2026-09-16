@@ -611,6 +611,15 @@ impl SusiAuditLogger {
             "pid": std::process::id(),
         });
 
+        tracing::info!(
+            target: "susi_audit",
+            event_type = event_type,
+            level = ?level,
+            workspace = %workspace.display(),
+            details = details,
+            "audit_event"
+        );
+
         if let Ok(mut f) = fs::OpenOptions::new()
             .create(true)
             .append(true)

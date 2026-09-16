@@ -186,19 +186,34 @@ fn main() {
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("debug"));
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_writer(std::io::stdout)
-        .with_target(true)
-        .with_thread_ids(true)
-        .with_file(true)
-        .with_line_number(true)
-        .init();
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let home = get_home_dir();
     let global_dir = home.join(".susi");
+    let _ = std::fs::create_dir_all(&global_dir);
+
+    let file_appender = tracing_appender::rolling::never(&global_dir, "audit.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi_engine=debug"));
+
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let stdout_layer = tracing_subscriber::fmt::layer()
+        .with_target(true)
+        .with_thread_ids(true)
+        .with_line_number(true);
+
+    let json_file_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_writer(non_blocking);
+
+    let _ = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(json_file_layer)
+        .try_init();
 
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
     let _ = susi_engine::gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);

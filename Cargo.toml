@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2022953"
+version = "0.1.2022954"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -33,7 +33,11 @@ signal-hook = "0.3"
 md5 = "0.7"
 log = "0.4"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tracing-opentelemetry = { version = "0.24", optional = true }
+opentelemetry = { version = "0.23", optional = true }
+opentelemetry-otlp = { version = "0.16", optional = true }
 sha2 = "0.10"
 hex = "0.4"
 dialoguer = "0.11"
@@ -88,6 +92,7 @@ default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp"]
 
 [profile.release]
 opt-level = 3 # High performance
