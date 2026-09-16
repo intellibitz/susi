@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ScopeOfImpact {
-    Read,        // Zero-mutation query
-    Write,       // Workspace file I/O
-    Mutate,      // Substrate modification / admin
-    SelfExtend,  // Reflex synthesis / code evolution
+    Read,       // Zero-mutation query
+    Write,      // Workspace file I/O
+    Mutate,     // Substrate modification / admin
+    SelfExtend, // Reflex synthesis / code evolution
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -32,19 +32,40 @@ impl IntentManifold {
     pub fn analyze(intent: &str) -> Self {
         let lower = intent.to_lowercase();
 
-        let scope_of_impact = if lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
-            || lower == "ls" || lower.starts_with("ls ") || lower == "dir" || lower.contains("list directory") || lower.contains("list files")
-            || lower.contains("who am i") || lower.contains("whoami") {
+        let scope_of_impact = if lower.contains("identity")
+            || lower.contains("status")
+            || lower.contains("models")
+            || lower.contains("version")
+            || lower == "ls"
+            || lower.starts_with("ls ")
+            || lower == "dir"
+            || lower.contains("list directory")
+            || lower.contains("list files")
+            || lower.contains("who am i")
+            || lower.contains("whoami")
+        {
             ScopeOfImpact::Read
-        } else if lower.contains("write") || lower.contains("save") || lower.contains("edit") || lower.contains("file") {
+        } else if lower.contains("write")
+            || lower.contains("save")
+            || lower.contains("edit")
+            || lower.contains("file")
+        {
             ScopeOfImpact::Write
-        } else if lower.contains("admin") || lower.contains("sync") || lower.contains("audit") || lower.contains("release") || lower.contains("verify") {
+        } else if lower.contains("admin")
+            || lower.contains("sync")
+            || lower.contains("audit")
+            || lower.contains("release")
+            || lower.contains("verify")
+        {
             ScopeOfImpact::Mutate
         } else {
             ScopeOfImpact::SelfExtend
         };
 
-        let risk_profile = if lower.contains("rm -rf") || lower.contains("drop") || lower.contains("delete /") {
+        let risk_profile = if lower.contains("rm -rf")
+            || lower.contains("drop")
+            || lower.contains("delete /")
+        {
             RiskProfile::Critical
         } else if lower.contains("exec") || lower.contains("command") || lower.contains("install") {
             RiskProfile::High

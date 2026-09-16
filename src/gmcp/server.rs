@@ -1,10 +1,9 @@
 // GMCP Server Substrate: Model Context Protocol JSON-RPC 2.0 Interface
 // 100% Rust implementation serving Tier 1 Swarm & ToolRegistry
 
-use tiny_http::{Server, Response, Method, Header};
-use std::path::{Path, PathBuf};
-use std::thread;
 use serde_json::json;
+use std::path::{Path, PathBuf};
+use tiny_http::{Header, Method, Response, Server};
 
 use crate::gmcp::tools::ToolRegistry;
 use crate::gmcp::ProtocolDispatcher;
@@ -47,11 +46,22 @@ impl GmcpServer {
 
             match (method, url.as_str()) {
                 (Method::Get, "/sse") => {
-                    let endpoint_event = format!("event: endpoint\ndata: /messages?session={}\n\n", "default-session");
+                    let endpoint_event = format!(
+                        "event: endpoint\ndata: /messages?session={}\n\n",
+                        "default-session"
+                    );
                     let response = Response::from_string(endpoint_event)
-                        .with_header(Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap())
-                        .with_header(Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap())
-                        .with_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+                        .with_header(
+                            Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..])
+                                .unwrap(),
+                        )
+                        .with_header(
+                            Header::from_bytes(&b"Cache-Control"[..], &b"no-cache"[..]).unwrap(),
+                        )
+                        .with_header(
+                            Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                                .unwrap(),
+                        );
                     let _ = request.respond(response);
                 }
                 (Method::Post, path) if path.starts_with("/messages") => {
@@ -62,13 +72,14 @@ impl GmcpServer {
                     let body_thread = body.clone();
                     let server_handler_thread = server_handler;
 
-                    thread::spawn(move || {
+                    rayon::spawn(move || {
                         let (tx, rx) = flume::bounded(1);
                         let b_thread = body_thread.clone();
                         let w_thread = workspace_thread.clone();
 
-                        thread::spawn(move || {
-                            let response_json = server_handler_thread.handle_request(&b_thread, &w_thread);
+                        rayon::spawn(move || {
+                            let response_json =
+                                server_handler_thread.handle_request(&b_thread, &w_thread);
                             let _ = tx.send(response_json);
                         });
 
@@ -80,13 +91,20 @@ impl GmcpServer {
                         });
 
                         let response = Response::from_string(response_json)
-                            .with_header(Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap())
-                            .with_header(Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap());
+                            .with_header(
+                                Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                    .unwrap(),
+                            )
+                            .with_header(
+                                Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
+                                    .unwrap(),
+                            );
                         let _ = request.respond(response);
                     });
                 }
                 _ => {
-                    let _ = request.respond(Response::from_string("Not Found").with_status_code(404));
+                    let _ =
+                        request.respond(Response::from_string("Not Found").with_status_code(404));
                 }
             }
         }
@@ -102,19 +120,18 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
         let method = extract_method(line);
 
         match method.as_deref() {
-            Some("initialize") => {
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {
-                            "tools": { "listChanged": false }
-                        },
-                        "serverInfo": { "name": "susi-substrate", "version": crate::SUSI_VERSION }
-                    }
-                }).to_string()
-            }
+            Some("initialize") => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": { "listChanged": false }
+                    },
+                    "serverInfo": { "name": "susi-substrate", "version": crate::SUSI_VERSION }
+                }
+            })
+            .to_string(),
             Some("tools/list") => {
                 let tools = ToolRegistry::list_tools();
                 json!({
@@ -123,7 +140,8 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                     "result": {
                         "tools": tools
                     }
-                }).to_string()
+                })
+                .to_string()
             }
             Some("tools/call") => {
                 let tool_name = extract_tool_name(line).unwrap_or_default();
@@ -140,15 +158,15 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                             { "type": "text", "text": result_text }
                         ]
                     }
-                }).to_string()
+                })
+                .to_string()
             }
-            _ => {
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "error": { "code": -32601, "message": "Method not found" }
-                }).to_string()
-            }
+            _ => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": "Method not found" }
+            })
+            .to_string(),
         }
     }
 }

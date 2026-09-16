@@ -2,13 +2,13 @@
 // RULE 11: Agents must add functionality directly to the susi engine via ToolRegistry.
 // Agents must not simulate or "fake" susi capabilities by performing logic themselves.
 
-use std::path::Path;
-use std::io::Write;
-use serde::{Deserialize, Serialize};
-use crate::error::EaiResult;
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
 use super::axiom::AxiomSubstrate;
+use crate::error::EaiResult;
+use serde::{Deserialize, Serialize};
+use std::io::Write;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiMissionReport {
@@ -22,14 +22,23 @@ pub struct SusiMissionReport {
 impl SusiMissionReport {
     pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
         let mut full_thinking_trace = String::new();
-        full_thinking_trace.push_str(&format!("SUSI Mission Goal: {}\nStatus: {}\nAgents Recruited: {}\n\n", self.goal, self.status, self.agents.len()));
+        full_thinking_trace.push_str(&format!(
+            "SUSI Mission Goal: {}\nStatus: {}\nAgents Recruited: {}\n\n",
+            self.goal,
+            self.status,
+            self.agents.len()
+        ));
 
         for agent in &self.agents {
-            full_thinking_trace.push_str(&format!("- [Agent] {} ({})\n", agent.name, agent.provider));
+            full_thinking_trace
+                .push_str(&format!("- [Agent] {} ({})\n", agent.name, agent.provider));
         }
 
         for msg in &self.interactions {
-            full_thinking_trace.push_str(&format!("- [{}] Action: {} | Payload: {}\n", msg.sender, msg.action, msg.payload));
+            full_thinking_trace.push_str(&format!(
+                "- [{}] Action: {} | Payload: {}\n",
+                msg.sender, msg.action, msg.payload
+            ));
         }
 
         let primary_step = serde_json::json!({
@@ -42,7 +51,10 @@ impl SusiMissionReport {
         let json_str = serde_json::to_string_pretty(&primary_step).unwrap_or_default();
         let trimmed_answer = self.final_answer.trim();
 
-        if trimmed_answer.is_empty() || trimmed_answer.starts_with("[FAST-PATH COMPLETE]") || trimmed_answer == self.goal {
+        if trimmed_answer.is_empty()
+            || trimmed_answer.starts_with("[FAST-PATH COMPLETE]")
+            || trimmed_answer == self.goal
+        {
             json_str
         } else {
             format!("{}\n\n{}", json_str, trimmed_answer)
@@ -71,11 +83,16 @@ impl SusiMasterAgent {
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
 
         if trimmed.len() > max_len {
-            return Err(crate::error::EaiError::governance(format!("Input exceeds hardware-scaled limit ({} characters).", max_len)));
+            return Err(crate::error::EaiError::governance(format!(
+                "Input exceeds hardware-scaled limit ({} characters).",
+                max_len
+            )));
         }
 
         if trimmed.is_empty() {
-            return Err(crate::error::EaiError::governance("Input goal cannot be empty."));
+            return Err(crate::error::EaiError::governance(
+                "Input goal cannot be empty.",
+            ));
         }
 
         // 2. High-Risk Pattern Intercept (Substrate Security)
@@ -99,7 +116,8 @@ impl SusiMasterAgent {
         use std::io::Write;
 
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
-        let (_engine_type, active_model_id) = crate::gemi::models::ModelManager::get_active_engine_and_model();
+        let (_engine_type, active_model_id) =
+            crate::gemi::models::ModelManager::get_active_engine_and_model();
         let model_path_str = crate::gemi::models::ModelManager::get_model_path(&active_model_id)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
@@ -129,31 +147,69 @@ impl SusiMasterAgent {
 
         println!("\n[DETAILED HARDWARE AUDIT LOGS]");
         println!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);
-        println!("- [Memory Info] Total RAM: {}GB | Available RAM: {}GB", hw.ram_gb, hw.available_ram_gb);
+        println!(
+            "- [Memory Info] Total RAM: {}GB | Available RAM: {}GB",
+            hw.ram_gb, hw.available_ram_gb
+        );
         println!("- [GPU Topologies] Info: {}", hw.gpu_info);
         println!("- [OS Architecture] OS: {} | Arch: {}", hw.os_info, hw.arch);
-        println!("- [System Liveness] Hostname: {} | Uptime: {}s | Load Avg: {}", hw.hostname, hw.uptime, hw.load_avg);
-        println!("- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {:?}", hw.native_acceleration, device);
+        println!(
+            "- [System Liveness] Hostname: {} | Uptime: {}s | Load Avg: {}",
+            hw.hostname, hw.uptime, hw.load_avg
+        );
+        println!(
+            "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {:?}",
+            hw.native_acceleration, device
+        );
 
         println!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = home.join(".susi");
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-        println!("- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}", cfg.gmcp_port, cfg.gemi_port, cfg.udp_discovery_port);
-        println!("- [Neural Defaults] Target Engine: {} | Selected Model ID: {}", cfg.default_engine, cfg.default_model);
-        println!("- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s", cfg.agent_rank_threshold, cfg.cloud_scout_timeout_secs);
-        println!("- [Concurrency Primitives] Max Parallel Swarm Agents: {}", crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents());
-        println!("- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}", active_model_id, model_path_str);
-        println!("- [Discovered Model Substrates] Count: {}", local_models_count);
+        println!(
+            "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
+            cfg.gmcp_port, cfg.gemi_port, cfg.udp_discovery_port
+        );
+        println!(
+            "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
+            cfg.default_engine, cfg.default_model
+        );
+        println!(
+            "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
+            cfg.agent_rank_threshold, cfg.cloud_scout_timeout_secs
+        );
+        println!(
+            "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
+            crate::gawd::agents::GawdAgentFleet::get_max_concurrent_agents()
+        );
+        println!(
+            "- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}",
+            active_model_id, model_path_str
+        );
+        println!(
+            "- [Discovered Model Substrates] Count: {}",
+            local_models_count
+        );
 
         println!("\n[GENOMIC MANDATES]");
-        for rule in AlphaSelf::RULES.iter().filter(|r| r.title.contains("Universal") || r.title.contains("Agnosticism")) {
-            println!("- [Mandate {}] {}: {}", rule.id, rule.title, rule.imperative);
+        for rule in AlphaSelf::RULES
+            .iter()
+            .filter(|r| r.title.contains("Universal") || r.title.contains("Agnosticism"))
+        {
+            println!(
+                "- [Mandate {}] {}: {}",
+                rule.id, rule.title, rule.imperative
+            );
         }
 
         // 1. Continuous Intent Manifold Routing
         let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
-        println!("\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]", manifold.scope_of_impact, manifold.risk_profile);
+        println!(
+            "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
+            manifold.scope_of_impact, manifold.risk_profile
+        );
 
         if manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read {
             println!("- [Substrate Operation] Validating with SafetyAgent (Aspiration 9)...");
@@ -167,21 +223,49 @@ impl SusiMasterAgent {
             let final_answer = if lower_goal.contains("identity") {
                 crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
             } else if lower_goal.contains("who am i") || lower_goal.contains("whoami") {
-                let user = std::env::var("USER").or_else(|_| std::env::var("USERNAME")).unwrap_or_else(|_| "unknown_user".into());
+                let user = std::env::var("USER")
+                    .or_else(|_| std::env::var("USERNAME"))
+                    .unwrap_or_else(|_| "unknown_user".into());
                 let host = hw.hostname;
-                format!("System User Identity: {}@{}\n\nSUSI Substrate Identity:\n{}", user, host, crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions())
-            } else if lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir" || lower_goal.contains("list directory") || lower_goal.contains("list files") {
-                let cmd = if lower_goal.starts_with("ls ") { goal } else { "ls -la" };
-                crate::gmcp::tools::ToolRegistry::execute_tool("exec_command", &serde_json::json!(cmd), workspace)
+                format!(
+                    "System User Identity: {}@{}\n\nSUSI Substrate Identity:\n{}",
+                    user,
+                    host,
+                    crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+                )
+            } else if lower_goal == "ls"
+                || lower_goal.starts_with("ls ")
+                || lower_goal == "dir"
+                || lower_goal.contains("list directory")
+                || lower_goal.contains("list files")
+            {
+                let cmd = if lower_goal.starts_with("ls ") {
+                    goal
+                } else {
+                    "ls -la"
+                };
+                crate::gmcp::tools::ToolRegistry::execute_tool(
+                    "exec_command",
+                    &serde_json::json!(cmd),
+                    workspace,
+                )
             } else if lower_goal.contains("version") {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {
-                format!("SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB", hw.cpu_brand, hw.ram_gb)
+                format!(
+                    "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
+                    hw.cpu_brand, hw.ram_gb
+                )
             } else if lower_goal.contains("models") {
                 let models = crate::gemi::models::ModelManager::list_models(workspace);
                 let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
                 for m in &models {
-                    out.push_str(&format!("- [{}] {} ({})\n", if m.is_local { "LOCAL" } else { "CLOUD" }, m.name, m.model_id));
+                    out.push_str(&format!(
+                        "- [{}] {} ({})\n",
+                        if m.is_local { "LOCAL" } else { "CLOUD" },
+                        m.name,
+                        m.model_id
+                    ));
                 }
                 out
             } else {
@@ -220,12 +304,15 @@ impl SusiMasterAgent {
         println!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
         if elapsed.as_millis() > 2 {
-             crate::sandbox::manager::SusiAuditLogger::log(
-                 workspace,
-                 crate::sandbox::manager::LogLevel::Axiomatic,
-                 "LATENCY_VIOLATION",
-                 &format!("Reflex operation exceeded 2ms mandate: {:?} (Goal: {})", elapsed, goal)
-             );
+            crate::sandbox::manager::SusiAuditLogger::log(
+                workspace,
+                crate::sandbox::manager::LogLevel::Axiomatic,
+                "LATENCY_VIOLATION",
+                &format!(
+                    "Reflex operation exceeded 2ms mandate: {:?} (Goal: {})",
+                    elapsed, goal
+                ),
+            );
         }
 
         match res {
@@ -251,7 +338,12 @@ impl SusiMasterAgent {
         }
     }
 
-    fn solve_with_streaming_trace(&self, goal: &str, workspace: &Path, _version: &str) -> EaiResult<SusiMissionReport> {
+    fn solve_with_streaming_trace(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        _version: &str,
+    ) -> EaiResult<SusiMissionReport> {
         let goal = self.sanitize_input(goal)?;
 
         println!("\n[DETAILED SWARM SYNTHESIS LOGS]");
@@ -260,7 +352,8 @@ impl SusiMasterAgent {
         println!("- [Swarm Synthesis] Recruitment projection active over Active Agent Registry.");
 
         // 1. Swarm Supervision
-        let (interactions, agents) = super::amas::SusiSupervisor::supervise_mission(&goal, workspace);
+        let (interactions, agents) =
+            super::amas::SusiSupervisor::supervise_mission(&goal, workspace);
 
         for agent in &agents {
             println!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
@@ -269,11 +362,17 @@ impl SusiMasterAgent {
         println!("- [Swarm Execution] Dispatching parallel CSP channels for non-blocking message loop...");
         for msg in &interactions {
             if msg.sender != "ConsensusMaster" {
-                println!("  - [Swarm Channel Message] From: {} | Action: {} | Payload Len: {}", msg.sender, msg.action, msg.payload.len());
+                println!(
+                    "  - [Swarm Channel Message] From: {} | Action: {} | Payload Len: {}",
+                    msg.sender,
+                    msg.action,
+                    msg.payload.len()
+                );
             }
         }
 
-        let swarm_context = super::amas::SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
+        let swarm_context =
+            super::amas::SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
         println!("\n[LIVE REASONING TOKENS]");
         println!("- [Truth Convergence] Ingesting model reasoning trace stream:");
@@ -282,35 +381,59 @@ impl SusiMasterAgent {
             goal, swarm_context
         );
 
-        let final_answer = if !swarm_context.trim().is_empty() && (swarm_context.contains("###") || swarm_context.contains("| English") || swarm_context.contains("CONVERGENCE_SCORE")) {
+        let final_answer = if !swarm_context.trim().is_empty()
+            && (swarm_context.contains("###")
+                || swarm_context.contains("| English")
+                || swarm_context.contains("CONVERGENCE_SCORE"))
+        {
             println!("{}", swarm_context);
             swarm_context
         } else {
-            crate::gemi::engine::GemiEngine::generate_reasoning_stream(&reasoning_prompt, workspace, &|token| {
-                print!("{}", token);
-                let _ = std::io::stdout().flush();
-            })
+            crate::gemi::engine::GemiEngine::generate_reasoning_stream(
+                &reasoning_prompt,
+                workspace,
+                &|token| {
+                    print!("{}", token);
+                    let _ = std::io::stdout().flush();
+                },
+            )
         };
 
         println!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
-        let verified = match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(&final_answer, workspace) {
+        let verified = match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(
+            &final_answer,
+            workspace,
+        ) {
             Ok(v) => {
                 println!("- [Axiomatic Alignment Check] Status: SUCCESS | Alignment verified.");
                 v
             }
             Err(e) => {
-                println!("- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}", e);
+                println!(
+                    "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
+                    e
+                );
                 format!("Axiomatic Violation: {}", e)
             }
         };
 
-        let verified_final = match super::truth::TruthTransformer::verify_mission_reality(&goal, "SMA_SOLVE", &verified, workspace) {
+        let verified_final = match super::truth::TruthTransformer::verify_mission_reality(
+            &goal,
+            "SMA_SOLVE",
+            &verified,
+            workspace,
+        ) {
             Ok(v) => {
-                println!("- [Reality Integrity Check] Status: SUCCESS | Reality verification passed.");
+                println!(
+                    "- [Reality Integrity Check] Status: SUCCESS | Reality verification passed."
+                );
                 v
             }
             Err(e) => {
-                println!("- [Reality Integrity Check] Status: VIOLATION | Error: {}", e);
+                println!(
+                    "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                    e
+                );
                 format!("Reality Violation: {}", e)
             }
         };
@@ -324,7 +447,12 @@ impl SusiMasterAgent {
         })
     }
 
-    pub fn solve(&self, goal: &str, workspace: &Path, version: &str) -> EaiResult<SusiMissionReport> {
+    pub fn solve(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+    ) -> EaiResult<SusiMissionReport> {
         let goal = self.sanitize_input(goal)?;
         let lower_goal = goal.to_lowercase();
 
@@ -332,13 +460,17 @@ impl SusiMasterAgent {
         let trimmed_query = lower_goal.trim();
         if trimmed_query == "identity" || trimmed_query == "susi identity" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
-            let identity_report = crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions();
+            let identity_report =
+                crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions();
             return Ok(SusiMissionReport {
                 goal: goal.to_string(),
                 status: "COMPLETE".to_string(),
                 agents,
                 interactions,
-                final_answer: format!("SUSI Substrate Identity Report ({}):\n\n{}", version, identity_report),
+                final_answer: format!(
+                    "SUSI Substrate Identity Report ({}):\n\n{}",
+                    version, identity_report
+                ),
             });
         }
 
@@ -356,9 +488,16 @@ impl SusiMasterAgent {
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
-            let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_default();
+            let home = std::env::var_os("HOME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_default();
             let global_dir = home.join(".susi");
-            let daemon_status = if crate::daemon::server::SusiDaemon::check_status(&global_dir).is_some() { "RUNNING" } else { "STOPPED" };
+            let daemon_status =
+                if crate::daemon::server::SusiDaemon::check_status(&global_dir).is_some() {
+                    "RUNNING"
+                } else {
+                    "STOPPED"
+                };
             let status_report = format!(
                 "SUSI Substrate Status ({}) :\n- Daemon Status: {}\n- Hardware: {} CPUs ({}) | {}GB RAM | {}\n- Acceleration: {}",
                 version, daemon_status, hw.cpus, hw.cpu_brand, hw.ram_gb, hw.gpu_info, hw.native_acceleration
@@ -377,7 +516,10 @@ impl SusiMasterAgent {
             let models = crate::gemi::models::ModelManager::list_models(workspace);
             let mut roster = format!("SUSI Substrate Models Roster ({}) :\n", version);
             for m in models {
-                roster.push_str(&format!("- [{:?}] {} ({})\n", m.provider, m.name, m.model_id));
+                roster.push_str(&format!(
+                    "- [{:?}] {} ({})\n",
+                    m.provider, m.name, m.model_id
+                ));
             }
             return Ok(SusiMissionReport {
                 goal: goal.to_string(),
@@ -390,12 +532,16 @@ impl SusiMasterAgent {
 
         // Recursive Parallel Parallelism (Aspiration 26)
         if lower_goal.contains("parallel") || lower_goal.contains("split") {
-             return self.solve_parallel_mission(&goal, workspace, version);
+            return self.solve_parallel_mission(&goal, workspace, version);
         }
 
         // Autonomous Task Decomposition (Rule 12 Check)
-        if (goal.len() > 150 || lower_goal.contains(" and then ") || lower_goal.contains(" finally ")) && !goal.contains("[STEP ") {
-             return self.solve_planned_mission(&goal, workspace, version);
+        if (goal.len() > 150
+            || lower_goal.contains(" and then ")
+            || lower_goal.contains(" finally "))
+            && !goal.contains("[STEP ")
+        {
+            return self.solve_planned_mission(&goal, workspace, version);
         }
 
         let mut retry_count = 0;
@@ -406,16 +552,23 @@ impl SusiMasterAgent {
         while retry_count < 3 {
             // 2. Swarm Supervision (Tier 1 AOA Dispatch)
             // Parallel execution of Safety, Security, Runtime Setup and Mission specific agents
-            let (interactions, agents) = SusiSupervisor::supervise_mission(&current_goal, workspace);
+            let (interactions, agents) =
+                SusiSupervisor::supervise_mission(&current_goal, workspace);
 
             let lower_goal = current_goal.to_lowercase();
-            let is_motion = lower_goal.contains("admin mission") || lower_goal.contains("motion") || lower_goal.contains("sync") || lower_goal.contains("audit") || lower_goal.contains("release");
+            let is_motion = lower_goal.contains("admin mission")
+                || lower_goal.contains("motion")
+                || lower_goal.contains("sync")
+                || lower_goal.contains("audit")
+                || lower_goal.contains("release");
             let swarm_context = SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
             let final_answer = if is_motion {
                 // Tier 1 GAWD Swarm Dispatch for Motions & Core Workspace Mutations
                 format!("SMA-Motion-Convergence ({}):\n\n{}", version, swarm_context)
-            } else if !swarm_context.trim().is_empty() && !swarm_context.contains("No valid wisdom gathered") {
+            } else if !swarm_context.trim().is_empty()
+                && !swarm_context.contains("No valid wisdom gathered")
+            {
                 // Swarm Convergence: Use high-confidence swarm wisdom directly without CPU model loop hang
                 swarm_context
             } else {
@@ -428,15 +581,29 @@ impl SusiMasterAgent {
                     current_goal, swarm_context
                 );
 
-                let local_inference = crate::gemi::engine::GemiEngine::generate_reasoning_deep(&reasoning_prompt, workspace);
-                format!("SMA-Tier2-Mission-Synthesis ({} via {}):\n\n{}", version, model_name, local_inference)
+                let local_inference = crate::gemi::engine::GemiEngine::generate_reasoning_deep(
+                    &reasoning_prompt,
+                    workspace,
+                );
+                format!(
+                    "SMA-Tier2-Mission-Synthesis ({} via {}):\n\n{}",
+                    version, model_name, local_inference
+                )
             };
 
             // 4. Axiomatic Alignment Check (Rule 15 Hardening)
-            match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(&final_answer, workspace) {
+            match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(
+                &final_answer,
+                workspace,
+            ) {
                 Ok(ans) => {
-                     // 5. Reality Verification (Rule 15)
-                    match super::truth::TruthTransformer::verify_mission_reality(&current_goal, "SMA_SOLVE", &ans, workspace) {
+                    // 5. Reality Verification (Rule 15)
+                    match super::truth::TruthTransformer::verify_mission_reality(
+                        &current_goal,
+                        "SMA_SOLVE",
+                        &ans,
+                        workspace,
+                    ) {
                         Ok(verified_answer) => {
                             return Ok(SusiMissionReport {
                                 goal: goal.to_string(),
@@ -451,14 +618,22 @@ impl SusiMasterAgent {
                             let error_sig = format!("{:x}", md5::compute(error_str.as_bytes()));
 
                             if previous_errors.contains(&error_sig) {
-                                crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "RETRY_LOOP_DETECTED", &format!("Same error repeated: {}", error_str));
+                                crate::sandbox::manager::SusiAuditLogger::log_event(
+                                    workspace,
+                                    "RETRY_LOOP_DETECTED",
+                                    &format!("Same error repeated: {}", error_str),
+                                );
                                 return Err(e);
                             }
 
                             previous_errors.insert(error_sig);
                             retry_count += 1;
                             last_error = error_str;
-                            crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "HALLUCINATION_DETECTED", &format!("Retry {}/3: {}", retry_count, last_error));
+                            crate::sandbox::manager::SusiAuditLogger::log_event(
+                                workspace,
+                                "HALLUCINATION_DETECTED",
+                                &format!("Retry {}/3: {}", retry_count, last_error),
+                            );
 
                             current_goal = format!(
                                 "{}\n\n[CORRECTION ATTEMPT {}]: Previous response failed reality check.\n\
@@ -472,12 +647,17 @@ impl SusiMasterAgent {
                 }
                 Err(e) => {
                     retry_count += 1;
-                    crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "AXIOMATIC_VIOLATION", &e.to_string());
+                    crate::sandbox::manager::SusiAuditLogger::log_event(
+                        workspace,
+                        "AXIOMATIC_VIOLATION",
+                        &e.to_string(),
+                    );
 
                     current_goal = format!(
                         "{}\n\n[CORRECTION ATTEMPT {}]: Response violated substrate axioms.\n\
                         Violation: {}",
-                        goal, retry_count,
+                        goal,
+                        retry_count,
                         e.to_string().chars().take(200).collect::<String>()
                     );
                     continue;
@@ -485,10 +665,18 @@ impl SusiMasterAgent {
             };
         }
 
-        Err(crate::error::EaiError::governance(format!("Recursive reasoning failed after 3 attempts. Last violation: {}", last_error)))
+        Err(crate::error::EaiError::governance(format!(
+            "Recursive reasoning failed after 3 attempts. Last violation: {}",
+            last_error
+        )))
     }
 
-    fn solve_parallel_mission(&self, goal: &str, workspace: &Path, version: &str) -> EaiResult<SusiMissionReport> {
+    fn solve_parallel_mission(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+    ) -> EaiResult<SusiMissionReport> {
         let plan = crate::gemi::engine::MissionPlanner::partition_mission(goal, workspace)?;
 
         // Speculative Parallelism (Aspiration 26)
@@ -497,7 +685,12 @@ impl SusiMasterAgent {
         let mut handles = Vec::new();
 
         for (i, sub_goal) in plan.goals.iter().enumerate() {
-            let g = format!("[PARALLEL STEP {}/{}]: {}", i + 1, plan.goals.len(), sub_goal);
+            let g = format!(
+                "[PARALLEL STEP {}/{}]: {}",
+                i + 1,
+                plan.goals.len(),
+                sub_goal
+            );
             let w = workspace.to_path_buf();
             let v = version.to_string();
 
@@ -529,11 +722,20 @@ impl SusiMasterAgent {
             status: "COMPLETE".to_string(),
             agents: all_agents,
             interactions: all_interactions,
-            final_answer: format!("PARALLEL_FORK_JOIN_COMPLETE ({} steps):\n\n{}", final_responses.len(), final_responses.join("\n\n---\n\n")),
+            final_answer: format!(
+                "PARALLEL_FORK_JOIN_COMPLETE ({} steps):\n\n{}",
+                final_responses.len(),
+                final_responses.join("\n\n---\n\n")
+            ),
         })
     }
 
-    fn solve_planned_mission(&self, goal: &str, workspace: &Path, version: &str) -> EaiResult<SusiMissionReport> {
+    fn solve_planned_mission(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+    ) -> EaiResult<SusiMissionReport> {
         let mut plan = crate::gemi::engine::MissionPlanner::plan_mission(goal, workspace)?;
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
@@ -542,7 +744,12 @@ impl SusiMasterAgent {
         let mut current_step = 0;
         while current_step < plan.goals.len() {
             let sub_goal = &plan.goals[current_step];
-            let tagged_goal = format!("[STEP {}/{}]: {}", current_step + 1, plan.goals.len(), sub_goal);
+            let tagged_goal = format!(
+                "[STEP {}/{}]: {}",
+                current_step + 1,
+                plan.goals.len(),
+                sub_goal
+            );
             let report = self.solve(&tagged_goal, workspace, version)?;
 
             all_interactions.extend(report.interactions.clone());
@@ -551,10 +758,18 @@ impl SusiMasterAgent {
 
             // Dynamic Plan Mutation: Check for failure or gap in the last step
             if report.final_answer.contains("FAILURE") || report.final_answer.contains("GAP") {
-                crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "PLAN_MUTATION", &format!("Refining plan due to step {} failure.", current_step + 1));
+                crate::sandbox::manager::SusiAuditLogger::log_event(
+                    workspace,
+                    "PLAN_MUTATION",
+                    &format!("Refining plan due to step {} failure.", current_step + 1),
+                );
 
                 let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
-                if let Ok(new_plan) = crate::gemi::engine::MissionPlanner::refine_plan(goal, &blackboard_state, workspace) {
+                if let Ok(new_plan) = crate::gemi::engine::MissionPlanner::refine_plan(
+                    goal,
+                    &blackboard_state,
+                    workspace,
+                ) {
                     plan = new_plan;
                     // Reset or adjust steps based on new plan (for now we just continue from next)
                 }
@@ -568,7 +783,10 @@ impl SusiMasterAgent {
             status: "COMPLETE".to_string(),
             agents: all_agents,
             interactions: all_interactions,
-            final_answer: format!("PLANNED_MISSION_COMPLETE:\n\n{}", final_responses.join("\n\n---\n\n")),
+            final_answer: format!(
+                "PLANNED_MISSION_COMPLETE:\n\n{}",
+                final_responses.join("\n\n---\n\n")
+            ),
         })
     }
 
@@ -608,24 +826,42 @@ impl SusiMasterAgent {
                     "interactions_count": res.interactions.len(),
                     "final_status": res.status
                 });
-                let _ = super::pkb::ProtocolKnowledgeBase::stage_distillation_pair(goal, &res.final_answer, workspace, Some(metadata));
+                let _ = super::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+                    goal,
+                    &res.final_answer,
+                    workspace,
+                    Some(metadata),
+                );
             }
 
             if msg.sender == "SusiUniversalSubstrateAgent"
-                && (msg.payload.contains("VIOLATION") || msg.payload.contains("FAILURE")) {
-                     crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "TOOL_FAILURE", &msg.payload);
-                }
+                && (msg.payload.contains("VIOLATION") || msg.payload.contains("FAILURE"))
+            {
+                crate::sandbox::manager::SusiAuditLogger::log_event(
+                    workspace,
+                    "TOOL_FAILURE",
+                    &msg.payload,
+                );
+            }
         }
 
         Ok(res.final_answer)
     }
 
-    pub fn solve_with_feedback(&self, goal: &str, workspace: &Path, feedback_tx: flume::Sender<String>) -> EaiResult<String> {
+    pub fn solve_with_feedback(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        feedback_tx: flume::Sender<String>,
+    ) -> EaiResult<String> {
         let goal = self.sanitize_input(goal)?;
         let _ = feedback_tx.send(format!("[SMA] Initiating mission for goal: '{}'", goal));
 
         // Mandate: Use multi-threaded swarm for all runtime setup and audits
-        let _ = feedback_tx.send("[SMA] Dispatching multi-threaded swarm for setup, audit, and mission execution...".to_string());
+        let _ = feedback_tx.send(
+            "[SMA] Dispatching multi-threaded swarm for setup, audit, and mission execution..."
+                .to_string(),
+        );
         let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
 
         for msg in &interactions {
@@ -633,15 +869,28 @@ impl SusiMasterAgent {
         }
 
         // Step 4: Final Synthesis
-        let _ = feedback_tx.send(format!("[SMA] Mission synthesized across {} agents. Verifying reality...", agents.len()));
+        let _ = feedback_tx.send(format!(
+            "[SMA] Mission synthesized across {} agents. Verifying reality...",
+            agents.len()
+        ));
 
         let model_name = crate::gemi::models::ModelManager::get_selected_model()
-             .unwrap_or_else(|| "susi-alpha.safetensors".to_string());
+            .unwrap_or_else(|| "susi-alpha.safetensors".to_string());
 
-        let ans = format!("SMA-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
-                        crate::SUSI_VERSION, model_name, goal, agents.len());
+        let ans = format!(
+            "SMA-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
+            crate::SUSI_VERSION,
+            model_name,
+            goal,
+            agents.len()
+        );
 
-        let verified = super::truth::TruthTransformer::verify_mission_reality(&goal, "SMA_SOLVE", &ans, workspace)?;
+        let verified = super::truth::TruthTransformer::verify_mission_reality(
+            &goal,
+            "SMA_SOLVE",
+            &ans,
+            workspace,
+        )?;
 
         crate::sandbox::manager::SusiMemory::save_interaction(workspace, &goal, &verified);
 
@@ -656,21 +905,35 @@ impl SusiMasterAgent {
 
         match res {
             Ok(report) => {
-                if report.final_answer.contains("NO_ACTION_REQUIRED") || report.final_answer.contains("VIOLATION") {
-                     // Potential gap or blocked action
-                     if report.final_answer.contains("blocked") {
-                         crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "TRUTH_BLOCK", &report.final_answer);
-                     }
-                     return Ok(report.final_answer);
+                if report.final_answer.contains("NO_ACTION_REQUIRED")
+                    || report.final_answer.contains("VIOLATION")
+                {
+                    // Potential gap or blocked action
+                    if report.final_answer.contains("blocked") {
+                        crate::sandbox::manager::SusiAuditLogger::log_event(
+                            workspace,
+                            "TRUTH_BLOCK",
+                            &report.final_answer,
+                        );
+                    }
+                    return Ok(report.final_answer);
                 }
                 Ok(report.final_answer)
             }
             Err(e) => {
                 // FAILURE: Report gap (Rule 14)
-                crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "INTELLIGENCE_GAP", &format!("Goal '{}' failed: {}", goal, e));
+                crate::sandbox::manager::SusiAuditLogger::log_event(
+                    workspace,
+                    "INTELLIGENCE_GAP",
+                    &format!("Goal '{}' failed: {}", goal, e),
+                );
 
                 if e.to_string().contains("not found") || e.to_string().contains("no models") {
-                    crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "INTELLIGENCE_GAP", "No models found. Substrate expansion required by Swarm.");
+                    crate::sandbox::manager::SusiAuditLogger::log_event(
+                        workspace,
+                        "INTELLIGENCE_GAP",
+                        "No models found. Substrate expansion required by Swarm.",
+                    );
                 }
 
                 // Report gap; pulse intent does NOT trigger Motion Rule
@@ -709,7 +972,10 @@ impl SusiHybridAgent {
         println!("[SUSI Hybrid Agent] Goal: {}", goal);
 
         let manifold = crate::gawd::manifold::IntentManifold::analyze(goal);
-        println!("- [Intent Manifold] Scope: {:?} | Risk: {:?}", manifold.scope_of_impact, manifold.risk_profile);
+        println!(
+            "- [Intent Manifold] Scope: {:?} | Risk: {:?}",
+            manifold.scope_of_impact, manifold.risk_profile
+        );
 
         // Specialist Routing
         let result = if goal.contains("code") || goal.contains("refactor") || goal.contains("fix") {
@@ -726,13 +992,21 @@ impl SusiHybridAgent {
 
     fn solve_coding_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
         println!("- [Coding Toolbox] Using: {:?}", self.coding_toolbox);
-        let res = crate::gmcp::tools::ToolRegistry::execute_tool("ast_analyze", &serde_json::json!({"code": goal}), workspace);
+        let res = crate::gmcp::tools::ToolRegistry::execute_tool(
+            "ast_analyze",
+            &serde_json::json!({"code": goal}),
+            workspace,
+        );
         Ok(format!("[HYBRID_CODING] {}", res))
     }
 
     fn solve_assistant_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
         println!("- [Assistant Toolbox] Using: {:?}", self.assistant_toolbox);
-        let res = crate::gmcp::tools::ToolRegistry::execute_tool("rag_query", &serde_json::json!({"query": goal}), workspace);
+        let res = crate::gmcp::tools::ToolRegistry::execute_tool(
+            "rag_query",
+            &serde_json::json!({"query": goal}),
+            workspace,
+        );
         Ok(format!("[HYBRID_ASSISTANT] {}", res))
     }
 }

@@ -2,13 +2,13 @@
 // RULE 3: Reality Check Always On - Hardware-Aware Self-Tuning
 // RULE 23: Substrate Ingestion Motion - Autonomous Experience Distillation
 
-use std::path::Path;
-use std::time::Duration;
-use tracing::info;
 use crate::error::EaiResult;
 use crate::gemi::hardware::HardwareProfiler;
 use crate::gemi::models::ModelManager;
 use crate::sandbox::manager::SusiAuditLogger;
+use std::path::Path;
+use std::time::Duration;
+use tracing::info;
 
 pub struct SusiRuntimeAdmin;
 
@@ -95,31 +95,55 @@ impl SusiRuntimeAdmin {
         let mut pending_tasks = Vec::new();
 
         // Check for Self-Healing
-        let evo_res = crate::daemon::evolution::EvolutionManager::execute_evolutionary_cycle(workspace)?;
+        let evo_res =
+            crate::daemon::evolution::EvolutionManager::execute_evolutionary_cycle(workspace)?;
         if !evo_res.contains("No evolutionary pressure") {
-            pending_tasks.push(("Self-Healing: Apply autonomous repairs to failing tests/builds", evo_res));
+            pending_tasks.push((
+                "Self-Healing: Apply autonomous repairs to failing tests/builds",
+                evo_res,
+            ));
         }
 
         // Check for Bloat/Lint
-        let lint_res = ama.solve_clean(&cfg.admin_templates.lint_mission, workspace, crate::SUSI_VERSION);
+        let lint_res = ama.solve_clean(
+            &cfg.admin_templates.lint_mission,
+            workspace,
+            crate::SUSI_VERSION,
+        );
         if !lint_res.contains("nominal") && !lint_res.contains("SUCCESS") {
-            pending_tasks.push(("Optimization: Apply 100% Bloat Rejection (Lint & Refactor)", lint_res));
+            pending_tasks.push((
+                "Optimization: Apply 100% Bloat Rejection (Lint & Refactor)",
+                lint_res,
+            ));
         }
 
         // Check for Dependencies
-        let dep_res = ama.solve_clean(&cfg.admin_templates.audit_deps_mission, workspace, crate::SUSI_VERSION);
+        let dep_res = ama.solve_clean(
+            &cfg.admin_templates.audit_deps_mission,
+            workspace,
+            crate::SUSI_VERSION,
+        );
         if dep_res.contains("vulnerability") || dep_res.contains("UPDATE") {
-            pending_tasks.push(("Maintenance: Update vulnerable or outdated dependencies", dep_res));
+            pending_tasks.push((
+                "Maintenance: Update vulnerable or outdated dependencies",
+                dep_res,
+            ));
         }
 
         // Check for Sovereign Sync
         let sync_res = ama.solve_clean("admin mission: execute full motion rule sequence (check -> test -> sync -> push) if stable.", workspace, crate::SUSI_VERSION);
         if sync_res.contains("PUSHED") || sync_res.contains("SYNCED") {
-            pending_tasks.push(("Sovereign Sync: Synchronize verified workspace state to remote origin", sync_res));
+            pending_tasks.push((
+                "Sovereign Sync: Synchronize verified workspace state to remote origin",
+                sync_res,
+            ));
         }
 
         if !pending_tasks.is_empty() {
-            println!("\n[MASTER PROMPT] SUSI has identified {} tasks to optimize your workspace.", pending_tasks.len());
+            println!(
+                "\n[MASTER PROMPT] SUSI has identified {} tasks to optimize your workspace.",
+                pending_tasks.len()
+            );
             println!("Susi can perform these pending tasks for you now.");
 
             if Self::ask_permission("Execute pending workspace missions?") {
@@ -161,13 +185,22 @@ impl SusiRuntimeAdmin {
 
         // 1. Hardware Saturation Audit (Aspiration 5)
         if profile.acceleration_active {
-            SusiAuditLogger::log_event(workspace, "SUBSTRATE_AUDIT", "GPU Acceleration Verified Optimal.");
+            SusiAuditLogger::log_event(
+                workspace,
+                "SUBSTRATE_AUDIT",
+                "GPU Acceleration Verified Optimal.",
+            );
         } else if profile.ram_gb >= 16 {
-            SusiAuditLogger::log_event(workspace, "SUBSTRATE_AUDIT", "System RAM sufficient for high-fidelity CPU inference.");
+            SusiAuditLogger::log_event(
+                workspace,
+                "SUBSTRATE_AUDIT",
+                "System RAM sufficient for high-fidelity CPU inference.",
+            );
         }
 
         // 2. Autonomous Drift Detection (Aspiration 7)
-        let _ = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+        let _ =
+            crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
 
         // 3. Model Substrate Tuning (Aspiration 11)
         let _ = ModelManager::ensure_hardware_optimal_models(workspace);
@@ -179,7 +212,10 @@ impl SusiRuntimeAdmin {
     pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
         let profile = HardwareProfiler::get_profile();
         let mut report = format!("# SUSI Substrate Self-Validation Report\n\n");
-        report.push_str(&format!("- **Hardware Profile**: {} | {}GB RAM | {}\n", profile.cpu_brand, profile.ram_gb, profile.gpu_info));
+        report.push_str(&format!(
+            "- **Hardware Profile**: {} | {}GB RAM | {}\n",
+            profile.cpu_brand, profile.ram_gb, profile.gpu_info
+        ));
 
         // Test Tensor Substrate
         let device = HardwareProfiler::get_candle_device();
@@ -187,9 +223,16 @@ impl SusiRuntimeAdmin {
 
         // Verify Local Genome Integrity
         let genome_integrity = crate::gawd::self_core::AlphaSelf::RULES.len();
-        report.push_str(&format!("- **Genome Integrity**: {} Compiled Rules Verified.\n", genome_integrity));
+        report.push_str(&format!(
+            "- **Genome Integrity**: {} Compiled Rules Verified.\n",
+            genome_integrity
+        ));
 
-        SusiAuditLogger::log_event(workspace, "SELF_VALIDATION", "Autonomous foundational readiness test completed.");
+        SusiAuditLogger::log_event(
+            workspace,
+            "SELF_VALIDATION",
+            "Autonomous foundational readiness test completed.",
+        );
 
         Ok(report)
     }

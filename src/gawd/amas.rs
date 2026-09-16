@@ -1,19 +1,19 @@
 // SMAS: Universal EAI Swarm Supervisor
 // Tier 1 AOA Protocol governing Exponential Explosive Intelligence Swarms
 
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpStream, UdpSocket};
 use std::path::Path;
-use std::time::Duration;
 use std::sync::{Arc, OnceLock};
-use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use super::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
+use crate::error::EaiResult;
 use crate::gemi::hardware::HardwareProfiler;
 use crate::sandbox::manager::NeuralCheckpoint;
-use crate::error::EaiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AMessage {
@@ -40,7 +40,9 @@ pub struct SusiSupervisor;
 
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
-        crate::sandbox::manager::SusiConfig::load_global().map(|c| c.udp_discovery_port).unwrap_or(9092)
+        crate::sandbox::manager::SusiConfig::load_global()
+            .map(|c| c.udp_discovery_port)
+            .unwrap_or(9092)
     }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
@@ -51,7 +53,11 @@ impl SusiSupervisor {
                 address: "127.0.0.1:9090".to_string(),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
-                capabilities: vec!["CORE".to_string(), "INFERENCE".to_string(), "TOOLING".to_string()],
+                capabilities: vec![
+                    "CORE".to_string(),
+                    "INFERENCE".to_string(),
+                    "TOOLING".to_string(),
+                ],
                 registry_checksum: 0, // crate::gawd::agents::AgentMetaRegistry::global().get_checksum(),
                 latency_ms: 0,
                 uptime_secs: 0,
@@ -63,7 +69,8 @@ impl SusiSupervisor {
 
             // Zero-Config Background Discovery Loop
             std::thread::spawn(move || {
-                let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
+                let socket_res =
+                    UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
                     let _ = socket.set_read_timeout(Some(Duration::from_millis(100)));
@@ -71,56 +78,67 @@ impl SusiSupervisor {
                     let mut buf = [0u8; 1024];
                     loop {
                         let local_caps = HardwareProfiler::get_caps_string();
-                        let registry_checksum = crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
+                        let registry_checksum =
+                            crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
                         let ping_msg = format!("SUSI_PING:{}:{}", local_caps, registry_checksum);
 
                         if let Ok((amt, src)) = socket.recv_from(&mut buf) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             if msg.starts_with("SUSI_PING") {
-                                let pong_msg = format!("SUSI_PONG:{}:{}", local_caps, registry_checksum);
+                                let pong_msg =
+                                    format!("SUSI_PONG:{}:{}", local_caps, registry_checksum);
                                 let _ = socket.send_to(pong_msg.as_bytes(), src);
                             }
 
                             if msg.starts_with("SUSI_PONG") || msg.starts_with("SUSI_PING") {
-                                 if src.ip().is_loopback() || std::net::TcpListener::bind((src.ip(), 0)).is_ok() {
-                                     continue; // Skip self/local interface discovery
-                                 }
-                                 let parts: Vec<&str> = msg.split(':').collect();
-                                 let caps = if parts.len() > 1 {
-                                     parts[1].split(',').map(|s| s.to_string()).collect()
-                                 } else {
-                                     vec!["CORE".into()]
-                                 };
+                                if src.ip().is_loopback()
+                                    || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
+                                {
+                                    continue; // Skip self/local interface discovery
+                                }
+                                let parts: Vec<&str> = msg.split(':').collect();
+                                let caps = if parts.len() > 1 {
+                                    parts[1].split(',').map(|s| s.to_string()).collect()
+                                } else {
+                                    vec!["CORE".into()]
+                                };
 
-                                 let checksum = if parts.len() > 2 {
-                                     parts[2].parse::<u64>().unwrap_or(0)
-                                 } else {
-                                     0
-                                 };
+                                let checksum = if parts.len() > 2 {
+                                    parts[2].parse::<u64>().unwrap_or(0)
+                                } else {
+                                    0
+                                };
 
-                                 let mut peers = t_shared.write();
-                                 let addr_str = format!("{}:9090", src.ip());
-                                 if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
-                                     p.trust_score = (p.trust_score + 0.05).min(1.0);
-                                     p.is_active = true;
-                                     p.registry_checksum = checksum;
-                                 } else {
-                                     peers.push(ClusterPeerNode {
-                                         node_id: format!("susi-peer-{}", src.ip()),
-                                         address: addr_str,
-                                         node_type: if caps.contains(&"GPU".to_string()) { "WORKSTATION_NODE".into() } else { "PEER".into() },
-                                         is_active: true,
-                                         capabilities: caps,
-                                         registry_checksum: checksum,
-                                         latency_ms: 0,
-                                         uptime_secs: 0,
-                                         trust_score: 0.6,
-                                     });
-                                 }
+                                let mut peers = t_shared.write();
+                                let addr_str = format!("{}:9090", src.ip());
+                                if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
+                                    p.trust_score = (p.trust_score + 0.05).min(1.0);
+                                    p.is_active = true;
+                                    p.registry_checksum = checksum;
+                                } else {
+                                    peers.push(ClusterPeerNode {
+                                        node_id: format!("susi-peer-{}", src.ip()),
+                                        address: addr_str,
+                                        node_type: if caps.contains(&"GPU".to_string()) {
+                                            "WORKSTATION_NODE".into()
+                                        } else {
+                                            "PEER".into()
+                                        },
+                                        is_active: true,
+                                        capabilities: caps,
+                                        registry_checksum: checksum,
+                                        latency_ms: 0,
+                                        uptime_secs: 0,
+                                        trust_score: 0.6,
+                                    });
+                                }
                             }
                         }
                         // Periodic Beacon (Near-Instantaneous Global Swarm Consensus)
-                        let _ = socket.send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", Self::get_udp_discovery_port()));
+                        let _ = socket.send_to(
+                            ping_msg.as_bytes(),
+                            format!("255.255.255.255:{}", Self::get_udp_discovery_port()),
+                        );
                         std::thread::sleep(Duration::from_millis(500));
                     }
                 }
@@ -132,31 +150,52 @@ impl SusiSupervisor {
         peers_lock.read().clone()
     }
 
-    pub fn supervise_mission(goal: &str, workspace: &Path) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
+    pub fn supervise_mission(
+        goal: &str,
+        workspace: &Path,
+    ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
         // 1. Initialize Mission Blackboard (High-Density Context Store with 1024 entry lease cap)
         // Optimized for Lock-Free Swarm Execution (Aspiration 24)
-        let blackboard: MissionBlackboard = Arc::new(super::agents::HighDensityContextStore::new(1024));
+        let blackboard: MissionBlackboard =
+            Arc::new(super::agents::HighDensityContextStore::new(1024));
 
         // 2. Dynamic Fleet Synthesis
         println!("- [Swarm Synthesis] Analyzing goal intent for recruitment...");
         let _ = std::io::stdout().flush();
         let agents = GawdAgentFleet::synthesize_fleet(goal, workspace);
-        let fleet_info: Vec<GawdAgentInfo> = agents.iter().map(|a| GawdAgentInfo {
-            name: a.name(),
-            provider: "SUSI Local".into(),
-            url: "native://substrate".into(),
-            rank: a.rank()
-        }).collect();
+        let fleet_info: Vec<GawdAgentInfo> = agents
+            .iter()
+            .map(|a| GawdAgentInfo {
+                name: a.name(),
+                provider: "SUSI Local".into(),
+                url: "native://substrate".into(),
+                rank: a.rank(),
+            })
+            .collect();
 
-        println!("- [Fleet Composition] recruited {} specialist agents:", fleet_info.len());
+        println!(
+            "- [Fleet Composition] recruited {} specialist agents:",
+            fleet_info.len()
+        );
         for agent in &fleet_info {
-            println!("  - [Agent] {} (Rank: {:.2}) via {}", agent.name, agent.rank, agent.provider);
+            println!(
+                "  - [Agent] {} (Rank: {:.2}) via {}",
+                agent.name, agent.rank, agent.provider
+            );
             let _ = std::io::stdout().flush();
         }
 
         // 3. Active Distributed Swarm Consensus Protocol (Full Integration)
         let cluster_nodes = Self::rank_peers_for_goal(goal);
-        let active_peers_count = cluster_nodes.iter().filter(|n| n.node_id != "susi-local-master" && !n.address.starts_with("127.0.0.1") && !n.address.starts_with("localhost") && n.is_active).count();
+        let active_peers_count = cluster_nodes
+            .iter()
+            .filter(|n| {
+                n.node_id != "susi-local-master"
+                    && !n.address.starts_with("127.0.0.1")
+                    && !n.address.starts_with("localhost")
+                    && n.is_active
+            })
+            .count();
         if active_peers_count > 0 {
             println!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
             let _ = std::io::stdout().flush();
@@ -177,12 +216,18 @@ impl SusiSupervisor {
         }
 
         // 4. Exponential Swarm Execution (Converging on Blackboard)
-        let swarm_logs = GawdAgentFleet::dispatch_explosive_swarm(goal.to_string(), workspace.to_path_buf(), Arc::clone(&blackboard));
+        let swarm_logs = GawdAgentFleet::dispatch_explosive_swarm(
+            goal.to_string(),
+            workspace.to_path_buf(),
+            Arc::clone(&blackboard),
+        );
 
         let mut a2a_logs = Vec::new();
         let mut has_gap = false;
         for (name, output) in swarm_logs {
-            if output.contains("[CAPABILITY_GAP]") { has_gap = true; }
+            if output.contains("[CAPABILITY_GAP]") {
+                has_gap = true;
+            }
             a2a_logs.push(A2AMessage {
                 sender: name,
                 recipient: "SMA-Master".to_string(),
@@ -193,14 +238,29 @@ impl SusiSupervisor {
 
         // 4.1 Reactive Swarm Reinforcement (Tier 1 Hardening)
         let lower_goal = goal.to_lowercase();
-        let is_query_or_read = lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version")
-            || lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir"
-            || lower_goal.contains("who am i") || lower_goal.contains("whoami");
+        let is_query_or_read = lower_goal.contains("identity")
+            || lower_goal.contains("status")
+            || lower_goal.contains("models")
+            || lower_goal.contains("version")
+            || lower_goal == "ls"
+            || lower_goal.starts_with("ls ")
+            || lower_goal == "dir"
+            || lower_goal.contains("who am i")
+            || lower_goal.contains("whoami");
 
         if has_gap && !is_query_or_read {
-            eprintln!("[Swarm Supervisor] Capability gap detected. Dispatching Reinforcement Wave...");
-            let reinforcement_goal = format!("REINFORCE_MISSION: {}\n[PREVIOUS_FAILURES]: {:?}", goal, a2a_logs);
-            let extra_swarm = GawdAgentFleet::dispatch_explosive_swarm(reinforcement_goal, workspace.to_path_buf(), Arc::clone(&blackboard));
+            eprintln!(
+                "[Swarm Supervisor] Capability gap detected. Dispatching Reinforcement Wave..."
+            );
+            let reinforcement_goal = format!(
+                "REINFORCE_MISSION: {}\n[PREVIOUS_FAILURES]: {:?}",
+                goal, a2a_logs
+            );
+            let extra_swarm = GawdAgentFleet::dispatch_explosive_swarm(
+                reinforcement_goal,
+                workspace.to_path_buf(),
+                Arc::clone(&blackboard),
+            );
             for (name, output) in extra_swarm {
                 a2a_logs.push(A2AMessage {
                     sender: format!("{}_Reinforcement", name),
@@ -220,26 +280,43 @@ impl SusiSupervisor {
                 let output = r.value();
 
                 if let Some(info) = fleet_info.iter().find(|i| &i.name == agent_name) {
-                    weighted_wisdom.push_str(&format!("[AGENT: {} (Rank: {:.2})] {}\n", agent_name, info.rank, output));
+                    weighted_wisdom.push_str(&format!(
+                        "[AGENT: {} (Rank: {:.2})] {}\n",
+                        agent_name, info.rank, output
+                    ));
 
                     // Reward successful agents (Empirical Expertise Ranking)
                     if !output.contains("FAILURE") && !output.contains("GAP") {
-                        crate::gawd::agents::AgentMetaRegistry::global().update_rank(agent_name, 0.01, "MISSION_SUCCESS");
+                        crate::gawd::agents::AgentMetaRegistry::global().update_rank(
+                            agent_name,
+                            0.01,
+                            "MISSION_SUCCESS",
+                        );
                     }
                 }
             }
 
             let lower_goal = goal.to_lowercase();
-            let is_query = lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version") || lower_goal.contains("admin")
-                || lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir"
-                || lower_goal.contains("who am i") || lower_goal.contains("whoami");
-            let is_direct_synthesis = is_query || blackboard.contains_key("TranslationAgent") || blackboard.contains_key("SearchAgent");
+            let is_query = lower_goal.contains("identity")
+                || lower_goal.contains("status")
+                || lower_goal.contains("models")
+                || lower_goal.contains("version")
+                || lower_goal.contains("admin")
+                || lower_goal == "ls"
+                || lower_goal.starts_with("ls ")
+                || lower_goal == "dir"
+                || lower_goal.contains("who am i")
+                || lower_goal.contains("whoami");
+            let is_direct_synthesis = is_query
+                || blackboard.contains_key("TranslationAgent")
+                || blackboard.contains_key("SearchAgent");
 
             // Consensus Hardening: Include every model agent response in final results
             let synthesized = if is_direct_synthesis {
                 let mut full_synthesis = String::new();
                 if let Some(search) = blackboard.get("SearchAgent") {
-                    full_synthesis.push_str(&format!("### SearchAgent Output\n{}\n\n---\n\n", search));
+                    full_synthesis
+                        .push_str(&format!("### SearchAgent Output\n{}\n\n---\n\n", search));
                 }
                 if let Some(trans) = blackboard.get("TranslationAgent") {
                     full_synthesis.push_str(&format!("### TranslationAgent Output\n{}", trans));
@@ -256,21 +333,31 @@ impl SusiSupervisor {
                 );
                 println!("- [Consensus Master] Synthesizing swarm wisdom...");
                 let _ = std::io::stdout().flush();
-                crate::gemi::engine::GemiEngine::generate_reasoning_stream(&consensus_prompt, workspace, &|token| {
-                    print!("{}", token);
-                    let _ = std::io::stdout().flush();
-                })
+                crate::gemi::engine::GemiEngine::generate_reasoning_stream(
+                    &consensus_prompt,
+                    workspace,
+                    &|token| {
+                        print!("{}", token);
+                        let _ = std::io::stdout().flush();
+                    },
+                )
             };
 
             // Epistemic Delegation: Calculate Convergence Score based on agent count and consensus matching
             let consensus_score = if fleet_info.len() > 1 {
-                let success_count = blackboard.iter().filter(|r| !r.value().contains("FAILURE") && !r.value().contains("GAP")).count();
+                let success_count = blackboard
+                    .iter()
+                    .filter(|r| !r.value().contains("FAILURE") && !r.value().contains("GAP"))
+                    .count();
                 (success_count as f32 / fleet_info.len() as f32).min(1.0)
             } else {
                 0.90 // Single trusted agent default
             };
 
-            let final_payload = format!("{}\n\n[CONVERGENCE_SCORE: {:.2}]", synthesized, consensus_score);
+            let final_payload = format!(
+                "{}\n\n[CONVERGENCE_SCORE: {:.2}]",
+                synthesized, consensus_score
+            );
 
             a2a_logs.push(A2AMessage {
                 sender: "ConsensusMaster".into(),
@@ -281,14 +368,16 @@ impl SusiSupervisor {
         }
 
         // 6. Autonomous Substrate Distillation (Rule 23)
-        static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
         if !DISTILLATION_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let ws = workspace.to_path_buf();
             std::thread::spawn(move || {
                 struct Guard;
                 impl Drop for Guard {
                     fn drop(&mut self) {
-                        DISTILLATION_AUDIT_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                        DISTILLATION_AUDIT_RUNNING
+                            .store(false, std::sync::atomic::Ordering::SeqCst);
                     }
                 }
                 let _guard = Guard;
@@ -299,7 +388,10 @@ impl SusiSupervisor {
         (a2a_logs, fleet_info)
     }
 
-    pub fn gather_weighted_wisdom(interactions: &[A2AMessage], _agents: &[GawdAgentInfo]) -> String {
+    pub fn gather_weighted_wisdom(
+        interactions: &[A2AMessage],
+        _agents: &[GawdAgentInfo],
+    ) -> String {
         // Technical Mission Protocol: Prioritize ConsensusMaster and AdminAgent results
         let mut consensus_result = None;
         let mut admin_result = None;
@@ -312,7 +404,10 @@ impl SusiSupervisor {
                 admin_result = Some(msg.payload.clone());
             }
 
-            if !msg.payload.contains("FAILURE") && !msg.payload.contains("GAP") && !msg.payload.is_empty() {
+            if !msg.payload.contains("FAILURE")
+                && !msg.payload.contains("GAP")
+                && !msg.payload.is_empty()
+            {
                 wisdom.push(format!("[{}]: {}", msg.sender, msg.payload));
             }
         }
@@ -333,7 +428,9 @@ impl SusiSupervisor {
         nodes.sort_by(|a, b| {
             let a_score = (a.trust_score * 0.4) + (a.latency_ms as f32 * -0.2);
             let b_score = (b.trust_score * 0.4) + (b.latency_ms as f32 * -0.2);
-            b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         nodes
@@ -348,16 +445,33 @@ impl SusiSupervisor {
         // In v0.2, we will exchange bloom-filters of peer registries for perfect routing.
 
         nodes.sort_by(|a, b| {
-            let a_score = (a.trust_score * 0.5) + if a.node_type == "WORKSTATION_NODE" { 0.3 } else { 0.0 };
-            let b_score = (b.trust_score * 0.5) + if b.node_type == "WORKSTATION_NODE" { 0.3 } else { 0.0 };
-            b_score.partial_cmp(&a_score).unwrap_or(std::cmp::Ordering::Equal)
+            let a_score = (a.trust_score * 0.5)
+                + if a.node_type == "WORKSTATION_NODE" {
+                    0.3
+                } else {
+                    0.0
+                };
+            let b_score = (b.trust_score * 0.5)
+                + if b.node_type == "WORKSTATION_NODE" {
+                    0.3
+                } else {
+                    0.0
+                };
+            b_score
+                .partial_cmp(&a_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         nodes
     }
 
     pub fn dispatch_peer_task(addr: &str, tool_name: &str, arg: &str) -> String {
-        if let Ok(mut stream) = TcpStream::connect_timeout(&addr.parse().unwrap_or_else(|_| "127.0.0.1:9090".parse().unwrap()), Duration::from_millis(500)) {
+        if let Ok(mut stream) = TcpStream::connect_timeout(
+            &addr
+                .parse()
+                .unwrap_or_else(|_| "127.0.0.1:9090".parse().unwrap()),
+            Duration::from_millis(500),
+        ) {
             let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
             let req_val = serde_json::json!({
                 "jsonrpc": "2.0",
@@ -369,7 +483,9 @@ impl SusiSupervisor {
                 }
             });
             if let Ok(req) = serde_json::to_string(&req_val) {
-                if stream.write_all(format!("{}\n", req).as_bytes()).is_ok() && stream.flush().is_ok() {
+                if stream.write_all(format!("{}\n", req).as_bytes()).is_ok()
+                    && stream.flush().is_ok()
+                {
                     let mut reader = BufReader::new(stream);
                     let mut resp = String::new();
                     if reader.read_line(&mut resp).is_ok() {
@@ -386,7 +502,10 @@ impl SusiSupervisor {
         if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
             let _ = socket.set_broadcast(true);
             let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
-            let _ = socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", Self::get_udp_discovery_port()));
+            let _ = socket.send_to(
+                b"SUSI_LAN_PING",
+                format!("255.255.255.255:{}", Self::get_udp_discovery_port()),
+            );
 
             let mut buf = [0u8; 512];
             while let Ok((amt, src)) = socket.recv_from(&mut buf) {
@@ -409,7 +528,9 @@ impl SusiSupervisor {
         // Parallel AOA Synchronization Logic (Rule 2: Saturation)
         // Hardened Limit: Cap concurrent peer syncs to 16 to prevent local resource exhaustion.
         for node in nodes.clone().into_iter().take(16) {
-            if node.node_id == "susi-local-master" { continue; }
+            if node.node_id == "susi-local-master" {
+                continue;
+            }
             let addr = node.address.clone();
             let p = payload.to_string();
             let nid = node.node_id.clone();
@@ -430,7 +551,10 @@ impl SusiSupervisor {
         }
 
         let sync_file = workspace.join(".susi/cluster_sync.json");
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let sync_data = serde_json::json!({
             "timestamp": now,
             "synced_nodes": synced,
@@ -439,21 +563,25 @@ impl SusiSupervisor {
         });
 
         let _ = std::fs::write(&sync_file, sync_data.to_string());
-        format!("Synchronized state across {} nodes in parallel (checksum verified).", synced)
+        format!(
+            "Synchronized state across {} nodes in parallel (checksum verified).",
+            synced
+        )
     }
 
     pub fn borrow_remote_reflex(prompt: &str) -> Option<String> {
         let nodes = Self::list_cluster_nodes();
 
         // Find a workstation node with GPU capability
-        let target_node = nodes.iter()
-            .find(|n| n.node_type == "WORKSTATION_NODE" && n.is_active && n.node_id != "susi-local-master");
+        let target_node = nodes.iter().find(|n| {
+            n.node_type == "WORKSTATION_NODE" && n.is_active && n.node_id != "susi-local-master"
+        });
 
         if let Some(node) = target_node {
-             let res = Self::dispatch_peer_task(&node.address, "reason", prompt);
-             if !res.contains("fallback") && !res.contains("unreachable") {
-                 return Some(format!("[Borrowed Reflex from {}]: {}", node.node_id, res));
-             }
+            let res = Self::dispatch_peer_task(&node.address, "reason", prompt);
+            if !res.contains("fallback") && !res.contains("unreachable") {
+                return Some(format!("[Borrowed Reflex from {}]: {}", node.node_id, res));
+            }
         }
         None
     }
@@ -487,12 +615,13 @@ impl SusiSupervisor {
     pub fn broadcast_reflex_learned(name: &str, wasm_path: &Path) {
         if let Ok(wasm_data) = fs::read(wasm_path) {
             let nodes = Self::list_cluster_nodes();
-            use base64::{Engine as _, engine::general_purpose};
+            use base64::{engine::general_purpose, Engine as _};
             let encoded = general_purpose::STANDARD.encode(&wasm_data);
             let payload = serde_json::json!({
                 "name": name,
                 "wasm_b64": encoded
-            }).to_string();
+            })
+            .to_string();
 
             for node in nodes {
                 if node.node_type == "WORKSTATION_NODE" && node.node_id != "susi-local-master" {
@@ -507,7 +636,9 @@ impl SusiSupervisor {
         let mut handles = Vec::new();
 
         for node in nodes {
-            if node.node_id == "susi-local-master" { continue; }
+            if node.node_id == "susi-local-master" {
+                continue;
+            }
             let addr = node.address.clone();
             let rid = resource_id.to_string();
             handles.push(std::thread::spawn(move || {
@@ -518,7 +649,9 @@ impl SusiSupervisor {
 
         for handle in handles {
             if let Ok(success) = handle.join() {
-                if !success { return false; }
+                if !success {
+                    return false;
+                }
             }
         }
         true
@@ -532,18 +665,22 @@ impl SusiSupervisor {
         let mut node_count = 0;
 
         for node in nodes {
-            if node.node_id == "susi-local-master" || !node.is_active { continue; }
+            if node.node_id == "susi-local-master" || !node.is_active {
+                continue;
+            }
 
             // Request distilled experiences from the peer
             let res = Self::dispatch_peer_task(&node.address, "get_distilled_experience", "");
-            if let Ok(samples) = serde_json::from_str::<Vec<crate::gemi::reasoning::ReasoningSample>>(&res) {
+            if let Ok(samples) =
+                serde_json::from_str::<Vec<crate::gemi::reasoning::ReasoningSample>>(&res)
+            {
                 for sample in samples {
                     // Stage for local distillation
                     crate::gawd::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
                         &sample.intent,
                         &sample.successful_outcome,
                         workspace,
-                        Some(serde_json::json!({"source_node": node.node_id}))
+                        Some(serde_json::json!({"source_node": node.node_id})),
                     )?;
                     total_samples += 1;
                 }
@@ -561,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_aspiration_23_universal_swarm_operation() {
-        use crate::gawd::agents::{GawdAgent, SafetyAgent, SecurityAgent, HighDensityContextStore};
+        use crate::gawd::agents::{GawdAgent, HighDensityContextStore, SafetyAgent, SecurityAgent};
         let tmp_dir = std::env::temp_dir().join("susi_swarm_test_asp23");
         let _ = std::fs::create_dir_all(&tmp_dir);
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));

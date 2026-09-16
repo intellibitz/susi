@@ -1,11 +1,11 @@
 // SUSI Dynamic Task Graph (DAG) Execution Substrate
 // Enables agents to dynamically spawn sub-tasks, set dependencies, and consume verified EvidenceRecord outputs.
 
-use std::path::Path;
-use std::sync::Arc;
-use crate::error::EaiResult;
 use super::agents::MissionBlackboard;
 use super::evidence::EvidenceRecord;
+use crate::error::EaiResult;
+use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {
@@ -46,12 +46,20 @@ impl MissionDag {
             assigned_agent: None,
             completed: false,
         });
-        eprintln!("[DAG Sub-Task Spawned] Task #{} '{}' dependent on Task #{}", new_id, title, parent_id);
+        eprintln!(
+            "[DAG Sub-Task Spawned] Task #{} '{}' dependent on Task #{}",
+            new_id, title, parent_id
+        );
         new_id
     }
 
     /// Execute the DAG topologically using work-stealing parallel execution
-    pub fn execute_dag(&mut self, workspace: &Path, blackboard: &MissionBlackboard, event_sender: &flume::Sender<super::bus::SwarmEventType>) -> EaiResult<Vec<EvidenceRecord>> {
+    pub fn execute_dag(
+        &mut self,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+        event_sender: &flume::Sender<super::bus::SwarmEventType>,
+    ) -> EaiResult<Vec<EvidenceRecord>> {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
 
@@ -59,9 +67,17 @@ impl MissionDag {
         let total_nodes = self.nodes.len();
 
         while executed_count < total_nodes {
-            let ready_indices: Vec<usize> = self.nodes.iter()
+            let ready_indices: Vec<usize> = self
+                .nodes
+                .iter()
                 .enumerate()
-                .filter(|(_, node)| !node.completed && node.dependencies.iter().all(|&dep| self.nodes[dep].completed))
+                .filter(|(_, node)| {
+                    !node.completed
+                        && node
+                            .dependencies
+                            .iter()
+                            .all(|&dep| self.nodes[dep].completed)
+                })
                 .map(|(idx, _)| idx)
                 .collect();
 
@@ -73,19 +89,27 @@ impl MissionDag {
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
 
-            let batch_results: Vec<(usize, EaiResult<String>, u64)> = ready_indices.into_par_iter().map(|idx| {
-                let node = &self.nodes[idx];
-                let start = std::time::Instant::now();
-                let _ = tx.send(super::bus::SwarmEventType::AgentStarted { agent_name: node.title.clone() });
+            let batch_results: Vec<(usize, EaiResult<String>, u64)> = ready_indices
+                .into_par_iter()
+                .map(|idx| {
+                    let node = &self.nodes[idx];
+                    let start = std::time::Instant::now();
+                    let _ = tx.send(super::bus::SwarmEventType::AgentStarted {
+                        agent_name: node.title.clone(),
+                    });
 
-                let prompt = format!("Execute task node '{}': {}", node.title, node.goal);
-                let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
+                    let prompt = format!("Execute task node '{}': {}", node.title, node.goal);
+                    let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
 
-                let elapsed = start.elapsed().as_millis() as u64;
-                let _ = tx.send(super::bus::SwarmEventType::AgentCompleted { agent_name: node.title.clone(), elapsed_ms: elapsed });
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    let _ = tx.send(super::bus::SwarmEventType::AgentCompleted {
+                        agent_name: node.title.clone(),
+                        elapsed_ms: elapsed,
+                    });
 
-                (idx, Ok(res), elapsed)
-            }).collect();
+                    (idx, Ok(res), elapsed)
+                })
+                .collect();
 
             for (idx, res, _elapsed) in batch_results {
                 if let Ok(output) = res {
@@ -95,7 +119,10 @@ impl MissionDag {
                     let record = EvidenceRecord::new(
                         self.nodes[idx].title.clone(),
                         0.95,
-                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs(),
                         super::evidence::Claim {
                             subject: self.nodes[idx].title.clone(),
                             predicate: "achieved_goal".to_string(),
@@ -103,7 +130,7 @@ impl MissionDag {
                         },
                         super::evidence::EvidenceSource::AgentObservation {
                             observation: output.clone(),
-                            reasoning_trace: "DAG Work-Stealing Parallel Loop".to_string()
+                            reasoning_trace: "DAG Work-Stealing Parallel Loop".to_string(),
                         },
                         0.92,
                     );

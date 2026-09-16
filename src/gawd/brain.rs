@@ -1,10 +1,10 @@
 // SUSI Core Runtime Substrate: Unified Operational Status Tracking
 // Unifies Self (Compiled Binary Instructions), System Environment (Hardware/OS), and Node (Configurations/Workspace).
 
-use std::path::{Path, PathBuf};
 use super::self_core::AlphaSelf;
 use crate::gemi::hardware::HardwareProfiler;
 use crate::sandbox::manager::SusiConfig;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -23,7 +23,10 @@ pub struct AlphaBrainContext {
 impl AlphaBrainContext {
     pub fn initialize(workspace: &Path) -> Self {
         let hardware = HardwareProfiler::get_profile();
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
         let cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
 

@@ -1,11 +1,11 @@
 // SUSI-Alpha: Native Neural Intelligence Substrate
 // 100% Rust implementation using Candle for Tier 0 Reflex Distillation
 
-use anyhow::{Result, anyhow};
-use candle_core::{Tensor, DType};
-use candle_nn::{Linear, Module, VarBuilder, VarMap, Optimizer, AdamW, ParamsAdamW};
-use std::path::Path;
+use anyhow::{anyhow, Result};
+use candle_core::{DType, Tensor};
+use candle_nn::{AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistillationStaged {
@@ -26,7 +26,10 @@ impl SusiAlphaModel {
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             Self::load(&home.join(".susi")).unwrap_or_else(|_| {
                 let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
                 let varmap = VarMap::new();
@@ -43,10 +46,13 @@ impl SusiAlphaModel {
         let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
 
         if weights_path.exists() {
-            if let Ok(vb) = unsafe { VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device) } {
+            if let Ok(vb) = unsafe {
+                VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device)
+            } {
                 if let (Ok(fc1), Ok(fc2)) = (
                     candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")),
-                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).or_else(|_| candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")))
+                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
+                        .or_else(|_| candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))),
                 ) {
                     return Ok(Self { fc1, fc2 });
                 }
@@ -69,9 +75,15 @@ impl SusiAlphaModel {
     /// Dynamic Intent Surface Discovery (Rule 31 Hardening)
     pub fn list_dynamic_intents() -> Vec<String> {
         let mut intents = vec![
-            "status".into(), "version".into(), "self_heal_build".into(),
-            "run_test_harness".into(), "write_file".into(), "read_file".into(),
-            "list_directory".into(), "scout".into(), "reason".into()
+            "status".into(),
+            "version".into(),
+            "self_heal_build".into(),
+            "run_test_harness".into(),
+            "write_file".into(),
+            "read_file".into(),
+            "list_directory".into(),
+            "scout".into(),
+            "reason".into(),
         ];
 
         // Add Registered Agents
@@ -123,7 +135,8 @@ impl SusiAlphaModel {
                 samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
 
                 let action_clean = entry.action.to_lowercase();
-                let label_idx = dynamic_intents.iter()
+                let label_idx = dynamic_intents
+                    .iter()
                     .position(|i| action_clean.contains(&i.to_lowercase()))
                     .unwrap_or(dynamic_intents.len() - 1) as u32;
                 labels.push(label_idx);
@@ -137,7 +150,9 @@ impl SusiAlphaModel {
             labels.push(idx as u32);
         }
 
-        if samples.is_empty() { return Err(anyhow!("Empty distillation dataset.")); }
+        if samples.is_empty() {
+            return Err(anyhow!("Empty distillation dataset."));
+        }
 
         let x = Tensor::cat(&samples, 0)?;
         let y = Tensor::from_vec(labels, samples.len(), &device)?;
@@ -173,7 +188,10 @@ impl SusiAlphaModel {
         if confidence > 0.5 {
             return Ok(action);
         }
-        Err(anyhow!("Low confidence ({:.2}) in neural reflex.", confidence))
+        Err(anyhow!(
+            "Low confidence ({:.2}) in neural reflex.",
+            confidence
+        ))
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
@@ -202,7 +220,10 @@ impl SusiAlphaModel {
             let mut max_idx = 0;
             let mut max_val = 0.0;
             for (i, &val) in results.iter().enumerate() {
-                if val > max_val { max_val = val; max_idx = i; }
+                if val > max_val {
+                    max_val = val;
+                    max_idx = i;
+                }
             }
             let dynamic_intents = Self::list_dynamic_intents();
             if let Some(intent) = dynamic_intents.get(max_idx) {
@@ -232,13 +253,21 @@ impl SusiAlphaModel {
 
     /// Deterministic Semantic Embedding Substrate
     /// Optimized for <2ms Instant-Intelligence (Aspiration 25).
-    pub fn semantic_centroid_projection(prompt: &str, anchors: Option<&[crate::gawd::agents::AgentProfile]>) -> Result<Vec<f32>> {
+    pub fn semantic_centroid_projection(
+        prompt: &str,
+        anchors: Option<&[crate::gawd::agents::AgentProfile]>,
+    ) -> Result<Vec<f32>> {
         let start = std::time::Instant::now();
         let mut vec = vec![0.0f32; Self::DIM];
         let prompt_lower = prompt.to_lowercase();
-        let words: Vec<&str> = prompt_lower.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).collect();
+        let words: Vec<&str> = prompt_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .collect();
 
-        if words.is_empty() { return Ok(vec); }
+        if words.is_empty() {
+            return Ok(vec);
+        }
 
         for (i, word) in words.iter().enumerate() {
             let word_vec = Self::get_semantic_anchor(word, anchors);
@@ -261,22 +290,27 @@ impl SusiAlphaModel {
         Ok(vec)
     }
 
-    fn get_semantic_anchor(word: &str, anchors: Option<&[crate::gawd::agents::AgentProfile]>) -> Vec<f32> {
+    fn get_semantic_anchor(
+        word: &str,
+        anchors: Option<&[crate::gawd::agents::AgentProfile]>,
+    ) -> Vec<f32> {
         let mut anchor = vec![0.0f32; Self::DIM];
 
         // Zero-Lock Anchor Mapping (Aspiration 24 Mandate)
         if let Some(agent_profiles) = anchors {
             for agent in agent_profiles {
                 if agent.semantic_anchors.iter().any(|a| a == word) {
-                     let offset = 80 + (agent.name.len() % 40);
-                     anchor[offset] = 1.0;
-                     return anchor;
+                    let offset = 80 + (agent.name.len() % 40);
+                    anchor[offset] = 1.0;
+                    return anchor;
                 }
             }
         }
 
         let mut h = 0u32;
-        for b in word.as_bytes() { h = h.wrapping_add(*b as u32); }
+        for b in word.as_bytes() {
+            h = h.wrapping_add(*b as u32);
+        }
 
         let category = match word {
             "status" | "health" | "state" | "check" | "hardware" | "system" | "report" => 0,
@@ -292,7 +326,9 @@ impl SusiAlphaModel {
 
         if category < 10 {
             let start = category * 10;
-            for val in anchor.iter_mut().skip(start).take(10) { *val = 1.0; }
+            for val in anchor.iter_mut().skip(start).take(10) {
+                *val = 1.0;
+            }
         } else {
             anchor[(h as usize) % Self::DIM] = 0.5;
         }
@@ -315,8 +351,10 @@ mod tests {
 
     #[test]
     fn test_semantic_centroid_projection_determinism() {
-        let vec1 = SusiAlphaModel::semantic_centroid_projection("check engine status", None).unwrap();
-        let vec2 = SusiAlphaModel::semantic_centroid_projection("check engine status", None).unwrap();
+        let vec1 =
+            SusiAlphaModel::semantic_centroid_projection("check engine status", None).unwrap();
+        let vec2 =
+            SusiAlphaModel::semantic_centroid_projection("check engine status", None).unwrap();
         assert_eq!(vec1.len(), SusiAlphaModel::DIM);
         assert_eq!(vec1, vec2);
     }

@@ -32,7 +32,10 @@ impl ReflexEngine {
 
         match crate::gemi::pulse::SusiPulse::reason(intent, workspace) {
             Ok(action) => (ReflexDecision::Solved(action), start.elapsed().as_micros()),
-            Err(_) => (ReflexDecision::RequiresDeepReasoning, start.elapsed().as_micros()),
+            Err(_) => (
+                ReflexDecision::RequiresDeepReasoning,
+                start.elapsed().as_micros(),
+            ),
         }
     }
 }

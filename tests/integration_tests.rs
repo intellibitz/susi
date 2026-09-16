@@ -17,7 +17,8 @@ fn test_substrate_bootstrap_and_config() {
     assert!(config_path.exists());
 
     // Verify Config Load
-    let cfg = susi_engine::sandbox::manager::SusiConfig::load(&test_dir).expect("Config load failed");
+    let cfg =
+        susi_engine::sandbox::manager::SusiConfig::load(&test_dir).expect("Config load failed");
     assert_eq!(cfg.gmcp_port, 9090);
 
     let _ = fs::remove_dir_all(&test_dir);
@@ -28,7 +29,11 @@ fn test_tool_registry_and_execution() {
     let ws = std::env::current_dir().unwrap();
 
     // Test Status Tool
-    let res = susi_engine::gmcp::tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), &ws);
+    let res = susi_engine::gmcp::tools::ToolRegistry::execute_tool(
+        "status",
+        &serde_json::json!(null),
+        &ws,
+    );
     assert!(res.contains("SUSI Engine Version"));
 
     // Test Read/Write Tool
@@ -40,11 +45,13 @@ fn test_tool_registry_and_execution() {
         "content": test_content
     });
 
-    let write_res = susi_engine::gmcp::tools::ToolRegistry::execute_tool("write_file", &write_arg, &ws);
+    let write_res =
+        susi_engine::gmcp::tools::ToolRegistry::execute_tool("write_file", &write_arg, &ws);
     assert!(write_res.contains("Wrote to"));
 
     let read_arg = serde_json::json!(test_file);
-    let read_res = susi_engine::gmcp::tools::ToolRegistry::execute_tool("read_file", &read_arg, &ws);
+    let read_res =
+        susi_engine::gmcp::tools::ToolRegistry::execute_tool("read_file", &read_arg, &ws);
     assert_eq!(read_res, test_content);
 
     let _ = fs::remove_file(ws.join(test_file));

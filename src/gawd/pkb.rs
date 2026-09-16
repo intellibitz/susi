@@ -1,10 +1,10 @@
 // SUSI Protocol Knowledge Base (PKB)
 // Tier 0: Reflex Data Synthesis for SUSI-Alpha Training
 
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use crate::error::EaiResult;
 use crate::gawd::agents::GawdAgent;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolReflex {
@@ -24,7 +24,12 @@ impl ProtocolKnowledgeBase {
 
         for line in log_content.lines() {
             if line.contains("[MISSION_START]") {
-                let intent = line.split("[MISSION_START]").nth(1).unwrap_or("").trim().to_string();
+                let intent = line
+                    .split("[MISSION_START]")
+                    .nth(1)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 if intent.len() > 5 {
                     reflexes.push(ProtocolReflex {
                         intent,
@@ -51,7 +56,7 @@ impl ProtocolKnowledgeBase {
                 action: "SusiAdmin::audit_compliance".to_string(),
                 context: "GOVERNANCE_ENFORCEMENT".to_string(),
                 verified: true,
-            }
+            },
         ]
     }
 
@@ -60,11 +65,16 @@ impl ProtocolKnowledgeBase {
         let synthetic = Self::synthesize_training_data(workspace)?;
         reflexes.extend(synthetic);
 
-        let data = serde_json::to_string_pretty(&reflexes).map_err(|e| crate::error::EaiError::internal(e.to_string()))?;
+        let data = serde_json::to_string_pretty(&reflexes)
+            .map_err(|e| crate::error::EaiError::internal(e.to_string()))?;
         let export_path = workspace.join(".susi/reflex_dataset.json");
         std::fs::write(&export_path, data)?;
 
-        Ok(format!("Exported {} neural reflexes to {}", reflexes.len(), export_path.display()))
+        Ok(format!(
+            "Exported {} neural reflexes to {}",
+            reflexes.len(),
+            export_path.display()
+        ))
     }
 
     pub fn generate_synthetic_intent_pair(intent: &str, _workspace: &Path) -> EaiResult<String> {
@@ -79,14 +89,17 @@ impl ProtocolKnowledgeBase {
             pair.push_str(&format!("REFLEX_GUARD (SafetyAgent): {}\n", res));
         }
 
-        let action = crate::gemi::pulse::SusiPulse::reason(intent, &workspace).unwrap_or_else(|_| "ACTION: status".into());
+        let action = crate::gemi::pulse::SusiPulse::reason(intent, &workspace)
+            .unwrap_or_else(|_| "ACTION: status".into());
         pair.push_str(&format!("FINAL_ACTION: {}\n", action));
 
         Ok(pair)
     }
 
     pub fn list_reflex_weights(workspace: &Path) -> Vec<String> {
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".to_string());
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
 
         let mut weights = Vec::new();
@@ -108,30 +121,43 @@ impl ProtocolKnowledgeBase {
     }
 
     pub fn verify_alpha_substrate() -> EaiResult<String> {
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".to_string());
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
         let weights_file = models_dir.join("susi-alpha.safetensors");
 
         if weights_file.exists() {
             let meta = std::fs::metadata(&weights_file)?;
-            Ok(format!("SUSI-Alpha Substrate Verified: {} ({} bytes)", weights_file.display(), meta.len()))
+            Ok(format!(
+                "SUSI-Alpha Substrate Verified: {} ({} bytes)",
+                weights_file.display(),
+                meta.len()
+            ))
         } else {
-            Err(crate::error::EaiError::inference("SUSI-Alpha weights missing. Run 'susi install'."))
+            Err(crate::error::EaiError::inference(
+                "SUSI-Alpha weights missing. Run 'susi install'.",
+            ))
         }
     }
 
     #[allow(dead_code)]
     pub fn distill_reflex_to_binary(intent: &str, workspace: &Path) -> EaiResult<PathBuf> {
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".to_string());
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
         let weights_file = models_dir.join("susi-alpha.safetensors");
 
         if !weights_file.exists() {
-             return Err(crate::error::EaiError::inference("SUSI-Alpha substrate missing."));
+            return Err(crate::error::EaiError::inference(
+                "SUSI-Alpha substrate missing.",
+            ));
         }
 
         // Tier 0 Distillation Protocol: Synthesize neural reflex weights for the intent
-        let distilled_path = workspace.join(format!(".susi/reflexes/{}.bin", intent.replace(' ', "_")));
+        let distilled_path =
+            workspace.join(format!(".susi/reflexes/{}.bin", intent.replace(' ', "_")));
         if let Some(parent) = distilled_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -142,13 +168,22 @@ impl ProtocolKnowledgeBase {
             "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
         });
 
-        std::fs::write(&distilled_path, serde_json::to_vec(&reflex_record).map_err(|e| crate::error::EaiError::internal(e.to_string()))?)?;
+        std::fs::write(
+            &distilled_path,
+            serde_json::to_vec(&reflex_record)
+                .map_err(|e| crate::error::EaiError::internal(e.to_string()))?,
+        )?;
 
         Ok(distilled_path)
     }
 
     /// Stages a reasoning pair for autonomous distillation into local reflexes
-    pub fn stage_distillation_pair(intent: &str, action: &str, workspace: &Path, metadata: Option<serde_json::Value>) -> EaiResult<()> {
+    pub fn stage_distillation_pair(
+        intent: &str,
+        action: &str,
+        workspace: &Path,
+        metadata: Option<serde_json::Value>,
+    ) -> EaiResult<()> {
         let susi_dir = workspace.join(".susi");
         if !susi_dir.exists() {
             let _ = std::fs::create_dir_all(&susi_dir);
@@ -161,7 +196,11 @@ impl ProtocolKnowledgeBase {
             "performance_metadata": metadata,
         });
 
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(distillation_file) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(distillation_file)
+        {
             use std::io::Write;
             let _ = writeln!(f, "{}", entry);
         }
@@ -171,7 +210,9 @@ impl ProtocolKnowledgeBase {
     /// Autonomous consolidation of mission memory: Index successful missions for Tier 0 retrieval.
     pub fn consolidate_recent_interactions(workspace: &Path) -> EaiResult<usize> {
         let memory_file = workspace.join(".susi/memory.jsonl");
-        if !memory_file.exists() { return Ok(0); }
+        if !memory_file.exists() {
+            return Ok(0);
+        }
 
         let content = std::fs::read_to_string(&memory_file)?;
         let mut count = 0;

@@ -1,5 +1,5 @@
-pub mod error;
 pub mod daemon;
+pub mod error;
 pub mod gawd;
 pub mod gemi;
 pub mod gmcp;

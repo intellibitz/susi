@@ -1,30 +1,31 @@
 // SUSI-Pulse: Tier 0 Native Bootstrap Brain
 // 100% Neural implementation - Zero Hardcoded Heuristics (Rule 31)
 
-use anyhow::{Result, anyhow};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use super::alpha::SusiAlphaModel;
+use anyhow::{anyhow, Result};
+use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use once_cell::sync::Lazy;
-use super::alpha::SusiAlphaModel;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub struct SusiPulse;
 
-static REFLEX_CACHE: Lazy<Arc<RwLock<HashMap<String, String>>>> = Lazy::new(|| {
-    Arc::new(RwLock::new(HashMap::new()))
-});
+static REFLEX_CACHE: Lazy<Arc<RwLock<HashMap<String, String>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
-static CURRENT_FINGERPRINT: Lazy<Arc<RwLock<String>>> = Lazy::new(|| {
-    Arc::new(RwLock::new(String::new()))
-});
+static CURRENT_FINGERPRINT: Lazy<Arc<RwLock<String>>> =
+    Lazy::new(|| Arc::new(RwLock::new(String::new())));
 
 impl SusiPulse {
     /// Pure Neural Intent Resolution
     pub fn reason(prompt: &str, workspace: &Path) -> Result<String> {
         let prompt_trimmed = prompt.trim();
 
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
 
         // Neural Synchronization (Cache Invalidation)
@@ -49,7 +50,10 @@ impl SusiPulse {
             }
         }
 
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
 
         // Neural Reflex Attempt
@@ -66,13 +70,17 @@ impl SusiPulse {
                     cache.insert(prompt_trimmed.to_string(), final_action.clone());
 
                     return Ok(final_action);
-                },
+                }
                 Err(_e) => {
-                    return Err(anyhow!("Low confidence reflex. Escalating to Tier 2 Deep Reasoning..."));
+                    return Err(anyhow!(
+                        "Low confidence reflex. Escalating to Tier 2 Deep Reasoning..."
+                    ));
                 }
             }
         }
 
-        Err(anyhow!("Pulse Brain: Neural substrate missing. Transitioning to Tier 2..."))
+        Err(anyhow!(
+            "Pulse Brain: Neural substrate missing. Transitioning to Tier 2..."
+        ))
     }
 }

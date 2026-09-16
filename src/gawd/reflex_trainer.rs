@@ -1,16 +1,19 @@
 // Reflex Trainer: Autonomous Neural Substrate Evolution
 // Monitors learning staged buffer and triggers native distillation.
 
-use std::path::Path;
 use crate::error::EaiResult;
 use crate::gemi::alpha::SusiAlphaModel;
+use std::path::Path;
 
 pub struct ReflexTrainer;
 
 impl ReflexTrainer {
     /// Checks if the substrate needs a retraining cycle based on learned wisdom volume.
     pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = home.join(".susi");
         let staged_file = global_dir.join("distillation_staged.jsonl");
 
@@ -26,7 +29,7 @@ impl ReflexTrainer {
                         // Clear the buffer after successful evolution
                         let _ = std::fs::remove_file(&staged_file);
                         return Ok(report);
-                    },
+                    }
                     Err(e) => return Ok(format!("Distillation Failure: {}", e)),
                 }
             }
@@ -36,8 +39,12 @@ impl ReflexTrainer {
     }
 
     pub fn force_train(_workspace: &Path) -> EaiResult<String> {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = home.join(".susi");
-        SusiAlphaModel::train_on_staged_data(&global_dir).map_err(|e| crate::error::EaiError::inference(e.to_string()))
+        SusiAlphaModel::train_on_staged_data(&global_dir)
+            .map_err(|e| crate::error::EaiError::inference(e.to_string()))
     }
 }

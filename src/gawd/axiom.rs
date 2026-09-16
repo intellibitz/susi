@@ -1,8 +1,8 @@
 // SUSI Axiom Substrate: Core Configuration and Integrity Maintenance from Compiled Binary Instructions
 // Bypasses string parsing by leveraging compiled Rust structs and enums in AlphaSelf.
 
-use std::path::Path;
 use super::self_core::AlphaSelf;
+use std::path::Path;
 
 pub struct AxiomSubstrate;
 
@@ -12,13 +12,19 @@ impl AxiomSubstrate {
         let mut agents_summary = String::new();
         agents_summary.push_str("# Compiled Binary Axiom Rules\n");
         for rule in AlphaSelf::RULES {
-            agents_summary.push_str(&format!("{}. **{}**: {}\n", rule.id, rule.title, rule.imperative));
+            agents_summary.push_str(&format!(
+                "{}. **{}**: {}\n",
+                rule.id, rule.title, rule.imperative
+            ));
         }
 
         let mut projects_summary = String::new();
         projects_summary.push_str("# Compiled Binary Component Topology\n");
         for comp in AlphaSelf::COMPONENTS {
-            projects_summary.push_str(&format!("- **{}** ({:?}): {}\n", comp.name, comp.tier, comp.description));
+            projects_summary.push_str(&format!(
+                "- **{}** ({:?}): {}\n",
+                comp.name, comp.tier, comp.description
+            ));
         }
 
         (agents_summary, projects_summary)

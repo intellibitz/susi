@@ -1,11 +1,12 @@
 // SUSI Unified Substrate: Multi-Modal Semantic Projection & Paged KV Storage
 // 100% Rust implementation for memory-efficient multi-threaded reasoning
 
-use std::path::Path;
-use std::sync::{Arc, OnceLock};
+use crate::error::EaiResult;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use crate::error::EaiResult;
+use std::path::Path;
+use std::sync::{Arc, OnceLock};
+use rayon::prelude::*;
 
 /// Paged KV Store (Aspiration 6 & vLLM Parity)
 /// Implements virtual memory paging for KV caches to prevent memory fragmentation
@@ -24,7 +25,7 @@ impl PagedKVStore {
             PagedKVStore {
                 pages: Arc::new(RwLock::new(HashMap::new())),
                 lru: Arc::new(RwLock::new(Vec::new())),
-                _page_size: 4096, // 4KB Pages
+                _page_size: 4096,     // 4KB Pages
                 max_pages: 1024 * 16, // 64MB Cache Limit
             }
         })
@@ -79,10 +80,8 @@ pub struct RadixAttentionStore {
 impl RadixAttentionStore {
     pub fn global() -> &'static Self {
         static STORE: OnceLock<RadixAttentionStore> = OnceLock::new();
-        STORE.get_or_init(|| {
-            RadixAttentionStore {
-                nodes: Arc::new(RwLock::new(HashMap::new())),
-            }
+        STORE.get_or_init(|| RadixAttentionStore {
+            nodes: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -98,7 +97,11 @@ impl RadixAttentionStore {
             }
         }
 
-        if longest_match > 0 { Some((longest_match, target_page)) } else { None }
+        if longest_match > 0 {
+            Some((longest_match, target_page))
+        } else {
+            None
+        }
     }
 
     pub fn register_prefix(&self, tokens: Vec<u32>, page_id: u64) {
@@ -117,16 +120,18 @@ pub struct ReflexInferenceKernel {
 impl ReflexInferenceKernel {
     pub fn global() -> &'static Self {
         static KERNEL: OnceLock<ReflexInferenceKernel> = OnceLock::new();
-        KERNEL.get_or_init(|| {
-            ReflexInferenceKernel {
-                kv_store: PagedKVStore::global(),
-                prefix_store: RadixAttentionStore::global(),
-            }
+        KERNEL.get_or_init(|| ReflexInferenceKernel {
+            kv_store: PagedKVStore::global(),
+            prefix_store: RadixAttentionStore::global(),
         })
     }
 
     /// Optimized Swarm Inference (Winner-Takes-All Protocol)
-    pub fn execute_swarm_inference(&self, prompt: &str, device: &candle_core::Device) -> EaiResult<String> {
+    pub fn execute_swarm_inference(
+        &self,
+        prompt: &str,
+        device: &candle_core::Device,
+    ) -> EaiResult<String> {
         // Rule 11 & Aspiration 5: Guard against critical resource exhaustion
         if crate::gemi::hardware::HardwareProfiler::check_oom_critical() {
             return Err(crate::error::EaiError::inference("Substrate resource ceiling exceeded (>90% RAM utilization). Failing fast to guarantee system stability."));
@@ -153,22 +158,33 @@ impl ReflexInferenceKernel {
 
         let raw_features: Vec<f32> = (0..seq_len * q_heads * head_dim)
             .map(|i| {
-                let byte_val = prompt.as_bytes().get(i % prompt.len()).cloned().unwrap_or(0);
+                let byte_val = prompt
+                    .as_bytes()
+                    .get(i % prompt.len())
+                    .cloned()
+                    .unwrap_or(0);
                 (byte_val as f32) / 255.0
             })
             .collect();
 
-        let q_tensor = candle_core::Tensor::from_vec(raw_features, (1, q_heads, seq_len, head_dim), device)
-            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let q_tensor =
+            candle_core::Tensor::from_vec(raw_features, (1, q_heads, seq_len, head_dim), device)
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
-        let kv_len = if prefix_cached { seq_len + matched_len } else { seq_len };
+        let kv_len = if prefix_cached {
+            seq_len + matched_len
+        } else {
+            seq_len
+        };
         let k_features = vec![0.1f32; kv_heads * kv_len * head_dim];
         let v_features = vec![0.2f32; kv_heads * kv_len * head_dim];
 
-        let k_tensor = candle_core::Tensor::from_vec(k_features, (1, kv_heads, kv_len, head_dim), device)
-            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-        let v_tensor = candle_core::Tensor::from_vec(v_features, (1, kv_heads, kv_len, head_dim), device)
-            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let k_tensor =
+            candle_core::Tensor::from_vec(k_features, (1, kv_heads, kv_len, head_dim), device)
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let v_tensor =
+            candle_core::Tensor::from_vec(v_features, (1, kv_heads, kv_len, head_dim), device)
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
         let group_ratio = q_heads / kv_heads;
         let mut attention_accum = vec![];
@@ -232,7 +248,9 @@ impl TensorReflexKernel {
             .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
         // Execute Peak MatMul (Hardware Saturated)
-        let _res = t1.matmul(&t2).map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let _res = t1
+            .matmul(&t2)
+            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
         Ok("Synthesized output from SUSI Tensor Reflex Kernel (Hardware Saturated via CUDA/Metal).".to_string())
     }
@@ -252,11 +270,14 @@ impl TurboReflexEngine {
     pub fn execute_turbo_inference(&self, _prompt: &str) -> EaiResult<String> {
         // Aspiration 10: In-Flight Batching Logic
         let batch_size = 4;
-        let t = candle_core::Tensor::zeros((batch_size, 512), candle_core::DType::F32, &self.device)
-            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let t =
+            candle_core::Tensor::zeros((batch_size, 512), candle_core::DType::F32, &self.device)
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
         // Execute AWQ-Optimized Batch (Compression Optimized)
-        let _res = t.exp().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+        let _res = t
+            .exp()
+            .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
 
         Ok("Synthesized output from SUSI Turbo Reflex Engine (AWQ-Optimized & In-Flight Batching).".to_string())
     }
@@ -269,7 +290,7 @@ impl SusiUnifiedSubstrate {
     pub fn project_to_unified_space(
         text: Option<&str>,
         image_path: Option<&Path>,
-        audio_path: Option<&Path>
+        audio_path: Option<&Path>,
     ) -> EaiResult<Vec<f32>> {
         // Implementation of 1024-dimensional neural projection
         // Real logic would involve loading vision/audio encoders
@@ -290,9 +311,9 @@ impl SusiUnifiedSubstrate {
         }
 
         // Normalize the vector
-        let norm = (unified_vec.iter().map(|x| x * x).sum::<f32>()).sqrt();
+        let norm = (unified_vec.par_iter().map(|x| x * x).sum::<f32>()).sqrt();
         if norm > 0.0 {
-            for x in &mut unified_vec { *x /= norm; }
+            unified_vec.par_iter_mut().for_each(|x| *x /= norm);
         }
 
         Ok(unified_vec)

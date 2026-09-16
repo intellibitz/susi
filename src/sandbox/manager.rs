@@ -1,11 +1,11 @@
 // susi Sandbox Manager: Neural Checkpoints, Memory & State Isolation
 // 100% Rust implementation for sandboxed execution environment
 
+use crate::error::{EaiError, EaiResult};
+use crate::gmcp::GlobalMcpEntry;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use crate::gmcp::GlobalMcpEntry;
-use crate::error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ModelTier {
@@ -169,17 +169,41 @@ impl Default for SusiConfig {
             default_model: "susi-alpha".to_string(),
             auto_download_models: true,
             susi_repo: "intellibitz/susi".to_string(),
-            mcp_registry_url: "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json".to_string(),
+            mcp_registry_url:
+                "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json".to_string(),
             bootstrap_mcp_servers: vec![
-                GlobalMcpEntry { name: "database".to_string(), description: "Standard Protocol SQL Database Server".to_string(), package: "mcp-server-postgres".to_string(), category: "database".to_string(), trust_score: Some(0.95), latency_ms: Some(10) },
-                GlobalMcpEntry { name: "search".to_string(), description: "Standard Protocol Web Search Server".to_string(), package: "mcp-server-search".to_string(), category: "search".to_string(), trust_score: Some(0.90), latency_ms: Some(50) },
-                GlobalMcpEntry { name: "vcs".to_string(), description: "Standard Protocol Version Control Server".to_string(), package: "mcp-server-github".to_string(), category: "vcs".to_string(), trust_score: Some(0.92), latency_ms: Some(30) },
+                GlobalMcpEntry {
+                    name: "database".to_string(),
+                    description: "Standard Protocol SQL Database Server".to_string(),
+                    package: "mcp-server-postgres".to_string(),
+                    category: "database".to_string(),
+                    trust_score: Some(0.95),
+                    latency_ms: Some(10),
+                },
+                GlobalMcpEntry {
+                    name: "search".to_string(),
+                    description: "Standard Protocol Web Search Server".to_string(),
+                    package: "mcp-server-search".to_string(),
+                    category: "search".to_string(),
+                    trust_score: Some(0.90),
+                    latency_ms: Some(50),
+                },
+                GlobalMcpEntry {
+                    name: "vcs".to_string(),
+                    description: "Standard Protocol Version Control Server".to_string(),
+                    package: "mcp-server-github".to_string(),
+                    category: "vcs".to_string(),
+                    trust_score: Some(0.92),
+                    latency_ms: Some(30),
+                },
             ],
             cloud_scout_timeout_secs: 8,
             beacon_interval_secs: 30,
             local_scan_paths: Vec::new(),
             agent_rank_threshold: 0.6,
-            alpha_weights_url: "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors".to_string(),
+            alpha_weights_url:
+                "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors"
+                    .to_string(),
             model_ladder: vec![
                 ModelLadderConfigStep {
                     step: 1,
@@ -301,22 +325,28 @@ impl SusiConfig {
     }
 
     pub fn load_global() -> EaiResult<Self> {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
         Self::load(&global_dir)
     }
 
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
         let path = Self::get_config_path(global_dir);
-        let json = serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
         fs::write(path, json).map_err(|e| EaiError::filesystem(e.to_string()))
     }
 }
 
 impl SandboxManager {
     pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
+        use bollard::container::{
+            Config, CreateContainerOptions, LogOutput, StartContainerOptions,
+        };
         use bollard::Docker;
-        use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, LogOutput};
         use futures::stream::StreamExt;
 
         let docker = Docker::connect_with_local_defaults()
@@ -328,10 +358,14 @@ impl SandboxManager {
             ..Default::default()
         };
 
-        let container = docker.create_container(None::<CreateContainerOptions<String>>, config).await
+        let container = docker
+            .create_container(None::<CreateContainerOptions<String>>, config)
+            .await
             .map_err(|e| EaiError::process(format!("Container creation failed: {}", e)))?;
 
-        docker.start_container(&container.id, None::<StartContainerOptions<String>>).await
+        docker
+            .start_container(&container.id, None::<StartContainerOptions<String>>)
+            .await
             .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
 
         let mut logs = docker.logs::<String>(&container.id, None);
@@ -372,7 +406,10 @@ impl SandboxManager {
             let _ = fs::create_dir_all(&susi_dir);
         }
         let checkpoint_file = workspace.join(".susi/mission_checkpoint.json");
-        let _ = fs::write(checkpoint_file, serde_json::to_string_pretty(checkpoint).unwrap_or_default());
+        let _ = fs::write(
+            checkpoint_file,
+            serde_json::to_string_pretty(checkpoint).unwrap_or_default(),
+        );
     }
 
     pub fn check_interrupted_checkpoint(workspace: &Path) -> Option<NeuralCheckpoint> {
@@ -397,7 +434,9 @@ impl SusiMemory {
         let memory_file = workspace.join(".susi/memory.jsonl");
 
         // Structured Memory Validation
-        if intent.trim().is_empty() || outcome.trim().is_empty() { return; }
+        if intent.trim().is_empty() || outcome.trim().is_empty() {
+            return;
+        }
 
         let entry = serde_json::json!({
             "intent": intent,
@@ -408,7 +447,11 @@ impl SusiMemory {
                 "engine_version": crate::SUSI_VERSION,
             }
         });
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(memory_file) {
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(memory_file)
+        {
             use std::io::Write;
             let _ = writeln!(f, "{}", entry);
         }
@@ -423,7 +466,11 @@ impl SusiMemory {
                 "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
                 "validation": "STRICT_SEMANTIC_PASS"
             });
-            if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(exp_file) {
+            if let Ok(mut f) = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(exp_file)
+            {
                 use std::io::Write;
                 let _ = writeln!(f, "{}", exp_entry);
             }
@@ -454,7 +501,10 @@ impl SusiAuditLogger {
             let _ = fs::create_dir_all(&susi_dir);
         }
         let audit_file = workspace.join(".susi/audit.log");
-        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
         let log_entry = serde_json::json!({
             "ts": ts,
@@ -464,7 +514,11 @@ impl SusiAuditLogger {
             "pid": std::process::id(),
         });
 
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(audit_file) {
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(audit_file)
+        {
             use std::io::Write;
             let _ = writeln!(f, "{}", log_entry);
         }
@@ -474,7 +528,11 @@ impl SusiAuditLogger {
         let audit_file = workspace.join(".susi/audit.log");
         if let Ok(content) = fs::read_to_string(audit_file) {
             let lines: Vec<&str> = content.lines().collect();
-            let start = if lines.len() > limit { lines.len() - limit } else { 0 };
+            let start = if lines.len() > limit {
+                lines.len() - limit
+            } else {
+                0
+            };
             return lines[start..].join("\n");
         }
         String::new()

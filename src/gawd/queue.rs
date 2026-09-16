@@ -2,11 +2,11 @@
 // Mandate 30: Non-Blocking Pulse Ingestion & Mandate 31: Serialized Pulse Execution
 // Refactored to use genuinely lock-free crossbeam SegQueue (Aspiration 27 & Mandate 39)
 
-use crossbeam::queue::SegQueue;
-use std::sync::OnceLock;
-use std::path::{Path, PathBuf};
-use tracing::info;
 use crate::error::EaiResult;
+use crossbeam::queue::SegQueue;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub struct PulseEntry {
@@ -38,7 +38,10 @@ impl SubstratePulseQueue {
     pub fn ingest(&self, intent: &str, workspace: &Path, version: &str) -> EaiResult<()> {
         info!(intent = %intent, "Ingesting new pulse into lock-free substrate queue");
 
-        let priority = if intent.to_lowercase().contains("stop") || intent.to_lowercase().contains("wait") || intent.to_lowercase().contains("correction") {
+        let priority = if intent.to_lowercase().contains("stop")
+            || intent.to_lowercase().contains("wait")
+            || intent.to_lowercase().contains("correction")
+        {
             1
         } else {
             0

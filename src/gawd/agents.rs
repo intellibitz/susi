@@ -2,13 +2,13 @@
 // RULE 11: Agents must add functionality directly to the susi engine.
 // RULE 31: Substrate Purity & Meta-Only Mandate - Neural Swarm Synthesis
 
-use std::sync::{Arc, OnceLock};
+use crate::error::EaiResult;
+use dashmap::DashMap;
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use std::path::{Path, PathBuf};
-use dashmap::DashMap;
-use crate::error::EaiResult;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GawdAgentInfo {
@@ -52,7 +52,10 @@ impl Default for HighDensityContextStore {
 
 impl HighDensityContextStore {
     pub fn new(capacity: usize) -> Self {
-        Self { inner: DashMap::new(), capacity_limit: capacity }
+        Self {
+            inner: DashMap::new(),
+            capacity_limit: capacity,
+        }
     }
 
     pub fn insert(&self, key: String, value: String) {
@@ -99,7 +102,12 @@ pub type MissionBlackboard = Arc<HighDensityContextStore>;
 pub trait GawdAgent: Send + Sync {
     fn name(&self) -> String;
     fn rank(&self) -> f32;
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String>;
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String>;
 }
 
 /// Dynamic Agent: A generic substrate agent that loads behavior from models and tools.
@@ -110,18 +118,41 @@ pub struct DynamicAgent {
 }
 
 impl GawdAgent for DynamicAgent {
-    fn name(&self) -> String { self.agent_name.clone() }
-    fn rank(&self) -> f32 { self.agent_rank }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        self.agent_name.clone()
+    }
+    fn rank(&self) -> f32 {
+        self.agent_rank
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
         let trimmed = lower.trim();
 
         // Fast-Path Yield: Skip 31B GGUF inference loop for instant queries or when specialists/admin have answered
-        if trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
-            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
-            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models"
-            || blackboard.contains_key("SearchAgent") || blackboard.contains_key("TranslationAgent") || blackboard.contains_key("AdminAgent") {
-            let res = format!("[{}]: Observation integrated into blackboard.", self.agent_name);
+        if trimmed == "ls"
+            || trimmed.starts_with("ls ")
+            || trimmed == "dir"
+            || trimmed == "who am i"
+            || trimmed == "whoami"
+            || trimmed.contains("who am i")
+            || trimmed.contains("whoami")
+            || trimmed == "status"
+            || trimmed == "identity"
+            || trimmed == "version"
+            || trimmed == "models"
+            || blackboard.contains_key("SearchAgent")
+            || blackboard.contains_key("TranslationAgent")
+            || blackboard.contains_key("AdminAgent")
+        {
+            let res = format!(
+                "[{}]: Observation integrated into blackboard.",
+                self.agent_name
+            );
             blackboard.insert(self.agent_name.clone(), res.clone());
             return Ok(res);
         }
@@ -136,17 +167,28 @@ impl GawdAgent for DynamicAgent {
         let ws = workspace.to_path_buf();
         let prompt_val = serde_json::json!(prompt);
 
-        let is_admin_or_query = trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
-            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
-            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models";
+        let is_admin_or_query = trimmed == "ls"
+            || trimmed.starts_with("ls ")
+            || trimmed == "dir"
+            || trimmed == "who am i"
+            || trimmed == "whoami"
+            || trimmed.contains("who am i")
+            || trimmed.contains("whoami")
+            || trimmed == "status"
+            || trimmed == "identity"
+            || trimmed == "version"
+            || trimmed == "models";
 
         // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy (Rule 31)
         let res = if is_admin_or_query {
-            format!("[{}]: Observation integrated into blackboard.", self.agent_name)
+            format!(
+                "[{}]: Observation integrated into blackboard.",
+                self.agent_name
+            )
         } else if crate::gmcp::tools::ToolRegistry::exists("reason") {
-             crate::gmcp::tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
+            crate::gmcp::tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
         } else {
-             crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
+            crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
         };
 
         blackboard.insert(self.agent_name.clone(), res.clone());
@@ -158,11 +200,24 @@ impl GawdAgent for DynamicAgent {
 pub struct SusiRuntimeAgent;
 
 impl GawdAgent for SusiRuntimeAgent {
-    fn name(&self) -> String { "SusiRuntimeAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SusiRuntimeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        if lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version") {
+        if lower.contains("identity")
+            || lower.contains("status")
+            || lower.contains("models")
+            || lower.contains("version")
+        {
             return Ok("Runtime environment active for query.".into());
         }
         // 1. Substrate Infrastructure Audit
@@ -171,14 +226,19 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 2. Local Weight Verification (Rule 31)
         let verifications = crate::gemi::models::ModelManager::verify_local_models(workspace);
-        let valid_local_found = verifications.iter().any(|v| v.is_valid_gguf || v.model_id.contains("native"));
+        let valid_local_found = verifications
+            .iter()
+            .any(|v| v.is_valid_gguf || v.model_id.contains("native"));
 
         // 3. Autonomous Provisioning & Hardware Tuning (Rule 31 & Rule 33)
         if !cloud_available && !valid_local_found {
-             let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-             let cfg = crate::sandbox::manager::SusiConfig::load(&home.join(".susi")).unwrap_or_default();
-             crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url);
-             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
+            let home = std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."));
+            let cfg =
+                crate::sandbox::manager::SusiConfig::load(&home.join(".susi")).unwrap_or_default();
+            crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url);
+            let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
 
         // 4. Protocol Linking (Rule 21)
@@ -193,9 +253,18 @@ impl GawdAgent for SusiRuntimeAgent {
 pub struct HardwareAgent;
 
 impl GawdAgent for HardwareAgent {
-    fn name(&self) -> String { "HardwareAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "HardwareAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.trim().to_lowercase();
         let is_os_cmd = lower.starts_with("git ")
             || lower.starts_with("cargo ")
@@ -206,9 +275,18 @@ impl GawdAgent for HardwareAgent {
             || lower.starts_with("npm ");
 
         let report = if is_os_cmd {
-            let exec_res = crate::gmcp::tools::ToolRegistry::execute_tool("exec_command", &serde_json::json!(goal), workspace);
+            let exec_res = crate::gmcp::tools::ToolRegistry::execute_tool(
+                "exec_command",
+                &serde_json::json!(goal),
+                workspace,
+            );
             if exec_res.contains("[FAIL]") || exec_res.contains("[CAPABILITY_GAP]") {
-                if let Ok(output) = std::process::Command::new("sh").arg("-c").arg(goal).current_dir(workspace).output() {
+                if let Ok(output) = std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(goal)
+                    .current_dir(workspace)
+                    .output()
+                {
                     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                     if output.status.success() && !stdout.trim().is_empty() {
                         stdout
@@ -225,7 +303,11 @@ impl GawdAgent for HardwareAgent {
             let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
             format!(
                 "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
-                profile.cpus, profile.cpu_brand, profile.ram_gb, profile.gpu_info, profile.native_acceleration
+                profile.cpus,
+                profile.cpu_brand,
+                profile.ram_gb,
+                profile.gpu_info,
+                profile.native_acceleration
             )
         };
 
@@ -238,9 +320,18 @@ impl GawdAgent for HardwareAgent {
 pub struct SafetyAgent;
 
 impl GawdAgent for SafetyAgent {
-    fn name(&self) -> String { "SafetyAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SafetyAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         crate::gawd::safety::SafetyDetector::audit_action("SWARM_SOLVE", goal, workspace)?;
         let res = "Safety protocols verified. No destructive patterns detected.".to_string();
         blackboard.insert(self.name(), res.clone());
@@ -252,11 +343,21 @@ impl GawdAgent for SafetyAgent {
 pub struct SecurityAgent;
 
 impl GawdAgent for SecurityAgent {
-    fn name(&self) -> String { "SecurityAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SecurityAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         crate::gawd::security::SecurityDetector::audit_action("SWARM_SOLVE", goal, workspace)?;
-        let res = "Security audit passed. No secret leaks or exfiltration vectors detected.".to_string();
+        let res =
+            "Security audit passed. No secret leaks or exfiltration vectors detected.".to_string();
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -266,17 +367,31 @@ impl GawdAgent for SecurityAgent {
 pub struct EvolutionAgent;
 
 impl GawdAgent for EvolutionAgent {
-    fn name(&self) -> String { "EvolutionAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "EvolutionAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        if lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version") {
+        if lower.contains("identity")
+            || lower.contains("status")
+            || lower.contains("models")
+            || lower.contains("version")
+        {
             let res = "Evolutionary health: Substrate Optimal.".to_string();
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
         }
 
-        static DRIFT_AUDIT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        static DRIFT_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
         if !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let ws = workspace.to_path_buf();
             std::thread::spawn(move || {
@@ -287,7 +402,8 @@ impl GawdAgent for EvolutionAgent {
                     }
                 }
                 let _guard = AuditGuard;
-                let _ = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
+                let _ =
+                    crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
             });
         }
         let res = "Evolutionary health: Substrate Optimal.".to_string();
@@ -300,14 +416,27 @@ impl GawdAgent for EvolutionAgent {
 pub struct GmcpAgent;
 
 impl GawdAgent for GmcpAgent {
-    fn name(&self) -> String { "GmcpAgent".into() }
-    fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, _goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "GmcpAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.95
+    }
+    fn execute(
+        &self,
+        _goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // Test Tool Registry endpoints (Internal Reflex)
         let registry = crate::gmcp::tools::ToolRegistry::global();
         let tool_count = registry.tools.len();
 
-        let status_res = crate::gmcp::tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), workspace);
+        let status_res = crate::gmcp::tools::ToolRegistry::execute_tool(
+            "status",
+            &serde_json::json!(null),
+            workspace,
+        );
         let healthy = status_res.contains("Operational");
 
         let res = format!(
@@ -324,9 +453,18 @@ impl GawdAgent for GmcpAgent {
 pub struct EpistemicAuditorAgent;
 
 impl GawdAgent for EpistemicAuditorAgent {
-    fn name(&self) -> String { "EpistemicAuditorAgent".into() }
-    fn rank(&self) -> f32 { 0.98 }
-    fn execute(&self, _goal: &str, _workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "EpistemicAuditorAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.98
+    }
+    fn execute(
+        &self,
+        _goal: &str,
+        _workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let count = blackboard.inner.len();
         let res = format!("[EpistemicAuditorAgent]: Audited {} blackboard entries for empirical evidence grounding. Epistemic integrity: VERIFIED.", count);
         blackboard.insert(self.name(), res.clone());
@@ -338,9 +476,18 @@ impl GawdAgent for EpistemicAuditorAgent {
 pub struct ResourceArbitratorAgent;
 
 impl GawdAgent for ResourceArbitratorAgent {
-    fn name(&self) -> String { "ResourceArbitratorAgent".into() }
-    fn rank(&self) -> f32 { 0.98 }
-    fn execute(&self, _goal: &str, _workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "ResourceArbitratorAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.98
+    }
+    fn execute(
+        &self,
+        _goal: &str,
+        _workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
         let oom_risk = crate::gemi::hardware::HardwareProfiler::check_oom_critical();
         let res = format!(
@@ -356,9 +503,18 @@ impl GawdAgent for ResourceArbitratorAgent {
 pub struct ConsensusMediatorAgent;
 
 impl GawdAgent for ConsensusMediatorAgent {
-    fn name(&self) -> String { "ConsensusMediatorAgent".into() }
-    fn rank(&self) -> f32 { 0.98 }
-    fn execute(&self, _goal: &str, _workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "ConsensusMediatorAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.98
+    }
+    fn execute(
+        &self,
+        _goal: &str,
+        _workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let entries = blackboard.inner.len();
         let res = format!("[ConsensusMediatorAgent]: Analyzed {} active agent contributions. Zero critical conflicts detected. Weighted consensus reached.", entries);
         blackboard.insert(self.name(), res.clone());
@@ -370,14 +526,32 @@ impl GawdAgent for ConsensusMediatorAgent {
 pub struct SelfHealingAgent;
 
 impl GawdAgent for SelfHealingAgent {
-    fn name(&self) -> String { "SelfHealingAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SelfHealingAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
         let trimmed = lower.trim();
-        if trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
-            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
-            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models" {
+        if trimmed == "ls"
+            || trimmed.starts_with("ls ")
+            || trimmed == "dir"
+            || trimmed == "who am i"
+            || trimmed == "whoami"
+            || trimmed.contains("who am i")
+            || trimmed.contains("whoami")
+            || trimmed == "status"
+            || trimmed == "identity"
+            || trimmed == "version"
+            || trimmed == "models"
+        {
             let res = "[SelfHealingAgent]: Substrate health verified for reflex query.".to_string();
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
@@ -386,7 +560,10 @@ impl GawdAgent for SelfHealingAgent {
         let ws = workspace.to_path_buf();
         let audit = crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws)
             .unwrap_or_else(|_| "Substrate drift audit nominal.".to_string());
-        let res = format!("[SelfHealingAgent]: Autonomous health check completed. {}", audit);
+        let res = format!(
+            "[SelfHealingAgent]: Autonomous health check completed. {}",
+            audit
+        );
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -396,14 +573,27 @@ impl GawdAgent for SelfHealingAgent {
 pub struct VllmBridgeAgent;
 
 impl GawdAgent for VllmBridgeAgent {
-    fn name(&self) -> String { "VllmBridgeAgent".into() }
-    fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "VllmBridgeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.95
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // Power-Tier Delegation Protocol
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
             if remote_name.to_lowercase().contains("vllm") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(&remote_name, "generate", goal);
+                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
+                    &remote_name,
+                    "generate",
+                    goal,
+                );
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[vLLM Power-Tier]: {}", res));
                 }
@@ -412,7 +602,8 @@ impl GawdAgent for VllmBridgeAgent {
 
         // Local vLLM Proxy Fallback (OpenAI-compatible)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let vllm_url = std::env::var("VLLM_API_BASE").unwrap_or(cfg.inference_endpoints.vllm_api_base);
+        let vllm_url =
+            std::env::var("VLLM_API_BASE").unwrap_or(cfg.inference_endpoints.vllm_api_base);
         let body = serde_json::json!({
             "model": "vllm-substrate",
             "prompt": goal,
@@ -420,13 +611,23 @@ impl GawdAgent for VllmBridgeAgent {
             "temperature": 0.0
         });
 
-        match ureq::post(&format!("{}/completions", vllm_url)).timeout(std::time::Duration::from_millis(50)).send_json(body) {
+        match ureq::post(&format!("{}/completions", vllm_url))
+            .timeout(std::time::Duration::from_millis(50))
+            .send_json(body)
+        {
             Ok(resp) => {
-                let json: serde_json::Value = resp.into_json().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"].as_str().unwrap_or("vLLM output empty").to_string();
+                let json: serde_json::Value = resp
+                    .into_json()
+                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+                let text = json["choices"][0]["text"]
+                    .as_str()
+                    .unwrap_or("vLLM output empty")
+                    .to_string();
                 Ok(format!("[vLLM Local Proxy]: {}", text))
             }
-            Err(_) => Err(crate::error::EaiError::inference("vLLM remote or local proxy unreachable"))
+            Err(_) => Err(crate::error::EaiError::inference(
+                "vLLM remote or local proxy unreachable",
+            )),
         }
     }
 }
@@ -435,14 +636,27 @@ impl GawdAgent for VllmBridgeAgent {
 pub struct SglangBridgeAgent;
 
 impl GawdAgent for SglangBridgeAgent {
-    fn name(&self) -> String { "SglangBridgeAgent".into() }
-    fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SglangBridgeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.95
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // Structured Delegation Protocol
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
             if remote_name.to_lowercase().contains("sglang") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(&remote_name, "structured_generate", goal);
+                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
+                    &remote_name,
+                    "structured_generate",
+                    goal,
+                );
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[SGLang Power-Tier]: {}", res));
                 }
@@ -451,20 +665,31 @@ impl GawdAgent for SglangBridgeAgent {
 
         // Local SGLang Proxy Fallback
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let sglang_url = std::env::var("SGLANG_API_BASE").unwrap_or(cfg.inference_endpoints.sglang_api_base);
+        let sglang_url =
+            std::env::var("SGLANG_API_BASE").unwrap_or(cfg.inference_endpoints.sglang_api_base);
         let body = serde_json::json!({
             "model": "sglang-substrate",
             "prompt": goal,
             "sampling_params": { "max_new_tokens": 512, "temperature": 0.0 }
         });
 
-        match ureq::post(&format!("{}/chat/completions", sglang_url)).timeout(std::time::Duration::from_millis(50)).send_json(body) {
+        match ureq::post(&format!("{}/chat/completions", sglang_url))
+            .timeout(std::time::Duration::from_millis(50))
+            .send_json(body)
+        {
             Ok(resp) => {
-                let json: serde_json::Value = resp.into_json().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["message"]["content"].as_str().unwrap_or("SGLang output empty").to_string();
+                let json: serde_json::Value = resp
+                    .into_json()
+                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+                let text = json["choices"][0]["message"]["content"]
+                    .as_str()
+                    .unwrap_or("SGLang output empty")
+                    .to_string();
                 Ok(format!("[SGLang Local Proxy]: {}", text))
             }
-            Err(_) => Err(crate::error::EaiError::inference("SGLang remote or local proxy unreachable"))
+            Err(_) => Err(crate::error::EaiError::inference(
+                "SGLang remote or local proxy unreachable",
+            )),
         }
     }
 }
@@ -473,14 +698,27 @@ impl GawdAgent for SglangBridgeAgent {
 pub struct LlamaCppBridgeAgent;
 
 impl GawdAgent for LlamaCppBridgeAgent {
-    fn name(&self) -> String { "LlamaCppBridgeAgent".into() }
-    fn rank(&self) -> f32 { 0.90 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "LlamaCppBridgeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.90
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // Universal GGUF Protocol (Fallback to llama.cpp standard)
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
             if remote_name.to_lowercase().contains("llama") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(&remote_name, "completions", goal);
+                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
+                    &remote_name,
+                    "completions",
+                    goal,
+                );
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[llama.cpp Power-Tier]: {}", res));
                 }
@@ -489,20 +727,31 @@ impl GawdAgent for LlamaCppBridgeAgent {
 
         // Local llama-server Proxy (Standard Port 8080)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let llama_url = std::env::var("LLAMA_API_BASE").unwrap_or(cfg.inference_endpoints.llama_api_base);
+        let llama_url =
+            std::env::var("LLAMA_API_BASE").unwrap_or(cfg.inference_endpoints.llama_api_base);
         let body = serde_json::json!({
             "prompt": goal,
             "n_predict": 512,
             "temperature": 0.0
         });
 
-        match ureq::post(&format!("{}/completions", llama_url)).timeout(std::time::Duration::from_millis(50)).send_json(body) {
+        match ureq::post(&format!("{}/completions", llama_url))
+            .timeout(std::time::Duration::from_millis(50))
+            .send_json(body)
+        {
             Ok(resp) => {
-                let json: serde_json::Value = resp.into_json().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"].as_str().unwrap_or("llama.cpp output empty").to_string();
+                let json: serde_json::Value = resp
+                    .into_json()
+                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+                let text = json["choices"][0]["text"]
+                    .as_str()
+                    .unwrap_or("llama.cpp output empty")
+                    .to_string();
                 Ok(format!("[llama.cpp Local Proxy]: {}", text))
             }
-            Err(_) => Err(crate::error::EaiError::inference("llama.cpp remote or local proxy unreachable"))
+            Err(_) => Err(crate::error::EaiError::inference(
+                "llama.cpp remote or local proxy unreachable",
+            )),
         }
     }
 }
@@ -511,14 +760,29 @@ impl GawdAgent for LlamaCppBridgeAgent {
 pub struct TensorRtBridgeAgent;
 
 impl GawdAgent for TensorRtBridgeAgent {
-    fn name(&self) -> String { "TensorRtBridgeAgent".into() }
-    fn rank(&self) -> f32 { 0.98 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "TensorRtBridgeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.98
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // NVIDIA Hardware Saturation Protocol
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
-            if remote_name.to_lowercase().contains("tensorrt") || remote_name.to_lowercase().contains("triton") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(&remote_name, "infer", goal);
+            if remote_name.to_lowercase().contains("tensorrt")
+                || remote_name.to_lowercase().contains("triton")
+            {
+                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
+                    &remote_name,
+                    "infer",
+                    goal,
+                );
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[TensorRT-LLM Power-Tier]: {}", res));
                 }
@@ -527,19 +791,30 @@ impl GawdAgent for TensorRtBridgeAgent {
 
         // Local Triton Inference Server Proxy
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let triton_url = std::env::var("TRITON_API_BASE").unwrap_or(cfg.inference_endpoints.triton_api_base);
+        let triton_url =
+            std::env::var("TRITON_API_BASE").unwrap_or(cfg.inference_endpoints.triton_api_base);
         let body = serde_json::json!({
             "text_input": goal,
             "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
         });
 
-        match ureq::post(&triton_url).timeout(std::time::Duration::from_millis(50)).send_json(body) {
+        match ureq::post(&triton_url)
+            .timeout(std::time::Duration::from_millis(50))
+            .send_json(body)
+        {
             Ok(resp) => {
-                let json: serde_json::Value = resp.into_json().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["text_output"].as_str().unwrap_or("TensorRT output empty").to_string();
+                let json: serde_json::Value = resp
+                    .into_json()
+                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+                let text = json["text_output"]
+                    .as_str()
+                    .unwrap_or("TensorRT output empty")
+                    .to_string();
                 Ok(format!("[TensorRT-LLM Local Proxy]: {}", text))
             }
-            Err(_) => Err(crate::error::EaiError::inference("TensorRT/Triton remote or local proxy unreachable"))
+            Err(_) => Err(crate::error::EaiError::inference(
+                "TensorRT/Triton remote or local proxy unreachable",
+            )),
         }
     }
 }
@@ -548,14 +823,29 @@ impl GawdAgent for TensorRtBridgeAgent {
 pub struct LmdeployBridgeAgent;
 
 impl GawdAgent for LmdeployBridgeAgent {
-    fn name(&self) -> String { "LmdeployBridgeAgent".into() }
-    fn rank(&self) -> f32 { 0.96 }
-    fn execute(&self, goal: &str, _workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "LmdeployBridgeAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.96
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         // AWQ-Compressed Mission Delegation
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
-            if remote_name.to_lowercase().contains("lmdeploy") || remote_name.to_lowercase().contains("turbomind") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(&remote_name, "generate", goal);
+            if remote_name.to_lowercase().contains("lmdeploy")
+                || remote_name.to_lowercase().contains("turbomind")
+            {
+                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
+                    &remote_name,
+                    "generate",
+                    goal,
+                );
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[LMDeploy Power-Tier]: {}", res));
                 }
@@ -564,7 +854,8 @@ impl GawdAgent for LmdeployBridgeAgent {
 
         // Local LMDeploy Proxy (OpenAI-compatible)
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let lmdeploy_url = std::env::var("LMDEPLOY_API_BASE").unwrap_or(cfg.inference_endpoints.lmdeploy_api_base);
+        let lmdeploy_url =
+            std::env::var("LMDEPLOY_API_BASE").unwrap_or(cfg.inference_endpoints.lmdeploy_api_base);
         let body = serde_json::json!({
             "model": "susi-turbomind",
             "prompt": goal,
@@ -572,13 +863,23 @@ impl GawdAgent for LmdeployBridgeAgent {
             "temperature": 0.0
         });
 
-        match ureq::post(&format!("{}/completions", lmdeploy_url)).timeout(std::time::Duration::from_millis(50)).send_json(body) {
+        match ureq::post(&format!("{}/completions", lmdeploy_url))
+            .timeout(std::time::Duration::from_millis(50))
+            .send_json(body)
+        {
             Ok(resp) => {
-                let json: serde_json::Value = resp.into_json().map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"].as_str().unwrap_or("LMDeploy output empty").to_string();
+                let json: serde_json::Value = resp
+                    .into_json()
+                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
+                let text = json["choices"][0]["text"]
+                    .as_str()
+                    .unwrap_or("LMDeploy output empty")
+                    .to_string();
                 Ok(format!("[LMDeploy Local Proxy]: {}", text))
             }
-            Err(_) => Err(crate::error::EaiError::inference("LMDeploy/TurboMind remote or local proxy unreachable"))
+            Err(_) => Err(crate::error::EaiError::inference(
+                "LMDeploy/TurboMind remote or local proxy unreachable",
+            )),
         }
     }
 }
@@ -587,50 +888,98 @@ impl GawdAgent for LmdeployBridgeAgent {
 pub struct LibraryScoutAgent;
 
 impl GawdAgent for LibraryScoutAgent {
-    fn name(&self) -> String { "LibraryScoutAgent".into() }
-    fn rank(&self) -> f32 { 0.85 }
-    fn execute(&self, goal: &str, workspace: &Path, _blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "LibraryScoutAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.85
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        _blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower_goal = goal.to_lowercase();
         let trimmed = lower_goal.trim();
 
-        if trimmed == "ls" || trimmed.starts_with("ls ") || trimmed == "dir"
-            || trimmed == "who am i" || trimmed == "whoami" || trimmed.contains("who am i") || trimmed.contains("whoami")
-            || trimmed == "status" || trimmed == "identity" || trimmed == "version" || trimmed == "models" {
+        if trimmed == "ls"
+            || trimmed.starts_with("ls ")
+            || trimmed == "dir"
+            || trimmed == "who am i"
+            || trimmed == "whoami"
+            || trimmed.contains("who am i")
+            || trimmed.contains("whoami")
+            || trimmed == "status"
+            || trimmed == "identity"
+            || trimmed == "version"
+            || trimmed == "models"
+        {
             return Ok("[LibraryScoutAgent]: Substrate libraries optimal.".to_string());
         }
 
         // Aspiration 19: Enhanced Library Scouting with reasoning and 'cargo add' suggestions
-        let query_term = if lower_goal.contains("async") { "async" }
-            else if lower_goal.contains("json") { "json" }
-            else if lower_goal.contains("inference") { "inference" }
-            else if lower_goal.contains("web") { "http" }
-            else if lower_goal.contains("db") || lower_goal.contains("database") { "sql" }
-            else if lower_goal.contains("ui") || lower_goal.contains("gui") { "gui" }
-            else { "rust" };
+        let query_term = if lower_goal.contains("async") {
+            "async"
+        } else if lower_goal.contains("json") {
+            "json"
+        } else if lower_goal.contains("inference") {
+            "inference"
+        } else if lower_goal.contains("web") {
+            "http"
+        } else if lower_goal.contains("db") || lower_goal.contains("database") {
+            "sql"
+        } else if lower_goal.contains("ui") || lower_goal.contains("gui") {
+            "gui"
+        } else {
+            "rust"
+        };
 
-        let url = format!("https://crates.io/api/v1/crates?q={}&per_page=5", query_term);
+        let url = format!(
+            "https://crates.io/api/v1/crates?q={}&per_page=5",
+            query_term
+        );
         let mut results = Vec::new();
 
-        if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
+        if let Ok(resp) = ureq::get(&url)
+            .set("User-Agent", "SUSI/0.1")
+            .timeout(std::time::Duration::from_millis(1000))
+            .call()
+        {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {
                 if let Some(crates) = json["crates"].as_array() {
                     for c in crates {
                         let name = c["name"].as_str().unwrap_or_default();
-                        let desc = c["description"].as_str().unwrap_or("No description available.");
-                        results.push(format!("- **{}**: {} (Reason: SOTA selection for '{}')", name, desc, query_term));
+                        let desc = c["description"]
+                            .as_str()
+                            .unwrap_or("No description available.");
+                        results.push(format!(
+                            "- **{}**: {} (Reason: SOTA selection for '{}')",
+                            name, desc, query_term
+                        ));
                     }
                 }
             }
         }
 
         if !results.is_empty() {
-            let mut report = format!("[Library Scout Live API]: Recommended SOTA crates for goal: '{}'\n\n", goal);
+            let mut report = format!(
+                "[Library Scout Live API]: Recommended SOTA crates for goal: '{}'\n\n",
+                goal
+            );
             report.push_str(&results.join("\n"));
 
             // Suggest 'cargo add' if it looks like an implementation mission
-            if lower_goal.contains("implement") || lower_goal.contains("build") || lower_goal.contains("add") || lower_goal.contains("create") {
+            if lower_goal.contains("implement")
+                || lower_goal.contains("build")
+                || lower_goal.contains("add")
+                || lower_goal.contains("create")
+            {
                 if let Some(first_crate) = results.get(0).and_then(|r| r.split("**").nth(1)) {
-                    report.push_str(&format!("\n\n[ACTION]: Suggesting 'cargo add {}' to fulfill mission.", first_crate));
+                    report.push_str(&format!(
+                        "\n\n[ACTION]: Suggesting 'cargo add {}' to fulfill mission.",
+                        first_crate
+                    ));
                 }
             }
             return Ok(report);
@@ -638,7 +987,9 @@ impl GawdAgent for LibraryScoutAgent {
 
         let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}. Include specific reasons and 'cargo add' commands if applicable.", goal);
         let ws = workspace.to_path_buf();
-        Ok(crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws))
+        Ok(crate::gemi::engine::GemiEngine::generate_reasoning(
+            &prompt, &ws,
+        ))
     }
 }
 
@@ -646,18 +997,37 @@ impl GawdAgent for LibraryScoutAgent {
 pub struct SearchAgent;
 
 impl GawdAgent for SearchAgent {
-    fn name(&self) -> String { "SearchAgent".into() }
-    fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "SearchAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.95
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        let is_query = lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
-            || lower == "ls" || lower.starts_with("ls ") || lower == "dir"
-            || lower.contains("who am i") || lower.contains("whoami");
+        let is_query = lower.contains("identity")
+            || lower.contains("status")
+            || lower.contains("models")
+            || lower.contains("version")
+            || lower == "ls"
+            || lower.starts_with("ls ")
+            || lower == "dir"
+            || lower.contains("who am i")
+            || lower.contains("whoami");
 
         let res = if is_query {
             format!("[{}]: Query observation integrated.", self.name())
         } else {
-            let prompt = format!("Perform deep knowledge retrieval and search synthesis for goal: {}. Context: {}", goal, blackboard.to_json());
+            let prompt = format!(
+                "Perform deep knowledge retrieval and search synthesis for goal: {}. Context: {}",
+                goal,
+                blackboard.to_json()
+            );
             let ws = workspace.to_path_buf();
             crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
         };
@@ -671,16 +1041,34 @@ impl GawdAgent for SearchAgent {
 pub struct TranslationAgent;
 
 impl GawdAgent for TranslationAgent {
-    fn name(&self) -> String { "TranslationAgent".into() }
-    fn rank(&self) -> f32 { 0.95 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "TranslationAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.95
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower = goal.to_lowercase();
-        let is_query = lower.contains("identity") || lower.contains("status") || lower.contains("models") || lower.contains("version")
-            || lower == "ls" || lower.starts_with("ls ") || lower == "dir"
-            || lower.contains("who am i") || lower.contains("whoami");
+        let is_query = lower.contains("identity")
+            || lower.contains("status")
+            || lower.contains("models")
+            || lower.contains("version")
+            || lower == "ls"
+            || lower.starts_with("ls ")
+            || lower == "dir"
+            || lower.contains("who am i")
+            || lower.contains("whoami");
 
         let res = if is_query {
-            format!("[{}]: Query linguistic observation integrated.", self.name())
+            format!(
+                "[{}]: Query linguistic observation integrated.",
+                self.name()
+            )
         } else {
             let prompt = format!("Perform high-fidelity multilingual translation or linguistic formatting for goal: {}. Context: {}", goal, blackboard.to_json());
             let ws = workspace.to_path_buf();
@@ -696,9 +1084,18 @@ impl GawdAgent for TranslationAgent {
 pub struct AdminAgent;
 
 impl GawdAgent for AdminAgent {
-    fn name(&self) -> String { "AdminAgent".into() }
-    fn rank(&self) -> f32 { 1.0 }
-    fn execute(&self, goal: &str, workspace: &Path, blackboard: &MissionBlackboard) -> EaiResult<String> {
+    fn name(&self) -> String {
+        "AdminAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
         let lower_goal = goal.to_lowercase();
 
         let res = if lower_goal.contains("sync") {
@@ -706,35 +1103,59 @@ impl GawdAgent for AdminAgent {
         } else if lower_goal.contains("audit") {
             crate::daemon::admin::SusiAdmin::audit_compliance(workspace, None)
         } else if lower_goal.contains("verify") {
-            crate::daemon::admin::SusiAdmin::verify_version_alignment(workspace).map(|_| "Version alignment verified.".to_string())
+            crate::daemon::admin::SusiAdmin::verify_version_alignment(workspace)
+                .map(|_| "Version alignment verified.".to_string())
         } else if lower_goal.contains("release") {
             crate::daemon::admin::SusiAdmin::execute_release(workspace)
         } else if lower_goal.contains("status") || lower_goal.contains("health") {
             let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
-            Ok(format!("Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational", crate::SUSI_VERSION, hw.cpu_brand, hw.cpus, hw.ram_gb))
+            Ok(format!(
+                "Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational",
+                crate::SUSI_VERSION,
+                hw.cpu_brand,
+                hw.cpus,
+                hw.ram_gb
+            ))
         } else if lower_goal.contains("version") {
-             Ok(format!("SUSI Engine Version: v{}", crate::SUSI_VERSION))
+            Ok(format!("SUSI Engine Version: v{}", crate::SUSI_VERSION))
         } else if lower_goal.contains("identity") {
-             let brain = crate::gawd::brain::AlphaBrainContext::initialize(workspace);
-             Ok(format!("# SUSI Substrate Identity\n\n{}", brain.inspect_tri_state()))
+            let brain = crate::gawd::brain::AlphaBrainContext::initialize(workspace);
+            Ok(format!(
+                "# SUSI Substrate Identity\n\n{}",
+                brain.inspect_tri_state()
+            ))
         } else if lower_goal.contains("list") && lower_goal.contains("models") {
-             let models = crate::gemi::models::ModelManager::list_models(workspace);
-             let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
-             for m in &models {
-                 out.push_str(&format!("- [{}] {} ({})\n", if m.is_local { "LOCAL" } else { "CLOUD" }, m.name, m.model_id));
-             }
-             Ok(out)
+            let models = crate::gemi::models::ModelManager::list_models(workspace);
+            let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
+            for m in &models {
+                out.push_str(&format!(
+                    "- [{}] {} ({})\n",
+                    if m.is_local { "LOCAL" } else { "CLOUD" },
+                    m.name,
+                    m.model_id
+                ));
+            }
+            Ok(out)
         } else if lower_goal.contains("deep-scan") {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
             crate::gemi::models::ModelManager::deep_scan_home_and_register(&global_dir)
         } else if lower_goal.contains("initialize") || lower_goal.contains("install") {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
             crate::sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)?;
             Ok("SUSI runtime initialized and sandboxed.".to_string())
         } else if lower_goal.contains("remove") || lower_goal.contains("uninstall") {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
             let _ = std::fs::remove_dir_all(&global_dir);
             Ok("SUSI runtime removed.".to_string())
@@ -764,7 +1185,10 @@ impl AgentMetaRegistry {
     }
 
     fn load_or_provision(&self) {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let registry_path = home.join(".susi/agent_registry.json");
 
         if registry_path.exists() {
@@ -773,7 +1197,10 @@ impl AgentMetaRegistry {
                     let mut registry = self.agents.write();
                     let mut unique_agents = Vec::new();
                     for a in agents {
-                        if !unique_agents.iter().any(|x: &AgentProfile| x.name == a.name) {
+                        if !unique_agents
+                            .iter()
+                            .any(|x: &AgentProfile| x.name == a.name)
+                        {
                             unique_agents.push(a);
                         }
                     }
@@ -790,7 +1217,10 @@ impl AgentMetaRegistry {
             *registry = new_agents.clone();
         }
         let _ = std::fs::create_dir_all(registry_path.parent().unwrap());
-        let _ = std::fs::write(&registry_path, serde_json::to_string_pretty(&new_agents).unwrap_or_default());
+        let _ = std::fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&new_agents).unwrap_or_default(),
+        );
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
@@ -835,17 +1265,34 @@ impl AgentMetaRegistry {
             let old_rank = agent.base_rank;
             agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
 
-            let log_msg = format!("Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})", name, old_rank, agent.base_rank, source);
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
-            crate::sandbox::manager::SusiAuditLogger::log(&home.join(".susi"), crate::sandbox::manager::LogLevel::Info, "AGENT_MUTATION", &log_msg);
+            let log_msg = format!(
+                "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
+                name, old_rank, agent.base_rank, source
+            );
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            crate::sandbox::manager::SusiAuditLogger::log(
+                &home.join(".susi"),
+                crate::sandbox::manager::LogLevel::Info,
+                "AGENT_MUTATION",
+                &log_msg,
+            );
         }
     }
 
     fn save(&self) {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let registry_path = home.join(".susi/agent_registry.json");
         let agents = self.agents.read();
-        let _ = std::fs::write(&registry_path, serde_json::to_string_pretty(&*agents).unwrap_or_default());
+        let _ = std::fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&*agents).unwrap_or_default(),
+        );
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
@@ -878,7 +1325,10 @@ impl NeuralAgentFactory {
 
         let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
-            crate::error::EaiError::protocol(format!("Neural Agent Synthesis Failed: {}. Raw: {}", e, res))
+            crate::error::EaiError::protocol(format!(
+                "Neural Agent Synthesis Failed: {}. Raw: {}",
+                e, res
+            ))
         })?;
 
         Ok(profile)
@@ -929,27 +1379,59 @@ impl GawdAgentFleet {
         ];
 
         let lower_goal = goal.to_lowercase();
-        let is_query_or_admin = lower_goal.contains("admin") || lower_goal.contains("identity") || lower_goal.contains("status") || lower_goal.contains("models") || lower_goal.contains("version")
-            || lower_goal == "ls" || lower_goal.starts_with("ls ") || lower_goal == "dir"
-            || lower_goal.contains("who am i") || lower_goal.contains("whoami");
+        let is_query_or_admin = lower_goal.contains("admin")
+            || lower_goal.contains("identity")
+            || lower_goal.contains("status")
+            || lower_goal.contains("models")
+            || lower_goal.contains("version")
+            || lower_goal == "ls"
+            || lower_goal.starts_with("ls ")
+            || lower_goal == "dir"
+            || lower_goal.contains("who am i")
+            || lower_goal.contains("whoami");
 
-        if lower_goal.contains("admin") || lower_goal.contains("sync") || lower_goal.contains("audit") || lower_goal.contains("release") || lower_goal.contains("verify") || lower_goal.contains("deep-scan") || lower_goal.contains("install") || lower_goal.contains("uninstall") {
-             fleet.push(Arc::new(AdminAgent));
+        if lower_goal.contains("admin")
+            || lower_goal.contains("sync")
+            || lower_goal.contains("audit")
+            || lower_goal.contains("release")
+            || lower_goal.contains("verify")
+            || lower_goal.contains("deep-scan")
+            || lower_goal.contains("install")
+            || lower_goal.contains("uninstall")
+        {
+            fleet.push(Arc::new(AdminAgent));
         }
 
         // Aspiration 9: High-Throughput Remote Bridge Integration (Only if endpoints are configured)
-        if std::env::var("VLLM_API_BASE").is_ok() { fleet.push(Arc::new(VllmBridgeAgent)); }
-        if std::env::var("SGLANG_API_BASE").is_ok() { fleet.push(Arc::new(SglangBridgeAgent)); }
-        if std::env::var("LLAMA_API_BASE").is_ok() { fleet.push(Arc::new(LlamaCppBridgeAgent)); }
-        if std::env::var("TRITON_API_BASE").is_ok() { fleet.push(Arc::new(TensorRtBridgeAgent)); }
-        if std::env::var("LMDEPLOY_API_BASE").is_ok() { fleet.push(Arc::new(LmdeployBridgeAgent)); }
+        if std::env::var("VLLM_API_BASE").is_ok() {
+            fleet.push(Arc::new(VllmBridgeAgent));
+        }
+        if std::env::var("SGLANG_API_BASE").is_ok() {
+            fleet.push(Arc::new(SglangBridgeAgent));
+        }
+        if std::env::var("LLAMA_API_BASE").is_ok() {
+            fleet.push(Arc::new(LlamaCppBridgeAgent));
+        }
+        if std::env::var("TRITON_API_BASE").is_ok() {
+            fleet.push(Arc::new(TensorRtBridgeAgent));
+        }
+        if std::env::var("LMDEPLOY_API_BASE").is_ok() {
+            fleet.push(Arc::new(LmdeployBridgeAgent));
+        }
 
         fleet.push(Arc::new(LibraryScoutAgent));
 
-        if lower_goal.contains("search") || lower_goal.contains("lyrics") || lower_goal.contains("find") || lower_goal.contains("dracula") {
+        if lower_goal.contains("search")
+            || lower_goal.contains("lyrics")
+            || lower_goal.contains("find")
+            || lower_goal.contains("dracula")
+        {
             fleet.push(Arc::new(SearchAgent));
         }
-        if lower_goal.contains("translate") || lower_goal.contains("tamil") || lower_goal.contains("language") {
+        if lower_goal.contains("translate")
+            || lower_goal.contains("tamil")
+            || lower_goal.contains("language")
+        {
             fleet.push(Arc::new(TranslationAgent));
         }
 
@@ -965,17 +1447,22 @@ impl GawdAgentFleet {
         let registry = AgentMetaRegistry::global();
         let available_agents = registry.list_agents();
         if available_agents.is_empty() {
-             eprintln!("[Swarm] Registry empty. Triggering bootstrap...");
-             registry.load_or_provision();
+            eprintln!("[Swarm] Registry empty. Triggering bootstrap...");
+            registry.load_or_provision();
         }
         let available_agents = registry.list_agents();
         let mut max_global_similarity = 0.0f32;
 
         // Neural Semantic pass: identified via Tier 0 Vector space
         if !lower_goal.contains("admin mission") {
-            if let Ok(goal_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(goal, Some(&available_agents)) {
+            if let Ok(goal_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
+                goal,
+                Some(&available_agents),
+            ) {
                 for agent in available_agents {
-                    if fleet.len() >= max_agents { break; }
+                    if fleet.len() >= max_agents {
+                        break;
+                    }
 
                     let mut max_similarity = 0.0f32;
 
@@ -983,13 +1470,29 @@ impl GawdAgentFleet {
                     agent_corpus.push(' ');
                     agent_corpus.push_str(&agent.description);
 
-                    if let Ok(agent_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(&agent_corpus, Some(std::slice::from_ref(&agent))) {
-                        let dot_product: f32 = goal_vec.iter().zip(agent_vec.iter()).map(|(a, b)| a * b).sum();
+                    if let Ok(agent_vec) =
+                        crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
+                            &agent_corpus,
+                            Some(std::slice::from_ref(&agent)),
+                        )
+                    {
+                        let dot_product: f32 = goal_vec
+                            .iter()
+                            .zip(agent_vec.iter())
+                            .map(|(a, b)| a * b)
+                            .sum();
                         max_similarity = dot_product;
-                        if max_similarity > max_global_similarity { max_global_similarity = max_similarity; }
+                        if max_similarity > max_global_similarity {
+                            max_global_similarity = max_similarity;
+                        }
                     }
 
-                    if max_similarity > 0.35 || agent.categories.iter().any(|c| goal.to_lowercase().contains(c)) {
+                    if max_similarity > 0.35
+                        || agent
+                            .categories
+                            .iter()
+                            .any(|c| goal.to_lowercase().contains(c))
+                    {
                         fleet.push(Arc::new(DynamicAgent {
                             agent_name: agent.name,
                             mission_profile: agent.description,
@@ -1004,7 +1507,10 @@ impl GawdAgentFleet {
         // If no high-quality specialists are found (similarity < 0.4) or fleet only contains mandatory guards,
         // synthesize a mission-specific specialist.
         let only_mandatory = fleet.len() <= 11; // Mandatory + LibraryScoutAgent
-        if !is_query_or_admin && (max_global_similarity < 0.4 || only_mandatory) && fleet.len() < max_agents {
+        if !is_query_or_admin
+            && (max_global_similarity < 0.4 || only_mandatory)
+            && fleet.len() < max_agents
+        {
             eprintln!("[Swarm] Capability gap detected (Similarity: {:.2}). Triggering Neural Agent Synthesis...", max_global_similarity);
             if let Ok(new_profile) = NeuralAgentFactory::synthesize_specialist(goal, workspace) {
                 eprintln!("[Agent Factory] Specialist recruited: {}", new_profile.name);
@@ -1029,7 +1535,11 @@ impl GawdAgentFleet {
         fleet
     }
 
-    pub fn dispatch_explosive_swarm(goal: String, workspace: PathBuf, blackboard: MissionBlackboard) -> Vec<(String, String)> {
+    pub fn dispatch_explosive_swarm(
+        goal: String,
+        workspace: PathBuf,
+        blackboard: MissionBlackboard,
+    ) -> Vec<(String, String)> {
         use std::io::Write;
         let agents = Self::synthesize_fleet(&goal, &workspace);
         let agents_len = agents.len();
@@ -1089,10 +1599,15 @@ mod tests {
             base_rank: 0.85,
         });
 
-        let fleet = GawdAgentFleet::synthesize_fleet("custom domain analytics DevOpsStatus build", Path::new("."));
+        let fleet = GawdAgentFleet::synthesize_fleet(
+            "custom domain analytics DevOpsStatus build",
+            Path::new("."),
+        );
         assert!(!fleet.is_empty());
-        assert!(fleet.iter().any(|a| a.name() == "CustomDomainAgent") ||
-                fleet.iter().any(|a| a.name() == "UniversalReasoner"));
+        assert!(
+            fleet.iter().any(|a| a.name() == "CustomDomainAgent")
+                || fleet.iter().any(|a| a.name() == "UniversalReasoner")
+        );
     }
 
     #[test]
@@ -1120,7 +1635,8 @@ mod tests {
             base_rank: 0.5,
         });
         let agents = registry.list_agents();
-        assert!(agents.iter().any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
+        assert!(agents
+            .iter()
+            .any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
     }
-
-    }
+}

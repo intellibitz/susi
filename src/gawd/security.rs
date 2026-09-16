@@ -3,15 +3,18 @@
 // RULE 7: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
 // RULE 31: Substrate Purity Hardening - Dynamic Pattern Loading
 
-use std::path::{Path, PathBuf};
 use crate::error::{EaiError, EaiResult};
 use crate::sandbox::manager::SusiConfig;
+use std::path::{Path, PathBuf};
 
 pub struct SecurityDetector;
 
 impl SecurityDetector {
     pub fn audit_action(_tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
         let cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
         let patterns = &cfg.governance;
@@ -21,14 +24,20 @@ impl SecurityDetector {
         // 1. Secret Leak Check (Dynamic)
         for pattern in &patterns.secret_tokens {
             if arg.contains(pattern) {
-                return Err(EaiError::governance(format!("Suspicious secret or API key pattern detected ('{}')", pattern)));
+                return Err(EaiError::governance(format!(
+                    "Suspicious secret or API key pattern detected ('{}')",
+                    pattern
+                )));
             }
         }
 
         // 2. Exfiltration Check (Dynamic)
         for pattern in &patterns.exfiltration_vectors {
             if lower_arg.contains(&pattern.to_lowercase()) {
-                return Err(EaiError::governance(format!("Suspicious network exfiltration pattern detected ('{}')", pattern)));
+                return Err(EaiError::governance(format!(
+                    "Suspicious network exfiltration pattern detected ('{}')",
+                    pattern
+                )));
             }
         }
 

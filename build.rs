@@ -13,14 +13,27 @@ fn main() {
 
     // SUSI Version Synchronization Hook
     let cargo_toml = fs::read_to_string("Cargo.toml").expect("Missing Cargo.toml");
-    let version = cargo_toml.lines()
+    let version = cargo_toml
+        .lines()
         .find(|l| l.trim().starts_with("version = \""))
         .and_then(|l| l.split('"').nth(1))
         .expect("Could not find version in Cargo.toml");
 
-    let identity_md = skip_frontmatter(&sync_version(".agents/IDENTITY.md", &identity_md_raw, version));
-    let roadmap_md = skip_frontmatter(&sync_version(".agents/ROADMAP.md", &roadmap_md_raw, version));
-    let evidence_md = skip_frontmatter(&sync_version(".agents/EVIDENCE.md", &evidence_md_raw, version));
+    let identity_md = skip_frontmatter(&sync_version(
+        ".agents/IDENTITY.md",
+        &identity_md_raw,
+        version,
+    ));
+    let roadmap_md = skip_frontmatter(&sync_version(
+        ".agents/ROADMAP.md",
+        &roadmap_md_raw,
+        version,
+    ));
+    let evidence_md = skip_frontmatter(&sync_version(
+        ".agents/EVIDENCE.md",
+        &evidence_md_raw,
+        version,
+    ));
 
     // Sync README badge
     if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
@@ -44,14 +57,22 @@ fn main() {
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
     let mut active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
-        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 2. Pillar II: THE BODY") {
+            active_section = "topology";
+        } else if line.starts_with("## 3. Pillar III: THE MIND") {
+            active_section = "mind";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "constitutional" {
             if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+                generated_code.push_str(&format!(
+                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                    rule.0, rule.1, rule.2
+                ));
             }
         }
     }
@@ -70,7 +91,12 @@ fn main() {
                 if seq > 0 {
                     let title = format!("{} {}", parts[3], parts[2]);
                     let imperative = parts[4].to_string();
-                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 50, title, imperative));
+                    generated_code.push_str(&format!(
+                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                        seq + 50,
+                        title,
+                        imperative
+                    ));
                 }
             }
         }
@@ -81,14 +107,24 @@ fn main() {
     generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
-        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 2. Pillar II: THE BODY") {
+            active_section = "topology";
+        } else if line.starts_with("## 3. Pillar III: THE MIND") {
+            active_section = "mind";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "build" {
             if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+                generated_code.push_str(&format!(
+                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                    rule.0 + 100,
+                    rule.1,
+                    rule.2
+                ));
             }
         }
     }
@@ -107,7 +143,12 @@ fn main() {
                 if seq > 0 {
                     let title = format!("{} [{}]", parts[3], parts[2]);
                     let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
-                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 150, title, imperative));
+                    generated_code.push_str(&format!(
+                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                        seq + 150,
+                        title,
+                        imperative
+                    ));
                 }
             }
         }
@@ -121,13 +162,19 @@ fn main() {
     let mut engines = String::from("pub const GEN_ENGINE_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut models = String::from("pub const GEN_MODEL_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut mcps = String::from("pub const GEN_MCP_COMPONENTS: &[SusiComponentSpec] = &[\n");
-    let mut realized = String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
+    let mut realized =
+        String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
-        else if line.starts_with("## 3. Pillar III: THE MIND") { active_section = "mind"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 2. Pillar II: THE BODY") {
+            active_section = "topology";
+        } else if line.starts_with("## 3. Pillar III: THE MIND") {
+            active_section = "mind";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "topology" {
             if let Some(comp) = parse_table_row(line) {
@@ -136,21 +183,41 @@ fn main() {
                     "2" => "SusiCoreTier::Tier2Reasoning",
                     _ => "SusiCoreTier::Tier1Swarm",
                 };
-                let entry = format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1);
+                let entry = format!(
+                    "    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n",
+                    comp.0, tier, comp.1
+                );
 
                 // Heuristic categorization for legacy compatibility
                 let name_lower = comp.0.to_lowercase();
-                if name_lower.contains("gawd") || name_lower.contains("admin") || name_lower.contains("loader") || name_lower.contains("daemon") || name_lower.contains("evolutionmanager") {
+                if name_lower.contains("gawd")
+                    || name_lower.contains("admin")
+                    || name_lower.contains("loader")
+                    || name_lower.contains("daemon")
+                    || name_lower.contains("evolutionmanager")
+                {
                     generated_code.push_str(&entry); // AOA
-                } else if name_lower.contains("agent") || name_lower.contains("factory") || name_lower.contains("scout") {
+                } else if name_lower.contains("agent")
+                    || name_lower.contains("factory")
+                    || name_lower.contains("scout")
+                {
                     agents.push_str(&entry);
-                } else if name_lower.contains("susi-") || name_lower.contains("engine") || name_lower.contains("substrate") || name_lower.contains("gemi") || name_lower.contains("synthesizer") {
+                } else if name_lower.contains("susi-")
+                    || name_lower.contains("engine")
+                    || name_lower.contains("substrate")
+                    || name_lower.contains("gemi")
+                    || name_lower.contains("synthesizer")
+                {
                     if name_lower.contains("model") {
                         models.push_str(&entry);
                     } else {
                         engines.push_str(&entry);
                     }
-                } else if name_lower.contains("mcp") || name_lower.contains("server") || name_lower.contains("host") || name_lower.contains("evidence") {
+                } else if name_lower.contains("mcp")
+                    || name_lower.contains("server")
+                    || name_lower.contains("host")
+                    || name_lower.contains("evidence")
+                {
                     mcps.push_str(&entry);
                 } else {
                     realized.push_str(&entry);
@@ -174,9 +241,13 @@ fn main() {
     generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 2. Pillar II: THE BODY") { active_section = "topology"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 2. Pillar II: THE BODY") {
+            active_section = "topology";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "topology" {
             if let Some(comp) = parse_table_row(line) {
@@ -185,7 +256,10 @@ fn main() {
                     "2" => "SusiCoreTier::Tier2Reasoning",
                     _ => "SusiCoreTier::Tier1Swarm",
                 };
-                generated_code.push_str(&format!("    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n", comp.0, tier, comp.1));
+                generated_code.push_str(&format!(
+                    "    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n",
+                    comp.0, tier, comp.1
+                ));
             }
         }
     }
@@ -195,12 +269,18 @@ fn main() {
     generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "constitutional" {
             if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0, rule.1, rule.2));
+                generated_code.push_str(&format!(
+                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                    rule.0, rule.1, rule.2
+                ));
             }
         }
     }
@@ -215,19 +295,32 @@ fn main() {
                 if seq > 0 {
                     let title = format!("{} {}", parts[3], parts[2]);
                     let imperative = parts[4].to_string();
-                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 50, title, imperative));
+                    generated_code.push_str(&format!(
+                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                        seq + 50,
+                        title,
+                        imperative
+                    ));
                 }
             }
         }
     }
     active_section = "";
     for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") { active_section = "constitutional"; }
-        else if line.starts_with("## 4. Pillar IV: THE ENGINE") { active_section = "build"; }
+        if line.starts_with("## 1. Pillar I: THE DNA") {
+            active_section = "constitutional";
+        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
+            active_section = "build";
+        }
 
         if active_section == "build" {
             if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", rule.0 + 100, rule.1, rule.2));
+                generated_code.push_str(&format!(
+                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                    rule.0 + 100,
+                    rule.1,
+                    rule.2
+                ));
             }
         }
     }
@@ -242,13 +335,17 @@ fn main() {
                 if seq > 0 {
                     let title = format!("{} [{}]", parts[3], parts[2]);
                     let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
-                    generated_code.push_str(&format!("    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n", seq + 150, title, imperative));
+                    generated_code.push_str(&format!(
+                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
+                        seq + 150,
+                        title,
+                        imperative
+                    ));
                 }
             }
         }
     }
     generated_code.push_str("];\n");
-
 
     fs::write(&dest_path, generated_code).unwrap();
 
@@ -259,15 +356,21 @@ fn main() {
 
 fn parse_list_item(line: &str) -> Option<(usize, String, String)> {
     let line = line.trim();
-    if line.is_empty() || !line.chars().next().unwrap().is_ascii_digit() { return None; }
+    if line.is_empty() || !line.chars().next().unwrap().is_ascii_digit() {
+        return None;
+    }
     let parts: Vec<&str> = line.splitn(2, '.').collect();
-    if parts.len() < 2 { return None; }
+    if parts.len() < 2 {
+        return None;
+    }
     let id: usize = parts[0].parse().ok()?;
     let content = parts[1].trim();
 
     if content.starts_with("**") {
         let sub_parts: Vec<&str> = content.splitn(2, ':').collect();
-        if sub_parts.len() < 2 { return None; }
+        if sub_parts.len() < 2 {
+            return None;
+        }
         let title = sub_parts[0].trim_matches('*').trim();
         let imperative = sub_parts[1].trim();
         return Some((id, title.to_string(), imperative.to_string()));
@@ -283,11 +386,11 @@ fn parse_list_item(line: &str) -> Option<(usize, String, String)> {
     None
 }
 
-
-
 fn parse_table_row(line: &str) -> Option<(String, String, String)> {
     let line = line.trim();
-    if !line.starts_with('|') || line.contains("Symbol | Tier") || line.contains(":---") { return None; }
+    if !line.starts_with('|') || line.contains("Symbol | Tier") || line.contains(":---") {
+        return None;
+    }
     let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
     if parts.len() >= 4 {
         let symbol = parts[1].trim_matches('*').trim().to_string();
@@ -321,7 +424,10 @@ fn sync_version(path: &str, content: &str, version: &str) -> String {
             } else {
                 updated.push(line.to_string());
             }
-        } else if !in_frontmatter && (trimmed.starts_with("* **Current Engine Version**: `v") || trimmed.starts_with("* **Current Engine Version**: v")) {
+        } else if !in_frontmatter
+            && (trimmed.starts_with("* **Current Engine Version**: `v")
+                || trimmed.starts_with("* **Current Engine Version**: v"))
+        {
             let new_line = format!("* **Current Engine Version**: `v{}`", version);
             if new_line != trimmed {
                 updated.push(new_line);

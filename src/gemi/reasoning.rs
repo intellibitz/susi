@@ -1,11 +1,11 @@
 // SUSI-Reason: Native Neural Reasoning Substrate
 // 100% Rust implementation using Candle for Tier 2 Logic Distillation
 
-use anyhow::{Result, anyhow};
-use candle_core::{Tensor, DType};
-use candle_nn::{Linear, Module, VarBuilder, VarMap, Optimizer, AdamW, ParamsAdamW};
-use std::path::Path;
+use anyhow::{anyhow, Result};
+use candle_core::{DType, Tensor};
+use candle_nn::{AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningSample {
@@ -30,11 +30,14 @@ impl SusiReasoningModel {
     pub fn load(global_dir: &Path) -> Result<Self> {
         let weights_path = global_dir.join("models/susi-reason.safetensors");
         if !weights_path.exists() {
-            return Err(anyhow!("SUSI-Reason weights not found. Run 'susi train_reason'."));
+            return Err(anyhow!(
+                "SUSI-Reason weights not found. Run 'susi train_reason'."
+            ));
         }
 
         let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
-        let vb = unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
 
         let l1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("logic_1"))?;
         let l2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("logic_2"))?;
@@ -47,7 +50,7 @@ impl SusiReasoningModel {
     pub fn train_from_experience(global_dir: &Path) -> Result<String> {
         let experience_file = global_dir.join("reasoning_experience.jsonl");
         if !experience_file.exists() {
-             return Err(anyhow!("No reasoning experience found to distill."));
+            return Err(anyhow!("No reasoning experience found to distill."));
         }
 
         let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
@@ -68,20 +71,28 @@ impl SusiReasoningModel {
         for line in content.lines() {
             if let Ok(sample) = serde_json::from_str::<ReasoningSample>(line) {
                 // Feature Engineering: Combine intent and context into semantic vector
-                let feature_vec = Self::project_features(&sample.intent, &sample.blackboard_context)?;
+                let feature_vec =
+                    Self::project_features(&sample.intent, &sample.blackboard_context)?;
                 samples.push(Tensor::from_vec(feature_vec, (1, Self::DIM), &device)?);
 
                 // Target: Semantic projection of the successful outcome
-                let target_vec = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(&sample.successful_outcome, None)?;
+                let target_vec = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
+                    &sample.successful_outcome,
+                    None,
+                )?;
                 // Up-project target to DIM if needed, or use consistent DIM for both
                 // For now, we reuse alpha's projection and pad/repeat to match DIM 256
                 let mut padded_target = vec![0.0f32; Self::DIM];
-                for (i, &v) in target_vec.iter().enumerate() { padded_target[i] = v; }
+                for (i, &v) in target_vec.iter().enumerate() {
+                    padded_target[i] = v;
+                }
                 targets.push(Tensor::from_vec(padded_target, (1, Self::DIM), &device)?);
             }
         }
 
-        if samples.is_empty() { return Err(anyhow!("Insufficient reasoning data for distillation.")); }
+        if samples.is_empty() {
+            return Err(anyhow!("Insufficient reasoning data for distillation."));
+        }
 
         let x = Tensor::cat(&samples, 0)?;
         let y = Tensor::cat(&targets, 0)?;
@@ -106,11 +117,16 @@ impl SusiReasoningModel {
     fn project_features(intent: &str, context: &str) -> Result<Vec<f32>> {
         let mut vec = vec![0.0f32; Self::DIM];
         let i_vec = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(intent, None)?;
-        let c_vec = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(context, None)?;
+        let c_vec =
+            crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(context, None)?;
 
         // Interleave for high-density feature mapping
-        for (i, &v) in i_vec.iter().enumerate() { vec[i] = v; }
-        for (i, &v) in c_vec.iter().enumerate() { vec[i + 128] = v; }
+        for (i, &v) in i_vec.iter().enumerate() {
+            vec[i] = v;
+        }
+        for (i, &v) in c_vec.iter().enumerate() {
+            vec[i + 128] = v;
+        }
 
         Ok(vec)
     }

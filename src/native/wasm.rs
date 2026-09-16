@@ -1,10 +1,10 @@
 // SUSI Wasm Host Substrate
 // RULE 11: Native Integration - High-performance reflex execution environment
 
+use crate::error::{EaiError, EaiResult};
 use std::path::Path;
 use wasmer::{Instance, Module, Store};
-use wasmer_wasi::{WasiState, Pipe};
-use crate::error::{EaiError, EaiResult};
+use wasmer_wasi::{Pipe, WasiState};
 
 pub struct WasmHost;
 
@@ -29,29 +29,35 @@ impl WasmHost {
             .finalize(&mut store)
             .map_err(|e| EaiError::process(format!("WASI finalize failed: {:?}", e)))?;
 
-        let import_object = wasi_env.import_object(&mut store, &module)
+        let import_object = wasi_env
+            .import_object(&mut store, &module)
             .map_err(|e| EaiError::process(format!("WASI import failed: {:?}", e)))?;
 
         let instance = Instance::new(&mut store, &module, &import_object)
             .map_err(|e| EaiError::process(format!("Wasm instantiation failed: {}", e)))?;
 
-        let start = instance.exports.get_function("_start")
+        let start = instance
+            .exports
+            .get_function("_start")
             .map_err(|_| EaiError::process("Wasm missing _start entry point"))?;
 
         // This is a blocking call
-        start.call(&mut store, &[])
+        start
+            .call(&mut store, &[])
             .map_err(|e| EaiError::process(format!("Wasm execution failed: {}", e)))?;
 
         // Capture stdout
         let mut result = String::new();
         use std::io::Read;
         let mut reader = output;
-        reader.read_to_string(&mut result).map_err(|e| EaiError::process(format!("Failed to read Wasm output: {}", e)))?;
+        reader
+            .read_to_string(&mut result)
+            .map_err(|e| EaiError::process(format!("Failed to read Wasm output: {}", e)))?;
 
         Ok(if result.trim().is_empty() {
-             "Wasm execution success (No Output)".to_string()
+            "Wasm execution success (No Output)".to_string()
         } else {
-             result.trim().to_string()
+            result.trim().to_string()
         })
     }
 }

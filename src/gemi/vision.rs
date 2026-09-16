@@ -1,8 +1,8 @@
 // SUSI-Vision: Native Neural Vision Substrate
 // 100% Rust implementation using Candle for Tier 2 Vision Distillation
 
-use anyhow::{Result, anyhow};
-use candle_core::{Tensor, DType, Device};
+use anyhow::{anyhow, Result};
+use candle_core::{DType, Device, Tensor};
 use candle_nn::{Linear, Module, VarBuilder, VarMap};
 use std::path::Path;
 
@@ -21,9 +21,13 @@ impl SusiVisionEngine {
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
         // Native Vision Feature Extractor: Maps 224x224x3 (flattened) to DIM
-        let feature_extractor = candle_nn::linear(224 * 224 * 3, Self::DIM, vb.pp("vision_features"))?;
+        let feature_extractor =
+            candle_nn::linear(224 * 224 * 3, Self::DIM, vb.pp("vision_features"))?;
 
-        Ok(Self { device, feature_extractor })
+        Ok(Self {
+            device,
+            feature_extractor,
+        })
     }
 
     pub fn process_image(&self, image_path: &Path) -> Result<Tensor> {
@@ -51,14 +55,22 @@ impl SusiVisionEngine {
 
         // Grounding the Analysis: Verify image exists
         if !image_path.exists() {
-            return Err(anyhow!("Visual Substrate Error: Image not found at {}", image_path.display()));
+            return Err(anyhow!(
+                "Visual Substrate Error: Image not found at {}",
+                image_path.display()
+            ));
         }
 
         // Semantic Fusion: (Aspiration 8) Combining Visual Features with Text Intent
-        let text_vec = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(prompt, None)?;
+        let text_vec =
+            crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(prompt, None)?;
 
         // Simulating the "Axiomatic Alignment" of vision
-        let similarity: f32 = feature_vec.iter().zip(text_vec.iter()).map(|(a, b)| a * b).sum();
+        let similarity: f32 = feature_vec
+            .iter()
+            .zip(text_vec.iter())
+            .map(|(a, b)| a * b)
+            .sum();
 
         Ok(format!(
             "[susi Native Vision]: Hardware Saturated on {:?}. Visual/Text Alignment: {:.4}. Analysis complete for {}",

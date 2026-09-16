@@ -1,7 +1,7 @@
 pub mod client;
+pub mod reflexes;
 pub mod server;
 pub mod tools;
-pub mod reflexes;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

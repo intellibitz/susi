@@ -2,7 +2,7 @@
 // 100% Rust implementation managing GMCP (Port 9090), GEMI (Port 9091) & A2A Cluster UDP (Port 9092)
 
 use std::fs;
-use std::io::{Write, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,16 +14,22 @@ use std::os::unix::io::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use signal_hook::{consts::{SIGTERM, SIGINT}, iterator::Signals};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use signal_hook::{
+    consts::{SIGINT, SIGTERM},
+    iterator::Signals,
+};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tracing::{info, warn};
 
 use crate::error::{EaiError, EaiResult};
-use crate::sandbox::manager::SusiConfig;
+use crate::gawd::ama::SusiMasterAgent;
+use crate::gawd::queue::SubstratePulseQueue;
 use crate::gemi::GemiServer;
 use crate::gmcp::server::GmcpServer;
-use crate::gawd::queue::SubstratePulseQueue;
-use crate::gawd::ama::SusiMasterAgent;
+use crate::sandbox::manager::SusiConfig;
 
 pub struct SusiDaemon;
 
@@ -109,7 +115,9 @@ impl DaemonLock {
 
     fn write_pid(&mut self) -> Result<(), String> {
         self.file.set_len(0).map_err(|e| e.to_string())?;
-        self.file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+        self.file
+            .seek(SeekFrom::Start(0))
+            .map_err(|e| e.to_string())?;
         write!(self.file, "{}", std::process::id()).map_err(|e| e.to_string())?;
         self.file.flush().map_err(|e| e.to_string())?;
         Ok(())
@@ -181,8 +189,13 @@ impl SusiDaemon {
         let hash_file = Self::get_hash_file(global_dir);
         let bin_meta = fs::metadata(bin_path)?;
         let bin_len = bin_meta.len();
-        let bin_mtime = bin_meta.modified()
-            .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs())
+        let bin_mtime = bin_meta
+            .modified()
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            })
             .unwrap_or(0);
 
         let current_sig = format!("{}:{}", bin_len, bin_mtime);
@@ -203,12 +216,14 @@ impl SusiDaemon {
 
     #[allow(dead_code)]
     fn calculate_binary_hash(path: &Path) -> EaiResult<String> {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let mut file = fs::File::open(path)?;
         let mut hasher = Sha256::new();
         let mut buffer = [0u8; 65536];
         while let Ok(n) = file.read(&mut buffer) {
-            if n == 0 { break; }
+            if n == 0 {
+                break;
+            }
             hasher.update(&buffer[..n]);
         }
         Ok(format!("{:x}", hasher.finalize()))
@@ -219,7 +234,10 @@ impl SusiDaemon {
         if let Some(pid) = Self::check_status(global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
-                    info!("[SusiDaemon] Binary recompiled. Restarting daemon PID {}...", pid);
+                    info!(
+                        "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...",
+                        pid
+                    );
                     Self::stop_daemon(global_dir);
                 } else {
                     return;
@@ -228,7 +246,11 @@ impl SusiDaemon {
                 return;
             }
         }
-        let bin_name = if cfg!(target_os = "windows") { "bin/susi-engine.exe" } else { "bin/susi-engine" };
+        let bin_name = if cfg!(target_os = "windows") {
+            "bin/susi-engine.exe"
+        } else {
+            "bin/susi-engine"
+        };
         let global_bin = global_dir.join(bin_name);
 
         let bin_to_run = if let Some(ref exe) = current_exe {
@@ -236,7 +258,11 @@ impl SusiDaemon {
         } else if global_bin.exists() {
             global_bin
         } else {
-            PathBuf::from(if cfg!(target_os = "windows") { "susi.exe" } else { "susi" })
+            PathBuf::from(if cfg!(target_os = "windows") {
+                "susi.exe"
+            } else {
+                "susi"
+            })
         };
 
         // Binary Integrity Check (Aspiration 4 Hardening)
@@ -252,8 +278,8 @@ impl SusiDaemon {
 
         #[cfg(unix)]
         {
-            use std::process::Stdio;
             use std::os::unix::process::CommandExt;
+            use std::process::Stdio;
             let mut cmd = Command::new(&bin_to_run);
             cmd.arg("daemon-start")
                 .arg(workspace.to_str().unwrap_or("."))
@@ -307,7 +333,10 @@ impl SusiDaemon {
         let mut lock = match DaemonLock::acquire(&lock_file_path) {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("[SusiDaemon] Failed to acquire lock: {}. Daemon likely already running.", e);
+                eprintln!(
+                    "[SusiDaemon] Failed to acquire lock: {}. Daemon likely already running.",
+                    e
+                );
                 return;
             }
         };
@@ -332,21 +361,24 @@ impl SusiDaemon {
         crate::gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
-        let (gemi_server, gemi_port) = Self::bind_http_with_fallback(cfg.gemi_port, "GEMI", &workspace);
+        let (gemi_server, gemi_port) =
+            Self::bind_http_with_fallback(cfg.gemi_port, "GEMI", &workspace);
         if gemi_port != cfg.gemi_port {
             cfg.gemi_port = gemi_port;
             config_changed = true;
         }
 
         // 2. Bind GMCP HTTP/SSE Server (Port 9093 / Dynamic)
-        let (gmcp_http_server, gmcp_http_port) = Self::bind_http_with_fallback(cfg.gmcp_http_port, "GMCP HTTP", &workspace);
+        let (gmcp_http_server, gmcp_http_port) =
+            Self::bind_http_with_fallback(cfg.gmcp_http_port, "GMCP HTTP", &workspace);
         if gmcp_http_port != cfg.gmcp_http_port {
             cfg.gmcp_http_port = gmcp_http_port;
             config_changed = true;
         }
 
         // 3. Bind A2A Cluster UDP Discovery Socket (Port 9092 / Dynamic)
-        let (udp_socket, udp_port) = Self::bind_udp_with_fallback(cfg.udp_discovery_port, &workspace);
+        let (udp_socket, udp_port) =
+            Self::bind_udp_with_fallback(cfg.udp_discovery_port, &workspace);
         if udp_port != cfg.udp_discovery_port {
             cfg.udp_discovery_port = udp_port;
             config_changed = true;
@@ -354,7 +386,9 @@ impl SusiDaemon {
 
         if config_changed {
             let _ = cfg.save(&global_dir);
-            eprintln!("[SusiDaemon] Port collisions detected. Updated configuration with active ports.");
+            eprintln!(
+                "[SusiDaemon] Port collisions detected. Updated configuration with active ports."
+            );
         }
 
         // Spawn services with panic handling
@@ -369,7 +403,7 @@ impl SusiDaemon {
 
         let workspace_gmcp_http = workspace.clone();
         thread::spawn(move || {
-             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 GmcpServer::start_http_server(workspace_gmcp_http, gmcp_http_server);
             })) {
                 eprintln!("[GMCP HTTP] Thread panicked: {:?}", e);
@@ -378,7 +412,7 @@ impl SusiDaemon {
 
         let gmcp_actual_port = cfg.gmcp_port;
         thread::spawn(move || {
-             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 Self::start_udp_discovery_server(udp_socket, gmcp_actual_port);
             })) {
                 eprintln!("[UDP] Thread panicked: {:?}", e);
@@ -409,7 +443,11 @@ impl SusiDaemon {
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
     }
 
-    fn bind_http_with_fallback(port: u16, name: &str, workspace: &Path) -> (tiny_http::Server, u16) {
+    fn bind_http_with_fallback(
+        port: u16,
+        name: &str,
+        workspace: &Path,
+    ) -> (tiny_http::Server, u16) {
         let addr = format!("0.0.0.0:{}", port);
         match tiny_http::Server::http(&addr) {
             Ok(server) => (server, port),
@@ -421,15 +459,22 @@ impl SusiDaemon {
                     }
                 }
 
-                let server = tiny_http::Server::http("0.0.0.0:0").expect("Failed to bind to random port");
+                let server =
+                    tiny_http::Server::http("0.0.0.0:0").expect("Failed to bind to random port");
                 let new_port = server.server_addr().to_ip().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
                     "SELF_HEALING_RANDOMIZATION",
-                    &format!("{} default port {} occupied. Reclaim failed. Randomized to {}", name, port, new_port)
+                    &format!(
+                        "{} default port {} occupied. Reclaim failed. Randomized to {}",
+                        name, port, new_port
+                    ),
                 );
-                eprintln!("[SusiDaemon] {} port collision! Randomized to {}", name, new_port);
+                eprintln!(
+                    "[SusiDaemon] {} port collision! Randomized to {}",
+                    name, new_port
+                );
                 (server, new_port)
             }
         }
@@ -447,15 +492,22 @@ impl SusiDaemon {
                     }
                 }
 
-                let socket = std::net::UdpSocket::bind("0.0.0.0:0").expect("Failed to bind random UDP port");
+                let socket =
+                    std::net::UdpSocket::bind("0.0.0.0:0").expect("Failed to bind random UDP port");
                 let new_port = socket.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
                     "SELF_HEALING_RANDOMIZATION",
-                    &format!("UDP Discovery port {} occupied. Reclaim failed. Randomized to {}", port, new_port)
+                    &format!(
+                        "UDP Discovery port {} occupied. Reclaim failed. Randomized to {}",
+                        port, new_port
+                    ),
                 );
-                eprintln!("[SusiDaemon] UDP port collision! Randomized to {}", new_port);
+                eprintln!(
+                    "[SusiDaemon] UDP port collision! Randomized to {}",
+                    new_port
+                );
                 (socket, new_port)
             }
         }
@@ -479,7 +531,9 @@ impl SusiDaemon {
                     if let Ok(comm) = comm_output {
                         if comm.contains("susi") {
                             eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
-                            unsafe { libc::kill(pid, libc::SIGKILL); }
+                            unsafe {
+                                libc::kill(pid, libc::SIGKILL);
+                            }
                             thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
                             return true;
                         }
@@ -492,7 +546,10 @@ impl SusiDaemon {
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
         let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
-        eprintln!("[A2A Cluster UDP] Discovery listener active on {}", socket.local_addr().unwrap());
+        eprintln!(
+            "[A2A Cluster UDP] Discovery listener active on {}",
+            socket.local_addr().unwrap()
+        );
         let mut buf = [0u8; 512];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
             let msg = String::from_utf8_lossy(&buf[..amt]);
@@ -510,7 +567,9 @@ impl SusiDaemon {
             if let Ok(content) = fs::read_to_string(&lock_file) {
                 if let Ok(pid) = content.trim().parse::<i32>() {
                     #[cfg(unix)]
-                    unsafe { libc::kill(pid, libc::SIGTERM); }
+                    unsafe {
+                        libc::kill(pid, libc::SIGTERM);
+                    }
                 }
             }
             let _ = fs::remove_file(&lock_file);

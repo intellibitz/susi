@@ -1,17 +1,21 @@
 // SUSI Reflex Synthesizer
 // RULE 23: Motion Rule Protocol - Test-Driven Evolution Substrate
 
+use crate::error::{EaiError, EaiResult};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use crate::error::{EaiError, EaiResult};
 
 pub struct ReflexSynthesizer;
 
 impl ReflexSynthesizer {
     /// Distills a neural intent into a native Rust reflex driven by Test-Driven specifications
     pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
-        let struct_name = intent.split_whitespace().map(|s| s.to_string()).collect::<Vec<String>>().join("");
+        let struct_name = intent
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join("");
         let code = format!(
             "// SUSI Native Reflex: {}\n\
             use crate::gmcp::tools::SusiTool;\n\
@@ -35,22 +39,34 @@ impl ReflexSynthesizer {
             intent, struct_name, struct_name, intent.replace(' ', "_"), intent, intent
         );
 
-        let reflex_path = workspace.join(format!("src/gmcp/reflexes/{}.rs", intent.replace(' ', "_")));
+        let reflex_path =
+            workspace.join(format!("src/gmcp/reflexes/{}.rs", intent.replace(' ', "_")));
         let _ = fs::create_dir_all(reflex_path.parent().unwrap());
         fs::write(&reflex_path, code)?;
 
-        Ok(format!("Native reflex '{}' distilled and staged with Test-Driven specifications in {}.", intent, reflex_path.display()))
+        Ok(format!(
+            "Native reflex '{}' distilled and staged with Test-Driven specifications in {}.",
+            intent,
+            reflex_path.display()
+        ))
     }
 
     /// Synthesizes a volatile WebAssembly reflex (Tier 0 Evolution)
     pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("."));
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
 
         let reflex_dir = home.join(".susi/reflexes");
         let _ = fs::create_dir_all(&reflex_dir);
         let wasm_src = reflex_dir.join(format!("{}.rs", intent.replace(' ', "_")));
 
-        let _struct_name = intent.split_whitespace().map(|s| s.to_string()).collect::<Vec<String>>().join("");
+        let _struct_name = intent
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+            .join("");
         let code = format!(
             "#[no_mangle]\n\
             pub extern \"C\" fn execute_reflex() -> i32 {{\n\
@@ -64,35 +80,47 @@ impl ReflexSynthesizer {
         let wasm_out = reflex_dir.join(format!("{}.wasm", intent.replace(' ', "_")));
         let build = Command::new("rustc")
             .args([
-                "--target", "wasm32-wasi",
+                "--target",
+                "wasm32-wasi",
                 "-O",
-                "--crate-type", "cdylib",
-                "-o", wasm_out.to_str().unwrap(),
-                wasm_src.to_str().unwrap()
+                "--crate-type",
+                "cdylib",
+                "-o",
+                wasm_out.to_str().unwrap(),
+                wasm_src.to_str().unwrap(),
             ])
             .output();
 
         match build {
-            Ok(output) if output.status.success() => {
-                Ok(wasm_out.to_string_lossy().to_string())
-            }
-            Ok(output) => {
-                Err(EaiError::process(format!("WASM compilation failed: {}", String::from_utf8_lossy(&output.stderr))))
-            }
-            Err(e) => {
-                Err(EaiError::process(format!("rustc/wasm32-wasi target missing: {}", e)))
-            }
+            Ok(output) if output.status.success() => Ok(wasm_out.to_string_lossy().to_string()),
+            Ok(output) => Err(EaiError::process(format!(
+                "WASM compilation failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ))),
+            Err(e) => Err(EaiError::process(format!(
+                "rustc/wasm32-wasi target missing: {}",
+                e
+            ))),
         }
     }
 
     pub fn evolve_substrate_native(intent: &str, workspace: &Path) -> EaiResult<String> {
-        let code = match crate::gemi::pulse::SusiPulse::reason(&format!("GENERATE_RUST_TOOL: {}", intent), workspace) {
-             Ok(c) => c,
-             Err(_) => return Err(EaiError::protocol("Reflex synthesis failed: No reasoning response.")),
+        let code = match crate::gemi::pulse::SusiPulse::reason(
+            &format!("GENERATE_RUST_TOOL: {}", intent),
+            workspace,
+        ) {
+            Ok(c) => c,
+            Err(_) => {
+                return Err(EaiError::protocol(
+                    "Reflex synthesis failed: No reasoning response.",
+                ))
+            }
         };
 
         if !code.contains("struct ") || !code.contains("impl SusiTool for ") {
-            return Err(EaiError::protocol("Synthesized code missing SusiTool implementation."));
+            return Err(EaiError::protocol(
+                "Synthesized code missing SusiTool implementation.",
+            ));
         }
 
         let tool_name = intent.split_whitespace().next().unwrap_or("new_tool");

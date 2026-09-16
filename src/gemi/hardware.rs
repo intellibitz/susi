@@ -1,8 +1,8 @@
 // 100% Rust implementation for autonomous hardware profiling
 
-use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
 use candle_core::Device;
+use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareProfile {
@@ -30,52 +30,58 @@ pub struct HardwareProfiler;
 impl HardwareProfiler {
     pub fn get_profile() -> HardwareProfile {
         static CACHED_PROFILE: OnceLock<HardwareProfile> = OnceLock::new();
-        CACHED_PROFILE.get_or_init(|| {
-            let (cpus, _) = Self::profile();
-            let ram_gb = Self::determine_total_ram_gb();
-            let available_ram_gb = Self::determine_available_ram_gb();
-            let gpu_vram_gb = Self::determine_gpu_vram_gb();
-            let swap_gb = Self::determine_swap_gb();
-            let nvme_active = Self::is_nvme_active();
+        CACHED_PROFILE
+            .get_or_init(|| {
+                let (cpus, _) = Self::profile();
+                let ram_gb = Self::determine_total_ram_gb();
+                let available_ram_gb = Self::determine_available_ram_gb();
+                let gpu_vram_gb = Self::determine_gpu_vram_gb();
+                let swap_gb = Self::determine_swap_gb();
+                let nvme_active = Self::is_nvme_active();
 
-            // 1. Direct Interrogation via Candle Substrate
-            let (native_accel, gpu_name) = Self::interrogate_native_acceleration();
+                // 1. Direct Interrogation via Candle Substrate
+                let (native_accel, gpu_name) = Self::interrogate_native_acceleration();
 
-            let acceleration_active = !native_accel.contains("None") && !native_accel.contains("Cpu");
-            let gpu_display = if acceleration_active {
-                format!("{} ({} | {}GB VRAM)", native_accel, gpu_name, gpu_vram_gb)
-            } else {
-                // 2. Fallback to Meta-Parsing for diagnostics if native probe is inactive
-                let (_, shell_gpu) = Self::profile();
-                shell_gpu
-            };
+                let acceleration_active =
+                    !native_accel.contains("None") && !native_accel.contains("Cpu");
+                let gpu_display = if acceleration_active {
+                    format!("{} ({} | {}GB VRAM)", native_accel, gpu_name, gpu_vram_gb)
+                } else {
+                    // 2. Fallback to Meta-Parsing for diagnostics if native probe is inactive
+                    let (_, shell_gpu) = Self::profile();
+                    shell_gpu
+                };
 
-            HardwareProfile {
-                cpus,
-                cpu_brand: Self::get_cpu_brand(),
-                gpu_info: gpu_display,
-                ram_gb,
-                available_ram_gb,
-                gpu_vram_gb,
-                swap_gb,
-                nvme_active,
-                acceleration_active,
-                native_acceleration: native_accel,
-                os_info: Self::get_os_info(),
-                arch: std::env::consts::ARCH.to_string(),
-                disk_gb: Self::determine_disk_gb(),
-                disk_usage_pct: Self::determine_disk_usage_pct(),
-                load_avg: Self::get_load_avg(),
-                uptime: Self::get_uptime(),
-                hostname: Self::get_hostname(),
-            }
-        }).clone()
+                HardwareProfile {
+                    cpus,
+                    cpu_brand: Self::get_cpu_brand(),
+                    gpu_info: gpu_display,
+                    ram_gb,
+                    available_ram_gb,
+                    gpu_vram_gb,
+                    swap_gb,
+                    nvme_active,
+                    acceleration_active,
+                    native_acceleration: native_accel,
+                    os_info: Self::get_os_info(),
+                    arch: std::env::consts::ARCH.to_string(),
+                    disk_gb: Self::determine_disk_gb(),
+                    disk_usage_pct: Self::determine_disk_usage_pct(),
+                    load_avg: Self::get_load_avg(),
+                    uptime: Self::get_uptime(),
+                    hostname: Self::get_hostname(),
+                }
+            })
+            .clone()
     }
 
     pub fn check_oom_critical() -> bool {
         let profile = Self::get_profile();
-        if profile.ram_gb == 0 { return false; }
-        let usage_pct = ((profile.ram_gb - profile.available_ram_gb) as f32 / profile.ram_gb as f32) * 100.0;
+        if profile.ram_gb == 0 {
+            return false;
+        }
+        let usage_pct =
+            ((profile.ram_gb - profile.available_ram_gb) as f32 / profile.ram_gb as f32) * 100.0;
         usage_pct > 90.0
     }
 
@@ -84,7 +90,12 @@ impl HardwareProfiler {
             if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
                 for line in content.lines() {
                     if line.starts_with("model name") {
-                        return line.split(':').nth(1).unwrap_or("Unknown CPU").trim().to_string();
+                        return line
+                            .split(':')
+                            .nth(1)
+                            .unwrap_or("Unknown CPU")
+                            .trim()
+                            .to_string();
                     }
                 }
             }
@@ -178,32 +189,30 @@ impl HardwareProfiler {
     pub fn get_candle_device() -> Device {
         // Zero-Lock Device Cache (Aspiration 24 & Sub-2ms Mandate)
         static DEVICE_CACHE: OnceLock<Device> = OnceLock::new();
-        DEVICE_CACHE.get_or_init(|| {
-            #[cfg(feature = "cuda")]
-            {
-                // Attempt CUDA initialization with panic safety
-                let cuda_attempt = std::panic::catch_unwind(|| {
-                    Device::new_cuda(0)
-                });
-                if let Ok(Ok(cuda_dev)) = cuda_attempt {
-                    return cuda_dev;
+        DEVICE_CACHE
+            .get_or_init(|| {
+                #[cfg(feature = "cuda")]
+                {
+                    // Attempt CUDA initialization with panic safety
+                    let cuda_attempt = std::panic::catch_unwind(|| Device::new_cuda(0));
+                    if let Ok(Ok(cuda_dev)) = cuda_attempt {
+                        return cuda_dev;
+                    }
                 }
-            }
 
-            // Attempt Metal initialization with panic safety
-            #[cfg(feature = "metal")]
-            {
-                let metal_attempt = std::panic::catch_unwind(|| {
-                    Device::new_metal(0)
-                });
-                if let Ok(Ok(metal_dev)) = metal_attempt {
-                    return metal_dev;
+                // Attempt Metal initialization with panic safety
+                #[cfg(feature = "metal")]
+                {
+                    let metal_attempt = std::panic::catch_unwind(|| Device::new_metal(0));
+                    if let Ok(Ok(metal_dev)) = metal_attempt {
+                        return metal_dev;
+                    }
                 }
-            }
 
-            // Absolute Fallback: CPU
-            Device::Cpu
-        }).clone()
+                // Absolute Fallback: CPU
+                Device::Cpu
+            })
+            .clone()
     }
 
     fn get_os_info() -> String {
@@ -211,7 +220,10 @@ impl HardwareProfiler {
             if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
                 for line in content.lines() {
                     if line.starts_with("PRETTY_NAME=") {
-                        return line.trim_start_matches("PRETTY_NAME=").trim_matches('"').to_string();
+                        return line
+                            .trim_start_matches("PRETTY_NAME=")
+                            .trim_matches('"')
+                            .to_string();
                     }
                 }
             }
@@ -219,7 +231,7 @@ impl HardwareProfiler {
         } else if cfg!(target_os = "macos") {
             return "macOS".to_string();
         } else if cfg!(target_os = "windows") {
-             return "Windows".to_string();
+            return "Windows".to_string();
         }
         "Unknown OS".to_string()
     }
@@ -230,11 +242,17 @@ impl HardwareProfiler {
 
     fn interrogate_native_acceleration() -> (String, String) {
         if candle_core::utils::cuda_is_available() {
-             return ("CUDA (Detected)".to_string(), "NVIDIA Driver found".to_string());
+            return (
+                "CUDA (Detected)".to_string(),
+                "NVIDIA Driver found".to_string(),
+            );
         }
 
         if candle_core::utils::metal_is_available() {
-             return ("Metal (Detected)".to_string(), "Apple Silicon / macOS".to_string());
+            return (
+                "Metal (Detected)".to_string(),
+                "Apple Silicon / macOS".to_string(),
+            );
         }
 
         ("None".to_string(), "Cpu".to_string())
@@ -328,7 +346,16 @@ impl HardwareProfiler {
                 if let Ok(c_name) = CString::new("hw.memsize") {
                     let mut val: u64 = 0;
                     let mut size = std::mem::size_of::<u64>();
-                    if unsafe { libc::sysctlbyname(c_name.as_ptr(), &mut val as *mut _ as *mut libc::c_void, &mut size, std::ptr::null_mut(), 0) } == 0 {
+                    if unsafe {
+                        libc::sysctlbyname(
+                            c_name.as_ptr(),
+                            &mut val as *mut _ as *mut libc::c_void,
+                            &mut size,
+                            std::ptr::null_mut(),
+                            0,
+                        )
+                    } == 0
+                    {
                         return (val / (1024 * 1024 * 1024)) as usize;
                     }
                 }

@@ -3,7 +3,7 @@
 // Mandate 33: Glass Box Transparency & Omni-Trace Task Control.
 
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -91,11 +91,20 @@ impl Serialize for TaskRecord {
         state.serialize_field("task_id", &self.task_id)?;
         state.serialize_field("name", &self.name)?;
         state.serialize_field("intent", &self.intent)?;
-        state.serialize_field("status", &TaskStatus::from(self.status.load(Ordering::Acquire)))?;
+        state.serialize_field(
+            "status",
+            &TaskStatus::from(self.status.load(Ordering::Acquire)),
+        )?;
         state.serialize_field("start_time_secs", &self.start_time_secs)?;
         state.serialize_field("expected_idle_ms", &self.expected_idle_ms)?;
-        state.serialize_field("last_progress_secs", &self.last_progress_secs.load(Ordering::Acquire))?;
-        state.serialize_field("progress_count", &self.progress_count.load(Ordering::Acquire))?;
+        state.serialize_field(
+            "last_progress_secs",
+            &self.last_progress_secs.load(Ordering::Acquire),
+        )?;
+        state.serialize_field(
+            "progress_count",
+            &self.progress_count.load(Ordering::Acquire),
+        )?;
         state.serialize_field("result", &*self.result.read())?;
         state.end()
     }
@@ -138,7 +147,10 @@ impl TelemetryHistoryStore {
         let file = Self::get_history_file();
         if file.is_file() {
             if let Ok(content) = std::fs::read_to_string(&file) {
-                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, IntentTelemetryProfile>>(&content) {
+                if let Ok(map) = serde_json::from_str::<
+                    std::collections::HashMap<String, IntentTelemetryProfile>,
+                >(&content)
+                {
                     for (k, v) in map {
                         self.profiles.insert(k, v);
                     }
@@ -161,18 +173,28 @@ impl TelemetryHistoryStore {
         }
     }
 
-    pub fn record_execution_telemetry(&self, category: &str, elapsed_ms: u64, max_observed_idle_ms: u64) {
-        let mut profile = self.profiles.entry(category.to_string()).or_insert_with(|| IntentTelemetryProfile {
-            intent_category: category.to_string(),
-            sample_count: 0,
-            avg_latency_ms: elapsed_ms,
-            p99_idle_interval_ms: max_observed_idle_ms.max(200),
-        });
+    pub fn record_execution_telemetry(
+        &self,
+        category: &str,
+        elapsed_ms: u64,
+        max_observed_idle_ms: u64,
+    ) {
+        let mut profile = self
+            .profiles
+            .entry(category.to_string())
+            .or_insert_with(|| IntentTelemetryProfile {
+                intent_category: category.to_string(),
+                sample_count: 0,
+                avg_latency_ms: elapsed_ms,
+                p99_idle_interval_ms: max_observed_idle_ms.max(200),
+            });
 
         profile.sample_count += 1;
         let count = profile.sample_count;
         profile.avg_latency_ms = ((profile.avg_latency_ms * (count - 1)) + elapsed_ms) / count;
-        profile.p99_idle_interval_ms = profile.p99_idle_interval_ms.max(max_observed_idle_ms.max(200));
+        profile.p99_idle_interval_ms = profile
+            .p99_idle_interval_ms
+            .max(max_observed_idle_ms.max(200));
 
         self.save_history();
     }
@@ -196,7 +218,10 @@ pub struct TaskHandle {
 
 impl TaskHandle {
     pub fn report_progress(&self) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         self.last_progress_secs.store(now, Ordering::Release);
         self.progress_count.fetch_add(1, Ordering::Release);
     }
@@ -212,14 +237,16 @@ impl TaskHandle {
     }
 
     pub fn mark_completed(&self, res_text: &str) {
-        self.status.store(TaskStatus::Completed as u8, Ordering::Release);
+        self.status
+            .store(TaskStatus::Completed as u8, Ordering::Release);
         *self.result.write() = Some(res_text.to_string());
         let elapsed = self.start_time.elapsed().as_millis() as u64;
         TelemetryHistoryStore::global().record_execution_telemetry(&self.name, elapsed, 100);
     }
 
     pub fn mark_failed(&self, err: &str) {
-        self.status.store(TaskStatus::Failed as u8, Ordering::Release);
+        self.status
+            .store(TaskStatus::Failed as u8, Ordering::Release);
         *self.result.write() = Some(err.to_string());
     }
 }
@@ -245,8 +272,18 @@ impl SwarmTaskManager {
     }
 
     pub fn register_task(&self, name: &str, intent: &str) -> Arc<TaskHandle> {
-        let task_id = format!("task_{}_{}", SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0), rand_id());
-        let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let task_id = format!(
+            "task_{}_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+            rand_id()
+        );
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let idle_threshold = TelemetryHistoryStore::global().get_idle_threshold_ms(intent);
 
         let status = Arc::new(AtomicU8::new(TaskStatus::Running as u8));
@@ -269,8 +306,10 @@ impl SwarmTaskManager {
         };
 
         self.tasks.insert(task_id.clone(), record);
-        self.cancel_map.insert(task_id.clone(), Arc::clone(&cancel_flag));
-        self.pause_map.insert(task_id.clone(), Arc::clone(&pause_flag));
+        self.cancel_map
+            .insert(task_id.clone(), Arc::clone(&cancel_flag));
+        self.pause_map
+            .insert(task_id.clone(), Arc::clone(&pause_flag));
 
         Arc::new(TaskHandle {
             task_id,
@@ -293,7 +332,10 @@ impl SwarmTaskManager {
             loop {
                 std::thread::sleep(Duration::from_millis(1000));
                 let mgr = SwarmTaskManager::global();
-                let now_secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+                let now_secs = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
 
                 // Zero-Lock Iteration Phase
                 for r in mgr.tasks.iter() {
@@ -305,8 +347,20 @@ impl SwarmTaskManager {
 
                         if idle > thresh {
                             // Attempt atomic stall marking
-                            if record.status.compare_exchange(TaskStatus::Running as u8, TaskStatus::Stalled as u8, Ordering::SeqCst, Ordering::Acquire).is_ok() {
-                                warn!("[SwarmWatchdog] Task {} ({}) stalled (idle {}s > thresh {}s)", record.task_id, record.name, idle, thresh);
+                            if record
+                                .status
+                                .compare_exchange(
+                                    TaskStatus::Running as u8,
+                                    TaskStatus::Stalled as u8,
+                                    Ordering::SeqCst,
+                                    Ordering::Acquire,
+                                )
+                                .is_ok()
+                            {
+                                warn!(
+                                    "[SwarmWatchdog] Task {} ({}) stalled (idle {}s > thresh {}s)",
+                                    record.task_id, record.name, idle, thresh
+                                );
                                 if let Some(cancel) = mgr.cancel_map.get(&record.task_id) {
                                     cancel.store(true, Ordering::Release);
                                 }
@@ -359,5 +413,9 @@ impl SwarmTaskManager {
 }
 
 fn rand_id() -> u32 {
-    (SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0) % 100000) as u32
+    (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+        % 100000) as u32
 }

@@ -7,9 +7,9 @@ use susi_engine::SUSI_VERSION;
 
 use clap::{Parser, Subcommand};
 use std::env;
-use std::io::{self, Read, Write, IsTerminal};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 #[derive(Parser)]
 #[command(name = "susi")]
@@ -57,7 +57,7 @@ enum Commands {
     /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
-        intent: Vec<String>
+        intent: Vec<String>,
     },
     /// Perform compliance audit and technical verification
     Audit,
@@ -71,7 +71,7 @@ enum Commands {
     /// Internal daemon start (Called by ensure_daemon_running)
     DaemonStart {
         #[arg(long)]
-        workspace: String
+        workspace: String,
     },
 }
 
@@ -82,7 +82,7 @@ enum AdminCommands {
     /// Ingest pulse via admin
     Pulse {
         #[arg(trailing_var_arg = true)]
-        intent: Vec<String>
+        intent: Vec<String>,
     },
     /// Compliance audit
     Audit,
@@ -108,26 +108,44 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
     {
         use std::os::unix::io::AsRawFd;
         let fd = stdin.as_raw_fd();
-        let timeout = libc::timeval { tv_sec: timeout_secs as _, tv_usec: 0 };
+        let timeout = libc::timeval {
+            tv_sec: timeout_secs as _,
+            tv_usec: 0,
+        };
         unsafe {
-            libc::setsockopt(fd, libc::SOL_SOCKET, libc::SO_RCVTIMEO,
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_RCVTIMEO,
                 &timeout as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::timeval>() as u32);
+                std::mem::size_of::<libc::timeval>() as u32,
+            );
         }
     }
     let mut buffer = Vec::new();
     let mut limited = stdin.take(max_size as u64);
     limited.read_to_end(&mut buffer)?;
     if buffer.len() >= max_size {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("Input exceeds {} bytes limit", max_size)));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Input exceeds {} bytes limit", max_size),
+        ));
     }
-    let content = String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let content =
+        String::from_utf8(buffer).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let trimmed = content.trim();
-    Ok(if trimmed.is_empty() { None } else { Some(trimmed.to_string()) })
+    Ok(if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    })
 }
 
 fn get_home_dir() -> PathBuf {
-    env::var_os("HOME").or_else(|| env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
+    env::var_os("HOME")
+        .or_else(|| env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 fn run_shell(workspace: &std::path::Path) {
@@ -135,18 +153,21 @@ fn run_shell(workspace: &std::path::Path) {
     let queue = SubstratePulseQueue::global();
     let ama = SusiMasterAgent::new();
 
-    println!("SUSI Pulse Shell v{} (Glass Box Telemetry Mode Active)", SUSI_VERSION);
-    println!("Enter pulses to interact with the substrate. Pulses are queued and processed in order.");
+    println!(
+        "SUSI Pulse Shell v{} (Glass Box Telemetry Mode Active)",
+        SUSI_VERSION
+    );
+    println!(
+        "Enter pulses to interact with the substrate. Pulses are queued and processed in order."
+    );
     println!("Type 'exit' to quit.");
 
     let w = workspace.to_path_buf();
-    std::thread::spawn(move || {
-        loop {
-            if let Some(pulse) = queue.pop() {
-                let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION);
-            }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+    std::thread::spawn(move || loop {
+        if let Some(pulse) = queue.pop() {
+            let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION);
         }
+        std::thread::sleep(std::time::Duration::from_millis(50));
     });
 
     loop {
@@ -155,8 +176,12 @@ fn run_shell(workspace: &std::path::Path) {
         let mut input = String::new();
         if io::stdin().read_line(&mut input).is_ok() {
             let trimmed = input.trim();
-            if trimmed.is_empty() { continue; }
-            if trimmed == "exit" || trimmed == "quit" { break; }
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed == "exit" || trimmed == "quit" {
+                break;
+            }
             let _ = queue.ingest(trimmed, workspace, SUSI_VERSION);
         } else {
             break;
@@ -186,9 +211,16 @@ fn main() {
     let _ = susi_engine::gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
 
     // Mandate 12: Hardware Authority - Force initialize Rayon thread pool to saturate all cores
-    let num_cpus = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    let _ = rayon::ThreadPoolBuilder::new().num_threads(num_cpus).build_global();
-    info!("[Hardware Authority] Rayon thread pool initialized with {} threads.", num_cpus);
+    let num_cpus = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+    let _ = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_cpus)
+        .build_global();
+    info!(
+        "[Hardware Authority] Rayon thread pool initialized with {} threads.",
+        num_cpus
+    );
 
     let cli = Cli::parse();
 
@@ -355,13 +387,20 @@ fn main() {
                 info!("Natural intent ingested successfully: {}", msg);
                 let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                unsafe { libc::_exit(0); }
+                unsafe {
+                    libc::_exit(0);
+                }
             }
             Err(e) => {
-                warn!("Natural intent ingestion failed: {}. Falling back to direct swarm solving.", e);
+                warn!(
+                    "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
+                    e
+                );
                 let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                unsafe { libc::_exit(0); }
+                unsafe {
+                    libc::_exit(0);
+                }
             }
         }
     } else if !io::stdin().is_terminal() {
@@ -370,7 +409,9 @@ fn main() {
                 let ama = SusiMasterAgent::new();
                 let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION);
                 std::io::stdout().flush().ok();
-                unsafe { libc::_exit(0); }
+                unsafe {
+                    libc::_exit(0);
+                }
             }
             Ok(None) => (),
             Err(e) => {

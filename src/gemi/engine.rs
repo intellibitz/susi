@@ -2,15 +2,15 @@
 // 100% Rust implementation for Native Intelligence Substrate
 // RULE 23: Motion Rule Protocol - Aspiration 7: Competitive Inference Racing
 
-use std::path::{Path, PathBuf};
-use std::io::Write;
-use std::sync::{Arc, OnceLock};
-use parking_lot::RwLock;
-use indicatif::{ProgressBar, ProgressStyle};
-use std::collections::HashMap;
 use crate::error::{EaiError, EaiResult};
-use crate::gemi::models::ModelManager;
 use crate::gemi::hardware::HardwareProfiler;
+use crate::gemi::models::ModelManager;
+use indicatif::{ProgressBar, ProgressStyle};
+use parking_lot::RwLock;
+use std::collections::HashMap;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, OnceLock};
 
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
@@ -29,7 +29,11 @@ pub struct InferenceHost;
 impl InferenceHost {
     /// Universal Substrate Ingestion (Aspiration 8)
     /// Dynamically identifies and loads any GGUF architecture from local or web sources.
-    pub fn get_model(model_path: &Path, device: &candle_core::Device, task_handle: &Arc<crate::gawd::task_manager::TaskHandle>) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
+    pub fn get_model(
+        model_path: &Path,
+        device: &candle_core::Device,
+        task_handle: &Arc<crate::gawd::task_manager::TaskHandle>,
+    ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
         static CACHED_MODELS: OnceLock<Arc<RwLock<ModelCacheMap>>> = OnceLock::new();
         let cache = CACHED_MODELS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
 
@@ -42,12 +46,20 @@ impl InferenceHost {
         }
 
         // Anti-Thundering-Herd Lock: Ensure only one thread loads the model from disk
-        static LOAD_LOCKS: once_cell::sync::Lazy<dashmap::DashMap<PathBuf, Arc<std::sync::Mutex<()>>>> = once_cell::sync::Lazy::new(|| dashmap::DashMap::new());
-        let load_mutex = LOAD_LOCKS.entry(model_path.to_path_buf()).or_insert_with(|| Arc::new(std::sync::Mutex::new(()))).value().clone();
+        static LOAD_LOCKS: once_cell::sync::Lazy<
+            dashmap::DashMap<PathBuf, Arc<std::sync::Mutex<()>>>,
+        > = once_cell::sync::Lazy::new(|| dashmap::DashMap::new());
+        let load_mutex = LOAD_LOCKS
+            .entry(model_path.to_path_buf())
+            .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))
+            .value()
+            .clone();
 
         let _guard = loop {
             if task_handle.is_cancelled() {
-                return Err(EaiError::inference("Task cancelled while waiting for model load lock."));
+                return Err(EaiError::inference(
+                    "Task cancelled while waiting for model load lock.",
+                ));
             }
             match load_mutex.try_lock() {
                 Ok(g) => break g,
@@ -67,25 +79,39 @@ impl InferenceHost {
         }
 
         // 2. Load Weights (Outside global cache lock to prevent substrate-wide stalls)
-        println!("- [Substrate Operation] Loading neural weights: {}", model_path.display());
+        println!(
+            "- [Substrate Operation] Loading neural weights: {}",
+            model_path.display()
+        );
         let _ = std::io::stdout().flush();
 
         let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner().template("{spinner:.green} {msg}").unwrap());
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg}")
+                .unwrap(),
+        );
         pb.set_message("Loading weights...");
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         // Integrity Verification (Aspiration 4 Hardening)
         ModelManager::verify_model_integrity(model_path)?;
 
-        let mut file = std::fs::File::open(model_path)
-            .map_err(|e| EaiError::inference(format!("Failed to open weights {}: {}", model_path.display(), e)))?;
+        let mut file = std::fs::File::open(model_path).map_err(|e| {
+            EaiError::inference(format!(
+                "Failed to open weights {}: {}",
+                model_path.display(),
+                e
+            ))
+        })?;
 
         let mut model_data = gguf_file::Content::read(&mut file)
             .map_err(|e| EaiError::inference(format!("GGUF Metadata Error: {}", e)))?;
 
         // Architectural Scout: Inspect metadata for dynamic dispatch
-        let arch = model_data.metadata.get("general.architecture")
+        let arch = model_data
+            .metadata
+            .get("general.architecture")
             .and_then(|v| v.to_string().ok())
             .map(|s| s.to_lowercase())
             .unwrap_or_else(|| "llama".to_string());
@@ -105,7 +131,11 @@ impl InferenceHost {
             for k in common_keys {
                 let llama_key = format!("llama.{}", k);
                 if !model_data.metadata.contains_key(&llama_key) {
-                    let found_key = model_data.metadata.keys().find(|mk| mk.ends_with(k)).cloned();
+                    let found_key = model_data
+                        .metadata
+                        .keys()
+                        .find(|mk| mk.ends_with(k))
+                        .cloned();
                     if let Some(fk) = found_key {
                         if let Some(val) = model_data.metadata.get(&fk).cloned() {
                             model_data.metadata.insert(llama_key, val);
@@ -115,7 +145,10 @@ impl InferenceHost {
             }
         }
 
-        println!("- [Substrate Operation] Initializing {:?} weights on {:?}...", arch, device);
+        println!(
+            "- [Substrate Operation] Initializing {:?} weights on {:?}...",
+            arch, device
+        );
         let _ = std::io::stdout().flush();
 
         // Blocking FFI Keep-Alive: Prevent watchdog timeouts during massive I/O model loads
@@ -191,12 +224,21 @@ impl GemiEngine {
         Self::reason_internal(prompt, workspace, false, &|_| {})
     }
 
-    pub fn generate_reasoning_stream(prompt: &str, workspace: &Path, callback: &dyn Fn(String)) -> String {
+    pub fn generate_reasoning_stream(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+    ) -> String {
         Self::reason_internal(prompt, workspace, true, callback)
     }
 
     /// Aspiration 7: Ultra-Latency Competitive Inference Racing
-    fn reason_internal(prompt: &str, workspace: &Path, allow_reflex: bool, callback: &dyn Fn(String)) -> String {
+    fn reason_internal(
+        prompt: &str,
+        workspace: &Path,
+        allow_reflex: bool,
+        callback: &dyn Fn(String),
+    ) -> String {
         if allow_reflex {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
             if let super::reflex::ReflexDecision::Solved(action) = reflex_decision {
@@ -217,8 +259,15 @@ impl GemiEngine {
         }
 
         // Fallback Power Reasoning Tool
-        let power_res = crate::gmcp::tools::ToolRegistry::execute_tool("power_reason", &serde_json::json!(prompt), workspace);
-        if !power_res.contains("[FAIL]") && !power_res.contains("[CAPABILITY_GAP]") && !power_res.contains("Inference Error") {
+        let power_res = crate::gmcp::tools::ToolRegistry::execute_tool(
+            "power_reason",
+            &serde_json::json!(prompt),
+            workspace,
+        );
+        if !power_res.contains("[FAIL]")
+            && !power_res.contains("[CAPABILITY_GAP]")
+            && !power_res.contains("Inference Error")
+        {
             callback(power_res.clone());
             return power_res;
         }
@@ -230,38 +279,43 @@ impl GemiEngine {
 
     pub fn generate_multimodal_vision(prompt: &str, image_path: &Path) -> String {
         if let Ok(vision) = super::vision::SusiVisionEngine::new() {
-             match vision.analyze_visual_intent(prompt, image_path) {
-                 Ok(res) => return res,
-                 Err(e) => return format!("[susi Native Vision] Error: {}", e),
-             }
+            match vision.analyze_visual_intent(prompt, image_path) {
+                Ok(res) => return res,
+                Err(e) => return format!("[susi Native Vision] Error: {}", e),
+            }
         }
-        format!("[susi Native Vision]: {} -> {}", image_path.display(), prompt)
+        format!(
+            "[susi Native Vision]: {} -> {}",
+            image_path.display(),
+            prompt
+        )
     }
 
     pub fn generate_multimodal_audio(audio_path: &Path) -> String {
         if let Ok(audio) = super::audio::SusiAudioEngine::new() {
-             match audio.transcribe_and_audit(audio_path) {
-                 Ok(res) => return res,
-                 Err(e) => return format!("[susi Native Audio] Error: {}", e),
-             }
+            match audio.transcribe_and_audit(audio_path) {
+                Ok(res) => return res,
+                Err(e) => return format!("[susi Native Audio] Error: {}", e),
+            }
         }
         format!("[susi Native Audio]: Processed {}", audio_path.display())
     }
 
     /// Aspiration 14: Unified Multi-Modal Reasoning
-    pub fn cross_modal_reason(
-        text: &str,
-        image_path: &Path,
-        audio_path: &Path
-    ) -> String {
+    pub fn cross_modal_reason(text: &str, image_path: &Path, audio_path: &Path) -> String {
         use super::unified::SusiUnifiedSubstrate;
 
-        let unified_vec = match SusiUnifiedSubstrate::project_to_unified_space(Some(text), Some(image_path), Some(audio_path)) {
+        let unified_vec = match SusiUnifiedSubstrate::project_to_unified_space(
+            Some(text),
+            Some(image_path),
+            Some(audio_path),
+        ) {
             Ok(v) => v,
             Err(e) => return format!("[Unified Substrate] Error: {}", e),
         };
 
-        let magnitude: f32 = unified_vec.iter().map(|x| x * x).sum();
+        use rayon::prelude::*;
+        let magnitude: f32 = unified_vec.par_iter().map(|x| x * x).sum();
 
         format!(
             "# SUSI Cross-Modal Reasoning\n\n\
@@ -275,10 +329,19 @@ impl GemiEngine {
 
     pub fn verify_axiomatic_alignment(reasoning: &str, _workspace: &Path) -> EaiResult<String> {
         // Fast Rust-Native Axiomatic Alignment Guard (Aspiration 8 & <2ms Reflex Mandate)
-        let risk_patterns = ["rm -rf /", "drop database", "eval(", "chmod 777", "curl | sh"];
+        let risk_patterns = [
+            "rm -rf /",
+            "drop database",
+            "eval(",
+            "chmod 777",
+            "curl | sh",
+        ];
         for pattern in risk_patterns {
             if reasoning.contains(pattern) {
-                return Err(EaiError::governance(format!("Axiomatic Violation: High-risk pattern '{}' detected in reasoning.", pattern)));
+                return Err(EaiError::governance(format!(
+                    "Axiomatic Violation: High-risk pattern '{}' detected in reasoning.",
+                    pattern
+                )));
             }
         }
         Ok(reasoning.to_string())
@@ -302,7 +365,9 @@ impl MissionPlanner {
         if plan_str.contains(',') {
             for g in plan_str.split(',') {
                 let clean = g.trim();
-                if !clean.is_empty() { goals.push(clean.to_string()); }
+                if !clean.is_empty() {
+                    goals.push(clean.to_string());
+                }
             }
         } else {
             goals.push(goal.to_string());
@@ -320,7 +385,9 @@ impl MissionPlanner {
         if plan_str.contains(',') {
             for g in plan_str.split(',') {
                 let clean = g.trim();
-                if !clean.is_empty() { goals.push(clean.to_string()); }
+                if !clean.is_empty() {
+                    goals.push(clean.to_string());
+                }
             }
         } else {
             goals.push(goal.to_string());
@@ -328,7 +395,11 @@ impl MissionPlanner {
         Ok(MissionPlan { goals })
     }
 
-    pub fn refine_plan(original_goal: &str, blackboard_state: &str, workspace: &Path) -> EaiResult<MissionPlan> {
+    pub fn refine_plan(
+        original_goal: &str,
+        blackboard_state: &str,
+        workspace: &Path,
+    ) -> EaiResult<MissionPlan> {
         let refine_prompt = format!(
             "ORIGINAL_GOAL: {}\nCURRENT_STATE: {}\n\n[INSTRUCTION]: Mid-mission change. Re-synthesize sub-goals.",
             original_goal, blackboard_state
@@ -346,7 +417,9 @@ pub trait NativeInferenceEngine: Send + Sync {
 pub struct LlamaCppEngine;
 
 impl NativeInferenceEngine for LlamaCppEngine {
-    fn name(&self) -> String { "LlamaCppEngine".to_string() }
+    fn name(&self) -> String {
+        "LlamaCppEngine".to_string()
+    }
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
         // Native Priority: Use the hardened SusiGgufEngine directly
         SusiGgufEngine.run_inference(prompt)
@@ -359,14 +432,17 @@ impl NativeInferenceEngine for LlamaCppEngine {
 pub struct SusiGgufEngine;
 
 impl NativeInferenceEngine for SusiGgufEngine {
-    fn name(&self) -> String { "SusiGgufEngine".to_string() }
+    fn name(&self) -> String {
+        "SusiGgufEngine".to_string()
+    }
 
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
         self.run_inference_stream(prompt, &|_| {})
     }
 
     fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
-        let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task("neural_inference", prompt);
+        let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
+            .register_task("neural_inference", prompt);
 
         // Fast-path bypass for tests to prevent 31B model load timeouts
         // Mandatory for stable CI/CD and hardware-limited test environments
@@ -394,18 +470,23 @@ impl NativeInferenceEngine for SusiGgufEngine {
         println!("- [Inference Substrate] Requesting exclusive access to model weights...");
         let _ = std::io::stdout().flush();
 
-        let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task("neural_inference", prompt);
+        let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
+            .register_task("neural_inference", prompt);
 
         let wait_start = std::time::Instant::now();
         let mut substrate = loop {
             if task_handle.is_cancelled() {
-                return Err(EaiError::inference("Task cancelled or stalled while waiting for model substrate."));
+                return Err(EaiError::inference(
+                    "Task cancelled or stalled while waiting for model substrate.",
+                ));
             }
             match substrate_shared.try_write() {
                 Some(guard) => break guard,
                 None => {
                     if wait_start.elapsed().as_millis() > 1000 {
-                        return Err(EaiError::inference("Model substrate busy (Contention limit reached). Failing fast."));
+                        return Err(EaiError::inference(
+                            "Model substrate busy (Contention limit reached). Failing fast.",
+                        ));
                     }
                     std::thread::sleep(std::time::Duration::from_millis(50));
                 }
@@ -413,16 +494,26 @@ impl NativeInferenceEngine for SusiGgufEngine {
         };
         println!(" [Access Granted]");
 
-        println!("- [Inference Substrate] Loading tokenizer from {}...", tokenizer_path.display());
+        println!(
+            "- [Inference Substrate] Loading tokenizer from {}...",
+            tokenizer_path.display()
+        );
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| EaiError::inference(format!("Tokenizer Error: {}", e)))?;
 
-        println!("- [Inference Substrate] Encoding prompt (Length: {} chars)...", prompt.len());
-        let tokens = tokenizer.encode(prompt, true)
+        println!(
+            "- [Inference Substrate] Encoding prompt (Length: {} chars)...",
+            prompt.len()
+        );
+        let tokens = tokenizer
+            .encode(prompt, true)
             .map_err(|e| EaiError::inference(format!("Tokenization Error: {}", e)))?;
 
         let prompt_tokens = tokens.get_ids();
-        println!("- [Inference Substrate] Prompt encoded into {} tokens.", prompt_tokens.len());
+        println!(
+            "- [Inference Substrate] Prompt encoded into {} tokens.",
+            prompt_tokens.len()
+        );
         let mut all_tokens = vec![];
         let mut tokens_to_process = prompt_tokens.to_vec();
 
@@ -435,7 +526,9 @@ impl NativeInferenceEngine for SusiGgufEngine {
             if task_handle.is_cancelled() {
                 task_handle.mark_failed("Inference cancelled or stalled");
                 println!("\n- [Substrate Warning] Neural generation cancelled/stalled.");
-                return Err(EaiError::inference("Inference task cancelled or stalled by Swarm Watchdog."));
+                return Err(EaiError::inference(
+                    "Inference task cancelled or stalled by Swarm Watchdog.",
+                ));
             }
 
             if i % 10 == 0 && i > 0 {
@@ -448,16 +541,22 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 .unsqueeze(0)?;
 
             // KV-Cache Positioning (Correct Synchronization)
-            let pos = if i == 0 { 0 } else { prompt_tokens.len() + i - 1 };
+            let pos = if i == 0 {
+                0
+            } else {
+                prompt_tokens.len() + i - 1
+            };
 
             let logits = match &mut *substrate {
-                ModelSubstrate::Llama(w) | ModelSubstrate::Gemma(w) | ModelSubstrate::Generic(w) => {
-                    w.forward(&input, pos)
-                }
-            }.map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
+                ModelSubstrate::Llama(w)
+                | ModelSubstrate::Gemma(w)
+                | ModelSubstrate::Generic(w) => w.forward(&input, pos),
+            }
+            .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
 
             // Absolute Rank-Safe Token Extraction (Aspiration 8)
-            let mut t = logits.argmax(candle_core::D::Minus1)
+            let mut t = logits
+                .argmax(candle_core::D::Minus1)
                 .map_err(|e| EaiError::inference(format!("Argmax failed: {}", e)))?;
 
             while t.rank() > 0 {
@@ -465,24 +564,28 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 t = t.get(dims[0] - 1)?;
             }
 
-            let next_token = t.to_vec0::<u32>()
+            let next_token = t
+                .to_vec0::<u32>()
                 .map_err(|e| EaiError::inference(format!("Token extraction failed: {}", e)))?;
 
             all_tokens.push(next_token);
             task_handle.report_progress();
 
             // Universal EOS Detection
-            if next_token == 1 || next_token == 2 || next_token == 32000 || next_token == 151643 { break; }
+            if next_token == 1 || next_token == 2 || next_token == 32000 || next_token == 151643 {
+                break;
+            }
 
             // Stream token immediately (Mandate 28)
             if let Ok(piece) = tokenizer.decode(&[next_token], true) {
-                 callback(piece);
+                callback(piece);
             }
 
             tokens_to_process = vec![next_token];
         }
 
-        let output = tokenizer.decode(&all_tokens, true)
+        let output = tokenizer
+            .decode(&all_tokens, true)
             .map_err(|e| EaiError::inference(format!("Decoding Error: {}", e)))?;
         task_handle.mark_completed(&output);
         Ok(output)
@@ -513,7 +616,10 @@ mod tests {
 
     #[test]
     fn test_native_tokenization() {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let tokenizer_path = home.join(".susi/models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);

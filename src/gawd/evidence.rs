@@ -1,16 +1,29 @@
 // SUSI Evidence Intermediate Representation (Evidence IR)
 // Architecture Refinement: Structured Provenance & Claim Verification
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EvidenceSource {
-    File { path: PathBuf, hash: String },
-    Command { command: String, exit_code: i32, output_hash: String },
-    System { metric: String, value: String },
-    AgentObservation { observation: String, reasoning_trace: String },
+    File {
+        path: PathBuf,
+        hash: String,
+    },
+    Command {
+        command: String,
+        exit_code: i32,
+        output_hash: String,
+    },
+    System {
+        metric: String,
+        value: String,
+    },
+    AgentObservation {
+        observation: String,
+        reasoning_trace: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,7 +45,14 @@ pub struct EvidenceRecord {
 }
 
 impl EvidenceRecord {
-    pub fn new(agent_id: String, rank: f32, timestamp: u64, claim: Claim, source: EvidenceSource, confidence: f32) -> Self {
+    pub fn new(
+        agent_id: String,
+        rank: f32,
+        timestamp: u64,
+        claim: Claim,
+        source: EvidenceSource,
+        confidence: f32,
+    ) -> Self {
         let mut record = EvidenceRecord {
             agent_id,
             rank,
@@ -74,7 +94,9 @@ impl EvidenceRecord {
         match &self.source {
             EvidenceSource::File { path, hash } => {
                 let target = workspace.join(path);
-                if !target.exists() { return false; }
+                if !target.exists() {
+                    return false;
+                }
                 if let Ok(content) = std::fs::read(target) {
                     let mut hasher = Sha256::new();
                     hasher.update(content);
@@ -83,9 +105,7 @@ impl EvidenceRecord {
                 }
                 false
             }
-            EvidenceSource::Command { exit_code, .. } => {
-                *exit_code == 0
-            }
+            EvidenceSource::Command { exit_code, .. } => *exit_code == 0,
             _ => true,
         }
     }

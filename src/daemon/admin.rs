@@ -1,10 +1,10 @@
 // SUSI Native Administrative Substrate
 // 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
 
+use crate::error::{EaiError, EaiResult};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use crate::error::{EaiError, EaiResult};
 
 pub struct SusiAdmin;
 
@@ -13,7 +13,7 @@ impl SusiAdmin {
     pub fn audit_compliance(workspace: &Path, target: Option<&str>) -> EaiResult<String> {
         let mut report = "# SUSI Compliance Audit\n\n".to_string();
         if let Some(t) = target {
-             report.push_str(&format!("Target: {}\n\n", t));
+            report.push_str(&format!("Target: {}\n\n", t));
         }
         let mut overall_success = true;
 
@@ -26,7 +26,11 @@ impl SusiAdmin {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                if path.is_file() && !file_name.contains("security.rs") && !file_name.contains("admin.rs") && !file_name.contains("manager.rs") {
+                if path.is_file()
+                    && !file_name.contains("security.rs")
+                    && !file_name.contains("admin.rs")
+                    && !file_name.contains("manager.rs")
+                {
                     if let Ok(content) = fs::read_to_string(&path) {
                         for p in patterns {
                             if content.contains(p) {
@@ -63,28 +67,47 @@ impl SusiAdmin {
         } else {
             for v in model_verifications {
                 let status = if v.checksum_verified { "PASS" } else { "FAIL" };
-                report.push_str(&format!("- [{}] Model Integrity: {} (Verified: {})\n", status, v.model_id, v.checksum_verified));
-                if !v.checksum_verified { overall_success = false; }
+                report.push_str(&format!(
+                    "- [{}] Model Integrity: {} (Verified: {})\n",
+                    status, v.model_id, v.checksum_verified
+                ));
+                if !v.checksum_verified {
+                    overall_success = false;
+                }
             }
         }
 
         // 4. Binary Integrity Check (Aspiration 4)
         if let Ok(current_exe) = std::env::current_exe() {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
-            match crate::daemon::server::SusiDaemon::verify_binary_integrity(&current_exe, &global_dir) {
-                Ok(true) => report.push_str("- [PASS] Binary Integrity: Executable hash matches trusted genome.\n"),
+            match crate::daemon::server::SusiDaemon::verify_binary_integrity(
+                &current_exe,
+                &global_dir,
+            ) {
+                Ok(true) => report.push_str(
+                    "- [PASS] Binary Integrity: Executable hash matches trusted genome.\n",
+                ),
                 Ok(false) => {
                     report.push_str("- [FAIL] Binary Integrity: Executable hash MISMATCH. Potential tampering or build drift.\n");
                     overall_success = false;
                 }
-                Err(e) => report.push_str(&format!("- [WARNING] Binary Integrity: Could not verify ({})\n", e)),
+                Err(e) => report.push_str(&format!(
+                    "- [WARNING] Binary Integrity: Could not verify ({})\n",
+                    e
+                )),
             }
         }
 
         // 5. Version Consistency (Rule 1)
         match Self::enforce_version_consistency(workspace) {
-            Ok(v) => report.push_str(&format!("- [PASS] Version Consistency: All manifests synchronized to v{}.\n", v)),
+            Ok(v) => report.push_str(&format!(
+                "- [PASS] Version Consistency: All manifests synchronized to v{}.\n",
+                v
+            )),
             Err(e) => {
                 report.push_str(&format!("- [FAIL] Version Consistency: {}\n", e));
                 overall_success = false;
@@ -94,7 +117,10 @@ impl SusiAdmin {
         if overall_success {
             Ok(report)
         } else {
-            Err(EaiError::governance(format!("Compliance Audit Failed:\n{}", report)))
+            Err(EaiError::governance(format!(
+                "Compliance Audit Failed:\n{}",
+                report
+            )))
         }
     }
 
@@ -103,7 +129,8 @@ impl SusiAdmin {
         let cargo_toml_path = workspace.join("Cargo.toml");
         let content = fs::read_to_string(&cargo_toml_path)?;
 
-        let version = content.lines()
+        let version = content
+            .lines()
             .find(|l| l.trim().starts_with("version = \""))
             .and_then(|l| l.split('"').nth(1))
             .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
@@ -159,7 +186,9 @@ impl SusiAdmin {
 
                     if in_frontmatter && trimmed.starts_with("version = \"") {
                         updated.push(format!("version = \"{}\"", version));
-                    } else if !in_frontmatter && trimmed.starts_with("* **Current Engine Version**: `v") {
+                    } else if !in_frontmatter
+                        && trimmed.starts_with("* **Current Engine Version**: `v")
+                    {
                         updated.push(format!("* **Current Engine Version**: `v{}`", version));
                     } else {
                         updated.push(line.to_string());
@@ -175,17 +204,22 @@ impl SusiAdmin {
 
         // 4. Update Binary Integrity Hash
         if let Ok(current_exe) = std::env::current_exe() {
-            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(std::path::PathBuf::from).unwrap_or_else(|| std::path::PathBuf::from("."));
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
             let _ = fs::create_dir_all(&global_dir);
             let hash_file = global_dir.join("binary.hash");
 
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             if let Ok(mut file) = fs::File::open(&current_exe) {
                 let mut hasher = Sha256::new();
                 let mut buffer = [0u8; 65536];
                 while let Ok(n) = std::io::Read::read(&mut file, &mut buffer) {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     hasher.update(&buffer[..n]);
                 }
                 let hash = format!("{:x}", hasher.finalize());
@@ -208,7 +242,8 @@ impl SusiAdmin {
         let cargo_toml_path = workspace.join("Cargo.toml");
         let content = fs::read_to_string(&cargo_toml_path)?;
 
-        let version = content.lines()
+        let version = content
+            .lines()
             .find(|l| l.trim().starts_with("version = \""))
             .and_then(|l| l.split('"').nth(1))
             .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
@@ -232,7 +267,10 @@ impl SusiAdmin {
                 let expected_line = format!("version = \"{}\"", version);
                 let expected_legacy = format!("* **Current Engine Version**: `v{}`", version);
                 if !content.contains(&expected_line) && !content.contains(&expected_legacy) {
-                    return Err(EaiError::config(format!("{}: version is out of sync with Cargo.toml (v{}). Run 'susi admin sync'.", file_name, version)));
+                    return Err(EaiError::config(format!(
+                        "{}: version is out of sync with Cargo.toml (v{}). Run 'susi admin sync'.",
+                        file_name, version
+                    )));
                 }
             }
         }
@@ -252,17 +290,30 @@ impl SusiAdmin {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(EaiError::process(format!("Release aborted: Native tests failed.\n{}", stderr)));
+            return Err(EaiError::process(format!(
+                "Release aborted: Native tests failed.\n{}",
+                stderr
+            )));
         }
 
         eprintln!("[Release Gatekeeper] 3. Executing Static Analysis (Clippy)...");
         let clippy = Command::new("cargo")
-            .args(["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"])
+            .args([
+                "clippy",
+                "--all-targets",
+                "--all-features",
+                "--",
+                "-D",
+                "warnings",
+            ])
             .current_dir(workspace)
             .output()?;
         if !clippy.status.success() {
             let stderr = String::from_utf8_lossy(&clippy.stderr);
-            return Err(EaiError::process(format!("Release aborted: Linting failed.\n{}", stderr)));
+            return Err(EaiError::process(format!(
+                "Release aborted: Linting failed.\n{}",
+                stderr
+            )));
         }
 
         eprintln!("[Release Gatekeeper] 4. Verifying Ephemeral Mission Protocols...");
@@ -275,7 +326,10 @@ impl SusiAdmin {
 
             if !mission_out.status.success() {
                 let stderr = String::from_utf8_lossy(&mission_out.stderr);
-                return Err(EaiError::process(format!("Release aborted: Ephemeral mission '{}' failed.\n{}", mission, stderr)));
+                return Err(EaiError::process(format!(
+                    "Release aborted: Ephemeral mission '{}' failed.\n{}",
+                    mission, stderr
+                )));
             }
         }
 
@@ -288,21 +342,34 @@ impl SusiAdmin {
         let lower = trimmed.to_lowercase();
 
         // Fast-Path Reflex for Standard Queries/Motions
-        if lower == "identity" || lower == "status" || lower == "models" || lower == "version" ||
-           lower == "ls" || lower.starts_with("ls ") || lower == "dir" ||
-           lower.contains("who am i") || lower.contains("whoami") ||
-           lower.starts_with("susi status") || lower.starts_with("susi identity") || lower.starts_with("susi models") {
+        if lower == "identity"
+            || lower == "status"
+            || lower == "models"
+            || lower == "version"
+            || lower == "ls"
+            || lower.starts_with("ls ")
+            || lower == "dir"
+            || lower.contains("who am i")
+            || lower.contains("whoami")
+            || lower.starts_with("susi status")
+            || lower.starts_with("susi identity")
+            || lower.starts_with("susi models")
+        {
             return ("[QUERY]", "Zero-Mutation Interrogation");
         }
 
-        if lower.contains("motion") || lower.contains("architecture") || lower.contains("hardcode") {
+        if lower.contains("motion") || lower.contains("architecture") || lower.contains("hardcode")
+        {
             return ("[MOTION]", "Architectural Evolution");
         }
 
         // Tier 0 Neural Reflex Attempt via Local Alpha Model
         if let Ok(reflex_action) = crate::gemi::pulse::SusiPulse::reason(trimmed, workspace) {
             let reflex_lower = reflex_action.to_lowercase();
-            if reflex_lower.contains("query") || reflex_lower.contains("status") || reflex_lower.contains("identity") {
+            if reflex_lower.contains("query")
+                || reflex_lower.contains("status")
+                || reflex_lower.contains("identity")
+            {
                 return ("[QUERY]", "Zero-Mutation Interrogation");
             } else if reflex_lower.contains("motion") || reflex_lower.contains("recompile") {
                 return ("[MOTION]", "Architectural Evolution");
@@ -324,9 +391,12 @@ impl SusiAdmin {
         if !evidence_path.exists() {
             evidence_path = workspace.join(".susi/EVIDENCE.md");
             if !evidence_path.exists() {
-                 // Synthesize a new local evidence from hard-compiled genome if missing
-                 let _ = fs::create_dir_all(workspace.join(".susi"));
-                 fs::write(&evidence_path, crate::gawd::self_core::AlphaSelf::EVIDENCE_MD)?;
+                // Synthesize a new local evidence from hard-compiled genome if missing
+                let _ = fs::create_dir_all(workspace.join(".susi"));
+                fs::write(
+                    &evidence_path,
+                    crate::gawd::self_core::AlphaSelf::EVIDENCE_MD,
+                )?;
             }
         }
 
@@ -339,19 +409,28 @@ impl SusiAdmin {
 
         // 2.5 Prevent Duplicate Intent Ingestion
         let intent_trimmed = intent.trim().to_lowercase();
-        let is_duplicate = lines.iter().any(|l| l.to_lowercase().contains(&intent_trimmed));
+        let is_duplicate = lines
+            .iter()
+            .any(|l| l.to_lowercase().contains(&intent_trimmed));
 
         if is_duplicate {
-            return Ok(format!("Intent '{}' is already present in memory ({})", intent, prefix));
+            return Ok(format!(
+                "Intent '{}' is already present in memory ({})",
+                intent, prefix
+            ));
         }
 
-        let last_index = lines.iter()
+        let last_index = lines
+            .iter()
             .filter_map(|l| {
                 if l.contains("EV-") {
-                     let parts: Vec<&str> = l.split('|').collect();
-                     if parts.len() > 1 {
-                         return parts[1].split('-').last().and_then(|s| s.trim().parse::<usize>().ok());
-                     }
+                    let parts: Vec<&str> = l.split('|').collect();
+                    if parts.len() > 1 {
+                        return parts[1]
+                            .split('-')
+                            .last()
+                            .and_then(|s| s.trim().parse::<usize>().ok());
+                    }
                 }
                 None
             })
@@ -362,7 +441,10 @@ impl SusiAdmin {
         let version_suffix = "2022920"; // Update dynamically if possible
         let id = format!("EV-{}-{:03}", version_suffix, new_index);
 
-        let entry = format!("| {} | {} | {} | [manual](symbol://manual) | STAGED |", id, prefix, intent);
+        let entry = format!(
+            "| {} | {} | {} | [manual](symbol://manual) | STAGED |",
+            id, prefix, intent
+        );
 
         // 3. Inject into Section 1 (Pending)
         let mut section1_start = None;
@@ -374,18 +456,24 @@ impl SusiAdmin {
         }
 
         if let Some(start) = section1_start {
-             let mut insert_pos = start + 1;
-             while insert_pos < lines.len() && (lines[insert_pos].trim().is_empty() || lines[insert_pos].trim().starts_with("---")) {
-                 insert_pos += 1;
-             }
-             lines.insert(insert_pos, entry);
+            let mut insert_pos = start + 1;
+            while insert_pos < lines.len()
+                && (lines[insert_pos].trim().is_empty()
+                    || lines[insert_pos].trim().starts_with("---"))
+            {
+                insert_pos += 1;
+            }
+            lines.insert(insert_pos, entry);
         } else {
             lines.push(entry);
         }
 
         fs::write(&evidence_path, lines.join("\n") + "\n")?;
 
-        Ok(format!("Intent ingested successfully as {} into sovereign memory", prefix))
+        Ok(format!(
+            "Intent ingested successfully as {} into sovereign memory",
+            prefix
+        ))
     }
 
     pub fn execute_autonomous_evolution_cycle(workspace: &Path) -> EaiResult<String> {

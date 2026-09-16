@@ -1,15 +1,15 @@
 // GMCP Universal Client: Bridges SUSI to Industry Protocol Standard MCP Servers
 // 100% Rust implementation for Meta-Orchestrated Multi-Server Substrates
 
+use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use serde_json::json;
 
 use super::tools::McpTool;
-use super::{GlobalMcpEntry, McpServerConfig, McpConfig};
+use super::{GlobalMcpEntry, McpConfig, McpServerConfig};
 
 pub struct GmcpClient;
 
@@ -76,7 +76,8 @@ impl GmcpClient {
         let home = std::env::var("HOME").unwrap_or_default();
         let global_dir = PathBuf::from(home).join(".susi");
         let registry_path = global_dir.join("global_mcp_registry.json");
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir)
+            .expect("Fatal: Malformed configuration");
 
         // 1. Instant Non-Blocking Local Cache Read (Aspiration 22 & <2ms Reflex Mandate)
         if registry_path.is_file() {
@@ -84,28 +85,46 @@ impl GmcpClient {
                 if let Ok(local_entries) = serde_json::from_str::<Vec<GlobalMcpEntry>>(&content) {
                     if !local_entries.is_empty() {
                         // Refresh cache only if older than 24 hours
-                        let is_stale = registry_path.metadata()
+                        let is_stale = registry_path
+                            .metadata()
                             .and_then(|m| m.modified())
                             .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
                             .unwrap_or(false);
 
-                        static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                        if is_stale && !REGISTRY_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool =
+                            std::sync::atomic::AtomicBool::new(false);
+                        if is_stale
+                            && !REGISTRY_FETCH_RUNNING
+                                .swap(true, std::sync::atomic::Ordering::SeqCst)
+                        {
                             let url = cfg.mcp_registry_url.clone();
                             let reg_p = registry_path.clone();
                             std::thread::spawn(move || {
                                 struct FetchGuard;
                                 impl Drop for FetchGuard {
                                     fn drop(&mut self) {
-                                        REGISTRY_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                                        REGISTRY_FETCH_RUNNING
+                                            .store(false, std::sync::atomic::Ordering::SeqCst);
                                     }
                                 }
                                 let _guard = FetchGuard;
-                                if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(500)).call() {
+                                if let Ok(resp) = ureq::get(&url)
+                                    .set("User-Agent", "SUSI/0.1")
+                                    .timeout(std::time::Duration::from_millis(500))
+                                    .call()
+                                {
                                     let mut reader = resp.into_reader();
-                                    if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
+                                    if let Ok(remote_entries) =
+                                        serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(
+                                            &mut reader,
+                                        )
+                                    {
                                         if !remote_entries.is_empty() {
-                                            let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+                                            let _ = fs::write(
+                                                &reg_p,
+                                                serde_json::to_string_pretty(&remote_entries)
+                                                    .unwrap_or_default(),
+                                            );
                                         }
                                     }
                                 }
@@ -119,10 +138,14 @@ impl GmcpClient {
 
         // 2. Fallback to Bootstrap Config (Sub-1ms Instant Return)
         let entries = cfg.bootstrap_mcp_servers.clone();
-        let _ = fs::write(&registry_path, serde_json::to_string_pretty(&entries).unwrap_or_default());
+        let _ = fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&entries).unwrap_or_default(),
+        );
 
         // Spawn background fetch for initial registry population
-        static INIT_FETCH_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        static INIT_FETCH_RUNNING: std::sync::atomic::AtomicBool =
+            std::sync::atomic::AtomicBool::new(false);
         if !INIT_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let url = cfg.mcp_registry_url;
             let reg_p = registry_path;
@@ -134,11 +157,20 @@ impl GmcpClient {
                     }
                 }
                 let _guard = InitGuard;
-                if let Ok(resp) = ureq::get(&url).set("User-Agent", "SUSI/0.1").timeout(std::time::Duration::from_millis(1000)).call() {
+                if let Ok(resp) = ureq::get(&url)
+                    .set("User-Agent", "SUSI/0.1")
+                    .timeout(std::time::Duration::from_millis(1000))
+                    .call()
+                {
                     let mut reader = resp.into_reader();
-                    if let Ok(remote_entries) = serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader) {
+                    if let Ok(remote_entries) =
+                        serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader)
+                    {
                         if !remote_entries.is_empty() {
-                            let _ = fs::write(&reg_p, serde_json::to_string_pretty(&remote_entries).unwrap_or_default());
+                            let _ = fs::write(
+                                &reg_p,
+                                serde_json::to_string_pretty(&remote_entries).unwrap_or_default(),
+                            );
                         }
                     }
                 }
@@ -151,9 +183,13 @@ impl GmcpClient {
     pub fn auto_configure_server(name: &str, package: &str) -> String {
         let config_path = Self::get_config_path();
         let mut config = if let Ok(content) = fs::read_to_string(&config_path) {
-            serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig { mcp_servers: HashMap::new() })
+            serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig {
+                mcp_servers: HashMap::new(),
+            })
         } else {
-            McpConfig { mcp_servers: HashMap::new() }
+            McpConfig {
+                mcp_servers: HashMap::new(),
+            }
         };
 
         // Meta Execution Scout: Identify best-suited executor for the host environment
@@ -162,16 +198,31 @@ impl GmcpClient {
 
         let (cmd, args) = if package.starts_with("pypi:") || package.contains("python") {
             if has_uvx {
-                ("uvx".to_string(), vec![package.trim_start_matches("pypi:").to_string()])
+                (
+                    "uvx".to_string(),
+                    vec![package.trim_start_matches("pypi:").to_string()],
+                )
             } else if has_npx {
-                ("npx".to_string(), vec!["-y".to_string(), package.to_string()])
+                (
+                    "npx".to_string(),
+                    vec!["-y".to_string(), package.to_string()],
+                )
             } else {
-                ("python3".to_string(), vec!["-m".to_string(), package.to_string()])
+                (
+                    "python3".to_string(),
+                    vec!["-m".to_string(), package.to_string()],
+                )
             }
         } else if has_npx {
-            ("npx".to_string(), vec!["-y".to_string(), package.to_string()])
+            (
+                "npx".to_string(),
+                vec!["-y".to_string(), package.to_string()],
+            )
         } else {
-            ("susi".to_string(), vec!["mcp".to_string(), name.to_string()])
+            (
+                "susi".to_string(),
+                vec!["mcp".to_string(), name.to_string()],
+            )
         };
 
         let new_srv = McpServerConfig {
@@ -202,7 +253,12 @@ impl GmcpClient {
         let config_path = Self::get_config_path();
         let config_content = match fs::read_to_string(&config_path) {
             Ok(c) => c,
-            Err(_) => return format!("[FAIL] MCP Error: Config not found at {}", config_path.display()),
+            Err(_) => {
+                return format!(
+                    "[FAIL] MCP Error: Config not found at {}",
+                    config_path.display()
+                )
+            }
         };
 
         let config: McpConfig = match serde_json::from_str(&config_content) {
@@ -212,7 +268,12 @@ impl GmcpClient {
 
         let srv = match config.mcp_servers.get(server_name) {
             Some(s) => s,
-            None => return format!("[FAIL] MCP Error: Server '{}' not found in config.", server_name),
+            None => {
+                return format!(
+                    "[FAIL] MCP Error: Server '{}' not found in config.",
+                    server_name
+                )
+            }
         };
 
         Self::proxy_call(srv, tool_name, args)
@@ -228,10 +289,11 @@ impl GmcpClient {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn() {
-                Ok(c) => c,
-                Err(e) => return format!("[FAIL] MCP Error: Failed to spawn '{}': {}", srv.command, e),
-            };
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return format!("[FAIL] MCP Error: Failed to spawn '{}': {}", srv.command, e),
+        };
 
         let stdin = child.stdin.as_mut().unwrap();
         let stdout = child.stdout.as_mut().unwrap();
@@ -263,12 +325,13 @@ impl GmcpClient {
             context_aware_args = json!({
                 "intent": args_json,
                 "workspace_context": context,
-            }).to_string();
+            })
+            .to_string();
         }
 
         let params = match serde_json::from_str::<serde_json::Value>(&context_aware_args) {
             Ok(v) => v,
-            Err(_) => json!({ "input": &context_aware_args })
+            Err(_) => json!({ "input": &context_aware_args }),
         };
 
         let call_req = json!({
@@ -285,7 +348,13 @@ impl GmcpClient {
         let _ = writeln!(stdin, "{}", call_req);
         if reader.read_line(&mut line).is_ok() {
             let resp: serde_json::Value = serde_json::from_str(&line).unwrap_or(json!({}));
-            if let Some(content) = resp.get("result").and_then(|r| r.get("content")).and_then(|c| c.get(0)).and_then(|i| i.get("text")).and_then(|t| t.as_str()) {
+            if let Some(content) = resp
+                .get("result")
+                .and_then(|r| r.get("content"))
+                .and_then(|c| c.get(0))
+                .and_then(|i| i.get("text"))
+                .and_then(|t| t.as_str())
+            {
                 return content.to_string();
             }
             return format!("[MCP Proxy Response]: {}", line.trim());
@@ -301,7 +370,12 @@ impl GmcpClient {
         let sse_url = format!("{}/sse", base_url);
         let resp = match ureq::get(&sse_url).call() {
             Ok(r) => r,
-            Err(e) => return format!("[FAIL] MCP Web Error: Failed to connect to {}: {}", sse_url, e),
+            Err(e) => {
+                return format!(
+                    "[FAIL] MCP Web Error: Failed to connect to {}: {}",
+                    sse_url, e
+                )
+            }
         };
 
         let mut reader = BufReader::new(resp.into_reader());
@@ -309,7 +383,9 @@ impl GmcpClient {
 
         let mut line = String::new();
         while let Ok(len) = reader.read_line(&mut line) {
-            if len == 0 { break; }
+            if len == 0 {
+                break;
+            }
             if line.starts_with("event: endpoint") {
                 line.clear();
                 if reader.read_line(&mut line).is_ok() && line.starts_with("data: ") {
@@ -328,12 +404,13 @@ impl GmcpClient {
             context_aware_args = json!({
                 "intent": args_json,
                 "workspace_context": context,
-            }).to_string();
+            })
+            .to_string();
         }
 
         let params = match serde_json::from_str::<serde_json::Value>(&context_aware_args) {
             Ok(v) => v,
-            Err(_) => json!({ "input": &context_aware_args })
+            Err(_) => json!({ "input": &context_aware_args }),
         };
 
         let call_req = json!({
@@ -349,11 +426,17 @@ impl GmcpClient {
         match ureq::post(&endpoint).send_json(call_req) {
             Ok(resp) => {
                 let v: serde_json::Value = resp.into_json().unwrap_or(json!({}));
-                if let Some(content) = v.get("result").and_then(|r| r.get("content")).and_then(|c| c.get(0)).and_then(|i| i.get("text")).and_then(|t| t.as_str()) {
+                if let Some(content) = v
+                    .get("result")
+                    .and_then(|r| r.get("content"))
+                    .and_then(|c| c.get(0))
+                    .and_then(|i| i.get("text"))
+                    .and_then(|t| t.as_str())
+                {
                     return content.to_string();
                 }
                 format!("[MCP Web Response]: {:?}", v)
-            },
+            }
             Err(e) => format!("[FAIL] MCP Web Error: POST {} failed: {}", endpoint, e),
         }
     }
@@ -382,7 +465,9 @@ impl GmcpClient {
 
     fn gather_workspace_context() -> serde_json::Value {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let src_count = std::fs::read_dir(cwd.join("src")).map(|d| d.count()).unwrap_or(0);
+        let src_count = std::fs::read_dir(cwd.join("src"))
+            .map(|d| d.count())
+            .unwrap_or(0);
         let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
 
         json!({
@@ -412,12 +497,19 @@ impl GmcpClient {
 
         // Rank by Trust and Latency
         entries.sort_by(|a, b| {
-            let a_val = a.trust_score.unwrap_or(0.0) - (a.latency_ms.unwrap_or(1000) as f32 / 10000.0);
-            let b_val = b.trust_score.unwrap_or(0.0) - (b.latency_ms.unwrap_or(1000) as f32 / 10000.0);
-            b_val.partial_cmp(&a_val).unwrap_or(std::cmp::Ordering::Equal)
+            let a_val =
+                a.trust_score.unwrap_or(0.0) - (a.latency_ms.unwrap_or(1000) as f32 / 10000.0);
+            let b_val =
+                b.trust_score.unwrap_or(0.0) - (b.latency_ms.unwrap_or(1000) as f32 / 10000.0);
+            b_val
+                .partial_cmp(&a_val)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let _ = fs::write(&registry_path, serde_json::to_string_pretty(&entries).unwrap_or_default());
+        let _ = fs::write(
+            &registry_path,
+            serde_json::to_string_pretty(&entries).unwrap_or_default(),
+        );
         entries
     }
 
@@ -434,7 +526,11 @@ impl GmcpClient {
         }
 
         let latency = start.elapsed().as_millis() as u64;
-        let trust = if name.contains("filesystem") || name.contains("git") { 0.95 } else { 0.80 };
+        let trust = if name.contains("filesystem") || name.contains("git") {
+            0.95
+        } else {
+            0.80
+        };
 
         (trust, latency)
     }
