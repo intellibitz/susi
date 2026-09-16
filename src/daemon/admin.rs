@@ -213,17 +213,7 @@ impl SusiAdmin {
             let _ = fs::create_dir_all(&global_dir);
             let hash_file = global_dir.join("binary.hash");
 
-            use sha2::{Digest, Sha256};
-            if let Ok(mut file) = fs::File::open(&current_exe) {
-                let mut hasher = Sha256::new();
-                let mut buffer = [0u8; 65536];
-                while let Ok(n) = std::io::Read::read(&mut file, &mut buffer) {
-                    if n == 0 {
-                        break;
-                    }
-                    hasher.update(&buffer[..n]);
-                }
-                let hash = format!("{:x}", hasher.finalize());
+            if let Ok(hash) = crate::daemon::server::SusiDaemon::calculate_binary_hash(&current_exe) {
                 let _ = fs::write(&hash_file, hash);
             }
         }
@@ -279,11 +269,30 @@ impl SusiAdmin {
         Ok(())
     }
 
+    /// Motion Rule (IDENTITY.md ENGINE-3): cargo check -> cargo test -> release
+    /// audit/lint/smoke -> susi admin sync -> git push, as one gated sequence.
+    /// Each step must pass before the next runs; a git push failure (e.g. no
+    /// configured upstream, diverged history) is reported as an error rather
+    /// than silently swallowed, since the caller needs to know deployment did
+    /// not complete.
     pub fn execute_release(workspace: &Path) -> EaiResult<String> {
-        eprintln!("[Release Gatekeeper] 1. Executing Compliance Audit...");
+        eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
+        let check = Command::new("cargo")
+            .args(["check", "--all-targets", "--all-features"])
+            .current_dir(workspace)
+            .output()?;
+        if !check.status.success() {
+            let stderr = String::from_utf8_lossy(&check.stderr);
+            return Err(EaiError::process(format!(
+                "Release aborted: cargo check failed.\n{}",
+                stderr
+            )));
+        }
+
+        eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
-        eprintln!("[Release Gatekeeper] 2. Executing Native Test Harness...");
+        eprintln!("[Release Gatekeeper] 3. Executing Native Test Harness...");
         let output = Command::new("cargo")
             .arg("test")
             .current_dir(workspace)
@@ -297,7 +306,7 @@ impl SusiAdmin {
             )));
         }
 
-        eprintln!("[Release Gatekeeper] 3. Executing Static Analysis (Clippy)...");
+        eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
         let clippy = Command::new("cargo")
             .args([
                 "clippy",
@@ -317,7 +326,7 @@ impl SusiAdmin {
             )));
         }
 
-        eprintln!("[Release Gatekeeper] 4. Verifying Ephemeral Mission Protocols...");
+        eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
         let missions = ["identity", "status", "models"];
         for mission in missions {
             let mission_out = Command::new("cargo")
@@ -334,7 +343,43 @@ impl SusiAdmin {
             }
         }
 
-        Ok("Release sequence verified. Tests, Audits, and Lints passed. Substrate is ready for deployment.".into())
+        eprintln!("[Release Gatekeeper] 6. Synchronizing Substrate Version Manifests (admin sync)...");
+        Self::enforce_version_consistency(workspace)?;
+
+        eprintln!("[Release Gatekeeper] 7. Pushing to Remote (git push)...");
+        let push = Command::new("git")
+            .arg("push")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .current_dir(workspace)
+            .output()?;
+
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        if !push.status.success() {
+            let stderr = String::from_utf8_lossy(&push.stderr);
+            crate::sandbox::manager::SusiAuditLogger::log(
+                &home.join(".susi"),
+                crate::sandbox::manager::LogLevel::Axiomatic,
+                "MOTION_RULE_PUSH_FAILED",
+                &format!("git push failed after a clean release/sync: {}", stderr),
+            );
+            return Err(EaiError::process(format!(
+                "Release, tests, and sync succeeded, but git push failed:\n{}",
+                stderr
+            )));
+        }
+
+        crate::sandbox::manager::SusiAuditLogger::log(
+            &home.join(".susi"),
+            crate::sandbox::manager::LogLevel::Axiomatic,
+            "MOTION_RULE_COMPLETE",
+            "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
+        );
+
+        Ok("Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, and push all succeeded. Substrate deployed.".into())
     }
 
     /// Dynamic Neural Cascade Classifier (Tier 0 Reflex -> Tier 2 GEMI -> Motion)

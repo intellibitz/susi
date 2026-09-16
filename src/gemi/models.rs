@@ -304,15 +304,16 @@ impl ModelManager {
             return None;
         }
 
-        let mut ram_budget_gb = (hw.available_ram_gb as f32 - 1.0).max(0.5);
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let heuristics = cfg.model_scoring_heuristics();
+
+        let mut ram_budget_gb = (hw.available_ram_gb as f32 - heuristics.system_ram_buffer_gb).max(0.5);
         if hw.swap_gb > 0 && hw.nvme_active {
             ram_budget_gb += (hw.swap_gb as f32 * 0.5).min(32.0);
         }
 
         let vram_budget_gb = hw.gpu_vram_gb as f32;
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let heuristics = cfg.model_scoring_heuristics();
 
         for m in local_models {
             let mut model_size_gb: f32 = 4.0;
@@ -583,7 +584,7 @@ impl ModelManager {
                 }
             }
         }
-        discovered.sort_by(|a, b| a.model_id().cmp(&b.model_id()));
+        discovered.sort_by(|a, b| a.model_id().cmp(b.model_id()));
         discovered.dedup_by(|a, b| a.model_id() == b.model_id());
 
         {
@@ -977,12 +978,17 @@ impl ModelManager {
     }
 
     fn trigger_ladder_fallback() -> EaiResult<()> {
-        let fallback_url = "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let fallback = cfg.default_fallback_model();
+        let fallback_url = format!(
+            "https://huggingface.co/{}/resolve/main/{}",
+            fallback.hf_repo, fallback.hf_file
+        );
         eprintln!(
             "[Model Manager] Pivoting to 100% public substrate: {}",
             fallback_url
         );
-        let _ = ModelDownloadController::global().start_download(fallback_url);
+        let _ = ModelDownloadController::global().start_download(&fallback_url);
         Ok(())
     }
 

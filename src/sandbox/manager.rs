@@ -29,6 +29,10 @@ pub struct DynamicModelInfo {
 }
 
 impl DynamicModelInfo {
+    // Each parameter maps 1:1 to a distinct serialized field (name/registry/
+    // model_id/...); a builder would just move the same arity into chained
+    // calls at every construction site for no behavioral benefit.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: String,
         registry: String,
@@ -150,13 +154,13 @@ pub struct ChatTemplateConfig {
 
 impl Default for ChatTemplateConfig {
     fn default() -> Self {
-        let mut templates = StringRegistry::new();
-        templates.insert("chatml".to_string(), "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n".to_string());
-        templates.insert("llama3".to_string(), "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n".to_string());
-        templates.insert("mistral".to_string(), "[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{prompt} [/INST]".to_string());
-        templates.insert("gemma".to_string(), "<start_of_turn>user\n{system}\n\n{prompt}<end_of_turn>\n<start_of_turn>model\n".to_string());
-        templates.insert("deepseek_r1".to_string(), "<｜begin of sentence｜><｜User｜>{system}\n\n{prompt}<｜Assistant｜>".to_string());
-        templates.insert("phi3".to_string(), "<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>\n".to_string());
+        // Deserialize directly into the flattened map type, not `Self` — the
+        // container's #[serde(default)] makes Self's Deserialize impl call
+        // Self::default() to backfill missing fields, which would recurse
+        // infinitely (stack overflow) if this constructed a Self via serde_json.
+        let templates: StringRegistry =
+            serde_json::from_str(include_str!("../../chat_templates.default.json"))
+                .expect("Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { templates }
     }
 }
@@ -221,15 +225,31 @@ impl SusiPrompts {
     pub fn load_global() -> Self {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = home.join(".susi/prompts.json");
-        if prompts_file.is_file() {
-            if let Ok(content) = fs::read_to_string(&prompts_file) {
-                if let Ok(p) = serde_json::from_str::<SusiPrompts>(&content) { return p; }
-            }
+        let mut loaded = if prompts_file.is_file() {
+            fs::read_to_string(&prompts_file)
+                .ok()
+                .and_then(|content| serde_json::from_str::<SusiPrompts>(&content).ok())
+        } else {
+            None
+        };
+
+        if loaded.is_none() {
+            let default_prompts = Self::default_dynamic();
+            let _ = fs::create_dir_all(home.join(".susi"));
+            if let Ok(json) = serde_json::to_string_pretty(&default_prompts) { let _ = fs::write(&prompts_file, json); }
+            loaded = Some(default_prompts);
         }
-        let default_prompts = Self::default_dynamic();
-        let _ = fs::create_dir_all(home.join(".susi"));
-        if let Ok(json) = serde_json::to_string_pretty(&default_prompts) { let _ = fs::write(&prompts_file, json); }
-        default_prompts
+        let mut prompts = loaded.expect("checked Some above");
+
+        // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
+        // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
+        let templates_override = home.join(".susi/chat_templates.json");
+        if templates_override.is_file() {
+            prompts.chat_templates = ChatTemplateConfig::from_file(
+                templates_override.to_str().unwrap_or_default(),
+            );
+        }
+        prompts
     }
 
     fn default_dynamic() -> Self {
@@ -424,6 +444,12 @@ pub struct SusiConfig {
 }
 
 impl SusiConfig {
+    // Intentionally shadows the derived Default trait impl (which yields an
+    // empty settings map): this inherent method is the one that loads the
+    // bundled config.default.json, and call sites that need those bundled
+    // values reach it via `Self::default()`/`SusiConfig::default()` rather
+    // than through `Default::default()` trait dispatch.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         serde_json::from_str(include_str!("../../config.default.json"))
             .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
@@ -458,6 +484,14 @@ impl SusiConfig {
         let v = self.settings.get(key)?; serde_json::from_value(v.clone()).ok()
     }
 
+    /// Falls back to the bundled config.default.json's value for `key` (not an
+    /// empty/zeroed struct) when a user's ~/.susi/config.json predates this key
+    /// or omits it — prevents silent no-op governance/routing/scoring on upgrade.
+    fn get_or_bundled_default<T: for<'de> Deserialize<'de> + Default>(&self, key: &str) -> T {
+        self.get(key)
+            .unwrap_or_else(|| Self::default().get(key).unwrap_or_default())
+    }
+
     pub fn get_u16(&self, key: &str, default: u16) -> u16 { self.get(key).unwrap_or(default) }
     pub fn get_u64(&self, key: &str, default: u64) -> u64 { self.get(key).unwrap_or(default) }
     pub fn get_usize(&self, key: &str, default: usize) -> usize { self.get(key).unwrap_or(default) }
@@ -488,16 +522,16 @@ impl SusiConfig {
         self.get("discoverable_assets").unwrap_or_else(|| serde_json::from_str("[]").unwrap())
     }
     pub fn governance(&self) -> GovernancePatterns {
-        self.get("governance").unwrap_or_default()
+        self.get_or_bundled_default("governance")
     }
     pub fn admin_pulses(&self) -> AdminPulsesConfig {
-        self.get("admin_pulses").unwrap_or_default()
+        self.get_or_bundled_default("admin_pulses")
     }
     pub fn alpha_weights_url(&self) -> String {
         self.get_string("alpha_weights_url", "")
     }
     pub fn inference_endpoints(&self) -> InferenceEndpointsConfig {
-        self.get("inference_endpoints").unwrap_or_default()
+        self.get_or_bundled_default("inference_endpoints")
     }
     pub fn agent_rank_threshold(&self) -> f32 {
         self.get_f32("agent_rank_threshold", 0.5)
@@ -509,13 +543,19 @@ impl SusiConfig {
         self.get_usize("reflex_training_threshold", 5)
     }
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
-        self.get("model_ladder").unwrap_or_default()
+        self.get_or_bundled_default("model_ladder")
+    }
+    pub fn default_fallback_model(&self) -> ModelLadderConfigStep {
+        self.get_or_bundled_default("default_fallback_model")
+    }
+    pub fn admin_command_routing(&self) -> HashMap<String, Vec<Vec<String>>> {
+        self.get_or_bundled_default("admin_command_routing")
     }
     pub fn agent_routing(&self) -> HashMap<String, Vec<String>> {
-        self.get("agent_routing").unwrap_or_default()
+        self.get_or_bundled_default("agent_routing")
     }
     pub fn model_scoring_heuristics(&self) -> ModelScoringHeuristics {
-        self.get("model_scoring_heuristics").unwrap_or_default()
+        self.get_or_bundled_default("model_scoring_heuristics")
     }
 }
 
@@ -634,6 +674,12 @@ impl SusiAuditLogger {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
+
+        // Deterministic credential masking (Mandate 10: No Secret Leaks) — every
+        // telemetry write funnels through here, so this is the one chokepoint
+        // that guarantees secrets never reach the persistent audit trail.
+        let details = crate::gawd::security::SecurityDetector::redact(details);
+        let details = details.as_str();
 
         let log_entry = serde_json::json!({
             "ts": ts,

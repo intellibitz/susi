@@ -109,6 +109,16 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
 pub struct CoreTools;
 
 impl CoreTools {
+    /// Shared long-lived tokio runtime for tool functions that must bridge into
+    /// async APIs (Docker/Qdrant clients). Avoids constructing/tearing down a
+    /// fresh multi-thread runtime on every call (Mandate 28: Async Defaults).
+    fn shared_runtime() -> &'static tokio::runtime::Runtime {
+        static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+        RT.get_or_init(|| {
+            tokio::runtime::Runtime::new().expect("Fatal: failed to start shared tokio runtime")
+        })
+    }
+
     #[tool(name = "status", description = "SUSI Substrate status report")]
     pub fn status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let hardware = HardwareProfiler::get_profile();
@@ -375,6 +385,9 @@ impl CoreTools {
         if clean.is_empty() {
             return Err(EaiError::protocol("Usage: exec_command <cmd>"));
         }
+
+        crate::gawd::safety::SafetyDetector::audit_action("exec_command", clean, workspace)?;
+        crate::gawd::security::SecurityDetector::audit_action("exec_command", clean, workspace)?;
 
         let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
@@ -777,10 +790,9 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| EaiError::process(e.to_string()))?;
-        rt.block_on(async {
-            crate::sandbox::manager::SandboxManager::execute_in_docker(cmd).await
-        }).map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Docker execution failed: {}. Ensure Docker daemon is running.", e)))
+        Self::shared_runtime()
+            .block_on(async { crate::sandbox::manager::SandboxManager::execute_in_docker(cmd).await })
+            .map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Docker execution failed: {}. Ensure Docker daemon is running.", e)))
     }
 
     #[tool(
@@ -860,8 +872,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::inference("Embedding failed"))?
             .clone();
 
-        let rt = tokio::runtime::Runtime::new().map_err(|e| EaiError::process(e.to_string()))?;
-        rt.block_on(async {
+        Self::shared_runtime().block_on(async {
             let client = Qdrant::from_url("http://localhost:6334")
                 .build()
                 .map_err(|e| {

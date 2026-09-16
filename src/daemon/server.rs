@@ -188,20 +188,14 @@ impl SusiDaemon {
         global_dir.join("binary.hash")
     }
 
+    /// Compares the running binary's SHA-256 against the digest last written to
+    /// `binary.hash` by `susi admin sync` (src/daemon/admin.rs). Both readers and
+    /// writers of this file must agree on one signature format — a `len:mtime`
+    /// shortcut here previously diverged from admin.rs's SHA-256 writer, causing
+    /// a spurious mismatch (self-healing only after one overwrite cycle).
     pub fn verify_binary_integrity(bin_path: &Path, global_dir: &Path) -> EaiResult<bool> {
         let hash_file = Self::get_hash_file(global_dir);
-        let bin_meta = fs::metadata(bin_path)?;
-        let bin_len = bin_meta.len();
-        let bin_mtime = bin_meta
-            .modified()
-            .map(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs()
-            })
-            .unwrap_or(0);
-
-        let current_sig = format!("{}:{}", bin_len, bin_mtime);
+        let current_sig = Self::calculate_binary_hash(bin_path)?;
 
         if hash_file.exists() {
             if let Ok(saved_sig) = fs::read_to_string(&hash_file) {
@@ -217,8 +211,7 @@ impl SusiDaemon {
         Ok(true)
     }
 
-    #[allow(dead_code)]
-    fn calculate_binary_hash(path: &Path) -> EaiResult<String> {
+    pub fn calculate_binary_hash(path: &Path) -> EaiResult<String> {
         use sha2::{Digest, Sha256};
         let mut file = fs::File::open(path)?;
         let mut hasher = Sha256::new();
@@ -452,21 +445,21 @@ impl SusiDaemon {
         port: u16,
         name: &str,
         workspace: &Path,
-    ) -> (tiny_http::Server, u16) {
+    ) -> (std::net::TcpListener, u16) {
         let addr = format!("0.0.0.0:{}", port);
-        match tiny_http::Server::http(&addr) {
-            Ok(server) => (server, port),
+        match std::net::TcpListener::bind(&addr) {
+            Ok(listener) => (listener, port),
             Err(_) => {
                 // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
                 if Self::attempt_port_reclaim(port) {
-                    if let Ok(server) = tiny_http::Server::http(&addr) {
-                        return (server, port);
+                    if let Ok(listener) = std::net::TcpListener::bind(&addr) {
+                        return (listener, port);
                     }
                 }
 
-                let server =
-                    tiny_http::Server::http("0.0.0.0:0").expect("Failed to bind to random port");
-                let new_port = server.server_addr().to_ip().unwrap().port();
+                let listener = std::net::TcpListener::bind("0.0.0.0:0")
+                    .expect("Failed to bind to random port");
+                let new_port = listener.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
@@ -480,7 +473,7 @@ impl SusiDaemon {
                     "[SusiDaemon] {} port collision! Randomized to {}",
                     name, new_port
                 );
-                (server, new_port)
+                (listener, new_port)
             }
         }
     }

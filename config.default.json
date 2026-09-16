@@ -1,4 +1,25 @@
 {
+  "susi_repo": "intellibitz/susi",
+  "agent_rank_threshold": 0.6,
+  "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
+  "max_concurrent_agents": 32,
+  "cloud_scout_timeout_secs": 8,
+  "auto_download_models": true,
+  "default_model": "susi-alpha",
+  "discoverable_assets": [
+    {
+      "name": "SusiReflexCloud-v2",
+      "provider": "SUSI Hub",
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "url": "https://susi.ai/reflex/v2"
+    },
+    {
+      "name": "DistilledRouter-1B",
+      "provider": "HuggingFace",
+      "tier": "Tier 0: SUSI-Alpha (Reflex)",
+      "url": "https://huggingface.co/susi/distilled-router"
+    }
+  ],
   "governance": {
     "critical_system_paths": [
       "/etc/passwd",
@@ -38,6 +59,114 @@
       "-----BEGIN RSA PRIVATE KEY-----"
     ]
   },
+  "gmcp_http_port": 9093,
+  "default_engine": "susi-offline",
+  "admin_command_routing": {
+    "audit": [
+      [
+        "audit"
+      ]
+    ],
+    "deep_scan": [
+      [
+        "deep-scan"
+      ]
+    ],
+    "identity": [
+      [
+        "identity"
+      ]
+    ],
+    "install": [
+      [
+        "initialize"
+      ],
+      [
+        "install"
+      ]
+    ],
+    "list_models": [
+      [
+        "list",
+        "models"
+      ]
+    ],
+    "release": [
+      [
+        "release"
+      ]
+    ],
+    "status_health": [
+      [
+        "status"
+      ],
+      [
+        "health"
+      ]
+    ],
+    "sync": [
+      [
+        "sync"
+      ]
+    ],
+    "uninstall": [
+      [
+        "remove"
+      ],
+      [
+        "uninstall"
+      ]
+    ],
+    "verify": [
+      [
+        "verify"
+      ]
+    ],
+    "version": [
+      [
+        "version"
+      ]
+    ]
+  },
+  "model_ladder": [
+    {
+      "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "label": "1.5B Parameters (Fast Local Edge)",
+      "min_ram_gb": 0,
+      "step": 1
+    },
+    {
+      "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+      "label": "7B Parameters (Mid-Range Desktop)",
+      "min_ram_gb": 8,
+      "step": 2
+    },
+    {
+      "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "label": "14B Parameters (High-Accuracy Workstation)",
+      "min_ram_gb": 16,
+      "step": 3
+    },
+    {
+      "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
+      "label": "32B Parameters (High-End Workstation)",
+      "min_ram_gb": 32,
+      "step": 4
+    },
+    {
+      "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
+      "label": "72B Parameters (Ultra-Capacity Workstation)",
+      "min_ram_gb": 64,
+      "step": 5
+    }
+  ],
+  "max_stdin_size_bytes": 104857600,
+  "stdin_timeout_secs": 120,
   "bootstrap_mcp_servers": [
     {
       "category": "database",
@@ -64,6 +193,18 @@
       "trust_score": 0.92
     }
   ],
+  "admin_pulses": {
+    "audit_deps_pulse": "admin pulse: run dependency security audit",
+    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
+    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
+    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
+    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
+    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
+    "release_pulse": "admin pulse: execute full release orchestration sequence",
+    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
+    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
+    "verify_pulse": "admin pulse: verify version alignment across manifest and documents"
+  },
   "inference_endpoints": {
     "endpoints": [
       {
@@ -118,44 +259,6 @@
     "triton_api_base": "http://localhost:8001/v2/models/susi_model/generate",
     "vllm_api_base": "http://localhost:8000/v1"
   },
-  "udp_discovery_port": 9092,
-  "cloud_scout_timeout_secs": 8,
-  "max_stdin_size_bytes": 104857600,
-  "auto_download_models": true,
-  "stdin_timeout_secs": 120,
-  "discoverable_assets": [
-    {
-      "name": "SusiReflexCloud-v2",
-      "provider": "SUSI Hub",
-      "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "url": "https://susi.ai/reflex/v2"
-    },
-    {
-      "name": "DistilledRouter-1B",
-      "provider": "HuggingFace",
-      "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "url": "https://huggingface.co/susi/distilled-router"
-    }
-  ],
-  "max_concurrent_agents": 32,
-  "agent_rank_threshold": 0.6,
-  "default_model": "susi-alpha",
-  "model_scoring_heuristics": {
-    "native_candle_bonus": 15.0,
-    "size_gb_multipliers": {
-      "0.5b": 0.5,
-      "1.5b": 1.0,
-      "14b": 10.0,
-      "32b": 20.0,
-      "33b": 20.0,
-      "70b": 40.0,
-      "72b": 40.0,
-      "7b": 4.5,
-      "8b": 5.0
-    },
-    "system_ram_buffer_gb": 4.0
-  },
-  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
   "agent_routing": {
     "AdminAgent": [
       "admin",
@@ -188,64 +291,33 @@
       "russian"
     ]
   },
-  "reflex_training_threshold": 50,
-  "default_engine": "susi-offline",
-  "gmcp_http_port": 9093,
-  "gemi_port": 9091,
   "beacon_interval_secs": 30,
-  "susi_repo": "intellibitz/susi",
-  "local_scan_paths": [],
-  "admin_pulses": {
-    "audit_deps_pulse": "admin pulse: run dependency security audit",
-    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
-    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
-    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
-    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
-    "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
-    "release_pulse": "admin pulse: execute full release orchestration sequence",
-    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
-    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
-    "verify_pulse": "admin pulse: verify version alignment across manifest and documents"
+  "gemi_port": 9091,
+  "default_fallback_model": {
+    "hf_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+    "hf_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
   },
-  "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
-  "model_ladder": [
-    {
-      "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-      "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-      "label": "1.5B Parameters (Fast Local Edge)",
-      "min_ram_gb": 0,
-      "step": 1
+  "udp_discovery_port": 9092,
+  "model_scoring_heuristics": {
+    "native_candle_bonus": 15.0,
+    "size_gb_multipliers": {
+      "0.5b": 0.5,
+      "1.5b": 1.0,
+      "13b": 10.0,
+      "14b": 10.0,
+      "32b": 20.0,
+      "33b": 20.0,
+      "70b": 40.0,
+      "72b": 40.0,
+      "7b": 4.5,
+      "8b": 5.0
     },
-    {
-      "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-      "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
-      "label": "7B Parameters (Mid-Range Desktop)",
-      "min_ram_gb": 8,
-      "step": 2
-    },
-    {
-      "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
-      "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
-      "label": "14B Parameters (High-Accuracy Workstation)",
-      "min_ram_gb": 16,
-      "step": 3
-    },
-    {
-      "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
-      "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
-      "label": "32B Parameters (High-End Workstation)",
-      "min_ram_gb": 32,
-      "step": 4
-    },
-    {
-      "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf",
-      "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
-      "label": "72B Parameters (Ultra-Capacity Workstation)",
-      "min_ram_gb": 64,
-      "step": 5
-    }
-  ],
-  "execution_lease_secs": 30,
+    "system_ram_buffer_gb": 4.0
+  },
+  "trust_level": "Balanced",
+  "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
+  "reflex_training_threshold": 50,
   "gmcp_port": 9090,
-  "trust_level": "Balanced"
+  "local_scan_paths": [],
+  "execution_lease_secs": 30
 }

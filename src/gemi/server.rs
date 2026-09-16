@@ -1,402 +1,315 @@
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
-use rayon::prelude::*;
+//
+// Async Defaults (Mandate 28): connection accept/read/write is tokio-native
+// (hyper). Route handlers that ultimately invoke SusiMasterAgent (a
+// synchronous, CPU-bound swarm/agent execution graph, rayon-based) dispatch
+// via tokio::task::spawn_blocking rather than pretending that work is
+// non-blocking — running it directly on a tokio worker thread would stall
+// the reactor for every other in-flight connection.
 
+use bytes::Bytes;
+use http_body_util::{BodyExt, Full, StreamBody};
+use hyper::body::{Frame, Incoming};
+use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::service::service_fn;
+use hyper::{Method, Request, Response, StatusCode};
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use rayon::prelude::*;
 use serde_json::json;
+use std::convert::Infallible;
 use std::path::PathBuf;
-use std::thread;
-use tiny_http::{Header, Method, Response, Server};
+use std::sync::Arc;
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::StreamExt;
 
 use crate::gawd::ama::SusiMasterAgent;
 use crate::gemi::models::ModelManager;
 use crate::gmcp::tools::ToolRegistry;
 
+type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
+
+fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
+    Full::new(chunk.into()).map_err(|never| match never {}).boxed()
+}
+
+fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(
+            "Access-Control-Allow-Origin",
+            HeaderValue::from_static("*"),
+        )
+        .body(full_body(
+            serde_json::to_string(payload).unwrap_or_default(),
+        ))
+        .unwrap()
+}
+
 pub struct GemiServer;
 
 impl GemiServer {
-    pub fn start_http_server(workspace: PathBuf, server: Server) {
-        let addr = server.server_addr().to_string();
+    pub fn start_http_server(workspace: PathBuf, listener: std::net::TcpListener) {
+        let addr = listener
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_default();
         eprintln!("[GEMI REST] Substrate active on {}", addr);
         eprintln!(
             "[GEMI Web] UI Interface: http://localhost:{}/app",
-            server.server_addr().to_ip().map(|a| a.port()).unwrap_or(0)
+            listener.local_addr().map(|a| a.port()).unwrap_or(0)
         );
 
-        for mut request in server.incoming_requests() {
-            let workspace = workspace.clone();
-            let method = request.method().clone();
-            let url = request.url().to_string();
+        let rt = tokio::runtime::Runtime::new()
+            .expect("Fatal: failed to start GEMI HTTP runtime");
 
-            let mut body_str = String::new();
-            let _ = std::io::Read::read_to_string(request.as_reader(), &mut body_str);
+        rt.block_on(async move {
+            listener
+                .set_nonblocking(true)
+                .expect("Fatal: failed to set GEMI listener non-blocking");
+            let listener = tokio::net::TcpListener::from_std(listener)
+                .expect("Fatal: failed to adopt GEMI listener into the tokio runtime");
+            let workspace = Arc::new(workspace);
 
-            let workspace_thread = workspace.clone();
-            let method_thread = method.clone();
-            let url_thread = url.clone();
-            let body_thread = body_str.clone();
+            loop {
+                let (stream, _peer) = match listener.accept().await {
+                    Ok(pair) => pair,
+                    Err(e) => {
+                        eprintln!("[GEMI REST] Accept error: {}", e);
+                        continue;
+                    }
+                };
+                let workspace = Arc::clone(&workspace);
 
-            thread::spawn(move || {
-                // Change type to Box<dyn Read> to support both memory and streaming responses
-                let (tx, rx) =
-                    flume::bounded::<Result<Response<Box<dyn std::io::Read + Send>>, String>>(1);
-                let w_thread = workspace_thread;
-                let m_thread = method_thread;
-                let u_thread = url_thread;
-                let b_thread = body_thread;
-
-                thread::spawn(move || {
-                    let result = match (m_thread, u_thread.as_str()) {
-                        (
-                            Method::Get,
-                            "/" | "/v1" | "/v1/" | "/health" | "/app" | "/favicon.ico",
-                        ) => {
-                            let api_status = json!({
-                                "object": "api_status",
-                                "name": "SUSI OpenAI-Compatible REST Substrate",
-                                "version": crate::SUSI_VERSION,
-                                "status": "active",
-                                "endpoints": [
-                                    "/v1/chat/completions",
-                                    "/v1/models",
-                                    "/v1/completions"
-                                ]
-                            });
-                            let payload =
-                                serde_json::to_string_pretty(&api_status).unwrap_or_default();
-                            Ok(Response::empty(200)
-                                .with_data(
-                                    Box::new(std::io::Cursor::new(payload.into_bytes()))
-                                        as Box<dyn std::io::Read + Send>,
-                                    None,
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/json"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Origin"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Headers"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Methods"[..],
-                                        &b"GET, POST, OPTIONS"[..],
-                                    )
-                                    .unwrap(),
-                                ))
-                        }
-                        (Method::Get, path)
-                            if path.starts_with("/v1/models") || path.starts_with("/models") =>
-                        {
-                            let models = ModelManager::list_models(&w_thread);
-                            // PARALLEL PROCESSING MANDATE
-                            let json_models: Vec<serde_json::Value> = models.par_iter()
-                                .map(|m| json!({"id": &m.model_id(), "object": "model", "owned_by": "susi"}))
-                                .collect();
-                            let payload_val = json!({"object": "list", "data": json_models});
-                            let payload = serde_json::to_string(&payload_val).unwrap_or_default();
-
-                            Ok(Response::empty(200)
-                                .with_data(
-                                    Box::new(std::io::Cursor::new(payload.into_bytes()))
-                                        as Box<dyn std::io::Read + Send>,
-                                    None,
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/json"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Origin"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                ))
-                        }
-                        (Method::Get, "/well-known/susi") => {
-                            let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
-                            let (engine, model) =
-                                crate::gemi::models::ModelManager::get_active_engine_and_model();
-                            let tools = ToolRegistry::list_tools();
-
-                            let info = json!({
-                                "version": crate::SUSI_VERSION,
-                                "identity": "SUSI Intelligence Substrate",
-                                "engine": engine,
-                                "model": model,
-                                "hardware": {
-                                    "cpus": hardware.cpus,
-                                    "gpu": hardware.gpu_info,
-                                    "acceleration": hardware.acceleration_active,
-                                    "os": hardware.os_info
-                                },
-                                "reflexes": tools.iter().map(|t| &t.name).collect::<Vec<_>>()
-                            });
-
-                            let payload = serde_json::to_string_pretty(&info).unwrap_or_default();
-                            Ok(Response::empty(200)
-                                .with_data(
-                                    Box::new(std::io::Cursor::new(payload.into_bytes()))
-                                        as Box<dyn std::io::Read + Send>,
-                                    None,
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/json"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Origin"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                ))
-                        }
-                        (Method::Post, path)
-                            if path.starts_with("/v1/chat/completions")
-                                || path.starts_with("/chat/completions")
-                                || path.starts_with("/v1/completions")
-                                || path == "/"
-                                || path == "/v1"
-                                || path == "/v1/" =>
-                        {
-                            let is_streaming = b_thread.contains("\"stream\":true")
-                                || b_thread.contains("\"stream\": true")
-                                || b_thread.contains("stream");
-                            let active_model =
-                                crate::gemi::models::ModelManager::get_selected_model()
-                                    .unwrap_or_else(|| "susi-native-synthesis".to_string());
-                            let model_name = active_model.as_str();
-
-                            let pulse_intent = extract_prompt_from_json(&b_thread)
-                                .unwrap_or_else(|| "list workspace health".to_string());
-                            crate::sandbox::manager::SusiAuditLogger::log_event(
-                                &w_thread,
-                                "WEB_MISSION_START",
-                                &pulse_intent,
-                            );
-
-                            let trimmed_prompt = pulse_intent.trim();
-                            let clean_cmd = trimmed_prompt
-                                .trim_start_matches('/')
-                                .trim_start_matches(':');
-                            let parts: Vec<&str> = clean_cmd.splitn(2, ' ').collect();
-                            let tool_name = parts[0].to_lowercase();
-                            let tool_arg = parts.get(1).copied().unwrap_or("").trim();
-
-                            if is_streaming {
-                                let now = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .map(|d| d.as_secs())
-                                    .unwrap_or(0);
-                                let m_name = model_name.to_string();
-                                let prompt_clone = trimmed_prompt.to_string();
-                                let w_clone = w_thread.clone();
-                                let _tool_name_clone = tool_name.clone();
-                                let _tool_arg_clone = tool_arg.to_string();
-
-                                let (chunk_tx, chunk_rx) = flume::unbounded::<String>();
-
-                                // DYNAMIC, NON-BLOCKING, MULTI-THREADED CONCURRENT STREAMING
-                                rayon::spawn(move || {
-                                    let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\"}},\"finish_reason\":null}}]}}\n\n"));
-
-                                    let ama = SusiMasterAgent::new();
-                                    let _ = ama.solve_stream(&prompt_clone, &w_clone, crate::SUSI_VERSION, &|piece| {
-                                        let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n", json_piece=serde_json::to_string(&piece).unwrap_or_default()));
-                                    });
-                                    let _ = chunk_tx.send(format!("data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n"));
-                                    let _ = chunk_tx.send("data: [DONE]\n\n".to_string());
-                                });
-
-                                struct StreamAdapter(flume::Receiver<String>, Vec<u8>);
-                                impl std::io::Read for StreamAdapter {
-                                    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-                                        if self.1.is_empty() {
-                                            match self.0.recv() {
-                                                Ok(s) => self.1.extend_from_slice(s.as_bytes()),
-                                                Err(_) => return Ok(0),
-                                            }
-                                        }
-                                        let len = std::cmp::min(buf.len(), self.1.len());
-                                        buf[..len].copy_from_slice(&self.1[..len]);
-                                        self.1.drain(..len);
-                                        Ok(len)
-                                    }
-                                }
-
-                                Ok(Response::empty(200)
-                                    .with_data(
-                                        Box::new(StreamAdapter(chunk_rx, vec![]))
-                                            as Box<dyn std::io::Read + Send>,
-                                        None,
-                                    )
-                                    .with_header(
-                                        Header::from_bytes(
-                                            &b"Content-Type"[..],
-                                            &b"text/event-stream"[..],
-                                        )
-                                        .unwrap(),
-                                    )
-                                    .with_header(
-                                        Header::from_bytes(
-                                            &b"Access-Control-Allow-Origin"[..],
-                                            &b"*"[..],
-                                        )
-                                        .unwrap(),
-                                    ))
-                            } else {
-                                let content = if ToolRegistry::exists(&tool_name) {
-                                    ToolRegistry::execute_tool(
-                                        &tool_name,
-                                        &serde_json::json!(tool_arg),
-                                        &w_thread,
-                                    )
-                                } else {
-                                    let ama = SusiMasterAgent::new();
-                                    let final_resp = ama.solve_clean(
-                                        trimmed_prompt,
-                                        &w_thread,
-                                        crate::SUSI_VERSION,
-                                    );
-                                    crate::sandbox::manager::SusiMemory::save_interaction(
-                                        &w_thread,
-                                        trimmed_prompt,
-                                        &final_resp,
-                                    );
-                                    final_resp
-                                };
-
-                                let payload = json!({
-                                    "id": format!("chatcmpl-susi-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)),
-                                    "object": "chat.completion",
-                                    "created": 1700000000,
-                                    "model": model_name,
-                                    "choices": [{
-                                        "index": 0,
-                                        "message": { "role": "assistant", "content": content },
-                                        "finish_reason": "stop"
-                                    }]
-                                });
-
-                                Ok(Response::empty(200)
-                                    .with_data(
-                                        Box::new(std::io::Cursor::new(
-                                            serde_json::to_string(&payload)
-                                                .unwrap_or_default()
-                                                .into_bytes(),
-                                        ))
-                                            as Box<dyn std::io::Read + Send>,
-                                        None,
-                                    )
-                                    .with_header(
-                                        Header::from_bytes(
-                                            &b"Content-Type"[..],
-                                            &b"application/json"[..],
-                                        )
-                                        .unwrap(),
-                                    )
-                                    .with_header(
-                                        Header::from_bytes(
-                                            &b"Access-Control-Allow-Origin"[..],
-                                            &b"*"[..],
-                                        )
-                                        .unwrap(),
-                                    ))
-                            }
-                        }
-                        (Method::Options, _) => Ok(Response::empty(200)
-                            .with_data(
-                                Box::new(std::io::Cursor::new(vec![]))
-                                    as Box<dyn std::io::Read + Send>,
-                                None,
-                            )
-                            .with_header(
-                                Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..])
-                                    .unwrap(),
-                            )
-                            .with_header(
-                                Header::from_bytes(
-                                    &b"Access-Control-Allow-Methods"[..],
-                                    &b"GET, POST, OPTIONS"[..],
-                                )
-                                .unwrap(),
-                            )
-                            .with_header(
-                                Header::from_bytes(&b"Access-Control-Allow-Headers"[..], &b"*"[..])
-                                    .unwrap(),
-                            )),
-                        _ => {
-                            let payload = json!({"error": "Endpoint not found"}).to_string();
-                            Ok(Response::empty(404)
-                                .with_data(
-                                    Box::new(std::io::Cursor::new(payload.into_bytes()))
-                                        as Box<dyn std::io::Read + Send>,
-                                    None,
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Content-Type"[..],
-                                        &b"application/json"[..],
-                                    )
-                                    .unwrap(),
-                                )
-                                .with_header(
-                                    Header::from_bytes(
-                                        &b"Access-Control-Allow-Origin"[..],
-                                        &b"*"[..],
-                                    )
-                                    .unwrap(),
-                                ))
-                        }
-                    };
-                    let _ = tx.send(result);
+                tokio::spawn(async move {
+                    let io = TokioIo::new(stream);
+                    let service = service_fn(move |req| {
+                        let workspace = Arc::clone(&workspace);
+                        async move { handle_gemi_request(req, workspace).await }
+                    });
+                    if let Err(e) = AutoBuilder::new(TokioExecutor::new())
+                        .serve_connection(io, service)
+                        .await
+                    {
+                        eprintln!("[GEMI REST] Connection error: {}", e);
+                    }
                 });
-
-                let response = rx.recv().unwrap_or_else(|_| {
-                    let payload = json!({
-                        "error": "Mission Interrupted",
-                        "message": "The intelligence substrate mission was cancelled or failed."
-                    })
-                    .to_string();
-                    Ok(Response::empty(500)
-                        .with_data(
-                            Box::new(std::io::Cursor::new(payload.into_bytes()))
-                                as Box<dyn std::io::Read + Send>,
-                            None,
-                        )
-                        .with_header(
-                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                                .unwrap(),
-                        ))
-                });
-
-                if let Ok(resp) = response {
-                    let _ = request.respond(resp);
-                }
-            });
-        }
+            }
+        });
     }
+}
+
+async fn handle_gemi_request(
+    req: Request<Incoming>,
+    workspace: Arc<PathBuf>,
+) -> Result<Response<BoxBody>, Infallible> {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+
+    match (&method, path.as_str()) {
+        (&Method::GET, "/" | "/v1" | "/v1/" | "/health" | "/app" | "/favicon.ico") => {
+            let api_status = json!({
+                "object": "api_status",
+                "name": "SUSI OpenAI-Compatible REST Substrate",
+                "version": crate::SUSI_VERSION,
+                "status": "active",
+                "endpoints": [
+                    "/v1/chat/completions",
+                    "/v1/models",
+                    "/v1/completions"
+                ]
+            });
+            Ok(json_response(StatusCode::OK, &api_status))
+        }
+        (&Method::GET, p) if p.starts_with("/v1/models") || p.starts_with("/models") => {
+            let ws = (*workspace).clone();
+            let payload = tokio::task::spawn_blocking(move || {
+                let models = ModelManager::list_models(&ws);
+                let json_models: Vec<serde_json::Value> = models
+                    .par_iter()
+                    .map(|m| json!({"id": m.model_id(), "object": "model", "owned_by": "susi"}))
+                    .collect();
+                json!({"object": "list", "data": json_models})
+            })
+            .await
+            .unwrap_or_else(|_| json!({"object": "list", "data": []}));
+            Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, "/well-known/susi") => {
+            let payload = tokio::task::spawn_blocking(move || {
+                let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
+                let (engine, model) = ModelManager::get_active_engine_and_model();
+                let tools = ToolRegistry::list_tools();
+                json!({
+                    "version": crate::SUSI_VERSION,
+                    "identity": "SUSI Intelligence Substrate",
+                    "engine": engine,
+                    "model": model,
+                    "hardware": {
+                        "cpus": hardware.cpus,
+                        "gpu": hardware.gpu_info,
+                        "acceleration": hardware.acceleration_active,
+                        "os": hardware.os_info
+                    },
+                    "reflexes": tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                })
+            })
+            .await
+            .unwrap_or_else(|_| json!({"error": "identity introspection failed"}));
+            Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::POST, p)
+            if p.starts_with("/v1/chat/completions")
+                || p.starts_with("/chat/completions")
+                || p.starts_with("/v1/completions")
+                || p == "/"
+                || p == "/v1"
+                || p == "/v1/" =>
+        {
+            let body_bytes = req
+                .into_body()
+                .collect()
+                .await
+                .map(|c| c.to_bytes())
+                .unwrap_or_default();
+            let body_str = String::from_utf8_lossy(&body_bytes).to_string();
+
+            let is_streaming =
+                body_str.contains("\"stream\":true") || body_str.contains("\"stream\": true");
+            let active_model = ModelManager::get_selected_model()
+                .unwrap_or_else(|| "susi-native-synthesis".to_string());
+
+            let pulse_intent =
+                extract_prompt_from_json(&body_str).unwrap_or_else(|| "list workspace health".to_string());
+            crate::sandbox::manager::SusiAuditLogger::log_event(
+                &workspace,
+                "WEB_MISSION_START",
+                &pulse_intent,
+            );
+            let trimmed_prompt = pulse_intent.trim().to_string();
+
+            if is_streaming {
+                Ok(build_streaming_response(trimmed_prompt, active_model, Arc::clone(&workspace)))
+            } else {
+                let clean_cmd = trimmed_prompt
+                    .trim_start_matches('/')
+                    .trim_start_matches(':')
+                    .to_string();
+                let parts: Vec<&str> = clean_cmd.splitn(2, ' ').collect();
+                let tool_name = parts[0].to_lowercase();
+                let tool_arg = parts.get(1).copied().unwrap_or("").trim().to_string();
+
+                let ws = (*workspace).clone();
+                let prompt_for_task = trimmed_prompt.clone();
+                let content = tokio::task::spawn_blocking(move || {
+                    if ToolRegistry::exists(&tool_name) {
+                        ToolRegistry::execute_tool(&tool_name, &serde_json::json!(tool_arg), &ws)
+                    } else {
+                        let ama = SusiMasterAgent::new();
+                        let final_resp =
+                            ama.solve_clean(&prompt_for_task, &ws, crate::SUSI_VERSION);
+                        crate::sandbox::manager::SusiMemory::save_interaction(
+                            &ws,
+                            &prompt_for_task,
+                            &final_resp,
+                        );
+                        final_resp
+                    }
+                })
+                .await
+                .unwrap_or_else(|e| format!("SUSI Engine Error: task join failed: {}", e));
+
+                let payload = json!({
+                    "id": format!("chatcmpl-susi-{}", now_secs()),
+                    "object": "chat.completion",
+                    "created": 1700000000,
+                    "model": active_model,
+                    "choices": [{
+                        "index": 0,
+                        "message": { "role": "assistant", "content": content },
+                        "finish_reason": "stop"
+                    }]
+                });
+                Ok(json_response(StatusCode::OK, &payload))
+            }
+        }
+        (&Method::OPTIONS, _) => Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(
+                "Access-Control-Allow-Origin",
+                HeaderValue::from_static("*"),
+            )
+            .header(
+                "Access-Control-Allow-Methods",
+                HeaderValue::from_static("GET, POST, OPTIONS"),
+            )
+            .header(
+                "Access-Control-Allow-Headers",
+                HeaderValue::from_static("*"),
+            )
+            .body(full_body(Vec::new()))
+            .unwrap()),
+        _ => Ok(json_response(
+            StatusCode::NOT_FOUND,
+            &json!({"error": "Endpoint not found"}),
+        )),
+    }
+}
+
+fn build_streaming_response(
+    prompt: String,
+    model_name: String,
+    workspace: Arc<PathBuf>,
+) -> Response<BoxBody> {
+    let now = now_secs();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    // SusiMasterAgent::solve_stream is synchronous, CPU-bound swarm execution;
+    // it must run on the blocking pool, not a tokio worker thread. Its
+    // per-token callback feeds the unbounded channel, which is a non-blocking
+    // send safe to call from that synchronous context.
+    let m_name = model_name.clone();
+    tokio::task::spawn_blocking(move || {
+        let _ = tx.send(format!(
+            "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\"}},\"finish_reason\":null}}]}}\n\n"
+        ));
+
+        let ama = SusiMasterAgent::new();
+        let _ = ama.solve_stream(&prompt, &workspace, crate::SUSI_VERSION, &|piece| {
+            let json_piece = serde_json::to_string(&piece).unwrap_or_default();
+            let _ = tx.send(format!(
+                "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n"
+            ));
+        });
+
+        let _ = tx.send(format!(
+            "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n"
+        ));
+        let _ = tx.send("data: [DONE]\n\n".to_string());
+    });
+
+    let stream = UnboundedReceiverStream::new(rx)
+        .map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
+    let body = StreamBody::new(stream).boxed();
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
+        .header(
+            "Access-Control-Allow-Origin",
+            HeaderValue::from_static("*"),
+        )
+        .body(body)
+        .unwrap()
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn extract_prompt_from_json(body: &str) -> Option<String> {

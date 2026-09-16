@@ -197,12 +197,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ascii"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
-
-[[package]]
 name = "async-openai"
 version = "0.28.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -966,12 +960,6 @@ dependencies = [
  "wasm-bindgen",
  "windows-link",
 ]
-
-[[package]]
-name = "chunked_transfer"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e4de3bc4ea267985becf712dc6d9eed8b04c953b3fcfb339ebc87acd9804901"
 
 [[package]]
 name = "clap"
@@ -2963,6 +2951,7 @@ dependencies = [
  "socket2 0.6.5",
  "system-configuration",
  "tokio",
+ "tower-layer",
  "tower-service",
  "tracing",
  "windows-registry",
@@ -6255,7 +6244,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi-engine"
-version = "0.1.2022962"
+version = "0.1.2022963"
 dependencies = [
  "anyhow",
  "async-openai",
@@ -6280,6 +6269,10 @@ dependencies = [
  "hex",
  "hf-hub",
  "hound",
+ "http 1.5.0",
+ "http-body-util",
+ "hyper 1.11.1",
+ "hyper-util",
  "ignore",
  "image",
  "indicatif",
@@ -6311,7 +6304,6 @@ dependencies = [
  "tempfile",
  "text-splitter",
  "thiserror 1.0.69",
- "tiny_http",
  "tokenizers",
  "tokio",
  "tokio-stream",
@@ -6897,18 +6889,6 @@ dependencies = [
  "quote",
  "standback",
  "syn 1.0.109",
-]
-
-[[package]]
-name = "tiny_http"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
-dependencies = [
- "ascii",
- "chunked_transfer",
- "httpdate",
- "log",
 ]
 
 [[package]]

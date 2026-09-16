@@ -282,6 +282,8 @@ impl GawdAgent for HardwareAgent {
                 workspace,
             );
             if exec_res.contains("[FAIL]") || exec_res.contains("[CAPABILITY_GAP]") {
+                crate::gawd::safety::SafetyDetector::audit_action("exec_command", goal, workspace)?;
+                crate::gawd::security::SecurityDetector::audit_action("exec_command", goal, workspace)?;
                 if let Ok(output) = std::process::Command::new("sh")
                     .arg("-c")
                     .arg(goal)
@@ -876,70 +878,60 @@ impl GawdAgent for AdminAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         let lower_goal = goal.to_lowercase();
+        let action = Self::match_action(&lower_goal);
 
-        let res = if lower_goal.contains("sync") {
-            crate::daemon::admin::SusiAdmin::enforce_version_consistency(workspace)
-        } else if lower_goal.contains("audit") {
-            crate::daemon::admin::SusiAdmin::audit_compliance(workspace, None)
-        } else if lower_goal.contains("verify") {
-            crate::daemon::admin::SusiAdmin::verify_version_alignment(workspace)
-                .map(|_| "Version alignment verified.".to_string())
-        } else if lower_goal.contains("release") {
-            crate::daemon::admin::SusiAdmin::execute_release(workspace)
-        } else if lower_goal.contains("status") || lower_goal.contains("health") {
-            let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
-            Ok(format!(
-                "Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational",
-                crate::SUSI_VERSION,
-                hw.cpu_brand,
-                hw.cpus,
-                hw.ram_gb
-            ))
-        } else if lower_goal.contains("version") {
-            Ok(format!("SUSI Engine Version: v{}", crate::SUSI_VERSION))
-        } else if lower_goal.contains("identity") {
-            let brain = crate::gawd::brain::AlphaBrainContext::initialize(workspace);
-            Ok(format!(
-                "# SUSI Substrate Identity\n\n{}",
-                brain.inspect_tri_state()
-            ))
-        } else if lower_goal.contains("list") && lower_goal.contains("models") {
-            let models = crate::gemi::models::ModelManager::list_models(workspace);
-            let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
-            for m in &models {
-                out.push_str(&format!(
-                    "- [{}] {} ({})\n",
-                    if m.is_local() { "LOCAL" } else { "CLOUD" },
-                    m.name(),
-                    m.model_id()
-                ));
+        let res = match action.as_deref() {
+            Some("sync") => crate::daemon::admin::SusiAdmin::enforce_version_consistency(workspace),
+            Some("audit") => crate::daemon::admin::SusiAdmin::audit_compliance(workspace, None),
+            Some("verify") => crate::daemon::admin::SusiAdmin::verify_version_alignment(workspace)
+                .map(|_| "Version alignment verified.".to_string()),
+            Some("release") => crate::daemon::admin::SusiAdmin::execute_release(workspace),
+            Some("status_health") => {
+                let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
+                Ok(format!(
+                    "Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational",
+                    crate::SUSI_VERSION,
+                    hw.cpu_brand,
+                    hw.cpus,
+                    hw.ram_gb
+                ))
             }
-            Ok(out)
-        } else if lower_goal.contains("deep-scan") {
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let global_dir = home.join(".susi");
-            crate::gemi::models::ModelManager::deep_scan_home_and_register(&global_dir)
-        } else if lower_goal.contains("initialize") || lower_goal.contains("install") {
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let global_dir = home.join(".susi");
-            crate::sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)?;
-            Ok("SUSI runtime initialized and sandboxed.".to_string())
-        } else if lower_goal.contains("remove") || lower_goal.contains("uninstall") {
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let global_dir = home.join(".susi");
-            let _ = std::fs::remove_dir_all(&global_dir);
-            Ok("SUSI runtime removed.".to_string())
-        } else {
-            Ok("AdminAgent: Monitoring technical intent...".to_string())
+            Some("version") => Ok(format!("SUSI Engine Version: v{}", crate::SUSI_VERSION)),
+            Some("identity") => {
+                let brain = crate::gawd::brain::AlphaBrainContext::initialize(workspace);
+                Ok(format!(
+                    "# SUSI Substrate Identity\n\n{}",
+                    brain.inspect_tri_state()
+                ))
+            }
+            Some("list_models") => {
+                let models = crate::gemi::models::ModelManager::list_models(workspace);
+                let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
+                for m in &models {
+                    out.push_str(&format!(
+                        "- [{}] {} ({})\n",
+                        if m.is_local() { "LOCAL" } else { "CLOUD" },
+                        m.name(),
+                        m.model_id()
+                    ));
+                }
+                Ok(out)
+            }
+            Some("deep_scan") => {
+                let global_dir = Self::global_dir();
+                crate::gemi::models::ModelManager::deep_scan_home_and_register(&global_dir)
+            }
+            Some("install") => {
+                let global_dir = Self::global_dir();
+                crate::sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)?;
+                Ok("SUSI runtime initialized and sandboxed.".to_string())
+            }
+            Some("uninstall") => {
+                let global_dir = Self::global_dir();
+                let _ = std::fs::remove_dir_all(&global_dir);
+                Ok("SUSI runtime removed.".to_string())
+            }
+            _ => Ok("AdminAgent: Monitoring technical intent...".to_string()),
         }?;
 
         blackboard.insert(self.name(), res.clone());
@@ -947,8 +939,59 @@ impl GawdAgent for AdminAgent {
     }
 }
 
+impl AdminAgent {
+    fn global_dir() -> std::path::PathBuf {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        home.join(".susi")
+    }
+
+    /// Command-trigger keywords are config-driven (Mandate 35: Registry + Trait +
+    /// Config Substrate Pattern) so operators can remap/extend trigger words via
+    /// config.default.json without recompiling; the action *implementations*
+    /// stay in Rust since each maps to a distinct function, not swappable data.
+    /// Action priority follows the routing map's declaration order in
+    /// config.default.json (first match wins, mirroring the original if/else
+    /// chain's precedence).
+    fn match_action(lower_goal: &str) -> Option<String> {
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let routing = cfg.admin_command_routing();
+
+        const ACTION_ORDER: &[&str] = &[
+            "sync",
+            "audit",
+            "verify",
+            "release",
+            "status_health",
+            "version",
+            "identity",
+            "list_models",
+            "deep_scan",
+            "install",
+            "uninstall",
+        ];
+
+        ACTION_ORDER
+            .iter()
+            .find(|action| {
+                routing
+                    .get(**action)
+                    .map(|groups| {
+                        groups
+                            .iter()
+                            .any(|group| group.iter().all(|kw| lower_goal.contains(kw.as_str())))
+                    })
+                    .unwrap_or(false)
+            })
+            .map(|s| s.to_string())
+    }
+}
+
 pub struct AgentMetaRegistry {
     agents: Arc<RwLock<Vec<AgentProfile>>>,
+    last_loaded_mtime_secs: std::sync::atomic::AtomicU64,
 }
 
 impl AgentMetaRegistry {
@@ -957,18 +1000,41 @@ impl AgentMetaRegistry {
         REGISTRY.get_or_init(|| {
             let registry = AgentMetaRegistry {
                 agents: Arc::new(RwLock::new(Vec::new())),
+                last_loaded_mtime_secs: std::sync::atomic::AtomicU64::new(0),
             };
             registry.load_or_provision();
             registry
         })
     }
 
-    fn load_or_provision(&self) {
+    fn registry_path() -> std::path::PathBuf {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let registry_path = home.join(".susi/agent_registry.json");
+        home.join(".susi/agent_registry.json")
+    }
+
+    /// Registry Hot-Reload (Mandate 15): re-reads agent_registry.json whenever its
+    /// on-disk mtime has advanced past what was last loaded, preventing stale
+    /// agent behavior injection in the long-lived `global susi` daemon process.
+    fn refresh_if_stale(&self) {
+        let registry_path = Self::registry_path();
+        let mtime_secs = std::fs::metadata(&registry_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+
+        if let Some(mtime_secs) = mtime_secs {
+            if mtime_secs > self.last_loaded_mtime_secs.load(std::sync::atomic::Ordering::Relaxed) {
+                self.load_or_provision();
+            }
+        }
+    }
+
+    fn load_or_provision(&self) {
+        let registry_path = Self::registry_path();
 
         if registry_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&registry_path) {
@@ -984,6 +1050,7 @@ impl AgentMetaRegistry {
                         }
                     }
                     *registry = unique_agents;
+                    self.record_mtime(&registry_path);
                     return;
                 }
             }
@@ -1000,6 +1067,7 @@ impl AgentMetaRegistry {
             &registry_path,
             serde_json::to_string_pretty(&new_agents).unwrap_or_default(),
         );
+        self.record_mtime(&registry_path);
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
@@ -1062,23 +1130,35 @@ impl AgentMetaRegistry {
     }
 
     fn save(&self) {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let registry_path = home.join(".susi/agent_registry.json");
+        let registry_path = Self::registry_path();
         let agents = self.agents.read();
         let _ = std::fs::write(
             &registry_path,
             serde_json::to_string_pretty(&*agents).unwrap_or_default(),
         );
+        drop(agents);
+        self.record_mtime(&registry_path);
+    }
+
+    fn record_mtime(&self, registry_path: &Path) {
+        if let Some(mtime_secs) = std::fs::metadata(registry_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+        {
+            self.last_loaded_mtime_secs
+                .store(mtime_secs, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
+        self.refresh_if_stale();
         self.agents.read().clone()
     }
 
     pub fn get_checksum(&self) -> u64 {
+        self.refresh_if_stale();
         let agents = self.agents.read();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
@@ -1174,10 +1254,8 @@ impl GawdAgentFleet {
             if admin_keys.iter().any(|k| lower_goal.contains(k)) {
                 fleet.push(Arc::new(AdminAgent));
             }
-        } else {
-            if lower_goal.contains("admin") || lower_goal.contains("sync") || lower_goal.contains("install") {
-                fleet.push(Arc::new(AdminAgent));
-            }
+        } else if lower_goal.contains("admin") || lower_goal.contains("sync") || lower_goal.contains("install") {
+            fleet.push(Arc::new(AdminAgent));
         }
 
         for endpoint in &cfg.inference_endpoints().endpoints {
@@ -1198,20 +1276,16 @@ impl GawdAgentFleet {
             if search_keys.iter().any(|k| lower_goal.contains(k)) {
                 fleet.push(Arc::new(SearchAgent));
             }
-        } else {
-            if lower_goal.contains("search") || lower_goal.contains("find") {
-                fleet.push(Arc::new(SearchAgent));
-            }
+        } else if lower_goal.contains("search") || lower_goal.contains("find") {
+            fleet.push(Arc::new(SearchAgent));
         }
 
         if let Some(trans_keys) = routing.get("TranslationAgent") {
             if trans_keys.iter().any(|k| lower_goal.contains(k)) {
                 fleet.push(Arc::new(TranslationAgent));
             }
-        } else {
-            if lower_goal.contains("translate") || lower_goal.contains("language") {
-                fleet.push(Arc::new(TranslationAgent));
-            }
+        } else if lower_goal.contains("translate") || lower_goal.contains("language") {
+            fleet.push(Arc::new(TranslationAgent));
         }
 
         fleet.push(Arc::new(DynamicAgent {
@@ -1320,13 +1394,43 @@ impl GawdAgentFleet {
         blackboard: MissionBlackboard,
     ) -> Vec<(String, String)> {
         use std::io::Write;
-        let agents = Self::synthesize_fleet(&goal, &workspace);
+        let mut agents = Self::synthesize_fleet(&goal, &workspace);
+
+        // Governance Sequencing: Safety/Security must clear the goal before any
+        // execution-capable agent runs — they cannot race in the same parallel
+        // batch or a destructive/leaking command could execute before the veto lands.
+        let governance_idx: Vec<usize> = agents
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.name() == "SafetyAgent" || a.name() == "SecurityAgent")
+            .map(|(i, _)| i)
+            .collect();
+        let mut governance_agents = Vec::new();
+        for &i in governance_idx.iter().rev() {
+            governance_agents.push(agents.remove(i));
+        }
+        governance_agents.reverse();
+
+        let mut results: Vec<(String, String)> = Vec::new();
+        for agent in governance_agents {
+            let name = agent.name();
+            match agent.execute(&goal, &workspace, &blackboard) {
+                Ok(res) => results.push((name, res)),
+                Err(e) => {
+                    println!("- [Swarm Dispatch] Governance veto from {}: {} — aborting swarm dispatch.", name, e);
+                    let _ = std::io::stdout().flush();
+                    results.push((name, format!("[GOVERNANCE_BLOCK] {}", e)));
+                    return results;
+                }
+            }
+        }
+
         let agents_len = agents.len();
 
         println!("- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...", agents_len);
         let _ = std::io::stdout().flush();
 
-        let results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
+        let par_results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
             let name = agent.name();
             let task_handle = crate::gawd::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
             let start = std::time::Instant::now();
@@ -1359,6 +1463,7 @@ impl GawdAgentFleet {
             (name, res)
         }).collect();
 
+        results.extend(par_results);
         results
     }
 }

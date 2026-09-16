@@ -1,5 +1,9 @@
 // SUSI Universal Swarm Task Manager & Empirical Telemetry Watchdog
-// Mandate 11: Hardware-Only Limit - No Artificial Software Timeouts.
+// Mandate 12: Hardware Authority - operations run as slow as legitimate hardware
+//   work requires; no blind wall-clock cap on total task duration.
+// Mandate 32: Zero-Client-Wait Guarantee - an operation with zero observed
+//   progress for longer than its empirically-calibrated idle lease is
+//   "unresponsive," not "slow," and is proactively terminated.
 // Mandate 33: Glass Box Transparency & Omni-Trace Task Control.
 
 use dashmap::DashMap;
@@ -198,8 +202,29 @@ impl TelemetryHistoryStore {
         self.save_history();
     }
 
-    pub fn get_idle_threshold_ms(&self, _category: &str) -> u64 {
-        u64::MAX // Hardware limits only (No software timeout)
+    /// Empirically-calibrated idle lease (Mandate 32: Zero-Client-Wait Guarantee).
+    /// Hardware capability still governs how *slow* a legitimate operation may be
+    /// (Mandate 12: Hardware Authority) — this only bounds how long an operation
+    /// may go with zero observed progress, which is the "unresponsive" case the
+    /// mandate targets, not a cap on total task duration.
+    ///
+    /// Until a category has at least 3 completed samples, no threshold is applied
+    /// ("SUSI Never Trusts Words" — an unseen operation's real idle behavior is
+    /// unknown, so guessing a limit for it risks killing legitimate first-run
+    /// work). Once calibrated, the lease is 5x the worst observed idle gap for
+    /// that category, floored by the operator-configured execution_lease_secs so
+    /// a single unusually fast historical sample can't produce an unreasonably
+    /// tight threshold.
+    pub fn get_idle_threshold_ms(&self, category: &str) -> u64 {
+        let Some(profile) = self.profiles.get(category) else {
+            return u64::MAX;
+        };
+        if profile.sample_count < 3 {
+            return u64::MAX;
+        }
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let floor_ms = cfg.execution_lease_secs().saturating_mul(1000);
+        profile.p99_idle_interval_ms.saturating_mul(5).max(floor_ms)
     }
 }
 
@@ -338,15 +363,47 @@ impl SwarmTaskManager {
                     .unwrap_or(0);
 
                 // Zero-Lock Iteration Phase
+                let mut expired: Vec<(String, u64, u64)> = Vec::new();
                 for r in mgr.tasks.iter() {
                     let record = r.value();
-                    if record.status.load(Ordering::Acquire) == TaskStatus::Running as u8 {
+                    if record.status.load(Ordering::Acquire) == TaskStatus::Running as u8
+                        && record.expected_idle_ms != u64::MAX
+                    {
                         let last_prog = record.last_progress_secs.load(Ordering::Acquire);
-                        let _idle = now_secs.saturating_sub(last_prog);
-                        let _thresh = (record.expected_idle_ms / 1000).max(1);
-
-// Hardware limits only. Watchdog observes but does not artificially stall.
+                        let idle_ms = now_secs.saturating_sub(last_prog).saturating_mul(1000);
+                        if idle_ms > record.expected_idle_ms {
+                            expired.push((r.key().clone(), idle_ms, record.expected_idle_ms));
+                        }
                     }
+                }
+
+                // Mandate 32 (Zero-Client-Wait Guarantee): proactively terminate
+                // operations that have produced zero observed progress for longer
+                // than their empirically-calibrated lease.
+                for (task_id, idle_ms, threshold_ms) in expired {
+                    if let Some(r) = mgr.tasks.get(&task_id) {
+                        r.status.store(TaskStatus::Stalled as u8, Ordering::Release);
+                        *r.result.write() = Some(format!(
+                            "[LEASE_EXPIRED] No progress for {}ms (calibrated threshold: {}ms) — proactively terminated.",
+                            idle_ms, threshold_ms
+                        ));
+                    }
+                    if let Some(c) = mgr.cancel_map.get(&task_id) {
+                        c.store(true, Ordering::Release);
+                    }
+                    let home = std::env::var_os("HOME")
+                        .or_else(|| std::env::var_os("USERPROFILE"))
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    crate::sandbox::manager::SusiAuditLogger::log(
+                        &home.join(".susi"),
+                        crate::sandbox::manager::LogLevel::Axiomatic,
+                        "LEASE_EXPIRED",
+                        &format!(
+                            "Task {} idle for {}ms (threshold {}ms) — cancelled by watchdog.",
+                            task_id, idle_ms, threshold_ms
+                        ),
+                    );
                 }
             }
         });

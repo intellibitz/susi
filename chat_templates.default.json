@@ -1,0 +1,8 @@
+{
+  "chatml": "<|im_start|>system\n{system}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n",
+  "llama3": "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system}<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
+  "mistral": "[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{prompt} [/INST]",
+  "gemma": "<start_of_turn>user\n{system}\n\n{prompt}<end_of_turn>\n<start_of_turn>model\n",
+  "deepseek_r1": "<｜begin of sentence｜><｜User｜>{system}\n\n{prompt}<｜Assistant｜>",
+  "phi3": "<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>\n"
+}

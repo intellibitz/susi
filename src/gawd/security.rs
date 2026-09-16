@@ -43,6 +43,37 @@ impl SecurityDetector {
 
         Ok(())
     }
+
+    /// Deterministically redacts any configured secret-token pattern (and its
+    /// trailing token-shaped characters) found in `text`. Unlike `audit_action`
+    /// (which rejects an action outright), this transforms text so it is safe to
+    /// persist to telemetry/audit logs — no reliance on an LLM's output happening
+    /// to mention a sentinel word.
+    pub fn redact(text: &str) -> String {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let global_dir = home.join(".susi");
+        let patterns = match SusiConfig::load(&global_dir) {
+            Ok(cfg) => cfg.governance().secret_tokens,
+            Err(_) => return text.to_string(),
+        };
+
+        let mut redacted = text.to_string();
+        for pattern in &patterns {
+            if pattern.is_empty() {
+                continue;
+            }
+            if let Ok(re) = regex::Regex::new(&format!(
+                "{}[A-Za-z0-9_-]*",
+                regex::escape(pattern)
+            )) {
+                redacted = re.replace_all(&redacted, "[REDACTED]").to_string();
+            }
+        }
+        redacted
+    }
 }
 
 #[cfg(test)]
@@ -59,5 +90,13 @@ mod tests {
     fn test_security_audit_secret_leak() {
         let ws = Path::new(".");
         assert!(SecurityDetector::audit_action("reason", "sk-proj12345", ws).is_err());
+    }
+
+    #[test]
+    fn test_redact_masks_token_not_just_prefix() {
+        let redacted = SecurityDetector::redact("token=sk-proj12345abcXYZ rest of log");
+        assert!(!redacted.contains("proj12345"));
+        assert!(redacted.contains("[REDACTED]"));
+        assert!(redacted.contains("rest of log"));
     }
 }

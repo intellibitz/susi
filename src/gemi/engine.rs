@@ -16,11 +16,15 @@ use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
 use tokenizers::Tokenizer;
 
-pub enum ModelSubstrate {
-    Llama(llama::ModelWeights),
-    Gemma(llama::ModelWeights),
-    Generic(llama::ModelWeights),
-}
+/// Loaded neural weights, architecture-agnostic (Mandate 23: Substrate Purity).
+/// candle_transformers' `quantized_llama` graph serves every GGUF architecture
+/// this substrate loads (Llama, Gemma, Mixtral, and any unrecognized family via
+/// the metadata-shimming pass above) identically at inference time — the
+/// forward pass has no per-vendor branch — so there is nothing for a vendor-
+/// named enum to actually dispatch on. The GGUF's own `general.architecture`
+/// string (already extracted dynamically, never hardcoded) remains available
+/// for logging/diagnostics without needing a matching Rust variant per vendor.
+pub struct ModelSubstrate(llama::ModelWeights);
 
 type ModelCacheMap = HashMap<PathBuf, Arc<RwLock<ModelSubstrate>>>;
 
@@ -47,15 +51,15 @@ impl InferenceHost {
 
         // Anti-Thundering-Herd Lock: Ensure only one thread loads the model from disk
         static LOAD_LOCKS: once_cell::sync::Lazy<
-            dashmap::DashMap<PathBuf, Arc<std::sync::Mutex<()>>>,
+            dashmap::DashMap<PathBuf, Arc<parking_lot::Mutex<()>>>,
         > = once_cell::sync::Lazy::new(dashmap::DashMap::new);
         let load_mutex = LOAD_LOCKS
             .entry(model_path.to_path_buf())
-            .or_insert_with(|| Arc::new(std::sync::Mutex::new(())))
+            .or_insert_with(|| Arc::new(parking_lot::Mutex::new(())))
             .value()
             .clone();
 
-        let _guard = load_mutex.lock().unwrap();
+        let _guard = load_mutex.lock();
 
         // Double-check cache after acquiring the exclusive load lock
         {
@@ -148,13 +152,7 @@ impl InferenceHost {
         let _ = std::io::stdout().flush();
         pb.finish_and_clear();
 
-        let substrate = match arch.as_str() {
-            "gemma" => ModelSubstrate::Gemma(weights),
-            "llama" | "mixtral" => ModelSubstrate::Llama(weights),
-            _ => ModelSubstrate::Generic(weights),
-        };
-
-        let shared = Arc::new(RwLock::new(substrate));
+        let shared = Arc::new(RwLock::new(ModelSubstrate(weights)));
 
         // 3. Exclusive Write Access for Cache Registration
         {
@@ -521,12 +519,10 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 prompt_tokens.len() + i - 1
             };
 
-            let logits = match &mut *substrate {
-                ModelSubstrate::Llama(w)
-                | ModelSubstrate::Gemma(w)
-                | ModelSubstrate::Generic(w) => w.forward(&input, pos),
-            }
-            .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
+            let logits = substrate
+                .0
+                .forward(&input, pos)
+                .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
 
             // Absolute Rank-Safe Token Extraction (Aspiration 8)
             let mut t = logits
