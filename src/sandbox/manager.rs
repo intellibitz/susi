@@ -436,7 +436,22 @@ impl SandboxManager {
         Ok(output)
     }
 
+    pub fn ensure_gitignore_purity(workspace: &Path) {
+        let gitignore = workspace.join(".gitignore");
+        if gitignore.exists() {
+            if let Ok(content) = fs::read_to_string(&gitignore) {
+                if !content.contains(".susi") {
+                    if let Ok(mut f) = fs::OpenOptions::new().append(true).open(&gitignore) {
+                        use std::io::Write;
+                        let _ = writeln!(f, "\n# SUSI Substrate ephemeral state\n.susi/");
+                    }
+                }
+            }
+        }
+    }
+
     pub fn ensure_global_sandbox(global_dir: &Path) -> EaiResult<()> {
+        Self::ensure_gitignore_purity(global_dir);
         if !global_dir.exists() {
             fs::create_dir_all(global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
         }
@@ -647,6 +662,7 @@ impl IntentBundleManager {
     }
 
     pub fn save_staged_bundles(workspace: &Path, bundles: &[IntentBundle]) -> EaiResult<()> {
+        SandboxManager::ensure_gitignore_purity(workspace);
         let susi_dir = workspace.join(".susi");
         let _ = fs::create_dir_all(&susi_dir);
         let bundles_file = susi_dir.join("staged_bundles.json");

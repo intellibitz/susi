@@ -49,6 +49,7 @@ impl SusiAdmin {
         }
 
         // 2. Enforce Workspace Purity (Rule 12)
+        crate::sandbox::manager::SandboxManager::ensure_gitignore_purity(workspace);
         let gitignore = workspace.join(".gitignore");
         if gitignore.exists() {
             let content = fs::read_to_string(&gitignore)?;
