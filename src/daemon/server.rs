@@ -51,7 +51,8 @@ impl DaemonContext {
         thread::spawn(move || {
             if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
                 for sig in signals.forever() {
-                    eprintln!("[SusiDaemon] Received signal: {}", sig);
+                    let msgs = crate::sandbox::manager::SusiMessages::load_global();
+                    eprintln!("{}", msgs.daemon.signal_received.replace("{}", &sig.to_string()));
                     shutdown.store(true, Ordering::Release);
                 }
             }
@@ -231,13 +232,11 @@ impl SusiDaemon {
 
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
         let current_exe = std::env::current_exe().ok();
+        let msgs = crate::sandbox::manager::SusiMessages::load_global();
         if let Some(pid) = Self::check_status(global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
-                    info!(
-                        "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...",
-                        pid
-                    );
+                    info!("{}", msgs.daemon.binary_recompiled.replace("{}", &pid.to_string()));
                     Self::stop_daemon(global_dir);
                 } else {
                     return;
@@ -267,11 +266,9 @@ impl SusiDaemon {
 
         // Binary Integrity Check (Aspiration 4 Hardening)
         match Self::verify_binary_integrity(&bin_to_run, global_dir) {
-            Ok(true) => info!("[SusiDaemon] Binary integrity verified."),
+            Ok(true) => info!("{}", msgs.daemon.binary_verified),
             Ok(false) => {
-                warn!("[SusiDaemon] Binary integrity check FAILED. Potential tampering detected or build out of sync.");
-                // In a strict production mode, we might abort here.
-                // For local evolution, we log and continue if in 'alpha-world' space.
+                warn!("{}", msgs.daemon.binary_tampered);
             }
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
         }

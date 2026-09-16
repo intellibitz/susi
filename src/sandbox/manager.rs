@@ -159,6 +159,96 @@ impl SusiPrompts {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DaemonMessagesConfig {
+    pub signal_received: String,
+    pub binary_recompiled: String,
+    pub binary_verified: String,
+    pub binary_tampered: String,
+    pub shutdown_initiated: String,
+    pub lock_failed: String,
+}
+
+impl Default for DaemonMessagesConfig {
+    fn default() -> Self {
+        Self {
+            signal_received: "[SusiDaemon] Received signal: {}".to_string(),
+            binary_recompiled: "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string(),
+            binary_verified: "[SusiDaemon] Binary integrity verified.".to_string(),
+            binary_tampered: "[SusiDaemon] Binary integrity check FAILED. Potential tampering detected or build out of sync.".to_string(),
+            shutdown_initiated: "[SusiDaemon] Graceful shutdown initiated.".to_string(),
+            lock_failed: "[SusiDaemon] Failed to acquire lock: {}. Daemon likely already running.".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ReadinessMessagesConfig {
+    pub auditing_models: String,
+    pub scanning_security: String,
+    pub security_engaged: String,
+}
+
+impl Default for ReadinessMessagesConfig {
+    fn default() -> Self {
+        Self {
+            auditing_models: "[Readiness] Auditing model substrate optimal state...".to_string(),
+            scanning_security: "[Readiness] Scanning for exfiltration vectors and security leaks...".to_string(),
+            security_engaged: "[READINESS: SECURITY PROTOCOLS ENGAGED]".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SwarmMessagesConfig {
+    pub dispatch_init: String,
+    pub consensus_reached: String,
+    pub consensus_failed: String,
+}
+
+impl Default for SwarmMessagesConfig {
+    fn default() -> Self {
+        Self {
+            dispatch_init: "- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...".to_string(),
+            consensus_reached: "[SWARM COMPLETE] Consensus reached.".to_string(),
+            consensus_failed: "[SWARM FAILED] {}".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SusiMessages {
+    pub daemon: DaemonMessagesConfig,
+    pub readiness: ReadinessMessagesConfig,
+    pub swarm: SwarmMessagesConfig,
+}
+
+impl SusiMessages {
+    pub fn load_global() -> Self {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let msgs_file = home.join(".susi/messages.json");
+        if msgs_file.is_file() {
+            if let Ok(content) = fs::read_to_string(&msgs_file) {
+                if let Ok(m) = serde_json::from_str::<SusiMessages>(&content) {
+                    return m;
+                }
+            }
+        }
+        let default_msgs = Self::default();
+        let _ = fs::create_dir_all(home.join(".susi"));
+        if let Ok(json) = serde_json::to_string_pretty(&default_msgs) {
+            let _ = fs::write(&msgs_file, json);
+        }
+        default_msgs
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelLadderConfigStep {
     pub step: usize,
     pub min_ram_gb: usize,
