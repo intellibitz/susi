@@ -64,24 +64,28 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
 
     echo "Attempting to download pre-compiled binaries from $SUSI_REPO..."
 
+    # --connect-timeout: fail fast if the host is unreachable.
+    # --speed-limit/--speed-time (curl) and --timeout (wget, read-timeout):
+    # abort on a genuine stall (no bytes for 30s) without capping total
+    # transfer time, so a slow-but-progressing download isn't killed early.
     DEPLOYED=0
     if command -v curl >/dev/null 2>&1; then
         # Download Launcher
         echo "  [1/2] Downloading launcher: $LAUNCHER_BINARY..."
-        if curl -sSfL "$BASE_URL/$LAUNCHER_BINARY" -o "$GLOBAL_BIN_DIR/susi-new"; then
+        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$LAUNCHER_BINARY" -o "$GLOBAL_BIN_DIR/susi-new"; then
             # Download Engine
             echo "  [2/2] Downloading engine: $ENGINE_BINARY..."
-            if curl -sSfL "$BASE_URL/$ENGINE_BINARY" -o "$GLOBAL_BIN_DIR/susi-engine-new"; then
+            if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$GLOBAL_BIN_DIR/susi-engine-new"; then
                 DEPLOYED=1
             fi
         fi
     elif command -v wget >/dev/null 2>&1; then
         # Download Launcher
         echo "  [1/2] Downloading launcher: $LAUNCHER_BINARY..."
-        if wget -q "$BASE_URL/$LAUNCHER_BINARY" -O "$GLOBAL_BIN_DIR/susi-new"; then
+        if wget -q --timeout=30 --tries=2 "$BASE_URL/$LAUNCHER_BINARY" -O "$GLOBAL_BIN_DIR/susi-new"; then
             # Download Engine
             echo "  [2/2] Downloading engine: $ENGINE_BINARY..."
-            if wget -q "$BASE_URL/$ENGINE_BINARY" -O "$GLOBAL_BIN_DIR/susi-engine-new"; then
+            if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$GLOBAL_BIN_DIR/susi-engine-new"; then
                 DEPLOYED=1
             fi
         fi
@@ -135,10 +139,10 @@ if [ "$INSTALLED" = "0" ]; then
         cd "$TEMP_DIR" || { echo "Failed to enter temporary directory."; exit 1; }
 
         if command -v curl >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
-            curl -sSfL "$SOURCE_URL" | tar -xzC "$TEMP_DIR" --strip-components=1 || { echo "Source download failed."; exit 1; }
+            curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$SOURCE_URL" | tar -xzC "$TEMP_DIR" --strip-components=1 || { echo "Source download failed."; exit 1; }
             SCRIPT_DIR="$TEMP_DIR"
         elif command -v wget >/dev/null 2>&1 && command -v tar >/dev/null 2>&1; then
-            wget -qO- "$SOURCE_URL" | tar -xzC "$TEMP_DIR" --strip-components=1 || { echo "Source download failed."; exit 1; }
+            wget -qO- --timeout=30 --tries=2 "$SOURCE_URL" | tar -xzC "$TEMP_DIR" --strip-components=1 || { echo "Source download failed."; exit 1; }
             SCRIPT_DIR="$TEMP_DIR"
         else
             echo "Error: 'tar' and either 'curl' or 'wget' are required for source fallback."
@@ -147,7 +151,11 @@ if [ "$INSTALLED" = "0" ]; then
     fi
 
     if command -v cargo >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
-        echo "Building release binaries (this may take a moment)..."
+        echo "Building release binaries from source. This crate has a large dependency"
+        echo "tree (candle, wasmer, tantivy, tonic, ...) — a cold build with no cargo"
+        echo "cache commonly takes 15-30+ minutes. This is expected, not a hang; a"
+        echo "heartbeat below confirms the build is still active even during a long"
+        echo "silent stretch on a single large crate."
 
         # 100% GPU Hardware Interrogation Build Strategy
         BUILD_FEATURES=""
@@ -160,12 +168,41 @@ if [ "$INSTALLED" = "0" ]; then
             fi
         fi
 
+        # Heartbeat so a long silent stretch (cargo prints a new line only when a
+        # compilation unit starts/finishes, and a single large crate can take
+        # several minutes) doesn't read as a frozen script.
+        HEARTBEAT_PID=""
+        start_heartbeat() {
+            ( SECS=0
+              while true; do
+                  sleep 30
+                  SECS=$((SECS+30))
+                  echo "  ...still building (${SECS}s elapsed, this is normal for a cold build)"
+              done
+            ) &
+            HEARTBEAT_PID=$!
+            disown "$HEARTBEAT_PID" 2>/dev/null || true
+        }
+        stop_heartbeat() {
+            if [ -n "$HEARTBEAT_PID" ]; then
+                kill "$HEARTBEAT_PID" 2>/dev/null || true
+                wait "$HEARTBEAT_PID" 2>/dev/null || true
+                HEARTBEAT_PID=""
+            fi
+        }
+        trap stop_heartbeat EXIT
+
         # Build Engine
         echo "  Building engine..."
+        start_heartbeat
         (cd "$SCRIPT_DIR" && cargo build --release $BUILD_FEATURES)
+        stop_heartbeat
+
         # Build Launcher
         echo "  Building launcher..."
+        start_heartbeat
         (cd "$SCRIPT_DIR/src/native/susi" && cargo build --release)
+        stop_heartbeat
 
         ENGINE_SRC="$SCRIPT_DIR/target/release/susi-engine"
         LAUNCHER_SRC="$SCRIPT_DIR/src/native/susi/target/release/susi"
@@ -256,9 +293,9 @@ if [ ! -f "$REFLEX_MODEL" ]; then
     # Using the default HF URL from config if not provided
     WEIGHTS_URL="${SUSI_WEIGHTS_URL:-https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors}"
     if command -v curl >/dev/null 2>&1; then
-        curl -sSfL "$WEIGHTS_URL" -o "$REFLEX_MODEL"
+        curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$WEIGHTS_URL" -o "$REFLEX_MODEL" || echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
     elif command -v wget >/dev/null 2>&1; then
-        wget -q "$WEIGHTS_URL" -O "$REFLEX_MODEL"
+        wget -q --timeout=30 --tries=2 "$WEIGHTS_URL" -O "$REFLEX_MODEL" || echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
     fi
 fi
 

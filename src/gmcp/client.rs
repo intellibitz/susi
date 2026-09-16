@@ -108,9 +108,9 @@ impl GmcpClient {
                                     }
                                 }
                                 let _guard = FetchGuard;
-                                if let Ok(resp) = ureq::get(&url)
+                                if let Ok(resp) = crate::sandbox::manager::http_agent()
+                                    .get(&url)
                                     .set("User-Agent", "SUSI/0.1")
-                                    
                                     .call()
                                 {
                                     let mut reader = resp.into_reader();
@@ -157,9 +157,9 @@ impl GmcpClient {
                     }
                 }
                 let _guard = InitGuard;
-                if let Ok(resp) = ureq::get(&url)
+                if let Ok(resp) = crate::sandbox::manager::http_agent()
+                    .get(&url)
                     .set("User-Agent", "SUSI/0.1")
-                    
                     .call()
                 {
                     let mut reader = resp.into_reader();
@@ -368,7 +368,7 @@ impl GmcpClient {
 
         // 1. Establish SSE Connection to get the message endpoint
         let sse_url = format!("{}/sse", base_url);
-        let resp = match ureq::get(&sse_url).call() {
+        let resp = match crate::sandbox::manager::http_agent().get(&sse_url).call() {
             Ok(r) => r,
             Err(e) => {
                 return format!(
@@ -423,7 +423,10 @@ impl GmcpClient {
             }
         });
 
-        match ureq::post(&endpoint).send_json(call_req) {
+        match crate::sandbox::manager::http_agent()
+            .post(&endpoint)
+            .send_json(call_req)
+        {
             Ok(resp) => {
                 let v: serde_json::Value = resp.into_json().unwrap_or(json!({}));
                 if let Some(content) = v

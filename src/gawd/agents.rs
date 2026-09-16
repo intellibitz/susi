@@ -134,7 +134,18 @@ impl GawdAgent for DynamicAgent {
         let lower = goal.to_lowercase();
         let trimmed = lower.trim();
 
-        // Fast-Path Yield: Skip 31B GGUF inference loop for instant queries or when specialists/admin have answered
+        // Fast-Path Yield: Skip the GGUF inference loop for instant queries or when
+        // specialists/admin have answered. The blackboard.contains_key("AdminAgent")
+        // check is a race (agents run concurrently via rayon with no ordering
+        // guarantee, so this DynamicAgent may check before AdminAgent inserts its
+        // result) — trimmed.starts_with("admin pulse") is a deterministic fallback
+        // on the goal string itself, so admin/bootstrap pulses (install, uninstall,
+        // sync, audit, release, ...) never nondeterministically fall through to a
+        // full model-inference cycle depending on scheduling luck. Losing that race
+        // previously meant this agent could trigger loading and running whatever
+        // model HardwareProfiler picked as "optimal" for the host (up to 72B on a
+        // large-RAM machine) synchronously on CPU during what should be a fast
+        // bootstrap pulse — the actual root cause of a multi-minute `susi install`.
         if trimmed == "ls"
             || trimmed.starts_with("ls ")
             || trimmed == "dir"
@@ -146,6 +157,7 @@ impl GawdAgent for DynamicAgent {
             || trimmed == "identity"
             || trimmed == "version"
             || trimmed == "models"
+            || trimmed.starts_with("admin pulse")
             || blackboard.contains_key("SearchAgent")
             || blackboard.contains_key("TranslationAgent")
             || blackboard.contains_key("AdminAgent")
@@ -178,7 +190,8 @@ impl GawdAgent for DynamicAgent {
             || trimmed == "status"
             || trimmed == "identity"
             || trimmed == "version"
-            || trimmed == "models";
+            || trimmed == "models"
+            || trimmed.starts_with("admin pulse");
 
         // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy (Rule 31)
         let res = if is_admin_or_query {
@@ -643,7 +656,8 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             format!("{}/completions", self.api_base_url)
         };
 
-        match ureq::post(&endpoint_url)
+        match crate::sandbox::manager::http_agent()
+            .post(&endpoint_url)
             .set("Content-Type", "application/json")
             .send_json(payload)
         {
@@ -722,9 +736,9 @@ impl GawdAgent for LibraryScoutAgent {
         );
         let mut results = Vec::new();
 
-        if let Ok(resp) = ureq::get(&url)
+        if let Ok(resp) = crate::sandbox::manager::http_agent()
+            .get(&url)
             .set("User-Agent", "SUSI/0.1")
-            
             .call()
         {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {

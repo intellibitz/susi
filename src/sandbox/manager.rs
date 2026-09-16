@@ -18,6 +18,21 @@ pub type StringRegistry = HashMap<String, String>;
 // ModelTier and ProviderType are now dynamic strings, not hardcoded enums
 pub type ModelTier = String;
 pub type ProviderType = String;
+
+/// Shared ureq Agent with connect/read/write timeouts. `ureq::get`/`ureq::post`
+/// free functions use a default agent with NO timeouts at all — a stalled
+/// remote (or one that completes the handshake but then goes silent
+/// mid-response, e.g. during SSE body streaming) blocks the calling thread
+/// forever. Agent-level timeout_read/timeout_write bound every socket read
+/// and write, including streaming body reads after the initial response
+/// headers arrive, which a per-request `.timeout()` alone would not cover.
+pub fn http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(10))
+        .timeout_read(std::time::Duration::from_secs(20))
+        .timeout_write(std::time::Duration::from_secs(20))
+        .build()
+}
 pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
 pub type RiskTier = String;   // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
 

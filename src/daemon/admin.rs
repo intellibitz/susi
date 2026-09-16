@@ -218,11 +218,16 @@ impl SusiAdmin {
             }
         }
 
-        // 5. Synchronize Default Configuration Manifest (config.default.json)
-        let default_cfg = crate::sandbox::manager::SusiConfig::default();
-        if let Ok(cfg_json) = serde_json::to_string_pretty(&default_cfg) {
-            let _ = fs::write(workspace.join("config.default.json"), cfg_json + "\n");
-        }
+        // NOTE: config.default.json is intentionally NOT regenerated here.
+        // SusiConfig::default() is deserialized from config.default.json via
+        // include_str! at compile time, so writing it back out is a pure
+        // round-trip that can only preserve or lose information — never add
+        // any. If a binary older than the latest source (e.g. a stale
+        // long-running daemon) runs this sync path, reserializing its
+        // compiled-in defaults would silently delete any config keys added
+        // to the source file since that binary was built. config.default.json
+        // is hand/agent-maintained source, checked into version control; it
+        // has no legitimate "sync" target to converge toward.
 
         Ok(version.to_string())
     }

@@ -857,8 +857,12 @@ impl ModelManager {
             }
         }
 
+        // Only bound connection establishment, not overall transfer time — a
+        // multi-GB model download legitimately runs for many minutes, but a
+        // stalled/unreachable connect attempt should fail fast rather than
+        // hang forever with no read/body timeout to fall back on.
         let client = reqwest::blocking::Client::builder()
-            
+            .connect_timeout(std::time::Duration::from_secs(15))
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -1076,7 +1080,8 @@ impl ModelManager {
         }
         let start = std::time::Instant::now();
         let client = match reqwest::blocking::Client::builder()
-            
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(15))
             .build()
         {
             Ok(c) => c,
