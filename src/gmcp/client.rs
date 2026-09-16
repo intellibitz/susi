@@ -110,7 +110,7 @@ impl GmcpClient {
                                 let _guard = FetchGuard;
                                 if let Ok(resp) = ureq::get(&url)
                                     .set("User-Agent", "SUSI/0.1")
-                                    .timeout(std::time::Duration::from_millis(500))
+                                    
                                     .call()
                                 {
                                     let mut reader = resp.into_reader();
@@ -159,7 +159,7 @@ impl GmcpClient {
                 let _guard = InitGuard;
                 if let Ok(resp) = ureq::get(&url)
                     .set("User-Agent", "SUSI/0.1")
-                    .timeout(std::time::Duration::from_millis(1000))
+                    
                     .call()
                 {
                     let mut reader = resp.into_reader();

@@ -6,6 +6,7 @@ use crate::error::EaiResult;
 use crossbeam::queue::SegQueue;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::thread::Thread;
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,7 @@ pub struct PulseEntry {
 pub struct SubstratePulseQueue {
     priority_queue: SegQueue<PulseEntry>,
     standard_queue: SegQueue<PulseEntry>,
+    consumer_thread: parking_lot::RwLock<Option<Thread>>,
 }
 
 impl SubstratePulseQueue {
@@ -26,6 +28,7 @@ impl SubstratePulseQueue {
         Self {
             priority_queue: SegQueue::new(),
             standard_queue: SegQueue::new(),
+            consumer_thread: parking_lot::RwLock::new(None),
         }
     }
 
@@ -60,6 +63,10 @@ impl SubstratePulseQueue {
             self.standard_queue.push(entry);
         }
 
+        if let Some(t) = self.consumer_thread.read().as_ref() {
+            t.unpark();
+        }
+
         Ok(())
     }
 
@@ -78,5 +85,9 @@ impl SubstratePulseQueue {
     pub fn clear(&self) {
         while self.priority_queue.pop().is_some() {}
         while self.standard_queue.pop().is_some() {}
+    }
+
+    pub fn register_consumer(&self) {
+        *self.consumer_thread.write() = Some(std::thread::current());
     }
 }

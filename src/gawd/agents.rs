@@ -612,7 +612,7 @@ impl GawdAgent for VllmBridgeAgent {
         });
 
         match ureq::post(&format!("{}/completions", vllm_url))
-            .timeout(std::time::Duration::from_millis(50))
+            
             .send_json(body)
         {
             Ok(resp) => {
@@ -674,7 +674,7 @@ impl GawdAgent for SglangBridgeAgent {
         });
 
         match ureq::post(&format!("{}/chat/completions", sglang_url))
-            .timeout(std::time::Duration::from_millis(50))
+            
             .send_json(body)
         {
             Ok(resp) => {
@@ -736,7 +736,7 @@ impl GawdAgent for LlamaCppBridgeAgent {
         });
 
         match ureq::post(&format!("{}/completions", llama_url))
-            .timeout(std::time::Duration::from_millis(50))
+            
             .send_json(body)
         {
             Ok(resp) => {
@@ -799,7 +799,7 @@ impl GawdAgent for TensorRtBridgeAgent {
         });
 
         match ureq::post(&triton_url)
-            .timeout(std::time::Duration::from_millis(50))
+            
             .send_json(body)
         {
             Ok(resp) => {
@@ -864,7 +864,7 @@ impl GawdAgent for LmdeployBridgeAgent {
         });
 
         match ureq::post(&format!("{}/completions", lmdeploy_url))
-            .timeout(std::time::Duration::from_millis(50))
+            
             .send_json(body)
         {
             Ok(resp) => {
@@ -943,7 +943,7 @@ impl GawdAgent for LibraryScoutAgent {
 
         if let Ok(resp) = ureq::get(&url)
             .set("User-Agent", "SUSI/0.1")
-            .timeout(std::time::Duration::from_millis(1000))
+            
             .call()
         {
             if let Ok(json) = resp.into_json::<serde_json::Value>() {

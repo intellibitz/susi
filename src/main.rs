@@ -102,26 +102,6 @@ fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
     let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let max_size = cfg.max_stdin_size_bytes;
-    let timeout_secs = cfg.stdin_timeout_secs;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::io::AsRawFd;
-        let fd = stdin.as_raw_fd();
-        let timeout = libc::timeval {
-            tv_sec: timeout_secs as _,
-            tv_usec: 0,
-        };
-        unsafe {
-            libc::setsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_RCVTIMEO,
-                &timeout as *const _ as *const libc::c_void,
-                std::mem::size_of::<libc::timeval>() as u32,
-            );
-        }
-    }
     let mut buffer = Vec::new();
     let mut limited = stdin.take(max_size as u64);
     limited.read_to_end(&mut buffer)?;
@@ -163,11 +143,15 @@ fn run_shell(workspace: &std::path::Path) {
     println!("Type 'exit' to quit.");
 
     let w = workspace.to_path_buf();
-    std::thread::spawn(move || loop {
-        if let Some(pulse) = queue.pop() {
-            let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION);
+    std::thread::spawn(move || {
+        queue.register_consumer();
+        loop {
+            if let Some(pulse) = queue.pop() {
+                let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION);
+            } else {
+                std::thread::park(); // Zero-latency, zero-CPU waiting until a pulse is ingested
+            }
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
     });
 
     loop {

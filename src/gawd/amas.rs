@@ -73,7 +73,7 @@ impl SusiSupervisor {
                     UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
-                    let _ = socket.set_read_timeout(Some(Duration::from_millis(100)));
+                    
 
                     let mut buf = [0u8; 1024];
                     loop {
@@ -501,7 +501,7 @@ impl SusiSupervisor {
         let mut active_peers = Vec::new();
         if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
             let _ = socket.set_broadcast(true);
-            let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
+            
             let _ = socket.send_to(
                 b"SUSI_LAN_PING",
                 format!("255.255.255.255:{}", Self::get_udp_discovery_port()),

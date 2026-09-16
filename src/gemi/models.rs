@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {
@@ -855,7 +854,7 @@ impl ModelManager {
         }
 
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3600))
+            
             .build()
             .map_err(|e| e.to_string())?;
 
@@ -1062,7 +1061,7 @@ impl ModelManager {
         }
         let start = std::time::Instant::now();
         let client = match reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3)) // 3s fast timeout
+            
             .build()
         {
             Ok(c) => c,

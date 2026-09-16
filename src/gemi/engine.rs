@@ -32,7 +32,7 @@ impl InferenceHost {
     pub fn get_model(
         model_path: &Path,
         device: &candle_core::Device,
-        task_handle: &Arc<crate::gawd::task_manager::TaskHandle>,
+        _task_handle: &Arc<crate::gawd::task_manager::TaskHandle>,
     ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
         static CACHED_MODELS: OnceLock<Arc<RwLock<ModelCacheMap>>> = OnceLock::new();
         let cache = CACHED_MODELS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
@@ -55,20 +55,7 @@ impl InferenceHost {
             .value()
             .clone();
 
-        let _guard = loop {
-            if task_handle.is_cancelled() {
-                return Err(EaiError::inference(
-                    "Task cancelled while waiting for model load lock.",
-                ));
-            }
-            match load_mutex.try_lock() {
-                Ok(g) => break g,
-                Err(_) => {
-                    task_handle.report_progress(); // Keep waiting agents alive
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-                }
-            }
-        };
+        let _guard = load_mutex.lock().unwrap();
 
         // Double-check cache after acquiring the exclusive load lock
         {
@@ -151,19 +138,7 @@ impl InferenceHost {
         );
         let _ = std::io::stdout().flush();
 
-        // Blocking FFI Keep-Alive: Prevent watchdog timeouts during massive I/O model loads
-        let is_loading = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let is_loading_clone = Arc::clone(&is_loading);
-        let th_clone = Arc::clone(task_handle);
-        std::thread::spawn(move || {
-            while is_loading_clone.load(std::sync::atomic::Ordering::SeqCst) {
-                th_clone.report_progress();
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
-        });
-
         let weights_result = llama::ModelWeights::from_gguf(model_data, &mut file, device);
-        is_loading.store(false, std::sync::atomic::Ordering::SeqCst); // Stop keep-alive
 
         let weights = weights_result.map_err(|e| {
             EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e))
@@ -473,25 +448,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
-        let wait_start = std::time::Instant::now();
-        let mut substrate = loop {
-            if task_handle.is_cancelled() {
-                return Err(EaiError::inference(
-                    "Task cancelled or stalled while waiting for model substrate.",
-                ));
-            }
-            match substrate_shared.try_write() {
-                Some(guard) => break guard,
-                None => {
-                    if wait_start.elapsed().as_millis() > 1000 {
-                        return Err(EaiError::inference(
-                            "Model substrate busy (Contention limit reached). Failing fast.",
-                        ));
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-            }
-        };
+        let mut substrate = substrate_shared.write();
         println!(" [Access Granted]");
 
         println!(
