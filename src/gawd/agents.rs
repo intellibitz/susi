@@ -570,15 +570,31 @@ impl GawdAgent for SelfHealingAgent {
     }
 }
 
-/// vLLM High-Throughput Bridge Agent (Aspiration 9)
-pub struct VllmBridgeAgent;
+/// Universal Dynamic Inference Endpoint Agent (100% Vendor Agnostic)
+pub struct DynamicInferenceEndpointAgent {
+    pub endpoint_name: String,
+    pub api_base_url: String,
+    pub protocol_type: String,
+    pub agent_rank: f32,
+}
 
-impl GawdAgent for VllmBridgeAgent {
+impl DynamicInferenceEndpointAgent {
+    pub fn new(name: &str, api_base_url: &str, protocol_type: &str) -> Self {
+        Self {
+            endpoint_name: name.to_string(),
+            api_base_url: api_base_url.to_string(),
+            protocol_type: protocol_type.to_string(),
+            agent_rank: 0.95,
+        }
+    }
+}
+
+impl GawdAgent for DynamicInferenceEndpointAgent {
     fn name(&self) -> String {
-        "VllmBridgeAgent".into()
+        format!("{}BridgeAgent", self.endpoint_name)
     }
     fn rank(&self) -> f32 {
-        0.95
+        self.agent_rank
     }
     fn execute(
         &self,
@@ -586,304 +602,66 @@ impl GawdAgent for VllmBridgeAgent {
         _workspace: &Path,
         _blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        // Power-Tier Delegation Protocol
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
-            if remote_name.to_lowercase().contains("vllm") {
+            if remote_name.to_lowercase().contains(&self.endpoint_name.to_lowercase()) {
                 let res = crate::gmcp::client::GmcpClient::execute_external_tool(
                     &remote_name,
                     "generate",
                     goal,
                 );
                 if !res.contains("[FAIL]") {
-                    return Ok(format!("[vLLM Power-Tier]: {}", res));
+                    return Ok(format!("[{} Power-Tier]: {}", self.endpoint_name, res));
                 }
             }
         }
 
-        // Local vLLM Proxy Fallback (OpenAI-compatible)
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let vllm_url =
-            std::env::var("VLLM_API_BASE").unwrap_or(cfg.inference_endpoints.vllm_api_base);
-        let body = serde_json::json!({
-            "model": "vllm-substrate",
-            "prompt": goal,
-            "max_tokens": 512,
-            "temperature": 0.0
-        });
+        let payload = match self.protocol_type.as_str() {
+            "chat" => serde_json::json!({
+                "model": format!("{}-substrate", self.endpoint_name.to_lowercase()),
+                "messages": [{"role": "user", "content": goal}],
+                "max_tokens": 1024
+            }),
+            "triton" => serde_json::json!({
+                "text_input": goal,
+                "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
+            }),
+            _ => serde_json::json!({
+                "model": format!("{}-substrate", self.endpoint_name.to_lowercase()),
+                "prompt": goal,
+                "max_tokens": 1024
+            }),
+        };
 
-        match ureq::post(&format!("{}/completions", vllm_url))
-            
-            .send_json(body)
+        let endpoint_url = if self.protocol_type == "chat" {
+            format!("{}/chat/completions", self.api_base_url)
+        } else if self.protocol_type == "triton" {
+            self.api_base_url.clone()
+        } else {
+            format!("{}/completions", self.api_base_url)
+        };
+
+        match ureq::post(&endpoint_url)
+            .set("Content-Type", "application/json")
+            .send_json(payload)
         {
             Ok(resp) => {
-                let json: serde_json::Value = resp
-                    .into_json()
-                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"]
-                    .as_str()
-                    .unwrap_or("vLLM output empty")
-                    .to_string();
-                Ok(format!("[vLLM Local Proxy]: {}", text))
+                let text = resp.into_string().unwrap_or_else(|_| "output empty".into());
+                Ok(format!("[{} Proxy]: {}", self.endpoint_name, text))
             }
-            Err(_) => Err(crate::error::EaiError::inference(
-                "vLLM remote or local proxy unreachable",
-            )),
+            Err(_) => Err(crate::error::EaiError::inference(format!(
+                "{} proxy endpoint unreachable at {}",
+                self.endpoint_name, self.api_base_url
+            ))),
         }
     }
 }
 
-/// SGLang Structured Generation Bridge Agent (Aspiration 9)
-pub struct SglangBridgeAgent;
-
-impl GawdAgent for SglangBridgeAgent {
-    fn name(&self) -> String {
-        "SglangBridgeAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.95
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        _workspace: &Path,
-        _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        // Structured Delegation Protocol
-        let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
-        for remote_name in client {
-            if remote_name.to_lowercase().contains("sglang") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
-                    &remote_name,
-                    "structured_generate",
-                    goal,
-                );
-                if !res.contains("[FAIL]") {
-                    return Ok(format!("[SGLang Power-Tier]: {}", res));
-                }
-            }
-        }
-
-        // Local SGLang Proxy Fallback
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let sglang_url =
-            std::env::var("SGLANG_API_BASE").unwrap_or(cfg.inference_endpoints.sglang_api_base);
-        let body = serde_json::json!({
-            "model": "sglang-substrate",
-            "prompt": goal,
-            "sampling_params": { "max_new_tokens": 512, "temperature": 0.0 }
-        });
-
-        match ureq::post(&format!("{}/chat/completions", sglang_url))
-            
-            .send_json(body)
-        {
-            Ok(resp) => {
-                let json: serde_json::Value = resp
-                    .into_json()
-                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["message"]["content"]
-                    .as_str()
-                    .unwrap_or("SGLang output empty")
-                    .to_string();
-                Ok(format!("[SGLang Local Proxy]: {}", text))
-            }
-            Err(_) => Err(crate::error::EaiError::inference(
-                "SGLang remote or local proxy unreachable",
-            )),
-        }
-    }
-}
-
-/// llama.cpp Universal Compatibility Bridge Agent (Aspiration 10)
-pub struct LlamaCppBridgeAgent;
-
-impl GawdAgent for LlamaCppBridgeAgent {
-    fn name(&self) -> String {
-        "LlamaCppBridgeAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.90
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        _workspace: &Path,
-        _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        // Universal GGUF Protocol (Fallback to llama.cpp standard)
-        let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
-        for remote_name in client {
-            if remote_name.to_lowercase().contains("llama") {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
-                    &remote_name,
-                    "completions",
-                    goal,
-                );
-                if !res.contains("[FAIL]") {
-                    return Ok(format!("[llama.cpp Power-Tier]: {}", res));
-                }
-            }
-        }
-
-        // Local llama-server Proxy (Standard Port 8080)
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let llama_url =
-            std::env::var("LLAMA_API_BASE").unwrap_or(cfg.inference_endpoints.llama_api_base);
-        let body = serde_json::json!({
-            "prompt": goal,
-            "n_predict": 512,
-            "temperature": 0.0
-        });
-
-        match ureq::post(&format!("{}/completions", llama_url))
-            
-            .send_json(body)
-        {
-            Ok(resp) => {
-                let json: serde_json::Value = resp
-                    .into_json()
-                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"]
-                    .as_str()
-                    .unwrap_or("llama.cpp output empty")
-                    .to_string();
-                Ok(format!("[llama.cpp Local Proxy]: {}", text))
-            }
-            Err(_) => Err(crate::error::EaiError::inference(
-                "llama.cpp remote or local proxy unreachable",
-            )),
-        }
-    }
-}
-
-/// TensorRT-LLM Peak Optimization Bridge Agent (Aspiration 5)
-pub struct TensorRtBridgeAgent;
-
-impl GawdAgent for TensorRtBridgeAgent {
-    fn name(&self) -> String {
-        "TensorRtBridgeAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.98
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        _workspace: &Path,
-        _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        // NVIDIA Hardware Saturation Protocol
-        let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
-        for remote_name in client {
-            if remote_name.to_lowercase().contains("tensorrt")
-                || remote_name.to_lowercase().contains("triton")
-            {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
-                    &remote_name,
-                    "infer",
-                    goal,
-                );
-                if !res.contains("[FAIL]") {
-                    return Ok(format!("[TensorRT-LLM Power-Tier]: {}", res));
-                }
-            }
-        }
-
-        // Local Triton Inference Server Proxy
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let triton_url =
-            std::env::var("TRITON_API_BASE").unwrap_or(cfg.inference_endpoints.triton_api_base);
-        let body = serde_json::json!({
-            "text_input": goal,
-            "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
-        });
-
-        match ureq::post(&triton_url)
-            
-            .send_json(body)
-        {
-            Ok(resp) => {
-                let json: serde_json::Value = resp
-                    .into_json()
-                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["text_output"]
-                    .as_str()
-                    .unwrap_or("TensorRT output empty")
-                    .to_string();
-                Ok(format!("[TensorRT-LLM Local Proxy]: {}", text))
-            }
-            Err(_) => Err(crate::error::EaiError::inference(
-                "TensorRT/Triton remote or local proxy unreachable",
-            )),
-        }
-    }
-}
-
-/// LMDeploy High-Throughput Bridge Agent (Aspiration 10)
-pub struct LmdeployBridgeAgent;
-
-impl GawdAgent for LmdeployBridgeAgent {
-    fn name(&self) -> String {
-        "LmdeployBridgeAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.96
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        _workspace: &Path,
-        _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        // AWQ-Compressed Mission Delegation
-        let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
-        for remote_name in client {
-            if remote_name.to_lowercase().contains("lmdeploy")
-                || remote_name.to_lowercase().contains("turbomind")
-            {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
-                    &remote_name,
-                    "generate",
-                    goal,
-                );
-                if !res.contains("[FAIL]") {
-                    return Ok(format!("[LMDeploy Power-Tier]: {}", res));
-                }
-            }
-        }
-
-        // Local LMDeploy Proxy (OpenAI-compatible)
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let lmdeploy_url =
-            std::env::var("LMDEPLOY_API_BASE").unwrap_or(cfg.inference_endpoints.lmdeploy_api_base);
-        let body = serde_json::json!({
-            "model": "susi-turbomind",
-            "prompt": goal,
-            "max_tokens": 512,
-            "temperature": 0.0
-        });
-
-        match ureq::post(&format!("{}/completions", lmdeploy_url))
-            
-            .send_json(body)
-        {
-            Ok(resp) => {
-                let json: serde_json::Value = resp
-                    .into_json()
-                    .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
-                let text = json["choices"][0]["text"]
-                    .as_str()
-                    .unwrap_or("LMDeploy output empty")
-                    .to_string();
-                Ok(format!("[LMDeploy Local Proxy]: {}", text))
-            }
-            Err(_) => Err(crate::error::EaiError::inference(
-                "LMDeploy/TurboMind remote or local proxy unreachable",
-            )),
-        }
-    }
-}
+pub type VllmBridgeAgent = DynamicInferenceEndpointAgent;
+pub type SglangBridgeAgent = DynamicInferenceEndpointAgent;
+pub type LlamaCppBridgeAgent = DynamicInferenceEndpointAgent;
+pub type TensorRtBridgeAgent = DynamicInferenceEndpointAgent;
+pub type LmdeployBridgeAgent = DynamicInferenceEndpointAgent;
 
 /// SOTA Library Scouting Agent (Aspiration 19)
 pub struct LibraryScoutAgent;
@@ -1403,21 +1181,18 @@ impl GawdAgentFleet {
             fleet.push(Arc::new(AdminAgent));
         }
 
-        // Aspiration 9: High-Throughput Remote Bridge Integration (Only if endpoints are configured)
-        if std::env::var("VLLM_API_BASE").is_ok() {
-            fleet.push(Arc::new(VllmBridgeAgent));
-        }
-        if std::env::var("SGLANG_API_BASE").is_ok() {
-            fleet.push(Arc::new(SglangBridgeAgent));
-        }
-        if std::env::var("LLAMA_API_BASE").is_ok() {
-            fleet.push(Arc::new(LlamaCppBridgeAgent));
-        }
-        if std::env::var("TRITON_API_BASE").is_ok() {
-            fleet.push(Arc::new(TensorRtBridgeAgent));
-        }
-        if std::env::var("LMDEPLOY_API_BASE").is_ok() {
-            fleet.push(Arc::new(LmdeployBridgeAgent));
+        // Schema-Driven High-Throughput Remote Bridge Integration
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        for endpoint in &cfg.inference_endpoints.endpoints {
+            let env_var_name = format!("{}_API_BASE", endpoint.name.to_uppercase().replace('.', "_"));
+            if std::env::var(&env_var_name).is_ok() {
+                let base_url = std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
+                fleet.push(Arc::new(DynamicInferenceEndpointAgent::new(
+                    &endpoint.name,
+                    &base_url,
+                    &endpoint.protocol_type,
+                )));
+            }
         }
 
         fleet.push(Arc::new(LibraryScoutAgent));

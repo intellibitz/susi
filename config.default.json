@@ -95,6 +95,33 @@
     "audit_deps_pulse": "admin pulse: run dependency security audit"
   },
   "inference_endpoints": {
+    "endpoints": [
+      {
+        "name": "vLLM",
+        "api_base": "http://localhost:8000/v1",
+        "protocol_type": "completions"
+      },
+      {
+        "name": "SGLang",
+        "api_base": "http://localhost:30000/v1",
+        "protocol_type": "chat"
+      },
+      {
+        "name": "llama.cpp",
+        "api_base": "http://localhost:8080/v1",
+        "protocol_type": "completions"
+      },
+      {
+        "name": "Triton",
+        "api_base": "http://localhost:8001/v2/models/susi_model/generate",
+        "protocol_type": "triton"
+      },
+      {
+        "name": "LMDeploy",
+        "api_base": "http://localhost:23333/v1",
+        "protocol_type": "completions"
+      }
+    ],
     "vllm_api_base": "http://localhost:8000/v1",
     "sglang_api_base": "http://localhost:30000/v1",
     "llama_api_base": "http://localhost:8080/v1",

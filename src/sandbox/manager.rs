@@ -130,8 +130,16 @@ impl Default for AdminPulsesConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InferenceEndpointEntry {
+    pub name: String,
+    pub api_base: String,
+    pub protocol_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct InferenceEndpointsConfig {
+    pub endpoints: Vec<InferenceEndpointEntry>,
     pub vllm_api_base: String,
     pub sglang_api_base: String,
     pub llama_api_base: String,
@@ -142,6 +150,33 @@ pub struct InferenceEndpointsConfig {
 impl Default for InferenceEndpointsConfig {
     fn default() -> Self {
         Self {
+            endpoints: vec![
+                InferenceEndpointEntry {
+                    name: "vLLM".to_string(),
+                    api_base: "http://localhost:8000/v1".to_string(),
+                    protocol_type: "completions".to_string(),
+                },
+                InferenceEndpointEntry {
+                    name: "SGLang".to_string(),
+                    api_base: "http://localhost:30000/v1".to_string(),
+                    protocol_type: "chat".to_string(),
+                },
+                InferenceEndpointEntry {
+                    name: "llama.cpp".to_string(),
+                    api_base: "http://localhost:8080/v1".to_string(),
+                    protocol_type: "completions".to_string(),
+                },
+                InferenceEndpointEntry {
+                    name: "Triton".to_string(),
+                    api_base: "http://localhost:8001/v2/models/susi_model/generate".to_string(),
+                    protocol_type: "triton".to_string(),
+                },
+                InferenceEndpointEntry {
+                    name: "LMDeploy".to_string(),
+                    api_base: "http://localhost:23333/v1".to_string(),
+                    protocol_type: "completions".to_string(),
+                },
+            ],
             vllm_api_base: "http://localhost:8000/v1".to_string(),
             sglang_api_base: "http://localhost:30000/v1".to_string(),
             llama_api_base: "http://localhost:8080/v1".to_string(),
