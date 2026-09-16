@@ -174,15 +174,15 @@ impl SusiMasterAgent {
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         println!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
-            cfg.gmcp_port, cfg.gemi_port, cfg.udp_discovery_port
+            cfg.gmcp_port(), cfg.gemi_port(), cfg.udp_discovery_port()
         );
         println!(
             "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
-            cfg.default_engine, cfg.default_model
+            cfg.default_engine(), cfg.default_model()
         );
         println!(
             "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
-            cfg.agent_rank_threshold, cfg.cloud_scout_timeout_secs
+            cfg.agent_rank_threshold(), cfg.cloud_scout_timeout_secs()
         );
         println!(
             "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
@@ -266,9 +266,9 @@ impl SusiMasterAgent {
                 for m in &models {
                     out.push_str(&format!(
                         "- [{}] {} ({})\n",
-                        if m.is_local { "LOCAL" } else { "CLOUD" },
-                        m.name,
-                        m.model_id
+                        if m.is_local() { "LOCAL" } else { "CLOUD" },
+                        m.name(),
+                        m.model_id()
                     ));
                 }
                 out
@@ -519,8 +519,8 @@ impl SusiMasterAgent {
             let mut roster = format!("SUSI Substrate Models Roster ({}) :\n", version);
             for m in models {
                 roster.push_str(&format!(
-                    "- [{:?}] {} ({})\n",
-                    m.provider, m.name, m.model_id
+                    "- [{}] {} ({})\n",
+                    m.provider(), m.name(), m.model_id()
                 ));
             }
             return Ok(SusiMissionReport {

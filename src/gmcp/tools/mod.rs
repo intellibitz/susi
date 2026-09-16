@@ -286,9 +286,9 @@ impl CoreTools {
         for m in &models {
             out.push_str(&format!(
                 "- [{}] {} ({})\n",
-                if m.is_local { "LOCAL" } else { "CLOUD" },
-                m.name,
-                m.model_id
+                if m.is_local() { "LOCAL" } else { "CLOUD" },
+                m.name(),
+                m.model_id()
             ));
         }
         Ok(out)

@@ -36,10 +36,10 @@ impl AlphaBrainContext {
             system_gpu: hardware.gpu_info,
             system_ram_gb: hardware.ram_gb,
             workspace_path: workspace.to_path_buf(),
-            default_engine: cfg.default_engine,
-            default_model: cfg.default_model,
-            gmcp_port: cfg.gmcp_port,
-            gemi_port: cfg.gemi_port,
+            default_engine: cfg.default_engine(),
+            default_model: cfg.default_model(),
+            gmcp_port: cfg.gmcp_port(),
+            gemi_port: cfg.gemi_port(),
         }
     }
 

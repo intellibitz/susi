@@ -52,7 +52,9 @@ impl DaemonContext {
             if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
                 for sig in signals.forever() {
                     let msgs = crate::sandbox::manager::SusiMessages::load_global();
-                    eprintln!("{}", msgs.daemon.signal_received.replace("{}", &sig.to_string()));
+                    let def_msg = "[SusiDaemon] Received signal: {}".to_string();
+                    let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
+                    eprintln!("{}", msg.replace("{}", &sig.to_string()));
                     shutdown.store(true, Ordering::Release);
                 }
             }
@@ -236,7 +238,9 @@ impl SusiDaemon {
         if let Some(pid) = Self::check_status(global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
-                    info!("{}", msgs.daemon.binary_recompiled.replace("{}", &pid.to_string()));
+                    let def_recompiled = "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
+                    let msg = msgs.get("daemon", "binary_recompiled").unwrap_or(&def_recompiled);
+                    info!("{}", msg.replace("{}", &pid.to_string()));
                     Self::stop_daemon(global_dir);
                 } else {
                     return;
@@ -266,9 +270,13 @@ impl SusiDaemon {
 
         // Binary Integrity Check (Aspiration 4 Hardening)
         match Self::verify_binary_integrity(&bin_to_run, global_dir) {
-            Ok(true) => info!("{}", msgs.daemon.binary_verified),
+            Ok(true) => {
+                let def_verified = "[SusiDaemon] Binary integrity verified.".to_string();
+                info!("{}", msgs.get("daemon", "binary_verified").unwrap_or(&def_verified));
+            }
             Ok(false) => {
-                warn!("{}", msgs.daemon.binary_tampered);
+                let def_tampered = "[SusiDaemon] Binary integrity check FAILED.".to_string();
+                warn!("{}", msgs.get("daemon", "binary_tampered").unwrap_or(&def_tampered));
             }
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
         }
@@ -359,25 +367,25 @@ impl SusiDaemon {
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
         let (gemi_server, gemi_port) =
-            Self::bind_http_with_fallback(cfg.gemi_port, "GEMI", &workspace);
-        if gemi_port != cfg.gemi_port {
-            cfg.gemi_port = gemi_port;
+            Self::bind_http_with_fallback(cfg.gemi_port(), "GEMI", &workspace);
+        if gemi_port != cfg.gemi_port() {
+            cfg.settings.insert("gemi_port".to_string(), serde_json::json!(gemi_port));
             config_changed = true;
         }
 
         // 2. Bind GMCP HTTP/SSE Server (Port 9093 / Dynamic)
         let (gmcp_http_server, gmcp_http_port) =
-            Self::bind_http_with_fallback(cfg.gmcp_http_port, "GMCP HTTP", &workspace);
-        if gmcp_http_port != cfg.gmcp_http_port {
-            cfg.gmcp_http_port = gmcp_http_port;
+            Self::bind_http_with_fallback(cfg.gmcp_http_port(), "GMCP HTTP", &workspace);
+        if gmcp_http_port != cfg.gmcp_http_port() {
+            cfg.settings.insert("gmcp_http_port".to_string(), serde_json::json!(gmcp_http_port));
             config_changed = true;
         }
 
         // 3. Bind A2A Cluster UDP Discovery Socket (Port 9092 / Dynamic)
         let (udp_socket, udp_port) =
-            Self::bind_udp_with_fallback(cfg.udp_discovery_port, &workspace);
-        if udp_port != cfg.udp_discovery_port {
-            cfg.udp_discovery_port = udp_port;
+            Self::bind_udp_with_fallback(cfg.udp_discovery_port(), &workspace);
+        if udp_port != cfg.udp_discovery_port() {
+            cfg.settings.insert("udp_discovery_port".to_string(), serde_json::json!(udp_port));
             config_changed = true;
         }
 
@@ -407,7 +415,7 @@ impl SusiDaemon {
             }
         });
 
-        let gmcp_actual_port = cfg.gmcp_port;
+        let gmcp_actual_port = cfg.gmcp_port();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 Self::start_udp_discovery_server(udp_socket, gmcp_actual_port);

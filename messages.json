@@ -1,0 +1,20 @@
+{
+  "daemon": {
+    "signal_received": "[SusiDaemon] Received signal: {}",
+    "binary_recompiled": "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...",
+    "binary_verified": "[SusiDaemon] Binary integrity verified.",
+    "binary_tampered": "[SusiDaemon] Binary integrity check FAILED. Potential tampering detected or build out of sync.",
+    "shutdown_initiated": "[SusiDaemon] Graceful shutdown initiated.",
+    "lock_failed": "[SusiDaemon] Failed to acquire lock: {}. Daemon likely already running."
+  },
+  "readiness": {
+    "auditing_models": "[Readiness] Auditing model substrate optimal state...",
+    "scanning_security": "[Readiness] Scanning for exfiltration vectors and security leaks...",
+    "security_engaged": "[READINESS: SECURITY PROTOCOLS ENGAGED]"
+  },
+  "swarm": {
+    "dispatch_init": "- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...",
+    "consensus_reached": "[SWARM COMPLETE] Consensus reached.",
+    "consensus_failed": "[SWARM FAILED] {}"
+  }
+}

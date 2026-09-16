@@ -20,7 +20,7 @@ impl SusiAdmin {
         // 1. Audit Security Patterns (No hardcoded keys)
         let mut secret_found = false;
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let patterns = &cfg.governance.secret_tokens;
+        let patterns = &cfg.governance().secret_tokens();
         let src_dir = workspace.join("src");
         if let Ok(entries) = fs::read_dir(&src_dir) {
             for entry in entries.flatten() {

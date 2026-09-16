@@ -390,8 +390,8 @@ impl HardwareProfiler {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let mut ladder = Vec::new();
-        for step in cfg.model_ladder {
-            if ram_gb >= step.min_ram_gb {
+        for step in cfg.model_ladder() {
+            if ram_gb as f32 >= step.min_ram_gb {
                 ladder.push(ModelLadderStep {
                     step: step.step,
                     label: step.label,

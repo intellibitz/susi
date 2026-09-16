@@ -4,7 +4,7 @@
 use super::hardware::HardwareProfiler;
 use crate::error::EaiResult;
 use crate::gawd::task_manager::{SwarmTaskManager, TaskHandle, TaskStatus};
-use crate::sandbox::manager::{ModelInfo, ModelTier, ProviderType};
+use crate::sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -256,24 +256,24 @@ impl ModelManager {
         let mut list: Vec<ModelInfo> = Vec::new();
         let system_models = Self::scan_system_for_local_models(workspace);
         for sys_model in system_models {
-            if !list.iter().any(|m| m.model_id == sys_model.model_id) {
+            if !list.iter().any(|m| m.model_id() == sys_model.model_id()) {
                 list.push(sys_model);
             }
         }
 
         if list.is_empty() {
-            list.push(ModelInfo {
-                name: "Native Rust Logic".to_string(),
-                registry: "SUSI Native".to_string(),
-                model_id: "susi-native-synthesis".to_string(),
-                description: "Deterministic protocol-level reasoning".to_string(),
-                is_local: true,
-                tier: ModelTier::Reflex,
-                latency_ms: Some(0),
-                provider: ProviderType::LocalGGUF,
-                checksum: None,
-                provenance: None,
-            });
+            list.push(ModelInfo::new(
+                "Native Rust Logic".to_string(),
+                "SUSI Native".to_string(),
+                "susi-native-synthesis".to_string(),
+                "Deterministic protocol-level reasoning".to_string(),
+                true,
+                "Reflex".to_string(),
+                Some(0),
+                "LocalGGUF".to_string(),
+                None,
+                None,
+            ));
         }
         list
     }
@@ -297,7 +297,7 @@ impl ModelManager {
         let models = Self::list_models(workspace);
         let local_models: Vec<ModelInfo> = models
             .into_iter()
-            .filter(|m| m.is_local && !m.model_id.contains("native"))
+            .filter(|m| m.is_local() && !m.model_id().contains("native"))
             .collect();
 
         if local_models.is_empty() {
@@ -314,13 +314,13 @@ impl ModelManager {
 
         for m in local_models {
             let mut model_size_gb: f32 = 4.0;
-            let p = PathBuf::from(&m.model_id);
+            let p = PathBuf::from(&m.model_id());
             if p.is_file() {
                 if let Ok(meta) = p.metadata() {
                     model_size_gb = meta.len() as f32 / (1024.0 * 1024.0 * 1024.0);
                 }
             } else {
-                let name_lower = m.model_id.to_lowercase();
+                let name_lower = m.model_id().to_lowercase();
                 if name_lower.contains("70b") || name_lower.contains("72b") {
                     model_size_gb = 40.0;
                 } else if name_lower.contains("32b") || name_lower.contains("33b") {
@@ -347,7 +347,7 @@ impl ModelManager {
                     }
                 }
             }
-            if m.provider == ProviderType::NativeCandle {
+            if m.provider() == "NativeCandle" {
                 score += 15.0;
             }
             scored_models.push((score, m));
@@ -369,7 +369,7 @@ impl ModelManager {
             }
         }
         let ws = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        Self::identify_best_suited_local_model(&ws).map(|m| m.model_id)
+        Self::identify_best_suited_local_model(&ws).map(|m| m.model_id().to_string())
     }
 
     pub fn set_selected_engine(engine_name: &str) -> Result<String, String> {
@@ -403,8 +403,8 @@ impl ModelManager {
         let global_dir = home.join(".susi");
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir)
             .expect("Fatal: Malformed configuration");
-        let model = Self::get_selected_model().unwrap_or(cfg.default_model);
-        let engine = Self::get_selected_engine().unwrap_or(cfg.default_engine);
+        let model = Self::get_selected_model().unwrap_or(cfg.default_model());
+        let engine = Self::get_selected_engine().unwrap_or(cfg.default_engine());
         (engine, model)
     }
 
@@ -428,9 +428,9 @@ impl ModelManager {
         let system_models = Self::scan_system_for_local_models(&ws);
         if let Some(m) = system_models
             .iter()
-            .find(|m| m.name.contains(model_id) || m.model_id.contains(model_id))
+            .find(|m| m.name().contains(model_id) || m.model_id().contains(model_id))
         {
-            return Some(PathBuf::from(&m.model_id));
+            return Some(PathBuf::from(&m.model_id()));
         }
 
         None
@@ -489,8 +489,8 @@ impl ModelManager {
         let models = Self::list_models(workspace);
         let mut results = Vec::new();
         for m in models {
-            if m.is_local && !m.model_id.contains("native") {
-                let path = PathBuf::from(&m.model_id);
+            if m.is_local() && !m.model_id().contains("native") {
+                let path = PathBuf::from(&m.model_id());
                 if path.is_file() {
                     let size_bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
                     let mut is_valid_gguf = false;
@@ -503,14 +503,14 @@ impl ModelManager {
                     }
 
                     let checksum = Self::calculate_simple_checksum(&path).unwrap_or_default();
-                    let verified = match &m.checksum {
-                        Some(c) => c == &checksum,
+                    let verified = match m.checksum() {
+                        Some(c) => c == checksum.as_str(),
                         None => true,
                     };
 
                     results.push(ModelVerificationResult {
-                        model_id: m.name,
-                        path: m.model_id,
+                        model_id: m.name().to_string(),
+                        path: m.model_id().to_string(),
                         file_size_bytes: size_bytes,
                         file_size_formatted: format!(
                             "{:.2} GB",
@@ -576,15 +576,15 @@ impl ModelManager {
                 .unwrap_or_default();
             let global_dir = home.join(".susi");
             let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-            for path_str in cfg.local_scan_paths {
+            for path_str in cfg.local_scan_paths() {
                 let p = PathBuf::from(path_str);
                 if p.is_dir() {
                     Self::recursive_scan_model_dir(&p, &mut discovered, &mut visited, 0);
                 }
             }
         }
-        discovered.sort_by(|a, b| a.model_id.cmp(&b.model_id));
-        discovered.dedup_by(|a, b| a.model_id == b.model_id);
+        discovered.sort_by(|a, b| a.model_id().cmp(&b.model_id()));
+        discovered.dedup_by(|a, b| a.model_id() == b.model_id());
 
         {
             let mut cache = MODEL_SCAN_CACHE.write();
@@ -655,21 +655,21 @@ impl ModelManager {
                             None
                         };
 
-                        discovered.push(ModelInfo {
-                            name: file_name.to_string(),
-                            registry: format!("Local {} Substrate", lower_ext.to_uppercase()),
-                            model_id: path.to_string_lossy().to_string(),
-                            description: format!(
+                        discovered.push(ModelInfo::new(
+                            file_name.to_string(),
+                            format!("Local {} Substrate", lower_ext.to_uppercase()),
+                            path.to_string_lossy().to_string(),
+                            format!(
                                 "Universal Weights ({})",
                                 lower_ext.to_uppercase()
                             ),
-                            is_local: true,
-                            tier: ModelTier::Specialist,
-                            latency_ms: None,
-                            provider: ProviderType::LocalGGUF,
+                            true,
+                            "Specialist".to_string(),
+                            None,
+                            "LocalGGUF".to_string(),
                             checksum,
                             provenance,
-                        });
+                        ));
                     }
                 }
             }
@@ -749,13 +749,15 @@ impl ModelManager {
         let mut cfg = crate::sandbox::manager::SusiConfig::load(global_dir)?;
         let mut new_paths_added = 0;
 
+        let mut paths = cfg.local_scan_paths();
         let lock = found_folders.read();
         for folder in lock.iter() {
-            if !cfg.local_scan_paths.contains(folder) {
-                cfg.local_scan_paths.push(folder.clone());
+            if !paths.contains(folder) {
+                paths.push(folder.clone());
                 new_paths_added += 1;
             }
         }
+        cfg.settings.insert("local_scan_paths".to_string(), serde_json::json!(paths));
 
         cfg.save(global_dir)?;
 
@@ -1219,7 +1221,7 @@ impl ModelManager {
         let global_dir = home.join(".susi");
 
         let existing = Self::scan_system_for_local_models(workspace);
-        if existing.is_empty() || existing.iter().all(|m| m.model_id.contains("native")) {
+        if existing.is_empty() || existing.iter().all(|m| m.model_id().contains("native")) {
             let _ = Self::deep_scan_home_and_register(&global_dir);
         }
 
@@ -1233,7 +1235,7 @@ impl ModelManager {
             let needs_upgrade = match &best_local {
                 None => true,
                 Some(m) => {
-                    let path = PathBuf::from(&m.model_id);
+                    let path = PathBuf::from(&m.model_id());
                     let local_size_gb = path
                         .metadata()
                         .map(|meta| meta.len() as f32 / 1e9)
@@ -1347,7 +1349,7 @@ mod tests {
         ModelManager::recursive_scan_model_dir(&tmp_dir, &mut discovered, &mut visited, 0);
         assert!(discovered
             .iter()
-            .any(|m| m.model_id.contains("test.safetensors")));
+            .any(|m| m.model_id().contains("test.safetensors")));
         let _ = fs::remove_dir_all(&tmp_dir);
     }
 

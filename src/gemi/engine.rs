@@ -351,7 +351,7 @@ impl MissionPlanner {
 
     pub fn plan_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
         let prompts = crate::sandbox::manager::SusiPrompts::load_global();
-        let plan_prompt = prompts.intent_planner_prompt.replace("{goal}", goal);
+        let plan_prompt = prompts.intent_planner_prompt().replace("{goal}", goal);
         let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
         let mut goals = Vec::new();
         if plan_str.contains(',') {

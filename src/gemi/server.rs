@@ -104,7 +104,7 @@ impl GemiServer {
                             let models = ModelManager::list_models(&w_thread);
                             // PARALLEL PROCESSING MANDATE
                             let json_models: Vec<serde_json::Value> = models.par_iter()
-                                .map(|m| json!({"id": &m.model_id, "object": "model", "owned_by": "susi"}))
+                                .map(|m| json!({"id": &m.model_id(), "object": "model", "owned_by": "susi"}))
                                 .collect();
                             let payload_val = json!({"object": "list", "data": json_models});
                             let payload = serde_json::to_string(&payload_val).unwrap_or_default();

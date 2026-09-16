@@ -106,7 +106,7 @@ impl SusiRuntimeAdmin {
 
         // Check for Bloat/Lint
         let lint_res = ama.solve_clean(
-            &cfg.admin_pulses.lint_pulse,
+            &cfg.admin_pulses().lint_pulse,
             workspace,
             crate::SUSI_VERSION,
         );
@@ -119,7 +119,7 @@ impl SusiRuntimeAdmin {
 
         // Check for Dependencies
         let dep_res = ama.solve_clean(
-            &cfg.admin_pulses.audit_deps_pulse,
+            &cfg.admin_pulses().audit_deps_pulse,
             workspace,
             crate::SUSI_VERSION,
         );

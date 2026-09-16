@@ -120,6 +120,26 @@
         "name": "LMDeploy",
         "api_base": "http://localhost:23333/v1",
         "protocol_type": "completions"
+      },
+      {
+        "name": "OpenAI",
+        "api_base": "https://api.openai.com/v1",
+        "protocol_type": "chat"
+      },
+      {
+        "name": "Anthropic",
+        "api_base": "https://api.anthropic.com/v1",
+        "protocol_type": "anthropic"
+      },
+      {
+        "name": "Ollama",
+        "api_base": "http://localhost:11434/v1",
+        "protocol_type": "chat"
+      },
+      {
+        "name": "GoogleGemini",
+        "api_base": "https://generativelanguage.googleapis.com/v1beta",
+        "protocol_type": "gemini"
       }
     ],
     "vllm_api_base": "http://localhost:8000/v1",

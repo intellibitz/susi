@@ -29,3 +29,4 @@ This document defines the sovereign ledger of functional mastery that anchors th
 | EV-2022920-013 | [MISSION] | admin mission: provision 72B substrate weights immediately | [manual](symbol://manual) | STAGED |
 | EV-2022920-014 | [MISSION] | admin mission: download the best model for this hardware, use Step 2 (7B) for now if 72B is gated | [manual](symbol://manual) | STAGED |
 | EV-2022920-015 | [MISSION] | verify-download-agent | [manual](symbol://manual) | STAGED |
+| EV-2022920-016 | [MISSION] | start | [manual](symbol://manual) | STAGED |

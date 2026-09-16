@@ -22,7 +22,7 @@ impl ReflexTrainer {
             let count = content.lines().count();
             let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-            if count >= cfg.reflex_training_threshold {
+            if count >= cfg.reflex_training_threshold() {
                 eprintln!("[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...", count);
                 match SusiAlphaModel::train_on_staged_data(&global_dir) {
                     Ok(report) => {

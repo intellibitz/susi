@@ -19,7 +19,7 @@ fn test_substrate_bootstrap_and_config() {
     // Verify Config Load
     let cfg =
         susi_engine::sandbox::manager::SusiConfig::load(&test_dir).expect("Config load failed");
-    assert_eq!(cfg.gmcp_port, 9090);
+    assert_eq!(cfg.gmcp_port(), 9090);
 
     let _ = fs::remove_dir_all(&test_dir);
 }

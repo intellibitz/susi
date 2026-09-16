@@ -110,7 +110,7 @@ enum AdminCommands {
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
     let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-    let max_size = cfg.max_stdin_size_bytes;
+    let max_size = cfg.max_stdin_size_bytes();
     let mut buffer = Vec::new();
     let mut limited = stdin.take(max_size as u64);
     limited.read_to_end(&mut buffer)?;
@@ -243,7 +243,7 @@ fn main() {
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
-                let answer = ama.solve_clean(&cfg.admin_pulses.install_pulse, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses().install_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
 
                 println!("\n[AGGRESSIVE PRIMING: Enqueuing Optimal Substrate]");
@@ -254,13 +254,13 @@ fn main() {
                 let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &|_| {});
             }
             Commands::Uninstall => {
-                let answer = ama.solve_clean(&cfg.admin_pulses.uninstall_pulse, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses().uninstall_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {
                 let gemi_cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
-                let server = tiny_http::Server::http(format!("127.0.0.1:{}", gemi_cfg.gemi_port)).expect("Failed to bind GEMI port");
+                let server = tiny_http::Server::http(format!("127.0.0.1:{}", gemi_cfg.gemi_port())).expect("Failed to bind GEMI port");
                 GemiServer::start_http_server(cwd.clone(), server);
             }
             Commands::Status => {
@@ -282,16 +282,16 @@ fn main() {
                 println!("{}", answer);
             }
             Commands::SelectModel { model } => {
-                let intent = cfg.admin_pulses.select_model_pulse.replace("{}", &model);
+                let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);
                 let answer = ama.solve_clean(&intent, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::DeepScan => {
-                let answer = ama.solve_clean(&cfg.admin_pulses.deep_scan_pulse, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses().deep_scan_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::McpScout => {
-                let answer = ama.solve_clean(&cfg.admin_pulses.mcp_scout_pulse, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Pulse { intent } => {
@@ -321,7 +321,7 @@ fn main() {
                 println!("{}", msg);
             }
             Commands::Audit => {
-                let answer = ama.solve_clean(&cfg.admin_pulses.audit_pulse, &cwd, SUSI_VERSION);
+                let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Admin { subcommand } => {
@@ -340,33 +340,33 @@ fn main() {
                         }
                     }
                     AdminCommands::Audit => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses.audit_pulse, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Verify => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses.verify_pulse, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses().verify_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Release => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses.release_pulse, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses().release_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Lint => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses.lint_pulse, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::AuditDeps => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses.audit_deps_pulse, &cwd, SUSI_VERSION);
+                        let answer = ama.solve_clean(&cfg.admin_pulses().audit_deps_pulse, &cwd, SUSI_VERSION);
                         println!("{}", answer);
                     }
                     AdminCommands::Reload => {
                         match susi_engine::sandbox::manager::SusiConfig::reload(&global_dir) {
                             Ok(reloaded) => {
                                 println!("Dynamic configuration reloaded successfully from {}.", global_dir.join("config.json").display());
-                                println!("- Engine: {}", reloaded.default_engine);
-                                println!("- Model: {}", reloaded.default_model);
-                                println!("- Model Ladder Steps: {}", reloaded.model_ladder.len());
-                                println!("- MCP Bootstrap Servers: {}", reloaded.bootstrap_mcp_servers.len());
+                                println!("- Engine: {}", reloaded.default_engine());
+                                println!("- Model: {}", reloaded.default_model());
+                                println!("- Model Ladder Steps: {}", reloaded.model_ladder().len());
+                                println!("- MCP Bootstrap Servers: {}", reloaded.bootstrap_mcp_servers::<Vec<serde_json::Value>>().len());
                             }
                             Err(e) => eprintln!("Config reload failed: {}", e),
                         }
@@ -468,7 +468,7 @@ fn print_golden_rule_summary(workspace: &std::path::Path) {
     if !staged.is_empty() {
         println!("\nStaged Intent Bundles:");
         for b in &staged {
-            println!("  * [{}] {} (Fixes: {})", if b.applied { "APPLIED" } else { "STAGED" }, b.title, b.staged_fixes.len());
+            println!("  * [{}] {} (Fixes: {})", if b.is_applied() { "APPLIED" } else { "STAGED" }, b.title(), b.staged_fixes.len());
         }
     }
 

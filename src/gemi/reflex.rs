@@ -15,15 +15,7 @@ pub struct ReflexEngine;
 impl ReflexEngine {
     pub fn scout_tier0_assets() -> Vec<crate::gawd::agents::DiscoverableAsset> {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        cfg.discoverable_assets
-            .into_iter()
-            .map(|a| crate::gawd::agents::DiscoverableAsset {
-                tier: a.tier,
-                name: a.name,
-                provider: a.provider,
-                url: a.url,
-            })
-            .collect()
+        cfg.discoverable_assets()
     }
 
     /// Attempts to solve the mission using the Tier 0 SusiPulse Bootstrap Brain.

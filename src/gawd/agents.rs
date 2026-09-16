@@ -238,7 +238,7 @@ impl GawdAgent for SusiRuntimeAgent {
                 .unwrap_or_else(|| PathBuf::from("."));
             let cfg =
                 crate::sandbox::manager::SusiConfig::load(&home.join(".susi")).unwrap_or_default();
-            crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url);
+            crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
 
@@ -909,9 +909,9 @@ impl GawdAgent for AdminAgent {
             for m in &models {
                 out.push_str(&format!(
                     "- [{}] {} ({})\n",
-                    if m.is_local { "LOCAL" } else { "CLOUD" },
-                    m.name,
-                    m.model_id
+                    if m.is_local() { "LOCAL" } else { "CLOUD" },
+                    m.name(),
+                    m.model_id()
                 ));
             }
             Ok(out)
@@ -1097,7 +1097,7 @@ pub struct NeuralAgentFactory;
 impl NeuralAgentFactory {
     pub fn synthesize_specialist(goal: &str, workspace: &Path) -> EaiResult<AgentProfile> {
         let prompts = crate::sandbox::manager::SusiPrompts::load_global();
-        let prompt = prompts.agent_factory_prompt.replace("{goal}", goal);
+        let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
         let res = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
@@ -1126,9 +1126,9 @@ impl GawdAgentFleet {
 
         let base_limit = if THROTTLE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
             // Load Shedding: Reduce to 25% capacity if system is under stress
-            (cfg.max_concurrent_agents / 4).max(1)
+            (cfg.max_concurrent_agents() / 4).max(1)
         } else {
-            cfg.max_concurrent_agents
+            cfg.max_concurrent_agents()
         };
 
         // Mandate: Never cause OOM. Cap at 90% utilization.
@@ -1180,7 +1180,7 @@ impl GawdAgentFleet {
 
         // Schema-Driven High-Throughput Remote Bridge Integration
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        for endpoint in &cfg.inference_endpoints.endpoints {
+        for endpoint in &cfg.inference_endpoints().endpoints {
             let env_var_name = format!("{}_API_BASE", endpoint.name.to_uppercase().replace('.', "_"));
             if std::env::var(&env_var_name).is_ok() {
                 let base_url = std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());

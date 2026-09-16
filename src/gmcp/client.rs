@@ -97,7 +97,7 @@ impl GmcpClient {
                             && !REGISTRY_FETCH_RUNNING
                                 .swap(true, std::sync::atomic::Ordering::SeqCst)
                         {
-                            let url = cfg.mcp_registry_url.clone();
+                            let url = cfg.mcp_registry_url();
                             let reg_p = registry_path.clone();
                             std::thread::spawn(move || {
                                 struct FetchGuard;
@@ -137,7 +137,7 @@ impl GmcpClient {
         }
 
         // 2. Fallback to Bootstrap Config (Sub-1ms Instant Return)
-        let entries = cfg.bootstrap_mcp_servers.clone();
+        let entries = cfg.bootstrap_mcp_servers();
         let _ = fs::write(
             &registry_path,
             serde_json::to_string_pretty(&entries).unwrap_or_default(),
@@ -147,7 +147,7 @@ impl GmcpClient {
         static INIT_FETCH_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
         if !INIT_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            let url = cfg.mcp_registry_url;
+            let url = cfg.mcp_registry_url();
             let reg_p = registry_path;
             std::thread::spawn(move || {
                 struct InitGuard;

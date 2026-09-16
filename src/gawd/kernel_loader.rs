@@ -65,14 +65,14 @@ impl SubstrateKernelLoader {
         let global_dir = home.join(".susi");
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
-        let gmcp_addr = format!("127.0.0.1:{}", cfg.gmcp_port);
-        let gemi_addr = format!("127.0.0.1:{}", cfg.gemi_port);
+        let gmcp_addr = format!("127.0.0.1:{}", cfg.gmcp_port());
+        let gemi_addr = format!("127.0.0.1:{}", cfg.gemi_port());
 
         println!("    - GMCP Protocol Endpoint ({}) ... OK", gmcp_addr);
         println!("    - GEMI Inference Endpoint ({}) ... OK", gemi_addr);
         println!(
             "    - UDP Discovery Endpoint (Port {}) ... OK",
-            cfg.udp_discovery_port
+            cfg.udp_discovery_port()
         );
         let _ = std::io::stdout().flush();
         Ok(())

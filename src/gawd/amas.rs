@@ -41,7 +41,7 @@ pub struct SusiSupervisor;
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
         crate::sandbox::manager::SusiConfig::load_global()
-            .map(|c| c.udp_discovery_port)
+            .map(|c| c.udp_discovery_port())
             .unwrap_or(9092)
     }
 
@@ -328,7 +328,7 @@ impl SusiSupervisor {
                 }
             } else {
                 let prompts = crate::sandbox::manager::SusiPrompts::load_global();
-                let consensus_prompt = prompts.consensus_wisdom_prompt
+                let consensus_prompt = prompts.consensus_wisdom_prompt()
                     .replace("{goal}", goal)
                     .replace("{wisdom}", &weighted_wisdom);
                 println!("- [Consensus Master] Synthesizing swarm wisdom...");
