@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022948"
+version = "0.1.2022949"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -99,3 +99,4 @@ This document defines the immutable genome of the `susi` substrate.
 4. **Conventional Reflex**: Mandatory use of conventional commit prefixes and zero-emoji policy.
 5. **Binary Dominance**: Prioritize pre-compiled binary deployment with transparent local build fallback.
 6. **Auto-Path Injection**: Installer must inject `.susi/bin` into host environment variables.
+7. **Canonical Binary Dynamics & Hot-Reload Protocol**: Single canonical binary suite at `~/.susi/bin/` (`susi` launcher and `susi-engine`). Invocations in `cwd` capture local context, check `~/.susi/substrate.lock`, and delegate pulses to `global susi` without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` executes a sovereign eviction of stale daemons and hot-reloads `global susi` automatically.
