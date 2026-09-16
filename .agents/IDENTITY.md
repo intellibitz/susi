@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2022947"
+version = "0.1.2022948"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -41,10 +41,11 @@ This document defines the immutable genome of the `susi` substrate.
 28. **Async Defaults**: Default to `tokio` for all non-blocking operations.
 29. **Data Parallelism**: Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning.
 30. **Locking Standard**: Mandatory use of `parking_lot` when atomics are insufficient.
-31. **Unambiguous Substrate Nomenclature**: Strictly distinguish substrate scopes across all interactions and sessions:
-    - **`global susi`** / **`susi daemon`**: The persistent background service, systemd daemon, global model repository (`~/.susi/models`), network ports, and hardware/OS governor.
-    - **`susi`**: The workspace CLI / task operating in the current working directory (`cwd`), jailed to the active working folder.
-    - **`susi repo`**: The Rust source code repository at `/home/ramadoss/github.com/intellibitz/susi`.
+31. **Unambiguous Substrate Nomenclature (Universal 4-Axiom Model)**:
+    - **Single Canonical Binary**: A single binary suite lives at `~/.susi/bin/` (`susi` launcher and `susi-engine`), serving the entire system without duplicate binary scattering.
+    - **`global susi`**: The persistent background service (`susi.service`) running on user hardware. Manages CPU/GPU saturation, OS environment care, network ports, and central model weights (`~/.susi/models`).
+    - **`susi`**: The CLI / task invocation, unconditionally jailed to the active working directory (`cwd`). Operates on local project context and stages intent bundles (`susi accept`).
+    - **`susi repo`**: The dimension of `susi` where the active `cwd` happens to be `susi`'s own Rust source code repository (`/intellibitz/susi`).
 32. **Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)**: `susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur.
 33. **Synchronized Substrate Versioning & Self-Priming**: When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments.
 
@@ -86,9 +87,9 @@ This document defines the immutable genome of the `susi` substrate.
 2. **Swarm Synthesis**: GAWD constructs a Dynamic Execution Graph (DAG), recruiting specialists via `NeuralAgentFactory`.
 3. **Truth Convergence**: Swarm outputs are verified via `TruthTransformer` and distilled into machine-verifiable `EvidenceRecord`s.
 4. **The 3 Priming Spheres**:
-   - **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware, provisions model ladder weights, hosts persistent ports, and maintains global evidence ledgers.
-   - **`local susi` Primes `AlphaWorld`**: Jailed to `cwd`, `local susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).
-   - **`susi` Primes `susi repo`**: Operating in its own source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`.
+   - **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware/OS, provisions model ladder weights, hosts persistent ports, and maintains global evidence ledgers.
+   - **`susi` Primes `AlphaWorld`**: Unconditionally jailed to `cwd`, `susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).
+   - **`susi` Primes `susi repo`**: When `cwd` is the engine's source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`.
 
 ## 4. Pillar IV: THE ENGINE (Substrate Immunity Protocols)
 
