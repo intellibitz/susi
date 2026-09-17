@@ -259,6 +259,24 @@ impl HardwareProfiler {
     }
 
     fn determine_gpu_vram_gb() -> usize {
+        // NVIDIA's proprietary driver never populates the AMD-specific
+        // mem_info_vram_total sysfs attribute below, so query nvidia-smi
+        // directly for NVIDIA hardware first.
+        if let Ok(output) = std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
+            .output()
+        {
+            if output.status.success() {
+                if let Some(first_line) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                    if let Ok(mib) = first_line.trim().parse::<u64>() {
+                        if mib > 0 {
+                            return (mib / 1024) as usize;
+                        }
+                    }
+                }
+            }
+        }
+
         if cfg!(target_os = "linux") {
             if let Ok(entries) = std::fs::read_dir("/sys/class/drm") {
                 for entry in entries.flatten() {
@@ -538,5 +556,24 @@ mod tests {
             candle_core::Device::Cuda(_) => {}
             candle_core::Device::Metal(_) => {}
         }
+    }
+
+    /// Only meaningfully exercised in a `--features cuda` build with a real
+    /// GPU: selecting Device::Cuda is not proof the device actually computes
+    /// (driver/toolkit mismatches, like cudarc's CUDA-version allowlist,
+    /// fail at kernel-launch time, not at device selection). Runs a real
+    /// matmul on-device and checks the numeric result.
+    #[test]
+    fn test_cuda_device_actually_computes_when_selected() {
+        let device = HardwareProfiler::get_candle_device();
+        if !matches!(device, candle_core::Device::Cuda(_)) {
+            return;
+        }
+        use candle_core::Tensor;
+        let a = Tensor::from_slice(&[1f32, 2., 3., 4.], (2, 2), &device).unwrap();
+        let b = Tensor::from_slice(&[5f32, 6., 7., 8.], (2, 2), &device).unwrap();
+        let c = a.matmul(&b).unwrap();
+        let result: Vec<Vec<f32>> = c.to_vec2().unwrap();
+        assert_eq!(result, vec![vec![19., 22.], vec![43., 50.]]);
     }
 }

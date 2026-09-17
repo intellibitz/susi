@@ -163,8 +163,20 @@ if [ "$INSTALLED" = "0" ]; then
             BUILD_FEATURES="--features metal"
         elif command -v nvcc >/dev/null 2>&1 || [ -d "/usr/local/cuda" ]; then
             CUDA_VERSION=$(nvcc --version 2>/dev/null | grep "release" | sed 's/.*release //;s/,.*//' || echo "0")
-            if [[ "$CUDA_VERSION" == "11."* ]] || [[ "$CUDA_VERSION" == "12."* ]]; then
+            if [[ "$CUDA_VERSION" == "11."* ]] || [[ "$CUDA_VERSION" == "12."* ]] || [[ "$CUDA_VERSION" == "13."* ]]; then
                 BUILD_FEATURES="--features cuda"
+                # cudarc (candle's CUDA backend) pins an exact allowlist of CUDA
+                # toolkit versions and panics on any newer point release it
+                # hasn't added yet (as of cudarc 0.19.9, that ceiling is 13.3).
+                # Clamp newer CUDA 13.x releases down to 13.3 via cudarc's own
+                # override env var - CUDA maintains ABI compatibility within a
+                # major version, so this is safe rather than silently building
+                # CPU-only with no warning, which is what happened here before.
+                CUDA_MAJOR="${CUDA_VERSION%%.*}"
+                CUDA_MINOR="${CUDA_VERSION#*.}"
+                if [[ "$CUDA_MAJOR" == "13" ]] && [[ "$CUDA_MINOR" =~ ^[0-9]+$ ]] && [ "$CUDA_MINOR" -gt 3 ]; then
+                    export CUDARC_CUDA_VERSION="13030"
+                fi
             fi
         fi
 
