@@ -14,17 +14,104 @@ use std::sync::{Arc, OnceLock};
 
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
+use candle_transformers::models::quantized_qwen2 as qwen2gguf;
 use tokenizers::Tokenizer;
 
-/// Loaded neural weights, architecture-agnostic (Mandate 23: Substrate Purity).
-/// candle_transformers' `quantized_llama` graph serves every GGUF architecture
-/// this substrate loads (Llama, Gemma, Mixtral, and any unrecognized family via
-/// the metadata-shimming pass above) identically at inference time — the
-/// forward pass has no per-vendor branch — so there is nothing for a vendor-
-/// named enum to actually dispatch on. The GGUF's own `general.architecture`
-/// string (already extracted dynamically, never hardcoded) remains available
-/// for logging/diagnostics without needing a matching Rust variant per vendor.
-pub struct ModelSubstrate(llama::ModelWeights);
+/// Backing weights graph for a loaded GGUF. `quantized_llama` serves every
+/// GGUF architecture *except* Qwen2: verified live (checksummed against the
+/// official Qwen/Qwen2.5-0.5B-Instruct-GGUF file, so not a bad download) that
+/// `quantized_llama::from_gguf` only reads `attn_{q,k,v}.weight` and never
+/// `attn_{q,k,v}.bias` - tensors Qwen2's GGUF export always carries, since
+/// Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections. Loading
+/// a Qwen2 GGUF through `quantized_llama` silently drops that bias in every
+/// layer with no error, producing confident-looking but completely wrong
+/// attention output from the first generated token - reproduced identically
+/// on CPU and CUDA and across Q4_K_M/Q8_0, ruling out a device or
+/// quantization-format cause. `quantized_qwen2` is candle's own
+/// bias-aware Qwen2 loader and is used whenever `general.architecture`
+/// starts with "qwen2" (covers "qwen2" and "qwen2moe"); every other
+/// architecture keeps using the generic, actually-universal `quantized_llama`
+/// path via the metadata-shimming pass below.
+enum ModelBackend {
+    Llama(llama::ModelWeights),
+    Qwen2(qwen2gguf::ModelWeights),
+}
+
+impl ModelBackend {
+    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+        match self {
+            Self::Llama(m) => m.forward(x, index_pos),
+            Self::Qwen2(m) => m.forward(x, index_pos),
+        }
+    }
+}
+
+/// Loaded neural weights (Mandate 23: Substrate Purity). See `ModelBackend`
+/// for why Qwen2 needs its own graph rather than the otherwise-universal
+/// `quantized_llama` one.
+///
+/// Also carries the model's own declared stop token(s) and chat-prompt
+/// format, both read from the GGUF's own metadata at load time (never
+/// hardcoded per model), since an instruct-tuned model only behaves
+/// correctly - and only knows when to stop - within the exact turn format
+/// it was fine-tuned on.
+pub struct ModelSubstrate {
+    weights: ModelBackend,
+    eos_token_ids: Vec<u32>,
+    prompt_format: PromptFormat,
+}
+
+/// The chat-turn wrapper a model expects, detected from its GGUF-embedded
+/// `tokenizer.chat_template` Jinja string by the control-token family it
+/// references. This is pattern-matching on well-known token families, not a
+/// Jinja engine - it covers the common instruct-tuning conventions without
+/// requiring a template interpreter, and falls back to `Raw` (feed the
+/// prompt unwrapped, today's behavior) for anything unrecognized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PromptFormat {
+    ChatMl,
+    Llama3,
+    Gemma,
+    Mistral,
+    Raw,
+}
+
+impl PromptFormat {
+    fn detect(chat_template: Option<&str>) -> Self {
+        let Some(tpl) = chat_template else {
+            return Self::Raw;
+        };
+        if tpl.contains("<|im_start|>") {
+            Self::ChatMl
+        } else if tpl.contains("<|start_header_id|>") {
+            Self::Llama3
+        } else if tpl.contains("<start_of_turn>") {
+            Self::Gemma
+        } else if tpl.to_lowercase().contains("[inst]") {
+            Self::Mistral
+        } else {
+            Self::Raw
+        }
+    }
+
+    /// Wraps a raw instruction in the turn format this model was tuned on.
+    /// Only verified empirically against Qwen2.5's ChatML template on this
+    /// host; Llama3/Gemma/Mistral follow the same well-documented
+    /// conventions but are not independently verified here.
+    fn wrap(self, prompt: &str) -> String {
+        match self {
+            Self::ChatMl => format!(
+                "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+            ),
+            Self::Llama3 => format!(
+                "<|start_header_id|>system<|end_header_id|>\n\nYou are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n{prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+            ),
+            Self::Gemma => format!("<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"),
+            Self::Mistral => format!("[INST] {prompt} [/INST]"),
+            Self::Raw => prompt.to_string(),
+        }
+    }
+}
 
 type ModelCacheMap = HashMap<PathBuf, Arc<RwLock<ModelSubstrate>>>;
 
@@ -112,23 +199,50 @@ impl InferenceHost {
             Self::shim_llama_compatible_metadata(&mut model_data.metadata);
         }
 
+        // Extracted before from_gguf consumes model_data below. The model's
+        // own declared EOS (e.g. Qwen2.5-Instruct's <|im_end|>, id 151645)
+        // is frequently a different token than the static config-level
+        // eos_token_ids list covers, and its chat_template's control-token
+        // family determines whether the raw prompt needs wrapping at all -
+        // an instruct model given an unwrapped prompt has no learned signal
+        // for either "this is a turn" or "the turn is over".
+        let eos_token_ids: Vec<u32> = model_data
+            .metadata
+            .get("tokenizer.ggml.eos_token_id")
+            .and_then(|v| v.to_u32().ok())
+            .into_iter()
+            .collect();
+        let prompt_format = PromptFormat::detect(
+            model_data
+                .metadata
+                .get("tokenizer.chat_template")
+                .and_then(|v| v.to_string().ok())
+                .map(|s| s.as_str()),
+        );
+
         println!(
             "- [Substrate Operation] Initializing {:?} weights on {:?}...",
             arch, device
         );
         let _ = std::io::stdout().flush();
 
-        let weights_result = llama::ModelWeights::from_gguf(model_data, &mut file, device);
-
-        let weights = weights_result.map_err(|e| {
-            EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e))
-        })?;
+        let weights = if Self::needs_qwen2_backend(&arch) {
+            qwen2gguf::ModelWeights::from_gguf(model_data, &mut file, device)
+                .map(ModelBackend::Qwen2)
+        } else {
+            llama::ModelWeights::from_gguf(model_data, &mut file, device).map(ModelBackend::Llama)
+        }
+        .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
         println!("- [Substrate Operation] Model substrate ready.");
         let _ = std::io::stdout().flush();
         pb.finish_and_clear();
 
-        let shared = Arc::new(RwLock::new(ModelSubstrate(weights)));
+        let shared = Arc::new(RwLock::new(ModelSubstrate {
+            weights,
+            eos_token_ids,
+            prompt_format,
+        }));
 
         // 3. Exclusive Write Access for Cache Registration
         {
@@ -148,6 +262,13 @@ impl InferenceHost {
     /// unconditionally, from whatever architecture-prefixed keys the GGUF
     /// actually carries (e.g. `qwen2.embedding_length`), so one forward pass
     /// serves every architecture without a per-vendor Rust variant.
+    /// `general.architecture` covers both "qwen2" and the MoE variant
+    /// "qwen2moe" - both export the same bias-bearing attention tensors
+    /// `quantized_llama` silently drops (see `ModelBackend`).
+    fn needs_qwen2_backend(arch: &str) -> bool {
+        arch.starts_with("qwen2")
+    }
+
     fn shim_llama_compatible_metadata(metadata: &mut HashMap<String, gguf_file::Value>) {
         let common_keys = [
             "attention.head_count",
@@ -570,12 +691,14 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| EaiError::inference(format!("Tokenizer Error: {}", e)))?;
 
+        let wrapped_prompt = substrate.prompt_format.wrap(prompt);
         println!(
-            "- [Inference Substrate] Encoding prompt (Length: {} chars)...",
-            prompt.len()
+            "- [Inference Substrate] Encoding prompt (Length: {} chars, format: {:?})...",
+            wrapped_prompt.len(),
+            substrate.prompt_format
         );
         let tokens = tokenizer
-            .encode(prompt, true)
+            .encode(wrapped_prompt, true)
             .map_err(|e| EaiError::inference(format!("Tokenization Error: {}", e)))?;
 
         let prompt_tokens = tokens.get_ids();
@@ -588,7 +711,12 @@ impl NativeInferenceEngine for SusiGgufEngine {
 
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let max_tokens = cfg.max_generation_tokens();
-        let eos_token_ids = cfg.eos_token_ids();
+        // The model's own declared stop token (e.g. Qwen2.5-Instruct's
+        // <|im_end|>) is frequently absent from the static config list,
+        // which otherwise only covers a handful of common cross-family
+        // defaults - union both so either recognizes completion.
+        let mut eos_token_ids = cfg.eos_token_ids();
+        eos_token_ids.extend(substrate.eos_token_ids.iter().copied());
 
         println!(
             "- [Inference Substrate] Beginning neural generation loop (Max: {} tokens)...",
@@ -624,7 +752,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             };
 
             let logits = substrate
-                .0
+                .weights
                 .forward(&input, pos)
                 .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
 
@@ -671,6 +799,74 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::thread;
+
+    #[test]
+    fn test_needs_qwen2_backend_covers_qwen2_and_moe_variant() {
+        // Regression: quantized_llama (the generic GGUF loader) never reads
+        // attn_{q,k,v}.bias, which Qwen2's GGUF export always carries since
+        // Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections.
+        // Verified live against the real qwen2.5-0.5b-instruct-q4_k_m.gguf:
+        // loading it through quantized_llama produced fluent-looking but
+        // completely wrong output from the first token (reproduced
+        // identically on CPU and CUDA, and across Q4_K_M and Q8_0, ruling
+        // out a device or quantization-format cause) because every layer's
+        // attention silently dropped its trained bias.
+        assert!(InferenceHost::needs_qwen2_backend("qwen2"));
+        assert!(InferenceHost::needs_qwen2_backend("qwen2moe"));
+        assert!(!InferenceHost::needs_qwen2_backend("llama"));
+        assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
+        assert!(!InferenceHost::needs_qwen2_backend("gemma"));
+    }
+
+    #[test]
+    fn test_prompt_format_detects_chatml_from_qwen_template() {
+        // Regression: susi fed raw prompts to instruct-tuned GGUFs with no
+        // conversational scaffolding at all, which is fundamentally
+        // incompatible with how models fine-tuned on a specific chat
+        // template behave - verified live, this produced pure gibberish
+        // output on qwen2.5-0.5b-instruct starting from the first token.
+        // Real (truncated) Qwen2.5 tokenizer.chat_template excerpt.
+        let template = "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n{%- endif %}";
+        assert_eq!(PromptFormat::detect(Some(template)), PromptFormat::ChatMl);
+    }
+
+    #[test]
+    fn test_prompt_format_detects_llama3_and_gemma_and_mistral() {
+        assert_eq!(
+            PromptFormat::detect(Some("<|start_header_id|>user<|end_header_id|>")),
+            PromptFormat::Llama3
+        );
+        assert_eq!(
+            PromptFormat::detect(Some("<start_of_turn>user\n{{ content }}")),
+            PromptFormat::Gemma
+        );
+        assert_eq!(
+            PromptFormat::detect(Some("[INST] {{ content }} [/INST]")),
+            PromptFormat::Mistral
+        );
+    }
+
+    #[test]
+    fn test_prompt_format_falls_back_to_raw_when_unrecognized_or_absent() {
+        assert_eq!(PromptFormat::detect(None), PromptFormat::Raw);
+        assert_eq!(
+            PromptFormat::detect(Some("some unrecognized template syntax")),
+            PromptFormat::Raw
+        );
+    }
+
+    #[test]
+    fn test_chatml_wrap_produces_well_formed_turn_structure() {
+        let wrapped = PromptFormat::ChatMl.wrap("hello");
+        assert!(wrapped.starts_with("<|im_start|>system\n"));
+        assert!(wrapped.contains("<|im_start|>user\nhello<|im_end|>\n"));
+        assert!(wrapped.ends_with("<|im_start|>assistant\n"));
+    }
+
+    #[test]
+    fn test_raw_wrap_is_passthrough() {
+        assert_eq!(PromptFormat::Raw.wrap("hello"), "hello");
+    }
 
     #[test]
     fn test_shim_derives_missing_rope_dimension_count_from_embedding_and_head_count() {

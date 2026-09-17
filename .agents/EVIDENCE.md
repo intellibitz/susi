@@ -1,6 +1,6 @@
 ---
 schema = "susi/evidence/v1"
-version = "0.1.2023013"
+version = "0.1.2023014"
 monotonic_range = "EV-2022924-001..EV-2022920-024"
 last_verification = 2026-09-17T00:00:00Z
 epistemic_score = 1.0
@@ -14,6 +14,7 @@ This document defines the sovereign ledger of functional mastery that anchors th
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
+| EV-2022924-028 | [MISSION] | Do a final code review of susi | [manual](symbol://manual) | STAGED |
 | EV-2022924-027 | [MISSION] | stop | [manual](symbol://manual) | STAGED |
 | EV-2022924-026 | [MOTION] | Code review the architecture of susi and print out improvements. | [manual](symbol://manual) | STAGED |
 | EV-2022924-025 | [MISSION] | Do a code review of susi | [manual](symbol://manual) | STAGED |
