@@ -658,11 +658,14 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
 
         match crate::sandbox::manager::http_agent()
             .post(&endpoint_url)
-            .set("Content-Type", "application/json")
+            .header("Content-Type", "application/json")
             .send_json(payload)
         {
             Ok(resp) => {
-                let text = resp.into_string().unwrap_or_else(|_| "output empty".into());
+                let text = resp
+                    .into_body()
+                    .read_to_string()
+                    .unwrap_or_else(|_| "output empty".into());
                 Ok(format!("[{} Proxy]: {}", self.endpoint_name, text))
             }
             Err(_) => Err(crate::error::EaiError::inference(format!(
@@ -738,10 +741,10 @@ impl GawdAgent for LibraryScoutAgent {
 
         if let Ok(resp) = crate::sandbox::manager::http_agent()
             .get(&url)
-            .set("User-Agent", "SUSI/0.1")
+            .header("User-Agent", "SUSI/0.1")
             .call()
         {
-            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
                 if let Some(crates) = json["crates"].as_array() {
                     for c in crates {
                         let name = c["name"].as_str().unwrap_or_default();

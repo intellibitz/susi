@@ -870,7 +870,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
         // Initialize with default options to ensure compilation
-        let model = TextEmbedding::try_new(Default::default())
+        let mut model = TextEmbedding::try_new(Default::default())
             .map_err(|e| EaiError::inference(e.to_string()))?;
 
         let embeddings = model

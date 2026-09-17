@@ -27,11 +27,12 @@ pub type ProviderType = String;
 /// and write, including streaming body reads after the initial response
 /// headers arrive, which a per-request `.timeout()` alone would not cover.
 pub fn http_agent() -> ureq::Agent {
-    ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(10))
-        .timeout_read(std::time::Duration::from_secs(20))
-        .timeout_write(std::time::Duration::from_secs(20))
-        .build()
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(10)))
+        .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
+        .timeout_send_body(Some(std::time::Duration::from_secs(20)))
+        .build();
+    ureq::Agent::new_with_config(config)
 }
 pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
 pub type RiskTier = String;   // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
@@ -671,25 +672,27 @@ pub struct SandboxManager;
 impl SandboxManager {
     pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
         use bollard::Docker;
-        use bollard::container::{Config, CreateContainerOptions, StartContainerOptions, LogOutput, LogsOptions};
+        use bollard::container::LogOutput;
+        use bollard::models::ContainerCreateBody;
+        use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, LogsOptions};
         use futures::stream::StreamExt;
 
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
 
-        let config = Config {
-            image: Some("alpine:latest"),
-            cmd: Some(vec!["sh", "-c", cmd]),
+        let config = ContainerCreateBody {
+            image: Some("alpine:latest".to_string()),
+            cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
             ..Default::default()
         };
 
-        let container = docker.create_container(None::<CreateContainerOptions<String>>, config).await
+        let container = docker.create_container(None::<CreateContainerOptions>, config).await
             .map_err(|e| EaiError::process(format!("Container creation failed: {}", e)))?;
 
-        docker.start_container(&container.id, None::<StartContainerOptions<String>>).await
+        docker.start_container(&container.id, None::<StartContainerOptions>).await
             .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
 
-        let mut logs = docker.logs::<String>(&container.id, None::<LogsOptions<String>>);
+        let mut logs = docker.logs(&container.id, None::<LogsOptions>);
         let mut output = String::new();
         while let Some(log) = logs.next().await {
             if let Ok(LogOutput::StdOut { message }) = log {

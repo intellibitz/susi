@@ -110,14 +110,11 @@ impl GmcpClient {
                                 let _guard = FetchGuard;
                                 if let Ok(resp) = crate::sandbox::manager::http_agent()
                                     .get(&url)
-                                    .set("User-Agent", "SUSI/0.1")
+                                    .header("User-Agent", "SUSI/0.1")
                                     .call()
                                 {
-                                    let mut reader = resp.into_reader();
                                     if let Ok(remote_entries) =
-                                        serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(
-                                            &mut reader,
-                                        )
+                                        resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
                                     {
                                         if !remote_entries.is_empty() {
                                             let _ = fs::write(
@@ -159,12 +156,11 @@ impl GmcpClient {
                 let _guard = InitGuard;
                 if let Ok(resp) = crate::sandbox::manager::http_agent()
                     .get(&url)
-                    .set("User-Agent", "SUSI/0.1")
+                    .header("User-Agent", "SUSI/0.1")
                     .call()
                 {
-                    let mut reader = resp.into_reader();
                     if let Ok(remote_entries) =
-                        serde_json::from_reader::<_, Vec<GlobalMcpEntry>>(&mut reader)
+                        resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
                     {
                         if !remote_entries.is_empty() {
                             let _ = fs::write(
@@ -378,7 +374,7 @@ impl GmcpClient {
             }
         };
 
-        let mut reader = BufReader::new(resp.into_reader());
+        let mut reader = BufReader::new(resp.into_body().into_reader());
         let mut endpoint = format!("{}/messages", base_url);
 
         let mut line = String::new();
@@ -428,7 +424,7 @@ impl GmcpClient {
             .send_json(call_req)
         {
             Ok(resp) => {
-                let v: serde_json::Value = resp.into_json().unwrap_or(json!({}));
+                let v: serde_json::Value = resp.into_body().read_json().unwrap_or(json!({}));
                 if let Some(content) = v
                     .get("result")
                     .and_then(|r| r.get("content"))

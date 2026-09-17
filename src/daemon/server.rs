@@ -222,7 +222,7 @@ impl SusiDaemon {
             }
             hasher.update(&buffer[..n]);
         }
-        Ok(format!("{:x}", hasher.finalize()))
+        Ok(hex::encode(hasher.finalize()))
     }
 
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {

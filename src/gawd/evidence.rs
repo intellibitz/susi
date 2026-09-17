@@ -74,7 +74,7 @@ impl EvidenceRecord {
         hasher.update(self.claim.predicate.as_bytes());
         hasher.update(self.claim.value.as_bytes());
         hasher.update(format!("{:?}", self.source).as_bytes());
-        format!("{:x}", hasher.finalize())
+        hex::encode(hasher.finalize())
     }
 
     pub fn render_for_gemi(&self) -> String {
@@ -100,7 +100,7 @@ impl EvidenceRecord {
                 if let Ok(content) = std::fs::read(target) {
                     let mut hasher = Sha256::new();
                     hasher.update(content);
-                    let actual_hash = format!("{:x}", hasher.finalize());
+                    let actual_hash = hex::encode(hasher.finalize());
                     return actual_hash == *hash;
                 }
                 false
