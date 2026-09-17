@@ -9,6 +9,25 @@ use std::process::Command;
 pub struct SusiAdmin;
 
 impl SusiAdmin {
+    pub fn get_global_susi_dir() -> std::path::PathBuf {
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        home.join(".susi")
+    }
+
+    pub fn get_cargo_version(workspace: &Path) -> EaiResult<String> {
+        let cargo_toml_path = workspace.join("Cargo.toml");
+        let content = fs::read_to_string(&cargo_toml_path)?;
+        let version = content
+            .lines()
+            .find(|l| l.trim().starts_with("version = \""))
+            .and_then(|l| l.split('"').nth(1))
+            .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
+        Ok(version.to_string())
+    }
+
     /// Full Compliance Audit (Rule 15)
     pub fn audit_compliance(workspace: &Path, target: Option<&str>) -> EaiResult<String> {
         let mut report = "# SUSI Compliance Audit\n\n".to_string();
@@ -80,11 +99,7 @@ impl SusiAdmin {
 
         // 4. Binary Integrity Check (Aspiration 4)
         if let Ok(current_exe) = std::env::current_exe() {
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let global_dir = home.join(".susi");
+            let global_dir = Self::get_global_susi_dir();
             match crate::daemon::server::SusiDaemon::verify_binary_integrity(
                 &current_exe,
                 &global_dir,
@@ -127,14 +142,8 @@ impl SusiAdmin {
 
     /// Enforce Version Consistency across all files using Cargo.toml as the source of truth.
     pub fn enforce_version_consistency(workspace: &Path) -> EaiResult<String> {
-        let cargo_toml_path = workspace.join("Cargo.toml");
-        let content = fs::read_to_string(&cargo_toml_path)?;
-
-        let version = content
-            .lines()
-            .find(|l| l.trim().starts_with("version = \""))
-            .and_then(|l| l.split('"').nth(1))
-            .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
+        let version_string = Self::get_cargo_version(workspace)?;
+        let version = version_string.as_str();
 
         // 1. Sync Native Launcher Cargo.toml
         let launcher_cargo = workspace.join("src/native/susi/Cargo.toml");
@@ -205,11 +214,7 @@ impl SusiAdmin {
 
         // 4. Update Binary Integrity Hash
         if let Ok(current_exe) = std::env::current_exe() {
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            let global_dir = home.join(".susi");
+            let global_dir = Self::get_global_susi_dir();
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
 
@@ -235,14 +240,8 @@ impl SusiAdmin {
     /// Checks if all files are in sync with the current Cargo.toml version.
     /// Does not modify files; returns an error if a mismatch is detected.
     pub fn verify_version_alignment(workspace: &Path) -> EaiResult<()> {
-        let cargo_toml_path = workspace.join("Cargo.toml");
-        let content = fs::read_to_string(&cargo_toml_path)?;
-
-        let version = content
-            .lines()
-            .find(|l| l.trim().starts_with("version = \""))
-            .and_then(|l| l.split('"').nth(1))
-            .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
+        let version_string = Self::get_cargo_version(workspace)?;
+        let version = version_string.as_str();
 
         // Check README
         let readme_path = workspace.join("README.md");
@@ -358,15 +357,12 @@ impl SusiAdmin {
             .current_dir(workspace)
             .output()?;
 
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let global_dir = Self::get_global_susi_dir();
 
         if !push.status.success() {
             let stderr = String::from_utf8_lossy(&push.stderr);
             crate::sandbox::manager::SusiAuditLogger::log(
-                &home.join(".susi"),
+                &global_dir,
                 crate::sandbox::manager::LogLevel::Axiomatic,
                 "MOTION_RULE_PUSH_FAILED",
                 &format!("git push failed after a clean release/sync: {}", stderr),
@@ -378,7 +374,7 @@ impl SusiAdmin {
         }
 
         crate::sandbox::manager::SusiAuditLogger::log(
-            &home.join(".susi"),
+            &global_dir,
             crate::sandbox::manager::LogLevel::Axiomatic,
             "MOTION_RULE_COMPLETE",
             "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
