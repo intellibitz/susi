@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2023005"
+version = "0.1.2023006"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"

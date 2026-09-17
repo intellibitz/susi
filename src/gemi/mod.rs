@@ -11,3 +11,4 @@ pub mod unified;
 pub mod vision;
 
 pub use server::GemiServer;
+pub mod intent;

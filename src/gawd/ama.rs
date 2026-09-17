@@ -126,7 +126,7 @@ impl SusiMasterAgent {
     ) -> String {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
-            crate::gemi::models::ModelManager::get_active_engine_and_model();
+            crate::gemi::models::ModelManager::get_active_engine_and_model(None);
         let model_path_str = crate::gemi::models::ModelManager::get_model_path(&active_model_id)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
@@ -611,7 +611,7 @@ impl SusiMasterAgent {
                 swarm_context
             } else {
                 // Tier 2 Native Local Model Inference Fallback for Open Missions
-                let model_name = crate::gemi::models::ModelManager::get_selected_model()
+                let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(crate::gemi::intent::IntentClassifier::classify(&current_goal)))
                     .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
                 let reasoning_prompt = format!(
@@ -825,7 +825,7 @@ impl SusiMasterAgent {
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
         let model_name =
-            crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+            crate::gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
                 let filename = crate::sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename();
@@ -912,7 +912,7 @@ impl SusiMasterAgent {
         ));
 
         let model_name =
-            crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+            crate::gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
                 crate::sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename()
