@@ -719,37 +719,31 @@ impl SusiMasterAgent {
 
         // Speculative Parallelism (Aspiration 26)
         // Partitioned tasks are executed in parallel across the multi-threaded substrate.
-        let mut results = Vec::new();
-        let mut handles = Vec::new();
+        use rayon::prelude::*;
 
-        for (i, sub_goal) in plan.goals.iter().enumerate() {
-            let g = format!(
-                "[PARALLEL STEP {}/{}]: {}",
-                i + 1,
-                plan.goals.len(),
-                sub_goal
-            );
-            let w = workspace.to_path_buf();
-            let v = version.to_string();
-
-            handles.push(std::thread::spawn(move || {
+        let results: Vec<_> = plan.goals
+            .par_iter()
+            .enumerate()
+            .map(|(i, sub_goal)| {
+                let g = format!(
+                    "[PARALLEL STEP {}/{}]: {}",
+                    i + 1,
+                    plan.goals.len(),
+                    sub_goal
+                );
+                let w = workspace.to_path_buf();
+                let v = version.to_string();
                 let ama = SusiMasterAgent::new();
-                // Sub-mission budget is shorter to prevent parent hang
                 ama.solve(&g, &w, &v)
-            }));
-        }
-
-        for handle in handles {
-            if let Ok(res) = handle.join() {
-                results.push(res);
-            }
-        }
+            })
+            .filter_map(Result::ok)
+            .collect();
 
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
         let mut final_responses = Vec::new();
 
-        for report in results.into_iter().flatten() {
+        for report in results.into_iter() {
             all_interactions.extend(report.interactions);
             all_agents.extend(report.agents);
             final_responses.push(report.final_answer);

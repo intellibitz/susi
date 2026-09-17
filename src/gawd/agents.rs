@@ -416,7 +416,7 @@ impl GawdAgent for EvolutionAgent {
             std::sync::atomic::AtomicBool::new(false);
         if !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
             let ws = workspace.to_path_buf();
-            std::thread::spawn(move || {
+            rayon::spawn(move || {
                 struct AuditGuard;
                 impl Drop for AuditGuard {
                     fn drop(&mut self) {

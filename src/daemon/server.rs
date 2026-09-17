@@ -493,9 +493,9 @@ impl SusiDaemon {
 
                 let listener = std::net::TcpListener::bind(format!("{}:0", bind_address))
                     .unwrap_or_else(|_| {
-                        std::net::TcpListener::bind(format!("{}:0", bind_address)).unwrap()
+                        std::net::TcpListener::bind("127.0.0.1:0").expect("Fatal: Could not bind fallback TCP loopback port")
                     }); // Last resort
-                let new_port = listener.local_addr().unwrap().port();
+                let new_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
@@ -531,8 +531,10 @@ impl SusiDaemon {
                 }
 
                 let socket = std::net::UdpSocket::bind(format!("{}:0", bind_address))
-                    .expect("Failed to bind random UDP port");
-                let new_port = socket.local_addr().unwrap().port();
+                    .unwrap_or_else(|_| {
+                        std::net::UdpSocket::bind("127.0.0.1:0").expect("Fatal: Could not bind fallback UDP loopback port")
+                    });
+                let new_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
                     crate::sandbox::manager::LogLevel::Warning,
