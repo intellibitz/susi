@@ -3,6 +3,11 @@
 
 use serde_json::json;
 use std::collections::HashMap;
+
+use std::sync::{OnceLock, Arc};
+use std::process::Child;
+use parking_lot::RwLock;
+
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -10,6 +15,47 @@ use std::process::{Command, Stdio};
 
 use super::tools::McpTool;
 use super::{GlobalMcpEntry, McpConfig, McpServerConfig};
+
+
+// Mandate 12: Hardware Authority over Process Lifecycle
+// MCP Client Cache prevents cold-booting processes for every Swarm Reflex.
+static MCP_PROCESS_POOL: OnceLock<Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>>> = OnceLock::new();
+
+fn get_process_pool() -> Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>> {
+    MCP_PROCESS_POOL.get_or_init(|| Arc::new(RwLock::new(HashMap::new()))).clone()
+}
+
+fn write_mcp_message(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
+    write!(writer, "Content-Length: {}\r\n\r\n{}", msg.len(), msg)?;
+    writer.flush()
+}
+
+fn read_mcp_message(reader: &mut impl BufRead) -> Option<String> {
+    let mut clen = 0;
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_err() || line.is_empty() {
+            return None;
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+        let lower = trimmed.to_lowercase();
+        if lower.starts_with("content-length:") {
+            if let Ok(l) = lower.trim_start_matches("content-length:").trim().parse::<usize>() {
+                clen = l;
+            }
+        }
+    }
+    if clen > 0 {
+        let mut buf = vec![0u8; clen];
+        if std::io::Read::read_exact(reader, &mut buf).is_ok() {
+            return String::from_utf8(buf).ok();
+        }
+    }
+    None
+}
 
 pub struct GmcpClient;
 
@@ -279,49 +325,64 @@ impl GmcpClient {
             return Self::proxy_web_call(srv, tool_name, args_json);
         }
 
-        let mut child = match Command::new(&srv.command)
-            .args(&srv.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(c) => c,
-            Err(e) => return format!("[FAIL] MCP Error: Failed to spawn '{}': {}", srv.command, e),
+        let pool = get_process_pool();
+        let srv_key = format!("{} {:?}", srv.command, srv.args);
+        
+        let child_arc = {
+            let lock = pool.read();
+            lock.get(&srv_key).cloned()
+        };
+        
+        let child_arc = match child_arc {
+            Some(c) => c,
+            None => {
+                let mut child = match Command::new(&srv.command)
+                    .args(&srv.args)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    Ok(c) => c,
+                    Err(e) => return format!("[FAIL] MCP Error: Failed to spawn '{}': {}", srv.command, e),
+                };
+                
+                // Initialize Handshake natively with LSP Framing
+                let init_req = json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": { "name": "susi", "version": crate::SUSI_VERSION }
+                    }
+                }).to_string();
+                
+                if let Some(stdin) = child.stdin.as_mut() {
+                    let _ = write_mcp_message(stdin, &init_req);
+                }
+                if let Some(stdout) = child.stdout.as_mut() {
+                    let mut reader = BufReader::new(stdout);
+                    let _ = read_mcp_message(&mut reader); // consume init response
+                }
+                
+                let arc = Arc::new(parking_lot::Mutex::new(child));
+                pool.write().insert(srv_key, arc.clone());
+                arc
+            }
         };
 
-        let stdin = child.stdin.as_mut().unwrap();
-        let stdout = child.stdout.as_mut().unwrap();
-        let mut reader = BufReader::new(stdout);
-
-        // Standard MCP Initialization Protocol
-        let init_req = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {
-                    "roots": { "listChanged": false },
-                    "sampling": {}
-                },
-                "clientInfo": { "name": "susi-substrate", "version": crate::SUSI_VERSION }
-            }
-        });
-        let _ = writeln!(stdin, "{}", init_req);
-        let mut line = String::new();
-        let _ = reader.read_line(&mut line);
-
-        // Dynamic Tool Call Execution
+        // Execution Scope (Lock process stdio exclusively)
+        let mut locked_child = child_arc.lock();
+        
         let mut context_aware_args = args_json.to_string();
         if tool_name == "reason" {
             let context = Self::gather_workspace_context();
-            // Unified Swarm Context: Include Blackboard state if available
             context_aware_args = json!({
                 "intent": args_json,
                 "workspace_context": context,
-            })
-            .to_string();
+            }).to_string();
         }
 
         let params = match serde_json::from_str::<serde_json::Value>(&context_aware_args) {
@@ -333,26 +394,22 @@ impl GmcpClient {
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": params
-            }
-        });
+            "params": { "name": tool_name, "arguments": params }
+        }).to_string();
 
-        line.clear();
-        let _ = writeln!(stdin, "{}", call_req);
-        if reader.read_line(&mut line).is_ok() {
-            let resp: serde_json::Value = serde_json::from_str(&line).unwrap_or(json!({}));
-            if let Some(content) = resp
-                .get("result")
-                .and_then(|r| r.get("content"))
-                .and_then(|c| c.get(0))
-                .and_then(|i| i.get("text"))
-                .and_then(|t| t.as_str())
-            {
-                return content.to_string();
+        if let Some(stdin) = locked_child.stdin.as_mut() {
+            let _ = write_mcp_message(stdin, &call_req);
+        }
+        
+        if let Some(stdout) = locked_child.stdout.as_mut() {
+            let mut reader = BufReader::new(stdout);
+            if let Some(resp_str) = read_mcp_message(&mut reader) {
+                let resp: serde_json::Value = serde_json::from_str(&resp_str).unwrap_or(json!({}));
+                if let Some(content) = resp.get("result").and_then(|r| r.get("content")).and_then(|c| c.get(0)).and_then(|i| i.get("text")).and_then(|t| t.as_str()) {
+                    return content.to_string();
+                }
+                return format!("[MCP Proxy Response]: {}", resp_str.trim());
             }
-            return format!("[MCP Proxy Response]: {}", line.trim());
         }
 
         "[FAIL] MCP Error: No response from server substrate.".to_string()

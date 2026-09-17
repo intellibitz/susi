@@ -26,13 +26,17 @@ pub type ProviderType = String;
 /// forever. Agent-level timeout_read/timeout_write bound every socket read
 /// and write, including streaming body reads after the initial response
 /// headers arrive, which a per-request `.timeout()` alone would not cover.
+static HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+
 pub fn http_agent() -> ureq::Agent {
-    let config = ureq::Agent::config_builder()
-        .timeout_connect(Some(std::time::Duration::from_secs(10)))
-        .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
-        .timeout_send_body(Some(std::time::Duration::from_secs(20)))
-        .build();
-    ureq::Agent::new_with_config(config)
+    HTTP_AGENT.get_or_init(|| {
+        let config = ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(10)))
+            .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
+            .timeout_send_body(Some(std::time::Duration::from_secs(20)))
+            .build();
+        ureq::Agent::new_with_config(config)
+    }).clone()
 }
 pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
 pub type RiskTier = String; // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.

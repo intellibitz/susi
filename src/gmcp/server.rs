@@ -96,7 +96,7 @@ pub struct GmcpServer;
 impl GmcpServer {
     pub fn run_stdio(workspace: &Path, version: &str) {
         eprintln!(
-            "[GMCP Server] Started v{} (stdio JSON-RPC, bounded lines).",
+            "[GMCP Server] Started v{} (stdio JSON-RPC, bounded limits, full LSP framing).",
             version
         );
         let workspace = workspace.to_path_buf();
@@ -104,25 +104,53 @@ impl GmcpServer {
         let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP stdio runtime");
 
         rt.block_on(async move {
-            use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-            let mut lines = BufReader::new(tokio::io::stdin()).lines();
+            use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+            let mut reader = BufReader::new(tokio::io::stdin());
             let mut stdout = tokio::io::stdout();
 
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.len() > max_bytes {
+            loop {
+                let mut content_length: usize = 0;
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                        return; // EOF
+                    }
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        break;
+                    }
+                    if trimmed.to_lowercase().starts_with("content-length:") {
+                        if let Ok(l) = trimmed[15..].trim().parse::<usize>() {
+                            content_length = l;
+                        }
+                    }
+                }
+
+                if content_length == 0 {
+                    continue;
+                }
+
+                if content_length > max_bytes {
                     let err = json!({
                         "jsonrpc": "2.0",
                         "id": null,
-                        "error": {
-                            "code": -32600,
-                            "message": format!("Request exceeds {} bytes limit", max_bytes)
-                        }
-                    })
-                    .to_string();
-                    let _ = stdout.write_all(format!("{}\n", err).as_bytes()).await;
+                        "error": { "code": -32600, "message": format!("Request {} > limit {}", content_length, max_bytes) }
+                    }).to_string();
+                    let out = format!("Content-Length: {}\r\n\r\n{}", err.len(), err);
+                    let _ = stdout.write_all(out.as_bytes()).await;
                     let _ = stdout.flush().await;
-                    continue;
+                    continue; // we don't drain the invalid buffer, we just let it fail on next parse
                 }
+
+                let mut buf = vec![0u8; content_length];
+                if reader.read_exact(&mut buf).await.is_err() {
+                    break;
+                }
+
+                let line = match String::from_utf8(buf) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
 
                 let ws = workspace.clone();
                 let response = tokio::task::spawn_blocking(move || {
@@ -138,12 +166,12 @@ impl GmcpServer {
                     .to_string()
                 });
 
-                // JSON-RPC notifications yield an empty string — do not write a blank line.
                 if response.is_empty() {
                     continue;
                 }
 
-                let _ = stdout.write_all(format!("{}\n", response).as_bytes()).await;
+                let out = format!("Content-Length: {}\r\n\r\n{}", response.len(), response);
+                let _ = stdout.write_all(out.as_bytes()).await;
                 let _ = stdout.flush().await;
             }
         });
