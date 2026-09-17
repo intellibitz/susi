@@ -109,31 +109,7 @@ impl InferenceHost {
 
         // Dynamic Metadata Shimming (Aspiration 8 Hardening)
         if arch != "llama" {
-            let common_keys = [
-                "attention.head_count",
-                "attention.head_count_kv",
-                "embedding_length",
-                "feed_forward_length",
-                "block_count",
-                "attention.layer_norm_rms_epsilon",
-                "rope.dimension_count",
-            ];
-
-            for k in common_keys {
-                let llama_key = format!("llama.{}", k);
-                if !model_data.metadata.contains_key(&llama_key) {
-                    let found_key = model_data
-                        .metadata
-                        .keys()
-                        .find(|mk| mk.ends_with(k))
-                        .cloned();
-                    if let Some(fk) = found_key {
-                        if let Some(val) = model_data.metadata.get(&fk).cloned() {
-                            model_data.metadata.insert(llama_key, val);
-                        }
-                    }
-                }
-            }
+            Self::shim_llama_compatible_metadata(&mut model_data.metadata);
         }
 
         println!(
@@ -165,6 +141,59 @@ impl InferenceHost {
         }
 
         Ok(shared)
+    }
+
+    /// Backfills `llama.*`-prefixed metadata keys that
+    /// `candle_transformers::quantized_llama::from_gguf` requires
+    /// unconditionally, from whatever architecture-prefixed keys the GGUF
+    /// actually carries (e.g. `qwen2.embedding_length`), so one forward pass
+    /// serves every architecture without a per-vendor Rust variant.
+    fn shim_llama_compatible_metadata(metadata: &mut HashMap<String, gguf_file::Value>) {
+        let common_keys = [
+            "attention.head_count",
+            "attention.head_count_kv",
+            "embedding_length",
+            "feed_forward_length",
+            "block_count",
+            "attention.layer_norm_rms_epsilon",
+            "rope.dimension_count",
+        ];
+
+        for k in common_keys {
+            let llama_key = format!("llama.{}", k);
+            if !metadata.contains_key(&llama_key) {
+                let found_key = metadata.keys().find(|mk| mk.ends_with(k)).cloned();
+                if let Some(fk) = found_key {
+                    if let Some(val) = metadata.get(&fk).cloned() {
+                        metadata.insert(llama_key, val);
+                    }
+                }
+            }
+        }
+
+        // llama.cpp-produced GGUFs for several architectures (Qwen2 included)
+        // omit rope.dimension_count entirely, since it's implicitly
+        // embedding_length / head_count - unlike the other common_keys above,
+        // there is no source key to copy for these, so candle_transformers'
+        // hard `md_get("llama.rope.dimension_count")?` requirement fails
+        // every load for those architectures unless we derive it ourselves
+        // the same way llama.cpp does.
+        if !metadata.contains_key("llama.rope.dimension_count") {
+            let head_count = metadata
+                .get("llama.attention.head_count")
+                .and_then(|v| v.to_u32().ok());
+            let embedding_length = metadata
+                .get("llama.embedding_length")
+                .and_then(|v| v.to_u32().ok());
+            if let (Some(hc), Some(el)) = (head_count, embedding_length) {
+                if hc > 0 && el % hc == 0 {
+                    metadata.insert(
+                        "llama.rope.dimension_count".to_string(),
+                        gguf_file::Value::U32(el / hc),
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -642,6 +671,58 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::thread;
+
+    #[test]
+    fn test_shim_derives_missing_rope_dimension_count_from_embedding_and_head_count() {
+        // Regression: qwen2.5's own GGUF metadata has no *.rope.dimension_count
+        // key at all (verified against a real qwen2.5-0.5b-instruct GGUF),
+        // which previously made every qwen2 load fail instantly inside
+        // candle_transformers' hard `md_get("llama.rope.dimension_count")?`.
+        let mut metadata: HashMap<String, gguf_file::Value> = HashMap::new();
+        metadata.insert(
+            "qwen2.attention.head_count".to_string(),
+            gguf_file::Value::U32(14),
+        );
+        metadata.insert(
+            "qwen2.embedding_length".to_string(),
+            gguf_file::Value::U32(896),
+        );
+
+        InferenceHost::shim_llama_compatible_metadata(&mut metadata);
+
+        assert_eq!(
+            metadata
+                .get("llama.rope.dimension_count")
+                .and_then(|v| v.to_u32().ok()),
+            Some(64) // 896 / 14
+        );
+    }
+
+    #[test]
+    fn test_shim_prefers_existing_rope_dimension_count_over_derived_value() {
+        let mut metadata: HashMap<String, gguf_file::Value> = HashMap::new();
+        metadata.insert(
+            "qwen2.attention.head_count".to_string(),
+            gguf_file::Value::U32(14),
+        );
+        metadata.insert(
+            "qwen2.embedding_length".to_string(),
+            gguf_file::Value::U32(896),
+        );
+        metadata.insert(
+            "qwen2.rope.dimension_count".to_string(),
+            gguf_file::Value::U32(128),
+        );
+
+        InferenceHost::shim_llama_compatible_metadata(&mut metadata);
+
+        assert_eq!(
+            metadata
+                .get("llama.rope.dimension_count")
+                .and_then(|v| v.to_u32().ok()),
+            Some(128)
+        );
+    }
 
     #[test]
     fn test_has_usable_local_model_false_for_empty_workspace() {

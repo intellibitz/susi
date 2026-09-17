@@ -30,6 +30,37 @@ fn write_mcp_message(writer: &mut impl Write, msg: &str) -> std::io::Result<()> 
     writer.flush()
 }
 
+/// Reads one MCP message with a hard deadline. `read_mcp_message` blocks on
+/// pipe I/O with no way to interrupt it directly, so an unresponsive child
+/// (observed live: an `npm exec`-launched server stalling on a cold package
+/// resolve/install with no local cache) hung this call forever - the exact
+/// non-GPU cause behind a reported multi-minute "GPU hang", since this is
+/// what `power_reason` falls through to after local inference fails. A
+/// watchdog thread SIGKILLs the process by raw PID (no `Child` lock needed,
+/// so it can't deadlock against the caller's held `MutexGuard<Child>`) if the
+/// read hasn't finished by the deadline; the killed process's pipe then hits
+/// EOF and `read_mcp_message` returns `None` on its own, same as any other
+/// dead-server case already handled by callers.
+fn read_mcp_message_with_timeout(
+    reader: &mut impl BufRead,
+    pid: u32,
+    timeout: std::time::Duration,
+) -> Option<String> {
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let done_watch = Arc::clone(&done);
+    std::thread::spawn(move || {
+        std::thread::sleep(timeout);
+        if !done_watch.load(std::sync::atomic::Ordering::Acquire) {
+            unsafe {
+                libc::kill(pid as i32, libc::SIGKILL);
+            }
+        }
+    });
+    let result = read_mcp_message(reader);
+    done.store(true, std::sync::atomic::Ordering::Release);
+    result
+}
+
 fn read_mcp_message(reader: &mut impl BufRead) -> Option<String> {
     let mut clen = 0;
     loop {
@@ -359,12 +390,18 @@ impl GmcpClient {
                     }
                 }).to_string();
                 
+                let scout_timeout = std::time::Duration::from_secs(
+                    crate::sandbox::manager::SusiConfig::load_global()
+                        .unwrap_or_default()
+                        .cloud_scout_timeout_secs(),
+                );
+                let pid = child.id();
                 if let Some(stdin) = child.stdin.as_mut() {
                     let _ = write_mcp_message(stdin, &init_req);
                 }
                 if let Some(stdout) = child.stdout.as_mut() {
                     let mut reader = BufReader::new(stdout);
-                    let _ = read_mcp_message(&mut reader); // consume init response
+                    let _ = read_mcp_message_with_timeout(&mut reader, pid, scout_timeout); // consume init response
                 }
                 
                 let arc = Arc::new(parking_lot::Mutex::new(child));
@@ -401,9 +438,15 @@ impl GmcpClient {
             let _ = write_mcp_message(stdin, &call_req);
         }
         
+        let lease_timeout = std::time::Duration::from_secs(
+            crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .execution_lease_secs(),
+        );
+        let call_pid = locked_child.id();
         if let Some(stdout) = locked_child.stdout.as_mut() {
             let mut reader = BufReader::new(stdout);
-            if let Some(resp_str) = read_mcp_message(&mut reader) {
+            if let Some(resp_str) = read_mcp_message_with_timeout(&mut reader, call_pid, lease_timeout) {
                 let resp: serde_json::Value = serde_json::from_str(&resp_str).unwrap_or(json!({}));
                 if let Some(content) = resp.get("result").and_then(|r| r.get("content")).and_then(|c| c.get(0)).and_then(|i| i.get("text")).and_then(|t| t.as_str()) {
                     return content.to_string();
