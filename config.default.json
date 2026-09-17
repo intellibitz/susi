@@ -328,5 +328,8 @@
   "reflex_training_threshold": 50,
   "gmcp_port": 9090,
   "local_scan_paths": [],
-  "execution_lease_secs": 30
+  "execution_lease_secs": 30,
+  "qdrant_url": "http://localhost:6334",
+  "crates_io_api_url": "https://crates.io/api/v1/crates",
+  "susi_alpha_default": "susi-alpha"
 }
