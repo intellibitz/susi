@@ -446,7 +446,7 @@ impl SusiDaemon {
         name: &str,
         workspace: &Path,
     ) -> (std::net::TcpListener, u16) {
-        let addr = format!("0.0.0.0:{}", port);
+        let addr = format!("127.0.0.1:{}", port);
         match std::net::TcpListener::bind(&addr) {
             Ok(listener) => (listener, port),
             Err(_) => {
@@ -457,7 +457,7 @@ impl SusiDaemon {
                     }
                 }
 
-                let listener = std::net::TcpListener::bind("0.0.0.0:0")
+                let listener = std::net::TcpListener::bind("127.0.0.1:0")
                     .expect("Failed to bind to random port");
                 let new_port = listener.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
@@ -479,7 +479,7 @@ impl SusiDaemon {
     }
 
     fn bind_udp_with_fallback(port: u16, workspace: &Path) -> (std::net::UdpSocket, u16) {
-        let addr = format!("0.0.0.0:{}", port);
+        let addr = format!("127.0.0.1:{}", port);
         match std::net::UdpSocket::bind(&addr) {
             Ok(socket) => (socket, port),
             Err(_) => {
@@ -491,7 +491,7 @@ impl SusiDaemon {
                 }
 
                 let socket =
-                    std::net::UdpSocket::bind("0.0.0.0:0").expect("Failed to bind random UDP port");
+                    std::net::UdpSocket::bind("127.0.0.1:0").expect("Failed to bind random UDP port");
                 let new_port = socket.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,

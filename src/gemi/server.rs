@@ -40,7 +40,7 @@ fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<Bo
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_static("*"),
+            HeaderValue::from_static("http://127.0.0.1"),
         )
         .body(full_body(
             serde_json::to_string(payload).unwrap_or_default(),
@@ -193,30 +193,17 @@ async fn handle_gemi_request(
             if is_streaming {
                 Ok(build_streaming_response(trimmed_prompt, active_model, Arc::clone(&workspace)))
             } else {
-                let clean_cmd = trimmed_prompt
-                    .trim_start_matches('/')
-                    .trim_start_matches(':')
-                    .to_string();
-                let parts: Vec<&str> = clean_cmd.splitn(2, ' ').collect();
-                let tool_name = parts[0].to_lowercase();
-                let tool_arg = parts.get(1).copied().unwrap_or("").trim().to_string();
-
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
                 let content = tokio::task::spawn_blocking(move || {
-                    if ToolRegistry::exists(&tool_name) {
-                        ToolRegistry::execute_tool(&tool_name, &serde_json::json!(tool_arg), &ws)
-                    } else {
-                        let ama = SusiMasterAgent::new();
-                        let final_resp =
-                            ama.solve_clean(&prompt_for_task, &ws, crate::SUSI_VERSION);
-                        crate::sandbox::manager::SusiMemory::save_interaction(
-                            &ws,
-                            &prompt_for_task,
-                            &final_resp,
-                        );
-                        final_resp
-                    }
+                    let ama = SusiMasterAgent::new();
+                    let final_resp = ama.solve_clean(&prompt_for_task, &ws, crate::SUSI_VERSION);
+                    crate::sandbox::manager::SusiMemory::save_interaction(
+                        &ws,
+                        &prompt_for_task,
+                        &final_resp,
+                    );
+                    final_resp
                 })
                 .await
                 .unwrap_or_else(|e| format!("SUSI Engine Error: task join failed: {}", e));
@@ -239,7 +226,7 @@ async fn handle_gemi_request(
             .status(StatusCode::OK)
             .header(
                 "Access-Control-Allow-Origin",
-                HeaderValue::from_static("*"),
+                HeaderValue::from_static("http://127.0.0.1"),
             )
             .header(
                 "Access-Control-Allow-Methods",
@@ -247,7 +234,7 @@ async fn handle_gemi_request(
             )
             .header(
                 "Access-Control-Allow-Headers",
-                HeaderValue::from_static("*"),
+                HeaderValue::from_static("http://127.0.0.1"),
             )
             .body(full_body(Vec::new()))
             .unwrap()),
@@ -299,7 +286,7 @@ fn build_streaming_response(
         .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_static("*"),
+            HeaderValue::from_static("http://127.0.0.1"),
         )
         .body(body)
         .unwrap()
