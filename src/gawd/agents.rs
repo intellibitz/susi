@@ -1491,7 +1491,7 @@ mod tests {
             description: "Custom domain analytics and specialist problem solving.".into(),
             categories: vec!["custom".into(), "analytics".into(), "specialist".into()],
             semantic_anchors: vec!["custom".into(), "domain".into()],
-            base_rank: 0.85,
+            base_rank: 0.85, is_core: false,
         });
 
         let fleet = GawdAgentFleet::synthesize_fleet(
@@ -1527,7 +1527,7 @@ mod tests {
             description: "SUSI Anchor Substrate Test Agent".into(),
             categories: Vec::new(),
             semantic_anchors: vec!["quantum".into()],
-            base_rank: 0.5,
+            base_rank: 0.5, is_core: false,
         });
         let agents = registry.list_agents();
         assert!(agents
