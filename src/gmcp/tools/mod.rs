@@ -706,6 +706,35 @@ impl CoreTools {
         ))
     }
 
+    /// Full swarm solve via SusiMasterAgent. Accepts a plain string, or an
+    /// object with `intent` / `input` / `prompt` — never the raw JSON Display
+    /// of the whole arguments blob prefixed with the tool name.
+    #[tool(
+        name = "susi_solve",
+        description = "Solve a natural-language intent via the SUSI swarm substrate"
+    )]
+    pub fn susi_solve(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let intent = if let Some(s) = arg.as_str() {
+            s.to_string()
+        } else if let Some(s) = arg
+            .get("intent")
+            .or_else(|| arg.get("input"))
+            .or_else(|| arg.get("prompt"))
+            .and_then(|v| v.as_str())
+        {
+            s.to_string()
+        } else {
+            arg.to_string()
+        };
+        if intent.trim().is_empty() {
+            return Err(EaiError::protocol(
+                "Usage: susi_solve with string intent or {intent|input|prompt}",
+            ));
+        }
+        let ama = crate::gawd::ama::SusiMasterAgent::new();
+        Ok(ama.solve_clean(&intent, workspace, crate::SUSI_VERSION))
+    }
+
     #[tool(
         name = "power_reason",
         description = "Delegate complex reasoning to Power-Tier MCP remotes"
@@ -1197,6 +1226,13 @@ impl ToolRegistry {
             "Execute swarm reasoning substrate",
             MetaCategory::SystemPrimitive,
             CoreTools::reason,
+        );
+        Self::register_meta_tool(
+            self,
+            "susi_solve",
+            "Solve a natural-language intent via the SUSI swarm substrate",
+            MetaCategory::SystemPrimitive,
+            CoreTools::susi_solve,
         );
         Self::register_meta_tool(
             self,

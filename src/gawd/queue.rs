@@ -5,6 +5,7 @@
 use crate::error::EaiResult;
 use crossbeam::queue::SegQueue;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::thread::Thread;
 use tracing::info;
@@ -21,6 +22,9 @@ pub struct SubstratePulseQueue {
     priority_queue: SegQueue<PulseEntry>,
     standard_queue: SegQueue<PulseEntry>,
     consumer_thread: parking_lot::RwLock<Option<Thread>>,
+    /// Set when ingest runs before a consumer is registered, so register_consumer
+    /// can unpark immediately and avoid a lost-wakeup hang on a non-empty queue.
+    pending_wake: AtomicBool,
 }
 
 impl SubstratePulseQueue {
@@ -29,6 +33,7 @@ impl SubstratePulseQueue {
             priority_queue: SegQueue::new(),
             standard_queue: SegQueue::new(),
             consumer_thread: parking_lot::RwLock::new(None),
+            pending_wake: AtomicBool::new(false),
         }
     }
 
@@ -65,6 +70,8 @@ impl SubstratePulseQueue {
 
         if let Some(t) = self.consumer_thread.read().as_ref() {
             t.unpark();
+        } else {
+            self.pending_wake.store(true, Ordering::SeqCst);
         }
 
         Ok(())
@@ -75,6 +82,17 @@ impl SubstratePulseQueue {
             Some(entry)
         } else {
             self.standard_queue.pop()
+        }
+    }
+
+    /// Block until a pulse is available. Always re-checks the queue after wake
+    /// (handles park tokens, spurious wakes, and ingest-before-register).
+    pub fn pop_blocking(&self) -> PulseEntry {
+        loop {
+            if let Some(entry) = self.pop() {
+                return entry;
+            }
+            std::thread::park();
         }
     }
 
@@ -89,5 +107,11 @@ impl SubstratePulseQueue {
 
     pub fn register_consumer(&self) {
         *self.consumer_thread.write() = Some(std::thread::current());
+        // Ingest may have raced ahead of registration: drain the pending-wake
+        // flag and also wake if work is already queued.
+        let pending = self.pending_wake.swap(false, Ordering::SeqCst);
+        if pending || !self.is_empty() {
+            std::thread::current().unpark();
+        }
     }
 }

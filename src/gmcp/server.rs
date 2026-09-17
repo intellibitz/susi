@@ -7,8 +7,11 @@
 // work is dispatched via tokio::task::spawn_blocking rather than pretending
 // it is non-blocking, since running it directly on a tokio worker thread
 // would stall the whole reactor for every other in-flight connection.
+//
+// Transport honesty: GET /sse is a one-shot MCP endpoint advertisement (not a
+// keep-alive event bus). Tool traffic is POST /messages JSON-RPC.
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper::header::{HeaderValue, CONTENT_TYPE};
@@ -16,9 +19,10 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::convert::Infallible;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use crate::gmcp::tools::ToolRegistry;
@@ -32,12 +36,71 @@ fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
         .boxed()
 }
 
+fn cors_origin_header() -> HeaderValue {
+    let origin = crate::sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .allow_origin();
+    HeaderValue::from_str(&origin).unwrap_or_else(|_| HeaderValue::from_static("*"))
+}
+
+fn max_rpc_body_bytes() -> usize {
+    crate::sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .max_rpc_body_bytes()
+}
+
+fn response_builder(
+    status: StatusCode,
+    content_type: &'static str,
+    body: impl Into<Bytes>,
+) -> Response<BoxBody> {
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, HeaderValue::from_static(content_type))
+        .header("Access-Control-Allow-Origin", cors_origin_header())
+        .header(
+            "Access-Control-Allow-Methods",
+            HeaderValue::from_static("GET, POST, OPTIONS"),
+        )
+        .header(
+            "Access-Control-Allow-Headers",
+            HeaderValue::from_static("Content-Type, Authorization"),
+        )
+        .body(full_body(body))
+        .unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(full_body("Internal Server Error"))
+                .unwrap_or_else(|_| Response::new(full_body("Internal Server Error")))
+        })
+}
+
+/// Mandate 12: stream-collect the body with a hard byte ceiling.
+async fn read_body_bounded(body: Incoming, max_bytes: usize) -> Result<Bytes, String> {
+    let mut collected = BytesMut::new();
+    let mut body = body;
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| format!("Body read error: {}", e))?;
+        if let Ok(data) = frame.into_data() {
+            if collected.len().saturating_add(data.len()) > max_bytes {
+                return Err(format!("Body exceeds {} bytes limit", max_bytes));
+            }
+            collected.extend_from_slice(&data);
+        }
+    }
+    Ok(collected.freeze())
+}
+
 pub struct GmcpServer;
 
 impl GmcpServer {
-    pub fn run_stdio(workspace: &Path, _version: &str) {
-        eprintln!("[GMCP Server] Started (Listening on stdio).");
+    pub fn run_stdio(workspace: &Path, version: &str) {
+        eprintln!(
+            "[GMCP Server] Started v{} (stdio JSON-RPC, bounded lines).",
+            version
+        );
         let workspace = workspace.to_path_buf();
+        let max_bytes = max_rpc_body_bytes();
         let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP stdio runtime");
 
         rt.block_on(async move {
@@ -46,6 +109,21 @@ impl GmcpServer {
             let mut stdout = tokio::io::stdout();
 
             while let Ok(Some(line)) = lines.next_line().await {
+                if line.len() > max_bytes {
+                    let err = json!({
+                        "jsonrpc": "2.0",
+                        "id": null,
+                        "error": {
+                            "code": -32600,
+                            "message": format!("Request exceeds {} bytes limit", max_bytes)
+                        }
+                    })
+                    .to_string();
+                    let _ = stdout.write_all(format!("{}\n", err).as_bytes()).await;
+                    let _ = stdout.flush().await;
+                    continue;
+                }
+
                 let ws = workspace.clone();
                 let response = tokio::task::spawn_blocking(move || {
                     GmcpProtocolHandler.handle_request(&line, &ws)
@@ -54,10 +132,16 @@ impl GmcpServer {
                 .unwrap_or_else(|e| {
                     json!({
                         "jsonrpc": "2.0",
+                        "id": null,
                         "error": { "code": -32000, "message": format!("Task join error: {}", e) }
                     })
                     .to_string()
                 });
+
+                // JSON-RPC notifications yield an empty string — do not write a blank line.
+                if response.is_empty() {
+                    continue;
+                }
 
                 let _ = stdout.write_all(format!("{}\n", response).as_bytes()).await;
                 let _ = stdout.flush().await;
@@ -65,19 +149,22 @@ impl GmcpServer {
         });
     }
 
-    pub fn start_tcp_server(_workspace: PathBuf, _port: u16, _version: String) {
-        // TCP server now consolidated into HTTP/SSE via hyper for reliability
-        eprintln!("[GMCP TCP] Protocol deprecated. Use GMCP HTTP/SSE on 9093.");
-    }
-
     pub fn start_http_server(workspace: PathBuf, listener: std::net::TcpListener) {
         let addr = listener
             .local_addr()
             .map(|a| a.to_string())
             .unwrap_or_default();
-        eprintln!("[GMCP HTTP/SSE] Substrate active on {}", addr);
+        // Honest banner: endpoint discovery + POST JSON-RPC, not a live SSE bus.
+        eprintln!(
+            "[GMCP HTTP] Endpoint-discovery (/sse) + JSON-RPC (/messages) active on {}",
+            addr
+        );
 
         let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP HTTP runtime");
+        let max_conns = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .max_concurrent_agents();
+        let active_conns = Arc::new(AtomicUsize::new(0));
 
         rt.block_on(async move {
             listener
@@ -95,9 +182,29 @@ impl GmcpServer {
                         continue;
                     }
                 };
-                let workspace = Arc::clone(&workspace);
 
+                let current = active_conns.load(Ordering::Relaxed);
+                if current >= max_conns {
+                    eprintln!(
+                        "[GMCP HTTP] Connection rejected: active {} >= max {}",
+                        current, max_conns
+                    );
+                    drop(stream);
+                    continue;
+                }
+                active_conns.fetch_add(1, Ordering::Relaxed);
+
+                let workspace = Arc::clone(&workspace);
+                let active_conns = Arc::clone(&active_conns);
                 tokio::spawn(async move {
+                    struct ConnGuard(Arc<AtomicUsize>);
+                    impl Drop for ConnGuard {
+                        fn drop(&mut self) {
+                            self.0.fetch_sub(1, Ordering::Relaxed);
+                        }
+                    }
+                    let _guard = ConnGuard(active_conns);
+
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |req| {
                         let workspace = Arc::clone(&workspace);
@@ -119,36 +226,45 @@ async fn handle_gmcp_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
 ) -> Result<Response<BoxBody>, Infallible> {
-    match (req.method(), req.uri().path()) {
+    let path = req.uri().path();
+    match (req.method(), path) {
+        (&Method::OPTIONS, _) => Ok(response_builder(
+            StatusCode::NO_CONTENT,
+            "text/plain",
+            Bytes::new(),
+        )),
         (&Method::GET, "/sse") => {
-            let endpoint_event = format!(
-                "event: endpoint\ndata: /messages?session={}\n\n",
-                "default-session"
+            // One-shot endpoint advertisement for MCP clients that expect an
+            // `event: endpoint` before POSTing to /messages. Not a keep-alive stream.
+            let endpoint_event = "event: endpoint\ndata: /messages\n\n";
+            let mut res = response_builder(
+                StatusCode::OK,
+                "text/event-stream",
+                endpoint_event.as_bytes(),
             );
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
-                .header("Cache-Control", HeaderValue::from_static("no-cache"))
-                .header(
-                    "Access-Control-Allow-Origin",
-                    HeaderValue::from_str(
-                        &crate::sandbox::manager::SusiConfig::load_global()
-                            .unwrap_or_default()
-                            .get("allow_origin")
-                            .unwrap_or_else(|| "*".to_string()),
-                    )
-                    .unwrap_or_else(|_| HeaderValue::from_static("*")),
-                )
-                .body(full_body(endpoint_event))
-                .unwrap())
+            res.headers_mut().insert(
+                hyper::header::CACHE_CONTROL,
+                HeaderValue::from_static("no-cache"),
+            );
+            Ok(res)
         }
-        (&Method::POST, path) if path.starts_with("/messages") => {
-            let body_bytes = req
-                .into_body()
-                .collect()
-                .await
-                .map(|c| c.to_bytes())
-                .unwrap_or_default();
+        (&Method::POST, "/messages") => {
+            let max_bytes = max_rpc_body_bytes();
+            let body_bytes = match read_body_bounded(req.into_body(), max_bytes).await {
+                Ok(b) => b,
+                Err(msg) => {
+                    return Ok(response_builder(
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "application/json",
+                        json!({
+                            "jsonrpc": "2.0",
+                            "id": null,
+                            "error": { "code": -32600, "message": msg }
+                        })
+                        .to_string(),
+                    ));
+                }
+            };
             let body = String::from_utf8_lossy(&body_bytes).to_string();
             let ws = (*workspace).clone();
 
@@ -157,32 +273,36 @@ async fn handle_gmcp_request(
                     .await
                     .unwrap_or_else(|e| {
                         json!({
-                    "jsonrpc": "2.0",
-                    "error": { "code": -32000, "message": format!("Mission Interrupted: {}", e) }
-                })
-                .to_string()
+                            "jsonrpc": "2.0",
+                            "id": null,
+                            "error": {
+                                "code": -32000,
+                                "message": format!("Mission Interrupted: {}", e)
+                            }
+                        })
+                        .to_string()
                     });
 
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-                .header(
-                    "Access-Control-Allow-Origin",
-                    HeaderValue::from_str(
-                        &crate::sandbox::manager::SusiConfig::load_global()
-                            .unwrap_or_default()
-                            .get("allow_origin")
-                            .unwrap_or_else(|| "*".to_string()),
-                    )
-                    .unwrap_or_else(|_| HeaderValue::from_static("*")),
-                )
-                .body(full_body(response_json))
-                .unwrap())
+            // Notifications return empty — acknowledge with 204.
+            if response_json.is_empty() {
+                return Ok(response_builder(
+                    StatusCode::NO_CONTENT,
+                    "text/plain",
+                    Bytes::new(),
+                ));
+            }
+
+            Ok(response_builder(
+                StatusCode::OK,
+                "application/json",
+                response_json,
+            ))
         }
-        _ => Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(full_body("Not Found"))
-            .unwrap()),
+        _ => Ok(response_builder(
+            StatusCode::NOT_FOUND,
+            "text/plain",
+            "Not Found",
+        )),
     }
 }
 
@@ -191,8 +311,33 @@ pub struct GmcpProtocolHandler;
 
 impl ProtocolDispatcher for GmcpProtocolHandler {
     fn handle_request(&self, line: &str, workspace: &Path) -> String {
-        let id = extract_id(line);
-        let method = extract_method(line);
+        let parsed: Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(e) => {
+                return json!({
+                    "jsonrpc": "2.0",
+                    "id": null,
+                    "error": {
+                        "code": -32700,
+                        "message": format!("Parse error: {}", e)
+                    }
+                })
+                .to_string();
+            }
+        };
+
+        let method = parsed
+            .get("method")
+            .and_then(|m| m.as_str())
+            .map(|s| s.to_string());
+        let id = parsed.get("id").cloned();
+
+        // JSON-RPC notifications (method present, id absent) must not receive a response.
+        if method.is_some() && id.is_none() {
+            return String::new();
+        }
+
+        let id = id.unwrap_or(Value::Null);
 
         match method.as_deref() {
             Some("initialize") => json!({
@@ -207,6 +352,12 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                 }
             })
             .to_string(),
+            Some("ping") => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {}
+            })
+            .to_string(),
             Some("tools/list") => {
                 let tools = ToolRegistry::list_tools();
                 json!({
@@ -219,21 +370,23 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                 .to_string()
             }
             Some("tools/call") => {
-                let tool_name = extract_tool_name(line).unwrap_or_default();
-                let tool_arg = extract_tool_val(line).unwrap_or(json!(null));
+                let params = parsed.get("params").cloned().unwrap_or(Value::Null);
+                let tool_name = params
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let tool_arg = params.get("arguments").cloned().unwrap_or(Value::Null);
 
-                let result_text = if tool_name == "susi_solve" {
-                    let intent = format!("{} {}", tool_name, tool_arg);
-                    let ama = crate::gawd::ama::SusiMasterAgent::new();
-                    ama.solve_clean(&intent, workspace, crate::SUSI_VERSION)
-                } else if crate::gmcp::tools::ToolRegistry::exists(&tool_name) {
-                    crate::gmcp::tools::ToolRegistry::execute_tool(&tool_name, &tool_arg, workspace)
+                let result_text = if tool_name.is_empty() {
+                    "Error: tools/call missing params.name".to_string()
+                } else if ToolRegistry::exists(&tool_name) {
+                    ToolRegistry::execute_tool(&tool_name, &tool_arg, workspace)
                 } else {
                     format!("Error: Tool '{}' not found in registry", tool_name)
                 };
 
-                // L1 Patch: Set isError if internal failure
-                let is_error = result_text.starts_with("Error:");
+                let is_error = is_tool_result_error(&result_text);
 
                 json!({
                     "jsonrpc": "2.0",
@@ -247,52 +400,78 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                 })
                 .to_string()
             }
-            _ => json!({
+            Some(_) => json!({
                 "jsonrpc": "2.0",
                 "id": id,
                 "error": { "code": -32601, "message": "Method not found" }
+            })
+            .to_string(),
+            None => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32600, "message": "Invalid Request: missing method" }
             })
             .to_string(),
         }
     }
 }
 
-fn extract_id(line: &str) -> serde_json::Value {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(id) = v.get("id") {
-            return id.clone();
-        }
-    }
-    json!(null)
+/// Honest MCP/tool failure detection (Mandate 1): registry and swarm paths use
+/// several failure prefixes, not only `Error:`.
+fn is_tool_result_error(text: &str) -> bool {
+    let t = text.trim_start();
+    t.starts_with("Error:")
+        || t.starts_with("[FAIL]")
+        || t.starts_with("[CAPABILITY_GAP]")
+        || t.starts_with("Protocol Error:")
+        || t.starts_with("Reflex Error:")
+        || t.starts_with("Governance Violation:")
+        || t.starts_with("[RECOVERY]")
 }
 
-fn extract_method(line: &str) -> Option<String> {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(m) = v.get("method").and_then(|m| m.as_str()) {
-            return Some(m.to_string());
-        }
-    }
-    None
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
 
-fn extract_tool_name(line: &str) -> Option<String> {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(params) = v.get("params") {
-            if let Some(name) = params.get("name").and_then(|n| n.as_str()) {
-                return Some(name.to_string());
-            }
-        }
+    #[test]
+    fn test_parse_error_returns_minus_32700() {
+        let out = GmcpProtocolHandler.handle_request("{not-json", &PathBuf::from("."));
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["error"]["code"], -32700);
     }
-    None
-}
 
-fn extract_tool_val(line: &str) -> Option<serde_json::Value> {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(params) = v.get("params") {
-            if let Some(arguments) = params.get("arguments") {
-                return Some(arguments.clone());
-            }
-        }
+    #[test]
+    fn test_notification_yields_empty_response() {
+        let out = GmcpProtocolHandler.handle_request(
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            &PathBuf::from("."),
+        );
+        assert!(out.is_empty());
     }
-    None
+
+    #[test]
+    fn test_ping_returns_result() {
+        let out = GmcpProtocolHandler.handle_request(
+            r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
+            &PathBuf::from("."),
+        );
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v.get("result").is_some());
+        assert_eq!(v["id"], 1);
+    }
+
+    #[test]
+    fn test_is_tool_result_error_covers_fail_prefixes() {
+        assert!(is_tool_result_error("[FAIL] boom"));
+        assert!(is_tool_result_error("[CAPABILITY_GAP] missing"));
+        assert!(is_tool_result_error("Error: nope"));
+        assert!(is_tool_result_error("Protocol Error: bad"));
+        assert!(!is_tool_result_error("ok content"));
+    }
+
+    #[test]
+    fn test_susi_solve_is_registered() {
+        assert!(ToolRegistry::exists("susi_solve"));
+    }
 }

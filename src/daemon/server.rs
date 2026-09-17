@@ -291,6 +291,7 @@ impl SusiDaemon {
             use std::process::Stdio;
             let mut cmd = Command::new(&bin_to_run);
             cmd.arg("daemon-start")
+                .arg("--workspace")
                 .arg(workspace.to_str().unwrap_or("."))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
@@ -314,6 +315,7 @@ impl SusiDaemon {
             use std::process::Stdio;
             let mut cmd = Command::new(&bin_to_run);
             cmd.arg("daemon-start")
+                .arg("--workspace")
                 .arg(workspace.to_str().unwrap_or("."))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())

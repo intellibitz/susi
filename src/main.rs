@@ -8,7 +8,7 @@ use susi_engine::SUSI_VERSION;
 use clap::{Parser, Subcommand};
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{error, info, warn};
 
 #[derive(Parser)]
@@ -112,14 +112,36 @@ enum AdminCommands {
     Reload,
 }
 
+/// Mandate 32: only ensure the daemon for commands that need the background
+/// substrate. Local-only admin/workspace ops must return without blocking on
+/// binary integrity checks or daemon restart.
+fn command_requires_daemon(command: &Commands) -> bool {
+    match command {
+        Commands::Clean
+        | Commands::Review
+        | Commands::Accept
+        | Commands::Undo
+        | Commands::OsClean
+        | Commands::Pulse { .. }
+        | Commands::DaemonStart { .. } => false,
+        Commands::Admin { subcommand } => matches!(
+            subcommand,
+            AdminCommands::Release | AdminCommands::Audit
+        ),
+        _ => true,
+    }
+}
+
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
     let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let max_size = cfg.max_stdin_size_bytes();
+    // Read one past the limit so exact-sized payloads are accepted and oversize
+    // inputs are distinguishable from a full-but-valid buffer.
     let mut buffer = Vec::new();
-    let mut limited = stdin.take(max_size as u64);
+    let mut limited = stdin.take((max_size as u64).saturating_add(1));
     limited.read_to_end(&mut buffer)?;
-    if buffer.len() >= max_size {
+    if buffer.len() > max_size {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("Input exceeds {} bytes limit", max_size),
@@ -142,7 +164,12 @@ fn get_home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-fn run_shell(workspace: &std::path::Path) {
+fn glass_box_callback(piece: String) {
+    print!("{}", piece);
+    let _ = io::stdout().flush();
+}
+
+fn run_shell(workspace: &Path) {
     use susi_engine::gawd::queue::SubstratePulseQueue;
     let queue = SubstratePulseQueue::global();
     let ama = SusiMasterAgent::new();
@@ -156,15 +183,16 @@ fn run_shell(workspace: &std::path::Path) {
     );
     println!("Type 'exit' to quit.");
 
-    let w = workspace.to_path_buf();
     std::thread::spawn(move || {
         queue.register_consumer();
         loop {
-            if let Some(pulse) = queue.pop() {
-                let _ = ama.solve_stream(&pulse.intent, &w, SUSI_VERSION, &|_| {});
-            } else {
-                std::thread::park(); // Zero-latency, zero-CPU waiting until a pulse is ingested
-            }
+            let pulse = queue.pop_blocking();
+            let _ = ama.solve_stream(
+                &pulse.intent,
+                &pulse.workspace,
+                &pulse.version,
+                &glass_box_callback,
+            );
         }
     });
 
@@ -237,7 +265,11 @@ fn main() {
 
     let cli = Cli::parse();
 
-    if !matches!(cli.command, Some(Commands::DaemonStart { .. })) {
+    let needs_daemon = match &cli.command {
+        Some(cmd) => command_requires_daemon(cmd),
+        None => true, // bare intent, stdin pipe, or interactive shell
+    };
+    if needs_daemon {
         SusiDaemon::ensure_daemon_running(&cwd, &global_dir);
     }
 
@@ -245,13 +277,12 @@ fn main() {
         let ama = SusiMasterAgent::new();
         let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Start => {
-                // ensure_daemon_running already ran above for every non-daemon-start command.
-                match SusiDaemon::check_status(&global_dir) {
-                    Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
-                    None => println!("[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details."),
-                }
-            }
+            Commands::Start => match SusiDaemon::check_status(&global_dir) {
+                Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
+                None => println!(
+                    "[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details."
+                ),
+            },
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
@@ -263,16 +294,26 @@ fn main() {
                 println!("- This pulse runs in the background. Check progress with 'susi status'.");
 
                 println!("\n[SOVEREIGN HANDSHAKE]");
-                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &|_| {});
+                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &glass_box_callback);
             }
             Commands::Uninstall => {
-                let answer = ama.solve_clean(&cfg.admin_pulses().uninstall_pulse, &cwd, SUSI_VERSION);
+                let answer =
+                    ama.solve_clean(&cfg.admin_pulses().uninstall_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {
-                let gemi_cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
-                let listener = std::net::TcpListener::bind(format!("127.0.0.1:{}", gemi_cfg.gemi_port())).expect("Failed to bind GEMI port");
+                let gemi_cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir)
+                    .expect("Fatal: Malformed configuration");
+                let bind_address: String = gemi_cfg
+                    .get("bind_address")
+                    .unwrap_or_else(|| "127.0.0.1".to_string());
+                let listener = std::net::TcpListener::bind(format!(
+                    "{}:{}",
+                    bind_address,
+                    gemi_cfg.gemi_port()
+                ))
+                .expect("Failed to bind GEMI port");
                 GemiServer::start_http_server(cwd.clone(), listener);
             }
             Commands::Status => {
@@ -312,25 +353,37 @@ fn main() {
             }
             Commands::Pulse { intent } => {
                 let intent_str = intent.join(" ");
-                match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &intent_str) {
+                match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(
+                    &cwd,
+                    &intent_str,
+                ) {
                     Ok(msg) => println!("{}", msg),
-                    Err(e) => eprintln!("Pulse ingestion failed: {}", e),
+                    Err(e) => {
+                        eprintln!("Pulse ingestion failed: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
             Commands::Accept => {
                 match susi_engine::sandbox::manager::IntentBundleManager::accept_all(&cwd) {
                     Ok(msg) => println!("{}", msg),
-                    Err(e) => eprintln!("Accept failed: {}", e),
+                    Err(e) => {
+                        eprintln!("Accept failed: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
             Commands::Undo => {
                 match susi_engine::sandbox::manager::IntentBundleManager::rollback_all(&cwd) {
                     Ok(msg) => println!("{}", msg),
-                    Err(e) => eprintln!("Undo failed: {}", e),
+                    Err(e) => {
+                        eprintln!("Undo failed: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
             Commands::Review => {
-                print_golden_rule_summary(&cwd);
+                print_golden_rule_summary(&cwd, &global_dir);
             }
             Commands::OsClean => {
                 let msg = susi_engine::gemi::hardware::HardwareProfiler::execute_os_clean();
@@ -340,85 +393,147 @@ fn main() {
                 let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
-            Commands::Admin { subcommand } => {
-                match subcommand {
-                    AdminCommands::Sync => {
-                        match susi_engine::daemon::admin::SusiAdmin::enforce_version_consistency(&cwd) {
-                            Ok(v) => println!("Version synchronization complete: v{}", v),
-                            Err(e) => eprintln!("Sync failed: {}", e),
-                        }
-                    }
-                    AdminCommands::Pulse { intent } => {
-                        let intent_str = intent.join(" ");
-                        match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &intent_str) {
-                            Ok(msg) => println!("{}", msg),
-                            Err(e) => eprintln!("Pulse ingestion failed: {}", e),
-                        }
-                    }
-                    AdminCommands::Audit => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
-                        println!("{}", answer);
-                    }
-                    AdminCommands::Verify => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses().verify_pulse, &cwd, SUSI_VERSION);
-                        println!("{}", answer);
-                    }
-                    AdminCommands::Release => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses().release_pulse, &cwd, SUSI_VERSION);
-                        println!("{}", answer);
-                    }
-                    AdminCommands::Lint => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
-                        println!("{}", answer);
-                    }
-                    AdminCommands::AuditDeps => {
-                        let answer = ama.solve_clean(&cfg.admin_pulses().audit_deps_pulse, &cwd, SUSI_VERSION);
-                        println!("{}", answer);
-                    }
-                    AdminCommands::Reload => {
-                        match susi_engine::sandbox::manager::SusiConfig::reload(&global_dir) {
-                            Ok(reloaded) => {
-                                println!("Dynamic configuration reloaded successfully from {}.", global_dir.join("config.json").display());
-                                println!("- Engine: {}", reloaded.default_engine());
-                                println!("- Model: {}", reloaded.default_model());
-                                println!("- Model Ladder Steps: {}", reloaded.model_ladder().len());
-                                println!("- MCP Bootstrap Servers: {}", reloaded.bootstrap_mcp_servers::<Vec<serde_json::Value>>().len());
-                            }
-                            Err(e) => eprintln!("Config reload failed: {}", e),
+            Commands::Admin { subcommand } => match subcommand {
+                AdminCommands::Sync => {
+                    match susi_engine::daemon::admin::SusiAdmin::enforce_version_consistency(&cwd)
+                    {
+                        Ok(v) => println!("Version synchronization complete: v{}", v),
+                        Err(e) => {
+                            eprintln!("Sync failed: {}", e);
+                            std::process::exit(1);
                         }
                     }
                 }
-            }
+                AdminCommands::Pulse { intent } => {
+                    let intent_str = intent.join(" ");
+                    match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(
+                        &cwd,
+                        &intent_str,
+                    ) {
+                        Ok(msg) => println!("{}", msg),
+                        Err(e) => {
+                            eprintln!("Pulse ingestion failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                AdminCommands::Audit => {
+                    let answer =
+                        ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
+                    println!("{}", answer);
+                }
+                AdminCommands::Verify => {
+                    let answer =
+                        ama.solve_clean(&cfg.admin_pulses().verify_pulse, &cwd, SUSI_VERSION);
+                    println!("{}", answer);
+                }
+                AdminCommands::Release => {
+                    let answer =
+                        ama.solve_clean(&cfg.admin_pulses().release_pulse, &cwd, SUSI_VERSION);
+                    println!("{}", answer);
+                }
+                AdminCommands::Lint => {
+                    let answer = ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
+                    println!("{}", answer);
+                }
+                AdminCommands::AuditDeps => {
+                    let answer =
+                        ama.solve_clean(&cfg.admin_pulses().audit_deps_pulse, &cwd, SUSI_VERSION);
+                    println!("{}", answer);
+                }
+                AdminCommands::Reload => {
+                    match susi_engine::sandbox::manager::SusiConfig::reload(&global_dir) {
+                        Ok(reloaded) => {
+                            println!(
+                                "Dynamic configuration reloaded successfully from {}.",
+                                global_dir.join("config.json").display()
+                            );
+                            println!("- Engine: {}", reloaded.default_engine());
+                            println!("- Model: {}", reloaded.default_model());
+                            println!("- Model Ladder Steps: {}", reloaded.model_ladder().len());
+                            println!(
+                                "- MCP Bootstrap Servers: {}",
+                                reloaded
+                                    .bootstrap_mcp_servers::<Vec<serde_json::Value>>()
+                                    .len()
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Config reload failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            },
             Commands::VerifyDownloadAgent => {
-                match susi_engine::gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(&cwd) {
+                match susi_engine::gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(
+                    &cwd,
+                ) {
                     Ok(report) => {
-                        println!("=== SUSI Model Download Agent & Network Verification Report ===");
+                        println!(
+                            "=== SUSI Model Download Agent & Network Verification Report ==="
+                        );
                         println!("- Network Status: {}", report.network_status);
                         println!("- Download Agent Active: {}", report.download_agent_active);
-                        println!("- Total Discovered Models on System: {}", report.total_discovered_on_system);
+                        println!(
+                            "- Total Discovered Models on System: {}",
+                            report.total_discovered_on_system
+                        );
                         println!("\nModel Provisioning Steps:");
-                        for step in report.steps {
-                            println!("  [Step {}] {} ({})", step.step, step.model_label, step.hf_repo);
+                        let mut all_verified = !report.steps.is_empty();
+                        for step in &report.steps {
+                            println!(
+                                "  [Step {}] {} ({})",
+                                step.step, step.model_label, step.hf_repo
+                            );
                             println!("    - Status: {}", step.status);
                             println!("    - Path: {}", step.path);
-                            println!("    - Bytes: {} / {} ({:.1}%)", step.bytes_downloaded, step.expected_bytes, step.percentage);
+                            println!(
+                                "    - Bytes: {} / {} ({:.1}%)",
+                                step.bytes_downloaded, step.expected_bytes, step.percentage
+                            );
+                            if !step.status.contains("COMPLETED") {
+                                all_verified = false;
+                            }
                         }
-                        println!("\nSUCCESS: 32b and 72b model download agent verified and fully operational.");
+                        if all_verified {
+                            println!(
+                                "\nSUCCESS: 32b and 72b model download agent verified and fully operational."
+                            );
+                        } else {
+                            println!(
+                                "\nINCOMPLETE: one or more provisioning steps are not COMPLETED_VERIFIED."
+                            );
+                            std::process::exit(1);
+                        }
                     }
-                    Err(e) => eprintln!("Verification failed: {}", e),
+                    Err(e) => {
+                        eprintln!("Verification failed: {}", e);
+                        std::process::exit(1);
+                    }
                 }
             }
             Commands::ScoutModel { url } => {
-                println!("[Substrate Download Agent] Connecting to Hugging Face Hub (bartowski collection) in foreground...");
+                println!(
+                    "[Substrate Download Agent] Connecting to {} in foreground...",
+                    cfg.hf_base_url()
+                );
                 let res = susi_engine::gemi::models::ModelManager::install_model(&url);
                 println!("{}", res);
             }
-            Commands::Clean => {
-                let _ = std::fs::remove_dir_all(cwd.join("target"));
-                println!("Workspace build artifacts cleaned.");
-            }
-            Commands::DaemonStart { .. } => {
-                SusiDaemon::run_daemon_loop(global_dir.clone(), global_dir);
+            Commands::Clean => match std::fs::remove_dir_all(cwd.join("target")) {
+                Ok(()) => println!("Workspace build artifacts cleaned."),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                    println!("No target/ directory to clean.");
+                }
+                Err(e) => {
+                    eprintln!("Clean failed: {}", e);
+                    std::process::exit(1);
+                }
+            },
+            Commands::DaemonStart { workspace } => {
+                let ws = PathBuf::from(workspace);
+                SusiDaemon::run_daemon_loop(ws, global_dir);
             }
         }
     } else if !cli.intent.is_empty() {
@@ -428,33 +543,24 @@ fn main() {
         match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
             Ok(msg) => {
                 info!("Natural intent ingested successfully: {}", msg);
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &|_| {});
-                std::io::stdout().flush().ok();
-                unsafe {
-                    libc::_exit(0);
-                }
+                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &glass_box_callback);
+                let _ = io::stdout().flush();
             }
             Err(e) => {
                 warn!(
                     "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
                     e
                 );
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &|_| {});
-                std::io::stdout().flush().ok();
-                unsafe {
-                    libc::_exit(0);
-                }
+                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &glass_box_callback);
+                let _ = io::stdout().flush();
             }
         }
     } else if !io::stdin().is_terminal() {
         match read_stdin_bounded() {
             Ok(Some(input)) => {
                 let ama = SusiMasterAgent::new();
-                let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION, &|_| {});
-                std::io::stdout().flush().ok();
-                unsafe {
-                    libc::_exit(0);
-                }
+                let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION, &glass_box_callback);
+                let _ = io::stdout().flush();
             }
             Ok(None) => (),
             Err(e) => {
@@ -468,7 +574,7 @@ fn main() {
     }
 }
 
-fn print_golden_rule_summary(workspace: &std::path::Path) {
+fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
     use susi_engine::gemi::hardware::HardwareProfiler;
     use susi_engine::sandbox::manager::IntentBundleManager;
 
@@ -476,16 +582,10 @@ fn print_golden_rule_summary(workspace: &std::path::Path) {
     let os_report = HardwareProfiler::audit_os_environment_care();
     let staged = IntentBundleManager::get_staged_bundles(workspace);
 
-    let active_daemon =
-        susi_engine::daemon::server::SusiDaemon::check_status(&workspace.join(".susi")).is_some();
-    println!(
-        "- Global Daemon: {}",
-        if active_daemon {
-            "Active"
-        } else {
-            "Active (Standby)"
-        }
-    );
+    match SusiDaemon::check_status(global_dir) {
+        Some(pid) => println!("- Global Daemon: Active (PID: {})", pid),
+        None => println!("- Global Daemon: Inactive"),
+    }
     println!(
         "- Environment Care ({}) : Reclaimable {}",
         os_report.os_name, os_report.reclaimable_cache_formatted

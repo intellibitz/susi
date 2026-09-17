@@ -825,6 +825,12 @@ impl SusiConfig {
     pub fn max_stdin_size_bytes(&self) -> usize {
         self.get_or_bundled_default("max_stdin_size_bytes")
     }
+    pub fn max_rpc_body_bytes(&self) -> usize {
+        self.get_or_bundled_default("max_rpc_body_bytes")
+    }
+    pub fn allow_origin(&self) -> String {
+        self.get_or_bundled_default("allow_origin")
+    }
 
     pub fn default_model(&self) -> String {
         self.get_or_bundled_default("default_model")
@@ -1385,6 +1391,14 @@ mod tests {
         assert_eq!(
             default.max_stdin_size_bytes(),
             raw["max_stdin_size_bytes"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            default.max_rpc_body_bytes(),
+            raw["max_rpc_body_bytes"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            default.allow_origin(),
+            raw["allow_origin"].as_str().unwrap()
         );
         assert_eq!(
             default.mcp_registry_url(),
