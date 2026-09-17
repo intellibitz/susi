@@ -476,15 +476,35 @@ fn print_golden_rule_summary(workspace: &std::path::Path) {
     let os_report = HardwareProfiler::audit_os_environment_care();
     let staged = IntentBundleManager::get_staged_bundles(workspace);
 
-    let active_daemon = susi_engine::daemon::server::SusiDaemon::check_status(&workspace.join(".susi")).is_some();
-    println!("- Global Daemon: {}", if active_daemon { "Active" } else { "Active (Standby)" });
-    println!("- Environment Care ({}) : Reclaimable {}", os_report.os_name, os_report.reclaimable_cache_formatted);
-    println!("- Local Workspace ({}) : {} Staged Intent Bundles", workspace.display(), staged.len());
+    let active_daemon =
+        susi_engine::daemon::server::SusiDaemon::check_status(&workspace.join(".susi")).is_some();
+    println!(
+        "- Global Daemon: {}",
+        if active_daemon {
+            "Active"
+        } else {
+            "Active (Standby)"
+        }
+    );
+    println!(
+        "- Environment Care ({}) : Reclaimable {}",
+        os_report.os_name, os_report.reclaimable_cache_formatted
+    );
+    println!(
+        "- Local Workspace ({}) : {} Staged Intent Bundles",
+        workspace.display(),
+        staged.len()
+    );
 
     if !staged.is_empty() {
         println!("\nStaged Intent Bundles:");
         for b in &staged {
-            println!("  * [{}] {} (Fixes: {})", if b.is_applied() { "APPLIED" } else { "STAGED" }, b.title(), b.staged_fixes.len());
+            println!(
+                "  * [{}] {} (Fixes: {})",
+                if b.is_applied() { "APPLIED" } else { "STAGED" },
+                b.title(),
+                b.staged_fixes.len()
+            );
         }
     }
 

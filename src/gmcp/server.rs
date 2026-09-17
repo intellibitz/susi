@@ -27,7 +27,9 @@ use crate::gmcp::ProtocolDispatcher;
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
 fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
-    Full::new(chunk.into()).map_err(|never| match never {}).boxed()
+    Full::new(chunk.into())
+        .map_err(|never| match never {})
+        .boxed()
 }
 
 pub struct GmcpServer;
@@ -36,8 +38,7 @@ impl GmcpServer {
     pub fn run_stdio(workspace: &Path, _version: &str) {
         eprintln!("[GMCP Server] Started (Listening on stdio).");
         let workspace = workspace.to_path_buf();
-        let rt = tokio::runtime::Runtime::new()
-            .expect("Fatal: failed to start GMCP stdio runtime");
+        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP stdio runtime");
 
         rt.block_on(async move {
             use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -58,9 +59,7 @@ impl GmcpServer {
                     .to_string()
                 });
 
-                let _ = stdout
-                    .write_all(format!("{}\n", response).as_bytes())
-                    .await;
+                let _ = stdout.write_all(format!("{}\n", response).as_bytes()).await;
                 let _ = stdout.flush().await;
             }
         });
@@ -78,8 +77,7 @@ impl GmcpServer {
             .unwrap_or_default();
         eprintln!("[GMCP HTTP/SSE] Substrate active on {}", addr);
 
-        let rt = tokio::runtime::Runtime::new()
-            .expect("Fatal: failed to start GMCP HTTP runtime");
+        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP HTTP runtime");
 
         rt.block_on(async move {
             listener
@@ -133,7 +131,13 @@ async fn handle_gmcp_request(
                 .header("Cache-Control", HeaderValue::from_static("no-cache"))
                 .header(
                     "Access-Control-Allow-Origin",
-                    HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+                    HeaderValue::from_str(
+                        &crate::sandbox::manager::SusiConfig::load_global()
+                            .unwrap_or_default()
+                            .get("allow_origin")
+                            .unwrap_or_else(|| "*".to_string()),
+                    )
+                    .unwrap_or_else(|_| HeaderValue::from_static("*")),
                 )
                 .body(full_body(endpoint_event))
                 .unwrap())
@@ -148,24 +152,29 @@ async fn handle_gmcp_request(
             let body = String::from_utf8_lossy(&body_bytes).to_string();
             let ws = (*workspace).clone();
 
-            let response_json = tokio::task::spawn_blocking(move || {
-                GmcpProtocolHandler.handle_request(&body, &ws)
-            })
-            .await
-            .unwrap_or_else(|e| {
-                json!({
+            let response_json =
+                tokio::task::spawn_blocking(move || GmcpProtocolHandler.handle_request(&body, &ws))
+                    .await
+                    .unwrap_or_else(|e| {
+                        json!({
                     "jsonrpc": "2.0",
                     "error": { "code": -32000, "message": format!("Mission Interrupted: {}", e) }
                 })
                 .to_string()
-            });
+                    });
 
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
                 .header(
                     "Access-Control-Allow-Origin",
-                    HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+                    HeaderValue::from_str(
+                        &crate::sandbox::manager::SusiConfig::load_global()
+                            .unwrap_or_default()
+                            .get("allow_origin")
+                            .unwrap_or_else(|| "*".to_string()),
+                    )
+                    .unwrap_or_else(|_| HeaderValue::from_static("*")),
                 )
                 .body(full_body(response_json))
                 .unwrap())
@@ -225,7 +234,7 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
 
                 // L1 Patch: Set isError if internal failure
                 let is_error = result_text.starts_with("Error:");
-                
+
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,

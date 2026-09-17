@@ -83,20 +83,21 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
         .map_err(|e| EaiError::filesystem(format!("Workspace error: {}", e)))?;
 
     let full_path = workspace.join(&path);
-    
+
     // H4 Security Patch: Securely canonicalize parent to prevent symlink traversal escaping
     let parent = full_path.parent().unwrap_or(workspace);
-    let canonical_parent = parent.canonicalize().map_err(|_| EaiError::filesystem("Invalid path hierarchy (doesn't exist)"))?;
-    
+    let canonical_parent = parent
+        .canonicalize()
+        .map_err(|_| EaiError::filesystem("Invalid path hierarchy (doesn't exist)"))?;
+
     if !canonical_parent.starts_with(&canonical_workspace) {
         return Err(EaiError::filesystem(format!(
             "Path escape attempt: {}",
             user_path
         )));
     }
-    
-    let canonical_path = canonical_parent.join(full_path.file_name().unwrap_or_default());
 
+    let canonical_path = canonical_parent.join(full_path.file_name().unwrap_or_default());
 
     for component in path.components() {
         if let Component::ParentDir = component {
@@ -146,8 +147,8 @@ fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
 /// only http(s) schemes, and every address the host resolves to must clear
 /// [`is_blocked_ssrf_target`].
 fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
-    let parsed = url::Url::parse(raw_url)
-        .map_err(|e| EaiError::protocol(format!("Invalid URL: {}", e)))?;
+    let parsed =
+        url::Url::parse(raw_url).map_err(|e| EaiError::protocol(format!("Invalid URL: {}", e)))?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err(EaiError::protocol(format!(
@@ -178,7 +179,9 @@ fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
         }
     }
     if !resolved_any {
-        return Err(EaiError::protocol("SSRF BLOCK: host resolved to no addresses"));
+        return Err(EaiError::protocol(
+            "SSRF BLOCK: host resolved to no addresses",
+        ));
     }
 
     Ok(parsed)
@@ -295,7 +298,9 @@ impl CoreTools {
     )]
     pub fn bloat_audit(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let report = crate::gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
-        Ok(crate::gawd::bloat_audit::BloatAuditor::render_report(&report))
+        Ok(crate::gawd::bloat_audit::BloatAuditor::render_report(
+            &report,
+        ))
     }
 
     #[tool(name = "identity", description = "SUSI substrate identity report")]
@@ -661,7 +666,8 @@ impl CoreTools {
                 description: d.to_string(),
                 categories: c.split(',').map(|s| s.trim().to_string()).collect(),
                 semantic_anchors: Vec::new(),
-                base_rank: 0.8, is_core: false,
+                base_rank: 0.8,
+                is_core: false,
             };
             crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", n))
@@ -679,7 +685,8 @@ impl CoreTools {
                 description: parts[1].to_string(),
                 categories: parts[2].split(',').map(|s| s.trim().to_string()).collect(),
                 semantic_anchors: Vec::new(),
-                base_rank: 0.8, is_core: false,
+                base_rank: 0.8,
+                is_core: false,
             };
 
             crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);
@@ -962,14 +969,18 @@ impl CoreTools {
             .clone();
 
         Self::shared_runtime().block_on(async {
-            let client = Qdrant::from_url(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().qdrant_url())
-                .build()
-                .map_err(|e| {
-                    EaiError::process(format!(
-                        "[CAPABILITY_GAP] Qdrant connection failed: {}. Ensure Qdrant is running.",
-                        e
-                    ))
-                })?;
+            let client = Qdrant::from_url(
+                &crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .qdrant_url(),
+            )
+            .build()
+            .map_err(|e| {
+                EaiError::process(format!(
+                    "[CAPABILITY_GAP] Qdrant connection failed: {}. Ensure Qdrant is running.",
+                    e
+                ))
+            })?;
 
             let search_result = client
                 .search_points(qdrant_client::qdrant::SearchPoints {

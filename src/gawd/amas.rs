@@ -179,7 +179,6 @@ impl SusiSupervisor {
                     UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
-                    
 
                     let mut buf = [0u8; 1024];
                     loop {
@@ -452,7 +451,8 @@ impl SusiSupervisor {
                 }
             } else {
                 let prompts = crate::sandbox::manager::SusiPrompts::load_global();
-                let consensus_prompt = prompts.consensus_wisdom_prompt()
+                let consensus_prompt = prompts
+                    .consensus_wisdom_prompt()
                     .replace("{goal}", goal)
                     .replace("{wisdom}", &weighted_wisdom);
                 eprintln!("- [Consensus Master] Synthesizing swarm wisdom...");
@@ -605,12 +605,12 @@ impl SusiSupervisor {
                 "arguments": arg_val
             }
         });
-        
+
         let url = format!("http://{}", addr);
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_millis(1500))
             .build();
-            
+
         if let Ok(client) = client {
             if let Ok(resp) = client.post(&url).json(&req_val).send() {
                 if let Ok(text) = resp.text() {
@@ -625,7 +625,7 @@ impl SusiSupervisor {
         let mut active_peers = Vec::new();
         if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
             let _ = socket.set_broadcast(true);
-            
+
             let _ = socket.send_to(
                 b"SUSI_LAN_PING",
                 format!("255.255.255.255:{}", Self::get_udp_discovery_port()),

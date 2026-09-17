@@ -2,9 +2,9 @@
 // 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
 
 use crate::error::{EaiError, EaiResult};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::env;
 use std::process::Command;
 
 pub struct SusiAdmin;
@@ -219,7 +219,8 @@ impl SusiAdmin {
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
 
-            if let Ok(hash) = crate::daemon::server::SusiDaemon::calculate_binary_hash(&current_exe) {
+            if let Ok(hash) = crate::daemon::server::SusiDaemon::calculate_binary_hash(&current_exe)
+            {
                 fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
             }
         }
@@ -348,7 +349,9 @@ impl SusiAdmin {
             }
         }
 
-        eprintln!("[Release Gatekeeper] 6. Synchronizing Substrate Version Manifests (admin sync)...");
+        eprintln!(
+            "[Release Gatekeeper] 6. Synchronizing Substrate Version Manifests (admin sync)..."
+        );
         Self::enforce_version_consistency(workspace)?;
 
         eprintln!("[Release Gatekeeper] 7. Pushing to Remote (git push)...");
@@ -440,7 +443,8 @@ impl SusiAdmin {
             evidence_path = workspace.join(".susi/EVIDENCE.md");
             if !evidence_path.exists() {
                 // Synthesize a new local evidence from hard-compiled genome if missing
-                fs::create_dir_all(workspace.join(".susi")).map_err(|e| EaiError::filesystem(e.to_string()))?;
+                fs::create_dir_all(workspace.join(".susi"))
+                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
                 fs::write(
                     &evidence_path,
                     crate::gawd::self_core::AlphaSelf::EVIDENCE_MD,

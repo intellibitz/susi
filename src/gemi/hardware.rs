@@ -461,10 +461,16 @@ impl HardwareProfiler {
         let pacman_cache = std::path::PathBuf::from("/var/cache/pacman/pkg");
         if pacman_cache.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&pacman_cache) {
-                let bytes: u64 = entries.flatten().map(|e| e.metadata().map(|m| m.len()).unwrap_or(0)).sum();
+                let bytes: u64 = entries
+                    .flatten()
+                    .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+                    .sum();
                 if bytes > 500_000_000 {
                     reclaimable += bytes;
-                    recommendations.push(format!("Clean pacman package cache ({:.1} GB reclaimable)", bytes as f64 / 1e9));
+                    recommendations.push(format!(
+                        "Clean pacman package cache ({:.1} GB reclaimable)",
+                        bytes as f64 / 1e9
+                    ));
                 }
             }
         }
@@ -472,10 +478,16 @@ impl HardwareProfiler {
         let user_cache = home.join(".cache");
         if user_cache.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&user_cache) {
-                let bytes: u64 = entries.flatten().map(|e| e.metadata().map(|m| m.len()).unwrap_or(0)).sum();
+                let bytes: u64 = entries
+                    .flatten()
+                    .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+                    .sum();
                 if bytes > 1_000_000_000 {
                     reclaimable += bytes / 4;
-                    recommendations.push(format!("Prune stale build targets in ~/.cache ({:.1} GB reclaimable)", (bytes / 4) as f64 / 1e9));
+                    recommendations.push(format!(
+                        "Prune stale build targets in ~/.cache ({:.1} GB reclaimable)",
+                        (bytes / 4) as f64 / 1e9
+                    ));
                 }
             }
         }
@@ -488,7 +500,11 @@ impl HardwareProfiler {
             os_name,
             reclaimable_cache_bytes: reclaimable,
             reclaimable_cache_formatted: format!("{:.2} GB", reclaimable as f64 / 1e9),
-            status: if reclaimable > 0 { "RECLAIMABLE_SPACE_DETECTED".to_string() } else { "OPTIMAL".to_string() },
+            status: if reclaimable > 0 {
+                "RECLAIMABLE_SPACE_DETECTED".to_string()
+            } else {
+                "OPTIMAL".to_string()
+            },
             recommendations,
         }
     }

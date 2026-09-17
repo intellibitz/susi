@@ -35,7 +35,7 @@ pub fn http_agent() -> ureq::Agent {
     ureq::Agent::new_with_config(config)
 }
 pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
-pub type RiskTier = String;   // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
+pub type RiskTier = String; // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -81,19 +81,53 @@ impl DynamicModelInfo {
         Self { fields }
     }
 
-    pub fn get(&self, key: &str) -> Option<&DynamicValue> { self.fields.get(key) }
-    pub fn get_str(&self, key: &str) -> Option<&str> { self.fields.get(key)?.as_str() }
-    pub fn get_bool(&self, key: &str) -> Option<bool> { self.fields.get(key)?.as_bool() }
-    pub fn name(&self) -> &str { self.get_str("name").or_else(|| self.get_str("model_id")).unwrap_or("unknown") }
-    pub fn model_id(&self) -> &str { self.get_str("model_id").or_else(|| self.get_str("id")).or_else(|| self.get_str("name")).unwrap_or("unknown") }
-    pub fn provider(&self) -> &str { self.get_str("provider").unwrap_or("unknown") }
-    pub fn is_local(&self) -> bool { self.get_bool("is_local").unwrap_or(false) }
-    pub fn registry(&self) -> &str { self.get_str("registry").unwrap_or("SUSI Substrate") }
-    pub fn description(&self) -> &str { self.get_str("description").unwrap_or("") }
-    pub fn tier(&self) -> &str { self.get_str("tier").unwrap_or("Reflex") }
-    pub fn latency_ms(&self) -> Option<u128> { self.fields.get("latency_ms").and_then(|v| v.as_u64()).map(|u| u as u128) }
-    pub fn checksum(&self) -> Option<&str> { self.get_str("checksum") }
-    pub fn provenance(&self) -> Option<&DynamicValue> { self.get("provenance") }
+    pub fn get(&self, key: &str) -> Option<&DynamicValue> {
+        self.fields.get(key)
+    }
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        self.fields.get(key)?.as_str()
+    }
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        self.fields.get(key)?.as_bool()
+    }
+    pub fn name(&self) -> &str {
+        self.get_str("name")
+            .or_else(|| self.get_str("model_id"))
+            .unwrap_or("unknown")
+    }
+    pub fn model_id(&self) -> &str {
+        self.get_str("model_id")
+            .or_else(|| self.get_str("id"))
+            .or_else(|| self.get_str("name"))
+            .unwrap_or("unknown")
+    }
+    pub fn provider(&self) -> &str {
+        self.get_str("provider").unwrap_or("unknown")
+    }
+    pub fn is_local(&self) -> bool {
+        self.get_bool("is_local").unwrap_or(false)
+    }
+    pub fn registry(&self) -> &str {
+        self.get_str("registry").unwrap_or("SUSI Substrate")
+    }
+    pub fn description(&self) -> &str {
+        self.get_str("description").unwrap_or("")
+    }
+    pub fn tier(&self) -> &str {
+        self.get_str("tier").unwrap_or("Reflex")
+    }
+    pub fn latency_ms(&self) -> Option<u128> {
+        self.fields
+            .get("latency_ms")
+            .and_then(|v| v.as_u64())
+            .map(|u| u as u128)
+    }
+    pub fn checksum(&self) -> Option<&str> {
+        self.get_str("checksum")
+    }
+    pub fn provenance(&self) -> Option<&DynamicValue> {
+        self.get("provenance")
+    }
 }
 
 // Backward compat alias
@@ -107,10 +141,30 @@ pub struct DynamicStagedFix {
 }
 
 impl DynamicStagedFix {
-    pub fn file_path(&self) -> &str { self.fields.get("file_path").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn original_content(&self) -> &str { self.fields.get("original_content").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn staged_content(&self) -> &str { self.fields.get("staged_content").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn description(&self) -> &str { self.fields.get("description").and_then(|v| v.as_str()).unwrap_or("") }
+    pub fn file_path(&self) -> &str {
+        self.fields
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+    pub fn original_content(&self) -> &str {
+        self.fields
+            .get("original_content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+    pub fn staged_content(&self) -> &str {
+        self.fields
+            .get("staged_content")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+    pub fn description(&self) -> &str {
+        self.fields
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
 }
 
 pub type StagedFix = DynamicStagedFix;
@@ -129,11 +183,43 @@ pub struct DynamicIntentBundle {
 }
 
 impl DynamicIntentBundle {
-    pub fn bundle_id(&self) -> &str { self.fields.get("bundle_id").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn title(&self) -> &str { if !self.title.is_empty() { &self.title } else { self.fields.get("title").and_then(|v| v.as_str()).unwrap_or("") } }
-    pub fn risk_tier(&self) -> RiskTier { self.fields.get("risk_tier").and_then(|v| v.as_str()).unwrap_or("Tier0ZeroRisk").to_string() }
-    pub fn description(&self) -> &str { self.fields.get("description").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn is_applied(&self) -> bool { self.applied || self.fields.get("applied").and_then(|v| v.as_bool()).unwrap_or(false) }
+    pub fn bundle_id(&self) -> &str {
+        self.fields
+            .get("bundle_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+    pub fn title(&self) -> &str {
+        if !self.title.is_empty() {
+            &self.title
+        } else {
+            self.fields
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+        }
+    }
+    pub fn risk_tier(&self) -> RiskTier {
+        self.fields
+            .get("risk_tier")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Tier0ZeroRisk")
+            .to_string()
+    }
+    pub fn description(&self) -> &str {
+        self.fields
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+    pub fn is_applied(&self) -> bool {
+        self.applied
+            || self
+                .fields
+                .get("applied")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+    }
     pub fn set_applied(&mut self, val: bool) {
         self.applied = val;
         self.fields.remove("applied");
@@ -150,12 +236,30 @@ pub struct DynamicNeuralCheckpoint {
 }
 
 impl DynamicNeuralCheckpoint {
-    pub fn intent(&self) -> &str { self.fields.get("intent").and_then(|v| v.as_str()).unwrap_or("") }
-    pub fn timestamp(&self) -> u64 { self.fields.get("timestamp").and_then(|v| v.as_u64()).unwrap_or(0) }
-    pub fn completed_tools(&self) -> Vec<String> {
-        self.fields.get("completed_tools").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default()
+    pub fn intent(&self) -> &str {
+        self.fields
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
     }
-    pub fn status(&self) -> &str { self.fields.get("status").and_then(|v| v.as_str()).unwrap_or("IN_PROGRESS") }
+    pub fn timestamp(&self) -> u64 {
+        self.fields
+            .get("timestamp")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+    }
+    pub fn completed_tools(&self) -> Vec<String> {
+        self.fields
+            .get("completed_tools")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+    pub fn status(&self) -> &str {
+        self.fields
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("IN_PROGRESS")
+    }
 }
 
 pub type NeuralCheckpoint = DynamicNeuralCheckpoint;
@@ -174,9 +278,12 @@ impl Default for ChatTemplateConfig {
         // container's #[serde(default)] makes Self's Deserialize impl call
         // Self::default() to backfill missing fields, which would recurse
         // infinitely (stack overflow) if this constructed a Self via serde_json.
-        let templates: StringRegistry =
-            serde_json::from_str(include_str!("../../chat_templates.default.json"))
-                .expect("Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.");
+        let templates: StringRegistry = serde_json::from_str(include_str!(
+            "../../chat_templates.default.json"
+        ))
+        .expect(
+            "Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.",
+        );
         Self { templates }
     }
 }
@@ -186,26 +293,39 @@ impl ChatTemplateConfig {
         let p = Path::new(path);
         if p.is_file() {
             if let Ok(content) = fs::read_to_string(p) {
-                if let Ok(cfg) = serde_json::from_str::<ChatTemplateConfig>(&content) { return cfg; }
-                if let Ok(map) = serde_json::from_str::<StringRegistry>(&content) { return Self { templates: map }; }
+                if let Ok(cfg) = serde_json::from_str::<ChatTemplateConfig>(&content) {
+                    return cfg;
+                }
+                if let Ok(map) = serde_json::from_str::<StringRegistry>(&content) {
+                    return Self { templates: map };
+                }
             }
         }
         Self::default()
     }
 
     pub fn get(&self, model_name: &str) -> Option<&String> {
-        if let Some(t) = self.templates.get(model_name) { return Some(t); }
+        if let Some(t) = self.templates.get(model_name) {
+            return Some(t);
+        }
         let lower = model_name.to_lowercase().replace(['-', '_', '.'], "");
         for (k, v) in &self.templates {
             let k_clean = k.to_lowercase().replace(['-', '_', '.'], "");
-            if lower.contains(&k_clean) || k_clean.contains(&lower) { return Some(v); }
+            if lower.contains(&k_clean) || k_clean.contains(&lower) {
+                return Some(v);
+            }
         }
-        self.templates.get("chatml").or_else(|| self.templates.values().next())
+        self.templates
+            .get("chatml")
+            .or_else(|| self.templates.values().next())
     }
 
     // 100% dynamic render - supports ANY {variable}
     pub fn render(&self, model_name: &str, vars: &HashMap<String, String>) -> String {
-        let template = self.get(model_name).cloned().unwrap_or_else(|| "{system}\n{prompt}".to_string());
+        let template = self
+            .get(model_name)
+            .cloned()
+            .unwrap_or_else(|| "{system}\n{prompt}".to_string());
         let mut out = template;
         for (k, v) in vars {
             out = out.replace(&format!("{{{}}}", k), v);
@@ -214,7 +334,12 @@ impl ChatTemplateConfig {
     }
 
     // Backward compat
-    pub fn render_legacy(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
+    pub fn render_legacy(
+        &self,
+        model_name: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> String {
         let vars = HashMap::from([
             ("system".to_string(), system_prompt.to_string()),
             ("prompt".to_string(), user_prompt.to_string()),
@@ -224,7 +349,9 @@ impl ChatTemplateConfig {
         self.render(model_name, &vars)
     }
 
-    pub fn register(&mut self, name: String, template: String) { self.templates.insert(name, template); }
+    pub fn register(&mut self, name: String, template: String) {
+        self.templates.insert(name, template);
+    }
 }
 
 // === 100% DYNAMIC PROMPTS - NO HARDCODED FIELDS ===
@@ -239,7 +366,9 @@ pub struct SusiPrompts {
 
 impl SusiPrompts {
     pub fn load_global() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = home.join(".susi/prompts.json");
         let mut loaded = if prompts_file.is_file() {
             fs::read_to_string(&prompts_file)
@@ -252,7 +381,9 @@ impl SusiPrompts {
         if loaded.is_none() {
             let default_prompts = Self::default_dynamic();
             let _ = fs::create_dir_all(home.join(".susi"));
-            if let Ok(json) = serde_json::to_string_pretty(&default_prompts) { let _ = fs::write(&prompts_file, json); }
+            if let Ok(json) = serde_json::to_string_pretty(&default_prompts) {
+                let _ = fs::write(&prompts_file, json);
+            }
             loaded = Some(default_prompts);
         }
         let mut prompts = loaded.expect("checked Some above");
@@ -261,30 +392,62 @@ impl SusiPrompts {
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
         let templates_override = home.join(".susi/chat_templates.json");
         if templates_override.is_file() {
-            prompts.chat_templates = ChatTemplateConfig::from_file(
-                templates_override.to_str().unwrap_or_default(),
-            );
+            prompts.chat_templates =
+                ChatTemplateConfig::from_file(templates_override.to_str().unwrap_or_default());
         }
         prompts
     }
 
     fn default_dynamic() -> Self {
-        let prompts: DynamicRegistry =
-            serde_json::from_str(include_str!("../../prompts.default.json"))
-                .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
-        Self { prompts, chat_templates: ChatTemplateConfig::default() }
+        let prompts: DynamicRegistry = serde_json::from_str(include_str!(
+            "../../prompts.default.json"
+        ))
+        .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
+        Self {
+            prompts,
+            chat_templates: ChatTemplateConfig::default(),
+        }
     }
 
-    pub fn get(&self, key: &str) -> Option<&DynamicValue> { self.prompts.get(key) }
-    pub fn get_str(&self, key: &str) -> Option<&str> { self.prompts.get(key)?.as_str() }
+    pub fn get(&self, key: &str) -> Option<&DynamicValue> {
+        self.prompts.get(key)
+    }
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        self.prompts.get(key)?.as_str()
+    }
 
-    pub fn agent_factory_prompt(&self) -> String { self.get_str("agent_factory_prompt").unwrap_or("").to_string() }
-    pub fn consensus_wisdom_prompt(&self) -> String { self.get_str("consensus_wisdom_prompt").unwrap_or("").to_string() }
-    pub fn intent_planner_prompt(&self) -> String { self.get_str("intent_planner_prompt").unwrap_or("").to_string() }
-    pub fn mission_partition_prompt(&self) -> String { self.get_str("mission_partition_prompt").unwrap_or("").to_string() }
-    pub fn mission_refine_prompt(&self) -> String { self.get_str("mission_refine_prompt").unwrap_or("").to_string() }
+    pub fn agent_factory_prompt(&self) -> String {
+        self.get_str("agent_factory_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
+    pub fn consensus_wisdom_prompt(&self) -> String {
+        self.get_str("consensus_wisdom_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
+    pub fn intent_planner_prompt(&self) -> String {
+        self.get_str("intent_planner_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
+    pub fn mission_partition_prompt(&self) -> String {
+        self.get_str("mission_partition_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
+    pub fn mission_refine_prompt(&self) -> String {
+        self.get_str("mission_refine_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
 
-    pub fn format_chat_prompt(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
+    pub fn format_chat_prompt(
+        &self,
+        model_name: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> String {
         let vars = HashMap::from([
             ("system".to_string(), system_prompt.to_string()),
             ("prompt".to_string(), user_prompt.to_string()),
@@ -307,30 +470,44 @@ pub struct SusiMessages {
 
 impl SusiMessages {
     pub fn load_global() -> Self {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = home.join(".susi/messages.json");
         if msgs_file.is_file() {
             if let Ok(content) = fs::read_to_string(&msgs_file) {
-                if let Ok(m) = serde_json::from_str::<SusiMessages>(&content) { return m; }
+                if let Ok(m) = serde_json::from_str::<SusiMessages>(&content) {
+                    return m;
+                }
             }
         }
         let default_msgs = Self::default_dynamic();
         let _ = fs::create_dir_all(home.join(".susi"));
-        if let Ok(json) = serde_json::to_string_pretty(&default_msgs) { let _ = fs::write(&msgs_file, json); }
+        if let Ok(json) = serde_json::to_string_pretty(&default_msgs) {
+            let _ = fs::write(&msgs_file, json);
+        }
         default_msgs
     }
 
     fn default_dynamic() -> Self {
-        let categories: HashMap<String, StringRegistry> =
-            serde_json::from_str(include_str!("../../messages.default.json"))
-                .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
+        let categories: HashMap<String, StringRegistry> = serde_json::from_str(include_str!(
+            "../../messages.default.json"
+        ))
+        .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { categories }
     }
 
-    pub fn get(&self, category: &str, key: &str) -> Option<&String> { self.categories.get(category)?.get(key) }
-    pub fn get_category(&self, category: &str) -> Option<&StringRegistry> { self.categories.get(category) }
+    pub fn get(&self, category: &str, key: &str) -> Option<&String> {
+        self.categories.get(category)?.get(key)
+    }
+    pub fn get_category(&self, category: &str) -> Option<&StringRegistry> {
+        self.categories.get(category)
+    }
     pub fn register(&mut self, category: String, key: String, message: String) {
-        self.categories.entry(category).or_default().insert(key, message);
+        self.categories
+            .entry(category)
+            .or_default()
+            .insert(key, message);
     }
 }
 
@@ -340,16 +517,26 @@ impl SusiMessages {
 pub struct AdminPulsesConfig {
     #[serde(flatten)]
     pub fields: DynamicRegistry,
-    #[serde(default)] pub install_pulse: String,
-    #[serde(default)] pub uninstall_pulse: String,
-    #[serde(default)] pub select_model_pulse: String,
-    #[serde(default)] pub deep_scan_pulse: String,
-    #[serde(default)] pub mcp_scout_pulse: String,
-    #[serde(default)] pub audit_pulse: String,
-    #[serde(default)] pub verify_pulse: String,
-    #[serde(default)] pub release_pulse: String,
-    #[serde(default)] pub lint_pulse: String,
-    #[serde(default)] pub audit_deps_pulse: String,
+    #[serde(default)]
+    pub install_pulse: String,
+    #[serde(default)]
+    pub uninstall_pulse: String,
+    #[serde(default)]
+    pub select_model_pulse: String,
+    #[serde(default)]
+    pub deep_scan_pulse: String,
+    #[serde(default)]
+    pub mcp_scout_pulse: String,
+    #[serde(default)]
+    pub audit_pulse: String,
+    #[serde(default)]
+    pub verify_pulse: String,
+    #[serde(default)]
+    pub release_pulse: String,
+    #[serde(default)]
+    pub lint_pulse: String,
+    #[serde(default)]
+    pub audit_deps_pulse: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -375,7 +562,9 @@ pub struct InferenceEndpointsConfig {
 }
 
 impl InferenceEndpointsConfig {
-    pub fn get_endpoint(&self, name: &str) -> Option<&str> { self.fields.get(name)?.as_str() }
+    pub fn get_endpoint(&self, name: &str) -> Option<&str> {
+        self.fields.get(name)?.as_str()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -423,10 +612,18 @@ pub struct GovernancePatterns {
 }
 
 impl GovernancePatterns {
-    pub fn secret_tokens(&self) -> Vec<String> { self.secret_tokens.clone() }
-    pub fn destructive_commands(&self) -> Vec<String> { self.destructive_commands.clone() }
-    pub fn critical_system_paths(&self) -> Vec<String> { self.critical_system_paths.clone() }
-    pub fn exfiltration_vectors(&self) -> Vec<String> { self.exfiltration_vectors.clone() }
+    pub fn secret_tokens(&self) -> Vec<String> {
+        self.secret_tokens.clone()
+    }
+    pub fn destructive_commands(&self) -> Vec<String> {
+        self.destructive_commands.clone()
+    }
+    pub fn critical_system_paths(&self) -> Vec<String> {
+        self.critical_system_paths.clone()
+    }
+    pub fn exfiltration_vectors(&self) -> Vec<String> {
+        self.exfiltration_vectors.clone()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -472,7 +669,9 @@ impl SusiConfig {
             .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
     }
 
-    pub fn get_config_path(global_dir: &Path) -> PathBuf { global_dir.join("config.json") }
+    pub fn get_config_path(global_dir: &Path) -> PathBuf {
+        global_dir.join("config.json")
+    }
 
     /// Loads a user's persisted config.json and self-heals schema drift against
     /// the binary's bundled config.default.json: any key (at any nesting depth,
@@ -485,8 +684,10 @@ impl SusiConfig {
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
         if path.is_file() {
-            let content = fs::read_to_string(&path).map_err(|e| EaiError::config(format!("Failed to read config: {}", e)))?;
-            let mut cfg: Self = serde_json::from_str(&content).map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)))?;
+            let content = fs::read_to_string(&path)
+                .map_err(|e| EaiError::config(format!("Failed to read config: {}", e)))?;
+            let mut cfg: Self = serde_json::from_str(&content)
+                .map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)))?;
 
             let default = Self::default();
             let mut changed = false;
@@ -548,10 +749,17 @@ impl SusiConfig {
         }
     }
 
-    pub fn reload(global_dir: &Path) -> EaiResult<Self> { let loaded = Self::load(global_dir)?; let _ = loaded.save(global_dir); Ok(loaded) }
+    pub fn reload(global_dir: &Path) -> EaiResult<Self> {
+        let loaded = Self::load(global_dir)?;
+        let _ = loaded.save(global_dir);
+        Ok(loaded)
+    }
 
     pub fn load_global() -> EaiResult<Self> {
-        let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         Self::load(&home.join(".susi"))
     }
 
@@ -564,7 +772,8 @@ impl SusiConfig {
     /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
         let path = Self::get_config_path(global_dir);
-        let json = serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
+        let json =
+            serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
         let tmp_path = global_dir.join(format!("config.json.tmp.{}", std::process::id()));
         fs::write(&tmp_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
         fs::rename(&tmp_path, &path).map_err(|e| EaiError::filesystem(e.to_string()))
@@ -572,7 +781,8 @@ impl SusiConfig {
 
     // === TYPED ACCESSORS - No hardcoded fields, dynamic getters with defaults ===
     pub fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<T> {
-        let v = self.settings.get(key)?; serde_json::from_value(v.clone()).ok()
+        let v = self.settings.get(key)?;
+        serde_json::from_value(v.clone()).ok()
     }
 
     /// Falls back to the bundled config.default.json's value for `key` (not a
@@ -591,26 +801,50 @@ impl SusiConfig {
     }
 
     // Backward compat accessors and helpers
-    pub fn gmcp_port(&self) -> u16 { self.get_or_bundled_default("gmcp_port") }
-    pub fn gmcp_http_port(&self) -> u16 { self.get_or_bundled_default("gmcp_http_port") }
-    pub fn gemi_port(&self) -> u16 { self.get_or_bundled_default("gemi_port") }
-    pub fn udp_discovery_port(&self) -> u16 { self.get_or_bundled_default("udp_discovery_port") }
-    pub fn execution_lease_secs(&self) -> u64 { self.get_or_bundled_default("execution_lease_secs") }
-    pub fn max_concurrent_agents(&self) -> usize { self.get_or_bundled_default("max_concurrent_agents") }
-    pub fn trust_level(&self) -> String { self.get_or_bundled_default("trust_level") }
-    pub fn max_stdin_size_bytes(&self) -> usize { self.get_or_bundled_default("max_stdin_size_bytes") }
+    pub fn gmcp_port(&self) -> u16 {
+        self.get_or_bundled_default("gmcp_port")
+    }
+    pub fn gmcp_http_port(&self) -> u16 {
+        self.get_or_bundled_default("gmcp_http_port")
+    }
+    pub fn gemi_port(&self) -> u16 {
+        self.get_or_bundled_default("gemi_port")
+    }
+    pub fn udp_discovery_port(&self) -> u16 {
+        self.get_or_bundled_default("udp_discovery_port")
+    }
+    pub fn execution_lease_secs(&self) -> u64 {
+        self.get_or_bundled_default("execution_lease_secs")
+    }
+    pub fn max_concurrent_agents(&self) -> usize {
+        self.get_or_bundled_default("max_concurrent_agents")
+    }
+    pub fn trust_level(&self) -> String {
+        self.get_or_bundled_default("trust_level")
+    }
+    pub fn max_stdin_size_bytes(&self) -> usize {
+        self.get_or_bundled_default("max_stdin_size_bytes")
+    }
 
-    pub fn default_model(&self) -> String { self.get_or_bundled_default("default_model") }
-    pub fn default_engine(&self) -> String { self.get_or_bundled_default("default_engine") }
-    pub fn mcp_registry_url(&self) -> String { self.get_or_bundled_default("mcp_registry_url") }
+    pub fn default_model(&self) -> String {
+        self.get_or_bundled_default("default_model")
+    }
+    pub fn default_engine(&self) -> String {
+        self.get_or_bundled_default("default_engine")
+    }
+    pub fn mcp_registry_url(&self) -> String {
+        self.get_or_bundled_default("mcp_registry_url")
+    }
     pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de>>(&self) -> T {
-        self.get("bootstrap_mcp_servers").unwrap_or_else(|| serde_json::from_str("[]").unwrap())
+        self.get("bootstrap_mcp_servers")
+            .unwrap_or_else(|| serde_json::from_str("[]").unwrap())
     }
     pub fn local_scan_paths(&self) -> Vec<String> {
         self.get("local_scan_paths").unwrap_or_default()
     }
     pub fn discoverable_assets<T: for<'de> Deserialize<'de>>(&self) -> T {
-        self.get("discoverable_assets").unwrap_or_else(|| serde_json::from_str("[]").unwrap())
+        self.get("discoverable_assets")
+            .unwrap_or_else(|| serde_json::from_str("[]").unwrap())
     }
     pub fn governance(&self) -> GovernancePatterns {
         self.get_or_bundled_default("governance")
@@ -712,7 +946,9 @@ impl SusiConfig {
 // Compatibility shim for old code that accessed fields directly
 impl std::ops::Deref for SusiConfig {
     type Target = DynamicRegistry;
-    fn deref(&self) -> &Self::Target { &self.settings }
+    fn deref(&self) -> &Self::Target {
+        &self.settings
+    }
 }
 
 // === SANDBOX MANAGER ===
@@ -720,26 +956,34 @@ pub struct SandboxManager;
 
 impl SandboxManager {
     pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
-        use bollard::Docker;
         use bollard::container::LogOutput;
         use bollard::models::ContainerCreateBody;
-        use bollard::query_parameters::{CreateContainerOptions, StartContainerOptions, LogsOptions};
+        use bollard::query_parameters::{
+            CreateContainerOptions, LogsOptions, StartContainerOptions,
+        };
+        use bollard::Docker;
         use futures::stream::StreamExt;
 
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
 
-        let sandbox_image = SusiConfig::load_global().unwrap_or_default().sandbox_image();
+        let sandbox_image = SusiConfig::load_global()
+            .unwrap_or_default()
+            .sandbox_image();
         let config = ContainerCreateBody {
             image: Some(sandbox_image),
             cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
             ..Default::default()
         };
 
-        let container = docker.create_container(None::<CreateContainerOptions>, config).await
+        let container = docker
+            .create_container(None::<CreateContainerOptions>, config)
+            .await
             .map_err(|e| EaiError::process(format!("Container creation failed: {}", e)))?;
 
-        docker.start_container(&container.id, None::<StartContainerOptions>).await
+        docker
+            .start_container(&container.id, None::<StartContainerOptions>)
+            .await
             .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
 
         let mut logs = docker.logs(&container.id, None::<LogsOptions>);
@@ -769,7 +1013,9 @@ impl SandboxManager {
 
     pub fn ensure_global_sandbox(global_dir: &Path) -> EaiResult<()> {
         Self::ensure_gitignore_purity(global_dir);
-        if !global_dir.exists() { fs::create_dir_all(global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?; }
+        if !global_dir.exists() {
+            fs::create_dir_all(global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        }
         let config_path = SusiConfig::get_config_path(global_dir);
         if !config_path.exists() {
             let default_cfg_file = Path::new("config.default.json");
@@ -790,12 +1036,21 @@ impl SandboxManager {
     pub fn save_mission_checkpoint(workspace: &Path, checkpoint: &NeuralCheckpoint) {
         let susi_dir = workspace.join(".susi");
         let _ = fs::create_dir_all(&susi_dir);
-        let _ = fs::write(susi_dir.join("mission_checkpoint.json"), serde_json::to_string_pretty(checkpoint).unwrap_or_default());
+        let _ = fs::write(
+            susi_dir.join("mission_checkpoint.json"),
+            serde_json::to_string_pretty(checkpoint).unwrap_or_default(),
+        );
     }
 
     pub fn check_interrupted_checkpoint(workspace: &Path) -> Option<NeuralCheckpoint> {
         let p = workspace.join(".susi/mission_checkpoint.json");
-        if p.is_file() { fs::read_to_string(&p).ok().and_then(|c| serde_json::from_str(&c).ok()) } else { None }
+        if p.is_file() {
+            fs::read_to_string(&p)
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+        } else {
+            None
+        }
     }
 }
 
@@ -918,18 +1173,29 @@ impl SusiBackupManager {
 pub struct IntentBundleManager;
 
 impl IntentBundleManager {
-    fn bundles_path(workspace: &Path) -> PathBuf { workspace.join(".susi/staged_bundles.json") }
+    fn bundles_path(workspace: &Path) -> PathBuf {
+        workspace.join(".susi/staged_bundles.json")
+    }
 
     pub fn get_staged_bundles(workspace: &Path) -> Vec<IntentBundle> {
         let p = Self::bundles_path(workspace);
-        if p.is_file() { fs::read_to_string(&p).ok().and_then(|c| serde_json::from_str(&c).ok()).unwrap_or_default() } else { vec![] }
+        if p.is_file() {
+            fs::read_to_string(&p)
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+                .unwrap_or_default()
+        } else {
+            vec![]
+        }
     }
 
     fn save_staged_bundles(workspace: &Path, bundles: &[IntentBundle]) -> EaiResult<()> {
         let susi_dir = workspace.join(".susi");
         let _ = fs::create_dir_all(&susi_dir);
-        let json = serde_json::to_string_pretty(bundles).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        fs::write(Self::bundles_path(workspace), json).map_err(|e| EaiError::filesystem(e.to_string()))
+        let json = serde_json::to_string_pretty(bundles)
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        fs::write(Self::bundles_path(workspace), json)
+            .map_err(|e| EaiError::filesystem(e.to_string()))
     }
 
     pub fn stage_bundle(workspace: &Path, bundle: IntentBundle) -> EaiResult<()> {
@@ -941,13 +1207,18 @@ impl IntentBundleManager {
 
     pub fn accept_all(workspace: &Path) -> EaiResult<String> {
         let mut bundles = Self::get_staged_bundles(workspace);
-        if bundles.is_empty() { return Ok("No staged intent bundles to accept.".to_string()); }
-        let mut accepted_count = 0; let mut files_changed = 0;
+        if bundles.is_empty() {
+            return Ok("No staged intent bundles to accept.".to_string());
+        }
+        let mut accepted_count = 0;
+        let mut files_changed = 0;
         for bundle in &mut bundles {
             if !bundle.is_applied() {
                 for fix in &bundle.staged_fixes {
                     let target_path = workspace.join(fix.file_path());
-                    if let Some(parent) = target_path.parent() { let _ = fs::create_dir_all(parent); }
+                    if let Some(parent) = target_path.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
                     let _ = fs::write(&target_path, fix.staged_content());
                     files_changed += 1;
                 }
@@ -956,7 +1227,10 @@ impl IntentBundleManager {
             }
         }
         Self::save_staged_bundles(workspace, &bundles)?;
-        Ok(format!("SUCCESS: Accepted {} bundles across {} files.", accepted_count, files_changed))
+        Ok(format!(
+            "SUCCESS: Accepted {} bundles across {} files.",
+            accepted_count, files_changed
+        ))
     }
 
     pub fn rollback_all(workspace: &Path) -> EaiResult<String> {
@@ -982,7 +1256,10 @@ impl IntentBundleManager {
         }
 
         let _ = fs::remove_file(Self::bundles_path(workspace));
-        Ok(format!("SUCCESS: Rolled back staged fixes across {} files.", reverted_files))
+        Ok(format!(
+            "SUCCESS: Rolled back staged fixes across {} files.",
+            reverted_files
+        ))
     }
 }
 
@@ -1008,11 +1285,17 @@ impl SusiMemory {
         });
 
         use std::io::Write;
-        if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(&memory_file) {
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&memory_file)
+        {
             let _ = writeln!(f, "{}", entry);
         }
 
-        let heuristics = SusiConfig::load_global().unwrap_or_default().memory_experience_heuristics();
+        let heuristics = SusiConfig::load_global()
+            .unwrap_or_default()
+            .memory_experience_heuristics();
         let has_failure_marker = heuristics
             .failure_markers
             .iter()
@@ -1026,7 +1309,11 @@ impl SusiMemory {
                 "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
                 "validation": "STRICT_SEMANTIC_PASS"
             });
-            if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(exp_file) {
+            if let Ok(mut f) = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(exp_file)
+            {
                 let _ = writeln!(f, "{}", exp_entry);
             }
         }
@@ -1078,43 +1365,116 @@ mod tests {
         let raw: serde_json::Value =
             serde_json::from_str(include_str!("../../config.default.json")).unwrap();
 
-        assert_eq!(default.gmcp_port(), raw["gmcp_port"].as_u64().unwrap() as u16);
-        assert_eq!(default.gmcp_http_port(), raw["gmcp_http_port"].as_u64().unwrap() as u16);
-        assert_eq!(default.gemi_port(), raw["gemi_port"].as_u64().unwrap() as u16);
-        assert_eq!(default.udp_discovery_port(), raw["udp_discovery_port"].as_u64().unwrap() as u16);
+        assert_eq!(
+            default.gmcp_port(),
+            raw["gmcp_port"].as_u64().unwrap() as u16
+        );
+        assert_eq!(
+            default.gmcp_http_port(),
+            raw["gmcp_http_port"].as_u64().unwrap() as u16
+        );
+        assert_eq!(
+            default.gemi_port(),
+            raw["gemi_port"].as_u64().unwrap() as u16
+        );
+        assert_eq!(
+            default.udp_discovery_port(),
+            raw["udp_discovery_port"].as_u64().unwrap() as u16
+        );
         assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());
-        assert_eq!(default.max_stdin_size_bytes(), raw["max_stdin_size_bytes"].as_u64().unwrap() as usize);
-        assert_eq!(default.mcp_registry_url(), raw["mcp_registry_url"].as_str().unwrap());
-        assert_eq!(default.alpha_weights_url(), raw["alpha_weights_url"].as_str().unwrap());
-        assert_eq!(default.agent_rank_threshold(), raw["agent_rank_threshold"].as_f64().unwrap() as f32);
-        assert_eq!(default.cloud_scout_timeout_secs(), raw["cloud_scout_timeout_secs"].as_u64().unwrap());
-        assert_eq!(default.reflex_training_threshold(), raw["reflex_training_threshold"].as_u64().unwrap() as usize);
+        assert_eq!(
+            default.max_stdin_size_bytes(),
+            raw["max_stdin_size_bytes"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            default.mcp_registry_url(),
+            raw["mcp_registry_url"].as_str().unwrap()
+        );
+        assert_eq!(
+            default.alpha_weights_url(),
+            raw["alpha_weights_url"].as_str().unwrap()
+        );
+        assert_eq!(
+            default.agent_rank_threshold(),
+            raw["agent_rank_threshold"].as_f64().unwrap() as f32
+        );
+        assert_eq!(
+            default.cloud_scout_timeout_secs(),
+            raw["cloud_scout_timeout_secs"].as_u64().unwrap()
+        );
+        assert_eq!(
+            default.reflex_training_threshold(),
+            raw["reflex_training_threshold"].as_u64().unwrap() as usize
+        );
         assert_eq!(default.qdrant_url(), raw["qdrant_url"].as_str().unwrap());
-        assert_eq!(default.crates_io_api_url(), raw["crates_io_api_url"].as_str().unwrap());
-        assert_eq!(default.sandbox_image(), raw["sandbox_image"].as_str().unwrap());
+        assert_eq!(
+            default.crates_io_api_url(),
+            raw["crates_io_api_url"].as_str().unwrap()
+        );
+        assert_eq!(
+            default.sandbox_image(),
+            raw["sandbox_image"].as_str().unwrap()
+        );
 
         let heuristics = default.memory_experience_heuristics();
-        assert_eq!(heuristics.min_output_len, raw["memory_experience_heuristics"]["min_output_len"].as_u64().unwrap() as usize);
+        assert_eq!(
+            heuristics.min_output_len,
+            raw["memory_experience_heuristics"]["min_output_len"]
+                .as_u64()
+                .unwrap() as usize
+        );
         assert!(!heuristics.failure_markers.is_empty());
 
-        assert_eq!(default.max_generation_tokens(), raw["max_generation_tokens"].as_u64().unwrap() as usize);
+        assert_eq!(
+            default.max_generation_tokens(),
+            raw["max_generation_tokens"].as_u64().unwrap() as usize
+        );
         assert_eq!(
             default.eos_token_ids(),
-            raw["eos_token_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u32).collect::<Vec<_>>()
+            raw["eos_token_ids"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_u64().unwrap() as u32)
+                .collect::<Vec<_>>()
         );
-        assert_eq!(default.axiomatic_risk_patterns().len(), raw["axiomatic_risk_patterns"].as_array().unwrap().len());
-        assert_eq!(default.model_scan_exclude_dirs().len(), raw["model_scan_exclude_dirs"].as_array().unwrap().len());
-        assert_eq!(default.model_discovery_exclude_dirs().len(), raw["model_discovery_exclude_dirs"].as_array().unwrap().len());
-        assert_eq!(default.home_scan_root_exclude_dirs().len(), raw["home_scan_root_exclude_dirs"].as_array().unwrap().len());
-        assert_eq!(default.model_file_extensions().len(), raw["model_file_extensions"].as_array().unwrap().len());
-        assert_eq!(default.model_file_min_bytes(), raw["model_file_min_bytes"].as_u64().unwrap());
+        assert_eq!(
+            default.axiomatic_risk_patterns().len(),
+            raw["axiomatic_risk_patterns"].as_array().unwrap().len()
+        );
+        assert_eq!(
+            default.model_scan_exclude_dirs().len(),
+            raw["model_scan_exclude_dirs"].as_array().unwrap().len()
+        );
+        assert_eq!(
+            default.model_discovery_exclude_dirs().len(),
+            raw["model_discovery_exclude_dirs"]
+                .as_array()
+                .unwrap()
+                .len()
+        );
+        assert_eq!(
+            default.home_scan_root_exclude_dirs().len(),
+            raw["home_scan_root_exclude_dirs"].as_array().unwrap().len()
+        );
+        assert_eq!(
+            default.model_file_extensions().len(),
+            raw["model_file_extensions"].as_array().unwrap().len()
+        );
+        assert_eq!(
+            default.model_file_min_bytes(),
+            raw["model_file_min_bytes"].as_u64().unwrap()
+        );
 
         // model_discovery_exclude_dirs (used by deep_scan_home_and_register,
         // which scans *inside* .cache/.local/.android as seeded roots) must
         // never exclude those two dir names, unlike the broader
         // model_scan_exclude_dirs — this is the exact invariant that keeps
         // JetBrains/ProxyAI model discovery under ~/.cache working.
-        assert!(!default.model_discovery_exclude_dirs().iter().any(|d| d == ".cache" || d == "Library"));
+        assert!(!default
+            .model_discovery_exclude_dirs()
+            .iter()
+            .any(|d| d == ".cache" || d == "Library"));
     }
 
     #[test]
@@ -1128,8 +1488,10 @@ mod tests {
         assert_eq!(cfg.max_concurrent_agents(), 32);
 
         // Modify config externally and verify dynamic reload
-        cfg.settings.insert("execution_lease_secs".to_string(), serde_json::json!(45));
-        cfg.settings.insert("max_concurrent_agents".to_string(), serde_json::json!(64));
+        cfg.settings
+            .insert("execution_lease_secs".to_string(), serde_json::json!(45));
+        cfg.settings
+            .insert("max_concurrent_agents".to_string(), serde_json::json!(64));
         cfg.save(dir).expect("Failed to save updated config");
 
         let reloaded = SusiConfig::reload(dir).expect("Failed to reload config");
@@ -1188,7 +1550,9 @@ mod tests {
             }
         }
         let healed = SusiConfig { settings: same_len };
-        healed.save(dir).expect("Failed to save same-length stale config");
+        healed
+            .save(dir)
+            .expect("Failed to save same-length stale config");
         let reloaded = SusiConfig::load(dir).expect("Failed to load same-length stale config");
         let ladder = reloaded.model_ladder();
         assert_eq!(ladder.len(), 5);
@@ -1227,17 +1591,26 @@ mod tests {
         let heuristics = SusiConfig::default().memory_experience_heuristics();
         let short_output = "x".repeat(heuristics.min_output_len); // exactly at threshold: not > min_output_len
         SusiMemory::save_interaction(ws, "goal a", &short_output);
-        assert!(!exp_file.exists(), "output at, not over, the threshold must not be promoted");
+        assert!(
+            !exp_file.exists(),
+            "output at, not over, the threshold must not be promoted"
+        );
 
         let long_output = "x".repeat(heuristics.min_output_len + 1);
         SusiMemory::save_interaction(ws, "goal b", &long_output);
-        assert!(exp_file.is_file(), "output over the threshold must be promoted");
+        assert!(
+            exp_file.is_file(),
+            "output over the threshold must be promoted"
+        );
 
         let with_marker = format!("{} {}", heuristics.failure_markers[0], long_output);
         let before = fs::read_to_string(&exp_file).unwrap();
         SusiMemory::save_interaction(ws, "goal c", &with_marker);
         let after = fs::read_to_string(&exp_file).unwrap();
-        assert_eq!(before, after, "a configured failure marker must suppress promotion");
+        assert_eq!(
+            before, after,
+            "a configured failure marker must suppress promotion"
+        );
 
         let _ = fs::remove_dir_all(ws);
     }
@@ -1252,12 +1625,18 @@ mod tests {
 
         let mut fix_fields = DynamicRegistry::new();
         fix_fields.insert("file_path".to_string(), serde_json::json!("test_code.txt"));
-        fix_fields.insert("original_content".to_string(), serde_json::json!("original code"));
-        fix_fields.insert("staged_content".to_string(), serde_json::json!("refactored code"));
-        
+        fix_fields.insert(
+            "original_content".to_string(),
+            serde_json::json!("original code"),
+        );
+        fix_fields.insert(
+            "staged_content".to_string(),
+            serde_json::json!("refactored code"),
+        );
+
         let mut bundle_fields = DynamicRegistry::new();
         bundle_fields.insert("bundle_id".to_string(), serde_json::json!("b1"));
-        
+
         let bundle = IntentBundle {
             fields: bundle_fields,
             staged_fixes: vec![StagedFix { fields: fix_fields }],
@@ -1299,9 +1678,18 @@ mod tests {
     fn test_dynamic_chat_template_rendering() {
         let mut cfg = ChatTemplateConfig::default();
         cfg.templates.clear();
-        cfg.templates.insert("deepseek".to_string(), "### System:\n{system}\n\n### User:\n{prompt}\n\n### Assistant:\n".to_string());
-        cfg.templates.insert("mistral".to_string(), "[INST] {system} {prompt} [/INST]".to_string());
-        cfg.templates.insert("phi".to_string(), "<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>".to_string());
+        cfg.templates.insert(
+            "deepseek".to_string(),
+            "### System:\n{system}\n\n### User:\n{prompt}\n\n### Assistant:\n".to_string(),
+        );
+        cfg.templates.insert(
+            "mistral".to_string(),
+            "[INST] {system} {prompt} [/INST]".to_string(),
+        );
+        cfg.templates.insert(
+            "phi".to_string(),
+            "<|system|>\n{system}<|end|>\n<|user|>\n{prompt}<|end|>\n<|assistant|>".to_string(),
+        );
 
         let mut vars = HashMap::new();
         vars.insert("system".to_string(), "Sys".to_string());

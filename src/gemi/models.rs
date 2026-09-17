@@ -317,7 +317,8 @@ impl ModelManager {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let heuristics = cfg.model_scoring_heuristics();
 
-        let mut ram_budget_gb = (hw.available_ram_gb as f32 - heuristics.system_ram_buffer_gb).max(0.5);
+        let mut ram_budget_gb =
+            (hw.available_ram_gb as f32 - heuristics.system_ram_buffer_gb).max(0.5);
         if hw.swap_gb > 0 && hw.nvme_active {
             ram_budget_gb += (hw.swap_gb as f32 * 0.5).min(32.0);
         }
@@ -342,7 +343,9 @@ impl ModelManager {
                         break;
                     }
                 }
-                if !found { model_size_gb = 2.0; }
+                if !found {
+                    model_size_gb = 2.0;
+                }
             }
 
             let mut score = 0.0f32;
@@ -629,7 +632,11 @@ impl ModelManager {
             }
         }
         let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if rules.exclude_dirs.iter().any(|excluded| excluded == folder_name) {
+        if rules
+            .exclude_dirs
+            .iter()
+            .any(|excluded| excluded == folder_name)
+        {
             return;
         }
 
@@ -665,10 +672,7 @@ impl ModelManager {
                             file_name.to_string(),
                             format!("Local {} Substrate", lower_ext.to_uppercase()),
                             path.to_string_lossy().to_string(),
-                            format!(
-                                "Universal Weights ({})",
-                                lower_ext.to_uppercase()
-                            ),
+                            format!("Universal Weights ({})", lower_ext.to_uppercase()),
                             true,
                             "Specialist".to_string(),
                             None,
@@ -707,7 +711,9 @@ impl ModelManager {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if path.is_dir()
                     && !name.starts_with('.')
-                    && !home_scan_root_exclude_dirs.iter().any(|excluded| excluded == name)
+                    && !home_scan_root_exclude_dirs
+                        .iter()
+                        .any(|excluded| excluded == name)
                 {
                     sub_paths.push(path);
                 }
@@ -763,7 +769,8 @@ impl ModelManager {
                 new_paths_added += 1;
             }
         }
-        cfg.settings.insert("local_scan_paths".to_string(), serde_json::json!(paths));
+        cfg.settings
+            .insert("local_scan_paths".to_string(), serde_json::json!(paths));
 
         cfg.save(global_dir)?;
 
@@ -782,7 +789,11 @@ impl ModelManager {
             }
         }
         let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if rules.exclude_dirs.iter().any(|excluded| excluded == folder_name) {
+        if rules
+            .exclude_dirs
+            .iter()
+            .any(|excluded| excluded == folder_name)
+        {
             return;
         }
 
@@ -1040,10 +1051,7 @@ impl ModelManager {
                 .iter()
                 .filter(|s| s.step >= 4 || ladder.len() <= 2)
                 .map(|s| {
-                    let url = format!(
-                        "{}/{}/resolve/main/{}",
-                        hf_base_url, s.hf_repo, s.hf_file
-                    );
+                    let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
                     (url, s.min_bytes)
                 })
                 .collect();
@@ -1142,10 +1150,7 @@ impl ModelManager {
         for (idx, s) in target_steps.iter().enumerate() {
             let file_name = &s.hf_file;
             let path = models_dir.join(file_name);
-            let url = format!(
-                "{}/{}/resolve/main/{}",
-                hf_base_url, s.hf_repo, s.hf_file
-            );
+            let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
 
             let threshold = s.min_bytes;
 

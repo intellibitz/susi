@@ -159,8 +159,7 @@ impl GmcpClient {
                     .header("User-Agent", "SUSI/0.1")
                     .call()
                 {
-                    if let Ok(remote_entries) =
-                        resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
+                    if let Ok(remote_entries) = resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
                     {
                         if !remote_entries.is_empty() {
                             let _ = fs::write(

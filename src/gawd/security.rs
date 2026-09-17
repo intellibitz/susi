@@ -16,7 +16,7 @@ impl SecurityDetector {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
-                let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 
         let lower_arg = arg.to_lowercase();
@@ -65,10 +65,8 @@ impl SecurityDetector {
             if pattern.is_empty() {
                 continue;
             }
-            if let Ok(re) = regex::Regex::new(&format!(
-                "{}[A-Za-z0-9_-]*",
-                regex::escape(pattern)
-            )) {
+            if let Ok(re) = regex::Regex::new(&format!("{}[A-Za-z0-9_-]*", regex::escape(pattern)))
+            {
                 redacted = re.replace_all(&redacted, "[REDACTED]").to_string();
             }
         }

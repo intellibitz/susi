@@ -3,10 +3,10 @@
 
 use crate::error::EaiResult;
 use parking_lot::RwLock;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
-use rayon::prelude::*;
 
 /// Paged KV Store (Aspiration 6 & vLLM Parity)
 /// Implements virtual memory paging for KV caches to prevent memory fragmentation
@@ -385,8 +385,8 @@ mod fusion_tests {
 
     #[test]
     fn test_unified_space_is_1024d_and_normalized() {
-        let v = SusiUnifiedSubstrate::project_to_unified_space(Some("hello susi"), None, None)
-            .unwrap();
+        let v =
+            SusiUnifiedSubstrate::project_to_unified_space(Some("hello susi"), None, None).unwrap();
         assert_eq!(v.len(), 1024);
         let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-4 || norm == 0.0);

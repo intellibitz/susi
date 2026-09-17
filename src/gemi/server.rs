@@ -31,7 +31,9 @@ use crate::gmcp::tools::ToolRegistry;
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
 fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
-    Full::new(chunk.into()).map_err(|never| match never {}).boxed()
+    Full::new(chunk.into())
+        .map_err(|never| match never {})
+        .boxed()
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
@@ -40,7 +42,13 @@ fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<Bo
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+            HeaderValue::from_str(
+                &crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .get("allow_origin")
+                    .unwrap_or_else(|| "*".to_string()),
+            )
+            .unwrap_or_else(|_| HeaderValue::from_static("*")),
         )
         .body(full_body(
             serde_json::to_string(payload).unwrap_or_default(),
@@ -62,8 +70,7 @@ impl GemiServer {
             listener.local_addr().map(|a| a.port()).unwrap_or(0)
         );
 
-        let rt = tokio::runtime::Runtime::new()
-            .expect("Fatal: failed to start GEMI HTTP runtime");
+        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GEMI HTTP runtime");
 
         rt.block_on(async move {
             listener
@@ -183,8 +190,8 @@ async fn handle_gemi_request(
             let active_model = ModelManager::get_selected_model()
                 .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
-            let pulse_intent =
-                extract_prompt_from_json(&body_str).unwrap_or_else(|| "list workspace health".to_string());
+            let pulse_intent = extract_prompt_from_json(&body_str)
+                .unwrap_or_else(|| "list workspace health".to_string());
             crate::sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
@@ -193,7 +200,11 @@ async fn handle_gemi_request(
             let trimmed_prompt = pulse_intent.trim().to_string();
 
             if is_streaming {
-                Ok(build_streaming_response(trimmed_prompt, active_model, Arc::clone(&workspace)))
+                Ok(build_streaming_response(
+                    trimmed_prompt,
+                    active_model,
+                    Arc::clone(&workspace),
+                ))
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
@@ -228,7 +239,13 @@ async fn handle_gemi_request(
             .status(StatusCode::OK)
             .header(
                 "Access-Control-Allow-Origin",
-                HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+                HeaderValue::from_str(
+                    &crate::sandbox::manager::SusiConfig::load_global()
+                        .unwrap_or_default()
+                        .get("allow_origin")
+                        .unwrap_or_else(|| "*".to_string()),
+                )
+                .unwrap_or_else(|_| HeaderValue::from_static("*")),
             )
             .header(
                 "Access-Control-Allow-Methods",
@@ -236,7 +253,13 @@ async fn handle_gemi_request(
             )
             .header(
                 "Access-Control-Allow-Headers",
-                HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+                HeaderValue::from_str(
+                    &crate::sandbox::manager::SusiConfig::load_global()
+                        .unwrap_or_default()
+                        .get("allow_origin")
+                        .unwrap_or_else(|| "*".to_string()),
+                )
+                .unwrap_or_else(|_| HeaderValue::from_static("*")),
             )
             .body(full_body(Vec::new()))
             .unwrap()),
@@ -288,7 +311,13 @@ fn build_streaming_response(
         .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
+            HeaderValue::from_str(
+                &crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .get("allow_origin")
+                    .unwrap_or_else(|| "*".to_string()),
+            )
+            .unwrap_or_else(|_| HeaderValue::from_static("*")),
         )
         .body(body)
         .unwrap()

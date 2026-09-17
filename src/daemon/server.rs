@@ -231,8 +231,11 @@ impl SusiDaemon {
         if let Some(pid) = Self::check_status(global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
-                    let def_recompiled = "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
-                    let msg = msgs.get("daemon", "binary_recompiled").unwrap_or(&def_recompiled);
+                    let def_recompiled =
+                        "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
+                    let msg = msgs
+                        .get("daemon", "binary_recompiled")
+                        .unwrap_or(&def_recompiled);
                     info!("{}", msg.replace("{}", &pid.to_string()));
                     Self::stop_daemon(global_dir);
                 } else {
@@ -265,11 +268,19 @@ impl SusiDaemon {
         match Self::verify_binary_integrity(&bin_to_run, global_dir) {
             Ok(true) => {
                 let def_verified = "[SusiDaemon] Binary integrity verified.".to_string();
-                info!("{}", msgs.get("daemon", "binary_verified").unwrap_or(&def_verified));
+                info!(
+                    "{}",
+                    msgs.get("daemon", "binary_verified")
+                        .unwrap_or(&def_verified)
+                );
             }
             Ok(false) => {
                 let def_tampered = "[SusiDaemon] Binary integrity check FAILED.".to_string();
-                warn!("{}", msgs.get("daemon", "binary_tampered").unwrap_or(&def_tampered));
+                warn!(
+                    "{}",
+                    msgs.get("daemon", "binary_tampered")
+                        .unwrap_or(&def_tampered)
+                );
             }
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
         }
@@ -350,7 +361,10 @@ impl SusiDaemon {
         }
 
         let mut cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
-        let bind_address = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("bind_address").unwrap_or_else(|| "0.0.0.0".to_string());
+        let bind_address = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .get("bind_address")
+            .unwrap_or_else(|| "0.0.0.0".to_string());
         let mut config_changed = false;
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
@@ -363,15 +377,23 @@ impl SusiDaemon {
         let (gemi_server, gemi_port) =
             Self::bind_http_with_fallback(cfg.gemi_port(), "GEMI", &workspace, &bind_address);
         if gemi_port != cfg.gemi_port() {
-            cfg.settings.insert("gemi_port".to_string(), serde_json::json!(gemi_port));
+            cfg.settings
+                .insert("gemi_port".to_string(), serde_json::json!(gemi_port));
             config_changed = true;
         }
 
         // 2. Bind GMCP HTTP/SSE Server (Port 9093 / Dynamic)
-        let (gmcp_http_server, gmcp_http_port) =
-            Self::bind_http_with_fallback(cfg.gmcp_http_port(), "GMCP HTTP", &workspace, &bind_address);
+        let (gmcp_http_server, gmcp_http_port) = Self::bind_http_with_fallback(
+            cfg.gmcp_http_port(),
+            "GMCP HTTP",
+            &workspace,
+            &bind_address,
+        );
         if gmcp_http_port != cfg.gmcp_http_port() {
-            cfg.settings.insert("gmcp_http_port".to_string(), serde_json::json!(gmcp_http_port));
+            cfg.settings.insert(
+                "gmcp_http_port".to_string(),
+                serde_json::json!(gmcp_http_port),
+            );
             config_changed = true;
         }
 
@@ -379,7 +401,10 @@ impl SusiDaemon {
         let (udp_socket, udp_port) =
             Self::bind_udp_with_fallback(cfg.udp_discovery_port(), &workspace, &bind_address);
         if udp_port != cfg.udp_discovery_port() {
-            cfg.settings.insert("udp_discovery_port".to_string(), serde_json::json!(udp_port));
+            cfg.settings.insert(
+                "udp_discovery_port".to_string(),
+                serde_json::json!(udp_port),
+            );
             config_changed = true;
         }
 
@@ -428,7 +453,12 @@ impl SusiDaemon {
                 if let Some(pulse) = queue.pop() {
                     // Serialized Execution (Mandate 31)
                     info!("[SubstratePulseQueue] Processing Pulse: {}", pulse.intent);
-                    let _ = ama.solve_stream(&pulse.intent, &workspace_pulse, crate::SUSI_VERSION, &|_| {});
+                    let _ = ama.solve_stream(
+                        &pulse.intent,
+                        &workspace_pulse,
+                        crate::SUSI_VERSION,
+                        &|_| {},
+                    );
                 }
                 thread::sleep(Duration::from_millis(100));
             }
@@ -460,7 +490,9 @@ impl SusiDaemon {
                 }
 
                 let listener = std::net::TcpListener::bind(format!("{}:0", bind_address))
-                    .unwrap_or_else(|_| std::net::TcpListener::bind(format!("{}:0", bind_address)).unwrap()); // Last resort
+                    .unwrap_or_else(|_| {
+                        std::net::TcpListener::bind(format!("{}:0", bind_address)).unwrap()
+                    }); // Last resort
                 let new_port = listener.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
@@ -480,7 +512,11 @@ impl SusiDaemon {
         }
     }
 
-    fn bind_udp_with_fallback(port: u16, workspace: &Path, bind_address: &str) -> (std::net::UdpSocket, u16) {
+    fn bind_udp_with_fallback(
+        port: u16,
+        workspace: &Path,
+        bind_address: &str,
+    ) -> (std::net::UdpSocket, u16) {
         let addr = format!("{}:{}", bind_address, port);
         match std::net::UdpSocket::bind(&addr) {
             Ok(socket) => (socket, port),
@@ -492,8 +528,8 @@ impl SusiDaemon {
                     }
                 }
 
-                let socket =
-                    std::net::UdpSocket::bind(format!("{}:0", bind_address)).expect("Failed to bind random UDP port");
+                let socket = std::net::UdpSocket::bind(format!("{}:0", bind_address))
+                    .expect("Failed to bind random UDP port");
                 let new_port = socket.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
@@ -545,7 +581,6 @@ impl SusiDaemon {
     }
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
-        
         eprintln!(
             "[A2A Cluster UDP] Discovery listener active on {}",
             socket.local_addr().unwrap()

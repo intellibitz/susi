@@ -298,7 +298,11 @@ impl GawdAgent for HardwareAgent {
             );
             if exec_res.contains("[FAIL]") || exec_res.contains("[CAPABILITY_GAP]") {
                 crate::gawd::safety::SafetyDetector::audit_action("exec_command", goal, workspace)?;
-                crate::gawd::security::SecurityDetector::audit_action("exec_command", goal, workspace)?;
+                crate::gawd::security::SecurityDetector::audit_action(
+                    "exec_command",
+                    goal,
+                    workspace,
+                )?;
                 if let Ok(output) = std::process::Command::new("sh")
                     .arg("-c")
                     .arg(goal)
@@ -621,7 +625,10 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
     ) -> EaiResult<String> {
         let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
-            if remote_name.to_lowercase().contains(&self.endpoint_name.to_lowercase()) {
+            if remote_name
+                .to_lowercase()
+                .contains(&self.endpoint_name.to_lowercase())
+            {
                 let res = crate::gmcp::client::GmcpClient::execute_external_tool(
                     &remote_name,
                     "generate",
@@ -735,7 +742,9 @@ impl GawdAgent for LibraryScoutAgent {
             "rust"
         };
 
-        let api_base = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().crates_io_api_url();
+        let api_base = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .crates_io_api_url();
         let url = format!("{}?q={}&per_page=5", api_base, query_term);
         let mut results = Vec::new();
 
@@ -1044,7 +1053,11 @@ impl AgentMetaRegistry {
             .map(|d| d.as_secs());
 
         if let Some(mtime_secs) = mtime_secs {
-            if mtime_secs > self.last_loaded_mtime_secs.load(std::sync::atomic::Ordering::Relaxed) {
+            if mtime_secs
+                > self
+                    .last_loaded_mtime_secs
+                    .load(std::sync::atomic::Ordering::Relaxed)
+            {
                 self.load_or_provision();
             }
         }
@@ -1153,7 +1166,6 @@ impl AgentMetaRegistry {
         self.agents.read().clone()
     }
 
-
     pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
         match name {
             "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
@@ -1251,7 +1263,7 @@ impl GawdAgentFleet {
     pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
         let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![];
         let lower_goal = goal.to_lowercase();
-        
+
         let is_query_or_admin = lower_goal.contains("admin")
             || lower_goal.contains("identity")
             || lower_goal.contains("status")
@@ -1265,48 +1277,51 @@ impl GawdAgentFleet {
 
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.agent_routing();
-        
+
         let max_agents = Self::get_max_concurrent_agents();
         let registry = AgentMetaRegistry::global();
         let available_agents = registry.list_agents();
-        
+
         // 1. Core Native Agents & Matched Handlers
         for agent in &available_agents {
             if agent.is_core {
-                 if !fleet.iter().any(|a| a.name() == agent.name) {
-                     fleet.push(AgentMetaRegistry::instantiate_agent(agent));
-                 }
-                 continue;
+                if !fleet.iter().any(|a| a.name() == agent.name) {
+                    fleet.push(AgentMetaRegistry::instantiate_agent(agent));
+                }
+                continue;
             }
-            
+
             let mut should_add = false;
             // Config routing overrides
             if let Some(keys) = routing.get(&agent.name) {
                 if keys.iter().any(|k| lower_goal.contains(k)) {
                     should_add = true;
                 }
-            } else if lower_goal.contains(&agent.name.to_lowercase().replace("agent", "")) {
+            } else if lower_goal.contains(&agent.name.to_lowercase().replace("agent", ""))
+                || (agent.name == "AdminAgent"
+                    && (lower_goal.contains("sync") || lower_goal.contains("install")))
+                || (agent.name == "SearchAgent" && lower_goal.contains("find"))
+                || (agent.name == "TranslationAgent" && lower_goal.contains("language"))
+                || agent.name == "LibraryScoutAgent"
+                || agent.name == "ContextAgent"
+            {
                 should_add = true;
-            } else if agent.name == "AdminAgent" && (lower_goal.contains("sync") || lower_goal.contains("install")) {
-                should_add = true;
-            } else if agent.name == "SearchAgent" && lower_goal.contains("find") {
-                should_add = true;
-            } else if agent.name == "TranslationAgent" && lower_goal.contains("language") {
-                should_add = true;
-            } else if agent.name == "LibraryScoutAgent" || agent.name == "ContextAgent" {
-                should_add = true; // Was unconditionally added before
             }
-            
+
             if should_add && !fleet.iter().any(|a| a.name() == agent.name) {
                 fleet.push(AgentMetaRegistry::instantiate_agent(agent));
             }
         }
-        
+
         // 2. Inference endpoints mapping
         for endpoint in &cfg.inference_endpoints().endpoints {
-            let env_var_name = format!("{}_API_BASE", endpoint.name.to_uppercase().replace('.', "_"));
+            let env_var_name = format!(
+                "{}_API_BASE",
+                endpoint.name.to_uppercase().replace('.', "_")
+            );
             if std::env::var(&env_var_name).is_ok() {
-                let base_url = std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
+                let base_url =
+                    std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
                 fleet.push(Arc::new(DynamicInferenceEndpointAgent::new(
                     &endpoint.name,
                     &base_url,
@@ -1314,7 +1329,7 @@ impl GawdAgentFleet {
                 )));
             }
         }
-        
+
         // 3. Semantic Meta-Registry Discovery
         if available_agents.is_empty() {
             eprintln!("[Swarm] Registry empty. Triggering bootstrap...");
@@ -1322,7 +1337,7 @@ impl GawdAgentFleet {
         }
         let available_agents = registry.list_agents();
         let mut max_global_similarity = 0.0f32;
-        
+
         if !lower_goal.contains("admin mission") && !lower_goal.contains("admin pulse") {
             if let Ok(goal_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
                 goal,
@@ -1335,12 +1350,12 @@ impl GawdAgentFleet {
                     if fleet.iter().any(|a| a.name() == agent.name) {
                         continue;
                     }
-                    
+
                     let mut max_similarity = 0.0f32;
                     let mut agent_corpus = agent.categories.join(" ");
                     agent_corpus.push(' ');
                     agent_corpus.push_str(&agent.description);
-                    
+
                     if let Ok(agent_vec) =
                         crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
                             &agent_corpus,
@@ -1357,7 +1372,7 @@ impl GawdAgentFleet {
                             max_global_similarity = max_similarity;
                         }
                     }
-                    
+
                     if max_similarity > 0.35
                         || agent
                             .categories
@@ -1369,7 +1384,7 @@ impl GawdAgentFleet {
                 }
             }
         }
-        
+
         // 4. Neural Agent Synthesis (Aspiration 13)
         let only_mandatory = fleet.len() <= 12; // Adjusted baseline
         if !is_query_or_admin
@@ -1387,7 +1402,7 @@ impl GawdAgentFleet {
                 }));
             }
         }
-        
+
         // 5. Fallback Universal Reasoner
         if fleet.len() < 4 && fleet.len() < max_agents {
             fleet.push(Arc::new(DynamicAgent {
@@ -1428,7 +1443,10 @@ impl GawdAgentFleet {
             match agent.execute(&goal, &workspace, &blackboard) {
                 Ok(res) => results.push((name, res)),
                 Err(e) => {
-                    println!("- [Swarm Dispatch] Governance veto from {}: {} — aborting swarm dispatch.", name, e);
+                    println!(
+                        "- [Swarm Dispatch] Governance veto from {}: {} — aborting swarm dispatch.",
+                        name, e
+                    );
                     let _ = std::io::stdout().flush();
                     results.push((name, format!("[GOVERNANCE_BLOCK] {}", e)));
                     return results;
@@ -1491,7 +1509,8 @@ mod tests {
             description: "Custom domain analytics and specialist problem solving.".into(),
             categories: vec!["custom".into(), "analytics".into(), "specialist".into()],
             semantic_anchors: vec!["custom".into(), "domain".into()],
-            base_rank: 0.85, is_core: false,
+            base_rank: 0.85,
+            is_core: false,
         });
 
         let fleet = GawdAgentFleet::synthesize_fleet(
@@ -1527,7 +1546,8 @@ mod tests {
             description: "SUSI Anchor Substrate Test Agent".into(),
             categories: Vec::new(),
             semantic_anchors: vec!["quantum".into()],
-            base_rank: 0.5, is_core: false,
+            base_rank: 0.5,
+            is_core: false,
         });
         let agents = registry.list_agents();
         assert!(agents

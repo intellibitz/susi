@@ -16,17 +16,35 @@ impl SafetyDetector {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
-                let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 
         let lower_arg = arg.to_lowercase();
 
         // C4 Security Patch: Command Allowlist
         if tool_name == "exec_command" {
-            let allowed_bins = ["cargo", "git", "rustc", "susi", "susi-engine", "sed", "grep", "rg", "cat", "ls", "find", "fd", "echo", "pwd"];
+            let allowed_bins = [
+                "cargo",
+                "git",
+                "rustc",
+                "susi",
+                "susi-engine",
+                "sed",
+                "grep",
+                "rg",
+                "cat",
+                "ls",
+                "find",
+                "fd",
+                "echo",
+                "pwd",
+            ];
             let cmd_bin = lower_arg.split_whitespace().next().unwrap_or("");
             if !allowed_bins.contains(&cmd_bin) {
-                return Err(EaiError::governance(format!("C4 BLOCK: Executable '{}' not in strict allowlist", cmd_bin)));
+                return Err(EaiError::governance(format!(
+                    "C4 BLOCK: Executable '{}' not in strict allowlist",
+                    cmd_bin
+                )));
             }
         }
 

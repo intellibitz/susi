@@ -2,12 +2,12 @@
 // RULE 11: Agents must add functionality directly to the susi engine via ToolRegistry.
 // Agents must not simulate or "fake" susi capabilities by performing logic themselves.
 
-use std::io::Write;
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
 use super::axiom::AxiomSubstrate;
 use crate::error::EaiResult;
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,13 +112,18 @@ impl SusiMasterAgent {
     /// Streams thinking and results back live in real-time.
     pub fn solve_clean(&self, goal: &str, workspace: &Path, version: &str) -> String {
         self.solve_stream(goal, workspace, version, &|piece| {
-                        print!("{}", piece);
+            print!("{}", piece);
             let _ = std::io::stdout().flush();
         })
     }
 
-    pub fn solve_stream(&self, goal: &str, workspace: &Path, version: &str, _callback: &dyn Fn(String)) -> String {
-
+    pub fn solve_stream(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        _callback: &dyn Fn(String),
+    ) -> String {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
             crate::gemi::models::ModelManager::get_active_engine_and_model();
@@ -174,15 +179,19 @@ impl SusiMasterAgent {
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
-            cfg.gmcp_port(), cfg.gemi_port(), cfg.udp_discovery_port()
+            cfg.gmcp_port(),
+            cfg.gemi_port(),
+            cfg.udp_discovery_port()
         );
         eprintln!(
             "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
-            cfg.default_engine(), cfg.default_model()
+            cfg.default_engine(),
+            cfg.default_model()
         );
         eprintln!(
             "- [Substrate Limits] Agent Recruitment Threshold: {} | Cloud Scout Timeout: {}s",
-            cfg.agent_rank_threshold(), cfg.cloud_scout_timeout_secs()
+            cfg.agent_rank_threshold(),
+            cfg.cloud_scout_timeout_secs()
         );
         eprintln!(
             "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
@@ -254,13 +263,19 @@ impl SusiMasterAgent {
                     &serde_json::json!(cmd),
                     workspace,
                 )
-            } else if lower_goal.trim() == "dashboard" || lower_goal == "susi dashboard" || lower_goal == "show dashboard" {
+            } else if lower_goal.trim() == "dashboard"
+                || lower_goal == "susi dashboard"
+                || lower_goal == "show dashboard"
+            {
                 crate::gmcp::tools::ToolRegistry::execute_tool(
                     "sovereign_dashboard",
                     &serde_json::json!(null),
                     workspace,
                 )
-            } else if lower_goal.trim() == "bloat audit" || lower_goal == "run bloat audit" || lower_goal == "bloat-audit" {
+            } else if lower_goal.trim() == "bloat audit"
+                || lower_goal == "run bloat audit"
+                || lower_goal == "bloat-audit"
+            {
                 crate::gmcp::tools::ToolRegistry::execute_tool(
                     "bloat_audit",
                     &serde_json::json!(null),
@@ -273,7 +288,10 @@ impl SusiMasterAgent {
                     "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
                     hw.cpu_brand, hw.ram_gb
                 )
-            } else if lower_goal.trim() == "models" || lower_goal == "list models" || lower_goal == "show models" {
+            } else if lower_goal.trim() == "models"
+                || lower_goal == "list models"
+                || lower_goal == "show models"
+            {
                 let models = crate::gemi::models::ModelManager::list_models(workspace);
                 let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
                 for m in &models {
@@ -533,7 +551,9 @@ impl SusiMasterAgent {
             for m in models {
                 roster.push_str(&format!(
                     "- [{}] {} ({})\n",
-                    m.provider(), m.name(), m.model_id()
+                    m.provider(),
+                    m.name(),
+                    m.model_id()
                 ));
             }
             return Ok(SusiMissionReport {
@@ -580,7 +600,10 @@ impl SusiMasterAgent {
 
             let final_answer = if is_motion {
                 // Tier 1 GAWD Swarm Dispatch for Motions & Core Workspace Mutations
-                format!("SUSI-Motion-Convergence ({}):\n\n{}", version, swarm_context)
+                format!(
+                    "SUSI-Motion-Convergence ({}):\n\n{}",
+                    version, swarm_context
+                )
             } else if !swarm_context.trim().is_empty()
                 && !swarm_context.contains("No valid wisdom gathered")
             {
@@ -807,12 +830,13 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name = crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
-            let filename = crate::sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .alpha_weights_filename();
-            format!("{} (Local Neural Substrate)", filename)
-        });
+        let model_name =
+            crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+                let filename = crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .alpha_weights_filename();
+                format!("{} (Local Neural Substrate)", filename)
+            });
 
         let mut report = String::new();
         report.push_str("# susi Substrate - Technical Report\n\n");
@@ -893,11 +917,12 @@ impl SusiMasterAgent {
             agents.len()
         ));
 
-        let model_name = crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
-            crate::sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .alpha_weights_filename()
-        });
+        let model_name =
+            crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+                crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .alpha_weights_filename()
+            });
 
         let ans = format!(
             "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",

@@ -174,7 +174,10 @@ mod tests {
     fn test_wasm_reflex_source_is_valid_rust_and_input_dependent() {
         let a = ReflexSynthesizer::generate_reflex_source("bloat_audit");
         let b = ReflexSynthesizer::generate_reflex_source("sovereign_dashboard");
-        assert_ne!(a, b, "different intents must synthesize different reflex logic");
+        assert_ne!(
+            a, b,
+            "different intents must synthesize different reflex logic"
+        );
 
         for src in [&a, &b] {
             assert!(
@@ -182,7 +185,10 @@ mod tests {
                 "synthesized reflex source failed to parse as valid Rust:\n{}",
                 src
             );
-            assert!(src.contains("fn main()"), "reflex must define fn main() so WasmHost finds a _start entry point");
+            assert!(
+                src.contains("fn main()"),
+                "reflex must define fn main() so WasmHost finds a _start entry point"
+            );
         }
     }
 
@@ -209,12 +215,12 @@ mod tests {
         match ReflexSynthesizer::synthesize_wasm_reflex(&intent, Path::new(".")) {
             Ok(wasm_path) => {
                 let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-                let result = crate::native::wasm::WasmHost::execute_reflex(
-                    Path::new(&wasm_path),
-                    "hello",
-                );
+                let result =
+                    crate::native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
-                let _ = std::fs::remove_file(home.join(".susi/reflexes").join(format!("{}.rs", intent)));
+                let _ = std::fs::remove_file(
+                    home.join(".susi/reflexes").join(format!("{}.rs", intent)),
+                );
                 let output = result.expect("compiled reflex must execute successfully");
                 assert!(output.contains("input=hello"));
             }
