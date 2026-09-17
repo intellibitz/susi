@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2022988"
+version = "0.1.2022989"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -54,6 +54,7 @@ syn = { version = "3.0.6", features = ["full", "visit"] }
 bollard = "0.21.1"
 tantivy = "0.26"
 headless_chrome = "1.0"
+url = "2.5"
 regex = "1.11"
 futures = "0.3"
 tokio-stream = "0.1"
