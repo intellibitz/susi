@@ -182,22 +182,32 @@ impl TelemetryHistoryStore {
         elapsed_ms: u64,
         max_observed_idle_ms: u64,
     ) {
-        let mut profile = self
-            .profiles
-            .entry(category.to_string())
-            .or_insert_with(|| IntentTelemetryProfile {
-                intent_category: category.to_string(),
-                sample_count: 0,
-                avg_latency_ms: elapsed_ms,
-                p99_idle_interval_ms: max_observed_idle_ms.max(200),
-            });
+        // The entry guard below holds a write lock on this key's DashMap
+        // shard; save_history()'s `self.profiles.iter()` locks every shard
+        // in turn, including this one. Since DashMap's shard locks aren't
+        // reentrant, calling save_history() while still holding the guard
+        // deadlocks the thread against itself - it was never hit before
+        // because every existing caller of mark_completed ran under
+        // cfg!(test), which short-circuits inference before ever reaching
+        // it. The block scope drops the guard before save_history() runs.
+        {
+            let mut profile = self
+                .profiles
+                .entry(category.to_string())
+                .or_insert_with(|| IntentTelemetryProfile {
+                    intent_category: category.to_string(),
+                    sample_count: 0,
+                    avg_latency_ms: elapsed_ms,
+                    p99_idle_interval_ms: max_observed_idle_ms.max(200),
+                });
 
-        profile.sample_count += 1;
-        let count = profile.sample_count;
-        profile.avg_latency_ms = ((profile.avg_latency_ms * (count - 1)) + elapsed_ms) / count;
-        profile.p99_idle_interval_ms = profile
-            .p99_idle_interval_ms
-            .max(max_observed_idle_ms.max(200));
+            profile.sample_count += 1;
+            let count = profile.sample_count;
+            profile.avg_latency_ms = ((profile.avg_latency_ms * (count - 1)) + elapsed_ms) / count;
+            profile.p99_idle_interval_ms = profile
+                .p99_idle_interval_ms
+                .max(max_observed_idle_ms.max(200));
+        }
 
         self.save_history();
     }
@@ -457,4 +467,35 @@ fn rand_id() -> u32 {
         .map(|d| d.as_nanos())
         .unwrap_or(0)
         % 100000) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_record_execution_telemetry_does_not_deadlock_on_repeat_calls() {
+        // Regression: record_execution_telemetry used to call self.save_history()
+        // (which iterates every DashMap shard) while still holding a live
+        // `entry()` guard on this category's own shard, self-deadlocking the
+        // thread since DashMap's shard locks aren't reentrant. This never
+        // surfaced in tests because every real caller (LlamaCppEngine's
+        // generation loop, via TaskHandle::mark_completed) is bypassed under
+        // cfg!(test). Call it directly, twice (so the entry already exists on
+        // the second call, exercising the same guard/iterate interleaving a
+        // real completed inference triggers), off the test-harness thread so
+        // a regression hangs this test instead of the whole suite.
+        let category = format!("test_no_deadlock_{}", rand_id());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let store = TelemetryHistoryStore::global();
+            store.record_execution_telemetry(&category, 10, 5);
+            store.record_execution_telemetry(&category, 20, 5);
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "record_execution_telemetry did not return within 5s - likely deadlocked"
+        );
+    }
 }
