@@ -350,6 +350,7 @@ impl SusiDaemon {
         }
 
         let mut cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+        let bind_address = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("bind_address").unwrap_or_else(|| "0.0.0.0".to_string());
         let mut config_changed = false;
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
@@ -360,7 +361,7 @@ impl SusiDaemon {
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
         let (gemi_server, gemi_port) =
-            Self::bind_http_with_fallback(cfg.gemi_port(), "GEMI", &workspace);
+            Self::bind_http_with_fallback(cfg.gemi_port(), "GEMI", &workspace, &bind_address);
         if gemi_port != cfg.gemi_port() {
             cfg.settings.insert("gemi_port".to_string(), serde_json::json!(gemi_port));
             config_changed = true;
@@ -368,7 +369,7 @@ impl SusiDaemon {
 
         // 2. Bind GMCP HTTP/SSE Server (Port 9093 / Dynamic)
         let (gmcp_http_server, gmcp_http_port) =
-            Self::bind_http_with_fallback(cfg.gmcp_http_port(), "GMCP HTTP", &workspace);
+            Self::bind_http_with_fallback(cfg.gmcp_http_port(), "GMCP HTTP", &workspace, &bind_address);
         if gmcp_http_port != cfg.gmcp_http_port() {
             cfg.settings.insert("gmcp_http_port".to_string(), serde_json::json!(gmcp_http_port));
             config_changed = true;
@@ -376,7 +377,7 @@ impl SusiDaemon {
 
         // 3. Bind A2A Cluster UDP Discovery Socket (Port 9092 / Dynamic)
         let (udp_socket, udp_port) =
-            Self::bind_udp_with_fallback(cfg.udp_discovery_port(), &workspace);
+            Self::bind_udp_with_fallback(cfg.udp_discovery_port(), &workspace, &bind_address);
         if udp_port != cfg.udp_discovery_port() {
             cfg.settings.insert("udp_discovery_port".to_string(), serde_json::json!(udp_port));
             config_changed = true;
@@ -445,8 +446,9 @@ impl SusiDaemon {
         port: u16,
         name: &str,
         workspace: &Path,
+        bind_address: &str,
     ) -> (std::net::TcpListener, u16) {
-        let addr = format!("127.0.0.1:{}", port);
+        let addr = format!("{}:{}", bind_address, port);
         match std::net::TcpListener::bind(&addr) {
             Ok(listener) => (listener, port),
             Err(_) => {
@@ -457,8 +459,8 @@ impl SusiDaemon {
                     }
                 }
 
-                let listener = std::net::TcpListener::bind("127.0.0.1:0")
-                    .unwrap_or_else(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap()); // Last resort
+                let listener = std::net::TcpListener::bind(format!("{}:0", bind_address))
+                    .unwrap_or_else(|_| std::net::TcpListener::bind(format!("{}:0", bind_address)).unwrap()); // Last resort
                 let new_port = listener.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
@@ -478,8 +480,8 @@ impl SusiDaemon {
         }
     }
 
-    fn bind_udp_with_fallback(port: u16, workspace: &Path) -> (std::net::UdpSocket, u16) {
-        let addr = format!("127.0.0.1:{}", port);
+    fn bind_udp_with_fallback(port: u16, workspace: &Path, bind_address: &str) -> (std::net::UdpSocket, u16) {
+        let addr = format!("{}:{}", bind_address, port);
         match std::net::UdpSocket::bind(&addr) {
             Ok(socket) => (socket, port),
             Err(_) => {
@@ -491,7 +493,7 @@ impl SusiDaemon {
                 }
 
                 let socket =
-                    std::net::UdpSocket::bind("127.0.0.1:0").expect("Failed to bind random UDP port");
+                    std::net::UdpSocket::bind(format!("{}:0", bind_address)).expect("Failed to bind random UDP port");
                 let new_port = socket.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,

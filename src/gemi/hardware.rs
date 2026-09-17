@@ -416,18 +416,32 @@ impl HardwareProfiler {
                     hf_repo: step.hf_repo,
                     hf_file: step.hf_file,
                     tokenizer_repo: step.tokenizer_repo,
+                    min_bytes: step.min_bytes,
+                    expected_bytes: step.expected_bytes,
                 });
             }
         }
 
         if ladder.is_empty() {
             let fallback = cfg.default_fallback_model();
+            // The fallback entry doesn't carry its own min_bytes/expected_bytes
+            // in config (nothing reads them off it directly today), but this
+            // struct's expected_bytes is used as a percentage denominator
+            // downstream — 0 would divide-by-zero into NaN, so fall back to
+            // the smallest real ladder step's thresholds rather than 0/0.
+            let (min_bytes, expected_bytes) = cfg
+                .model_ladder()
+                .first()
+                .map(|s| (s.min_bytes, s.expected_bytes))
+                .unwrap_or((1_000_000_000, 5_000_000_000));
             ladder.push(ModelLadderStep {
                 step: 1,
                 label: "Minimum Viable Substrate (Config Fallback)".to_string(),
                 hf_repo: fallback.hf_repo,
                 hf_file: fallback.hf_file,
                 tokenizer_repo: fallback.tokenizer_repo,
+                min_bytes,
+                expected_bytes,
             });
         }
 
@@ -520,6 +534,8 @@ pub struct ModelLadderStep {
     pub hf_repo: String,
     pub hf_file: String,
     pub tokenizer_repo: String,
+    pub min_bytes: u64,
+    pub expected_bytes: u64,
 }
 
 #[cfg(test)]
@@ -538,12 +554,27 @@ mod tests {
         let ladder = HardwareProfiler::get_progressive_model_ladder();
         assert!(!ladder.is_empty());
         let mut last_step = 0;
+        let mut last_min_bytes = 0;
         for step in ladder {
             assert!(step.step > last_step);
             last_step = step.step;
             assert!(!step.label.is_empty());
             assert!(!step.hf_repo.is_empty());
             assert!(!step.hf_file.is_empty());
+            // Bigger step number must never mean a *smaller* download-size
+            // threshold — this is exactly the shape of bug that was hiding in
+            // sandbox/manager.rs's Rust-literal accessor defaults (values
+            // scrambled relative to config.default.json, invisible because
+            // nothing asserted the *relationship* between them). Not a strict
+            // increase: steps 1-3 intentionally share one threshold, matching
+            // the original hardcoded `if step >= 5 {...} else if step >= 4
+            // {...} else {1GB}` logic this config data was migrated from.
+            assert!(
+                step.min_bytes >= last_min_bytes,
+                "min_bytes must never decrease as step number increases"
+            );
+            assert!(step.expected_bytes >= step.min_bytes);
+            last_min_bytes = step.min_bytes;
         }
     }
 

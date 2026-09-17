@@ -223,6 +223,16 @@ pub struct ModelBenchmarkResult {
     pub status: String,
 }
 
+/// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
+/// (from `SusiConfig::model_scan_exclude_dirs`/`model_file_extensions`/
+/// `model_file_min_bytes`) and threaded through the recursion rather than
+/// re-read from disk on every directory visited.
+struct ModelScanRules {
+    exclude_dirs: Vec<String>,
+    extensions: Vec<String>,
+    min_bytes: u64,
+}
+
 pub struct ModelManager;
 
 impl ModelManager {
@@ -566,24 +576,29 @@ impl ModelManager {
         let mut discovered = Vec::new();
         let mut visited = std::collections::HashSet::new();
 
+        // Loaded once per scan (cached 60s below) rather than per recursive
+        // call — a deep filesystem walk can hit this hundreds of times, and
+        // each SusiConfig::load_global() is a file read + JSON parse.
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let rules = ModelScanRules {
+            exclude_dirs: cfg.model_scan_exclude_dirs(),
+            extensions: cfg.model_file_extensions(),
+            min_bytes: cfg.model_file_min_bytes(),
+        };
+
         if workspace.is_dir() {
-            Self::recursive_scan_model_dir(workspace, &mut discovered, &mut visited, 0);
+            Self::recursive_scan_model_dir(workspace, &mut discovered, &mut visited, 0, &rules);
         }
         let models_dir = Self::get_models_dir();
         if models_dir.is_dir() && models_dir != workspace {
-            Self::recursive_scan_model_dir(&models_dir, &mut discovered, &mut visited, 0);
+            Self::recursive_scan_model_dir(&models_dir, &mut discovered, &mut visited, 0, &rules);
         }
 
         if !cfg!(test) {
-            let home = std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_default();
-            let global_dir = home.join(".susi");
-            let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
             for path_str in cfg.local_scan_paths() {
                 let p = PathBuf::from(path_str);
                 if p.is_dir() {
-                    Self::recursive_scan_model_dir(&p, &mut discovered, &mut visited, 0);
+                    Self::recursive_scan_model_dir(&p, &mut discovered, &mut visited, 0, &rules);
                 }
             }
         }
@@ -603,6 +618,7 @@ impl ModelManager {
         discovered: &mut Vec<ModelInfo>,
         visited: &mut std::collections::HashSet<PathBuf>,
         depth: usize,
+        rules: &ModelScanRules,
     ) {
         if depth > 5 {
             return;
@@ -613,21 +629,7 @@ impl ModelManager {
             }
         }
         let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if [
-            ".git",
-            "node_modules",
-            "target",
-            "vendor",
-            ".cargo",
-            ".rustup",
-            ".gradle",
-            "proc",
-            "sys",
-            ".cache",
-            "Library",
-        ]
-        .contains(&folder_name)
-        {
+        if rules.exclude_dirs.iter().any(|excluded| excluded == folder_name) {
             return;
         }
 
@@ -635,7 +637,7 @@ impl ModelManager {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    Self::recursive_scan_model_dir(&path, discovered, visited, depth + 1);
+                    Self::recursive_scan_model_dir(&path, discovered, visited, depth + 1, rules);
                 } else if path.is_file() {
                     let lower_ext = path
                         .extension()
@@ -645,11 +647,8 @@ impl ModelManager {
                     // "bin" deliberately excluded: too generic a signal on its
                     // own (browser/GPU-shader/build-tool caches all produce
                     // large .bin files with no relation to model weights).
-                    let is_valid = matches!(
-                        lower_ext.as_str(),
-                        "gguf" | "safetensors" | "onnx" | "pt" | "ckpt"
-                    );
-                    if is_valid && path.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000 {
+                    let is_valid = rules.extensions.iter().any(|e| e == &lower_ext);
+                    if is_valid && path.metadata().map(|m| m.len()).unwrap_or(0) > rules.min_bytes {
                         let file_name =
                             path.file_name().and_then(|n| n.to_str()).unwrap_or("model");
                         let checksum = None;
@@ -693,6 +692,14 @@ impl ModelManager {
             ));
         }
 
+        let mut cfg = crate::sandbox::manager::SusiConfig::load(global_dir)?;
+        let home_scan_root_exclude_dirs = cfg.home_scan_root_exclude_dirs();
+        let rules = std::sync::Arc::new(ModelScanRules {
+            exclude_dirs: cfg.model_discovery_exclude_dirs(),
+            extensions: cfg.model_file_extensions(),
+            min_bytes: cfg.model_file_min_bytes(),
+        });
+
         let mut sub_paths = Vec::new();
         if let Ok(entries) = fs::read_dir(&home) {
             for entry in entries.flatten() {
@@ -700,16 +707,7 @@ impl ModelManager {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if path.is_dir()
                     && !name.starts_with('.')
-                    && ![
-                        "node_modules",
-                        "target",
-                        "vendor",
-                        "proc",
-                        "sys",
-                        "dev",
-                        "Library",
-                    ]
-                    .contains(&name)
+                    && !home_scan_root_exclude_dirs.iter().any(|excluded| excluded == name)
                 {
                     sub_paths.push(path);
                 }
@@ -732,6 +730,7 @@ impl ModelManager {
 
         for sub_path in sub_paths {
             let ff = std::sync::Arc::clone(&found_folders);
+            let rules = std::sync::Arc::clone(&rules);
             handles.push(std::thread::spawn(move || {
                 let mut local_discovered = Vec::new();
                 let mut local_visited = std::collections::HashSet::new();
@@ -739,6 +738,7 @@ impl ModelManager {
                     &sub_path,
                     &mut local_discovered,
                     &mut local_visited,
+                    &rules,
                 );
                 if !local_discovered.is_empty() {
                     let mut lock = ff.write();
@@ -753,7 +753,6 @@ impl ModelManager {
             let _ = h.join();
         }
 
-        let mut cfg = crate::sandbox::manager::SusiConfig::load(global_dir)?;
         let mut new_paths_added = 0;
 
         let mut paths = cfg.local_scan_paths();
@@ -775,6 +774,7 @@ impl ModelManager {
         dir: &Path,
         discovered_folders: &mut Vec<String>,
         visited: &mut std::collections::HashSet<PathBuf>,
+        rules: &ModelScanRules,
     ) {
         if let Ok(canonical) = dir.canonicalize() {
             if !visited.insert(canonical) {
@@ -782,19 +782,7 @@ impl ModelManager {
             }
         }
         let folder_name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if [
-            ".git",
-            "node_modules",
-            "target",
-            "vendor",
-            ".cargo",
-            ".rustup",
-            ".gradle",
-            "proc",
-            "sys",
-        ]
-        .contains(&folder_name)
-        {
+        if rules.exclude_dirs.iter().any(|excluded| excluded == folder_name) {
             return;
         }
 
@@ -814,9 +802,8 @@ impl ModelManager {
                     // "bin" deliberately excluded: too generic a signal on its
                     // own (browser/GPU-shader/build-tool caches all produce
                     // large .bin files with no relation to model weights).
-                    if ["gguf", "safetensors", "onnx", "pt", "ckpt"]
-                        .contains(&lower_ext.as_str())
-                        && path.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000
+                    if rules.extensions.iter().any(|e| e == &lower_ext)
+                        && path.metadata().map(|m| m.len()).unwrap_or(0) > rules.min_bytes
                     {
                         folder_has_model = true;
                     }
@@ -828,7 +815,7 @@ impl ModelManager {
             }
 
             for sd in sub_dirs {
-                Self::recursive_scan_model_dir_for_paths(&sd, discovered_folders, visited);
+                Self::recursive_scan_model_dir_for_paths(&sd, discovered_folders, visited, rules);
             }
         }
     }
@@ -875,7 +862,9 @@ impl ModelManager {
             .build()
             .map_err(|e| e.to_string())?;
 
-        let mut request = client.get(target).header("User-Agent", "SUSI/0.1");
+        let mut request = client
+            .get(target)
+            .header("User-Agent", format!("SUSI/{}", crate::SUSI_VERSION));
         if let Ok(token) = std::env::var("HF_TOKEN") {
             if !token.trim().is_empty() {
                 request = request.header("Authorization", format!("Bearer {}", token.trim()));
@@ -1055,14 +1044,7 @@ impl ModelManager {
                         "{}/{}/resolve/main/{}",
                         hf_base_url, s.hf_repo, s.hf_file
                     );
-                    let threshold = if s.step >= 5 {
-                        35_000_000_000u64
-                    } else if s.step >= 4 {
-                        15_000_000_000u64
-                    } else {
-                        1_000_000_000u64
-                    };
-                    (url, threshold)
+                    (url, s.min_bytes)
                 })
                 .collect();
 
@@ -1110,7 +1092,7 @@ impl ModelManager {
 
         match client
             .get(format!("{}/api/models", hf_base_url))
-            .header("User-Agent", "SUSI/0.1")
+            .header("User-Agent", format!("SUSI/{}", crate::SUSI_VERSION))
             .send()
         {
             Ok(resp) => {
@@ -1165,13 +1147,7 @@ impl ModelManager {
                 hf_base_url, s.hf_repo, s.hf_file
             );
 
-            let threshold = if s.step >= 5 {
-                35_000_000_000u64
-            } else if s.step >= 4 {
-                15_000_000_000u64
-            } else {
-                1_000_000_000u64
-            };
+            let threshold = s.min_bytes;
 
             if !test_mode {
                 let size = path.metadata().map(|m| m.len()).unwrap_or(0);
@@ -1187,13 +1163,7 @@ impl ModelManager {
             }
 
             let size = path.metadata().map(|m| m.len()).unwrap_or(0);
-            let expected = if s.step >= 5 {
-                45_000_000_000u64
-            } else if s.step >= 4 {
-                20_000_000_000u64
-            } else {
-                5_000_000_000u64
-            };
+            let expected = s.expected_bytes;
 
             let status = if test_mode || size >= threshold {
                 "COMPLETED_VERIFIED"
@@ -1393,7 +1363,13 @@ mod tests {
         let _ = fs::write(&sf_path, vec![0u8; 2_000_000]);
         let mut discovered = Vec::new();
         let mut visited = std::collections::HashSet::new();
-        ModelManager::recursive_scan_model_dir(&tmp_dir, &mut discovered, &mut visited, 0);
+        let cfg = crate::sandbox::manager::SusiConfig::default();
+        let rules = ModelScanRules {
+            exclude_dirs: cfg.model_scan_exclude_dirs(),
+            extensions: cfg.model_file_extensions(),
+            min_bytes: cfg.model_file_min_bytes(),
+        };
+        ModelManager::recursive_scan_model_dir(&tmp_dir, &mut discovered, &mut visited, 0, &rules);
         assert!(discovered
             .iter()
             .any(|m| m.model_id().contains("test.safetensors")));

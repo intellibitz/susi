@@ -40,7 +40,7 @@ fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<Bo
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_static("http://127.0.0.1"),
+            HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
         )
         .body(full_body(
             serde_json::to_string(payload).unwrap_or_default(),
@@ -228,7 +228,7 @@ async fn handle_gemi_request(
             .status(StatusCode::OK)
             .header(
                 "Access-Control-Allow-Origin",
-                HeaderValue::from_static("http://127.0.0.1"),
+                HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
             )
             .header(
                 "Access-Control-Allow-Methods",
@@ -236,7 +236,7 @@ async fn handle_gemi_request(
             )
             .header(
                 "Access-Control-Allow-Headers",
-                HeaderValue::from_static("http://127.0.0.1"),
+                HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
             )
             .body(full_body(Vec::new()))
             .unwrap()),
@@ -288,7 +288,7 @@ fn build_streaming_response(
         .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
         .header(
             "Access-Control-Allow-Origin",
-            HeaderValue::from_static("http://127.0.0.1"),
+            HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
         )
         .body(body)
         .unwrap()

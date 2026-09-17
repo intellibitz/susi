@@ -302,15 +302,11 @@ impl GemiEngine {
 
     pub fn verify_axiomatic_alignment(reasoning: &str, _workspace: &Path) -> EaiResult<String> {
         // Fast Rust-Native Axiomatic Alignment Guard (Aspiration 8 & <2ms Reflex Mandate)
-        let risk_patterns = [
-            "rm -rf /",
-            "drop database",
-            "eval(",
-            "chmod 777",
-            "curl | sh",
-        ];
-        for pattern in risk_patterns {
-            if reasoning.contains(pattern) {
+        let risk_patterns = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .axiomatic_risk_patterns();
+        for pattern in &risk_patterns {
+            if reasoning.contains(pattern.as_str()) {
                 return Err(EaiError::governance(format!(
                     "Axiomatic Violation: High-risk pattern '{}' detected in reasoning.",
                     pattern
@@ -366,10 +362,8 @@ impl MissionPlanner {
     }
 
     pub fn partition_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
-        let plan_prompt = format!(
-            "MISSION_GOAL: {}\n\n[INSTRUCTION]: Partition this mission into INDEPENDENT sub-tasks that can execute in parallel. Output as a comma-separated list of actions.",
-            goal
-        );
+        let prompts = crate::sandbox::manager::SusiPrompts::load_global();
+        let plan_prompt = prompts.mission_partition_prompt().replace("{goal}", goal);
         let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
         let mut goals = Vec::new();
         if plan_str.contains(',') {
@@ -390,10 +384,11 @@ impl MissionPlanner {
         blackboard_state: &str,
         workspace: &Path,
     ) -> EaiResult<MissionPlan> {
-        let refine_prompt = format!(
-            "ORIGINAL_GOAL: {}\nCURRENT_STATE: {}\n\n[INSTRUCTION]: Mid-mission change. Re-synthesize sub-goals.",
-            original_goal, blackboard_state
-        );
+        let prompts = crate::sandbox::manager::SusiPrompts::load_global();
+        let refine_prompt = prompts
+            .mission_refine_prompt()
+            .replace("{original_goal}", original_goal)
+            .replace("{blackboard_state}", blackboard_state);
         Self::plan_mission(&refine_prompt, workspace)
     }
 }
@@ -489,11 +484,18 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let mut all_tokens = vec![];
         let mut tokens_to_process = prompt_tokens.to_vec();
 
-        println!("- [Inference Substrate] Beginning neural generation loop (Max: 256 tokens)...");
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let max_tokens = cfg.max_generation_tokens();
+        let eos_token_ids = cfg.eos_token_ids();
+
+        println!(
+            "- [Inference Substrate] Beginning neural generation loop (Max: {} tokens)...",
+            max_tokens
+        );
         let _ = std::io::stdout().flush();
 
-        // Universal Generative Loop: Fluid Context Expansion (Max 256 tokens for instant reflex)
-        for i in 0..256 {
+        // Universal Generative Loop: Fluid Context Expansion
+        for i in 0..max_tokens {
             task_handle.check_pause();
             if task_handle.is_cancelled() {
                 task_handle.mark_failed("Inference cancelled or stalled");
@@ -504,7 +506,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             }
 
             if i % 10 == 0 && i > 0 {
-                print!(" [Trace: {}/256] ", i);
+                print!(" [Trace: {}/{}] ", i, max_tokens);
                 let _ = std::io::stdout().flush();
             }
 
@@ -542,7 +544,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             task_handle.report_progress();
 
             // Universal EOS Detection
-            if next_token == 1 || next_token == 2 || next_token == 32000 || next_token == 151643 {
+            if eos_token_ids.contains(&next_token) {
                 break;
             }
 
@@ -595,5 +597,30 @@ mod tests {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
             assert!(tokenizer.is_ok());
         }
+    }
+
+    /// `axiomatic_risk_patterns` is config-driven now, not a hardcoded Rust
+    /// array — prove the configured patterns actually gate the check, and
+    /// that ordinary reasoning output isn't blocked.
+    #[test]
+    fn test_verify_axiomatic_alignment_uses_configured_risk_patterns() {
+        let patterns = crate::sandbox::manager::SusiConfig::default().axiomatic_risk_patterns();
+        assert!(!patterns.is_empty());
+
+        let workspace = Path::new(".");
+        for pattern in &patterns {
+            let reasoning = format!("Here is a plan: {}", pattern);
+            assert!(
+                GemiEngine::verify_axiomatic_alignment(&reasoning, workspace).is_err(),
+                "configured risk pattern '{}' must be blocked",
+                pattern
+            );
+        }
+
+        assert!(GemiEngine::verify_axiomatic_alignment(
+            "Here is a perfectly safe plan to list files.",
+            workspace
+        )
+        .is_ok());
     }
 }

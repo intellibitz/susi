@@ -133,7 +133,7 @@ async fn handle_gmcp_request(
                 .header("Cache-Control", HeaderValue::from_static("no-cache"))
                 .header(
                     "Access-Control-Allow-Origin",
-                    HeaderValue::from_static("http://127.0.0.1"),
+                    HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
                 )
                 .body(full_body(endpoint_event))
                 .unwrap())
@@ -165,7 +165,7 @@ async fn handle_gmcp_request(
                 .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
                 .header(
                     "Access-Control-Allow-Origin",
-                    HeaderValue::from_static("http://127.0.0.1"),
+                    HeaderValue::from_str(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get("allow_origin").unwrap_or_else(|| "*".to_string())).unwrap_or_else(|_| HeaderValue::from_static("*")),
                 )
                 .body(full_body(response_json))
                 .unwrap())

@@ -661,7 +661,7 @@ impl CoreTools {
                 description: d.to_string(),
                 categories: c.split(',').map(|s| s.trim().to_string()).collect(),
                 semantic_anchors: Vec::new(),
-                base_rank: 0.8,
+                base_rank: 0.8, is_core: false,
             };
             crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", n))
@@ -679,7 +679,7 @@ impl CoreTools {
                 description: parts[1].to_string(),
                 categories: parts[2].split(',').map(|s| s.trim().to_string()).collect(),
                 semantic_anchors: Vec::new(),
-                base_rank: 0.8,
+                base_rank: 0.8, is_core: false,
             };
 
             crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);

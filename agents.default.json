@@ -1,0 +1,130 @@
+[
+  {
+    "name": "DevOpsAgent",
+    "description": "Software engineering, systems architecture, and repository management.",
+    "categories": ["code", "rust", "git", "system"],
+    "semantic_anchors": ["build", "test", "deploy", "compile"],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "SearchAgent",
+    "description": "Deep web searching, knowledge retrieval, and data scouting.",
+    "categories": ["search", "find", "lyrics", "look"],
+    "semantic_anchors": ["google", "brave", "web", "query"],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "TranslationAgent",
+    "description": "High-fidelity linguistic translation across global languages.",
+    "categories": ["translate", "language", "tamil", "linguistic"],
+    "semantic_anchors": ["tamil", "hindi", "french", "translator"],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "SusiRuntimeAgent",
+    "description": "Runtime Substrate Preparation.",
+    "categories": ["substrate", "runtime", "environment"],
+    "semantic_anchors": ["status", "ready"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "HardwareAgent",
+    "description": "Hardware Optimization.",
+    "categories": ["hardware", "system", "resources"],
+    "semantic_anchors": ["cpu", "ram", "gpu", "status"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "SafetyAgent",
+    "description": "Safety Governance.",
+    "categories": ["safety", "governance"],
+    "semantic_anchors": ["safe", "audit"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "SecurityAgent",
+    "description": "Security Governance.",
+    "categories": ["security", "governance"],
+    "semantic_anchors": ["secure", "keys", "audit"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "EvolutionAgent",
+    "description": "Autonomous Drift Evolution.",
+    "categories": ["evolution", "drift"],
+    "semantic_anchors": ["mutate", "audit"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "GmcpAgent",
+    "description": "GMCP Protocol Initialization.",
+    "categories": ["gmcp", "protocol"],
+    "semantic_anchors": ["tool", "protocol"],
+    "base_rank": 0.95,
+    "is_core": true
+  },
+  {
+    "name": "EpistemicAuditorAgent",
+    "description": "Epistemic verification.",
+    "categories": ["epistemic", "audit"],
+    "semantic_anchors": ["truth", "verify"],
+    "base_rank": 0.98,
+    "is_core": true
+  },
+  {
+    "name": "ResourceArbitratorAgent",
+    "description": "Hardware resource governor.",
+    "categories": ["resource", "governor"],
+    "semantic_anchors": ["oom", "saturate"],
+    "base_rank": 0.98,
+    "is_core": true
+  },
+  {
+    "name": "ConsensusMediatorAgent",
+    "description": "Conflict resolution and swarm convergence.",
+    "categories": ["consensus", "mediator"],
+    "semantic_anchors": ["conflict", "convergence"],
+    "base_rank": 0.98,
+    "is_core": true
+  },
+  {
+    "name": "SelfHealingAgent",
+    "description": "Autonomous repairing.",
+    "categories": ["heal", "fix"],
+    "semantic_anchors": ["repair", "test"],
+    "base_rank": 1.0,
+    "is_core": true
+  },
+  {
+    "name": "LibraryScoutAgent",
+    "description": "SOTA Library Scouting.",
+    "categories": ["library", "crate", "package"],
+    "semantic_anchors": ["cargo", "add", "scout"],
+    "base_rank": 0.85,
+    "is_core": false
+  },
+  {
+    "name": "AdminAgent",
+    "description": "Administrative Substrate Agent.",
+    "categories": ["admin", "system", "install", "status"],
+    "semantic_anchors": ["root", "sync", "version", "identity"],
+    "base_rank": 1.0,
+    "is_core": false
+  },
+  {
+    "name": "ContextAgent",
+    "description": "Workspace analysis and file-system awareness.",
+    "categories": ["context", "files", "workspace"],
+    "semantic_anchors": ["pwd", "ls", "dir", "cat"],
+    "base_rank": 1.0,
+    "is_core": true
+  }
+]

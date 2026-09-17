@@ -33,6 +33,8 @@ pub struct AgentProfile {
     pub categories: Vec<String>,
     pub semantic_anchors: Vec<String>,
     pub base_rank: f32,
+    #[serde(default)]
+    pub is_core: bool,
 }
 
 /// High-Density Context Store (Aspiration 6)
@@ -1086,29 +1088,8 @@ impl AgentMetaRegistry {
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
-        vec![
-            AgentProfile {
-                name: "DevOpsAgent".into(),
-                description: "Software engineering, systems architecture, and repository management.".into(),
-                categories: vec!["code".into(), "rust".into(), "git".into(), "system".into()],
-                semantic_anchors: vec!["build".into(), "test".into(), "deploy".into(), "compile".into()],
-                base_rank: 0.9,
-            },
-            AgentProfile {
-                name: "SearchAgent".into(),
-                description: "Deep web searching, knowledge retrieval, and data scouting.".into(),
-                categories: vec!["search".into(), "find".into(), "lyrics".into(), "look".into()],
-                semantic_anchors: vec!["google".into(), "brave".into(), "web".into(), "query".into()],
-                base_rank: 0.9,
-            },
-            AgentProfile {
-                name: "TranslationAgent".into(),
-                description: "High-fidelity linguistic translation across global languages. Always use 'reason' tool for complex translation tasks.".into(),
-                categories: vec!["translate".into(), "language".into(), "tamil".into(), "linguistic".into()],
-                semantic_anchors: vec!["tamil".into(), "hindi".into(), "french".into(), "translator".into()],
-                base_rank: 0.9,
-            },
-        ]
+        serde_json::from_str(include_str!("../../agents.default.json"))
+            .expect("Fatal: agents.default.json must be valid JSON.")
     }
 
     pub fn register_agent(&self, profile: AgentProfile) {
@@ -1170,6 +1151,39 @@ impl AgentMetaRegistry {
     pub fn list_agents(&self) -> Vec<AgentProfile> {
         self.refresh_if_stale();
         self.agents.read().clone()
+    }
+
+
+    pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
+        match name {
+            "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
+            "HardwareAgent" => Some(Arc::new(HardwareAgent)),
+            "SafetyAgent" => Some(Arc::new(SafetyAgent)),
+            "SecurityAgent" => Some(Arc::new(SecurityAgent)),
+            "EvolutionAgent" => Some(Arc::new(EvolutionAgent)),
+            "GmcpAgent" => Some(Arc::new(GmcpAgent)),
+            "EpistemicAuditorAgent" => Some(Arc::new(EpistemicAuditorAgent)),
+            "ResourceArbitratorAgent" => Some(Arc::new(ResourceArbitratorAgent)),
+            "ConsensusMediatorAgent" => Some(Arc::new(ConsensusMediatorAgent)),
+            "SelfHealingAgent" => Some(Arc::new(SelfHealingAgent)),
+            "LibraryScoutAgent" => Some(Arc::new(LibraryScoutAgent)),
+            "SearchAgent" => Some(Arc::new(SearchAgent)),
+            "TranslationAgent" => Some(Arc::new(TranslationAgent)),
+            "AdminAgent" => Some(Arc::new(AdminAgent)),
+            _ => None,
+        }
+    }
+
+    pub fn instantiate_agent(profile: &AgentProfile) -> Arc<dyn GawdAgent> {
+        if let Some(agent) = Self::instantiate_native_agent(&profile.name) {
+            agent
+        } else {
+            Arc::new(DynamicAgent {
+                agent_name: profile.name.clone(),
+                mission_profile: profile.description.clone(),
+                agent_rank: profile.base_rank,
+            })
+        }
     }
 
     pub fn get_checksum(&self) -> u64 {
@@ -1235,21 +1249,9 @@ impl GawdAgentFleet {
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
     /// RULE 31 Hardening: Uses semantic centroids to match agents.
     pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
-        // 1. Mandatory Substrate Guards & Preparation (IDENTITY.md Mandates)
-        let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![
-            Arc::new(SusiRuntimeAgent),
-            Arc::new(HardwareAgent),
-            Arc::new(SafetyAgent),
-            Arc::new(SecurityAgent),
-            Arc::new(EvolutionAgent),
-            Arc::new(GmcpAgent),
-            Arc::new(EpistemicAuditorAgent),
-            Arc::new(ResourceArbitratorAgent),
-            Arc::new(ConsensusMediatorAgent),
-            Arc::new(SelfHealingAgent),
-        ];
-
+        let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![];
         let lower_goal = goal.to_lowercase();
+        
         let is_query_or_admin = lower_goal.contains("admin")
             || lower_goal.contains("identity")
             || lower_goal.contains("status")
@@ -1261,18 +1263,46 @@ impl GawdAgentFleet {
             || lower_goal.contains("who am i")
             || lower_goal.contains("whoami");
 
-        // Schema-Driven High-Throughput Remote Bridge Integration
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.agent_routing();
-
-        if let Some(admin_keys) = routing.get("AdminAgent") {
-            if admin_keys.iter().any(|k| lower_goal.contains(k)) {
-                fleet.push(Arc::new(AdminAgent));
+        
+        let max_agents = Self::get_max_concurrent_agents();
+        let registry = AgentMetaRegistry::global();
+        let available_agents = registry.list_agents();
+        
+        // 1. Core Native Agents & Matched Handlers
+        for agent in &available_agents {
+            if agent.is_core {
+                 if !fleet.iter().any(|a| a.name() == agent.name) {
+                     fleet.push(AgentMetaRegistry::instantiate_agent(agent));
+                 }
+                 continue;
             }
-        } else if lower_goal.contains("admin") || lower_goal.contains("sync") || lower_goal.contains("install") {
-            fleet.push(Arc::new(AdminAgent));
+            
+            let mut should_add = false;
+            // Config routing overrides
+            if let Some(keys) = routing.get(&agent.name) {
+                if keys.iter().any(|k| lower_goal.contains(k)) {
+                    should_add = true;
+                }
+            } else if lower_goal.contains(&agent.name.to_lowercase().replace("agent", "")) {
+                should_add = true;
+            } else if agent.name == "AdminAgent" && (lower_goal.contains("sync") || lower_goal.contains("install")) {
+                should_add = true;
+            } else if agent.name == "SearchAgent" && lower_goal.contains("find") {
+                should_add = true;
+            } else if agent.name == "TranslationAgent" && lower_goal.contains("language") {
+                should_add = true;
+            } else if agent.name == "LibraryScoutAgent" || agent.name == "ContextAgent" {
+                should_add = true; // Was unconditionally added before
+            }
+            
+            if should_add && !fleet.iter().any(|a| a.name() == agent.name) {
+                fleet.push(AgentMetaRegistry::instantiate_agent(agent));
+            }
         }
-
+        
+        // 2. Inference endpoints mapping
         for endpoint in &cfg.inference_endpoints().endpoints {
             let env_var_name = format!("{}_API_BASE", endpoint.name.to_uppercase().replace('.', "_"));
             if std::env::var(&env_var_name).is_ok() {
@@ -1284,44 +1314,15 @@ impl GawdAgentFleet {
                 )));
             }
         }
-
-        fleet.push(Arc::new(LibraryScoutAgent));
-
-        if let Some(search_keys) = routing.get("SearchAgent") {
-            if search_keys.iter().any(|k| lower_goal.contains(k)) {
-                fleet.push(Arc::new(SearchAgent));
-            }
-        } else if lower_goal.contains("search") || lower_goal.contains("find") {
-            fleet.push(Arc::new(SearchAgent));
-        }
-
-        if let Some(trans_keys) = routing.get("TranslationAgent") {
-            if trans_keys.iter().any(|k| lower_goal.contains(k)) {
-                fleet.push(Arc::new(TranslationAgent));
-            }
-        } else if lower_goal.contains("translate") || lower_goal.contains("language") {
-            fleet.push(Arc::new(TranslationAgent));
-        }
-
-        fleet.push(Arc::new(DynamicAgent {
-            agent_name: "ContextAgent".into(),
-            mission_profile: "Workspace analysis and file-system awareness.".into(),
-            agent_rank: 1.0,
-        }));
-
-        let max_agents = Self::get_max_concurrent_agents();
-
-        // 2. Semantic Meta-Registry Discovery
-        let registry = AgentMetaRegistry::global();
-        let available_agents = registry.list_agents();
+        
+        // 3. Semantic Meta-Registry Discovery
         if available_agents.is_empty() {
             eprintln!("[Swarm] Registry empty. Triggering bootstrap...");
             registry.load_or_provision();
         }
         let available_agents = registry.list_agents();
         let mut max_global_similarity = 0.0f32;
-
-        // Neural Semantic pass: identified via Tier 0 Vector space
+        
         if !lower_goal.contains("admin mission") && !lower_goal.contains("admin pulse") {
             if let Ok(goal_vec) = crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
                 goal,
@@ -1331,13 +1332,15 @@ impl GawdAgentFleet {
                     if fleet.len() >= max_agents {
                         break;
                     }
-
+                    if fleet.iter().any(|a| a.name() == agent.name) {
+                        continue;
+                    }
+                    
                     let mut max_similarity = 0.0f32;
-
                     let mut agent_corpus = agent.categories.join(" ");
                     agent_corpus.push(' ');
                     agent_corpus.push_str(&agent.description);
-
+                    
                     if let Ok(agent_vec) =
                         crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
                             &agent_corpus,
@@ -1354,27 +1357,21 @@ impl GawdAgentFleet {
                             max_global_similarity = max_similarity;
                         }
                     }
-
+                    
                     if max_similarity > 0.35
                         || agent
                             .categories
                             .iter()
                             .any(|c| goal.to_lowercase().contains(c))
                     {
-                        fleet.push(Arc::new(DynamicAgent {
-                            agent_name: agent.name,
-                            mission_profile: agent.description,
-                            agent_rank: agent.base_rank,
-                        }));
+                        fleet.push(AgentMetaRegistry::instantiate_agent(&agent));
                     }
                 }
             }
         }
-
-        // 3. Neural Agent Synthesis (Aspiration 13)
-        // If no high-quality specialists are found (similarity < 0.4) or fleet only contains mandatory guards,
-        // synthesize a mission-specific specialist.
-        let only_mandatory = fleet.len() <= 11; // Mandatory + LibraryScoutAgent
+        
+        // 4. Neural Agent Synthesis (Aspiration 13)
+        let only_mandatory = fleet.len() <= 12; // Adjusted baseline
         if !is_query_or_admin
             && (max_global_similarity < 0.4 || only_mandatory)
             && fleet.len() < max_agents
@@ -1390,8 +1387,8 @@ impl GawdAgentFleet {
                 }));
             }
         }
-
-        // 4. Fallback Universal Reasoner
+        
+        // 5. Fallback Universal Reasoner
         if fleet.len() < 4 && fleet.len() < max_agents {
             fleet.push(Arc::new(DynamicAgent {
                 agent_name: "UniversalReasoner".into(),
@@ -1402,7 +1399,6 @@ impl GawdAgentFleet {
 
         fleet
     }
-
     pub fn dispatch_explosive_swarm(
         goal: String,
         workspace: PathBuf,

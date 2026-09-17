@@ -281,6 +281,8 @@ impl SusiPrompts {
     pub fn agent_factory_prompt(&self) -> String { self.get_str("agent_factory_prompt").unwrap_or("").to_string() }
     pub fn consensus_wisdom_prompt(&self) -> String { self.get_str("consensus_wisdom_prompt").unwrap_or("").to_string() }
     pub fn intent_planner_prompt(&self) -> String { self.get_str("intent_planner_prompt").unwrap_or("").to_string() }
+    pub fn mission_partition_prompt(&self) -> String { self.get_str("mission_partition_prompt").unwrap_or("").to_string() }
+    pub fn mission_refine_prompt(&self) -> String { self.get_str("mission_refine_prompt").unwrap_or("").to_string() }
 
     pub fn format_chat_prompt(&self, model_name: &str, system_prompt: &str, user_prompt: &str) -> String {
         let vars = HashMap::from([
@@ -444,6 +446,10 @@ pub struct ModelLadderConfigStep {
     pub tokenizer_repo: String,
     #[serde(default)]
     pub min_ram_gb: f32,
+    #[serde(default)]
+    pub min_bytes: u64,
+    #[serde(default)]
+    pub expected_bytes: u64,
 }
 
 // === 100% DYNAMIC SUSI CONFIG - THE ROOT ===
@@ -662,6 +668,44 @@ impl SusiConfig {
     }
     pub fn sandbox_image(&self) -> String {
         self.get_or_bundled_default("sandbox_image")
+    }
+    /// Special-token IDs that terminate generation (previously hardcoded as
+    /// `1 | 2 | 32000 | 151643` directly in the inference loop — vendor/
+    /// tokenizer-specific magic numbers with zero comment on which model
+    /// family each belonged to).
+    pub fn eos_token_ids(&self) -> Vec<u32> {
+        self.get_or_bundled_default("eos_token_ids")
+    }
+    pub fn max_generation_tokens(&self) -> usize {
+        self.get_or_bundled_default("max_generation_tokens")
+    }
+    /// Risk substrings that block reasoning OUTPUT before it's returned as a
+    /// final answer — a distinct security layer from `governance()`'s
+    /// `destructive_commands` (which gates COMMANDS before execution); the
+    /// two lists overlap in spirit but not in content.
+    pub fn axiomatic_risk_patterns(&self) -> Vec<String> {
+        self.get_or_bundled_default("axiomatic_risk_patterns")
+    }
+    pub fn model_scan_exclude_dirs(&self) -> Vec<String> {
+        self.get_or_bundled_default("model_scan_exclude_dirs")
+    }
+    /// Deliberately narrower than `model_scan_exclude_dirs`: this gates
+    /// `recursive_scan_model_dir_for_paths`, which `deep_scan_home_and_register`
+    /// invokes *with* `.cache`/`.local` etc. as starting directories (they're
+    /// dot-prefixed, so a separate first pass has to seed them explicitly) — if
+    /// this list excluded them too, the scan would refuse to look inside its
+    /// own seeded roots.
+    pub fn model_discovery_exclude_dirs(&self) -> Vec<String> {
+        self.get_or_bundled_default("model_discovery_exclude_dirs")
+    }
+    pub fn home_scan_root_exclude_dirs(&self) -> Vec<String> {
+        self.get_or_bundled_default("home_scan_root_exclude_dirs")
+    }
+    pub fn model_file_extensions(&self) -> Vec<String> {
+        self.get_or_bundled_default("model_file_extensions")
+    }
+    pub fn model_file_min_bytes(&self) -> u64 {
+        self.get_or_bundled_default("model_file_min_bytes")
     }
 }
 
@@ -1052,6 +1096,25 @@ mod tests {
         let heuristics = default.memory_experience_heuristics();
         assert_eq!(heuristics.min_output_len, raw["memory_experience_heuristics"]["min_output_len"].as_u64().unwrap() as usize);
         assert!(!heuristics.failure_markers.is_empty());
+
+        assert_eq!(default.max_generation_tokens(), raw["max_generation_tokens"].as_u64().unwrap() as usize);
+        assert_eq!(
+            default.eos_token_ids(),
+            raw["eos_token_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap() as u32).collect::<Vec<_>>()
+        );
+        assert_eq!(default.axiomatic_risk_patterns().len(), raw["axiomatic_risk_patterns"].as_array().unwrap().len());
+        assert_eq!(default.model_scan_exclude_dirs().len(), raw["model_scan_exclude_dirs"].as_array().unwrap().len());
+        assert_eq!(default.model_discovery_exclude_dirs().len(), raw["model_discovery_exclude_dirs"].as_array().unwrap().len());
+        assert_eq!(default.home_scan_root_exclude_dirs().len(), raw["home_scan_root_exclude_dirs"].as_array().unwrap().len());
+        assert_eq!(default.model_file_extensions().len(), raw["model_file_extensions"].as_array().unwrap().len());
+        assert_eq!(default.model_file_min_bytes(), raw["model_file_min_bytes"].as_u64().unwrap());
+
+        // model_discovery_exclude_dirs (used by deep_scan_home_and_register,
+        // which scans *inside* .cache/.local/.android as seeded roots) must
+        // never exclude those two dir names, unlike the broader
+        // model_scan_exclude_dirs — this is the exact invariant that keeps
+        // JetBrains/ProxyAI model discovery under ~/.cache working.
+        assert!(!default.model_discovery_exclude_dirs().iter().any(|d| d == ".cache" || d == "Library"));
     }
 
     #[test]

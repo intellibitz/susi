@@ -138,7 +138,9 @@
       "tokenizer_repo": "Qwen/Qwen2.5-1.5B-Instruct",
       "label": "1.5B Parameters (Fast Local Edge)",
       "min_ram_gb": 0,
-      "step": 1
+      "step": 1,
+      "min_bytes": 1000000000,
+      "expected_bytes": 5000000000
     },
     {
       "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
@@ -146,7 +148,9 @@
       "tokenizer_repo": "Qwen/Qwen2.5-7B-Instruct",
       "label": "7B Parameters (Mid-Range Desktop)",
       "min_ram_gb": 8,
-      "step": 2
+      "step": 2,
+      "min_bytes": 1000000000,
+      "expected_bytes": 5000000000
     },
     {
       "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
@@ -154,7 +158,9 @@
       "tokenizer_repo": "Qwen/Qwen2.5-14B-Instruct",
       "label": "14B Parameters (High-Accuracy Workstation)",
       "min_ram_gb": 16,
-      "step": 3
+      "step": 3,
+      "min_bytes": 1000000000,
+      "expected_bytes": 5000000000
     },
     {
       "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
@@ -162,7 +168,9 @@
       "tokenizer_repo": "Qwen/Qwen2.5-32B-Instruct",
       "label": "32B Parameters (High-End Workstation)",
       "min_ram_gb": 32,
-      "step": 4
+      "step": 4,
+      "min_bytes": 15000000000,
+      "expected_bytes": 20000000000
     },
     {
       "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf",
@@ -170,7 +178,9 @@
       "tokenizer_repo": "Qwen/Qwen2.5-72B-Instruct",
       "label": "72B Parameters (Ultra-Capacity Workstation)",
       "min_ram_gb": 64,
-      "step": 5
+      "step": 5,
+      "min_bytes": 35000000000,
+      "expected_bytes": 45000000000
     }
   ],
   "max_stdin_size_bytes": 104857600,
@@ -336,5 +346,13 @@
     "min_output_len": 50,
     "failure_markers": ["[FAIL]", "error"]
   },
+  "eos_token_ids": [1, 2, 32000, 151643],
+  "max_generation_tokens": 256,
+  "axiomatic_risk_patterns": ["rm -rf /", "drop database", "eval(", "chmod 777", "curl | sh"],
+  "model_scan_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys", ".cache", "Library"],
+  "model_discovery_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys"],
+  "home_scan_root_exclude_dirs": ["node_modules", "target", "vendor", "proc", "sys", "dev", "Library"],
+  "model_file_extensions": ["gguf", "safetensors", "onnx", "pt", "ckpt"],
+  "model_file_min_bytes": 1000000,
   "susi_alpha_default": "susi-alpha"
 }
