@@ -73,7 +73,7 @@ candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
 [features]
-default = ["cuda"]
+default = []
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
