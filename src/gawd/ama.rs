@@ -259,6 +259,12 @@ impl SusiMasterAgent {
                     &serde_json::json!(null),
                     workspace,
                 )
+            } else if lower_goal.contains("bloat") {
+                crate::gmcp::tools::ToolRegistry::execute_tool(
+                    "bloat_audit",
+                    &serde_json::json!(null),
+                    workspace,
+                )
             } else if lower_goal.contains("version") {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {

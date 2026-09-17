@@ -2,6 +2,7 @@ pub mod agents;
 pub mod ama;
 pub mod amas;
 pub mod axiom;
+pub mod bloat_audit;
 pub mod brain;
 pub mod bus;
 pub mod dag;

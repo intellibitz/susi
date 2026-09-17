@@ -62,7 +62,7 @@ qdrant-client = "1.11"
 fastembed = "4.0"
 ignore = "0.4"
 tree-sitter = "0.22"
-syn = { version = "2.0", features = ["full"] }
+syn = { version = "2.0", features = ["full", "visit"] }
 similar = "2.5"
 bollard = "0.17"
 tempfile = "3.12"

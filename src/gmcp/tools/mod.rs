@@ -211,6 +211,15 @@ impl CoreTools {
         Ok(report)
     }
 
+    #[tool(
+        name = "bloat_audit",
+        description = "Recursively audit src/ (AST-based) and target/ (build artifact size) for bloat and hardcoded secrets, rayon-parallel across all cores"
+    )]
+    pub fn bloat_audit(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let report = crate::gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
+        Ok(crate::gawd::bloat_audit::BloatAuditor::render_report(&report))
+    }
+
     #[tool(name = "identity", description = "SUSI substrate identity report")]
     pub fn identity(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let brain = crate::gawd::brain::AlphaBrainContext::initialize(workspace);
@@ -971,6 +980,13 @@ impl ToolRegistry {
             "Report on autonomous invisible work performed by the substrate",
             MetaCategory::SystemPrimitive,
             CoreTools::sovereign_dashboard,
+        );
+        Self::register_meta_tool(
+            self,
+            "bloat_audit",
+            "Recursively audit src/ and target/ for bloat and hardcoded secrets, rayon-parallel across all cores",
+            MetaCategory::SystemPrimitive,
+            CoreTools::bloat_audit,
         );
         Self::register_meta_tool(
             self,

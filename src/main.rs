@@ -26,6 +26,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Ensure the global susi daemon is running and report its status
+    Start,
     /// Start persistent SUSI Pulse Shell
     Shell,
     /// Initialize sandboxed .susi environment
@@ -40,6 +42,9 @@ enum Commands {
     Status,
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
+    /// Recursively audit src/ (AST-based) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+    #[command(name = "bloat-audit")]
+    BloatAudit,
     /// List available models
     Models,
     /// Select or override active model
@@ -240,6 +245,13 @@ fn main() {
         let ama = SusiMasterAgent::new();
         let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
+            Commands::Start => {
+                // ensure_daemon_running already ran above for every non-daemon-start command.
+                match SusiDaemon::check_status(&global_dir) {
+                    Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
+                    None => println!("[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details."),
+                }
+            }
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
@@ -275,6 +287,10 @@ fn main() {
             }
             Commands::SovereignDashboard => {
                 let answer = ama.solve_clean("sovereign_dashboard", &cwd, SUSI_VERSION);
+                println!("{}", answer);
+            }
+            Commands::BloatAudit => {
+                let answer = ama.solve_clean("bloat_audit", &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Models => {

@@ -37,6 +37,7 @@ impl IntentManifold {
             || lower.contains("models")
             || lower.contains("version")
             || lower.contains("dashboard")
+            || lower.contains("bloat")
             || lower == "ls"
             || lower.starts_with("ls ")
             || lower == "dir"
