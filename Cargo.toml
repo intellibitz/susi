@@ -1,6 +1,6 @@
 [package]
 name = "susi-engine"
-version = "0.1.2023004"
+version = "0.1.2023005"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
@@ -73,7 +73,7 @@ candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
 [features]
-default = []
+default = ["cuda"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
