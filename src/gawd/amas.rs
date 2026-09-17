@@ -284,7 +284,7 @@ impl SusiSupervisor {
             Arc::new(super::agents::HighDensityContextStore::new(1024));
 
         // 2. Dynamic Fleet Synthesis
-        println!("- [Swarm Synthesis] Analyzing goal intent for recruitment...");
+        eprintln!("- [Swarm Synthesis] Analyzing goal intent for recruitment...");
         let _ = std::io::stdout().flush();
         let agents = GawdAgentFleet::synthesize_fleet(goal, workspace);
         let fleet_info: Vec<GawdAgentInfo> = agents
@@ -297,12 +297,12 @@ impl SusiSupervisor {
             })
             .collect();
 
-        println!(
+        eprintln!(
             "- [Fleet Composition] recruited {} specialist agents:",
             fleet_info.len()
         );
         for agent in &fleet_info {
-            println!(
+            eprintln!(
                 "  - [Agent] {} (Rank: {:.2}) via {}",
                 agent.name, agent.rank, agent.provider
             );
@@ -321,7 +321,7 @@ impl SusiSupervisor {
             })
             .count();
         if active_peers_count > 0 {
-            println!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
+            eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
             let _ = std::io::stdout().flush();
             for node in cluster_nodes.iter().take(2) {
                 if node.node_id != "susi-local-master" && node.is_active {
@@ -455,7 +455,7 @@ impl SusiSupervisor {
                 let consensus_prompt = prompts.consensus_wisdom_prompt()
                     .replace("{goal}", goal)
                     .replace("{wisdom}", &weighted_wisdom);
-                println!("- [Consensus Master] Synthesizing swarm wisdom...");
+                eprintln!("- [Consensus Master] Synthesizing swarm wisdom...");
                 let _ = std::io::stdout().flush();
                 crate::gemi::engine::GemiEngine::generate_reasoning_stream(
                     &consensus_prompt,

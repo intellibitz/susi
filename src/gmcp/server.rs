@@ -213,15 +213,24 @@ impl ProtocolDispatcher for GmcpProtocolHandler {
                 let tool_name = extract_tool_name(line).unwrap_or_default();
                 let tool_arg = extract_tool_val(line).unwrap_or(json!(null));
 
-                // SUSI Is Swarm: Route all GMCP operations through the Substrate Master Agent
-                let intent = format!("{} {}", tool_name, tool_arg);
-                let ama = crate::gawd::ama::SusiMasterAgent::new();
-                let result_text = ama.solve_clean(&intent, workspace, crate::SUSI_VERSION);
+                let result_text = if tool_name == "susi_solve" {
+                    let intent = format!("{} {}", tool_name, tool_arg);
+                    let ama = crate::gawd::ama::SusiMasterAgent::new();
+                    ama.solve_clean(&intent, workspace, crate::SUSI_VERSION)
+                } else if crate::gmcp::tools::ToolRegistry::exists(&tool_name) {
+                    crate::gmcp::tools::ToolRegistry::execute_tool(&tool_name, &tool_arg, workspace)
+                } else {
+                    format!("Error: Tool '{}' not found in registry", tool_name)
+                };
 
+                // L1 Patch: Set isError if internal failure
+                let is_error = result_text.starts_with("Error:");
+                
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
+                        "isError": is_error,
                         "content": [
                             { "type": "text", "text": result_text }
                         ]

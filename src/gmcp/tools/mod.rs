@@ -83,17 +83,20 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
         .map_err(|e| EaiError::filesystem(format!("Workspace error: {}", e)))?;
 
     let full_path = workspace.join(&path);
-    let canonical_path = full_path
-        .canonicalize()
-        .ok()
-        .unwrap_or_else(|| full_path.clone());
-
-    if !canonical_path.starts_with(&canonical_workspace) {
+    
+    // H4 Security Patch: Securely canonicalize parent to prevent symlink traversal escaping
+    let parent = full_path.parent().unwrap_or(workspace);
+    let canonical_parent = parent.canonicalize().map_err(|_| EaiError::filesystem("Invalid path hierarchy (doesn't exist)"))?;
+    
+    if !canonical_parent.starts_with(&canonical_workspace) {
         return Err(EaiError::filesystem(format!(
             "Path escape attempt: {}",
             user_path
         )));
     }
+    
+    let canonical_path = canonical_parent.join(full_path.file_name().unwrap_or_default());
+
 
     for component in path.components() {
         if let Component::ParentDir = component {
