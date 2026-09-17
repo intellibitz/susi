@@ -3,17 +3,18 @@
 
 use crate::error::{EaiError, EaiResult};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::env;
 use std::process::Command;
 
 pub struct SusiAdmin;
 
 impl SusiAdmin {
     pub fn get_global_susi_dir() -> std::path::PathBuf {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let home = env::var_os("HOME")
+            .or_else(|| env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
         home.join(".susi")
     }
 
@@ -98,7 +99,7 @@ impl SusiAdmin {
         }
 
         // 4. Binary Integrity Check (Aspiration 4)
-        if let Ok(current_exe) = std::env::current_exe() {
+        if let Ok(current_exe) = env::current_exe() {
             let global_dir = Self::get_global_susi_dir();
             match crate::daemon::server::SusiDaemon::verify_binary_integrity(
                 &current_exe,
@@ -213,7 +214,7 @@ impl SusiAdmin {
         }
 
         // 4. Update Binary Integrity Hash
-        if let Ok(current_exe) = std::env::current_exe() {
+        if let Ok(current_exe) = env::current_exe() {
             let global_dir = Self::get_global_susi_dir();
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
