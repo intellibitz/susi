@@ -1092,7 +1092,9 @@ impl AgentMetaRegistry {
             let mut registry = self.agents.write();
             *registry = new_agents.clone();
         }
-        let _ = std::fs::create_dir_all(registry_path.parent().unwrap());
+        if let Some(parent) = registry_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let _ = std::fs::write(
             &registry_path,
             serde_json::to_string_pretty(&new_agents).unwrap_or_default(),
@@ -1116,25 +1118,34 @@ impl AgentMetaRegistry {
     }
 
     pub fn update_rank(&self, name: &str, delta: f32, source: &str) {
-        let mut agents = self.agents.write();
-        if let Some(agent) = agents.iter_mut().find(|a| a.name == name) {
-            let old_rank = agent.base_rank;
-            agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
+        let needs_save = {
+            let mut agents = self.agents.write();
+            if let Some(agent) = agents.iter_mut().find(|a| a.name == name) {
+                let old_rank = agent.base_rank;
+                agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
 
-            let log_msg = format!(
-                "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
-                name, old_rank, agent.base_rank, source
-            );
-            let home = std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(std::path::PathBuf::from)
-                .unwrap_or_else(|| std::path::PathBuf::from("."));
-            crate::sandbox::manager::SusiAuditLogger::log(
-                &home.join(".susi"),
-                crate::sandbox::manager::LogLevel::Info,
-                "AGENT_MUTATION",
-                &log_msg,
-            );
+                let log_msg = format!(
+                    "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
+                    name, old_rank, agent.base_rank, source
+                );
+                let home = std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from("."));
+                crate::sandbox::manager::SusiAuditLogger::log(
+                    &home.join(".susi"),
+                    crate::sandbox::manager::LogLevel::Info,
+                    "AGENT_MUTATION",
+                    &log_msg,
+                );
+                true
+            } else {
+                false
+            }
+        };
+
+        if needs_save {
+            self.save();
         }
     }
 
@@ -1297,13 +1308,9 @@ impl GawdAgentFleet {
                 if keys.iter().any(|k| lower_goal.contains(k)) {
                     should_add = true;
                 }
-            } else if lower_goal.contains(&agent.name.to_lowercase().replace("agent", ""))
-                || (agent.name == "AdminAgent"
-                    && (lower_goal.contains("sync") || lower_goal.contains("install")))
-                || (agent.name == "SearchAgent" && lower_goal.contains("find"))
-                || (agent.name == "TranslationAgent" && lower_goal.contains("language"))
-                || agent.name == "LibraryScoutAgent"
-                || agent.name == "ContextAgent"
+            } else if agent.semantic_anchors.iter().any(|anchor| lower_goal.contains(anchor))
+                || agent.categories.iter().any(|category| lower_goal.contains(category))
+                || lower_goal.contains(&agent.name.to_lowercase().replace("agent", ""))
             {
                 should_add = true;
             }
