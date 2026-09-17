@@ -486,6 +486,26 @@ impl SusiMasterAgent {
         workspace: &Path,
         version: &str,
     ) -> EaiResult<SusiMissionReport> {
+        self.solve_internal(goal, workspace, version, 0)
+    }
+
+    fn solve_internal(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        depth: u32,
+    ) -> EaiResult<SusiMissionReport> {
+        if depth >= 5 {
+            return Ok(SusiMissionReport {
+                goal: goal.to_string(),
+                status: "ABORTED".to_string(),
+                agents: vec![],
+                interactions: vec![],
+                final_answer: format!("SUSI-Recursion-Limit-Reached: Substrate decay prevented infinite intent recursion (Depth: {}).", depth),
+            });
+        }
+
         let goal = self.sanitize_input(goal)?;
         let lower_goal = goal.to_lowercase();
 
@@ -567,7 +587,7 @@ impl SusiMasterAgent {
 
         // Recursive Parallel Parallelism (Aspiration 26)
         if lower_goal.contains("parallel") || lower_goal.contains("split") {
-            return self.solve_parallel_mission(&goal, workspace, version);
+            return self.solve_parallel_mission(&goal, workspace, version, depth + 1);
         }
 
         // Autonomous Task Decomposition (Rule 12 Check)
@@ -576,7 +596,7 @@ impl SusiMasterAgent {
             || lower_goal.contains(" finally "))
             && !goal.contains("[STEP ")
         {
-            return self.solve_planned_mission(&goal, workspace, version);
+            return self.solve_planned_mission(&goal, workspace, version, depth + 1);
         }
 
         let mut retry_count = 0;
@@ -714,6 +734,7 @@ impl SusiMasterAgent {
         goal: &str,
         workspace: &Path,
         version: &str,
+        depth: u32,
     ) -> EaiResult<SusiMissionReport> {
         let plan = crate::gemi::engine::MissionPlanner::partition_mission(goal, workspace)?;
 
@@ -734,7 +755,7 @@ impl SusiMasterAgent {
                 let w = workspace.to_path_buf();
                 let v = version.to_string();
                 let ama = SusiMasterAgent::new();
-                ama.solve(&g, &w, &v)
+                ama.solve_internal(&g, &w, &v, depth + 1)
             })
             .filter_map(Result::ok)
             .collect();
@@ -767,6 +788,7 @@ impl SusiMasterAgent {
         goal: &str,
         workspace: &Path,
         version: &str,
+        depth: u32,
     ) -> EaiResult<SusiMissionReport> {
         let mut plan = crate::gemi::engine::MissionPlanner::plan_mission(goal, workspace)?;
         let mut all_interactions = Vec::new();
@@ -782,7 +804,7 @@ impl SusiMasterAgent {
                 plan.goals.len(),
                 sub_goal
             );
-            let report = self.solve(&tagged_goal, workspace, version)?;
+            let report = self.solve_internal(&tagged_goal, workspace, version, depth + 1)?;
 
             all_interactions.extend(report.interactions.clone());
             all_agents.extend(report.agents.clone());
