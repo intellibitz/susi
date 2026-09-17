@@ -30,11 +30,10 @@ pub struct HardwareProfiler;
 impl HardwareProfiler {
     pub fn get_profile() -> HardwareProfile {
         static CACHED_PROFILE: OnceLock<HardwareProfile> = OnceLock::new();
-        CACHED_PROFILE
+        let mut profile = CACHED_PROFILE
             .get_or_init(|| {
                 let (cpus, _) = Self::profile();
                 let ram_gb = Self::determine_total_ram_gb();
-                let available_ram_gb = Self::determine_available_ram_gb();
                 let gpu_vram_gb = Self::determine_gpu_vram_gb();
                 let swap_gb = Self::determine_swap_gb();
                 let nvme_active = Self::is_nvme_active();
@@ -57,7 +56,7 @@ impl HardwareProfiler {
                     cpu_brand: Self::get_cpu_brand(),
                     gpu_info: gpu_display,
                     ram_gb,
-                    available_ram_gb,
+                    available_ram_gb: 0,
                     gpu_vram_gb,
                     swap_gb,
                     nvme_active,
@@ -66,13 +65,20 @@ impl HardwareProfiler {
                     os_info: Self::get_os_info(),
                     arch: std::env::consts::ARCH.to_string(),
                     disk_gb: Self::determine_disk_gb(),
-                    disk_usage_pct: Self::determine_disk_usage_pct(),
-                    load_avg: Self::get_load_avg(),
-                    uptime: Self::get_uptime(),
+                    disk_usage_pct: 0,
+                    load_avg: String::new(),
+                    uptime: String::new(),
                     hostname: Self::get_hostname(),
                 }
             })
-            .clone()
+            .clone();
+            
+        profile.available_ram_gb = Self::determine_available_ram_gb();
+        profile.disk_usage_pct = Self::determine_disk_usage_pct();
+        profile.load_avg = Self::get_load_avg();
+        profile.uptime = Self::get_uptime();
+        
+        profile
     }
 
     pub fn check_oom_critical() -> bool {
