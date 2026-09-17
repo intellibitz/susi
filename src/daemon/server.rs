@@ -527,7 +527,7 @@ impl SusiDaemon {
                     // Check if this process is a susi-engine or susi
                     let comm_output = fs::read_to_string(format!("/proc/{}/comm", pid));
                     if let Ok(comm) = comm_output {
-                        if comm.contains("susi") {
+                        if comm.trim() == "susi" || comm.trim() == "susi-engine" {
                             eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
                             unsafe {
                                 libc::kill(pid, libc::SIGKILL);

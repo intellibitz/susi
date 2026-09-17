@@ -16,7 +16,7 @@ impl SecurityDetector {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
-        let cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+                let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 
         let lower_arg = arg.to_lowercase();
