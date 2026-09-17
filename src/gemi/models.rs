@@ -642,9 +642,12 @@ impl ModelManager {
                         .and_then(|e| e.to_str())
                         .unwrap_or("")
                         .to_lowercase();
+                    // "bin" deliberately excluded: too generic a signal on its
+                    // own (browser/GPU-shader/build-tool caches all produce
+                    // large .bin files with no relation to model weights).
                     let is_valid = matches!(
                         lower_ext.as_str(),
-                        "gguf" | "safetensors" | "onnx" | "bin" | "pt" | "ckpt"
+                        "gguf" | "safetensors" | "onnx" | "pt" | "ckpt"
                     );
                     if is_valid && path.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000 {
                         let file_name =
@@ -808,7 +811,10 @@ impl ModelManager {
                         .and_then(|e| e.to_str())
                         .unwrap_or("")
                         .to_lowercase();
-                    if ["gguf", "safetensors", "onnx", "bin", "pt", "ckpt"]
+                    // "bin" deliberately excluded: too generic a signal on its
+                    // own (browser/GPU-shader/build-tool caches all produce
+                    // large .bin files with no relation to model weights).
+                    if ["gguf", "safetensors", "onnx", "pt", "ckpt"]
                         .contains(&lower_ext.as_str())
                         && path.metadata().map(|m| m.len()).unwrap_or(0) > 1_000_000
                     {
