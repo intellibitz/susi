@@ -397,6 +397,7 @@ impl HardwareProfiler {
                     label: step.label,
                     hf_repo: step.hf_repo,
                     hf_file: step.hf_file,
+                    tokenizer_repo: step.tokenizer_repo,
                 });
             }
         }
@@ -408,6 +409,7 @@ impl HardwareProfiler {
                 label: "Minimum Viable Substrate (Config Fallback)".to_string(),
                 hf_repo: fallback.hf_repo,
                 hf_file: fallback.hf_file,
+                tokenizer_repo: fallback.tokenizer_repo,
             });
         }
 
@@ -499,6 +501,7 @@ pub struct ModelLadderStep {
     pub label: String,
     pub hf_repo: String,
     pub hf_file: String,
+    pub tokenizer_repo: String,
 }
 
 #[cfg(test)]

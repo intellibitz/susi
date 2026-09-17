@@ -1287,10 +1287,18 @@ impl ModelManager {
             }
 
             if !tokenizer_path.exists() {
+                // GGUF-quantization repos (e.g. bartowski/*-GGUF) generally don't
+                // carry a tokenizer.json themselves; it lives in the original
+                // instruct-tuned repo, so a dedicated tokenizer_repo is required.
+                let tokenizer_repo = if best_step.tokenizer_repo.is_empty() {
+                    &best_step.hf_repo
+                } else {
+                    &best_step.tokenizer_repo
+                };
                 let url = format!(
                     "{}/{}/resolve/main/{}",
                     cfg.hf_base_url(),
-                    best_step.hf_repo,
+                    tokenizer_repo,
                     cfg.tokenizer_filename()
                 );
                 let _ = ModelDownloadController::global().start_download(&url);

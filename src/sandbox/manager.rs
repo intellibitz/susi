@@ -447,6 +447,8 @@ pub struct ModelLadderConfigStep {
     #[serde(default)]
     pub hf_file: String,
     #[serde(default)]
+    pub tokenizer_repo: String,
+    #[serde(default)]
     pub min_ram_gb: f32,
 }
 

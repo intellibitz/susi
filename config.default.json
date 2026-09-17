@@ -135,6 +135,7 @@
     {
       "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
       "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "tokenizer_repo": "Qwen/Qwen2.5-1.5B-Instruct",
       "label": "1.5B Parameters (Fast Local Edge)",
       "min_ram_gb": 0,
       "step": 1
@@ -142,6 +143,7 @@
     {
       "hf_file": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
       "hf_repo": "bartowski/Qwen2.5-7B-Instruct-GGUF",
+      "tokenizer_repo": "Qwen/Qwen2.5-7B-Instruct",
       "label": "7B Parameters (Mid-Range Desktop)",
       "min_ram_gb": 8,
       "step": 2
@@ -149,6 +151,7 @@
     {
       "hf_file": "Qwen2.5-14B-Instruct-Q4_K_M.gguf",
       "hf_repo": "bartowski/Qwen2.5-14B-Instruct-GGUF",
+      "tokenizer_repo": "Qwen/Qwen2.5-14B-Instruct",
       "label": "14B Parameters (High-Accuracy Workstation)",
       "min_ram_gb": 16,
       "step": 3
@@ -156,6 +159,7 @@
     {
       "hf_file": "Qwen2.5-32B-Instruct-Q4_K_M.gguf",
       "hf_repo": "bartowski/Qwen2.5-32B-Instruct-GGUF",
+      "tokenizer_repo": "Qwen/Qwen2.5-32B-Instruct",
       "label": "32B Parameters (High-End Workstation)",
       "min_ram_gb": 32,
       "step": 4
@@ -163,6 +167,7 @@
     {
       "hf_file": "Qwen2.5-72B-Instruct-Q4_K_M.gguf",
       "hf_repo": "bartowski/Qwen2.5-72B-Instruct-GGUF",
+      "tokenizer_repo": "Qwen/Qwen2.5-72B-Instruct",
       "label": "72B Parameters (Ultra-Capacity Workstation)",
       "min_ram_gb": 64,
       "step": 5
@@ -298,7 +303,8 @@
   "gemi_port": 9091,
   "default_fallback_model": {
     "hf_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
-    "hf_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
+    "hf_repo": "Qwen/Qwen2.5-0.5B-Instruct-GGUF",
+    "tokenizer_repo": "Qwen/Qwen2.5-0.5B-Instruct"
   },
   "udp_discovery_port": 9092,
   "model_scoring_heuristics": {
