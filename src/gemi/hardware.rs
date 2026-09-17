@@ -402,11 +402,12 @@ impl HardwareProfiler {
         }
 
         if ladder.is_empty() {
+            let fallback = cfg.default_fallback_model();
             ladder.push(ModelLadderStep {
                 step: 1,
-                label: "1.5B Parameters (Fast Local Edge)".to_string(),
-                hf_repo: "susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF".to_string(),
-                hf_file: "susi-alpha-1.5b-instruct-q4_k_m.gguf".to_string(),
+                label: "Minimum Viable Substrate (Config Fallback)".to_string(),
+                hf_repo: fallback.hf_repo,
+                hf_file: fallback.hf_file,
             });
         }
 

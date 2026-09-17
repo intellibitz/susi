@@ -1,7 +1,7 @@
 ---
 schema = "susi/evidence/v1"
 version = "0.1.2022966"
-monotonic_range = "EV-2022924-001..EV-2022920-016"
+monotonic_range = "EV-2022924-001..EV-2022920-017"
 last_verification = 2026-09-17T00:00:00Z
 epistemic_score = 1.0
 ---
@@ -30,3 +30,4 @@ This document defines the sovereign ledger of functional mastery that anchors th
 | EV-2022920-014 | [MISSION] | admin mission: download the best model for this hardware, use Step 2 (7B) for now if 72B is gated | [ensure_hardware_optimal_models](method://ensure_hardware_optimal_models) | VERIFIED: fallback ladder logic confirmed present (`trigger_ladder_fallback`, `src/gemi/models.rs:984`); not exercised on this host since 72B was not gated. |
 | EV-2022920-015 | [MISSION] | verify-download-agent | [verify_and_provision_32b_and_72b_models](method://verify_and_provision_32b_and_72b_models) | VERIFIED: live-executed `susi verify-download-agent`; returned `COMPLETED_VERIFIED` for both 32B and 72B with accurate byte counts. |
 | EV-2022920-016 | [MISSION] | start | [Commands::Start](method://Commands::Start) | FIXED 2026-09-17: added `susi start` as a real CLI subcommand — ensures the global daemon is running (`SusiDaemon::ensure_daemon_running`, already invoked pre-dispatch) and reports its PID via `SusiDaemon::check_status`. Live run confirmed: `[SUSI Daemon] Running (PID: 640605)`. |
+| EV-2022920-017 | [AUDIT] | Mandate 35 drift: hardcoded vendor strings in Rust source | [SusiConfig](class://SusiConfig) | FIXED 2026-09-17: `get_progressive_model_ladder`'s empty-ladder fallback (`src/gemi/hardware.rs`) hardcoded a fabricated, non-existent HF repo (`susi-alpha/susi-alpha-1.5b-instruct-v0.1-GGUF`); now calls the existing but previously-unused `SusiConfig::default_fallback_model()`, which resolves to the real `Qwen/Qwen2.5-0.5B-Instruct-GGUF`. Also centralized 12 repeated literals (`"susi-alpha.safetensors"` x8 across `alpha.rs`/`pkb.rs`/`ama.rs`, `"tokenizer.json"` x4, `"https://huggingface.co"` x6 in `models.rs`) into three new `config.default.json` keys (`alpha_weights_filename`, `tokenizer_filename`, `hf_base_url`) with matching `SusiConfig` accessors. `cargo check` clean, 42/42 `cargo test --lib` passing. |

@@ -42,7 +42,10 @@ impl SusiAlphaModel {
     }
 
     pub fn load(global_dir: &Path) -> Result<Self> {
-        let weights_path = global_dir.join("models/susi-alpha.safetensors");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load(global_dir)
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_path = global_dir.join("models").join(&alpha_filename);
         let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
 
         if weights_path.exists() {
@@ -167,7 +170,10 @@ impl SusiAlphaModel {
         }
 
         // Atomic Model Save (Rule 13 Hardening)
-        let weights_path = global_dir.join("models/susi-alpha.safetensors");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load(global_dir)
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_path = global_dir.join("models").join(&alpha_filename);
         let tmp_path = weights_path.with_extension("tmp");
         varmap.save(&tmp_path)?;
         std::fs::rename(tmp_path, weights_path)?;
@@ -176,7 +182,10 @@ impl SusiAlphaModel {
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
-        let weights_path = global_dir.join("models/susi-alpha.safetensors");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load(global_dir)
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_path = global_dir.join("models").join(alpha_filename);
         if let Ok(meta) = std::fs::metadata(weights_path) {
             return format!("{:?}", meta.modified().unwrap());
         }

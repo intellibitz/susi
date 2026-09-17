@@ -545,6 +545,15 @@ impl SusiConfig {
     pub fn alpha_weights_url(&self) -> String {
         self.get_string("alpha_weights_url", "")
     }
+    pub fn alpha_weights_filename(&self) -> String {
+        self.get_string("alpha_weights_filename", "susi-alpha.safetensors")
+    }
+    pub fn tokenizer_filename(&self) -> String {
+        self.get_string("tokenizer_filename", "tokenizer.json")
+    }
+    pub fn hf_base_url(&self) -> String {
+        self.get_string("hf_base_url", "https://huggingface.co")
+    }
     pub fn inference_endpoints(&self) -> InferenceEndpointsConfig {
         self.get_or_bundled_default("inference_endpoints")
     }

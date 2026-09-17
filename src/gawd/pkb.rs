@@ -101,6 +101,9 @@ impl ProtocolKnowledgeBase {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
 
         let mut weights = Vec::new();
         if let Ok(entries) = std::fs::read_dir(models_dir) {
@@ -112,9 +115,9 @@ impl ProtocolKnowledgeBase {
             }
         }
 
-        let local_weights = workspace.join("target/release/susi-alpha.safetensors");
+        let local_weights = workspace.join("target/release").join(&alpha_filename);
         if local_weights.exists() {
-            weights.push("target/release/susi-alpha.safetensors".into());
+            weights.push(format!("target/release/{}", alpha_filename));
         }
 
         weights
@@ -125,7 +128,10 @@ impl ProtocolKnowledgeBase {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
-        let weights_file = models_dir.join("susi-alpha.safetensors");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_file = models_dir.join(alpha_filename);
 
         if weights_file.exists() {
             let meta = std::fs::metadata(&weights_file)?;
@@ -147,7 +153,10 @@ impl ProtocolKnowledgeBase {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let models_dir = PathBuf::from(home).join(".susi").join("models");
-        let weights_file = models_dir.join("susi-alpha.safetensors");
+        let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_file = models_dir.join(alpha_filename);
 
         if !weights_file.exists() {
             return Err(crate::error::EaiError::inference(

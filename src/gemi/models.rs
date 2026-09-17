@@ -469,16 +469,19 @@ impl ModelManager {
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {
+        let tokenizer_filename = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .tokenizer_filename();
         let model_path = Self::get_model_path(model_id)?;
         if let Some(parent) = model_path.parent() {
-            let tokenizer_path = parent.join("tokenizer.json");
+            let tokenizer_path = parent.join(&tokenizer_filename);
             if tokenizer_path.exists() {
                 return Some(tokenizer_path);
             }
         }
 
         let susi_models = Self::get_models_dir();
-        let default_tokenizer = susi_models.join("tokenizer.json");
+        let default_tokenizer = susi_models.join(&tokenizer_filename);
         if default_tokenizer.exists() {
             return Some(default_tokenizer);
         }
@@ -903,7 +906,10 @@ impl ModelManager {
             .map(|len| len + effective_start)
             .unwrap_or(0);
 
-        let is_tokenizer = target.contains("tokenizer.json");
+        let tokenizer_filename = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .tokenizer_filename();
+        let is_tokenizer = target.contains(&tokenizer_filename);
         let report_total = if content_len > 0 {
             content_len
         } else if is_tokenizer {
@@ -985,8 +991,10 @@ impl ModelManager {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let fallback = cfg.default_fallback_model();
         let fallback_url = format!(
-            "https://huggingface.co/{}/resolve/main/{}",
-            fallback.hf_repo, fallback.hf_file
+            "{}/{}/resolve/main/{}",
+            cfg.hf_base_url(),
+            fallback.hf_repo,
+            fallback.hf_file
         );
         eprintln!(
             "[Model Manager] Pivoting to 100% public substrate: {}",
@@ -1029,14 +1037,17 @@ impl ModelManager {
             return;
         }
         std::thread::spawn(move || {
+            let hf_base_url = crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .hf_base_url();
             let ladder = HardwareProfiler::get_progressive_model_ladder();
             let targets: Vec<(String, u64)> = ladder
                 .iter()
                 .filter(|s| s.step >= 4 || ladder.len() <= 2)
                 .map(|s| {
                     let url = format!(
-                        "https://huggingface.co/{}/resolve/main/{}",
-                        s.hf_repo, s.hf_file
+                        "{}/{}/resolve/main/{}",
+                        hf_base_url, s.hf_repo, s.hf_file
                     );
                     let threshold = if s.step >= 5 {
                         35_000_000_000u64
@@ -1079,6 +1090,9 @@ impl ModelManager {
             );
         }
         let start = std::time::Instant::now();
+        let hf_base_url = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .hf_base_url();
         let client = match reqwest::blocking::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(15))
@@ -1089,7 +1103,7 @@ impl ModelManager {
         };
 
         match client
-            .get("https://huggingface.co/api/models")
+            .get(format!("{}/api/models", hf_base_url))
             .header("User-Agent", "SUSI/0.1")
             .send()
         {
@@ -1118,6 +1132,9 @@ impl ModelManager {
     ) -> EaiResult<ModelAgentReport> {
         let models_dir = Self::get_models_dir();
         let _ = fs::create_dir_all(&models_dir);
+        let hf_base_url = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .hf_base_url();
 
         let (net_ok, net_msg, latency) = Self::check_network_status();
         let network_status_str = format!(
@@ -1138,8 +1155,8 @@ impl ModelManager {
             let file_name = &s.hf_file;
             let path = models_dir.join(file_name);
             let url = format!(
-                "https://huggingface.co/{}/resolve/main/{}",
-                s.hf_repo, s.hf_file
+                "{}/{}/resolve/main/{}",
+                hf_base_url, s.hf_repo, s.hf_file
             );
 
             let threshold = if s.step >= 5 {
@@ -1230,6 +1247,7 @@ impl ModelManager {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
+        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         let existing = Self::scan_system_for_local_models(workspace);
         if existing.is_empty() || existing.iter().all(|m| m.model_id().contains("native")) {
@@ -1241,7 +1259,7 @@ impl ModelManager {
         if let Some(best_step) = ladder.last() {
             let models_dir = Self::get_models_dir();
             let model_path = models_dir.join(&best_step.hf_file);
-            let tokenizer_path = models_dir.join("tokenizer.json");
+            let tokenizer_path = models_dir.join(cfg.tokenizer_filename());
 
             let needs_upgrade = match &best_local {
                 None => true,
@@ -1260,16 +1278,20 @@ impl ModelManager {
 
             if needs_upgrade && !model_path.exists() {
                 let verified_url = format!(
-                    "https://huggingface.co/{}/resolve/main/{}",
-                    best_step.hf_repo, best_step.hf_file
+                    "{}/{}/resolve/main/{}",
+                    cfg.hf_base_url(),
+                    best_step.hf_repo,
+                    best_step.hf_file
                 );
                 let _ = ModelDownloadController::global().start_download(&verified_url);
             }
 
             if !tokenizer_path.exists() {
                 let url = format!(
-                    "https://huggingface.co/{}/resolve/main/tokenizer.json",
-                    best_step.hf_repo
+                    "{}/{}/resolve/main/{}",
+                    cfg.hf_base_url(),
+                    best_step.hf_repo,
+                    cfg.tokenizer_filename()
                 );
                 let _ = ModelDownloadController::global().start_download(&url);
             }

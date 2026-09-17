@@ -806,8 +806,12 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name = crate::gemi::models::ModelManager::get_selected_model()
-            .unwrap_or_else(|| "susi-alpha.safetensors (Local Neural Substrate)".to_string());
+        let model_name = crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+            let filename = crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .alpha_weights_filename();
+            format!("{} (Local Neural Substrate)", filename)
+        });
 
         let mut report = String::new();
         report.push_str("# susi Substrate - Technical Report\n\n");
@@ -888,8 +892,11 @@ impl SusiMasterAgent {
             agents.len()
         ));
 
-        let model_name = crate::gemi::models::ModelManager::get_selected_model()
-            .unwrap_or_else(|| "susi-alpha.safetensors".to_string());
+        let model_name = crate::gemi::models::ModelManager::get_selected_model().unwrap_or_else(|| {
+            crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .alpha_weights_filename()
+        });
 
         let ans = format!(
             "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
