@@ -734,7 +734,7 @@ impl GawdAgent for LibraryScoutAgent {
         };
 
         let url_mask = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get_string("crates_io_url", "https://crates.io/api/v1/crates?q={}&per_page=5");
-        let url = url_mask.replace("{}", &query_term);
+        let url = url_mask.replace("{}", query_term);
         let mut results = Vec::new();
 
         if let Ok(resp) = crate::sandbox::manager::http_agent()

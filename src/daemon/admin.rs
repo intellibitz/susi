@@ -210,11 +210,11 @@ impl SusiAdmin {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
             let global_dir = home.join(".susi");
-            let _ = fs::create_dir_all(&global_dir);
+            fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
 
             if let Ok(hash) = crate::daemon::server::SusiDaemon::calculate_binary_hash(&current_exe) {
-                let _ = fs::write(&hash_file, hash);
+                fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
             }
         }
 
@@ -443,7 +443,7 @@ impl SusiAdmin {
             evidence_path = workspace.join(".susi/EVIDENCE.md");
             if !evidence_path.exists() {
                 // Synthesize a new local evidence from hard-compiled genome if missing
-                let _ = fs::create_dir_all(workspace.join(".susi"));
+                fs::create_dir_all(workspace.join(".susi")).map_err(|e| EaiError::filesystem(e.to_string()))?;
                 fs::write(
                     &evidence_path,
                     crate::gawd::self_core::AlphaSelf::EVIDENCE_MD,
