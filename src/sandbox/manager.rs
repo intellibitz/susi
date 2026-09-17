@@ -596,6 +596,19 @@ pub struct MemoryExperienceHeuristics {
     pub failure_markers: Vec<String>,
 }
 
+/// Config-driven natural-intent classification for `SusiAdmin::classify_natural_intent`
+/// (Mandate 35: no hardcoded keyword lists in Rust).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct IntentClassifyConfig {
+    #[serde(flatten)]
+    pub fields: DynamicRegistry,
+    pub query_exact: Vec<String>,
+    pub query_prefixes: Vec<String>,
+    pub query_contains: Vec<String>,
+    pub motion_contains: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct GovernancePatterns {
@@ -857,6 +870,9 @@ impl SusiConfig {
     }
     pub fn admin_pulses(&self) -> AdminPulsesConfig {
         self.get_or_bundled_default("admin_pulses")
+    }
+    pub fn intent_classify(&self) -> IntentClassifyConfig {
+        self.get_or_bundled_default("intent_classify")
     }
     pub fn alpha_weights_url(&self) -> String {
         self.get_or_bundled_default("alpha_weights_url")

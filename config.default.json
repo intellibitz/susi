@@ -225,6 +225,31 @@
     "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
     "verify_pulse": "admin pulse: verify version alignment across manifest and documents"
   },
+  "intent_classify": {
+    "query_exact": [
+      "identity",
+      "status",
+      "models",
+      "version",
+      "ls",
+      "dir"
+    ],
+    "query_prefixes": [
+      "ls ",
+      "susi status",
+      "susi identity",
+      "susi models"
+    ],
+    "query_contains": [
+      "who am i",
+      "whoami"
+    ],
+    "motion_contains": [
+      "motion",
+      "architecture",
+      "hardcode"
+    ]
+  },
   "inference_endpoints": {
     "endpoints": [
       {

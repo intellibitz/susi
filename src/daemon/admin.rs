@@ -6,6 +6,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use rayon::prelude::*;
 
 pub struct SusiAdmin;
 
@@ -21,12 +22,20 @@ impl SusiAdmin {
     pub fn get_cargo_version(workspace: &Path) -> EaiResult<String> {
         let cargo_toml_path = workspace.join("Cargo.toml");
         let content = fs::read_to_string(&cargo_toml_path)?;
-        let version = content
-            .lines()
-            .find(|l| l.trim().starts_with("version = \""))
-            .and_then(|l| l.split('"').nth(1))
-            .ok_or_else(|| EaiError::config("Could not find version in Cargo.toml"))?;
-        Ok(version.to_string())
+        let mut in_package = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[package]" {
+                in_package = true;
+            } else if trimmed.starts_with("[") {
+                in_package = false;
+            } else if in_package && trimmed.starts_with("version = \"") {
+                if let Some(v) = trimmed.split('"').nth(1) {
+                    return Ok(v.to_string());
+                }
+            }
+        }
+        Err(EaiError::config("Could not find version in Cargo.toml".to_string()))
     }
 
     /// Full Compliance Audit (Rule 15)
@@ -38,34 +47,56 @@ impl SusiAdmin {
         let mut overall_success = true;
 
         // 1. Audit Security Patterns (No hardcoded keys)
-        let mut secret_found = false;
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let patterns = &cfg.governance().secret_tokens();
+        let patterns = cfg.governance().secret_tokens();
         let src_dir = workspace.join("src");
-        if let Ok(entries) = fs::read_dir(&src_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                if path.is_file()
-                    && !file_name.contains("security.rs")
-                    && !file_name.contains("admin.rs")
-                    && !file_name.contains("manager.rs")
-                {
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        for p in patterns {
-                            if content.contains(p) {
-                                secret_found = true;
-                                report.push_str(&format!("- [FAIL] Security: Potential secret matching '{}' detected in {}.\n", p, path.display()));
-                            }
+
+        let mut files = Vec::new();
+        let mut dirs = vec![src_dir];
+        while let Some(dir) = dirs.pop() {
+            if let Ok(entries) = fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        dirs.push(path);
+                    } else if path.is_file() {
+                        let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                        if !file_name.contains("security.rs")
+                            && !file_name.contains("admin.rs")
+                            && !file_name.contains("manager.rs")
+                        {
+                            files.push(path);
                         }
                     }
                 }
             }
         }
-        if !secret_found {
+
+        let hit_reports: Vec<String> = files
+            .into_par_iter()
+            .filter_map(|path| {
+                if let Ok(content) = fs::read_to_string(&path) {
+                    let mut local_hits = Vec::new();
+                    for p in &patterns {
+                        if content.contains(p) {
+                            local_hits.push(format!("- [FAIL] Security: Potential secret matching '{}' detected in {}.\n", p, path.display()));
+                        }
+                    }
+                    if !local_hits.is_empty() {
+                        return Some(local_hits.join(""));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        if hit_reports.is_empty() {
             report.push_str("- [PASS] Security: No hardcoded secrets detected.\n");
         } else {
             overall_success = false;
+            for h in hit_reports {
+                report.push_str(&h);
+            }
         }
 
         // 2. Enforce Workspace Purity (Rule 12)
@@ -151,8 +182,15 @@ impl SusiAdmin {
         if launcher_cargo.exists() {
             let launcher_content = fs::read_to_string(&launcher_cargo)?;
             let mut updated = Vec::new();
+            let mut in_package = false;
             for line in launcher_content.lines() {
-                if line.trim().starts_with("version = \"") {
+                let trimmed = line.trim();
+                if trimmed == "[package]" {
+                    in_package = true;
+                } else if trimmed.starts_with("[") {
+                    in_package = false;
+                }
+                if in_package && trimmed.starts_with("version = \"") {
                     updated.push(format!("version = \"{}\"", version));
                 } else {
                     updated.push(line.to_string());
@@ -283,37 +321,34 @@ impl SusiAdmin {
     /// not complete.
     pub fn execute_release(workspace: &Path) -> EaiResult<String> {
         eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
-        let check = Command::new("cargo")
+        let mut check = Command::new("cargo")
             .args(["check", "--all-targets", "--all-features"])
             .current_dir(workspace)
-            .output()?;
-        if !check.status.success() {
-            let stderr = String::from_utf8_lossy(&check.stderr);
-            return Err(EaiError::process(format!(
-                "Release aborted: cargo check failed.\n{}",
-                stderr
-            )));
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        let status = check.wait()?;
+        if !status.success() {
+            return Err(EaiError::process("Release aborted: cargo check failed.".to_string()));
         }
 
         eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
         let _ = Self::audit_compliance(workspace, Some("release"))?;
 
         eprintln!("[Release Gatekeeper] 3. Executing Native Test Harness...");
-        let output = Command::new("cargo")
+        let mut test = Command::new("cargo")
             .arg("test")
             .current_dir(workspace)
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(EaiError::process(format!(
-                "Release aborted: Native tests failed.\n{}",
-                stderr
-            )));
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        let status = test.wait()?;
+        if !status.success() {
+            return Err(EaiError::process("Release aborted: Native tests failed.".to_string()));
         }
 
         eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
-        let clippy = Command::new("cargo")
+        let mut clippy = Command::new("cargo")
             .args([
                 "clippy",
                 "--all-targets",
@@ -323,28 +358,28 @@ impl SusiAdmin {
                 "warnings",
             ])
             .current_dir(workspace)
-            .output()?;
-        if !clippy.status.success() {
-            let stderr = String::from_utf8_lossy(&clippy.stderr);
-            return Err(EaiError::process(format!(
-                "Release aborted: Linting failed.\n{}",
-                stderr
-            )));
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        let status = clippy.wait()?;
+        if !status.success() {
+            return Err(EaiError::process("Release aborted: Linting failed.".to_string()));
         }
 
         eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
         let missions = ["identity", "status", "models"];
         for mission in missions {
-            let mission_out = Command::new("cargo")
+            let mut mission_out = Command::new("cargo")
                 .args(["run", "--quiet", "--", mission])
                 .current_dir(workspace)
-                .output()?;
-
-            if !mission_out.status.success() {
-                let stderr = String::from_utf8_lossy(&mission_out.stderr);
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            let status = mission_out.wait()?;
+            if !status.success() {
                 return Err(EaiError::process(format!(
-                    "Release aborted: Ephemeral mission '{}' failed.\n{}",
-                    mission, stderr
+                    "Release aborted: Ephemeral mission '{}' failed.",
+                    mission
                 )));
             }
         }
@@ -472,26 +507,33 @@ impl SusiAdmin {
             ));
         }
 
-        let last_index = lines
-            .iter()
-            .filter_map(|l| {
-                if l.contains("EV-") {
-                    let parts: Vec<&str> = l.split('|').collect();
-                    if parts.len() > 1 {
-                        return parts[1]
-                            .split('-')
-                            .next_back()
-                            .and_then(|s| s.trim().parse::<usize>().ok());
+        let mut last_index = 0;
+        let mut best_suffix = "2022920".to_string();
+
+        for line in &lines {
+            if line.contains("EV-") {
+                let parts: Vec<&str> = line.split('|').collect();
+                if parts.len() > 1 {
+                    let token = parts[1].trim();
+                    if token.starts_with("EV-") {
+                        let sub_parts: Vec<&str> = token.split('-').collect();
+                        if sub_parts.len() >= 3 {
+                            if sub_parts[1] > best_suffix.as_str() {
+                                best_suffix = sub_parts[1].to_string();
+                            }
+                            if let Ok(idx) = sub_parts[2].parse::<usize>() {
+                                if idx > last_index {
+                                    last_index = idx;
+                                }
+                            }
+                        }
                     }
                 }
-                None
-            })
-            .max()
-            .unwrap_or(0);
+            }
+        }
 
         let new_index = last_index + 1;
-        let version_suffix = "2022920"; // Update dynamically if possible
-        let id = format!("EV-{}-{:03}", version_suffix, new_index);
+        let id = format!("EV-{}-{:03}", best_suffix, new_index);
 
         let entry = format!(
             "| {} | {} | {} | [manual](symbol://manual) | STAGED |",
@@ -501,7 +543,7 @@ impl SusiAdmin {
         // 3. Inject into Section 1 (Pending)
         let mut section1_start = None;
         for (i, line) in lines.iter().enumerate() {
-            if line.contains("## 1. Pending failing Pulse") || line.contains("## 1. Pending") {
+            if line.contains("## 1. Sovereign Ledger (The Monotonic Proof)") || line.contains("## 1. Pending") {
                 section1_start = Some(i);
                 break;
             }
@@ -511,7 +553,9 @@ impl SusiAdmin {
             let mut insert_pos = start + 1;
             while insert_pos < lines.len()
                 && (lines[insert_pos].trim().is_empty()
-                    || lines[insert_pos].trim().starts_with("---"))
+                    || lines[insert_pos].trim().starts_with("---")
+                    || lines[insert_pos].trim().starts_with("| ID")
+                    || lines[insert_pos].trim().starts_with("| :---"))
             {
                 insert_pos += 1;
             }
@@ -520,7 +564,11 @@ impl SusiAdmin {
             lines.push(entry);
         }
 
-        fs::write(&evidence_path, lines.join("\n") + "\n")?;
+        let mut final_content = lines.join("\n");
+        if !final_content.ends_with('\n') {
+            final_content.push('\n');
+        }
+        fs::write(&evidence_path, final_content)?;
 
         Ok(format!(
             "Intent ingested successfully as {} into sovereign memory",
