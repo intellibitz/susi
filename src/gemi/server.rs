@@ -168,8 +168,10 @@ async fn handle_gemi_request(
                 || p == "/v1"
                 || p == "/v1/" =>
         {
-            let body_bytes = req
-                .into_body()
+            // H9: Limit request body to 10MB to prevent OOM DOS
+            use http_body_util::BodyExt;
+            let limited_body = http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024);
+            let body_bytes = limited_body
                 .collect()
                 .await
                 .map(|c| c.to_bytes())

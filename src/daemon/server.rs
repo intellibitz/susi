@@ -458,7 +458,7 @@ impl SusiDaemon {
                 }
 
                 let listener = std::net::TcpListener::bind("127.0.0.1:0")
-                    .expect("Failed to bind to random port");
+                    .unwrap_or_else(|_| std::net::TcpListener::bind("127.0.0.1:0").unwrap()); // Last resort
                 let new_port = listener.local_addr().unwrap().port();
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,

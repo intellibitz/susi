@@ -238,10 +238,11 @@ impl SusiMasterAgent {
                     crate::gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
                 )
             } else if lower_goal == "ls"
-                || lower_goal.starts_with("ls ")
+                || lower_goal.starts_with("ls -")
+                || lower_goal.starts_with("ls ") && lower_goal.split_whitespace().count() <= 3
                 || lower_goal == "dir"
-                || lower_goal.contains("list directory")
-                || lower_goal.contains("list files")
+                || lower_goal == "list directory"
+                || lower_goal == "list files"
             {
                 let cmd = if lower_goal.starts_with("ls ") {
                     goal
@@ -253,13 +254,13 @@ impl SusiMasterAgent {
                     &serde_json::json!(cmd),
                     workspace,
                 )
-            } else if lower_goal.contains("dashboard") {
+            } else if lower_goal.trim() == "dashboard" || lower_goal == "susi dashboard" || lower_goal == "show dashboard" {
                 crate::gmcp::tools::ToolRegistry::execute_tool(
                     "sovereign_dashboard",
                     &serde_json::json!(null),
                     workspace,
                 )
-            } else if lower_goal.contains("bloat") {
+            } else if lower_goal.trim() == "bloat audit" || lower_goal == "run bloat audit" || lower_goal == "bloat-audit" {
                 crate::gmcp::tools::ToolRegistry::execute_tool(
                     "bloat_audit",
                     &serde_json::json!(null),
@@ -272,7 +273,7 @@ impl SusiMasterAgent {
                     "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
                     hw.cpu_brand, hw.ram_gb
                 )
-            } else if lower_goal.contains("models") {
+            } else if lower_goal.trim() == "models" || lower_goal == "list models" || lower_goal == "show models" {
                 let models = crate::gemi::models::ModelManager::list_models(workspace);
                 let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
                 for m in &models {
