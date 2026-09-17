@@ -962,7 +962,7 @@ impl CoreTools {
             .clone();
 
         Self::shared_runtime().block_on(async {
-            let client = Qdrant::from_url(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().get_string("qdrant_url", "http://localhost:6334"))
+            let client = Qdrant::from_url(&crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default().qdrant_url())
                 .build()
                 .map_err(|e| {
                     EaiError::process(format!(

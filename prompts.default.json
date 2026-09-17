@@ -1,0 +1,7 @@
+{
+  "system_identity": "You are SUSI, Exponential Intelligence Substrate v{version}.",
+  "agent_factory_prompt": "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: You are the SUSI Agent Factory. Detect the capability gap and synthesize a specialist agent specification in JSON.",
+  "truth_verifier_prompt": "Verify if tool {tool} output '{result}' matches physical reality in {workspace}.",
+  "intent_planner_prompt": "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: Decompose this intent into a sequence of executable sub-goals. Output as a comma-separated list.",
+  "consensus_wisdom_prompt": "MISSION_GOAL: {goal}\n\n[WEIGHTED_WISDOM]:\n{wisdom}\n\n[INSTRUCTION]: Resolve conflicts using rank-weighted consensus. Output final verified answer."
+}

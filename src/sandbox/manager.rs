@@ -269,12 +269,9 @@ impl SusiPrompts {
     }
 
     fn default_dynamic() -> Self {
-        let mut prompts = DynamicRegistry::new();
-        prompts.insert("system_identity".to_string(), serde_json::json!("You are SUSI, Exponential Intelligence Substrate v{version}."));
-        prompts.insert("agent_factory_prompt".to_string(), serde_json::json!("MISSION_GOAL: {goal}\n\n[INSTRUCTION]: You are the SUSI Agent Factory. Detect the capability gap and synthesize a specialist agent specification in JSON."));
-        prompts.insert("truth_verifier_prompt".to_string(), serde_json::json!("Verify if tool {tool} output '{result}' matches physical reality in {workspace}."));
-        prompts.insert("intent_planner_prompt".to_string(), serde_json::json!("MISSION_GOAL: {goal}\n\n[INSTRUCTION]: Decompose this intent into a sequence of executable sub-goals. Output as a comma-separated list."));
-        prompts.insert("consensus_wisdom_prompt".to_string(), serde_json::json!("MISSION_GOAL: {goal}\n\n[WEIGHTED_WISDOM]:\n{wisdom}\n\n[INSTRUCTION]: Resolve conflicts using rank-weighted consensus. Output final verified answer."));
+        let prompts: DynamicRegistry =
+            serde_json::from_str(include_str!("../../prompts.default.json"))
+                .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { prompts, chat_templates: ChatTemplateConfig::default() }
     }
 
@@ -322,25 +319,9 @@ impl SusiMessages {
     }
 
     fn default_dynamic() -> Self {
-        let mut categories = HashMap::new();
-        categories.insert("daemon".to_string(), HashMap::from([
-            ("signal_received".to_string(), "[SusiDaemon] Received signal: {}".to_string()),
-            ("binary_recompiled".to_string(), "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string()),
-            ("binary_verified".to_string(), "[SusiDaemon] Binary integrity verified.".to_string()),
-            ("binary_tampered".to_string(), "[SusiDaemon] Binary integrity check FAILED. Potential tampering detected or build out of sync.".to_string()),
-            ("shutdown_initiated".to_string(), "[SusiDaemon] Graceful shutdown initiated.".to_string()),
-            ("lock_failed".to_string(), "[SusiDaemon] Failed to acquire lock: {}. Daemon likely already running.".to_string()),
-        ]));
-        categories.insert("readiness".to_string(), HashMap::from([
-            ("auditing_models".to_string(), "[Readiness] Auditing model substrate optimal state...".to_string()),
-            ("scanning_security".to_string(), "[Readiness] Scanning for exfiltration vectors and security leaks...".to_string()),
-            ("security_engaged".to_string(), "[READINESS: SECURITY PROTOCOLS ENGAGED]".to_string()),
-        ]));
-        categories.insert("swarm".to_string(), HashMap::from([
-            ("dispatch_init".to_string(), "- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...".to_string()),
-            ("consensus_reached".to_string(), "[SWARM COMPLETE] Consensus reached.".to_string()),
-            ("consensus_failed".to_string(), "[SWARM FAILED] {}".to_string()),
-        ]));
+        let categories: HashMap<String, StringRegistry> =
+            serde_json::from_str(include_str!("../../messages.default.json"))
+                .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { categories }
     }
 
@@ -410,6 +391,18 @@ pub struct ModelScoringHeuristics {
     pub size_gb_multipliers: HashMap<String, f32>,
     pub native_candle_bonus: f32,
     pub system_ram_buffer_gb: f32,
+}
+
+/// Tunable thresholds for when `SusiMemory::save_interaction` promotes an
+/// interaction from plain memory into the reasoning-experience distillation
+/// log (previously a hardcoded `output.len() > 50` + two magic substrings).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct MemoryExperienceHeuristics {
+    #[serde(flatten)]
+    pub fields: DynamicRegistry,
+    pub min_output_len: usize,
+    pub failure_markers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -576,34 +569,34 @@ impl SusiConfig {
         let v = self.settings.get(key)?; serde_json::from_value(v.clone()).ok()
     }
 
-    /// Falls back to the bundled config.default.json's value for `key` (not an
-    /// empty/zeroed struct) when a user's ~/.susi/config.json predates this key
-    /// or omits it — prevents silent no-op governance/routing/scoring on upgrade.
+    /// Falls back to the bundled config.default.json's value for `key` (not a
+    /// zero-value literal duplicated in Rust) when a user's ~/.susi/config.json
+    /// predates this key or omits it. This is the *only* fallback path for every
+    /// accessor below — config.default.json is the single source of truth for
+    /// every default; there is no second, Rust-side copy of any value that
+    /// could silently drift out of sync with it (as several of these already
+    /// had: gmcp_http_port/gemi_port/udp_discovery_port were scrambled between
+    /// their Rust literal and config.default.json, max_stdin_size_bytes was off
+    /// by 100x, reflex_training_threshold by 10x, and alpha_weights_url/
+    /// mcp_registry_url's Rust fallback was an empty string).
     fn get_or_bundled_default<T: for<'de> Deserialize<'de> + Default>(&self, key: &str) -> T {
         self.get(key)
             .unwrap_or_else(|| Self::default().get(key).unwrap_or_default())
     }
 
-    pub fn get_u16(&self, key: &str, default: u16) -> u16 { self.get(key).unwrap_or(default) }
-    pub fn get_u64(&self, key: &str, default: u64) -> u64 { self.get(key).unwrap_or(default) }
-    pub fn get_usize(&self, key: &str, default: usize) -> usize { self.get(key).unwrap_or(default) }
-    pub fn get_string(&self, key: &str, default: &str) -> String { self.get::<String>(key).unwrap_or_else(|| default.to_string()) }
-    pub fn get_bool(&self, key: &str, default: bool) -> bool { self.get(key).unwrap_or(default) }
-    pub fn get_f32(&self, key: &str, default: f32) -> f32 { self.get(key).unwrap_or(default) }
-
     // Backward compat accessors and helpers
-    pub fn gmcp_port(&self) -> u16 { self.get_u16("gmcp_port", 9090) }
-    pub fn gmcp_http_port(&self) -> u16 { self.get_u16("gmcp_http_port", 9091) }
-    pub fn gemi_port(&self) -> u16 { self.get_u16("gemi_port", 9092) }
-    pub fn udp_discovery_port(&self) -> u16 { self.get_u16("udp_discovery_port", 9093) }
-    pub fn execution_lease_secs(&self) -> u64 { self.get_u64("execution_lease_secs", 30) }
-    pub fn max_concurrent_agents(&self) -> usize { self.get_usize("max_concurrent_agents", 32) }
-    pub fn trust_level(&self) -> String { self.get_string("trust_level", "balanced") }
-    pub fn max_stdin_size_bytes(&self) -> usize { self.get_usize("max_stdin_size_bytes", 1048576) }
+    pub fn gmcp_port(&self) -> u16 { self.get_or_bundled_default("gmcp_port") }
+    pub fn gmcp_http_port(&self) -> u16 { self.get_or_bundled_default("gmcp_http_port") }
+    pub fn gemi_port(&self) -> u16 { self.get_or_bundled_default("gemi_port") }
+    pub fn udp_discovery_port(&self) -> u16 { self.get_or_bundled_default("udp_discovery_port") }
+    pub fn execution_lease_secs(&self) -> u64 { self.get_or_bundled_default("execution_lease_secs") }
+    pub fn max_concurrent_agents(&self) -> usize { self.get_or_bundled_default("max_concurrent_agents") }
+    pub fn trust_level(&self) -> String { self.get_or_bundled_default("trust_level") }
+    pub fn max_stdin_size_bytes(&self) -> usize { self.get_or_bundled_default("max_stdin_size_bytes") }
 
-    pub fn default_model(&self) -> String { self.get_string("default_model", "susi-alpha") }
-    pub fn default_engine(&self) -> String { self.get_string("default_engine", "susi-offline") }
-    pub fn mcp_registry_url(&self) -> String { self.get_string("mcp_registry_url", "") }
+    pub fn default_model(&self) -> String { self.get_or_bundled_default("default_model") }
+    pub fn default_engine(&self) -> String { self.get_or_bundled_default("default_engine") }
+    pub fn mcp_registry_url(&self) -> String { self.get_or_bundled_default("mcp_registry_url") }
     pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de>>(&self) -> T {
         self.get("bootstrap_mcp_servers").unwrap_or_else(|| serde_json::from_str("[]").unwrap())
     }
@@ -620,28 +613,34 @@ impl SusiConfig {
         self.get_or_bundled_default("admin_pulses")
     }
     pub fn alpha_weights_url(&self) -> String {
-        self.get_string("alpha_weights_url", "")
+        self.get_or_bundled_default("alpha_weights_url")
     }
     pub fn alpha_weights_filename(&self) -> String {
-        self.get_string("alpha_weights_filename", "susi-alpha.safetensors")
+        self.get_or_bundled_default("alpha_weights_filename")
     }
     pub fn tokenizer_filename(&self) -> String {
-        self.get_string("tokenizer_filename", "tokenizer.json")
+        self.get_or_bundled_default("tokenizer_filename")
     }
     pub fn hf_base_url(&self) -> String {
-        self.get_string("hf_base_url", "https://huggingface.co")
+        self.get_or_bundled_default("hf_base_url")
+    }
+    pub fn qdrant_url(&self) -> String {
+        self.get_or_bundled_default("qdrant_url")
+    }
+    pub fn crates_io_api_url(&self) -> String {
+        self.get_or_bundled_default("crates_io_api_url")
     }
     pub fn inference_endpoints(&self) -> InferenceEndpointsConfig {
         self.get_or_bundled_default("inference_endpoints")
     }
     pub fn agent_rank_threshold(&self) -> f32 {
-        self.get_f32("agent_rank_threshold", 0.5)
+        self.get_or_bundled_default("agent_rank_threshold")
     }
     pub fn cloud_scout_timeout_secs(&self) -> u64 {
-        self.get_u64("cloud_scout_timeout_secs", 10)
+        self.get_or_bundled_default("cloud_scout_timeout_secs")
     }
     pub fn reflex_training_threshold(&self) -> usize {
-        self.get_usize("reflex_training_threshold", 5)
+        self.get_or_bundled_default("reflex_training_threshold")
     }
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
         self.get_or_bundled_default("model_ladder")
@@ -657,6 +656,12 @@ impl SusiConfig {
     }
     pub fn model_scoring_heuristics(&self) -> ModelScoringHeuristics {
         self.get_or_bundled_default("model_scoring_heuristics")
+    }
+    pub fn memory_experience_heuristics(&self) -> MemoryExperienceHeuristics {
+        self.get_or_bundled_default("memory_experience_heuristics")
+    }
+    pub fn sandbox_image(&self) -> String {
+        self.get_or_bundled_default("sandbox_image")
     }
 }
 
@@ -680,8 +685,9 @@ impl SandboxManager {
         let docker = Docker::connect_with_local_defaults()
             .map_err(|e| EaiError::process(format!("Docker connection failed: {}", e)))?;
 
+        let sandbox_image = SusiConfig::load_global().unwrap_or_default().sandbox_image();
         let config = ContainerCreateBody {
-            image: Some("alpine:latest".to_string()),
+            image: Some(sandbox_image),
             cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
             ..Default::default()
         };
@@ -962,7 +968,12 @@ impl SusiMemory {
             let _ = writeln!(f, "{}", entry);
         }
 
-        if output.len() > 50 && !output.contains("[FAIL]") && !output.contains("error") {
+        let heuristics = SusiConfig::load_global().unwrap_or_default().memory_experience_heuristics();
+        let has_failure_marker = heuristics
+            .failure_markers
+            .iter()
+            .any(|marker| output.contains(marker.as_str()));
+        if output.len() > heuristics.min_output_len && !has_failure_marker {
             let exp_file = susi_dir.join("reasoning_experience.jsonl");
             let exp_entry = serde_json::json!({
                 "intent": input,
@@ -1003,6 +1014,44 @@ mod tests {
         let cfg = SusiConfig::load(dir).expect("Failed to load config");
         assert_eq!(cfg.gmcp_port(), 9090);
         let _ = fs::remove_dir_all(dir);
+    }
+
+    /// Every scalar accessor's only fallback is config.default.json itself
+    /// (via get_or_bundled_default) — there is no second, Rust-literal copy
+    /// of any default that could drift out of sync with it. This was not
+    /// previously true: gmcp_http_port/gemi_port/udp_discovery_port's Rust
+    /// literals were scrambled relative to config.default.json,
+    /// max_stdin_size_bytes was off by 100x, reflex_training_threshold by
+    /// 10x, and alpha_weights_url/mcp_registry_url's Rust fallback was an
+    /// empty string — all invisible in practice because the fallback path
+    /// only fires when config.default.json itself is missing a key, which
+    /// normal operation never hits. Asserting against config.default.json's
+    /// actual values (not against a second hand-copied literal in this test)
+    /// is what would have caught that drift.
+    #[test]
+    fn test_config_accessors_match_bundled_default_single_source_of_truth() {
+        let default = SusiConfig::default();
+        let raw: serde_json::Value =
+            serde_json::from_str(include_str!("../../config.default.json")).unwrap();
+
+        assert_eq!(default.gmcp_port(), raw["gmcp_port"].as_u64().unwrap() as u16);
+        assert_eq!(default.gmcp_http_port(), raw["gmcp_http_port"].as_u64().unwrap() as u16);
+        assert_eq!(default.gemi_port(), raw["gemi_port"].as_u64().unwrap() as u16);
+        assert_eq!(default.udp_discovery_port(), raw["udp_discovery_port"].as_u64().unwrap() as u16);
+        assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());
+        assert_eq!(default.max_stdin_size_bytes(), raw["max_stdin_size_bytes"].as_u64().unwrap() as usize);
+        assert_eq!(default.mcp_registry_url(), raw["mcp_registry_url"].as_str().unwrap());
+        assert_eq!(default.alpha_weights_url(), raw["alpha_weights_url"].as_str().unwrap());
+        assert_eq!(default.agent_rank_threshold(), raw["agent_rank_threshold"].as_f64().unwrap() as f32);
+        assert_eq!(default.cloud_scout_timeout_secs(), raw["cloud_scout_timeout_secs"].as_u64().unwrap());
+        assert_eq!(default.reflex_training_threshold(), raw["reflex_training_threshold"].as_u64().unwrap() as usize);
+        assert_eq!(default.qdrant_url(), raw["qdrant_url"].as_str().unwrap());
+        assert_eq!(default.crates_io_api_url(), raw["crates_io_api_url"].as_str().unwrap());
+        assert_eq!(default.sandbox_image(), raw["sandbox_image"].as_str().unwrap());
+
+        let heuristics = default.memory_experience_heuristics();
+        assert_eq!(heuristics.min_output_len, raw["memory_experience_heuristics"]["min_output_len"].as_u64().unwrap() as usize);
+        assert!(!heuristics.failure_markers.is_empty());
     }
 
     #[test]
@@ -1099,6 +1148,34 @@ mod tests {
         SusiMemory::save_interaction(ws, "hello", "world");
         let memory_file = ws.join(".susi/memory.jsonl");
         assert!(memory_file.is_file());
+        let _ = fs::remove_dir_all(ws);
+    }
+
+    /// The experience-promotion threshold (min_output_len, failure_markers)
+    /// is config-driven now, not a hardcoded `output.len() > 50` literal —
+    /// prove the configured values actually gate behavior, not just that the
+    /// accessor returns the right number.
+    #[test]
+    fn test_susi_memory_experience_promotion_respects_config_heuristics() {
+        let ws = Path::new("test_mem_experience");
+        let _ = fs::create_dir_all(ws);
+        let exp_file = ws.join(".susi/reasoning_experience.jsonl");
+
+        let heuristics = SusiConfig::default().memory_experience_heuristics();
+        let short_output = "x".repeat(heuristics.min_output_len); // exactly at threshold: not > min_output_len
+        SusiMemory::save_interaction(ws, "goal a", &short_output);
+        assert!(!exp_file.exists(), "output at, not over, the threshold must not be promoted");
+
+        let long_output = "x".repeat(heuristics.min_output_len + 1);
+        SusiMemory::save_interaction(ws, "goal b", &long_output);
+        assert!(exp_file.is_file(), "output over the threshold must be promoted");
+
+        let with_marker = format!("{} {}", heuristics.failure_markers[0], long_output);
+        let before = fs::read_to_string(&exp_file).unwrap();
+        SusiMemory::save_interaction(ws, "goal c", &with_marker);
+        let after = fs::read_to_string(&exp_file).unwrap();
+        assert_eq!(before, after, "a configured failure marker must suppress promotion");
+
         let _ = fs::remove_dir_all(ws);
     }
 

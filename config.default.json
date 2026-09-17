@@ -331,5 +331,10 @@
   "execution_lease_secs": 30,
   "qdrant_url": "http://localhost:6334",
   "crates_io_api_url": "https://crates.io/api/v1/crates",
+  "sandbox_image": "alpine:latest",
+  "memory_experience_heuristics": {
+    "min_output_len": 50,
+    "failure_markers": ["[FAIL]", "error"]
+  },
   "susi_alpha_default": "susi-alpha"
 }
