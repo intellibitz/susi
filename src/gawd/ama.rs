@@ -253,6 +253,12 @@ impl SusiMasterAgent {
                     &serde_json::json!(cmd),
                     workspace,
                 )
+            } else if lower_goal.contains("dashboard") {
+                crate::gmcp::tools::ToolRegistry::execute_tool(
+                    "sovereign_dashboard",
+                    &serde_json::json!(null),
+                    workspace,
+                )
             } else if lower_goal.contains("version") {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {
