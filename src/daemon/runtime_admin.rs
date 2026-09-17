@@ -19,7 +19,7 @@ impl SusiRuntimeAdmin {
         std::thread::spawn(move || {
             // Mandate: Perform immediate Readiness Pulse on substrate boot
             let _ = Self::perform_substrate_audit(&ws);
-            let _ = Self::perform_proactive_workspace_pulse(&ws);
+            let _ = Self::perform_proactive_workspace_pulse(&ws, false);
 
             let mut last_pulse = std::time::Instant::now();
             loop {
@@ -29,7 +29,7 @@ impl SusiRuntimeAdmin {
                 // 2. Periodic Proactive Pulse (Every 5 minutes)
                 if last_pulse.elapsed() > Duration::from_secs(300) {
                     let _ = Self::perform_substrate_audit(&ws);
-                    let _ = Self::perform_proactive_workspace_pulse(&ws);
+                    let _ = Self::perform_proactive_workspace_pulse(&ws, false);
                     let _ = Self::consolidate_sovereign_memory(&ws);
                     last_pulse = std::time::Instant::now();
                 }
@@ -66,7 +66,7 @@ impl SusiRuntimeAdmin {
     /// Proactive Workspace Pulse (Mandate: User does nothing, SUSI does everything)
     /// Autonomously monitors and fixes pathologies in the user's workspace.
     /// All actions are performed with 100% Transparency and Accountability.
-    pub fn perform_proactive_workspace_pulse(workspace: &Path) -> EaiResult<()> {
+    pub fn perform_proactive_workspace_pulse(workspace: &Path, interactive: bool) -> EaiResult<()> {
         let ama = crate::gawd::ama::SusiMasterAgent::new();
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
@@ -146,15 +146,26 @@ impl SusiRuntimeAdmin {
             );
             println!("Susi can perform these pending tasks for you now.");
 
-            if Self::ask_permission("Execute pending workspace missions?") {
-                for (desc, report) in pending_tasks {
-                    println!("\n[EXECUTING] {}", desc);
-                    println!("---\n{}\n---", report);
-                    // Actual execution of the mutation would happen here via ama.solve
+            if interactive {
+                if Self::ask_permission("Execute pending workspace missions?") {
+                    for (desc, report) in pending_tasks {
+                        println!("\n[EXECUTING] {}", desc);
+                        println!("---\n{}\n---", report);
+                        // Actual execution of the mutation would happen here via ama.solve
+                    }
+                    println!("\n[SUCCESS] All pending tasks completed.");
+                } else {
+                    println!("\n[POSTPONED] Tasks remain in the mission queue.");
                 }
-                println!("\n[SUCCESS] All pending tasks completed.");
             } else {
-                println!("\n[POSTPONED] Tasks remain in the mission queue.");
+                println!("\n[BACKGROUND MODE] Tasks logged to sovereign mission queue. Run interactive pulse to execute.");
+                for (desc, _) in pending_tasks {
+                    SusiAuditLogger::log_event(
+                        workspace,
+                        "PENDING_MISSION",
+                        desc,
+                    );
+                }
             }
         }
 
