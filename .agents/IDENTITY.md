@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2023008"
+version = "0.1.2023009"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---

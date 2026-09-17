@@ -1,18 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum IntentCategory {
     Coding,
     Mathematics,
     Reasoning,
     Creative,
+    #[default]
     General,
-}
-
-impl Default for IntentCategory {
-    fn default() -> Self {
-        Self::General
-    }
 }
 
 pub struct IntentClassifier;
@@ -48,5 +43,59 @@ impl IntentClassifier {
         if creative_score == max_score && creative_score > 0 { return IntentCategory::Creative; }
 
         IntentCategory::General
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_classify_coding_prompt() {
+        assert_eq!(
+            IntentClassifier::classify("Please debug this rust fn that panics"),
+            IntentCategory::Coding
+        );
+    }
+
+    #[test]
+    fn test_classify_math_prompt() {
+        assert_eq!(
+            IntentClassifier::classify("Solve for x in this algebra equation"),
+            IntentCategory::Mathematics
+        );
+    }
+
+    #[test]
+    fn test_classify_reasoning_prompt() {
+        assert_eq!(
+            IntentClassifier::classify("Analyze and compare these two theories, then explain how they differ"),
+            IntentCategory::Reasoning
+        );
+    }
+
+    #[test]
+    fn test_classify_creative_prompt() {
+        assert_eq!(
+            IntentClassifier::classify("write a poem about the ocean"),
+            IntentCategory::Creative
+        );
+    }
+
+    #[test]
+    fn test_classify_general_prompt_with_no_triggers() {
+        assert_eq!(
+            IntentClassifier::classify("What time is it in Tokyo?"),
+            IntentCategory::General
+        );
+    }
+
+    #[test]
+    fn test_classify_picks_highest_scoring_category_on_mixed_signals() {
+        // Two code triggers ("rust", "fn ") vs one math trigger ("math") - coding should win.
+        assert_eq!(
+            IntentClassifier::classify("write a rust fn to check if a number is a math prime"),
+            IntentCategory::Coding
+        );
     }
 }

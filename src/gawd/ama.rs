@@ -126,7 +126,9 @@ impl SusiMasterAgent {
     ) -> String {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
-            crate::gemi::models::ModelManager::get_active_engine_and_model(None);
+            crate::gemi::models::ModelManager::get_active_engine_and_model(Some(
+                crate::gemi::intent::IntentClassifier::classify(goal),
+            ));
         let model_path_str = crate::gemi::models::ModelManager::get_model_path(&active_model_id)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
@@ -933,12 +935,14 @@ impl SusiMasterAgent {
             agents.len()
         ));
 
-        let model_name =
-            crate::gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
-                crate::sandbox::manager::SusiConfig::load_global()
-                    .unwrap_or_default()
-                    .alpha_weights_filename()
-            });
+        let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(
+            crate::gemi::intent::IntentClassifier::classify(&goal),
+        ))
+        .unwrap_or_else(|| {
+            crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .alpha_weights_filename()
+        });
 
         let ans = format!(
             "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
