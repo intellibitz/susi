@@ -474,13 +474,78 @@ impl SusiConfig {
 
     pub fn get_config_path(global_dir: &Path) -> PathBuf { global_dir.join("config.json") }
 
+    /// Loads a user's persisted config.json and self-heals schema drift against
+    /// the binary's bundled config.default.json: any key (at any nesting depth,
+    /// including per-element within same-length arrays like model_ladder) that
+    /// exists in the bundled default but is missing from the user's file is
+    /// backfilled in memory and the merged result is written back to disk.
+    /// Values the user already set are never touched. Without this, a fix that
+    /// only lands in config.default.json (e.g. a new field on an existing key)
+    /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
         if path.is_file() {
             let content = fs::read_to_string(&path).map_err(|e| EaiError::config(format!("Failed to read config: {}", e)))?;
-            return serde_json::from_str(&content).map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)));
+            let mut cfg: Self = serde_json::from_str(&content).map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)))?;
+
+            let default = Self::default();
+            let mut changed = false;
+            for (key, default_val) in &default.settings {
+                match cfg.settings.get_mut(key) {
+                    Some(user_val) => {
+                        if Self::merge_missing_defaults(user_val, default_val) {
+                            changed = true;
+                        }
+                    }
+                    None => {
+                        cfg.settings.insert(key.clone(), default_val.clone());
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = cfg.save(global_dir);
+            }
+            return Ok(cfg);
         }
         Ok(Self::default())
+    }
+
+    /// Recursively backfills keys present in `default` but absent from `user`,
+    /// for objects and for same-length arrays (matched by position). Returns
+    /// whether `user` was modified. Existing user values are never overwritten.
+    fn merge_missing_defaults(user: &mut DynamicValue, default: &DynamicValue) -> bool {
+        match (user, default) {
+            (DynamicValue::Object(user_map), DynamicValue::Object(default_map)) => {
+                let mut changed = false;
+                for (k, def_v) in default_map {
+                    match user_map.get_mut(k) {
+                        Some(user_v) => {
+                            if Self::merge_missing_defaults(user_v, def_v) {
+                                changed = true;
+                            }
+                        }
+                        None => {
+                            user_map.insert(k.clone(), def_v.clone());
+                            changed = true;
+                        }
+                    }
+                }
+                changed
+            }
+            (DynamicValue::Array(user_arr), DynamicValue::Array(default_arr))
+                if user_arr.len() == default_arr.len() =>
+            {
+                let mut changed = false;
+                for (u, d) in user_arr.iter_mut().zip(default_arr.iter()) {
+                    if Self::merge_missing_defaults(u, d) {
+                        changed = true;
+                    }
+                }
+                changed
+            }
+            _ => false,
+        }
     }
 
     pub fn reload(global_dir: &Path) -> EaiResult<Self> { let loaded = Self::load(global_dir)?; let _ = loaded.save(global_dir); Ok(loaded) }
@@ -490,10 +555,19 @@ impl SusiConfig {
         Self::load(&home.join(".susi"))
     }
 
+    /// Writes via a same-directory temp file + rename rather than a direct
+    /// fs::write (which truncates before writing), so a concurrent reader —
+    /// another process's CLI invocation, the daemon's own background cycle —
+    /// never observes a torn/empty file. This matters more now that `load()`
+    /// can itself trigger a save on schema-drift backfill, making concurrent
+    /// writers to the same config.json from multiple processes routine rather
+    /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
         let path = Self::get_config_path(global_dir);
         let json = serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
-        fs::write(path, json).map_err(|e| EaiError::filesystem(e.to_string()))
+        let tmp_path = global_dir.join(format!("config.json.tmp.{}", std::process::id()));
+        fs::write(&tmp_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        fs::rename(&tmp_path, &path).map_err(|e| EaiError::filesystem(e.to_string()))
     }
 
     // === TYPED ACCESSORS - No hardcoded fields, dynamic getters with defaults ===
@@ -946,6 +1020,71 @@ mod tests {
         let reloaded = SusiConfig::reload(dir).expect("Failed to reload config");
         assert_eq!(reloaded.execution_lease_secs(), 45);
         assert_eq!(reloaded.max_concurrent_agents(), 64);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn test_susi_config_backfills_schema_drift_without_clobbering_user_values() {
+        let dir = Path::new("test_cfg_migration");
+        let _ = fs::create_dir_all(dir);
+
+        // Simulate a pre-existing user config.json that predates a new field
+        // (tokenizer_repo) added to one ladder step in config.default.json,
+        // and that has customized an unrelated existing value.
+        let stale = serde_json::json!({
+            "gmcp_port": 12345,
+            "model_ladder": [
+                {
+                    "hf_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                    "hf_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+                    "label": "1.5B Parameters (Fast Local Edge)",
+                    "min_ram_gb": 0,
+                    "step": 1
+                }
+            ]
+        });
+        fs::write(
+            SusiConfig::get_config_path(dir),
+            serde_json::to_string_pretty(&stale).unwrap(),
+        )
+        .unwrap();
+
+        let cfg = SusiConfig::load(dir).expect("Failed to load stale config");
+
+        // User's customized scalar value survives the merge untouched.
+        assert_eq!(cfg.gmcp_port(), 12345);
+
+        // The bundled default's full model_ladder (5 steps, all with
+        // tokenizer_repo) was backfilled since the user's array only had 1
+        // element (length mismatch means no positional merge is attempted and
+        // the top-level key is left as the user's own value)... but a key the
+        // user never set at all (default_fallback_model) must be pulled in
+        // wholesale from the bundled default.
+        let fallback = cfg.default_fallback_model();
+        assert!(!fallback.tokenizer_repo.is_empty());
+
+        // Same-length-array positional backfill: drop the tokenizer_repo field
+        // from one element of a same-length ladder and confirm it gets healed.
+        let mut same_len = SusiConfig::default().settings;
+        if let Some(serde_json::Value::Array(steps)) = same_len.get_mut("model_ladder") {
+            if let Some(serde_json::Value::Object(step0)) = steps.get_mut(0) {
+                step0.remove("tokenizer_repo");
+            }
+        }
+        let healed = SusiConfig { settings: same_len };
+        healed.save(dir).expect("Failed to save same-length stale config");
+        let reloaded = SusiConfig::load(dir).expect("Failed to load same-length stale config");
+        let ladder = reloaded.model_ladder();
+        assert_eq!(ladder.len(), 5);
+        assert!(
+            !ladder[0].tokenizer_repo.is_empty(),
+            "missing tokenizer_repo on an existing array element must be backfilled by position"
+        );
+
+        // The merge must have persisted back to disk (self-healing).
+        let on_disk = fs::read_to_string(SusiConfig::get_config_path(dir)).unwrap();
+        assert!(on_disk.contains("tokenizer_repo"));
 
         let _ = fs::remove_dir_all(dir);
     }
