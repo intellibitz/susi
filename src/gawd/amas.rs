@@ -173,19 +173,25 @@ impl SusiSupervisor {
             let shared = Arc::new(RwLock::new(initial));
             let t_shared = Arc::clone(&shared);
 
-            // Zero-Config Background Discovery Loop
             std::thread::spawn(move || {
-                let socket_res =
-                    UdpSocket::bind(format!("0.0.0.0:{}", Self::get_udp_discovery_port()));
+                let port = Self::get_udp_discovery_port();
+                let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", port));
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
+                    let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
 
                     let mut buf = [0u8; 1024];
+                    let local_caps = HardwareProfiler::get_caps_string();
+                    let mut local_bloom = CapabilityBloom::local_snapshot();
+                    let mut last_registry_checksum = crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
+                    
                     loop {
-                        let local_caps = HardwareProfiler::get_caps_string();
-                        let registry_checksum =
-                            crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
-                        let local_bloom = CapabilityBloom::local_snapshot();
+                        let registry_checksum = crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
+                        if registry_checksum != last_registry_checksum {
+                            local_bloom = CapabilityBloom::local_snapshot();
+                            last_registry_checksum = registry_checksum;
+                        }
+
                         let ping_msg = format!(
                             "SUSI_PING:{}:{}:{}",
                             local_caps,
@@ -209,7 +215,7 @@ impl SusiSupervisor {
                                 if src.ip().is_loopback()
                                     || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
                                 {
-                                    continue; // Skip self/local interface discovery
+                                    continue;
                                 }
                                 let parts: Vec<&str> = msg.split(':').collect();
                                 let caps = if parts.len() > 1 {
@@ -257,12 +263,12 @@ impl SusiSupervisor {
                                 }
                             }
                         }
-                        // Periodic Beacon (Near-Instantaneous Global Swarm Consensus)
+                        
                         let _ = socket.send_to(
                             ping_msg.as_bytes(),
-                            format!("255.255.255.255:{}", Self::get_udp_discovery_port()),
+                            format!("255.255.255.255:{}", port),
                         );
-                        std::thread::sleep(Duration::from_millis(500));
+                        std::thread::sleep(Duration::from_millis(100)); // Relax lock contention heavily
                     }
                 }
             });
@@ -328,7 +334,7 @@ impl SusiSupervisor {
                     let node_id = node.node_id.clone();
                     let g = goal.to_string();
                     let bb = Arc::clone(&blackboard);
-                    std::thread::spawn(move || {
+                    rayon::spawn(move || {
                         let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
                         if !remote_res.contains("unreachable") {
                             bb.insert(format!("PeerNode_{}", node_id), remote_res);
@@ -607,15 +613,17 @@ impl SusiSupervisor {
         });
 
         let url = format!("http://{}", addr);
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(1500))
-            .build();
+        static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+        let client = HTTP_CLIENT.get_or_init(|| {
+            reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(1500))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new())
+        });
 
-        if let Ok(client) = client {
-            if let Ok(resp) = client.post(&url).json(&req_val).send() {
-                if let Ok(text) = resp.text() {
-                    return format!("[A2A Flux ({})]: {}", addr, text.trim());
-                }
+        if let Ok(resp) = client.post(&url).json(&req_val).send() {
+            if let Ok(text) = resp.text() {
+                return format!("[A2A Flux ({})]: {}", addr, text.trim());
             }
         }
         format!("[A2A Fallback]: Node '{}' unreachable.", addr)
@@ -624,11 +632,13 @@ impl SusiSupervisor {
     pub fn broadcast_lan_ping() -> Vec<String> {
         let mut active_peers = Vec::new();
         if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+            let port = Self::get_udp_discovery_port();
             let _ = socket.set_broadcast(true);
+            let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
 
             let _ = socket.send_to(
                 b"SUSI_LAN_PING",
-                format!("255.255.255.255:{}", Self::get_udp_discovery_port()),
+                format!("255.255.255.255:{}", port),
             );
 
             let mut buf = [0u8; 512];
@@ -647,32 +657,24 @@ impl SusiSupervisor {
 
     pub fn sync_cluster_state(workspace: &Path, payload: &str) -> String {
         let nodes = Self::list_cluster_nodes();
-        let mut handles = Vec::new();
+        use rayon::prelude::*;
 
         // Parallel AOA Synchronization Logic (Rule 2: Saturation)
         // Hardened Limit: Cap concurrent peer syncs to 16 to prevent local resource exhaustion.
-        for node in nodes.clone().into_iter().take(16) {
-            if node.node_id == "susi-local-master" {
-                continue;
-            }
-            let addr = node.address.clone();
-            let p = payload.to_string();
-            let nid = node.node_id.clone();
+        let total_nodes = nodes.len();
+        let target_nodes: Vec<_> = nodes.into_iter()
+            .filter(|n| n.node_id != "susi-local-master")
+            .take(16)
+            .collect();
 
-            handles.push(std::thread::spawn(move || {
-                let signed_payload = format!("SIG:{}:{}", nid, p);
-                Self::dispatch_peer_task(&addr, "swarm_sync", &signed_payload)
-            }));
-        }
-
-        let mut synced = 0;
-        for handle in handles {
-            if let Ok(res) = handle.join() {
-                if res.contains("Sync complete") {
-                    synced += 1;
-                }
-            }
-        }
+        let synced = target_nodes
+            .par_iter()
+            .map(|node| {
+                let signed_payload = format!("SIG:{}:{}", node.node_id, payload);
+                let res = Self::dispatch_peer_task(&node.address, "swarm_sync", &signed_payload);
+                if res.contains("Sync complete") { 1 } else { 0 }
+            })
+            .sum::<usize>();
 
         let sync_file = workspace.join(".susi/cluster_sync.json");
         let now = std::time::SystemTime::now()
@@ -682,7 +684,7 @@ impl SusiSupervisor {
         let sync_data = serde_json::json!({
             "timestamp": now,
             "synced_nodes": synced,
-            "total_cluster_nodes": nodes.len(),
+            "total_cluster_nodes": total_nodes,
             "payload_size": payload.len()
         });
 
@@ -757,28 +759,21 @@ impl SusiSupervisor {
 
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
         let nodes = Self::list_cluster_nodes();
-        let mut handles = Vec::new();
+        use rayon::prelude::*;
 
-        for node in nodes {
-            if node.node_id == "susi-local-master" {
-                continue;
-            }
-            let addr = node.address.clone();
-            let rid = resource_id.to_string();
-            handles.push(std::thread::spawn(move || {
-                let res = Self::dispatch_peer_task(&addr, "locks/acquire", &rid);
-                res.contains("SUCCESS")
-            }));
-        }
+        let target_nodes: Vec<_> = nodes.into_iter()
+            .filter(|n| n.node_id != "susi-local-master")
+            .collect();
+            
+        let successes = target_nodes
+            .par_iter()
+            .map(|node| {
+                let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
+                if res.contains("SUCCESS") { 1 } else { 0 }
+            })
+            .sum::<usize>();
 
-        for handle in handles {
-            if let Ok(success) = handle.join() {
-                if !success {
-                    return false;
-                }
-            }
-        }
-        true
+        successes == target_nodes.len()
     }
 
     /// Federated Knowledge Vault (Aspiration 18)
