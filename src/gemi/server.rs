@@ -147,7 +147,7 @@ async fn handle_gemi_request(
         (&Method::GET, "/well-known/susi") => {
             let payload = tokio::task::spawn_blocking(move || {
                 let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
-                let (engine, model) = ModelManager::get_active_engine_and_model();
+                let (engine, model) = ModelManager::get_active_engine_and_model(None);
                 let tools = ToolRegistry::list_tools();
                 json!({
                     "version": crate::SUSI_VERSION,
@@ -187,11 +187,13 @@ async fn handle_gemi_request(
 
             let is_streaming =
                 body_str.contains("\"stream\":true") || body_str.contains("\"stream\": true");
-            let active_model = ModelManager::get_selected_model()
-                .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
             let pulse_intent = extract_prompt_from_json(&body_str)
                 .unwrap_or_else(|| "list workspace health".to_string());
+            let active_model = ModelManager::get_selected_model(Some(
+                crate::gemi::intent::IntentClassifier::classify(&pulse_intent),
+            ))
+            .unwrap_or_else(|| "susi-native-synthesis".to_string());
             crate::sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
