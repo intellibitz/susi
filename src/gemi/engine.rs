@@ -231,6 +231,17 @@ impl GemiEngine {
             }
         }
 
+        // Fleet Mandate: a fresh substrate with zero provisioned weights must
+        // not surface a bare failure for an otherwise-solvable intent - it
+        // must fetch a hardware-fit model and retry before giving up. Only
+        // engaged when no local GGUF actually exists yet (not on inference
+        // errors against an existing model, which a re-download can't fix).
+        if !Self::has_usable_local_model(workspace) {
+            if let Some(res) = Self::provision_and_retry(prompt, workspace, callback) {
+                return res;
+            }
+        }
+
         // Fallback Power Reasoning Tool
         let power_res = crate::gmcp::tools::ToolRegistry::execute_tool(
             "power_reason",
@@ -248,6 +259,68 @@ impl GemiEngine {
         let final_msg = "[FAIL] SUSI-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string();
         callback(final_msg.clone());
         final_msg
+    }
+
+    fn has_usable_local_model(workspace: &Path) -> bool {
+        ModelManager::verify_local_models(workspace)
+            .iter()
+            .any(|v| v.is_valid_gguf)
+    }
+
+    /// Kicks off hardware-optimal provisioning and blocks, polling for a
+    /// valid GGUF to land, up to `model_provisioning_wait_secs`. Streams
+    /// progress through `callback` so a caller waiting on a fresh install
+    /// isn't staring at silence for however long the download takes.
+    /// Returns `None` (never `Some("[FAIL]...")`) if provisioning didn't
+    /// finish in time, so the caller falls through to its next fallback
+    /// rather than treating a timeout as a completed retry.
+    fn provision_and_retry(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+    ) -> Option<String> {
+        callback(
+            "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),
+        );
+        let _ = ModelManager::ensure_hardware_optimal_models(workspace);
+
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let wait_secs = cfg.model_provisioning_wait_secs();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_secs);
+        let poll_interval = std::time::Duration::from_secs(10);
+        let mut last_reported_pct: i64 = -1;
+
+        while std::time::Instant::now() < deadline {
+            if Self::has_usable_local_model(workspace) {
+                callback("[SUSI] Model provisioned. Resuming inference...\n".to_string());
+                let engine = LlamaCppEngine;
+                if let Ok(res) = engine.run_inference_stream(prompt, callback) {
+                    if !res.trim().is_empty() {
+                        return Some(match Self::verify_axiomatic_alignment(&res, workspace) {
+                            Ok(v) => v,
+                            Err(_) => res,
+                        });
+                    }
+                }
+                return None;
+            }
+
+            if let Some(progress) = ModelManager::download_controller_progress() {
+                let pct = progress as i64;
+                if pct != last_reported_pct {
+                    callback(format!("[SUSI] Provisioning model... {}%\n", pct));
+                    last_reported_pct = pct;
+                }
+            }
+
+            std::thread::sleep(poll_interval);
+        }
+
+        callback(
+            "[SUSI] Model provisioning did not complete in time; trying alternate reasoning path...\n"
+                .to_string(),
+        );
+        None
     }
 
     pub fn generate_multimodal_vision(prompt: &str, image_path: &Path) -> String {
@@ -569,6 +642,14 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::thread;
+
+    #[test]
+    fn test_has_usable_local_model_false_for_empty_workspace() {
+        let tmp_dir = std::env::temp_dir().join("susi_engine_test_no_models");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        assert!(!GemiEngine::has_usable_local_model(&tmp_dir));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
 
     #[test]
     fn test_competitive_racing_logic() {

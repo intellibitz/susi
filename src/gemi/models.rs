@@ -1030,6 +1030,17 @@ impl ModelManager {
         Ok(())
     }
 
+    /// The furthest-along active download's completion percentage, if any
+    /// download is currently running. Used to surface provisioning progress
+    /// to a caller blocked waiting for a model to land.
+    pub fn download_controller_progress() -> Option<f32> {
+        ModelDownloadController::global()
+            .list_active()
+            .into_iter()
+            .map(|p| p.percentage)
+            .fold(None, |acc, pct| Some(acc.map_or(pct, |a: f32| a.max(pct))))
+    }
+
     pub fn save_download_progress(
         model_name: &str,
         target_url: &str,

@@ -963,6 +963,9 @@ impl SusiConfig {
     pub fn cloud_scout_timeout_secs(&self) -> u64 {
         self.get_or_bundled_default("cloud_scout_timeout_secs")
     }
+    pub fn model_provisioning_wait_secs(&self) -> u64 {
+        self.get_or_bundled_default("model_provisioning_wait_secs")
+    }
     pub fn reflex_training_threshold(&self) -> usize {
         self.get_or_bundled_default("reflex_training_threshold")
     }
@@ -1493,6 +1496,10 @@ mod tests {
         assert_eq!(
             default.cloud_scout_timeout_secs(),
             raw["cloud_scout_timeout_secs"].as_u64().unwrap()
+        );
+        assert_eq!(
+            default.model_provisioning_wait_secs(),
+            raw["model_provisioning_wait_secs"].as_u64().unwrap()
         );
         assert_eq!(
             default.reflex_training_threshold(),
