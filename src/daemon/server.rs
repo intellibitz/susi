@@ -132,29 +132,47 @@ impl SusiDaemon {
         global_dir.join("substrate.lock")
     }
 
-    pub fn check_status(global_dir: &Path) -> Option<u32> {
-        let lock_file_path = Self::get_lock_file(global_dir);
+    pub fn get_lock_file_for_workspace(global_dir: &Path, workspace: &Path) -> PathBuf {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let canonical = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+        let mut hasher = DefaultHasher::new();
+        canonical.hash(&mut hasher);
+        let hash = hasher.finish();
+        global_dir.join(format!("substrate_{:016x}.lock", hash))
+    }
+
+    pub fn check_status(workspace: &Path, global_dir: &Path) -> Option<u32> {
+        let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
+        if let Some(pid) = Self::check_status_path(&ws_lock) {
+            return Some(pid);
+        }
+        let global_lock = Self::get_lock_file(global_dir);
+        Self::check_status_path(&global_lock)
+    }
+
+    pub fn check_status_path(lock_file_path: &Path) -> Option<u32> {
         if !lock_file_path.exists() {
             return None;
         }
 
-        if let Ok(content) = fs::read_to_string(&lock_file_path) {
+        if let Ok(content) = fs::read_to_string(lock_file_path) {
             if let Ok(pid) = content.trim().parse::<u32>() {
                 #[cfg(unix)]
                 {
                     if unsafe { libc::kill(pid as i32, 0) } == 0 {
                         return Some(pid);
                     } else {
-                        let _ = fs::remove_file(&lock_file_path);
+                        let _ = fs::remove_file(lock_file_path);
                         return None;
                     }
                 }
                 #[cfg(windows)]
                 {
-                    if Self::is_process_alive(&lock_file_path) {
+                    if Self::is_process_alive(lock_file_path) {
                         return Some(pid);
                     } else {
-                        let _ = fs::remove_file(&lock_file_path);
+                        let _ = fs::remove_file(lock_file_path);
                         return None;
                     }
                 }
@@ -228,7 +246,7 @@ impl SusiDaemon {
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
         let current_exe = std::env::current_exe().ok();
         let msgs = crate::sandbox::manager::SusiMessages::load_global();
-        if let Some(pid) = Self::check_status(global_dir) {
+        if let Some(pid) = Self::check_status(workspace, global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
                     let def_recompiled =
@@ -237,7 +255,7 @@ impl SusiDaemon {
                         .get("daemon", "binary_recompiled")
                         .unwrap_or(&def_recompiled);
                     info!("{}", msg.replace("{}", &pid.to_string()));
-                    Self::stop_daemon(global_dir);
+                    Self::stop_daemon(workspace, global_dir);
                 } else {
                     return;
                 }
@@ -328,7 +346,7 @@ impl SusiDaemon {
         if cfg!(test) {
             return;
         }
-        let lock_file_path = Self::get_lock_file(&global_dir);
+        let lock_file_path = Self::get_lock_file_for_workspace(&global_dir, &workspace);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
         if let Ok(metadata) = std::fs::metadata(&lock_file_path) {
@@ -600,10 +618,16 @@ impl SusiDaemon {
     }
 
     #[allow(dead_code)]
-    pub fn stop_daemon(global_dir: &Path) -> bool {
-        let lock_file = Self::get_lock_file(global_dir);
-        if lock_file.exists() {
-            if let Ok(content) = fs::read_to_string(&lock_file) {
+    pub fn stop_daemon(workspace: &Path, global_dir: &Path) -> bool {
+        let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
+        let target_lock = if ws_lock.exists() {
+            ws_lock
+        } else {
+            Self::get_lock_file(global_dir)
+        };
+
+        if target_lock.exists() {
+            if let Ok(content) = fs::read_to_string(&target_lock) {
                 if let Ok(pid) = content.trim().parse::<i32>() {
                     #[cfg(unix)]
                     unsafe {
@@ -611,7 +635,7 @@ impl SusiDaemon {
                     }
                 }
             }
-            let _ = fs::remove_file(&lock_file);
+            let _ = fs::remove_file(&target_lock);
             true
         } else {
             false
@@ -628,6 +652,8 @@ mod tests {
         let tmp_dir = std::env::temp_dir();
         let path = SusiDaemon::get_lock_file(&tmp_dir);
         assert_eq!(path, tmp_dir.join("substrate.lock"));
+        let ws_path = SusiDaemon::get_lock_file_for_workspace(&tmp_dir, &tmp_dir);
+        assert!(ws_path.file_name().unwrap().to_str().unwrap().starts_with("substrate_"));
     }
 
     #[test]
@@ -636,10 +662,10 @@ mod tests {
         let lock_file = SusiDaemon::get_lock_file(&tmp_dir);
         let _ = std::fs::remove_file(&lock_file);
 
-        let status = SusiDaemon::check_status(&tmp_dir);
+        let status = SusiDaemon::check_status(&tmp_dir, &tmp_dir);
         assert!(status.is_none());
 
-        let stopped = SusiDaemon::stop_daemon(&tmp_dir);
+        let stopped = SusiDaemon::stop_daemon(&tmp_dir, &tmp_dir);
         assert!(!stopped);
     }
 }

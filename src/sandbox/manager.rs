@@ -1000,6 +1000,19 @@ impl SusiConfig {
     pub fn max_generation_tokens(&self) -> usize {
         self.get_or_bundled_default("max_generation_tokens")
     }
+    /// Penalty divisor applied to already-seen tokens' logits before argmax
+    /// (llama.cpp convention: >1.0 discourages repetition, 1.0 disables it).
+    /// Pure greedy decoding with no penalty readily loops on tiny models -
+    /// observed live on qwen2.5-0.5b as a "Name three colors" response
+    /// degenerating into an infinitely-nesting repeated JSON structure.
+    pub fn repeat_penalty(&self) -> f32 {
+        self.get_or_bundled_default("repeat_penalty")
+    }
+    /// How many of the most recent tokens (prompt + generated) count toward
+    /// the repeat penalty above.
+    pub fn repeat_last_n(&self) -> usize {
+        self.get_or_bundled_default("repeat_last_n")
+    }
     /// Risk substrings that block reasoning OUTPUT before it's returned as a
     /// final answer — a distinct security layer from `governance()`'s
     /// `destructive_commands` (which gates COMMANDS before execution); the
@@ -1527,6 +1540,14 @@ mod tests {
         assert_eq!(
             default.max_generation_tokens(),
             raw["max_generation_tokens"].as_u64().unwrap() as usize
+        );
+        assert_eq!(
+            default.repeat_penalty(),
+            raw["repeat_penalty"].as_f64().unwrap() as f32
+        );
+        assert_eq!(
+            default.repeat_last_n(),
+            raw["repeat_last_n"].as_u64().unwrap() as usize
         );
         assert_eq!(
             default.eos_token_ids(),

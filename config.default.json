@@ -376,6 +376,8 @@
   },
   "eos_token_ids": [1, 2, 32000, 151643],
   "max_generation_tokens": 256,
+  "repeat_penalty": 1.15,
+  "repeat_last_n": 64,
   "axiomatic_risk_patterns": ["rm -rf /", "drop database", "eval(", "chmod 777", "curl | sh"],
   "model_scan_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys", ".cache", "Library"],
   "model_discovery_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys"],

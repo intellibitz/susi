@@ -440,20 +440,42 @@ impl SusiSupervisor {
                 || blackboard.contains_key("TranslationAgent")
                 || blackboard.contains_key("SearchAgent");
 
-            // Consensus Hardening: Include every model agent response in final results
-            let synthesized = if is_direct_synthesis {
-                let mut full_synthesis = String::new();
-                if let Some(search) = blackboard.get("SearchAgent") {
-                    full_synthesis
-                        .push_str(&format!("### SearchAgent Output\n{}\n\n---\n\n", search));
-                }
-                if let Some(trans) = blackboard.get("TranslationAgent") {
-                    full_synthesis.push_str(&format!("### TranslationAgent Output\n{}", trans));
-                }
-                if full_synthesis.is_empty() {
-                    weighted_wisdom.clone()
+            let valid_outputs: Vec<(String, String)> = blackboard
+                .iter()
+                .filter_map(|r| {
+                    let agent_name = r.key().clone();
+                    let output = r.value().trim().to_string();
+                    if !output.is_empty()
+                        && !output.contains("FAILURE")
+                        && !output.contains("GAP")
+                    {
+                        Some((agent_name, output))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Consensus Hardening: Direct pass-through if single valid output or query synthesis
+            let synthesized = if is_direct_synthesis || valid_outputs.len() <= 1 {
+                if valid_outputs.len() == 1 {
+                    valid_outputs[0].1.clone()
+                } else if is_direct_synthesis {
+                    let mut full_synthesis = String::new();
+                    if let Some(search) = blackboard.get("SearchAgent") {
+                        full_synthesis
+                            .push_str(&format!("### SearchAgent Output\n{}\n\n---\n\n", search));
+                    }
+                    if let Some(trans) = blackboard.get("TranslationAgent") {
+                        full_synthesis.push_str(&format!("### TranslationAgent Output\n{}", trans));
+                    }
+                    if full_synthesis.is_empty() {
+                        weighted_wisdom.clone()
+                    } else {
+                        full_synthesis
+                    }
                 } else {
-                    full_synthesis
+                    weighted_wisdom.clone()
                 }
             } else {
                 let prompts = crate::sandbox::manager::SusiPrompts::load_global();
@@ -461,7 +483,10 @@ impl SusiSupervisor {
                     .consensus_wisdom_prompt()
                     .replace("{goal}", goal)
                     .replace("{wisdom}", &weighted_wisdom);
-                eprintln!("- [Consensus Master] Synthesizing swarm wisdom...");
+                eprintln!(
+                    "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
+                    valid_outputs.len()
+                );
                 let _ = std::io::stdout().flush();
                 crate::gemi::engine::GemiEngine::generate_reasoning_stream(
                     &consensus_prompt,
@@ -895,6 +920,34 @@ mod tests {
             "peer with matching capability ({}) should outrank higher-trust peer with no match ({})",
             b_score,
             a_score
+        );
+    }
+
+    #[test]
+    fn test_consensus_master_bypasses_synthesis_for_single_valid_output() {
+        let blackboard = Arc::new(dashmap::DashMap::new());
+        blackboard.insert(
+            "Qwen2ReasoningAgent".to_string(),
+            "Photosynthesis is the process by which plants turn sunlight into energy.".to_string(),
+        );
+
+        let valid_outputs: Vec<(String, String)> = blackboard
+            .iter()
+            .filter_map(|r| {
+                let agent_name = r.key().clone();
+                let output = r.value().trim().to_string();
+                if !output.is_empty() && !output.contains("FAILURE") && !output.contains("GAP") {
+                    Some((agent_name, output))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(valid_outputs.len(), 1);
+        assert_eq!(
+            valid_outputs[0].1,
+            "Photosynthesis is the process by which plants turn sunlight into energy."
         );
     }
 }

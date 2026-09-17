@@ -277,7 +277,7 @@ fn main() {
         let ama = SusiMasterAgent::new();
         let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Start => match SusiDaemon::check_status(&global_dir) {
+            Commands::Start => match SusiDaemon::check_status(&cwd, &global_dir) {
                 Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
                 None => println!(
                     "[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details."
@@ -582,7 +582,7 @@ fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
     let os_report = HardwareProfiler::audit_os_environment_care();
     let staged = IntentBundleManager::get_staged_bundles(workspace);
 
-    match SusiDaemon::check_status(global_dir) {
+    match SusiDaemon::check_status(workspace, global_dir) {
         Some(pid) => println!("- Global Daemon: Active (PID: {})", pid),
         None => println!("- Global Daemon: Inactive"),
     }

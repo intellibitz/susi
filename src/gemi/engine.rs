@@ -756,19 +756,64 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 .forward(&input, pos)
                 .map_err(|e| EaiError::inference(format!("Model forward failed: {}", e)))?;
 
-            // Absolute Rank-Safe Token Extraction (Aspiration 8)
-            let mut t = logits
-                .argmax(candle_core::D::Minus1)
-                .map_err(|e| EaiError::inference(format!("Argmax failed: {}", e)))?;
+            // Apply repetition penalty and extract next token (Mandate 35)
+            let repeat_penalty = cfg.repeat_penalty();
+            let repeat_last_n = cfg.repeat_last_n();
 
-            while t.rank() > 0 {
-                let dims = t.dims();
-                t = t.get(dims[0] - 1)?;
+            let logits_slice = logits
+                .squeeze(0)
+                .map_err(|e| EaiError::inference(format!("Squeeze failed: {}", e)))?;
+            let last_logits_tensor = if logits_slice.rank() == 2 {
+                let seq_len = logits_slice
+                    .dim(0)
+                    .map_err(|e| EaiError::inference(format!("Dim failed: {}", e)))?;
+                logits_slice
+                    .get(seq_len - 1)
+                    .map_err(|e| EaiError::inference(format!("Get last logit failed: {}", e)))?
+            } else if logits_slice.rank() == 1 {
+                logits_slice
+            } else {
+                logits_slice
+                    .flatten_all()
+                    .map_err(|e| EaiError::inference(format!("Flatten failed: {}", e)))?
+            };
+
+            let mut logits_v = last_logits_tensor
+                .to_vec1::<f32>()
+                .map_err(|e| EaiError::inference(format!("Logits extraction failed: {}", e)))?;
+
+            if repeat_penalty != 1.0 && repeat_penalty > 0.0 {
+                let mut recent_tokens = Vec::with_capacity(prompt_tokens.len() + all_tokens.len());
+                recent_tokens.extend_from_slice(prompt_tokens);
+                recent_tokens.extend_from_slice(&all_tokens);
+
+                let start_idx = recent_tokens.len().saturating_sub(repeat_last_n);
+                let window = &recent_tokens[start_idx..];
+
+                let mut seen = std::collections::HashSet::new();
+                for &tok in window {
+                    if seen.insert(tok) {
+                        let idx = tok as usize;
+                        if idx < logits_v.len() {
+                            let logit = logits_v[idx];
+                            if logit < 0.0 {
+                                logits_v[idx] = logit * repeat_penalty;
+                            } else {
+                                logits_v[idx] = logit / repeat_penalty;
+                            }
+                        }
+                    }
+                }
             }
 
-            let next_token = t
-                .to_vec0::<u32>()
-                .map_err(|e| EaiError::inference(format!("Token extraction failed: {}", e)))?;
+            let mut next_token = 0u32;
+            let mut max_logit = f32::NEG_INFINITY;
+            for (id, &logit) in logits_v.iter().enumerate() {
+                if logit > max_logit {
+                    max_logit = logit;
+                    next_token = id as u32;
+                }
+            }
 
             all_tokens.push(next_token);
             task_handle.report_progress();
@@ -980,5 +1025,45 @@ mod tests {
             workspace
         )
         .is_ok());
+    }
+
+    #[test]
+    fn test_logits_repetition_penalty_dampens_recent_tokens() {
+        let repeat_penalty = 1.15f32;
+        let repeat_last_n = 64usize;
+        let prompt_tokens = vec![100u32, 200u32];
+        let all_tokens = vec![1u32]; // Token 1 has been generated
+
+        let mut logits_v = vec![10.0f32, 10.0f32, 10.0f32]; // Equal logits for tokens 0, 1, 2
+
+        if repeat_penalty != 1.0 && repeat_penalty > 0.0 {
+            let mut recent_tokens = Vec::with_capacity(prompt_tokens.len() + all_tokens.len());
+            recent_tokens.extend_from_slice(&prompt_tokens);
+            recent_tokens.extend_from_slice(&all_tokens);
+
+            let start_idx = recent_tokens.len().saturating_sub(repeat_last_n);
+            let window = &recent_tokens[start_idx..];
+
+            let mut seen = std::collections::HashSet::new();
+            for &tok in window {
+                if seen.insert(tok) {
+                    let idx = tok as usize;
+                    if idx < logits_v.len() {
+                        let logit = logits_v[idx];
+                        if logit < 0.0 {
+                            logits_v[idx] = logit * repeat_penalty;
+                        } else {
+                            logits_v[idx] = logit / repeat_penalty;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Token 1 was penalized: 10.0 / 1.15 ~ 8.695
+        assert!(logits_v[1] < logits_v[0]);
+        assert!(logits_v[1] < logits_v[2]);
+        assert_eq!(logits_v[0], 10.0);
+        assert_eq!(logits_v[2], 10.0);
     }
 }

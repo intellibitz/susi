@@ -548,7 +548,7 @@ impl SusiMasterAgent {
                 .unwrap_or_default();
             let global_dir = home.join(".susi");
             let daemon_status =
-                if crate::daemon::server::SusiDaemon::check_status(&global_dir).is_some() {
+                if crate::daemon::server::SusiDaemon::check_status(workspace, &global_dir).is_some() {
                     "RUNNING"
                 } else {
                     "STOPPED"
