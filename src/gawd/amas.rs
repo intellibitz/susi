@@ -23,6 +23,109 @@ pub struct A2AMessage {
     pub payload: String,
 }
 
+/// Fixed-size (256-bit) capability bloom filter exchanged during peer discovery,
+/// so goal routing can test "does this peer likely register tool/agent X" without
+/// shipping the full registry over the wire. VC-200-001 (ROADMAP.md) hardening:
+/// replaces trust/hardware-only peer ranking with real semantic overlap.
+const BLOOM_WORDS: usize = 4;
+const BLOOM_HASHES: usize = 3;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct CapabilityBloom(pub [u64; BLOOM_WORDS]);
+
+impl CapabilityBloom {
+    pub fn from_tokens<'a>(tokens: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut bloom = Self::default();
+        for token in tokens {
+            bloom.insert(token);
+        }
+        bloom
+    }
+
+    pub fn insert(&mut self, token: &str) {
+        let token = token.to_lowercase();
+        for seed in 0..BLOOM_HASHES {
+            let bit = Self::hash(&token, seed as u64) % (BLOOM_WORDS as u64 * 64);
+            self.0[(bit / 64) as usize] |= 1 << (bit % 64);
+        }
+    }
+
+    pub fn contains(&self, token: &str) -> bool {
+        let token = token.to_lowercase();
+        for seed in 0..BLOOM_HASHES {
+            let bit = Self::hash(&token, seed as u64) % (BLOOM_WORDS as u64 * 64);
+            if self.0[(bit / 64) as usize] & (1 << (bit % 64)) == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Fraction of `tokens` this filter probably contains, in [0.0, 1.0].
+    pub fn match_ratio(&self, tokens: &[String]) -> f32 {
+        if tokens.is_empty() {
+            return 0.0;
+        }
+        let hits = tokens.iter().filter(|t| self.contains(t)).count();
+        hits as f32 / tokens.len() as f32
+    }
+
+    fn hash(token: &str, seed: u64) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut hasher);
+        token.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    pub fn to_hex(self) -> String {
+        self.0.iter().map(|w| format!("{:016x}", w)).collect()
+    }
+
+    pub fn from_hex(hex: &str) -> Self {
+        let mut bloom = Self::default();
+        let bytes = hex.as_bytes();
+        for (i, word) in bloom.0.iter_mut().enumerate() {
+            let start = i * 16;
+            if start + 16 > bytes.len() {
+                break;
+            }
+            if let Ok(s) = std::str::from_utf8(&bytes[start..start + 16]) {
+                *word = u64::from_str_radix(s, 16).unwrap_or(0);
+            }
+        }
+        bloom
+    }
+
+    /// Builds this node's capability bloom from every tool currently registered
+    /// with the local ToolRegistry (Registry + Trait + Config pattern: zero
+    /// hardcoded capability strings, derived from what's actually loaded).
+    pub fn local_snapshot() -> Self {
+        let tokens: Vec<String> = crate::gmcp::tools::ToolRegistry::global()
+            .tools
+            .iter()
+            .map(|entry| entry.key().to_lowercase())
+            .collect();
+        Self::from_tokens(tokens.iter().map(|s| s.as_str()))
+    }
+}
+
+/// Tokenizes a natural-language goal into terms worth matching against peer
+/// capability blooms. Strips short/stopword-ish tokens that would otherwise
+/// dilute the match ratio with noise common to every goal string.
+pub fn tokenize_goal(goal: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "the", "and", "for", "with", "this", "that", "admin", "pulse", "mission",
+    ];
+    // Tool/agent names are snake_case (e.g. "bloat_audit"), so '_' must stay
+    // part of a token rather than being treated as a separator.
+    goal.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|t| t.len() > 2 && !STOPWORDS.contains(t))
+        .map(|t| t.to_string())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterPeerNode {
     pub node_id: String,
@@ -34,6 +137,8 @@ pub struct ClusterPeerNode {
     pub latency_ms: u64,
     pub uptime_secs: u64,
     pub trust_score: f32,
+    #[serde(default)]
+    pub capability_bloom: CapabilityBloom,
 }
 
 pub struct SusiSupervisor;
@@ -62,6 +167,7 @@ impl SusiSupervisor {
                 latency_ms: 0,
                 uptime_secs: 0,
                 trust_score: 1.0,
+                capability_bloom: CapabilityBloom::local_snapshot(),
             }];
 
             let shared = Arc::new(RwLock::new(initial));
@@ -80,13 +186,23 @@ impl SusiSupervisor {
                         let local_caps = HardwareProfiler::get_caps_string();
                         let registry_checksum =
                             crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
-                        let ping_msg = format!("SUSI_PING:{}:{}", local_caps, registry_checksum);
+                        let local_bloom = CapabilityBloom::local_snapshot();
+                        let ping_msg = format!(
+                            "SUSI_PING:{}:{}:{}",
+                            local_caps,
+                            registry_checksum,
+                            local_bloom.to_hex()
+                        );
 
                         if let Ok((amt, src)) = socket.recv_from(&mut buf) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             if msg.starts_with("SUSI_PING") {
-                                let pong_msg =
-                                    format!("SUSI_PONG:{}:{}", local_caps, registry_checksum);
+                                let pong_msg = format!(
+                                    "SUSI_PONG:{}:{}:{}",
+                                    local_caps,
+                                    registry_checksum,
+                                    local_bloom.to_hex()
+                                );
                                 let _ = socket.send_to(pong_msg.as_bytes(), src);
                             }
 
@@ -109,12 +225,19 @@ impl SusiSupervisor {
                                     0
                                 };
 
+                                let peer_bloom = if parts.len() > 3 {
+                                    CapabilityBloom::from_hex(parts[3])
+                                } else {
+                                    CapabilityBloom::default()
+                                };
+
                                 let mut peers = t_shared.write();
                                 let addr_str = format!("{}:9090", src.ip());
                                 if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
                                     p.trust_score = (p.trust_score + 0.05).min(1.0);
                                     p.is_active = true;
                                     p.registry_checksum = checksum;
+                                    p.capability_bloom = peer_bloom;
                                 } else {
                                     peers.push(ClusterPeerNode {
                                         node_id: format!("susi-peer-{}", src.ip()),
@@ -130,6 +253,7 @@ impl SusiSupervisor {
                                         latency_ms: 0,
                                         uptime_secs: 0,
                                         trust_score: 0.6,
+                                        capability_bloom: peer_bloom,
                                     });
                                 }
                             }
@@ -437,32 +561,37 @@ impl SusiSupervisor {
     }
 
     /// Cluster Intent Routing: Prioritizes peers with semantically relevant capabilities.
-    pub fn rank_peers_for_goal(_goal: &str) -> Vec<ClusterPeerNode> {
+    pub fn rank_peers_for_goal(goal: &str) -> Vec<ClusterPeerNode> {
         let mut nodes = Self::list_cluster_nodes();
+        let goal_tokens = tokenize_goal(goal);
 
-        // For local master, we know the semantic score.
-        // For peers, we currently use trust and hardware as proxies for "Generic Specialist" capability.
-        // In v0.2, we will exchange bloom-filters of peer registries for perfect routing.
-
+        // VC-200-001: real semantic overlap via exchanged capability bloom filters,
+        // instead of trust/hardware-only proxies. Peers whose registry probably
+        // contains a tool matching the goal's terms are ranked ahead of generic
+        // high-trust nodes with no relevant capability.
         nodes.sort_by(|a, b| {
-            let a_score = (a.trust_score * 0.5)
-                + if a.node_type == "WORKSTATION_NODE" {
-                    0.3
-                } else {
-                    0.0
-                };
-            let b_score = (b.trust_score * 0.5)
-                + if b.node_type == "WORKSTATION_NODE" {
-                    0.3
-                } else {
-                    0.0
-                };
+            let a_score = Self::score_peer_for_goal(a, &goal_tokens);
+            let b_score = Self::score_peer_for_goal(b, &goal_tokens);
             b_score
                 .partial_cmp(&a_score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         nodes
+    }
+
+    /// Weighted score combining base trust/hardware proxies with bloom-filter
+    /// capability overlap against the goal's tokens. Pure function (no I/O) so
+    /// routing quality is directly unit-testable.
+    fn score_peer_for_goal(node: &ClusterPeerNode, goal_tokens: &[String]) -> f32 {
+        let base = (node.trust_score * 0.5)
+            + if node.node_type == "WORKSTATION_NODE" {
+                0.3
+            } else {
+                0.0
+            };
+        let capability_match = node.capability_bloom.match_ratio(goal_tokens);
+        base + capability_match * 0.6
     }
 
     pub fn dispatch_peer_task(addr: &str, tool_name: &str, arg: &str) -> String {
@@ -715,5 +844,67 @@ mod tests {
         assert!(blackboard.contains_key("SafetyAgent"));
         assert!(blackboard.contains_key("SecurityAgent"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_capability_bloom_no_false_negatives() {
+        let bloom = CapabilityBloom::from_tokens(["bloat_audit", "sovereign_dashboard", "status"]);
+        assert!(bloom.contains("bloat_audit"));
+        assert!(bloom.contains("sovereign_dashboard"));
+        assert!(bloom.contains("status"));
+        // Not inserted: may or may not be a false positive, but must not crash and
+        // must behave deterministically for the same input.
+        let first = bloom.contains("totally_unrelated_xyz");
+        let second = bloom.contains("totally_unrelated_xyz");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn test_capability_bloom_hex_roundtrip() {
+        let bloom = CapabilityBloom::from_tokens(["deep_scan", "mcp_scout"]);
+        let hex = bloom.to_hex();
+        let restored = CapabilityBloom::from_hex(&hex);
+        assert_eq!(bloom, restored);
+        assert!(restored.contains("deep_scan"));
+    }
+
+    #[test]
+    fn test_rank_peers_prefers_capability_match_over_raw_trust() {
+        let goal_tokens = tokenize_goal("admin pulse: run bloat_audit across the substrate");
+
+        let generic_high_trust = ClusterPeerNode {
+            node_id: "n1".into(),
+            address: "10.0.0.1:9090".into(),
+            node_type: "PEER".into(),
+            is_active: true,
+            capabilities: vec!["CORE".into()],
+            registry_checksum: 0,
+            latency_ms: 0,
+            uptime_secs: 0,
+            trust_score: 0.9,
+            capability_bloom: CapabilityBloom::from_tokens(["status", "version"]),
+        };
+
+        let capability_match = ClusterPeerNode {
+            node_id: "n2".into(),
+            address: "10.0.0.2:9090".into(),
+            node_type: "PEER".into(),
+            is_active: true,
+            capabilities: vec!["CORE".into()],
+            registry_checksum: 0,
+            latency_ms: 0,
+            uptime_secs: 0,
+            trust_score: 0.6,
+            capability_bloom: CapabilityBloom::from_tokens(["bloat_audit"]),
+        };
+
+        let a_score = SusiSupervisor::score_peer_for_goal(&generic_high_trust, &goal_tokens);
+        let b_score = SusiSupervisor::score_peer_for_goal(&capability_match, &goal_tokens);
+        assert!(
+            b_score > a_score,
+            "peer with matching capability ({}) should outrank higher-trust peer with no match ({})",
+            b_score,
+            a_score
+        );
     }
 }

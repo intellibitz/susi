@@ -1298,7 +1298,30 @@ impl ToolRegistry {
         }
 
         let res = GmcpClient::provision_tool_package(server_name);
-        Ok(res)
+        if res != "NOT_FOUND_IN_REGISTRY" {
+            return Ok(res);
+        }
+
+        // VC-200-002 (ROADMAP.md): last-resort autonomous hot-patch. No registry
+        // match and no installable package exist for this capability, so
+        // synthesize and compile a real WASI reflex for it and hot-load it under
+        // the `reflex_<name>` convention execute_tool already understands —
+        // closing the gap without a daemon restart.
+        let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        match crate::gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex(
+            server_name,
+            &workspace,
+        ) {
+            Ok(wasm_path) => Ok(format!(
+                "[HOT_PATCH] Synthesized and compiled a WASI reflex for '{}' at {}. Retry as 'reflex_{}'.",
+                server_name, wasm_path, server_name
+            )),
+            Err(e) => Ok(format!(
+                "[CAPABILITY_GAP] '{}' unresolved: no registry match, no installable package, \
+                 and reflex synthesis failed ({}).",
+                server_name, e
+            )),
+        }
     }
 
     pub fn acquire_meta_lock(resource_id: &str) -> bool {

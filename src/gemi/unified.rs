@@ -286,28 +286,87 @@ impl TurboReflexEngine {
 pub struct SusiUnifiedSubstrate;
 
 impl SusiUnifiedSubstrate {
-    /// Aspiration 14: Unified Multi-Modal Embedding Space
+    /// Text subspace: [TEXT_OFFSET, TEXT_OFFSET + TEXT_DIM) of the 1024-D manifold.
+    const TEXT_OFFSET: usize = 768;
+    const TEXT_DIM: usize = 256;
+
+    /// VC-200-003 (ROADMAP.md): 1024-D multi-signal manifold with real,
+    /// non-overlapping per-modality subspaces:
+    ///   [0, 512)    vision  — SusiVisionEngine::DIM real neural features
+    ///   [512, 768)  audio   — SusiAudioEngine::DIM real neural features
+    ///   [768, 1024) text    — byte-folded projection (no dedicated text
+    ///                         encoder exists in this substrate yet; this is
+    ///                         an honest baseline, not a claim of a trained one)
+    ///
+    /// Previously this projected only path-string lengths for vision/audio —
+    /// never touching pixel or waveform data — which is fixed here to call the
+    /// real `SusiVisionEngine`/`SusiAudioEngine` feature extractors.
     pub fn project_to_unified_space(
         text: Option<&str>,
         image_path: Option<&Path>,
         audio_path: Option<&Path>,
     ) -> EaiResult<Vec<f32>> {
-        // Implementation of 1024-dimensional neural projection
-        // Real logic would involve loading vision/audio encoders
         let mut unified_vec = vec![0.0f32; 1024];
 
         if let Some(t) = text {
             for (i, b) in t.as_bytes().iter().enumerate() {
-                unified_vec[i % 1024] += *b as f32 / 255.0;
+                unified_vec[Self::TEXT_OFFSET + (i % Self::TEXT_DIM)] += *b as f32 / 255.0;
             }
         }
 
         if let Some(ip) = image_path {
-            unified_vec[0] += ip.as_os_str().len() as f32;
+            match crate::gemi::vision::SusiVisionEngine::new()
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))
+                .and_then(|engine| {
+                    engine
+                        .process_image(ip)
+                        .map_err(|e| crate::error::EaiError::inference(e.to_string()))
+                }) {
+                Ok(tensor) => {
+                    if let Ok(rows) = tensor.to_vec2::<f32>() {
+                        for (i, v) in rows[0]
+                            .iter()
+                            .take(crate::gemi::vision::SusiVisionEngine::DIM)
+                            .enumerate()
+                        {
+                            unified_vec[i] += *v;
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    "[SusiUnifiedSubstrate] vision fusion skipped ({}): {}",
+                    ip.display(),
+                    e
+                ),
+            }
         }
 
         if let Some(ap) = audio_path {
-            unified_vec[1023] += ap.as_os_str().len() as f32;
+            const AUDIO_OFFSET: usize = 512;
+            match crate::gemi::audio::SusiAudioEngine::new()
+                .map_err(|e| crate::error::EaiError::inference(e.to_string()))
+                .and_then(|engine| {
+                    engine
+                        .process_audio(ap)
+                        .map_err(|e| crate::error::EaiError::inference(e.to_string()))
+                }) {
+                Ok(tensor) => {
+                    if let Ok(rows) = tensor.to_vec2::<f32>() {
+                        for (i, v) in rows[0]
+                            .iter()
+                            .take(crate::gemi::audio::SusiAudioEngine::DIM)
+                            .enumerate()
+                        {
+                            unified_vec[AUDIO_OFFSET + i] += *v;
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(
+                    "[SusiUnifiedSubstrate] audio fusion skipped ({}): {}",
+                    ap.display(),
+                    e
+                ),
+            }
         }
 
         // Normalize the vector
@@ -317,5 +376,35 @@ impl SusiUnifiedSubstrate {
         }
 
         Ok(unified_vec)
+    }
+}
+
+#[cfg(test)]
+mod fusion_tests {
+    use super::*;
+
+    #[test]
+    fn test_unified_space_is_1024d_and_normalized() {
+        let v = SusiUnifiedSubstrate::project_to_unified_space(Some("hello susi"), None, None)
+            .unwrap();
+        assert_eq!(v.len(), 1024);
+        let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-4 || norm == 0.0);
+    }
+
+    #[test]
+    fn test_text_only_stays_in_reserved_subspace() {
+        let v = SusiUnifiedSubstrate::project_to_unified_space(Some("susi"), None, None).unwrap();
+        // Nothing should land in the vision [0,512) or audio [512,768) subspaces
+        // when no image/audio was supplied.
+        assert!(v[0..768].iter().all(|x| *x == 0.0));
+        assert!(v[768..1024].iter().any(|x| *x != 0.0));
+    }
+
+    #[test]
+    fn test_different_text_produces_different_manifold_point() {
+        let a = SusiUnifiedSubstrate::project_to_unified_space(Some("alpha"), None, None).unwrap();
+        let b = SusiUnifiedSubstrate::project_to_unified_space(Some("omega"), None, None).unwrap();
+        assert_ne!(a, b);
     }
 }
