@@ -768,7 +768,7 @@ impl CoreTools {
             .map_err(|e| EaiError::process(e.to_string()))?;
 
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(5))
+            .search(&query, &TopDocs::with_limit(5).order_by_score())
             .map_err(|e| EaiError::process(e.to_string()))?;
 
         let mut out = format!("Tantivy search results for '{}':\n", query_str);
