@@ -246,22 +246,26 @@ impl HardwareProfiler {
         Self::get_disk_stats().0
     }
 
+    /// Reports acceleration status from the same runtime device probe
+    /// `get_candle_device` uses for actual inference (`Device::new_cuda`/
+    /// `new_metal`, each wrapped in `catch_unwind`), rather than
+    /// `candle_core::utils::cuda_is_available`/`metal_is_available`, which are
+    /// compile-time-only (`cfg!(feature = "cuda")`) and would report GPU
+    /// acceleration as active on a `--features cuda` build even when no GPU
+    /// is present or the driver fails to init at runtime - silently
+    /// disagreeing with the CPU device inference actually falls back to.
     fn interrogate_native_acceleration() -> (String, String) {
-        if candle_core::utils::cuda_is_available() {
-            return (
-                "CUDA (Detected)".to_string(),
+        match Self::get_candle_device() {
+            Device::Cuda(_) => (
+                "CUDA (Active)".to_string(),
                 "NVIDIA Driver found".to_string(),
-            );
-        }
-
-        if candle_core::utils::metal_is_available() {
-            return (
-                "Metal (Detected)".to_string(),
+            ),
+            Device::Metal(_) => (
+                "Metal (Active)".to_string(),
                 "Apple Silicon / macOS".to_string(),
-            );
+            ),
+            Device::Cpu => ("None".to_string(), "Cpu".to_string()),
         }
-
-        ("None".to_string(), "Cpu".to_string())
     }
 
     fn determine_gpu_vram_gb() -> usize {
@@ -598,6 +602,18 @@ mod tests {
             assert!(step.expected_bytes >= step.min_bytes);
             last_min_bytes = step.min_bytes;
         }
+    }
+
+    #[test]
+    fn test_acceleration_active_agrees_with_actual_device_selection() {
+        // Regression: interrogate_native_acceleration used to read
+        // candle_core::utils::cuda_is_available()/metal_is_available(), which
+        // are compile-time-only (cfg!(feature = "cuda")) and would report
+        // acceleration as active on a cuda-feature build even with no GPU
+        // present, disagreeing with get_candle_device()'s real runtime probe.
+        let profile = HardwareProfiler::get_profile();
+        let device_is_accelerated = !matches!(HardwareProfiler::get_candle_device(), Device::Cpu);
+        assert_eq!(profile.acceleration_active, device_is_accelerated);
     }
 
     #[test]
