@@ -374,6 +374,23 @@ impl SusiPrompts {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = home.join(".susi/prompts.json");
+        
+        static PROMPTS_CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, SusiPrompts)>>> = std::sync::OnceLock::new();
+        let cache_lock = PROMPTS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
+        
+        let current_modified = std::fs::metadata(&prompts_file)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+
+        {
+            let guard = cache_lock.read();
+            if let Some((cached_time, cached_cfg)) = guard.as_ref() {
+                if cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
+                    return cached_cfg.clone();
+                }
+            }
+        }
+
         let mut loaded = if prompts_file.is_file() {
             fs::read_to_string(&prompts_file)
                 .ok()
@@ -478,9 +495,28 @@ impl SusiMessages {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = home.join(".susi/messages.json");
+        
+        static MSGS_CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, SusiMessages)>>> = std::sync::OnceLock::new();
+        let cache_lock = MSGS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
+        
+        let current_modified = std::fs::metadata(&msgs_file)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+
+        {
+            let guard = cache_lock.read();
+            if let Some((cached_time, cached_cfg)) = guard.as_ref() {
+                if cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
+                    return cached_cfg.clone();
+                }
+            }
+        }
+
         if msgs_file.is_file() {
             if let Ok(content) = fs::read_to_string(&msgs_file) {
                 if let Ok(m) = serde_json::from_str::<SusiMessages>(&content) {
+                    let mut guard = cache_lock.write();
+                    *guard = Some((current_modified, m.clone()));
                     return m;
                 }
             }
@@ -490,6 +526,11 @@ impl SusiMessages {
         if let Ok(json) = serde_json::to_string_pretty(&default_msgs) {
             let _ = fs::write(&msgs_file, json);
         }
+        let new_modified = std::fs::metadata(&msgs_file)
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH);
+        let mut guard = cache_lock.write();
+        *guard = Some((new_modified, default_msgs.clone()));
         default_msgs
     }
 
@@ -700,6 +741,23 @@ impl SusiConfig {
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
+
+        static CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, std::path::PathBuf, SusiConfig)>>> = std::sync::OnceLock::new();
+        let cache_lock = CACHE.get_or_init(|| parking_lot::RwLock::new(None));
+
+        let current_modified = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+
+        {
+            let guard = cache_lock.read();
+            if let Some((cached_time, cached_path, cached_cfg)) = guard.as_ref() {
+                if cached_path == &path && cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
+                    return Ok(cached_cfg.clone());
+                }
+            }
+        }
+
         if path.is_file() {
             let content = fs::read_to_string(&path)
                 .map_err(|e| EaiError::config(format!("Failed to read config: {}", e)))?;
