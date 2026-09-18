@@ -78,7 +78,11 @@ impl SusiMasterAgent {
     }
 
     /// Validates and sanitizes natural language inputs to prevent injection attacks.
-    fn sanitize_input(&self, input: &str) -> EaiResult<String> {
+    /// Static (no `self`) so tool handlers outside `SusiMasterAgent` — notably
+    /// the `reason` MCP tool, a second front door into the same reasoning
+    /// substrate — can apply the identical untrusted-input boundary (Mandate 41)
+    /// instead of feeding a raw, unbounded, unchecked prompt straight to the model.
+    pub(crate) fn sanitize_input(input: &str) -> EaiResult<String> {
         let trimmed = input.trim();
 
         let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
@@ -382,7 +386,7 @@ impl SusiMasterAgent {
         _version: &str,
         _callback: &dyn Fn(String),
     ) -> EaiResult<SusiMissionReport> {
-        let goal = self.sanitize_input(goal)?;
+        let goal = Self::sanitize_input(goal)?;
 
         eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
         eprintln!("- [Substrate Operation] Initializing Axiomatic Substrate...");
@@ -508,7 +512,7 @@ impl SusiMasterAgent {
             });
         }
 
-        let goal = self.sanitize_input(goal)?;
+        let goal = Self::sanitize_input(goal)?;
         let lower_goal = goal.to_lowercase();
 
         // Substrate Queries (Swarm-Dispatched Reflex Interrogation - Aspiration 23 & QUERIES.md)
@@ -915,7 +919,7 @@ impl SusiMasterAgent {
         workspace: &Path,
         feedback_tx: flume::Sender<String>,
     ) -> EaiResult<String> {
-        let goal = self.sanitize_input(goal)?;
+        let goal = Self::sanitize_input(goal)?;
         let _ = feedback_tx.send(format!("[SUSI] Initiating mission for goal: '{}'", goal));
 
         // Mandate: Use multi-threaded swarm for all runtime setup and audits
