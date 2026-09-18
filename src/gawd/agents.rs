@@ -1058,9 +1058,31 @@ impl AdminAgent {
     /// Action priority follows the routing map's declaration order in
     /// config.default.json (first match wins, mirroring the original if/else
     /// chain's precedence).
+    /// Bare-substring keyword matching on `lower_goal` is only safe for
+    /// actions with no side effects. It was previously applied uniformly,
+    /// which meant any goal text containing the word "release" anywhere
+    /// (e.g. "check the status of my release notes") would trigger a full
+    /// `execute_release()` — cargo check/test/clippy, version sync, and a
+    /// `git push` — and any goal containing "remove" would `rm -rf ~/.susi`
+    /// via the uninstall action, deleting every provisioned model and the
+    /// agent registry. Both were reachable from any goal string fed into the
+    /// swarm, including from GEMI REST's `/v1/chat/completions` — no LLM
+    /// cooperation required, just an unlucky word choice. The dedicated
+    /// `susi admin <subcommand>` CLI already calls these functions directly
+    /// (src/main.rs's `AdminCommands` match) without going through this
+    /// keyword matcher at all, so gating the mutating actions here behind
+    /// the same explicit "admin pulse:" sentinel `DynamicAgent`'s fast-path
+    /// already uses (and that agents.default.json's own pulse descriptions
+    /// are phrased with) closes the hole without removing any real
+    /// capability: an operator/caller who actually means to trigger one of
+    /// these must say so unambiguously.
+    const MUTATING_ACTIONS: &'static [&'static str] =
+        &["sync", "audit", "verify", "release", "deep_scan", "install", "uninstall"];
+
     fn match_action(lower_goal: &str) -> Option<String> {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.admin_command_routing();
+        let is_explicit_admin_pulse = lower_goal.trim_start().starts_with("admin pulse");
 
         const ACTION_ORDER: &[&str] = &[
             "sync",
@@ -1079,6 +1101,9 @@ impl AdminAgent {
         ACTION_ORDER
             .iter()
             .find(|action| {
+                if Self::MUTATING_ACTIONS.contains(*action) && !is_explicit_admin_pulse {
+                    return false;
+                }
                 routing
                     .get(**action)
                     .map(|groups| {
@@ -1684,5 +1709,58 @@ mod tests {
         assert_eq!(bb.get("DevOpsAgent").as_deref(), Some(res.as_str()));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_admin_agent_does_not_fire_mutating_actions_on_incidental_wording() {
+        // Regression test for goal text triggering destructive admin actions
+        // via bare substring match with no explicit intent whatsoever.
+        assert_eq!(
+            AdminAgent::match_action("check the status of my release notes"),
+            Some("status_health".to_string()),
+            "\"release\" appearing incidentally must not preempt the actual intent"
+        );
+        assert_eq!(
+            AdminAgent::match_action("please remove the duplicate lines from this text"),
+            None,
+            "\"remove\" appearing incidentally must not trigger uninstall"
+        );
+        assert_eq!(
+            AdminAgent::match_action("sync up with the team about the release"),
+            None,
+            "mutating actions require the explicit admin pulse sentinel"
+        );
+    }
+
+    #[test]
+    fn test_admin_agent_fires_mutating_actions_with_explicit_admin_pulse() {
+        assert_eq!(
+            AdminAgent::match_action("admin pulse: execute full release orchestration sequence"),
+            Some("release".to_string())
+        );
+        assert_eq!(
+            AdminAgent::match_action("admin pulse: remove and clean up sandboxed .susi environment"),
+            Some("uninstall".to_string())
+        );
+        assert_eq!(
+            AdminAgent::match_action("admin pulse: initialize sandboxed .susi environment and provision weights"),
+            Some("install".to_string())
+        );
+    }
+
+    #[test]
+    fn test_admin_agent_read_only_actions_stay_reachable_without_admin_pulse() {
+        assert_eq!(
+            AdminAgent::match_action("what version are you running"),
+            Some("version".to_string())
+        );
+        assert_eq!(
+            AdminAgent::match_action("what is your identity"),
+            Some("identity".to_string())
+        );
+        assert_eq!(
+            AdminAgent::match_action("list models"),
+            Some("list_models".to_string())
+        );
     }
 }
