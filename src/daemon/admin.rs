@@ -321,8 +321,12 @@ impl SusiAdmin {
     /// not complete.
     pub fn execute_release(workspace: &Path) -> EaiResult<String> {
         eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
+        // Deliberately default-features only, matching the `cargo test` step below:
+        // `--all-features` activates cuda/mkl/metal simultaneously, which are mutually
+        // exclusive hardware backends and fail to build together on any single host
+        // (e.g. metal pulls in macOS-only objc2 bindings even on Linux).
         let mut check = Command::new("cargo")
-            .args(["check", "--all-targets", "--all-features"])
+            .args(["check", "--all-targets"])
             .current_dir(workspace)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
@@ -349,14 +353,7 @@ impl SusiAdmin {
 
         eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
         let mut clippy = Command::new("cargo")
-            .args([
-                "clippy",
-                "--all-targets",
-                "--all-features",
-                "--",
-                "-D",
-                "warnings",
-            ])
+            .args(["clippy", "--all-targets", "--", "-D", "warnings"])
             .current_dir(workspace)
             .stdout(std::process::Stdio::inherit())
             .stderr(std::process::Stdio::inherit())
