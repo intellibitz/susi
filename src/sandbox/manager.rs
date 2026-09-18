@@ -406,6 +406,22 @@ impl SusiPrompts {
                 let _ = fs::write(&prompts_file, json);
             }
             loaded = Some(default_prompts);
+        } else if let Some(existing) = loaded.as_mut() {
+            // Backfill keys a prompts.json predating a newer default doesn't
+            // have yet (e.g. a new prompt template shipped after the user's
+            // file was first written) - same self-healing merge SusiConfig
+            // already does for config.json, and for the same reason: once
+            // written, this file is never regenerated, so a new key is
+            // otherwise permanently invisible to load_global() on any host
+            // that installed before it existed. Never touches a key the user
+            // already has, matching that same existing-value guarantee.
+            let default_prompts = Self::default_dynamic();
+            if Self::backfill_missing_prompt_keys(&mut existing.prompts, &default_prompts.prompts)
+            {
+                if let Ok(json) = serde_json::to_string_pretty(existing) {
+                    let _ = fs::write(&prompts_file, json);
+                }
+            }
         }
         let mut prompts = loaded.expect("checked Some above");
 
@@ -428,6 +444,23 @@ impl SusiPrompts {
             prompts,
             chat_templates: ChatTemplateConfig::default(),
         }
+    }
+
+    /// Inserts any key present in `defaults` but absent from `existing`.
+    /// Never overwrites a key `existing` already has. Returns whether
+    /// anything was inserted.
+    fn backfill_missing_prompt_keys(
+        existing: &mut DynamicRegistry,
+        defaults: &DynamicRegistry,
+    ) -> bool {
+        let mut changed = false;
+        for (key, default_val) in defaults {
+            if !existing.contains_key(key) {
+                existing.insert(key.clone(), default_val.clone());
+                changed = true;
+            }
+        }
+        changed
     }
 
     pub fn get(&self, key: &str) -> Option<&DynamicValue> {
@@ -454,6 +487,19 @@ impl SusiPrompts {
     }
     pub fn mission_partition_prompt(&self) -> String {
         self.get_str("mission_partition_prompt")
+            .unwrap_or("")
+            .to_string()
+    }
+    /// Used by `DynamicAgent` (every synthesized specialist, plus the
+    /// UniversalReasoner fallback). Deliberately asks for a direct answer,
+    /// not a tool-call schema: nothing in the swarm ever parses an
+    /// "action"/"action_input" field from an agent's raw output to execute a
+    /// real tool and fill in "observation," so asking a small model to
+    /// produce that schema just adds an unnecessary indirection it often
+    /// can't complete - verified live, this produced JSON stubs describing
+    /// an intended action with an empty "observation" instead of an answer.
+    pub fn dynamic_agent_prompt(&self) -> String {
+        self.get_str("dynamic_agent_prompt")
             .unwrap_or("")
             .to_string()
     }
@@ -1777,6 +1823,57 @@ mod tests {
         assert_eq!(rolled_back, "original code");
 
         let _ = fs::remove_dir_all(ws);
+    }
+
+    #[test]
+    fn test_backfill_missing_prompt_keys_adds_new_key_without_touching_existing() {
+        // Regression: a prompts.json written before dynamic_agent_prompt (or
+        // any future key) existed would otherwise permanently lack it, since
+        // load_global() only writes prompts.json once, on first-ever load.
+        let mut existing: DynamicRegistry = HashMap::new();
+        existing.insert(
+            "consensus_wisdom_prompt".to_string(),
+            DynamicValue::String("old customized text".to_string()),
+        );
+
+        let mut defaults: DynamicRegistry = HashMap::new();
+        defaults.insert(
+            "consensus_wisdom_prompt".to_string(),
+            DynamicValue::String("new default text".to_string()),
+        );
+        defaults.insert(
+            "dynamic_agent_prompt".to_string(),
+            DynamicValue::String("direct-answer prompt".to_string()),
+        );
+
+        let changed = SusiPrompts::backfill_missing_prompt_keys(&mut existing, &defaults);
+
+        assert!(changed);
+        assert_eq!(
+            existing.get("consensus_wisdom_prompt").and_then(|v| v.as_str()),
+            Some("old customized text"),
+            "an existing key must never be overwritten by a newer default"
+        );
+        assert_eq!(
+            existing.get("dynamic_agent_prompt").and_then(|v| v.as_str()),
+            Some("direct-answer prompt"),
+            "a key missing from the user's file must be backfilled from the bundled default"
+        );
+    }
+
+    #[test]
+    fn test_backfill_missing_prompt_keys_reports_no_change_when_nothing_missing() {
+        let mut existing: DynamicRegistry = HashMap::new();
+        existing.insert(
+            "consensus_wisdom_prompt".to_string(),
+            DynamicValue::String("text".to_string()),
+        );
+        let defaults = existing.clone();
+
+        assert!(!SusiPrompts::backfill_missing_prompt_keys(
+            &mut existing,
+            &defaults
+        ));
     }
 
     #[test]

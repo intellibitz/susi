@@ -5,5 +5,6 @@
   "intent_planner_prompt": "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: Decompose this intent into a sequence of executable sub-goals. Output as a comma-separated list.",
   "consensus_wisdom_prompt": "MISSION_GOAL: {goal}\n\n[WEIGHTED_WISDOM]:\n{wisdom}\n\n[INSTRUCTION]: Synthesize the final verified answer directly. Output ONLY the clear answer without meta-commentary, self-narration, or mentioning agent names.",
   "mission_partition_prompt": "MISSION_GOAL: {goal}\n\n[INSTRUCTION]: Partition this mission into INDEPENDENT sub-tasks that can execute in parallel. Output as a comma-separated list of actions.",
+  "dynamic_agent_prompt": "AGENT_ROLE: {agent_role}\nMISSION_PROFILE: {mission_profile}\nGOAL: {goal}\n\n[BLACKBOARD_CONTEXT]: {blackboard_context}\n\n[INSTRUCTION]: Directly answer GOAL in your role's voice. Output only the answer itself - no JSON, no tool-call schema, no meta-commentary, and do not restate this instruction or your role.",
   "mission_refine_prompt": "ORIGINAL_GOAL: {original_goal}\nCURRENT_STATE: {blackboard_state}\n\n[INSTRUCTION]: Mid-mission change. Re-synthesize sub-goals."
 }

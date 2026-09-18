@@ -174,10 +174,17 @@ impl GawdAgent for DynamicAgent {
 
         let bb_state = blackboard.to_json();
 
-        let prompt = format!(
-            "AGENT_ROLE: {}\nMISSION_PROFILE: {}\nGOAL: {}\n\n[BLACKBOARD_CONTEXT]: {}\n\n[INSTRUCTION]: Fulfill your role in the swarm using the following ReAct JSON schema for your execution step:\n{{\n  \"thought\": \"internal reasoning\",\n  \"action\": \"tool_name\",\n  \"action_input\": {{...}},\n  \"observation\": \"...\"\n}}\nOutput valid ReAct JSON or structured evidence only.",
-            self.agent_name, self.mission_profile, goal, bb_state
-        );
+        // Nothing downstream parses an "action"/"action_input" field to
+        // execute a real tool and fill in "observation" - asking for that
+        // ReAct schema here used to make small models stop at describing an
+        // intended action instead of answering (see dynamic_agent_prompt's
+        // doc comment). This just asks directly.
+        let prompt = crate::sandbox::manager::SusiPrompts::load_global()
+            .dynamic_agent_prompt()
+            .replace("{agent_role}", &self.agent_name)
+            .replace("{mission_profile}", &self.mission_profile)
+            .replace("{goal}", goal)
+            .replace("{blackboard_context}", &bb_state);
 
         let ws = workspace.to_path_buf();
         let prompt_val = serde_json::json!(prompt);
