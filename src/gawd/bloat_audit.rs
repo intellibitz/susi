@@ -248,11 +248,11 @@ impl BloatAuditor {
 
         let mut todo_markers = 0;
         let mut secret_pattern_hits = 0;
-        // Secret-shaped fixtures inside `#[cfg(test)] mod ... { ... }` (e.g.
-        // security.rs's own tests asserting that a fake API-key-shaped string
-        // gets rejected/redacted) are the detector working as intended, not a
-        // leak — count TODO/FIXME everywhere, but skip secret-pattern matches
-        // for the span of any such test module.
+        // Secret-shaped fixtures and TODO/FIXME-annotation examples inside
+        // `#[cfg(test)] mod ... { ... }` (e.g. security.rs's own tests
+        // asserting that a fake API-key-shaped string gets rejected/redacted)
+        // are the detector working as intended, not a real leak or pending
+        // work item — skip both checks for the span of any such test module.
         let mut in_test_module = false;
         let mut saw_cfg_test = false;
         let mut test_module_brace_depth: i32 = 0;
@@ -274,10 +274,26 @@ impl BloatAuditor {
                 saw_cfg_test = trimmed.starts_with("#[cfg(test)]");
             }
 
-            if line.contains("TODO") || line.contains("FIXME") {
-                todo_markers += 1;
-            }
             if !in_test_module {
+                // A real pending-work marker is a `//` comment where one of
+                // the two annotation keywords is immediately followed by a
+                // colon or an opening paren (the conventional
+                // tagged-annotation form) — not any bare occurrence of either
+                // keyword, which also matches this scanner's own
+                // string-literal pattern definitions and code that renders
+                // the summary report line (neither is a `//` comment) as well
+                // as prose that merely discusses the convention, like this
+                // comment itself.
+                if let Some((_, comment)) = line.split_once("//") {
+                    if comment.contains("TODO:")
+                        || comment.contains("TODO(")
+                        || comment.contains("FIXME:")
+                        || comment.contains("FIXME(")
+                    {
+                        todo_markers += 1;
+                    }
+                }
+
                 for pattern in secret_patterns {
                     if !pattern.is_empty() && line.contains(pattern.as_str()) {
                         secret_pattern_hits += 1;
@@ -479,6 +495,44 @@ mod tests {
             finding.secret_pattern_hits, 1,
             "a real secret pattern outside any test module must still be flagged"
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_scan_file_ignores_bare_todo_word_in_string_literals_and_prose() {
+        let dir = std::env::temp_dir().join(format!("susi_todo_scan_bare_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("self_referential.rs");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "// This comment discusses the TODO/FIXME convention.").unwrap();
+        writeln!(f, "fn check(line: &str) -> bool {{").unwrap();
+        writeln!(f, "    line.contains(\"TODO\") || line.contains(\"FIXME\")").unwrap();
+        writeln!(f, "}}").unwrap();
+        writeln!(f, "const LABEL: &str = \"TODO/FIXME markers\";").unwrap();
+
+        let finding = BloatAuditor::scan_file(&path, &dir, &[]);
+        assert_eq!(
+            finding.todo_markers, 0,
+            "bare TODO/FIXME occurrences in prose or string literals are not pending-work markers"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_scan_file_detects_conventionally_tagged_todo_and_fixme_comments() {
+        let dir = std::env::temp_dir().join(format!("susi_todo_scan_real_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("has_real_todos.rs");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "// TODO: handle the empty-input case").unwrap();
+        writeln!(f, "fn a() {{}}").unwrap();
+        writeln!(f, "// FIXME(alice): this panics on overflow").unwrap();
+        writeln!(f, "fn b() {{}}").unwrap();
+
+        let finding = BloatAuditor::scan_file(&path, &dir, &[]);
+        assert_eq!(finding.todo_markers, 2);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
