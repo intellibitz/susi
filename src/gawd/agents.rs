@@ -431,7 +431,11 @@ impl GawdAgent for SafetyAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        crate::gawd::safety::SafetyDetector::audit_action("SWARM_SOLVE", goal, workspace)?;
+        // "SUSI_SOLVE" (not an arbitrary label): SafetyDetector's critical-system-path
+        // check is gated on this exact tool_name literal alongside "write_file"/
+        // "exec_command" (src/gawd/safety.rs) — using anything else here means a
+        // full mission goal never gets checked against critical_system_paths at all.
+        crate::gawd::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace)?;
         let res = "Safety protocols verified. No destructive patterns detected.".to_string();
         blackboard.insert(self.name(), res.clone());
         Ok(res)
@@ -454,7 +458,7 @@ impl GawdAgent for SecurityAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        crate::gawd::security::SecurityDetector::audit_action("SWARM_SOLVE", goal, workspace)?;
+        crate::gawd::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace)?;
         let res =
             "Security audit passed. No secret leaks or exfiltration vectors detected.".to_string();
         blackboard.insert(self.name(), res.clone());
@@ -1449,6 +1453,18 @@ impl GawdAgentFleet {
         THROTTLE_ACTIVE.store(active, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// How high a goal/agent semantic-similarity score must be before an
+    /// existing agent counts as "covers this capability" for Neural Agent
+    /// Synthesis purposes, per the configured `trust_level`. Pure function
+    /// (no I/O) so the mapping is directly unit-testable.
+    fn synthesis_similarity_threshold(trust_level: &str) -> f32 {
+        match trust_level.to_lowercase().as_str() {
+            "conservative" => 0.7,
+            "autonomous" => 0.2,
+            _ => 0.4, // "balanced" (bundled default) and any unrecognized level
+        }
+    }
+
     pub fn get_max_concurrent_agents() -> usize {
         let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
@@ -1590,12 +1606,18 @@ impl GawdAgentFleet {
         }
 
         // 4. Neural Agent Synthesis (Aspiration 13)
+        // `trust_level` (config.default.json) gates how eager the substrate is
+        // to autonomously mint a brand-new specialist agent via LLM synthesis —
+        // Mandate 16's "structural synthesis" — a standing config field with an
+        // accessor (`SusiConfig::trust_level`) that no call site ever consulted
+        // before this.
+        let synthesis_similarity_threshold = Self::synthesis_similarity_threshold(&cfg.trust_level());
         let only_mandatory = fleet.len() <= 12; // Adjusted baseline
         if !is_query_or_admin
-            && (max_global_similarity < 0.4 || only_mandatory)
+            && (max_global_similarity < synthesis_similarity_threshold || only_mandatory)
             && fleet.len() < max_agents
         {
-            eprintln!("[Swarm] Capability gap detected (Similarity: {:.2}). Triggering Neural Agent Synthesis...", max_global_similarity);
+            eprintln!("[Swarm] Capability gap detected (Similarity: {:.2}, Threshold: {:.2}, Trust: {}). Triggering Neural Agent Synthesis...", max_global_similarity, synthesis_similarity_threshold, cfg.trust_level());
             if let Ok(new_profile) = NeuralAgentFactory::synthesize_specialist(goal, workspace) {
                 eprintln!("[Agent Factory] Specialist recruited: {}", new_profile.name);
                 registry.register_agent(new_profile.clone());
@@ -1935,5 +1957,39 @@ mod tests {
             .semantic_anchors
             .iter()
             .all(|a| a.len() <= NeuralAgentFactory::MAX_KEYWORD_LEN));
+    }
+
+    #[test]
+    fn test_synthesis_similarity_threshold_respects_trust_level() {
+        assert_eq!(
+            GawdAgentFleet::synthesis_similarity_threshold("conservative"),
+            0.7
+        );
+        assert_eq!(
+            GawdAgentFleet::synthesis_similarity_threshold("Conservative"),
+            0.7
+        );
+        assert_eq!(
+            GawdAgentFleet::synthesis_similarity_threshold("autonomous"),
+            0.2
+        );
+        // Bundled default and any unrecognized value keep today's threshold.
+        assert_eq!(
+            GawdAgentFleet::synthesis_similarity_threshold("Balanced"),
+            0.4
+        );
+        assert_eq!(
+            GawdAgentFleet::synthesis_similarity_threshold("any_new_level"),
+            0.4
+        );
+    }
+
+    #[test]
+    fn test_conservative_trust_level_raises_bar_above_autonomous() {
+        let conservative = GawdAgentFleet::synthesis_similarity_threshold("conservative");
+        let balanced = GawdAgentFleet::synthesis_similarity_threshold("balanced");
+        let autonomous = GawdAgentFleet::synthesis_similarity_threshold("autonomous");
+        assert!(conservative > balanced);
+        assert!(balanced > autonomous);
     }
 }

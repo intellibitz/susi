@@ -26,8 +26,25 @@ impl NetGuard {
         }
         auth_header
             .and_then(|h| h.strip_prefix("Bearer "))
-            .map(|presented| presented == token)
+            .map(|presented| Self::constant_time_eq(presented.as_bytes(), token.as_bytes()))
             .unwrap_or(false)
+    }
+
+    /// Byte-for-byte comparison that always inspects every byte of both
+    /// inputs, so how much of `presented` already matches `expected` can't be
+    /// inferred from response timing (CWE-208). A plain `==` short-circuits
+    /// on the first mismatching byte, which is enough signal for a remote
+    /// attacker to brute-force `api_auth_token` one byte at a time given
+    /// sufficiently many timed requests.
+    fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut diff: u8 = 0;
+        for (x, y) in a.iter().zip(b.iter()) {
+            diff |= x ^ y;
+        }
+        diff == 0
     }
 }
 
@@ -112,6 +129,14 @@ mod tests {
         // Bundled default api_auth_token is "", so any header (or none) passes.
         assert!(NetGuard::is_authorized(None));
         assert!(NetGuard::is_authorized(Some("Bearer anything")));
+    }
+
+    #[test]
+    fn test_constant_time_eq_matches_equal_and_unequal_bytes() {
+        assert!(NetGuard::constant_time_eq(b"secret-token", b"secret-token"));
+        assert!(!NetGuard::constant_time_eq(b"secret-token", b"secret-tokeX"));
+        assert!(!NetGuard::constant_time_eq(b"short", b"a-much-longer-value"));
+        assert!(NetGuard::constant_time_eq(b"", b""));
     }
 
     #[test]

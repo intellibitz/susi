@@ -231,12 +231,36 @@ impl SusiMasterAgent {
         );
 
         if manifold.scope_of_impact == crate::gawd::manifold::ScopeOfImpact::Read {
+            // Glass Box Transparency (Mandate 26): the fast-path used to print
+            // these two lines as pure narration with no backing call — the
+            // trace claimed governance validation happened when it didn't.
+            // Actually run the same lightweight (no-inference) detectors the
+            // swarm's SafetyAgent/SecurityAgent run for every mission goal, so
+            // what's printed here is true, not aspirational.
             eprintln!("- [Substrate Operation] Validating with SafetyAgent (Aspiration 9)...");
+            let safety_result =
+                crate::gawd::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace);
             eprintln!("- [Substrate Operation] Validating with SecurityAgent (Aspiration 9)...");
+            let security_result =
+                crate::gawd::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace);
+
+            if let Err(e) = safety_result.and(security_result) {
+                eprintln!("- [Governance] Fast-path Read blocked: {}", e);
+                let report = SusiMissionReport {
+                    goal: goal.to_string(),
+                    status: "BLOCKED".to_string(),
+                    agents: Vec::new(),
+                    interactions: Vec::new(),
+                    final_answer: format!("[GOVERNANCE_BLOCK] {}", e),
+                };
+                drop(_guard);
+                eprintln!("{}", report.to_protocol_format(true));
+                return report.final_answer;
+            }
 
             eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
-            eprintln!("- [Recruited Agent] SafetyAgent (Provider: Local Core) recruited for Read safety validation.");
-            eprintln!("- [Recruited Agent] SecurityAgent (Provider: Local Core) recruited for injection validation.");
+            eprintln!("- [Recruited Agent] SafetyAgent (Provider: Local Core) cleared Read safety validation.");
+            eprintln!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
 
             let lower_goal = goal.trim().to_lowercase();
             let final_answer = if lower_goal.contains("identity") {

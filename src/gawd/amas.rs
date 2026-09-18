@@ -689,7 +689,22 @@ impl SusiSupervisor {
                 .unwrap_or_else(|_| reqwest::blocking::Client::new())
         });
 
-        if let Ok(resp) = client.post(&url).json(&req_val).send() {
+        // Mandate 40: a peer's GMCP HTTP surface may require `api_auth_token`
+        // (opt-in, off by default). A fleet's nodes share one operator's
+        // config, so present this node's own configured token when calling a
+        // peer — without this, every federation call (swarm consensus
+        // broadcast, cluster sync, checkpoint replication, reflex learning
+        // broadcast) silently 401s the moment auth is turned on anywhere,
+        // even though the caller and callee are the same operator's nodes.
+        let token = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .api_auth_token();
+        let mut req = client.post(&url).json(&req_val);
+        if !token.is_empty() {
+            req = req.bearer_auth(token);
+        }
+
+        if let Ok(resp) = req.send() {
             if let Ok(text) = resp.text() {
                 return format!("[A2A Flux ({})]: {}", addr, text.trim());
             }
