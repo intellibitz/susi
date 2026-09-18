@@ -1067,6 +1067,54 @@ impl SusiConfig {
     pub fn repeat_last_n(&self) -> usize {
         self.get_or_bundled_default("repeat_last_n")
     }
+    /// Whether the generation loop may draft-and-verify multiple tokens per
+    /// target-model forward pass (see `gemi::speculative`) instead of one
+    /// token at a time. Verification always falls back to the target
+    /// model's own greedy choice on the first disagreement, so the emitted
+    /// token sequence is provably identical to plain greedy decoding
+    /// either way (see `speculative::tests::
+    /// test_speculative_output_matches_plain_greedy_decoding`) - this only
+    /// gates whether the batched path is attempted, never behavior.
+    ///
+    /// Defaults to `false`: measured live on this host (RTX 2000 Ada
+    /// Laptop, 8GB VRAM), a fully GPU-resident Qwen2.5-7B target with a
+    /// 0.5B draft ran at 4.36 tok/s versus 18.47 tok/s for plain greedy
+    /// decoding of the same model - a 4x regression, not the hoped-for
+    /// speedup. CUDA's quantized matmul genuinely gets cheaper per-token
+    /// with a wider batch (confirmed via `cudarc`'s `fast_mmq` threshold),
+    /// but that saving is consumed by the extra host/kernel-launch round
+    /// trips this adds: the draft model still needs `speculative_draft_tokens
+    /// - 1` *sequential* single-token forwards per round (autoregressive,
+    /// can't be batched), plus a resync forward, on top of the target's
+    /// batched verify call - more total round trips than the classic loop
+    /// for the same tokens, and per-call host/launch overhead dominates
+    /// over raw compute at these model sizes on this stack. Left
+    /// configurable (and the implementation fully correctness-tested) in
+    /// case a future candle version, different hardware, or a larger
+    /// draft_chunk changes this trade-off - but never default-on without
+    /// remeasuring.
+    pub fn speculative_decoding_enabled(&self) -> bool {
+        self.get_or_bundled_default("speculative_decoding_enabled")
+    }
+    /// How many tokens the draft model proposes ahead of the target model
+    /// per verification round. Larger values amortize more work into each
+    /// batched target-model forward pass (raising GPU utilization) but waste
+    /// more of that pass whenever the draft diverges early.
+    pub fn speculative_draft_tokens(&self) -> usize {
+        self.get_or_bundled_default("speculative_draft_tokens")
+    }
+    /// Upper bound (prompt + generated tokens combined) the native Qwen2
+    /// engine's KV cache preallocates per layer at model-load time (see
+    /// `qwen2_split::ModelWeights::from_gguf_split`). The cache is written
+    /// into in place as generation proceeds rather than reallocated every
+    /// token, so this must be decided once, before any particular
+    /// request's prompt length is known - sized generously above
+    /// `max_generation_tokens` to comfortably cover realistic prompts.
+    /// Exceeding it mid-generation is a hard error (not silent truncation
+    /// or a fallback to reallocation): raise this value if it's ever hit.
+    pub fn kv_cache_capacity_tokens(&self) -> usize {
+        self.get_or_bundled_default("kv_cache_capacity_tokens")
+    }
     /// Risk substrings that block reasoning OUTPUT before it's returned as a
     /// final answer — a distinct security layer from `governance()`'s
     /// `destructive_commands` (which gates COMMANDS before execution); the

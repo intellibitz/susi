@@ -196,32 +196,42 @@ impl HardwareProfiler {
         Self::get_dynamic_device(0)
     }
 
-    pub fn get_split_topology(allocated_bytes_required: usize) -> (Device, Device, usize) {
-        let cpu = Device::Cpu;
-        let gpu = Self::get_dynamic_device(0); // Forcing cache pull
-        
-        if allocated_bytes_required == 0 {
-            return (cpu, gpu, 999);
+    /// Byte-precise GPU VRAM budget available for weight + KV-cache
+    /// placement. Prefers `nvidia-smi`'s live `memory.free` reading over a
+    /// fixed fraction of total capacity: total-based budgeting can't see
+    /// memory another process (or a prior susi run) already holds, and
+    /// would then attempt to place layers into VRAM that isn't actually
+    /// free - risking a CUDA OOM at model load rather than a graceful CPU
+    /// fallback for whatever doesn't fit. Returns 0 when no GPU device is
+    /// actually active (mirrors `get_dynamic_device`'s runtime probe, not
+    /// the compile-time `cfg!(feature = "cuda")` check).
+    pub fn gpu_vram_budget_bytes() -> u64 {
+        if matches!(Self::get_candle_device(), Device::Cpu) {
+            return 0;
         }
-        
-        let vram_limit = Self::determine_gpu_vram_gb() * 1024 * 1024 * 1024;
-        if vram_limit == 0 {
-            return (cpu, gpu, 0); // No GPU layers
+        // Headroom for the CUDA context, cuBLAS handle, and cudarc's own
+        // allocator bookkeeping, none of which show up as tensor weights.
+        const CUDA_CONTEXT_RESERVE_BYTES: u64 = 512 * 1024 * 1024;
+        let free_bytes = Self::determine_gpu_vram_free_bytes()
+            .unwrap_or_else(|| Self::determine_gpu_vram_gb() as u64 * 1024 * 1024 * 1024);
+        free_bytes.saturating_sub(CUDA_CONTEXT_RESERVE_BYTES)
+    }
+
+    /// Live free VRAM in bytes via `nvidia-smi`, independent of
+    /// `determine_gpu_vram_gb`'s integer-GB display value (which truncates,
+    /// e.g. an 8188 MiB card reports as "7GB") and independent of total
+    /// capacity, which doesn't reflect memory already in use.
+    fn determine_gpu_vram_free_bytes() -> Option<u64> {
+        let output = std::process::Command::new("nvidia-smi")
+            .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
         }
-        
-        let safe_vram = (vram_limit as f64 * 0.90) as usize;
-        
-        if allocated_bytes_required <= safe_vram {
-            return (cpu, gpu, 999); // All layers on GPU
-        }
-        
-        // Example: 14B Q4_K_M is ~9GB. safe_vram is 6.3GB.
-        // Ratio = 6.3 / 9.0 = 0.70
-        let fraction = safe_vram as f64 / allocated_bytes_required as f64;
-        
-        // Approximate standard 40 layers.
-        let split_layers = (40.0 * fraction) as usize;
-        (cpu, gpu, split_layers)
+        let first_line = String::from_utf8_lossy(&output.stdout).lines().next()?.trim().to_string();
+        let mib: u64 = first_line.parse().ok()?;
+        Some(mib * 1024 * 1024)
     }
 
     pub fn get_dynamic_device(allocated_bytes_required: usize) -> Device {

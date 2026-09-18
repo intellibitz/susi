@@ -32,7 +32,7 @@ use tokenizers::Tokenizer;
 /// starts with "qwen2" (covers "qwen2" and "qwen2moe"); every other
 /// architecture keeps using the generic, actually-universal `quantized_llama`
 /// path via the metadata-shimming pass below.
-enum ModelBackend {
+pub(crate) enum ModelBackend {
     Llama(llama::ModelWeights),
     Qwen2(qwen2gguf::ModelWeights),
 }
@@ -56,7 +56,7 @@ impl ModelBackend {
 /// correctly - and only knows when to stop - within the exact turn format
 /// it was fine-tuned on.
 pub struct ModelSubstrate {
-    weights: ModelBackend,
+    pub(crate) weights: ModelBackend,
     eos_token_ids: Vec<u32>,
     prompt_format: PromptFormat,
 }
@@ -226,11 +226,16 @@ impl InferenceHost {
         );
         let _ = std::io::stdout().flush();
 
-        let file_size = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
         let weights = if Self::needs_qwen2_backend(&arch) {
-            let (cpu_dev, gpu_dev, split) = crate::gemi::hardware::HardwareProfiler::get_split_topology(file_size);
+            let cpu_dev = candle_core::Device::Cpu;
+            let gpu_dev = HardwareProfiler::get_candle_device();
+            let vram_budget = HardwareProfiler::gpu_vram_budget_bytes();
+            let kv_cache_capacity = crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .kv_cache_capacity_tokens();
+            let split = qwen2gguf::ModelWeights::plan_gpu_layers(&model_data, vram_budget, kv_cache_capacity);
             println!("- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU", split);
-            qwen2gguf::ModelWeights::from_gguf_split(model_data, &mut file, &cpu_dev, &gpu_dev, split)
+            qwen2gguf::ModelWeights::from_gguf_split(model_data, &mut file, &cpu_dev, &gpu_dev, split, kv_cache_capacity)
                 .map(ModelBackend::Qwen2)
         } else {
             llama::ModelWeights::from_gguf(model_data, &mut file, device).map(ModelBackend::Llama)
@@ -327,7 +332,7 @@ impl InferenceHost {
 /// or `penalty == 1.0`. `context` is the caller's choice of window - see the
 /// call site in `SusiGgufEngine::run_inference_stream` for why it must be
 /// generated tokens only, never the prompt.
-fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
+pub(crate) fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
     if penalty == 1.0 || penalty <= 0.0 {
         return;
     }
@@ -725,6 +730,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             "- [Inference Substrate] Loading tokenizer from {}...",
             tokenizer_path.display()
         );
+        let tokenizer_path_for_speculative = tokenizer_path.clone();
         let tokenizer = Tokenizer::from_file(tokenizer_path)
             .map_err(|e| EaiError::inference(format!("Tokenizer Error: {}", e)))?;
 
@@ -754,6 +760,29 @@ impl NativeInferenceEngine for SusiGgufEngine {
         // defaults - union both so either recognizes completion.
         let mut eos_token_ids = cfg.eos_token_ids();
         eos_token_ids.extend(substrate.eos_token_ids.iter().copied());
+
+        // Speculative decoding (draft-and-verify against a smaller local
+        // model) applies only to the Qwen2 backend - see
+        // `speculative::SpeculativeDecoder` for why, and returns `None`
+        // when it isn't applicable (disabled, no suitable draft model,
+        // tokenizer mismatch), leaving the classic loop below untouched.
+        if let ModelBackend::Qwen2(ref mut target_weights) = substrate.weights {
+            if let Some(result) = crate::gemi::speculative::SpeculativeDecoder::try_generate(
+                target_weights,
+                &model_path,
+                &tokenizer_path_for_speculative,
+                &tokenizer,
+                prompt_tokens,
+                &eos_token_ids,
+                max_tokens,
+                cfg.repeat_penalty(),
+                cfg.repeat_last_n(),
+                &task_handle,
+                callback,
+            ) {
+                return result;
+            }
+        }
 
         println!(
             "- [Inference Substrate] Beginning neural generation loop (Max: {} tokens)...",
