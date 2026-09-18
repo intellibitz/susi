@@ -428,9 +428,13 @@ fn main() {
                     println!("{}", answer);
                 }
                 AdminCommands::Release => {
-                    let answer =
-                        ama.solve_clean(&cfg.admin_pulses().release_pulse, &cwd, SUSI_VERSION);
-                    println!("{}", answer);
+                    match susi_engine::daemon::admin::SusiAdmin::execute_release(&cwd) {
+                        Ok(msg) => println!("{}", msg),
+                        Err(e) => {
+                            eprintln!("Release failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 AdminCommands::Lint => {
                     let answer = ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
