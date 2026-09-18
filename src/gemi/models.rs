@@ -435,8 +435,10 @@ impl ModelManager {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir)
-            .expect("Fatal: Malformed configuration");
+        // Reachable on every inference/model-routing decision, not just boot:
+        // a config.json torn by a concurrent writer must degrade to bundled
+        // defaults here rather than panic this request's thread.
+        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         let model = Self::get_selected_model(intent).unwrap_or(cfg.default_model());
         let engine = Self::get_selected_engine().unwrap_or(cfg.default_engine());
         (engine, model)
@@ -1248,10 +1250,25 @@ impl ModelManager {
     }
 
     pub fn identify_best_ladder_step() -> super::hardware::ModelLadderStep {
-        HardwareProfiler::get_progressive_model_ladder()
-            .last()
-            .cloned()
-            .unwrap()
+        if let Some(step) = HardwareProfiler::get_progressive_model_ladder().last().cloned() {
+            return step;
+        }
+        // No ladder step cleared this host's detected RAM (a misconfigured or
+        // unusually small min_ram_gb floor) — degrade to the bundled
+        // single-step fallback model rather than panic the background
+        // provisioner thread.
+        let fallback = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .default_fallback_model();
+        super::hardware::ModelLadderStep {
+            step: fallback.step,
+            label: fallback.label,
+            hf_repo: fallback.hf_repo,
+            hf_file: fallback.hf_file,
+            tokenizer_repo: fallback.tokenizer_repo,
+            min_bytes: fallback.min_bytes,
+            expected_bytes: fallback.expected_bytes,
+        }
     }
 
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {

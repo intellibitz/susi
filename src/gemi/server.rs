@@ -70,14 +70,30 @@ impl GemiServer {
             listener.local_addr().map(|a| a.port()).unwrap_or(0)
         );
 
-        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GEMI HTTP runtime");
+        // Runs on its own daemon thread (caller wraps it in catch_unwind), so
+        // a failure here only loses the GEMI HTTP surface, not the whole
+        // daemon — but log clearly and return instead of panicking with a
+        // raw message, since nothing retries this subsystem.
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[GEMI REST] Failed to start HTTP runtime: {}. GEMI HTTP is unavailable.", e);
+                return;
+            }
+        };
 
         rt.block_on(async move {
-            listener
-                .set_nonblocking(true)
-                .expect("Fatal: failed to set GEMI listener non-blocking");
-            let listener = tokio::net::TcpListener::from_std(listener)
-                .expect("Fatal: failed to adopt GEMI listener into the tokio runtime");
+            if let Err(e) = listener.set_nonblocking(true) {
+                eprintln!("[GEMI REST] Failed to set listener non-blocking: {}. GEMI HTTP is unavailable.", e);
+                return;
+            }
+            let listener = match tokio::net::TcpListener::from_std(listener) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[GEMI REST] Failed to adopt listener into tokio runtime: {}. GEMI HTTP is unavailable.", e);
+                    return;
+                }
+            };
             let workspace = Arc::new(workspace);
 
             loop {

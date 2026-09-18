@@ -303,8 +303,10 @@ fn main() {
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {
-                let gemi_cfg = susi_engine::sandbox::manager::SusiConfig::load(&global_dir)
-                    .expect("Fatal: Malformed configuration");
+                // Degrade to bundled defaults rather than panic if
+                // config.json is torn by a concurrent writer.
+                let gemi_cfg =
+                    susi_engine::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
                 let bind_address: String = gemi_cfg
                     .get("bind_address")
                     .unwrap_or_else(|| "127.0.0.1".to_string());

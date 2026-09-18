@@ -155,8 +155,10 @@ impl GmcpClient {
         let home = std::env::var("HOME").unwrap_or_default();
         let global_dir = PathBuf::from(home).join(".susi");
         let registry_path = global_dir.join("global_mcp_registry.json");
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir)
-            .expect("Fatal: Malformed configuration");
+        // Reachable on every MCP registry fetch during normal operation, not
+        // just boot: degrade to bundled defaults rather than panic this
+        // request's thread if config.json is torn by a concurrent writer.
+        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         // 1. Instant Non-Blocking Local Cache Read (Aspiration 22 & <2ms Reflex Mandate)
         if registry_path.is_file() {

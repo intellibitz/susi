@@ -538,10 +538,22 @@ impl SusiDaemon {
                     }
                 }
 
+                // Last resort: if even a random ephemeral port on the
+                // requested bind address fails, try loopback specifically.
+                // This runs on the daemon's main thread before any subsystem
+                // thread is spawned, so there is genuinely no further
+                // fallback left — but exit cleanly with a clear diagnostic
+                // rather than an opaque panic trace.
                 let listener = std::net::TcpListener::bind(format!("{}:0", bind_address))
                     .unwrap_or_else(|_| {
-                        std::net::TcpListener::bind("127.0.0.1:0").expect("Fatal: Could not bind fallback TCP loopback port")
-                    }); // Last resort
+                        std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| {
+                            eprintln!(
+                                "[SusiDaemon] Fatal: could not bind any TCP port for {}, including the 127.0.0.1:0 last resort: {}",
+                                name, e
+                            );
+                            std::process::exit(1);
+                        })
+                    });
                 let new_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
                 crate::sandbox::manager::SusiAuditLogger::log(
                     workspace,
@@ -578,9 +590,16 @@ impl SusiDaemon {
                     }
                 }
 
+                // Last resort, same reasoning as bind_http_with_fallback above.
                 let socket = std::net::UdpSocket::bind(format!("{}:0", bind_address))
                     .unwrap_or_else(|_| {
-                        std::net::UdpSocket::bind("127.0.0.1:0").expect("Fatal: Could not bind fallback UDP loopback port")
+                        std::net::UdpSocket::bind("127.0.0.1:0").unwrap_or_else(|e| {
+                            eprintln!(
+                                "[SusiDaemon] Fatal: could not bind any UDP port for discovery, including the 127.0.0.1:0 last resort: {}",
+                                e
+                            );
+                            std::process::exit(1);
+                        })
                     });
                 let new_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
                 crate::sandbox::manager::SusiAuditLogger::log(

@@ -101,7 +101,13 @@ impl GmcpServer {
         );
         let workspace = workspace.to_path_buf();
         let max_bytes = max_rpc_body_bytes();
-        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP stdio runtime");
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[GMCP Server] Failed to start stdio runtime: {}", e);
+                return;
+            }
+        };
 
         rt.block_on(async move {
             use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -188,18 +194,34 @@ impl GmcpServer {
             addr
         );
 
-        let rt = tokio::runtime::Runtime::new().expect("Fatal: failed to start GMCP HTTP runtime");
+        // Runs on its own daemon thread (caller wraps it in catch_unwind), so
+        // a failure here only loses the GMCP HTTP surface, not the whole
+        // daemon — but log clearly and return instead of panicking with a
+        // raw message, since nothing retries this subsystem.
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("[GMCP HTTP] Failed to start HTTP runtime: {}. GMCP HTTP is unavailable.", e);
+                return;
+            }
+        };
         let max_conns = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .max_concurrent_agents();
         let active_conns = Arc::new(AtomicUsize::new(0));
 
         rt.block_on(async move {
-            listener
-                .set_nonblocking(true)
-                .expect("Fatal: failed to set GMCP listener non-blocking");
-            let listener = tokio::net::TcpListener::from_std(listener)
-                .expect("Fatal: failed to adopt GMCP listener into the tokio runtime");
+            if let Err(e) = listener.set_nonblocking(true) {
+                eprintln!("[GMCP HTTP] Failed to set listener non-blocking: {}. GMCP HTTP is unavailable.", e);
+                return;
+            }
+            let listener = match tokio::net::TcpListener::from_std(listener) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[GMCP HTTP] Failed to adopt listener into tokio runtime: {}. GMCP HTTP is unavailable.", e);
+                    return;
+                }
+            };
             let workspace = Arc::new(workspace);
 
             loop {

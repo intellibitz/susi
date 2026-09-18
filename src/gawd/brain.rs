@@ -28,7 +28,10 @@ impl AlphaBrainContext {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = home.join(".susi");
-        let cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+        // Reachable on every `identity` query during normal operation, not
+        // just boot: degrade to bundled defaults rather than panic this
+        // request's thread if config.json is torn by a concurrent writer.
+        let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
 
         Self {
             self_version: AlphaSelf::VERSION,

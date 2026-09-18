@@ -193,11 +193,11 @@ impl CoreTools {
     /// Shared long-lived tokio runtime for tool functions that must bridge into
     /// async APIs (Docker/Qdrant clients). Avoids constructing/tearing down a
     /// fresh multi-thread runtime on every call (Mandate 28: Async Defaults).
-    fn shared_runtime() -> &'static tokio::runtime::Runtime {
-        static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-        RT.get_or_init(|| {
-            tokio::runtime::Runtime::new().expect("Fatal: failed to start shared tokio runtime")
-        })
+    fn shared_runtime() -> EaiResult<&'static tokio::runtime::Runtime> {
+        static RT: OnceLock<std::io::Result<tokio::runtime::Runtime>> = OnceLock::new();
+        RT.get_or_init(tokio::runtime::Runtime::new)
+            .as_ref()
+            .map_err(|e| EaiError::process(format!("Failed to start shared tokio runtime: {}", e)))
     }
 
     #[tool(name = "status", description = "SUSI Substrate status report")]
@@ -913,7 +913,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
-        Self::shared_runtime()
+        Self::shared_runtime()?
             .block_on(async { crate::sandbox::manager::SandboxManager::execute_in_docker(cmd).await })
             .map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Docker execution failed: {}. Ensure Docker daemon is running.", e)))
     }
@@ -997,7 +997,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::inference("Embedding failed"))?
             .clone();
 
-        Self::shared_runtime().block_on(async {
+        Self::shared_runtime()?.block_on(async {
             let client = Qdrant::from_url(
                 &crate::sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
@@ -1522,6 +1522,23 @@ impl ToolRegistry {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod shared_runtime_tests {
+    use super::CoreTools;
+
+    #[test]
+    fn test_shared_runtime_succeeds_and_is_reused() {
+        let rt1 = CoreTools::shared_runtime().expect("runtime should build on a healthy host");
+        let val = rt1.block_on(async { 1 + 1 });
+        assert_eq!(val, 2);
+
+        // OnceLock caches the Result itself, so a second call returns the
+        // same underlying runtime rather than rebuilding one.
+        let rt2 = CoreTools::shared_runtime().expect("cached runtime should still be Ok");
+        assert!(std::ptr::eq(rt1, rt2));
     }
 }
 

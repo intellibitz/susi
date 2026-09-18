@@ -187,7 +187,11 @@ impl SusiAlphaModel {
             .alpha_weights_filename();
         let weights_path = global_dir.join("models").join(alpha_filename);
         if let Ok(meta) = std::fs::metadata(weights_path) {
-            return format!("{:?}", meta.modified().unwrap());
+            // Some filesystems (e.g. certain FUSE mounts) don't support mtime.
+            return match meta.modified() {
+                Ok(t) => format!("{:?}", t),
+                Err(_) => "unknown-mtime".to_string(),
+            };
         }
         "missing".to_string()
     }
