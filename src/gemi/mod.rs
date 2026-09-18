@@ -11,6 +11,7 @@ pub mod server;
 pub mod unified;
 pub mod vision;
 pub mod qwen2_split;
+pub mod vllm;
 
 pub use server::GemiServer;
 pub mod intent;
