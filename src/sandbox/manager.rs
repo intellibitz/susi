@@ -972,16 +972,14 @@ impl SusiConfig {
     pub fn mcp_registry_url(&self) -> String {
         self.get_or_bundled_default("mcp_registry_url")
     }
-    pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de>>(&self) -> T {
-        self.get("bootstrap_mcp_servers")
-            .unwrap_or_else(|| serde_json::from_str("[]").unwrap())
+    pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
+        self.get("bootstrap_mcp_servers").unwrap_or_else(T::default)
     }
     pub fn local_scan_paths(&self) -> Vec<String> {
         self.get("local_scan_paths").unwrap_or_default()
     }
-    pub fn discoverable_assets<T: for<'de> Deserialize<'de>>(&self) -> T {
-        self.get("discoverable_assets")
-            .unwrap_or_else(|| serde_json::from_str("[]").unwrap())
+    pub fn discoverable_assets<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
+        self.get("discoverable_assets").unwrap_or_else(T::default)
     }
     pub fn governance(&self) -> GovernancePatterns {
         self.get_or_bundled_default("governance")
@@ -1183,7 +1181,7 @@ impl SandboxManager {
             } else {
                 SusiConfig::default()
             };
-            let json = serde_json::to_string_pretty(&cfg).unwrap();
+            let json = serde_json::to_string_pretty(&cfg).unwrap_or_else(|_| "{}".to_string());
             fs::write(config_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
         }
         Ok(())
