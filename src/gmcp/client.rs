@@ -19,9 +19,11 @@ use super::{GlobalMcpEntry, McpConfig, McpServerConfig};
 
 // Mandate 12: Hardware Authority over Process Lifecycle
 // MCP Client Cache prevents cold-booting processes for every Swarm Reflex.
-static MCP_PROCESS_POOL: OnceLock<Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>>> = OnceLock::new();
+type McpProcessPool = Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>>;
 
-fn get_process_pool() -> Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>> {
+static MCP_PROCESS_POOL: OnceLock<McpProcessPool> = OnceLock::new();
+
+fn get_process_pool() -> McpProcessPool {
     MCP_PROCESS_POOL.get_or_init(|| Arc::new(RwLock::new(HashMap::new()))).clone()
 }
 
