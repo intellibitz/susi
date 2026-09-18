@@ -219,6 +219,63 @@ impl GawdAgent for DynamicAgent {
     }
 }
 
+/// Software Engineering & Repository Management Agent (Mandate 8: Epistemic
+/// Chain of Truth). Code-review-shaped goals ("review", "audit", "bloat",
+/// "lint") are answered with `BloatAuditor`'s real AST-driven static-analysis
+/// report instead of an LLM narration — the same deterministic evidence the
+/// `susi bloat-audit` CLI command and `bloat_audit` MCP tool already produce.
+/// Every other goal (build/test/deploy/compile, ...) falls back to the
+/// generic `DynamicAgent` LLM-prompted path, since those genuinely need
+/// open-ended reasoning rather than a fixed analysis pass.
+pub struct DevOpsAgent;
+
+impl GawdAgent for DevOpsAgent {
+    fn name(&self) -> String {
+        "DevOpsAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.9
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
+        let lower = goal.to_lowercase();
+        let is_code_review_goal = ["review", "audit", "bloat", "lint"]
+            .iter()
+            .any(|k| lower.contains(k));
+
+        if is_code_review_goal {
+            let report = crate::gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
+            let rendered = crate::gawd::bloat_audit::BloatAuditor::render_report(&report);
+            blackboard.insert(self.name(), rendered.clone());
+            return Ok(rendered);
+        }
+
+        // Single source of truth for the description text (Mandate 35): read
+        // it from the same registry entry agents.default.json provisions,
+        // rather than duplicating the literal here.
+        let mission_profile = AgentMetaRegistry::global()
+            .list_agents()
+            .into_iter()
+            .find(|a| a.name == self.name())
+            .map(|a| a.description)
+            .unwrap_or_else(|| {
+                "Software engineering, systems architecture, and repository management."
+                    .to_string()
+            });
+
+        DynamicAgent {
+            agent_name: self.name(),
+            mission_profile,
+            agent_rank: self.rank(),
+        }
+        .execute(goal, workspace, blackboard)
+    }
+}
+
 /// Runtime Substrate Preparation Agent (Aspiration 9)
 pub struct SusiRuntimeAgent;
 
@@ -1186,6 +1243,7 @@ impl AgentMetaRegistry {
 
     pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
         match name {
+            "DevOpsAgent" => Some(Arc::new(DevOpsAgent)),
             "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
             "HardwareAgent" => Some(Arc::new(HardwareAgent)),
             "SafetyAgent" => Some(Arc::new(SafetyAgent)),
@@ -1567,5 +1625,29 @@ mod tests {
         assert!(agents
             .iter()
             .any(|a| a.semantic_anchors.contains(&"quantum".to_string())));
+    }
+
+    #[test]
+    fn test_devops_agent_review_goal_returns_real_bloat_audit_not_llm_narration() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!(
+            "susi_devops_agent_review_test_{}",
+            std::process::id()
+        ));
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let mut f = std::fs::File::create(src_dir.join("lib.rs")).unwrap();
+        writeln!(f, "fn ok() {{ let _ = Some(1).unwrap(); }}").unwrap();
+
+        let bb: MissionBlackboard = Arc::new(HighDensityContextStore::new(100));
+        let agent = DevOpsAgent;
+        let res = agent.execute("code review susi", &dir, &bb).unwrap();
+
+        // Real evidence from BloatAuditor, not a paraphrase of the goal string.
+        assert!(res.contains("Files Scanned"));
+        assert!(res.contains(".unwrap() / .expect() / .clone() calls"));
+        assert_eq!(bb.get("DevOpsAgent").as_deref(), Some(res.as_str()));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -3,7 +3,7 @@
     "name": "DevOpsAgent",
     "description": "Software engineering, systems architecture, and repository management.",
     "categories": ["code", "rust", "git", "system"],
-    "semantic_anchors": ["build", "test", "deploy", "compile"],
+    "semantic_anchors": ["build", "test", "deploy", "compile", "review", "bloat", "lint"],
     "base_rank": 0.9,
     "is_core": false
   },
