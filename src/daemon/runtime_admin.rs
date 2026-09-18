@@ -190,11 +190,11 @@ impl SusiRuntimeAdmin {
         false
     }
 
-    /// Realizes [Aspiration 11] & [Aspiration 7]
+    /// Hardware saturation audit, drift detection, and model substrate tuning.
     pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
         let profile = HardwareProfiler::get_profile();
 
-        // 1. Hardware Saturation Audit (Aspiration 5)
+        // 1. Hardware Saturation Audit
         if profile.acceleration_active {
             SusiAuditLogger::log_event(
                 workspace,
@@ -209,17 +209,17 @@ impl SusiRuntimeAdmin {
             );
         }
 
-        // 2. Autonomous Drift Detection (Aspiration 7)
+        // 2. Autonomous Drift Detection
         let _ =
             crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
 
-        // 3. Model Substrate Tuning (Aspiration 11)
+        // 3. Model Substrate Tuning
         let _ = ModelManager::ensure_hardware_optimal_models(workspace);
 
         Ok(())
     }
 
-    /// Realizes [Aspiration 15]: Empirical Self-Validation
+    /// Empirical Self-Validation
     pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
         let profile = HardwareProfiler::get_profile();
         let mut report = "# SUSI Substrate Self-Validation Report\n\n".to_string();

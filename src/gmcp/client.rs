@@ -160,7 +160,7 @@ impl GmcpClient {
         // request's thread if config.json is torn by a concurrent writer.
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
-        // 1. Instant Non-Blocking Local Cache Read (Aspiration 22 & <2ms Reflex Mandate)
+        // 1. Instant Non-Blocking Local Cache Read (<2ms Reflex Mandate)
         if registry_path.is_file() {
             if let Ok(content) = fs::read_to_string(&registry_path) {
                 if let Ok(local_entries) = serde_json::from_str::<Vec<GlobalMcpEntry>>(&content) {
@@ -581,7 +581,7 @@ impl GmcpClient {
         })
     }
 
-    /// Autonomous Web-Scouting (Aspiration 6 & Mandate 6)
+    /// Autonomous Web-Scouting
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
     pub fn autonomous_web_scout() -> Vec<super::GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
@@ -616,7 +616,7 @@ impl GmcpClient {
     }
 
     fn benchmark_server(name: &str, package: &str) -> (f32, u64) {
-        // Aspiration 6: Protocol Compliance Benchmarking
+        // Protocol Compliance Benchmarking
         let start = std::time::Instant::now();
 
         // Attempt trial initialization (Dry-run configuration)

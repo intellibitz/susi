@@ -1311,7 +1311,7 @@ impl ToolRegistry {
             CoreTools::audio_transcribe,
         );
 
-        // DYNAMIC DISCOVERY: Synthesized Native Reflexes (Rule 11)
+        // DYNAMIC DISCOVERY: Synthesized Native Reflexes
         crate::gmcp::reflexes::register_synthesized_reflexes(self);
 
         // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
@@ -1408,7 +1408,7 @@ impl ToolRegistry {
                 Err(e) => format!("{}", e),
             }
         } else {
-            // Self-Healing Protocol (Rule 21): Attempt autonomous resolution
+            // Self-Healing Protocol: Attempt autonomous resolution
             if let Ok(provisioned_res) = Self::resolve_capability_gap(name) {
                 if provisioned_res == "SUCCESS_CONFIGURED" {
                     return format!("[RECOVERY] Capability '{}' was missing and autonomously provisioned. Please retry the mission.", name);
@@ -1418,7 +1418,7 @@ impl ToolRegistry {
         }
     }
 
-    /// Autonomous Capability Resolution (Rule 21)
+    /// Autonomous Capability Resolution
     pub fn resolve_capability_gap(name: &str) -> EaiResult<String> {
         let server_name = name.split(':').next().unwrap_or(name);
 
@@ -1498,7 +1498,7 @@ impl ToolRegistry {
         registry.locks.remove(resource_id);
     }
 
-    /// Zero-Config Autonomous Tool Linking (Rule 21 Hardening)
+    /// Zero-Config Autonomous Tool Linking
     pub fn auto_link_essential_mcp_servers() {
         let registry = GmcpClient::fetch_global_registry();
         let config_path = GmcpClient::get_config_path();

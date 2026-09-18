@@ -61,7 +61,7 @@ impl SusiVisionEngine {
             ));
         }
 
-        // Semantic Fusion: (Aspiration 8) Combining Visual Features with Text Intent
+        // Semantic Fusion: Combining Visual Features with Text Intent
         let text_vec =
             crate::gemi::alpha::SusiAlphaModel::semantic_centroid_projection(prompt, None)?;
 

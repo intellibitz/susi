@@ -1,6 +1,6 @@
 // GEMI: Universal AI Inference & Reasoning Bridge
 // 100% Rust implementation for Native Intelligence Substrate
-// RULE 23: Motion Rule Protocol - Aspiration 7: Competitive Inference Racing
+// Competitive Inference Racing (unrelated to the release Motion Rule, IDENTITY.md Pillar IV item 3 — this file predates that name and reused it for a different concept)
 
 use crate::error::{EaiError, EaiResult};
 use crate::gemi::hardware::HardwareProfiler;
@@ -118,7 +118,7 @@ type ModelCacheMap = HashMap<PathBuf, Arc<RwLock<ModelSubstrate>>>;
 pub struct InferenceHost;
 
 impl InferenceHost {
-    /// Universal Substrate Ingestion (Aspiration 8)
+    /// Universal Substrate Ingestion
     /// Dynamically identifies and loads any GGUF architecture from local or web sources.
     pub fn get_model(
         model_path: &Path,
@@ -128,7 +128,7 @@ impl InferenceHost {
         static CACHED_MODELS: OnceLock<Arc<RwLock<ModelCacheMap>>> = OnceLock::new();
         let cache = CACHED_MODELS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
 
-        // 1. Concurrent Read Access (Aspiration 22 Mandate)
+        // 1. Concurrent Read Access
         {
             let map = cache.read();
             if let Some(m) = map.get(model_path) {
@@ -172,7 +172,7 @@ impl InferenceHost {
         pb.set_message("Loading weights...");
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
-        // Integrity Verification (Aspiration 4 Hardening)
+        // Integrity Verification
         ModelManager::verify_model_integrity(model_path)?;
 
         let mut file = std::fs::File::open(model_path).map_err(|e| {
@@ -194,7 +194,7 @@ impl InferenceHost {
             .map(|s| s.to_lowercase())
             .unwrap_or_else(|| "llama".to_string());
 
-        // Dynamic Metadata Shimming (Aspiration 8 Hardening)
+        // Dynamic Metadata Shimming
         if arch != "llama" {
             Self::shim_llama_compatible_metadata(&mut model_data.metadata);
         }
@@ -379,7 +379,7 @@ impl GemiEngine {
         Self::reason_internal(prompt, workspace, true, callback)
     }
 
-    /// Aspiration 7: Ultra-Latency Competitive Inference Racing
+    /// Ultra-Latency Competitive Inference Racing
     fn reason_internal(
         prompt: &str,
         workspace: &Path,
@@ -394,7 +394,7 @@ impl GemiEngine {
             }
         }
 
-        // Primary Native GGUF Inference Engine Execution (Rule 9 & Rule 11)
+        // Primary Native GGUF Inference Engine Execution
         let engine = LlamaCppEngine;
         if let Ok(res) = engine.run_inference_stream(prompt, callback) {
             if !res.trim().is_empty() {
@@ -521,7 +521,7 @@ impl GemiEngine {
         format!("[susi Native Audio]: Processed {}", audio_path.display())
     }
 
-    /// Aspiration 14: Unified Multi-Modal Reasoning
+    /// Unified Multi-Modal Reasoning
     pub fn cross_modal_reason(text: &str, image_path: &Path, audio_path: &Path) -> String {
         use super::unified::SusiUnifiedSubstrate;
 
@@ -548,7 +548,7 @@ impl GemiEngine {
     }
 
     pub fn verify_axiomatic_alignment(reasoning: &str, _workspace: &Path) -> EaiResult<String> {
-        // Fast Rust-Native Axiomatic Alignment Guard (Aspiration 8 & <2ms Reflex Mandate)
+        // Fast Rust-Native Axiomatic Alignment Guard (<2ms Reflex Mandate)
         let risk_patterns = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .axiomatic_risk_patterns();
@@ -698,7 +698,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         println!("- [Inference Substrate] Acquiring model substrate shared handle...");
         let substrate_shared = InferenceHost::get_model(&model_path, &device, &task_handle)?;
 
-        // Aspiration 24: Lock-Free Native Substrate (Transition to non-blocking attempt)
+        // Lock-Free Native Substrate (transition to non-blocking attempt)
         println!("- [Inference Substrate] Requesting exclusive access to model weights...");
         let _ = std::io::stdout().flush();
 

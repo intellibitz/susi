@@ -279,7 +279,7 @@ impl SusiSupervisor {
         peers_lock.read().clone()
     }
 
-    /// Rule 31 Hardening: when one agent's rank is a clear outlier above the
+    /// When one agent's rank is a clear outlier above the
     /// rest, return its answer directly instead of asking the local synthesis
     /// model to reconcile it with the others. LLM re-synthesis is fine for
     /// genuinely comparable free-form answers, but the local model is too
@@ -323,7 +323,7 @@ impl SusiSupervisor {
         workspace: &Path,
     ) -> (Vec<A2AMessage>, Vec<GawdAgentInfo>) {
         // 1. Initialize Mission Blackboard (High-Density Context Store with 1024 entry lease cap)
-        // Optimized for Lock-Free Swarm Execution (Aspiration 24)
+        // Optimized for Lock-Free Swarm Execution
         let blackboard: MissionBlackboard =
             Arc::new(super::agents::HighDensityContextStore::new(1024));
 
@@ -439,7 +439,7 @@ impl SusiSupervisor {
             }
         }
 
-        // 5. Weighted Swarm Consensus Pass (Rule 31 Hardening)
+        // 5. Weighted Swarm Consensus Pass
         if !blackboard.is_empty() {
             // Aggregate agent outputs weighted by rank and node trust
             let mut weighted_wisdom = String::new();
@@ -565,7 +565,7 @@ impl SusiSupervisor {
             });
         }
 
-        // 6. Autonomous Substrate Distillation (Rule 23)
+        // 6. Autonomous Substrate Distillation
         static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
         if !DISTILLATION_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -742,7 +742,7 @@ impl SusiSupervisor {
         let nodes = Self::list_cluster_nodes();
         use rayon::prelude::*;
 
-        // Parallel AOA Synchronization Logic (Rule 2: Saturation)
+        // Parallel AOA Synchronization Logic (hardware saturation)
         // Hardened Limit: Cap concurrent peer syncs to 16 to prevent local resource exhaustion.
         let total_nodes = nodes.len();
         let target_nodes: Vec<_> = nodes.into_iter()
@@ -859,7 +859,7 @@ impl SusiSupervisor {
         successes == target_nodes.len()
     }
 
-    /// Federated Knowledge Vault (Aspiration 18)
+    /// Federated Knowledge Vault
     /// Aggregates distilled reasoning experience from independent nodes into a centralized vault.
     pub fn aggregate_federated_experience(workspace: &Path) -> EaiResult<String> {
         let nodes = Self::list_cluster_nodes();

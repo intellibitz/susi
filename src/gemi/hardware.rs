@@ -193,7 +193,7 @@ impl HardwareProfiler {
     }
 
     pub fn get_candle_device() -> Device {
-        // Zero-Lock Device Cache (Aspiration 24 & Sub-2ms Mandate)
+        // Zero-Lock Device Cache (Sub-2ms Mandate)
         static DEVICE_CACHE: OnceLock<Device> = OnceLock::new();
         DEVICE_CACHE
             .get_or_init(|| {

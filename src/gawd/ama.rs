@@ -141,7 +141,7 @@ impl SusiMasterAgent {
 
         eprintln!("<thinking>");
 
-        // Glass Box Integrity Guard (Aspiration 28)
+        // Glass Box Integrity Guard
         // Ensures </thinking> is ALWAYS printed even if synthesis panics or hangs.
         struct ThinkingGuard;
         impl Drop for ThinkingGuard {
@@ -237,10 +237,10 @@ impl SusiMasterAgent {
             // Actually run the same lightweight (no-inference) detectors the
             // swarm's SafetyAgent/SecurityAgent run for every mission goal, so
             // what's printed here is true, not aspirational.
-            eprintln!("- [Substrate Operation] Validating with SafetyAgent (Aspiration 9)...");
+            eprintln!("- [Substrate Operation] Validating with SafetyAgent...");
             let safety_result =
                 crate::gawd::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace);
-            eprintln!("- [Substrate Operation] Validating with SecurityAgent (Aspiration 9)...");
+            eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
             let security_result =
                 crate::gawd::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace);
 
@@ -539,7 +539,7 @@ impl SusiMasterAgent {
         let goal = Self::sanitize_input(goal)?;
         let lower_goal = goal.to_lowercase();
 
-        // Substrate Queries (Swarm-Dispatched Reflex Interrogation - Aspiration 23 & QUERIES.md)
+        // Substrate Queries (Swarm-Dispatched Reflex Interrogation - see QUERIES.md)
         let trimmed_query = lower_goal.trim();
         if trimmed_query == "identity" || trimmed_query == "susi identity" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
@@ -615,12 +615,12 @@ impl SusiMasterAgent {
             });
         }
 
-        // Recursive Parallel Parallelism (Aspiration 26)
+        // Recursive Parallel Parallelism
         if lower_goal.contains("parallel") || lower_goal.contains("split") {
             return self.solve_parallel_mission(&goal, workspace, version, depth + 1);
         }
 
-        // Autonomous Task Decomposition (Rule 12 Check)
+        // Autonomous Task Decomposition
         if (goal.len() > 150
             || lower_goal.contains(" and then ")
             || lower_goal.contains(" finally "))
@@ -679,13 +679,13 @@ impl SusiMasterAgent {
                 )
             };
 
-            // 4. Axiomatic Alignment Check (Rule 15 Hardening)
+            // 4. Axiomatic Alignment Check
             match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(
                 &final_answer,
                 workspace,
             ) {
                 Ok(ans) => {
-                    // 5. Reality Verification (Rule 15)
+                    // 5. Reality Verification
                     match super::truth::TruthTransformer::verify_mission_reality(
                         &current_goal,
                         "SUSI_SOLVE",
@@ -768,7 +768,7 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let plan = crate::gemi::engine::MissionPlanner::partition_mission(goal, workspace)?;
 
-        // Speculative Parallelism (Aspiration 26)
+        // Speculative Parallelism
         // Partitioned tasks are executed in parallel across the multi-threaded substrate.
         use rayon::prelude::*;
 
@@ -904,10 +904,10 @@ impl SusiMasterAgent {
         // 2. Reasoning
         let res = self.solve(goal, workspace, crate::SUSI_VERSION)?;
 
-        // 3. Memory persistence (Rule 13)
+        // 3. Memory persistence
         crate::sandbox::manager::SusiMemory::save_interaction(workspace, goal, &res.final_answer);
 
-        // 4. Autonomous Distillation (Rule 21): Capture learned wisdom from Power-Tier remotes
+        // 4. Autonomous Distillation: Capture learned wisdom from Power-Tier remotes
         for msg in &res.interactions {
             if msg.action.contains("power_reason") && !msg.payload.contains("[FAIL]") {
                 let metadata = serde_json::json!({
@@ -1016,7 +1016,7 @@ impl SusiMasterAgent {
                 Ok(report.final_answer)
             }
             Err(e) => {
-                // FAILURE: Report gap (Rule 14)
+                // FAILURE: Report gap
                 crate::sandbox::manager::SusiAuditLogger::log_event(
                     workspace,
                     "INTELLIGENCE_GAP",

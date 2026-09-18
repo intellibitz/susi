@@ -75,7 +75,7 @@ impl SusiAdmin {
         Err(EaiError::config("Could not find version in Cargo.toml".to_string()))
     }
 
-    /// Full Compliance Audit (Rule 15)
+    /// Full Compliance Audit
     pub fn audit_compliance(workspace: &Path, target: Option<&str>) -> EaiResult<String> {
         let mut report = "# SUSI Compliance Audit\n\n".to_string();
         if let Some(t) = target {
@@ -136,7 +136,7 @@ impl SusiAdmin {
             }
         }
 
-        // 2. Enforce Workspace Purity (Rule 12)
+        // 2. Enforce Workspace Purity
         crate::sandbox::manager::SandboxManager::ensure_gitignore_purity(workspace);
         let gitignore = workspace.join(".gitignore");
         if gitignore.exists() {
@@ -149,7 +149,7 @@ impl SusiAdmin {
             }
         }
 
-        // 3. Model Integrity & Provenance (Rule 31)
+        // 3. Model Integrity & Provenance
         let model_verifications = crate::gemi::models::ModelManager::verify_local_models(workspace);
         if model_verifications.is_empty() {
             report.push_str("- [WARNING] Models: No local model substrates found.\n");
@@ -166,7 +166,7 @@ impl SusiAdmin {
             }
         }
 
-        // 4. Binary Integrity Check (Aspiration 4)
+        // 4. Binary Integrity Check
         if let Ok(current_exe) = env::current_exe() {
             let global_dir = Self::get_global_susi_dir();
             match crate::daemon::server::SusiDaemon::verify_binary_integrity(
@@ -187,7 +187,7 @@ impl SusiAdmin {
             }
         }
 
-        // 5. Version Consistency (Rule 1)
+        // 5. Version Consistency
         match Self::enforce_version_consistency(workspace) {
             Ok(v) => report.push_str(&format!(
                 "- [PASS] Version Consistency: All manifests synchronized to v{}.\n",
@@ -350,7 +350,7 @@ impl SusiAdmin {
         Ok(())
     }
 
-    /// Motion Rule (IDENTITY.md ENGINE-3): cargo check -> compliance audit ->
+    /// Motion Rule (IDENTITY.md Pillar IV item 3): cargo check -> compliance audit ->
     /// cargo test -> clippy -> mission smoke tests -> susi admin sync -> git
     /// push, as one gated sequence. Each step must pass before the next runs;
     /// a git push failure (e.g. no configured upstream, diverged history) is

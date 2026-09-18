@@ -75,7 +75,7 @@ impl SusiAlphaModel {
         Ok(Self { fc1, fc2 })
     }
 
-    /// Dynamic Intent Surface Discovery (Rule 31 Hardening)
+    /// Dynamic Intent Surface Discovery
     pub fn list_dynamic_intents() -> Vec<String> {
         let mut intents = vec![
             "status".into(),
@@ -169,7 +169,7 @@ impl SusiAlphaModel {
             opt.backward_step(&loss)?;
         }
 
-        // Atomic Model Save (Rule 13 Hardening)
+        // Atomic Model Save
         let alpha_filename = crate::sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()
             .alpha_weights_filename();
@@ -218,7 +218,7 @@ impl SusiAlphaModel {
 
         let probs = candle_nn::ops::softmax(&output, 1)?;
 
-        // Absolute Rank Hardening (Aspiration 8)
+        // Absolute Rank Hardening
         let mut p = probs;
         while p.rank() > 1 {
             let dims = p.dims();
@@ -265,7 +265,7 @@ impl SusiAlphaModel {
     }
 
     /// Deterministic Semantic Embedding Substrate
-    /// Optimized for <2ms Instant-Intelligence (Aspiration 25).
+    /// Optimized for <2ms Instant-Intelligence.
     pub fn semantic_centroid_projection(
         prompt: &str,
         anchors: Option<&[crate::gawd::agents::AgentProfile]>,
@@ -309,7 +309,7 @@ impl SusiAlphaModel {
     ) -> Vec<f32> {
         let mut anchor = vec![0.0f32; Self::DIM];
 
-        // Zero-Lock Anchor Mapping (Aspiration 24 Mandate)
+        // Zero-Lock Anchor Mapping
         if let Some(agent_profiles) = anchors {
             for agent in agent_profiles {
                 if agent.semantic_anchors.iter().any(|a| a == word) {

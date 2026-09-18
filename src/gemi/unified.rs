@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-/// Paged KV Store (Aspiration 6 & vLLM Parity)
+/// Paged KV Store (vLLM Parity)
 /// Implements virtual memory paging for KV caches to prevent memory fragmentation
 /// and enable high-density concurrent reasoning.
 pub struct PagedKVStore {
@@ -36,7 +36,7 @@ impl PagedKVStore {
         let mut lru = self.lru.write();
 
         if pages.len() >= self.max_pages && !pages.contains_key(&page_id) {
-            // Mandate: Strict LRU Eviction (Aspiration 6)
+            // Mandate: Strict LRU Eviction
             if !lru.is_empty() {
                 let victim = lru.remove(0);
                 pages.remove(&victim);
@@ -71,7 +71,7 @@ impl PagedKVStore {
     }
 }
 
-/// Radix Attention Store (Aspiration 6 & SGLang Parity)
+/// Radix Attention Store (SGLang Parity)
 /// Implements high-efficiency prefix sharing across multi-turn reasoning chains.
 pub struct RadixAttentionStore {
     nodes: Arc<RwLock<HashMap<Vec<u32>, u64>>>,
@@ -110,7 +110,7 @@ impl RadixAttentionStore {
     }
 }
 
-/// Reflex Inference Kernel (Aspiration 9 & llama.cpp Parity)
+/// Reflex Inference Kernel (llama.cpp Parity)
 /// High-performance Rust-native inference loop optimized for swarm concurrency.
 pub struct ReflexInferenceKernel {
     kv_store: &'static PagedKVStore,
@@ -132,12 +132,12 @@ impl ReflexInferenceKernel {
         prompt: &str,
         device: &candle_core::Device,
     ) -> EaiResult<String> {
-        // Rule 11 & Aspiration 5: Guard against critical resource exhaustion
+        // Guard against critical resource exhaustion
         if crate::gemi::hardware::HardwareProfiler::check_oom_critical() {
             return Err(crate::error::EaiError::inference("Substrate resource ceiling exceeded (>90% RAM utilization). Failing fast to guarantee system stability."));
         }
 
-        // Aspiration 6: Prefix Matching Logic
+        // Prefix Matching Logic
         let tokens: Vec<u32> = prompt.bytes().map(|b| b as u32).collect();
         let mut prefix_cached = false;
         let mut matched_len = 0;
@@ -229,7 +229,7 @@ impl ReflexInferenceKernel {
     }
 }
 
-/// Tensor Reflex Kernel (Aspiration 5 & TensorRT-LLM Parity)
+/// Tensor Reflex Kernel (TensorRT-LLM Parity)
 /// GPU-accelerated Rust-native inference kernel optimized for peak FLOPS saturation.
 pub struct TensorReflexKernel {
     device: candle_core::Device,
@@ -241,7 +241,7 @@ impl TensorReflexKernel {
     }
 
     pub fn execute_tensor_inference(&self, _prompt: &str) -> EaiResult<String> {
-        // Aspiration 5: Direct Device Saturation
+        // Direct Device Saturation
         let t1 = candle_core::Tensor::randn(0.0f32, 1.0f32, (1024, 1024), &self.device)
             .map_err(|e| crate::error::EaiError::inference(e.to_string()))?;
         let t2 = candle_core::Tensor::randn(0.0f32, 1.0f32, (1024, 1024), &self.device)
@@ -256,7 +256,7 @@ impl TensorReflexKernel {
     }
 }
 
-/// Turbo Reflex Engine (Aspiration 5 & LMDeploy Parity)
+/// Turbo Reflex Engine (LMDeploy Parity)
 /// Rust-native inference engine optimized for AWQ-quantized weights and TurboMind-style batching.
 pub struct TurboReflexEngine {
     device: candle_core::Device,
@@ -268,7 +268,7 @@ impl TurboReflexEngine {
     }
 
     pub fn execute_turbo_inference(&self, _prompt: &str) -> EaiResult<String> {
-        // Aspiration 10: In-Flight Batching Logic
+        // In-Flight Batching Logic
         let batch_size = 4;
         let t =
             candle_core::Tensor::zeros((batch_size, 512), candle_core::DType::F32, &self.device)

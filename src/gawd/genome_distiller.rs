@@ -1,5 +1,5 @@
 // SUSI Genome Distiller: Converts the Hard-Compiled Genome into Synthetic Training Data
-// This implements the first step of Aspiration 12: Training a Native Tier 2 model on the Genome.
+// This implements the first step of training a Native Tier 2 model on the Genome.
 
 use crate::error::EaiResult;
 use crate::gawd::self_core::AlphaSelf;

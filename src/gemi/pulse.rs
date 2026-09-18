@@ -1,5 +1,5 @@
 // SUSI-Pulse: Tier 0 Native Bootstrap Brain
-// 100% Neural implementation - Zero Hardcoded Heuristics (Rule 31)
+// 100% Neural implementation - Zero Hardcoded Heuristics.
 
 use super::alpha::SusiAlphaModel;
 use anyhow::{anyhow, Result};

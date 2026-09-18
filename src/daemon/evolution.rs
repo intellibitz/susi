@@ -53,7 +53,7 @@ impl EvolutionManager {
         Self::execute_evolutionary_cycle(workspace)
     }
 
-    /// Autonomous Drift Detection (Aspiration 7)
+    /// Autonomous Drift Detection
     /// Periodic audit of the substrate health and capability surface.
     pub fn perform_autonomous_drift_audit(workspace: &Path) -> EaiResult<String> {
         // 1. Audit for High-Frequency Capability Gaps
@@ -63,7 +63,7 @@ impl EvolutionManager {
         let ingestion_res =
             crate::gawd::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace)?;
 
-        // Aspiration 20: Constraint-Free Evolution - Bottleneck Detection
+        // Constraint-Free Evolution - Bottleneck Detection
         let bottlenecks = Self::detect_bottlenecks(workspace);
 
         // 3. If a high-frequency gap is detected and not yet synthesized, trigger synthesis
@@ -83,7 +83,7 @@ impl EvolutionManager {
         ))
     }
 
-    /// Bottleneck Detection (Aspiration 20)
+    /// Bottleneck Detection
     /// Analyzes audit logs for high latency and mission failures.
     pub fn detect_bottlenecks(workspace: &Path) -> String {
         let log_content = SusiAuditLogger::read_audit_log(workspace, 500);
@@ -119,10 +119,10 @@ impl EvolutionManager {
         );
 
         if latency_violations > 0 {
-            report.push_str("- **Mutation**: Synthesize GPU-accelerated reflex for pattern recognition to saturate hardware (Aspiration 5).\n");
+            report.push_str("- **Mutation**: Synthesize GPU-accelerated reflex for pattern recognition to saturate hardware.\n");
         }
         if mission_failures > 0 {
-            report.push_str("- **Mutation**: Trigger specialist agent synthesis for high-frequency failure signatures (Aspiration 13).\n");
+            report.push_str("- **Mutation**: Trigger specialist agent synthesis for high-frequency failure signatures.\n");
         }
 
         report

@@ -282,7 +282,7 @@ impl SusiDaemon {
             })
         };
 
-        // Binary Integrity Check (Aspiration 4 Hardening)
+        // Binary Integrity Check
         match Self::verify_binary_integrity(&bin_to_run, global_dir) {
             Ok(true) => {
                 let def_verified = "[SusiDaemon] Binary integrity verified.".to_string();
@@ -491,7 +491,7 @@ impl SusiDaemon {
             }
         });
 
-        // Aspiration 32: Continuous Interaction Substrate Worker
+        // Continuous Interaction Substrate Worker
         let workspace_pulse = workspace.clone();
         thread::spawn(move || {
             let queue = SubstratePulseQueue::global();

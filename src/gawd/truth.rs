@@ -59,7 +59,7 @@ impl SusiTruthAgent {
         }
 
         if !violations.is_empty() {
-            // Mandate: Epistemic Delegation (Aspiration 18)
+            // Mandate: Epistemic Delegation
             // If local verification fails, check if the result comes from a high-trust consensus
             if result.contains("[CONVERGENCE_SCORE: ") {
                 if let Some(score_str) = result

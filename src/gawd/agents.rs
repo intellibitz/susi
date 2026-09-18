@@ -37,9 +37,9 @@ pub struct AgentProfile {
     pub is_core: bool,
 }
 
-/// High-Density Context Store (Aspiration 6)
+/// High-Density Context Store
 /// Implements lease-capped, memory-safe distributed context mapping.
-/// Optimized for Lock-Free Native Substrate (Aspiration 24) using DashMap.
+/// Optimized for Lock-Free Native Substrate using DashMap.
 #[derive(Debug)]
 pub struct HighDensityContextStore {
     inner: DashMap<String, String>,
@@ -110,7 +110,7 @@ impl HighDensityContextStore {
 }
 
 /// Swarm Blackboard: Shared state for swarm agents to converge on the "Chain of Truth".
-/// Optimized for High-Density Context Mapping (Aspiration 6) and Lock-Free Substrate (Aspiration 24).
+/// Optimized for High-Density Context Mapping and a Lock-Free Substrate.
 pub type SwarmBlackboard = Arc<HighDensityContextStore>;
 pub type MissionBlackboard = SwarmBlackboard;
 
@@ -215,7 +215,7 @@ impl GawdAgent for DynamicAgent {
             || trimmed == "models"
             || trimmed.starts_with("admin pulse");
 
-        // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy (Rule 31)
+        // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy.
         let res = if is_admin_or_query {
             format!(
                 "[{}]: Observation integrated into blackboard.",
@@ -289,7 +289,7 @@ impl GawdAgent for DevOpsAgent {
     }
 }
 
-/// Runtime Substrate Preparation Agent (Aspiration 9)
+/// Runtime Substrate Preparation Agent
 pub struct SusiRuntimeAgent;
 
 impl GawdAgent for SusiRuntimeAgent {
@@ -317,13 +317,13 @@ impl GawdAgent for SusiRuntimeAgent {
         let cloud_env_keys = ["SUSI_API_KEY", "MODEL_API_KEY", "EAI_API_KEY", "API_KEY"];
         let cloud_available = cloud_env_keys.iter().any(|k| std::env::var(k).is_ok());
 
-        // 2. Local Weight Verification (Rule 31)
+        // 2. Local Weight Verification
         let verifications = crate::gemi::models::ModelManager::verify_local_models(workspace);
         let valid_local_found = verifications
             .iter()
             .any(|v| v.is_valid_gguf || v.model_id.contains("native"));
 
-        // 3. Autonomous Provisioning & Hardware Tuning (Rule 31 & Rule 33)
+        // 3. Autonomous Provisioning & Hardware Tuning
         if !cloud_available && !valid_local_found {
             let home = std::env::var_os("HOME")
                 .map(PathBuf::from)
@@ -334,14 +334,14 @@ impl GawdAgent for SusiRuntimeAgent {
             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
 
-        // 4. Protocol Linking (Rule 21)
+        // 4. Protocol Linking
         crate::gmcp::tools::ToolRegistry::auto_link_essential_mcp_servers();
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
     }
 }
 
-/// Hardware Optimization Agent (Aspiration 5)
+/// Hardware Optimization Agent
 /// Autonomously interrogates host hardware and saturates compute resources.
 pub struct HardwareAgent;
 
@@ -772,7 +772,7 @@ pub type LlamaCppBridgeAgent = DynamicInferenceEndpointAgent;
 pub type TensorRtBridgeAgent = DynamicInferenceEndpointAgent;
 pub type LmdeployBridgeAgent = DynamicInferenceEndpointAgent;
 
-/// SOTA Library Scouting Agent (Aspiration 19)
+/// SOTA Library Scouting Agent
 pub struct LibraryScoutAgent;
 
 impl GawdAgent for LibraryScoutAgent {
@@ -806,7 +806,7 @@ impl GawdAgent for LibraryScoutAgent {
             return Ok("[LibraryScoutAgent]: Substrate libraries optimal.".to_string());
         }
 
-        // Aspiration 19: Enhanced Library Scouting with reasoning and 'cargo add' suggestions
+        // Enhanced Library Scouting with reasoning and 'cargo add' suggestions
         let query_term = if lower_goal.contains("async") {
             "async"
         } else if lower_goal.contains("json") {
@@ -968,7 +968,7 @@ impl GawdAgent for TranslationAgent {
     }
 }
 
-/// Administrative Substrate Agent (Aspiration 23)
+/// Administrative Substrate Agent
 pub struct AdminAgent;
 
 impl GawdAgent for AdminAgent {
@@ -1192,7 +1192,7 @@ impl AgentMetaRegistry {
             }
         }
 
-        // Bootstrap Provisioning (Rule 31)
+        // Bootstrap Provisioning
         let new_agents = self.bootstrap_data();
         {
             let mut registry = self.agents.write();
@@ -1353,7 +1353,7 @@ impl AgentMetaRegistry {
     }
 }
 
-/// Neural Agent Factory (Aspiration 13)
+/// Neural Agent Factory
 /// Autonomously generates specialist agent profiles when capability gaps are detected.
 pub struct NeuralAgentFactory;
 
@@ -1605,7 +1605,7 @@ impl GawdAgentFleet {
             }
         }
 
-        // 4. Neural Agent Synthesis (Aspiration 13)
+        // 4. Neural Agent Synthesis
         // `trust_level` (config.default.json) gates how eager the substrate is
         // to autonomously mint a brand-new specialist agent via LLM synthesis —
         // Mandate 16's "structural synthesis" — a standing config field with an

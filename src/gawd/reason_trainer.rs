@@ -1,5 +1,5 @@
 // Reasoning Trainer: Autonomous Tier 2 Substrate Distillation
-// Implements the "Substrate Ingestion Motion" (Aspiration 12)
+// Implements the "Substrate Ingestion Motion".
 
 use crate::error::EaiResult;
 use crate::gawd::genome_distiller::GenomeDistiller;
