@@ -248,13 +248,40 @@ impl BloatAuditor {
 
         let mut todo_markers = 0;
         let mut secret_pattern_hits = 0;
+        // Secret-shaped fixtures inside `#[cfg(test)] mod ... { ... }` (e.g.
+        // security.rs's own tests asserting that a fake API-key-shaped string
+        // gets rejected/redacted) are the detector working as intended, not a
+        // leak — count TODO/FIXME everywhere, but skip secret-pattern matches
+        // for the span of any such test module.
+        let mut in_test_module = false;
+        let mut saw_cfg_test = false;
+        let mut test_module_brace_depth: i32 = 0;
         for line in content.lines() {
+            let trimmed = line.trim();
+
+            if in_test_module {
+                test_module_brace_depth += trimmed.matches('{').count() as i32;
+                test_module_brace_depth -= trimmed.matches('}').count() as i32;
+                if test_module_brace_depth <= 0 {
+                    in_test_module = false;
+                }
+            } else if saw_cfg_test && trimmed.starts_with("mod ") {
+                in_test_module = true;
+                test_module_brace_depth =
+                    trimmed.matches('{').count() as i32 - trimmed.matches('}').count() as i32;
+                saw_cfg_test = false;
+            } else if !trimmed.is_empty() {
+                saw_cfg_test = trimmed.starts_with("#[cfg(test)]");
+            }
+
             if line.contains("TODO") || line.contains("FIXME") {
                 todo_markers += 1;
             }
-            for pattern in secret_patterns {
-                if !pattern.is_empty() && line.contains(pattern.as_str()) {
-                    secret_pattern_hits += 1;
+            if !in_test_module {
+                for pattern in secret_patterns {
+                    if !pattern.is_empty() && line.contains(pattern.as_str()) {
+                        secret_pattern_hits += 1;
+                    }
                 }
             }
         }
@@ -402,6 +429,56 @@ mod tests {
         assert_eq!(report.files_scanned, 1);
         assert_eq!(report.total_unwrap_calls, 1);
         assert_eq!(report.files_failed_to_parse, 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_scan_file_skips_secret_pattern_hits_inside_test_module() {
+        let dir = std::env::temp_dir().join(format!("susi_secret_scan_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("security_like.rs");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "pub fn ok() {{}}").unwrap();
+        writeln!(f).unwrap();
+        writeln!(f, "#[cfg(test)]").unwrap();
+        writeln!(f, "mod tests {{").unwrap();
+        writeln!(f, "    #[test]").unwrap();
+        writeln!(f, "    fn test_rejects_secret() {{").unwrap();
+        writeln!(f, "        assert!(audit(\"sk-proj12345\").is_err());").unwrap();
+        writeln!(f, "    }}").unwrap();
+        writeln!(f, "}}").unwrap();
+
+        let patterns = vec!["sk-".to_string()];
+        let finding = BloatAuditor::scan_file(&path, &dir, &patterns);
+        assert_eq!(
+            finding.secret_pattern_hits, 0,
+            "a secret-shaped fixture inside a #[cfg(test)] module is the detector being tested, not a leak"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_scan_file_still_flags_secret_pattern_outside_test_module() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_secret_scan_prod_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("leaky.rs");
+        let mut f = std::fs::File::create(&path).unwrap();
+        writeln!(f, "const KEY: &str = \"sk-real-leaked-key\";").unwrap();
+        writeln!(f).unwrap();
+        writeln!(f, "#[cfg(test)]").unwrap();
+        writeln!(f, "mod tests {{").unwrap();
+        writeln!(f, "    // nothing secret in here").unwrap();
+        writeln!(f, "}}").unwrap();
+
+        let patterns = vec!["sk-".to_string()];
+        let finding = BloatAuditor::scan_file(&path, &dir, &patterns);
+        assert_eq!(
+            finding.secret_pattern_hits, 1,
+            "a real secret pattern outside any test module must still be flagged"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
