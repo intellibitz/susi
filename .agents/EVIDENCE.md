@@ -1,6 +1,6 @@
 ---
 schema = "susi/evidence/v1"
-version = "0.1.2023041"
+version = "0.1.2023043"
 monotonic_range = "EV-2022924-001..EV-2022920-037"
 last_verification = 2026-09-18T00:00:00Z
 epistemic_score = 1.0
@@ -14,6 +14,7 @@ This document defines the sovereign ledger of functional mastery that anchors th
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
+| EV-2022924-042 | [MISSION] | What is the capital of France? Answer in one short sentence. | [manual](symbol://manual) | STAGED |
 | EV-2022924-041 | [MISSION] | Explain photosynthesis. | [manual](symbol://manual) | STAGED |
 | EV-2022924-040 | [MISSION] | Write a short poem about the ocean. | [manual](symbol://manual) | STAGED |
 | EV-2022924-039 | [MISSION] | Write a detailed 3-paragraph essay about the history of space exploration and its future, pushing the boundaries of AI integration in aerospace. | [manual](symbol://manual) | STAGED |
