@@ -1,5 +1,5 @@
 // SUSI Substrate Pulse Queue
-// Mandate 30: Non-Blocking Pulse Ingestion & Mandate 31: Serialized Pulse Execution
+// Non-Blocking Pulse Ingestion & Serialized Pulse Execution
 // Refactored to use genuinely lock-free crossbeam SegQueue.
 
 use crate::error::EaiResult;

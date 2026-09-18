@@ -466,7 +466,7 @@ impl GawdAgent for SecurityAgent {
     }
 }
 
-/// Autonomous Drift & Evolution Agent (IDENTITY.md Mandate 32 & 33)
+/// Autonomous Drift & Evolution Agent (IDENTITY.md Mandate 22: Self-Healing Reflex)
 pub struct EvolutionAgent;
 
 impl GawdAgent for EvolutionAgent {

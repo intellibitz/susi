@@ -158,7 +158,7 @@ impl SusiMasterAgent {
 
         use crate::gawd::self_core::AlphaSelf;
         eprintln!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
-        eprintln!("- [Accountability] 100% Omni-Trace Coverage Active (Mandate 39)");
+        eprintln!("- [Accountability] 100% Omni-Trace Coverage Active (Mandate 26: Glass Box Transparency)");
 
         eprintln!("\n[DETAILED HARDWARE AUDIT LOGS]");
         eprintln!("- [CPU Info] Brand: {} | Cores: {}", hw.cpu_brand, hw.cpus);

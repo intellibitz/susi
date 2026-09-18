@@ -4,7 +4,7 @@
 // Mandate 32: Zero-Client-Wait Guarantee - an operation with zero observed
 //   progress for longer than its empirically-calibrated idle lease is
 //   "unresponsive," not "slow," and is proactively terminated.
-// Mandate 33: Glass Box Transparency & Omni-Trace Task Control.
+// Mandate 26: Glass Box Transparency & Omni-Trace Task Control.
 
 use dashmap::DashMap;
 use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};

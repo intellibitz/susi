@@ -499,7 +499,7 @@ impl SusiDaemon {
 
             loop {
                 if let Some(pulse) = queue.pop() {
-                    // Serialized Execution (Mandate 31)
+                    // Serialized Execution
                     info!("[SubstratePulseQueue] Processing Pulse: {}", pulse.intent);
                     let _ = ama.solve_stream(
                         &pulse.intent,
