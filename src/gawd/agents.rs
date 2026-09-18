@@ -415,6 +415,91 @@ impl GawdAgent for HardwareAgent {
     }
 }
 
+/// Recognized project-type marker files/directories checked at the
+/// workspace root — the concrete, checkable signal "workspace awareness"
+/// grounds itself in, instead of an LLM guessing at project type from goal text.
+const PROJECT_MARKERS: &[&str] = &[
+    "Cargo.toml",
+    "package.json",
+    "go.mod",
+    "pyproject.toml",
+    "requirements.txt",
+    "pom.xml",
+    "Gemfile",
+    "composer.json",
+    "CMakeLists.txt",
+    ".git",
+];
+
+/// Which of `PROJECT_MARKERS` actually exist at `workspace`'s root.
+fn detect_project_markers(workspace: &Path) -> Vec<String> {
+    PROJECT_MARKERS
+        .iter()
+        .filter(|m| workspace.join(m).exists())
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Counts top-level files and subdirectories in `workspace` — a real, cheap
+/// `ls`-equivalent enumeration matching this agent's own registered semantic
+/// anchors ("pwd", "ls", "dir", "cat") instead of an unbacked LLM guess at
+/// what the workspace contains.
+fn scan_workspace_top_level(workspace: &Path) -> (usize, usize) {
+    let mut files = 0usize;
+    let mut dirs = 0usize;
+    if let Ok(entries) = std::fs::read_dir(workspace) {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    dirs += 1;
+                } else if file_type.is_file() {
+                    files += 1;
+                }
+            }
+        }
+    }
+    (files, dirs)
+}
+
+/// Workspace Analysis Agent: real file-system awareness backing IDENTITY.md
+/// Pillar II's "High-density context manager and workspace analyzer" — this
+/// `is_core: true` (always-recruited) agent previously had no native
+/// implementation and silently fell back to a generic, unbacked LLM-prompted
+/// `DynamicAgent` persona (found in the swarm-harmony audit behind
+/// EV-2022920-032, fixed here as flagged follow-up).
+pub struct ContextAgent;
+
+impl GawdAgent for ContextAgent {
+    fn name(&self) -> String {
+        "ContextAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        1.0
+    }
+    fn execute(
+        &self,
+        _goal: &str,
+        workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
+        let (files, dirs) = scan_workspace_top_level(workspace);
+        let markers = detect_project_markers(workspace);
+        let res = format!(
+            "[ContextAgent]: Workspace '{}' — {} top-level file(s), {} top-level subdirectory(ies). Detected project markers: {}.",
+            workspace.display(),
+            files,
+            dirs,
+            if markers.is_empty() {
+                "none".to_string()
+            } else {
+                markers.join(", ")
+            }
+        );
+        blackboard.insert(self.name(), res.clone());
+        Ok(res)
+    }
+}
+
 /// Safety Governance Agent (IDENTITY.md Mandate 36 & 37)
 pub struct SafetyAgent;
 
@@ -1459,6 +1544,7 @@ impl AgentMetaRegistry {
             "SearchAgent" => Some(Arc::new(SearchAgent)),
             "TranslationAgent" => Some(Arc::new(TranslationAgent)),
             "AdminAgent" => Some(Arc::new(AdminAgent)),
+            "ContextAgent" => Some(Arc::new(ContextAgent)),
             _ => None,
         }
     }
@@ -2256,5 +2342,58 @@ mod tests {
             .unwrap();
         assert!(res.contains("No critical/problem signals detected"));
         assert!(!res.contains("CONFLICT"));
+    }
+
+    #[test]
+    fn test_context_agent_is_natively_instantiated_not_generic_fallback() {
+        let agent = AgentMetaRegistry::instantiate_native_agent("ContextAgent")
+            .expect("ContextAgent must have a real native implementation");
+        assert_eq!(agent.name(), "ContextAgent");
+    }
+
+    #[test]
+    fn test_detect_project_markers_finds_real_markers_ignores_absent_ones() {
+        let tmp = std::env::temp_dir().join("susi_context_agent_test_markers");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
+
+        let markers = detect_project_markers(&tmp);
+        assert!(markers.contains(&"Cargo.toml".to_string()));
+        assert!(!markers.contains(&"package.json".to_string()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_scan_workspace_top_level_counts_real_entries() {
+        let tmp = std::env::temp_dir().join("susi_context_agent_test_scan");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("subdir")).unwrap();
+        std::fs::write(tmp.join("a.txt"), "x").unwrap();
+        std::fs::write(tmp.join("b.txt"), "y").unwrap();
+
+        let (files, dirs) = scan_workspace_top_level(&tmp);
+        assert_eq!(files, 2);
+        assert_eq!(dirs, 1);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_context_agent_execute_reports_real_workspace_state() {
+        let tmp = std::env::temp_dir().join("susi_context_agent_test_execute");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("Cargo.toml"), "[package]").unwrap();
+
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        let agent = ContextAgent;
+        let res = agent.execute("goal", &tmp, &blackboard).unwrap();
+
+        assert!(res.contains("1 top-level file"));
+        assert!(res.contains("Cargo.toml"));
+        assert_eq!(blackboard.get("ContextAgent").as_deref(), Some(res.as_str()));
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

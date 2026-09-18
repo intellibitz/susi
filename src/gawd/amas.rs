@@ -279,6 +279,25 @@ impl SusiSupervisor {
         peers_lock.read().clone()
     }
 
+    /// How much (and in which direction) an agent's rank should move given
+    /// its actual output text. Previously rank only ever moved up: every
+    /// agent that didn't self-report FAILURE/GAP got +0.01 forever, with no
+    /// path back down, so any core agent (recruited into every mission)
+    /// saturated toward the 1.0 ceiling almost immediately and stayed there
+    /// regardless of later real reliability — the "Empirical Expertise
+    /// Ranking" this backs stopped being empirical once nothing could ever
+    /// lower a rank again. The penalty outweighs the reward (5x) so trust is
+    /// harder to earn back than it was to lose — deliberate asymmetry, not
+    /// an arbitrary number. Pure function (no I/O) so the mapping is
+    /// directly unit-testable.
+    fn rank_delta_for_output(output: &str) -> (f32, &'static str) {
+        if output.contains("FAILURE") || output.contains("GAP") {
+            (-0.05, "MISSION_FAILURE")
+        } else {
+            (0.01, "MISSION_SUCCESS")
+        }
+    }
+
     /// When one agent's rank is a clear outlier above the
     /// rest, return its answer directly instead of asking the local synthesis
     /// model to reconcile it with the others. LLM re-synthesis is fine for
@@ -453,14 +472,13 @@ impl SusiSupervisor {
                         agent_name, info.rank, output
                     ));
 
-                    // Reward successful agents (Empirical Expertise Ranking)
-                    if !output.contains("FAILURE") && !output.contains("GAP") {
-                        crate::gawd::agents::AgentMetaRegistry::global().update_rank(
-                            agent_name,
-                            0.01,
-                            "MISSION_SUCCESS",
-                        );
-                    }
+                    // Empirical Expertise Ranking: reward success, penalize failure.
+                    let (delta, source) = Self::rank_delta_for_output(output);
+                    crate::gawd::agents::AgentMetaRegistry::global().update_rank(
+                        agent_name,
+                        delta,
+                        source,
+                    );
                 }
             }
 
@@ -1065,5 +1083,38 @@ mod tests {
             SusiSupervisor::dominant_rank_leader(&valid_outputs, &fleet_info),
             None
         );
+    }
+
+    #[test]
+    fn test_rank_delta_rewards_clean_success() {
+        let (delta, source) =
+            SusiSupervisor::rank_delta_for_output("Hardware Saturated: 8 CPUs.");
+        assert_eq!(delta, 0.01);
+        assert_eq!(source, "MISSION_SUCCESS");
+    }
+
+    #[test]
+    fn test_rank_delta_penalizes_self_reported_failure() {
+        let (delta, source) =
+            SusiSupervisor::rank_delta_for_output("Agent Execution Reported: FAILURE - timeout");
+        assert_eq!(delta, -0.05);
+        assert_eq!(source, "MISSION_FAILURE");
+    }
+
+    #[test]
+    fn test_rank_delta_penalizes_capability_gap() {
+        let (delta, source) =
+            SusiSupervisor::rank_delta_for_output("[CAPABILITY_GAP] Tool 'x' missing.");
+        assert_eq!(delta, -0.05);
+        assert_eq!(source, "MISSION_FAILURE");
+    }
+
+    #[test]
+    fn test_rank_delta_penalty_outweighs_reward() {
+        // Deliberate asymmetry: trust should be harder to earn back than to
+        // lose, so a single failure must undo more than a single success grants.
+        let (reward, _) = SusiSupervisor::rank_delta_for_output("all clear");
+        let (penalty, _) = SusiSupervisor::rank_delta_for_output("FAILURE: crashed");
+        assert!(penalty.abs() > reward.abs());
     }
 }
