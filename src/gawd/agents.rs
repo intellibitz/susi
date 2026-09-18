@@ -63,8 +63,21 @@ impl HighDensityContextStore {
     pub fn insert(&self, key: String, value: String) {
         if self.inner.len() >= self.capacity_limit && !self.inner.contains_key(&key) {
             // Mandate: Strict LRU or oldest key removal
-            // For DashMap we just remove a random key if we are over capacity
-            if let Some(key_to_remove) = self.inner.iter().next().map(|r| r.key().clone()) {
+            // For DashMap we just remove a random key if we are over capacity.
+            //
+            // Self-deadlock hazard: `self.inner.iter()` is an unnamed
+            // temporary, and DashMap's `Iter` holds its current shard's read
+            // lock for the `Iter`'s own lifetime (not just the yielded
+            // `RefMulti`'s). Using it directly as an `if let` scrutinee
+            // extends that temporary's lifetime to the end of the block
+            // (Rust's standard "if let" temporary-extension rule), so the
+            // `remove()` below would try to take a write lock on the same
+            // shard whose read lock the still-alive `Iter` temporary is
+            // holding. Binding to a `let` first forces the `Iter` (and its
+            // lock) to drop at the end of this statement, before `remove()`
+            // ever runs.
+            let key_to_remove = self.inner.iter().next().map(|r| r.key().clone());
+            if let Some(key_to_remove) = key_to_remove {
                 self.inner.remove(&key_to_remove);
             }
         }
@@ -1572,6 +1585,28 @@ impl GawdAgentFleet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_context_store_eviction_past_capacity_does_not_self_deadlock() {
+        // Regression test for a self-deadlock in HighDensityContextStore::insert's
+        // eviction path (DashMap Iter's shard read-lock outliving its yielded
+        // RefMulti when used directly as an `if let` scrutinee). Runs the
+        // capacity-triggering inserts on a separate thread with a bounded
+        // wait: a real regression here would hang forever, not just be slow.
+        let store = Arc::new(HighDensityContextStore::new(4));
+        let (tx, rx) = std::sync::mpsc::channel();
+        let store_clone = Arc::clone(&store);
+        std::thread::spawn(move || {
+            for i in 0..20 {
+                store_clone.insert(format!("key{}", i), format!("value{}", i));
+            }
+            let _ = tx.send(());
+        });
+
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("insert() past capacity deadlocked instead of evicting");
+        assert!(store.iter().count() <= 4);
+    }
 
     #[test]
     fn test_fleet_synthesis() {

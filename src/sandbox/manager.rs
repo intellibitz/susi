@@ -950,6 +950,18 @@ impl SusiConfig {
     pub fn allow_origin(&self) -> String {
         self.get_or_bundled_default("allow_origin")
     }
+    /// Bearer token required on world-facing HTTP surfaces (GMCP HTTP, GEMI
+    /// REST). Empty (the bundled default) means auth is not enforced, so
+    /// existing local/desktop installs keep working unmodified; operators
+    /// exposing susi beyond localhost should set this.
+    pub fn api_auth_token(&self) -> String {
+        self.get_or_bundled_default("api_auth_token")
+    }
+    /// Max requests per IP per 60s window on world-facing HTTP surfaces. 0
+    /// disables rate limiting.
+    pub fn rate_limit_per_minute(&self) -> u32 {
+        self.get_or_bundled_default("rate_limit_per_minute")
+    }
 
     pub fn default_model(&self) -> String {
         self.get_or_bundled_default("default_model")

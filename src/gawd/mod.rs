@@ -10,6 +10,7 @@ pub mod evidence;
 pub mod genome_distiller;
 pub mod kernel_loader;
 pub mod manifold;
+pub mod net_guard;
 pub mod pkb;
 pub mod queue;
 pub mod reason_trainer;

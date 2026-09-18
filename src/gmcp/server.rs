@@ -225,7 +225,7 @@ impl GmcpServer {
             let workspace = Arc::new(workspace);
 
             loop {
-                let (stream, _peer) = match listener.accept().await {
+                let (stream, peer) = match listener.accept().await {
                     Ok(pair) => pair,
                     Err(e) => {
                         eprintln!("[GMCP HTTP] Accept error: {}", e);
@@ -246,6 +246,7 @@ impl GmcpServer {
 
                 let workspace = Arc::clone(&workspace);
                 let active_conns = Arc::clone(&active_conns);
+                let peer_ip = peer.ip();
                 tokio::spawn(async move {
                     struct ConnGuard(Arc<AtomicUsize>);
                     impl Drop for ConnGuard {
@@ -258,7 +259,7 @@ impl GmcpServer {
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |req| {
                         let workspace = Arc::clone(&workspace);
-                        async move { handle_gmcp_request(req, workspace).await }
+                        async move { handle_gmcp_request(req, workspace, peer_ip).await }
                     });
                     if let Err(e) = AutoBuilder::new(TokioExecutor::new())
                         .serve_connection(io, service)
@@ -275,14 +276,37 @@ impl GmcpServer {
 async fn handle_gmcp_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
+    peer_ip: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
     let path = req.uri().path();
+
+    // CORS preflight never carries an Authorization header (browsers won't
+    // send credentials on OPTIONS), so it must always pass through.
+    if req.method() == Method::OPTIONS {
+        return Ok(response_builder(StatusCode::NO_CONTENT, "text/plain", Bytes::new()));
+    }
+
+    let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    if !crate::gawd::net_guard::NetGuard::is_authorized(
+        req.headers().get(hyper::header::AUTHORIZATION).and_then(|v| v.to_str().ok()),
+    ) {
+        return Ok(response_builder(
+            StatusCode::UNAUTHORIZED,
+            "application/json",
+            json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32001, "message": "Unauthorized"}})
+                .to_string(),
+        ));
+    }
+    if !crate::gawd::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute()) {
+        return Ok(response_builder(
+            StatusCode::TOO_MANY_REQUESTS,
+            "application/json",
+            json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32002, "message": "Rate limit exceeded"}})
+                .to_string(),
+        ));
+    }
+
     match (req.method(), path) {
-        (&Method::OPTIONS, _) => Ok(response_builder(
-            StatusCode::NO_CONTENT,
-            "text/plain",
-            Bytes::new(),
-        )),
         (&Method::GET, "/sse") => {
             // One-shot endpoint advertisement for MCP clients that expect an
             // `event: endpoint` before POSTing to /messages. Not a keep-alive stream.

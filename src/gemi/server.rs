@@ -97,7 +97,7 @@ impl GemiServer {
             let workspace = Arc::new(workspace);
 
             loop {
-                let (stream, _peer) = match listener.accept().await {
+                let (stream, peer) = match listener.accept().await {
                     Ok(pair) => pair,
                     Err(e) => {
                         eprintln!("[GEMI REST] Accept error: {}", e);
@@ -105,12 +105,13 @@ impl GemiServer {
                     }
                 };
                 let workspace = Arc::clone(&workspace);
+                let peer_ip = peer.ip();
 
                 tokio::spawn(async move {
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |req| {
                         let workspace = Arc::clone(&workspace);
-                        async move { handle_gemi_request(req, workspace).await }
+                        async move { handle_gemi_request(req, workspace, peer_ip).await }
                     });
                     if let Err(e) = AutoBuilder::new(TokioExecutor::new())
                         .serve_connection(io, service)
@@ -127,9 +128,31 @@ impl GemiServer {
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
+    peer_ip: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+
+    // CORS preflight never carries an Authorization header, and /health is a
+    // conventional unauthenticated liveness probe — everything else on this
+    // world-facing surface is gated below.
+    if method != Method::OPTIONS && path != "/health" {
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        if !crate::gawd::net_guard::NetGuard::is_authorized(
+            req.headers().get(hyper::header::AUTHORIZATION).and_then(|v| v.to_str().ok()),
+        ) {
+            return Ok(json_response(
+                StatusCode::UNAUTHORIZED,
+                &json!({"error": "Unauthorized"}),
+            ));
+        }
+        if !crate::gawd::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute()) {
+            return Ok(json_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                &json!({"error": "Rate limit exceeded"}),
+            ));
+        }
+    }
 
     match (&method, path.as_str()) {
         (&Method::GET, "/" | "/v1" | "/v1/" | "/health" | "/app" | "/favicon.ico") => {
