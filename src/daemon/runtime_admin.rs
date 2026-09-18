@@ -159,11 +159,7 @@ impl SusiRuntimeAdmin {
             } else {
                 println!("\n[BACKGROUND MODE] Tasks logged to sovereign mission queue. Run interactive pulse to execute.");
                 for (desc, _) in pending_tasks {
-                    SusiAuditLogger::log_event(
-                        workspace,
-                        "PENDING_MISSION",
-                        desc,
-                    );
+                    SusiAuditLogger::log_event(workspace, "PENDING_MISSION", desc);
                 }
             }
         }

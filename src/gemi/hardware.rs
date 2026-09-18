@@ -72,12 +72,12 @@ impl HardwareProfiler {
                 }
             })
             .clone();
-            
+
         profile.available_ram_gb = Self::determine_available_ram_gb();
         profile.disk_usage_pct = Self::determine_disk_usage_pct();
         profile.load_avg = Self::get_load_avg();
         profile.uptime = Self::get_uptime();
-        
+
         profile
     }
 
@@ -229,7 +229,11 @@ impl HardwareProfiler {
         if !output.status.success() {
             return None;
         }
-        let first_line = String::from_utf8_lossy(&output.stdout).lines().next()?.trim().to_string();
+        let first_line = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()?
+            .trim()
+            .to_string();
         let mib: u64 = first_line.parse().ok()?;
         Some(mib * 1024 * 1024)
     }

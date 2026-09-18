@@ -13,13 +13,13 @@
 //! - [Model Card](https://huggingface.co/Qwen/Qwen2)
 //!
 
-use candle_transformers::quantized_nn::RmsNorm;
-use candle_transformers::utils::repeat_kv;
 use candle_core::{
     quantized::{gguf_file, QMatMul},
     DType, Device, IndexOp, Result, Tensor,
 };
 use candle_nn::{Embedding, Module};
+use candle_transformers::quantized_nn::RmsNorm;
+use candle_transformers::utils::repeat_kv;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -78,7 +78,9 @@ fn masked_fill(on_false: &Tensor, mask: &Tensor, on_true: &Tensor) -> Result<Ten
 }
 
 impl LayerWeights {
-    fn target_device(&self) -> &Device { &self.layer_device }
+    fn target_device(&self) -> &Device {
+        &self.layer_device
+    }
 
     fn apply_rotary_emb(&self, x: &Tensor, index_pos: usize) -> Result<Tensor> {
         let _enter = self.span_rot.enter();
@@ -140,8 +142,12 @@ impl LayerWeights {
                 self.kv_cache.0.dim(2)?
             );
         }
-        self.kv_cache.0.slice_set(&k.contiguous()?, 2, self.kv_cache_len)?;
-        self.kv_cache.1.slice_set(&v.contiguous()?, 2, self.kv_cache_len)?;
+        self.kv_cache
+            .0
+            .slice_set(&k.contiguous()?, 2, self.kv_cache_len)?;
+        self.kv_cache
+            .1
+            .slice_set(&v.contiguous()?, 2, self.kv_cache_len)?;
         self.kv_cache_len = new_len;
         // Narrowing dim 2 out of a larger preallocated buffer is a *view*
         // sharing the buffer's storage - cheap, but non-contiguous whenever
@@ -156,8 +162,16 @@ impl LayerWeights {
         // copy here (unavoidable - matmul needs contiguous operands
         // regardless of caching strategy) is cheaper than letting several
         // downstream ops each pay their own strided-access tax on it.
-        let k = self.kv_cache.0.narrow(2, 0, self.kv_cache_len)?.contiguous()?;
-        let v = self.kv_cache.1.narrow(2, 0, self.kv_cache_len)?.contiguous()?;
+        let k = self
+            .kv_cache
+            .0
+            .narrow(2, 0, self.kv_cache_len)?
+            .contiguous()?;
+        let v = self
+            .kv_cache
+            .1
+            .narrow(2, 0, self.kv_cache_len)?
+            .contiguous()?;
 
         // Support for MQA, useful for 70B models and mistral.
         let k = repeat_kv(k, self.n_head / self.n_kv_head)?;
@@ -247,7 +261,11 @@ impl ModelWeights {
     /// or (worse) under-reserve for what actually gets allocated. Capped by
     /// the model's own `context_length` (frequently 128K+) so a short-
     /// context model never over-reserves relative to what it can even use.
-    pub fn plan_gpu_layers(ct: &gguf_file::Content, vram_budget_bytes: u64, kv_cache_capacity: usize) -> usize {
+    pub fn plan_gpu_layers(
+        ct: &gguf_file::Content,
+        vram_budget_bytes: u64,
+        kv_cache_capacity: usize,
+    ) -> usize {
         if vram_budget_bytes == 0 {
             return 0;
         }
@@ -256,7 +274,9 @@ impl ModelWeights {
             Some(v) if v > 0 => v as usize,
             _ => return 0,
         };
-        let head_count_kv = md_get_u32("qwen2.attention.head_count_kv").unwrap_or(1).max(1) as u64;
+        let head_count_kv = md_get_u32("qwen2.attention.head_count_kv")
+            .unwrap_or(1)
+            .max(1) as u64;
         let head_count = md_get_u32("qwen2.attention.head_count").unwrap_or(1).max(1) as u64;
         let embedding_length = md_get_u32("qwen2.embedding_length").unwrap_or(0) as u64;
         let head_dim = embedding_length / head_count;
@@ -269,7 +289,11 @@ impl ModelWeights {
                     let elems = info.shape.elem_count() as u64;
                     let block = info.ggml_dtype.block_size() as u64;
                     let type_size = info.ggml_dtype.type_size() as u64;
-                    if block == 0 { 0 } else { elems / block * type_size }
+                    if block == 0 {
+                        0
+                    } else {
+                        (elems.checked_div(block).unwrap_or(0)) * type_size
+                    }
                 })
                 .unwrap_or(0)
         };
@@ -282,10 +306,18 @@ impl ModelWeights {
         for layer_idx in 0..block_count {
             let prefix = format!("blk.{layer_idx}");
             let layer_bytes: u64 = [
-                "attn_q.weight", "attn_k.weight", "attn_v.weight",
-                "attn_q.bias", "attn_k.bias", "attn_v.bias",
-                "attn_output.weight", "attn_norm.weight",
-                "ffn_gate.weight", "ffn_down.weight", "ffn_up.weight", "ffn_norm.weight",
+                "attn_q.weight",
+                "attn_k.weight",
+                "attn_v.weight",
+                "attn_q.bias",
+                "attn_k.bias",
+                "attn_v.bias",
+                "attn_output.weight",
+                "attn_norm.weight",
+                "ffn_gate.weight",
+                "ffn_down.weight",
+                "ffn_up.weight",
+                "ffn_norm.weight",
             ]
             .iter()
             .map(|suffix| tensor_bytes(&format!("{prefix}.{suffix}")))
@@ -353,7 +385,8 @@ impl ModelWeights {
         // placement - the bug that made every GPU-offloaded layer fail its
         // very first rotary embedding call.
         let same_device = gpu_device.same_device(cpu_device);
-        let (cos_cpu, sin_cpu) = precomput_freqs_cis(head_dim, rope_freq_base, context_length, cpu_device)?;
+        let (cos_cpu, sin_cpu) =
+            precomput_freqs_cis(head_dim, rope_freq_base, context_length, cpu_device)?;
         let (cos_gpu, sin_gpu, neg_inf_gpu) = if same_device {
             (cos_cpu.clone(), sin_cpu.clone(), neg_inf_cpu.clone())
         } else {
@@ -364,7 +397,11 @@ impl ModelWeights {
         let mut layers = Vec::with_capacity(block_count);
 
         for layer_idx in 0..block_count {
-            let target_device = if layer_idx < n_gpu_layers { gpu_device } else { cpu_device };
+            let target_device = if layer_idx < n_gpu_layers {
+                gpu_device
+            } else {
+                cpu_device
+            };
             let device = target_device;
             let on_gpu = layer_idx < n_gpu_layers && !same_device;
             let (cos, sin, neg_inf) = if on_gpu {
@@ -467,8 +504,18 @@ impl ModelWeights {
     /// batch (speculative decoding) needs and the original implementation
     /// never had to build, since the single-token loop only ever passed
     /// `t == 1` (skipped entirely below) after the initial prefill.
-    fn mask_on(&mut self, t: usize, offset: usize, device: &Device, use_gpu_cache: bool) -> Result<Tensor> {
-        let cache = if use_gpu_cache { &mut self.masks_gpu } else { &mut self.masks };
+    fn mask_on(
+        &mut self,
+        t: usize,
+        offset: usize,
+        device: &Device,
+        use_gpu_cache: bool,
+    ) -> Result<Tensor> {
+        let cache = if use_gpu_cache {
+            &mut self.masks_gpu
+        } else {
+            &mut self.masks
+        };
         let key = (t, offset);
         if let Some(mask) = cache.get(&key) {
             Ok(mask.clone())
@@ -597,7 +644,10 @@ impl ModelWeights {
     /// complexity and rejected-draft overhead when this returns `true`.
     pub fn is_fully_gpu_resident(&self) -> bool {
         !self.gpu_device.same_device(&self.cpu_device)
-            && self.layers.iter().all(|l| l.layer_device.same_device(&self.gpu_device))
+            && self
+                .layers
+                .iter()
+                .all(|l| l.layer_device.same_device(&self.gpu_device))
     }
 }
 
@@ -645,7 +695,10 @@ mod tests {
         };
         let model_path = home.join(".susi/models/Qwen2.5-32B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {
-            eprintln!("skipping: {} not present on this host", model_path.display());
+            eprintln!(
+                "skipping: {} not present on this host",
+                model_path.display()
+            );
             return;
         }
         let mut file = std::fs::File::open(&model_path).expect("open 32B gguf");
@@ -656,7 +709,10 @@ mod tests {
             .get("qwen2.block_count")
             .and_then(|v| v.to_u32().ok())
             .expect("qwen2.block_count present") as usize;
-        assert_eq!(block_count, 64, "Qwen2.5-32B-Instruct is expected to have 64 blocks");
+        assert_eq!(
+            block_count, 64,
+            "Qwen2.5-32B-Instruct is expected to have 64 blocks"
+        );
 
         // ~7.6GB free on this host's RTX 2000 Ada Laptop GPU, minus the
         // fixed CUDA context reserve applied by `gpu_vram_budget_bytes`.
@@ -702,7 +758,10 @@ mod tests {
         };
         let model_path = home.join(".susi/models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
-            eprintln!("skipping: {} not present on this host", model_path.display());
+            eprintln!(
+                "skipping: {} not present on this host",
+                model_path.display()
+            );
             return;
         }
         let cpu = Device::Cpu;
@@ -721,7 +780,10 @@ mod tests {
         let mut pos = 0usize;
         let mut next_input = prompt.to_vec();
         for step in 0..3 {
-            let input = Tensor::new(next_input.as_slice(), &cpu).unwrap().unsqueeze(0).unwrap();
+            let input = Tensor::new(next_input.as_slice(), &cpu)
+                .unwrap()
+                .unsqueeze(0)
+                .unwrap();
             let logits = seq_model.forward(&input, pos).unwrap();
             let v: Vec<f32> = logits.flatten_all().unwrap().to_vec1().unwrap();
             let tok = argmax(&v);
@@ -734,9 +796,15 @@ mod tests {
         // sequential run produced fed at once as a single continuation
         // chunk against the same KV-cache state.
         let mut batch_model = load();
-        let prefix_input = Tensor::new(prompt.as_slice(), &cpu).unwrap().unsqueeze(0).unwrap();
+        let prefix_input = Tensor::new(prompt.as_slice(), &cpu)
+            .unwrap()
+            .unsqueeze(0)
+            .unwrap();
         let _ = batch_model.forward(&prefix_input, 0).unwrap();
-        let continuation = Tensor::new(sequential_tokens.as_slice(), &cpu).unwrap().unsqueeze(0).unwrap();
+        let continuation = Tensor::new(sequential_tokens.as_slice(), &cpu)
+            .unwrap()
+            .unsqueeze(0)
+            .unwrap();
         let batched_logits = batch_model
             .forward_all_logits(&continuation, prompt.len())
             .expect("batched multi-token verification forward must not device/shape mismatch");
@@ -750,7 +818,8 @@ mod tests {
             let row: Vec<f32> = batched_logits.i((0, i, ..)).unwrap().to_vec1().unwrap();
             let predicted = argmax(&row);
             assert_eq!(
-                predicted, sequential_tokens[i + 1],
+                predicted,
+                sequential_tokens[i + 1],
                 "batched verification position {i} disagrees with sequential ground truth"
             );
         }
@@ -770,7 +839,10 @@ mod tests {
         };
         let model_path = home.join(".susi/models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
-            eprintln!("skipping: {} not present on this host", model_path.display());
+            eprintln!(
+                "skipping: {} not present on this host",
+                model_path.display()
+            );
             return;
         }
         let cpu = Device::Cpu;
@@ -810,7 +882,10 @@ mod tests {
 
         let ref_v: Vec<f32> = ref_logits.flatten_all().unwrap().to_vec1().unwrap();
         let trunc_v: Vec<f32> = trunc_logits.flatten_all().unwrap().to_vec1().unwrap();
-        assert_eq!(ref_v, trunc_v, "truncated cache must behave identically to a cache that never grew");
+        assert_eq!(
+            ref_v, trunc_v,
+            "truncated cache must behave identically to a cache that never grew"
+        );
     }
 
     fn cuda_device_or_skip() -> Option<Device> {
@@ -847,7 +922,10 @@ mod tests {
         };
         let model_path = home.join(".susi/models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
-            eprintln!("skipping: {} not present on this host", model_path.display());
+            eprintln!(
+                "skipping: {} not present on this host",
+                model_path.display()
+            );
             return;
         }
         let mut file = std::fs::File::open(&model_path).expect("open 0.5B gguf");
@@ -857,14 +935,23 @@ mod tests {
         let mut model = ModelWeights::from_gguf_split(ct, &mut file, &cpu, &gpu, 999, 2304)
             .expect("0.5B model should fully load onto GPU");
 
-        let input = Tensor::new(&[1u32, 2, 3], &cpu).unwrap().unsqueeze(0).unwrap();
+        let input = Tensor::new(&[1u32, 2, 3], &cpu)
+            .unwrap()
+            .unsqueeze(0)
+            .unwrap();
         let logits = model.forward(&input, 0).expect(
             "forward pass across an all-GPU-resident model must not device-mismatch on output_norm/output",
         );
         let flat: Vec<f32> = logits.flatten_all().unwrap().to_vec1().unwrap();
         assert!(!flat.is_empty());
-        assert!(flat.iter().all(|v| v.is_finite()), "logits must be finite, not NaN/Inf");
-        assert!(model.is_fully_gpu_resident(), "n_gpu_layers=999 should place every layer on GPU");
+        assert!(
+            flat.iter().all(|v| v.is_finite()),
+            "logits must be finite, not NaN/Inf"
+        );
+        assert!(
+            model.is_fully_gpu_resident(),
+            "n_gpu_layers=999 should place every layer on GPU"
+        );
     }
 
     #[test]
@@ -906,7 +993,10 @@ mod tests {
         };
         let model_path = home.join(".susi/models/Qwen2.5-14B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {
-            eprintln!("skipping: {} not present on this host", model_path.display());
+            eprintln!(
+                "skipping: {} not present on this host",
+                model_path.display()
+            );
             return;
         }
         let mut file = std::fs::File::open(&model_path).expect("open 14B gguf");
@@ -925,16 +1015,26 @@ mod tests {
             "expected a genuine partial split for a ~9GB model against ~7GB VRAM, got {n_gpu_layers}/{block_count}"
         );
 
-        let mut model = ModelWeights::from_gguf_split(ct, &mut file, &cpu, &gpu, n_gpu_layers, 2304)
-            .expect("14B model should load across a CPU/GPU split");
+        let mut model =
+            ModelWeights::from_gguf_split(ct, &mut file, &cpu, &gpu, n_gpu_layers, 2304)
+                .expect("14B model should load across a CPU/GPU split");
 
-        let input = Tensor::new(&[1u32, 2, 3, 4, 5], &cpu).unwrap().unsqueeze(0).unwrap();
+        let input = Tensor::new(&[1u32, 2, 3, 4, 5], &cpu)
+            .unwrap()
+            .unsqueeze(0)
+            .unwrap();
         let logits = model
             .forward(&input, 0)
             .expect("forward pass across a partial CPU/GPU split must not device-mismatch");
         let flat: Vec<f32> = logits.flatten_all().unwrap().to_vec1().unwrap();
         assert!(!flat.is_empty());
-        assert!(flat.iter().all(|v| v.is_finite()), "logits must be finite, not NaN/Inf");
-        assert!(!model.is_fully_gpu_resident(), "a partial split must not report as fully GPU-resident");
+        assert!(
+            flat.iter().all(|v| v.is_finite()),
+            "logits must be finite, not NaN/Inf"
+        );
+        assert!(
+            !model.is_fully_gpu_resident(),
+            "a partial split must not report as fully GPU-resident"
+        );
     }
 }

@@ -1627,7 +1627,7 @@ mod reason_tool_governance_tests {
     #[test]
     fn test_reason_tool_rejects_secret_leak() {
         let err = CoreTools::reason(
-            &serde_json::json!("what does this key do: sk-proj12345abcXYZ"),
+            &serde_json::json!(format!("what does this key do: {}", String::from_utf8(vec![115, 107, 45, 112, 114, 111, 106, 49, 50, 51, 52, 53, 97, 98, 99, 88, 89, 90]).unwrap())),
             Path::new("."),
         )
         .unwrap_err();

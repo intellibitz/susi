@@ -12,9 +12,9 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+use crate::gemi::qwen2_split as qwen2gguf;
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
-use crate::gemi::qwen2_split as qwen2gguf;
 use tokenizers::Tokenizer;
 
 /// Backing weights graph for a loaded GGUF. `quantized_llama` serves every
@@ -38,7 +38,11 @@ pub(crate) enum ModelBackend {
 }
 
 impl ModelBackend {
-    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+    fn forward(
+        &mut self,
+        x: &candle_core::Tensor,
+        index_pos: usize,
+    ) -> candle_core::Result<candle_core::Tensor> {
         match self {
             Self::Llama(m) => m.forward(x, index_pos),
             Self::Qwen2(m) => m.forward(x, index_pos),
@@ -233,10 +237,24 @@ impl InferenceHost {
             let kv_cache_capacity = crate::sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .kv_cache_capacity_tokens();
-            let split = qwen2gguf::ModelWeights::plan_gpu_layers(&model_data, vram_budget, kv_cache_capacity);
-            println!("- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU", split);
-            qwen2gguf::ModelWeights::from_gguf_split(model_data, &mut file, &cpu_dev, &gpu_dev, split, kv_cache_capacity)
-                .map(ModelBackend::Qwen2)
+            let split = qwen2gguf::ModelWeights::plan_gpu_layers(
+                &model_data,
+                vram_budget,
+                kv_cache_capacity,
+            );
+            println!(
+                "- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU",
+                split
+            );
+            qwen2gguf::ModelWeights::from_gguf_split(
+                model_data,
+                &mut file,
+                &cpu_dev,
+                &gpu_dev,
+                split,
+                kv_cache_capacity,
+            )
+            .map(ModelBackend::Qwen2)
         } else {
             llama::ModelWeights::from_gguf(model_data, &mut file, device).map(ModelBackend::Llama)
         }
@@ -404,14 +422,17 @@ impl GemiEngine {
 
         // Primary Federated vs Native Inference Routing Edge
         let global_config = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let active_engine_identifier = crate::gemi::models::ModelManager::get_selected_engine().unwrap_or(global_config.default_engine());
-        
-        let engine: Box<dyn NativeInferenceEngine> = if active_engine_identifier == "susi-federated" || active_engine_identifier == "cloud" {
+        let active_engine_identifier = crate::gemi::models::ModelManager::get_selected_engine()
+            .unwrap_or(global_config.default_engine());
+
+        let engine: Box<dyn NativeInferenceEngine> = if active_engine_identifier == "susi-federated"
+            || active_engine_identifier == "cloud"
+        {
             Box::new(SusiFederatedEngine)
         } else {
             Box::new(LlamaCppEngine)
         };
-        
+
         if let Ok(res) = engine.run_inference_stream(prompt, callback) {
             if !res.trim().is_empty() {
                 return match Self::verify_axiomatic_alignment(&res, workspace) {
@@ -699,8 +720,10 @@ impl NativeInferenceEngine for SusiGgufEngine {
             return Ok("Simulated inference for test suite.".to_string());
         }
 
-        let model_id = ModelManager::get_selected_model(Some(crate::gemi::intent::IntentClassifier::classify(prompt)))
-            .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
+        let model_id = ModelManager::get_selected_model(Some(
+            crate::gemi::intent::IntentClassifier::classify(prompt),
+        ))
+        .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
 
         println!("- [Inference Substrate] Active Model: {}", model_id);
         let model_path = ModelManager::get_model_path(&model_id)
@@ -709,9 +732,14 @@ impl NativeInferenceEngine for SusiGgufEngine {
             .ok_or_else(|| EaiError::inference("Tokenizer missing."))?;
 
         println!("- [Inference Substrate] Requesting device context...");
-        let file_size = std::fs::metadata(&model_path).map(|m| m.len() as usize).unwrap_or(0);
+        let file_size = std::fs::metadata(&model_path)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
         let device = HardwareProfiler::get_dynamic_device(file_size);
-        println!("- [Inference Substrate] Selected Heterogeneous Device Topology: {:?}", device);
+        println!(
+            "- [Inference Substrate] Selected Heterogeneous Device Topology: {:?}",
+            device
+        );
 
         println!("- [Inference Substrate] Acquiring model substrate shared handle...");
         let substrate_shared = InferenceHost::get_model(&model_path, &device, &task_handle)?;
@@ -1154,19 +1182,22 @@ impl NativeInferenceEngine for SusiFederatedEngine {
     fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let endpoints = cfg.inference_endpoints();
-        
+
         println!("[SUSI Federated Router] Requesting remote consensus quorum...");
         let _ = std::io::stdout().flush();
         let endpoint = endpoints.endpoints.first().ok_or_else(|| {
-             crate::error::EaiError::inference("No active federated endpoints provisioned in config.default.json.")
+            crate::error::EaiError::inference(
+                "No active federated endpoints provisioned in config.default.json.",
+            )
         })?;
-        
+
         println!("[SUSI Federated Router] Edge Delegation Active. Distributing evaluation payload to remote cluster: {} ({})", endpoint.name, endpoint.api_base);
         let _ = std::io::stdout().flush();
 
         let url = format!("{}/chat/completions", endpoint.api_base);
-        let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "susi-federated-key".to_string());
-        
+        let api_key =
+            std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "susi-federated-key".to_string());
+
         // Blocking Sync REST via ureq explicitly bound to federation consensus
         let body = serde_json::json!({
             "model": "600b-federated-swarm-logic",
@@ -1178,19 +1209,28 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         match ureq::post(&url)
             .header("Authorization", &format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
-            .send_json(body) {
+            .send_json(body)
+        {
             Ok(response) => {
-                let body_str = response.into_body().read_to_string().map_err(|e| crate::error::EaiError::inference(format!("Read error: {}", e)))?;
-                let json: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| crate::error::EaiError::inference(format!("Parse error: {}", e)))?;
+                let body_str = response
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| crate::error::EaiError::inference(format!("Read error: {}", e)))?;
+                let json: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| {
+                    crate::error::EaiError::inference(format!("Parse error: {}", e))
+                })?;
                 if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
                     callback(content.to_string());
                     return Ok(content.to_string());
                 }
-                Err(crate::error::EaiError::inference("Federated swarm endpoint returned invalid consensus payload."))
-            },
-            Err(e) => {
-                Err(crate::error::EaiError::inference(format!("Federated edge connection refused: {}", e)))
+                Err(crate::error::EaiError::inference(
+                    "Federated swarm endpoint returned invalid consensus payload.",
+                ))
             }
+            Err(e) => Err(crate::error::EaiError::inference(format!(
+                "Federated edge connection refused: {}",
+                e
+            ))),
         }
     }
 }

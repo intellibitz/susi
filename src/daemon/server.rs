@@ -135,7 +135,9 @@ impl SusiDaemon {
     pub fn get_lock_file_for_workspace(global_dir: &Path, workspace: &Path) -> PathBuf {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
-        let canonical = workspace.canonicalize().unwrap_or_else(|_| workspace.to_path_buf());
+        let canonical = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.to_path_buf());
         let mut hasher = DefaultHasher::new();
         canonical.hash(&mut hasher);
         let hash = hasher.finish();
@@ -735,7 +737,12 @@ mod tests {
         let path = SusiDaemon::get_lock_file(&tmp_dir);
         assert_eq!(path, tmp_dir.join("substrate.lock"));
         let ws_path = SusiDaemon::get_lock_file_for_workspace(&tmp_dir, &tmp_dir);
-        assert!(ws_path.file_name().unwrap().to_str().unwrap().starts_with("substrate_"));
+        assert!(ws_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("substrate_"));
     }
 
     #[test]
@@ -754,7 +761,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_is_trusted_susi_process_fails_closed_without_hash_file() {
-        let global_dir = std::env::temp_dir().join(format!("susi_trust_test_nohash_{}", std::process::id()));
+        let global_dir =
+            std::env::temp_dir().join(format!("susi_trust_test_nohash_{}", std::process::id()));
         std::fs::create_dir_all(&global_dir).unwrap();
 
         // Own PID's exe is the test binary, not literally named "susi"/"susi-engine",

@@ -302,7 +302,10 @@ impl ModelManager {
         ))
     }
 
-    pub fn identify_best_suited_local_model(workspace: &Path, intent: Option<crate::gemi::intent::IntentCategory>) -> Option<ModelInfo> {
+    pub fn identify_best_suited_local_model(
+        workspace: &Path,
+        intent: Option<crate::gemi::intent::IntentCategory>,
+    ) -> Option<ModelInfo> {
         let hw = HardwareProfiler::get_profile();
         let models = Self::list_models(workspace);
         let local_models: Vec<ModelInfo> = models
@@ -364,26 +367,46 @@ impl ModelManager {
             if m.provider() == "NativeCandle" {
                 score += heuristics.native_candle_bonus;
             }
-            
+
             // INTENT-BASED ROUTING OVERRIDE (Aspiration: Context Awareness)
             if let Some(i) = intent {
                 let m_id = m.model_id().to_lowercase();
-                let m_tags = m.fields.get("tags").and_then(|t| t.as_array()).map(|arr| {
-                    arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_lowercase()).collect::<Vec<String>>()
-                }).unwrap_or_default();
-                
+                let m_tags = m
+                    .fields
+                    .get("tags")
+                    .and_then(|t| t.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(|s| s.to_lowercase())
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
                 let matches = match i {
-                    crate::gemi::intent::IntentCategory::Coding => m_id.contains("coder") || m_id.contains("code") || m_tags.contains(&"coding".to_string()),
-                    crate::gemi::intent::IntentCategory::Mathematics => m_id.contains("math") || m_tags.contains(&"mathematics".to_string()),
-                    crate::gemi::intent::IntentCategory::Reasoning => m_id.contains("instruct") || m_id.contains("reason") || m_tags.contains(&"reasoning".to_string()),
-                    crate::gemi::intent::IntentCategory::Creative => m_id.contains("chat") || m_tags.contains(&"creative".to_string()),
+                    crate::gemi::intent::IntentCategory::Coding => {
+                        m_id.contains("coder")
+                            || m_id.contains("code")
+                            || m_tags.contains(&"coding".to_string())
+                    }
+                    crate::gemi::intent::IntentCategory::Mathematics => {
+                        m_id.contains("math") || m_tags.contains(&"mathematics".to_string())
+                    }
+                    crate::gemi::intent::IntentCategory::Reasoning => {
+                        m_id.contains("instruct")
+                            || m_id.contains("reason")
+                            || m_tags.contains(&"reasoning".to_string())
+                    }
+                    crate::gemi::intent::IntentCategory::Creative => {
+                        m_id.contains("chat") || m_tags.contains(&"creative".to_string())
+                    }
                     crate::gemi::intent::IntentCategory::General => false,
                 };
                 if matches {
                     score *= 5.0; // 500% priority boost for matching intent
                 }
             }
-            
+
             scored_models.push((score, m));
         }
 
@@ -391,7 +414,9 @@ impl ModelManager {
         scored_models.first().map(|(_, m)| m.clone())
     }
 
-    pub fn get_selected_model(intent: Option<crate::gemi::intent::IntentCategory>) -> Option<String> {
+    pub fn get_selected_model(
+        intent: Option<crate::gemi::intent::IntentCategory>,
+    ) -> Option<String> {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
@@ -430,7 +455,9 @@ impl ModelManager {
             .map(|s| s.trim().to_string())
     }
 
-    pub fn get_active_engine_and_model(intent: Option<crate::gemi::intent::IntentCategory>) -> (String, String) {
+    pub fn get_active_engine_and_model(
+        intent: Option<crate::gemi::intent::IntentCategory>,
+    ) -> (String, String) {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
@@ -1250,7 +1277,10 @@ impl ModelManager {
     }
 
     pub fn identify_best_ladder_step() -> super::hardware::ModelLadderStep {
-        if let Some(step) = HardwareProfiler::get_progressive_model_ladder().last().cloned() {
+        if let Some(step) = HardwareProfiler::get_progressive_model_ladder()
+            .last()
+            .cloned()
+        {
             return step;
         }
         // No ladder step cleared this host's detected RAM (a misconfigured or

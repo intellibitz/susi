@@ -241,8 +241,11 @@ impl SusiMasterAgent {
             let safety_result =
                 crate::gawd::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace);
             eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
-            let security_result =
-                crate::gawd::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace);
+            let security_result = crate::gawd::security::SecurityDetector::audit_action(
+                "SUSI_SOLVE",
+                goal,
+                workspace,
+            );
 
             if let Err(e) = safety_result.and(security_result) {
                 eprintln!("- [Governance] Fast-path Read blocked: {}", e);
@@ -575,12 +578,16 @@ impl SusiMasterAgent {
                 .map(std::path::PathBuf::from)
                 .unwrap_or_default();
             let global_dir = home.join(".susi");
-            let daemon_status =
-                if crate::daemon::server::SusiDaemon::check_status(workspace, &global_dir).is_some() {
-                    "RUNNING"
-                } else {
-                    "STOPPED"
-                };
+            let daemon_status = if crate::daemon::server::SusiDaemon::check_status(
+                workspace,
+                &global_dir,
+            )
+            .is_some()
+            {
+                "RUNNING"
+            } else {
+                "STOPPED"
+            };
             let status_report = format!(
                 "SUSI Substrate Status ({}) :\n- Daemon Status: {}\n- Hardware: {} CPUs ({}) | {}GB RAM | {}\n- Acceleration: {}",
                 version, daemon_status, hw.cpus, hw.cpu_brand, hw.ram_gb, hw.gpu_info, hw.native_acceleration
@@ -661,8 +668,10 @@ impl SusiMasterAgent {
                 swarm_context
             } else {
                 // Tier 2 Native Local Model Inference Fallback for Open Missions
-                let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(crate::gemi::intent::IntentClassifier::classify(&current_goal)))
-                    .unwrap_or_else(|| "susi-native-synthesis".to_string());
+                let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(
+                    crate::gemi::intent::IntentClassifier::classify(&current_goal),
+                ))
+                .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
                 let reasoning_prompt = format!(
                     "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",
@@ -772,7 +781,8 @@ impl SusiMasterAgent {
         // Partitioned tasks are executed in parallel across the multi-threaded substrate.
         use rayon::prelude::*;
 
-        let results: Vec<_> = plan.goals
+        let results: Vec<_> = plan
+            .goals
             .par_iter()
             .enumerate()
             .map(|(i, sub_goal)| {
@@ -876,8 +886,8 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name =
-            crate::gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
+        let model_name = crate::gemi::models::ModelManager::get_selected_model(None)
+            .unwrap_or_else(|| {
                 let filename = crate::sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename();

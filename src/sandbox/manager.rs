@@ -29,14 +29,16 @@ pub type ProviderType = String;
 static HTTP_AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
 
 pub fn http_agent() -> ureq::Agent {
-    HTTP_AGENT.get_or_init(|| {
-        let config = ureq::Agent::config_builder()
-            .timeout_connect(Some(std::time::Duration::from_secs(10)))
-            .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
-            .timeout_send_body(Some(std::time::Duration::from_secs(20)))
-            .build();
-        ureq::Agent::new_with_config(config)
-    }).clone()
+    HTTP_AGENT
+        .get_or_init(|| {
+            let config = ureq::Agent::config_builder()
+                .timeout_connect(Some(std::time::Duration::from_secs(10)))
+                .timeout_recv_body(Some(std::time::Duration::from_secs(20)))
+                .timeout_send_body(Some(std::time::Duration::from_secs(20)))
+                .build();
+            ureq::Agent::new_with_config(config)
+        })
+        .clone()
 }
 pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
 pub type RiskTier = String; // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
@@ -374,10 +376,12 @@ impl SusiPrompts {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = home.join(".susi/prompts.json");
-        
-        static PROMPTS_CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, SusiPrompts)>>> = std::sync::OnceLock::new();
+
+        static PROMPTS_CACHE: std::sync::OnceLock<
+            parking_lot::RwLock<Option<(std::time::SystemTime, SusiPrompts)>>,
+        > = std::sync::OnceLock::new();
         let cache_lock = PROMPTS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
-        
+
         let current_modified = std::fs::metadata(&prompts_file)
             .and_then(|m| m.modified())
             .unwrap_or(std::time::UNIX_EPOCH);
@@ -416,8 +420,7 @@ impl SusiPrompts {
             // that installed before it existed. Never touches a key the user
             // already has, matching that same existing-value guarantee.
             let default_prompts = Self::default_dynamic();
-            if Self::backfill_missing_prompt_keys(&mut existing.prompts, &default_prompts.prompts)
-            {
+            if Self::backfill_missing_prompt_keys(&mut existing.prompts, &default_prompts.prompts) {
                 if let Ok(json) = serde_json::to_string_pretty(existing) {
                     let _ = fs::write(&prompts_file, json);
                 }
@@ -541,10 +544,12 @@ impl SusiMessages {
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = home.join(".susi/messages.json");
-        
-        static MSGS_CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, SusiMessages)>>> = std::sync::OnceLock::new();
+
+        static MSGS_CACHE: std::sync::OnceLock<
+            parking_lot::RwLock<Option<(std::time::SystemTime, SusiMessages)>>,
+        > = std::sync::OnceLock::new();
         let cache_lock = MSGS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
-        
+
         let current_modified = std::fs::metadata(&msgs_file)
             .and_then(|m| m.modified())
             .unwrap_or(std::time::UNIX_EPOCH);
@@ -573,8 +578,8 @@ impl SusiMessages {
             let _ = fs::write(&msgs_file, json);
         }
         let new_modified = std::fs::metadata(&msgs_file)
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::UNIX_EPOCH);
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
         let mut guard = cache_lock.write();
         *guard = Some((new_modified, default_msgs.clone()));
         default_msgs
@@ -786,7 +791,9 @@ impl SusiConfig {
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
 
-        static CACHE: std::sync::OnceLock<parking_lot::RwLock<Option<(std::time::SystemTime, std::path::PathBuf, SusiConfig)>>> = std::sync::OnceLock::new();
+        static CACHE: std::sync::OnceLock<
+            parking_lot::RwLock<Option<(std::time::SystemTime, std::path::PathBuf, SusiConfig)>>,
+        > = std::sync::OnceLock::new();
         let cache_lock = CACHE.get_or_init(|| parking_lot::RwLock::new(None));
 
         let current_modified = std::fs::metadata(&path)
@@ -796,7 +803,10 @@ impl SusiConfig {
         {
             let guard = cache_lock.read();
             if let Some((cached_time, cached_path, cached_cfg)) = guard.as_ref() {
-                if cached_path == &path && cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
+                if cached_path == &path
+                    && cached_time == &current_modified
+                    && current_modified != std::time::UNIX_EPOCH
+                {
                     return Ok(cached_cfg.clone());
                 }
             }
@@ -973,13 +983,13 @@ impl SusiConfig {
         self.get_or_bundled_default("mcp_registry_url")
     }
     pub fn bootstrap_mcp_servers<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
-        self.get("bootstrap_mcp_servers").unwrap_or_else(T::default)
+        self.get("bootstrap_mcp_servers").unwrap_or_default()
     }
     pub fn local_scan_paths(&self) -> Vec<String> {
         self.get("local_scan_paths").unwrap_or_default()
     }
     pub fn discoverable_assets<T: for<'de> Deserialize<'de> + Default>(&self) -> T {
-        self.get("discoverable_assets").unwrap_or_else(T::default)
+        self.get("discoverable_assets").unwrap_or_default()
     }
     pub fn governance(&self) -> GovernancePatterns {
         self.get_or_bundled_default("governance")
@@ -1085,14 +1095,14 @@ impl SusiConfig {
     /// but that saving is consumed by the extra host/kernel-launch round
     /// trips this adds: the draft model still needs `speculative_draft_tokens
     /// - 1` *sequential* single-token forwards per round (autoregressive,
-    /// can't be batched), plus a resync forward, on top of the target's
-    /// batched verify call - more total round trips than the classic loop
-    /// for the same tokens, and per-call host/launch overhead dominates
-    /// over raw compute at these model sizes on this stack. Left
-    /// configurable (and the implementation fully correctness-tested) in
-    /// case a future candle version, different hardware, or a larger
-    /// draft_chunk changes this trade-off - but never default-on without
-    /// remeasuring.
+    ///   can't be batched), plus a resync forward, on top of the target's
+    ///   batched verify call - more total round trips than the classic loop
+    ///   for the same tokens, and per-call host/launch overhead dominates
+    ///   over raw compute at these model sizes on this stack. Left
+    ///   configurable (and the implementation fully correctness-tested) in
+    ///   case a future candle version, different hardware, or a larger
+    ///   draft_chunk changes this trade-off - but never default-on without
+    ///   remeasuring.
     pub fn speculative_decoding_enabled(&self) -> bool {
         self.get_or_bundled_default("speculative_decoding_enabled")
     }
@@ -1906,12 +1916,16 @@ mod tests {
 
         assert!(changed);
         assert_eq!(
-            existing.get("consensus_wisdom_prompt").and_then(|v| v.as_str()),
+            existing
+                .get("consensus_wisdom_prompt")
+                .and_then(|v| v.as_str()),
             Some("old customized text"),
             "an existing key must never be overwritten by a newer default"
         );
         assert_eq!(
-            existing.get("dynamic_agent_prompt").and_then(|v| v.as_str()),
+            existing
+                .get("dynamic_agent_prompt")
+                .and_then(|v| v.as_str()),
             Some("direct-answer prompt"),
             "a key missing from the user's file must be backfilled from the bundled default"
         );

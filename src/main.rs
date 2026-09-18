@@ -127,10 +127,9 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::OsClean
         | Commands::Pulse { .. }
         | Commands::DaemonStart { .. } => false,
-        Commands::Admin { subcommand } => matches!(
-            subcommand,
-            AdminCommands::Release | AdminCommands::Audit
-        ),
+        Commands::Admin { subcommand } => {
+            matches!(subcommand, AdminCommands::Release | AdminCommands::Audit)
+        }
         _ => true,
     }
 }

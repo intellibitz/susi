@@ -81,7 +81,11 @@ fn argmax(v: &[f32]) -> u32 {
 fn tensor_row_to_vec(t: &Tensor, row: usize) -> EaiResult<Vec<f32>> {
     t.i((0, row, ..))
         .and_then(|r| r.to_vec1::<f32>())
-        .map_err(|e| EaiError::inference(format!("Speculative decoding: logits extraction failed: {e}")))
+        .map_err(|e| {
+            EaiError::inference(format!(
+                "Speculative decoding: logits extraction failed: {e}"
+            ))
+        })
 }
 
 fn single_token_tensor(id: u32) -> EaiResult<Tensor> {
@@ -99,7 +103,12 @@ fn chunk_tensor(ids: &[u32]) -> EaiResult<Tensor> {
 /// Applies the repeat penalty (identical convention to the classic
 /// one-token-at-a-time loop in `engine.rs`: windowed over generated tokens
 /// only, most recent `repeat_last_n`) and returns the greedy argmax token.
-fn penalized_argmax(logits: &mut [f32], repeat_penalty: f32, repeat_last_n: usize, window: &[u32]) -> u32 {
+fn penalized_argmax(
+    logits: &mut [f32],
+    repeat_penalty: f32,
+    repeat_last_n: usize,
+    window: &[u32],
+) -> u32 {
     let start = window.len().saturating_sub(repeat_last_n);
     apply_repeat_penalty(logits, repeat_penalty, &window[start..]);
     argmax(logits)
@@ -135,7 +144,11 @@ impl SpeculativeDecoder {
     /// directory instead of the shared, `cfg!(test)`-global models dir that
     /// `ModelManager::get_models_dir()` resolves to (which other tests may
     /// also touch).
-    fn select_draft_model_in(models_dir: &Path, target_path: &Path, target_size: u64) -> Option<(PathBuf, u64)> {
+    fn select_draft_model_in(
+        models_dir: &Path,
+        target_path: &Path,
+        target_size: u64,
+    ) -> Option<(PathBuf, u64)> {
         let entries = std::fs::read_dir(models_dir).ok()?;
         let mut best: Option<(PathBuf, u64)> = None;
         for entry in entries.flatten() {
@@ -151,8 +164,12 @@ impl SpeculativeDecoder {
             if size >= target_size || size < MIN_DRAFT_MODEL_BYTES {
                 continue;
             }
-            let Ok(mut f) = std::fs::File::open(&path) else { continue };
-            let Ok(ct) = gguf_file::Content::read(&mut f) else { continue };
+            let Ok(mut f) = std::fs::File::open(&path) else {
+                continue;
+            };
+            let Ok(ct) = gguf_file::Content::read(&mut f) else {
+                continue;
+            };
             let arch = ct
                 .metadata
                 .get("general.architecture")
@@ -208,7 +225,9 @@ impl SpeculativeDecoder {
         }
         let draft_chunk = cfg.speculative_draft_tokens().max(2);
 
-        let target_size = std::fs::metadata(target_model_path).map(|m| m.len()).unwrap_or(0);
+        let target_size = std::fs::metadata(target_model_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
         let (draft_path, draft_size) = Self::select_draft_model(target_model_path, target_size)?;
 
         // Draft tokens are compared directly against target-computed token
@@ -219,10 +238,11 @@ impl SpeculativeDecoder {
         }
 
         let draft_device = HardwareProfiler::get_dynamic_device(draft_size as usize);
-        let draft_substrate = match InferenceHost::get_model(&draft_path, &draft_device, task_handle) {
-            Ok(s) => s,
-            Err(_) => return None, // draft failed to load: not fatal, just not applicable
-        };
+        let draft_substrate =
+            match InferenceHost::get_model(&draft_path, &draft_device, task_handle) {
+                Ok(s) => s,
+                Err(_) => return None, // draft failed to load: not fatal, just not applicable
+            };
         let mut draft_guard = draft_substrate.write();
         let draft = match &mut draft_guard.weights {
             ModelBackend::Qwen2(w) => w,
@@ -288,8 +308,13 @@ impl SpeculativeDecoder {
         let mut prefill_v: Vec<f32> = prefill_logits
             .flatten_all()
             .and_then(|t| t.to_vec1::<f32>())
-            .map_err(|e| EaiError::inference(format!("Speculative decoding: logits extraction failed: {e}")))?;
-        let mut anchor_token = penalized_argmax(&mut prefill_v, repeat_penalty, repeat_last_n, &all_tokens);
+            .map_err(|e| {
+                EaiError::inference(format!(
+                    "Speculative decoding: logits extraction failed: {e}"
+                ))
+            })?;
+        let mut anchor_token =
+            penalized_argmax(&mut prefill_v, repeat_penalty, repeat_last_n, &all_tokens);
 
         loop {
             if all_tokens.len() >= max_tokens {
@@ -313,17 +338,24 @@ impl SpeculativeDecoder {
             let mut draft_history = all_tokens.clone();
             let mut feed_pos = round_start_pos;
             let mut current_tok = anchor_token;
-            for _ in 0..(draft_chunk - 1) {
+            for _feed_pos in (round_start_pos..).take(draft_chunk - 1) {
                 let logits = draft
                     .forward(&single_token_tensor(current_tok)?, feed_pos)
-                    .map_err(|e| EaiError::inference(format!("Speculative draft step failed: {e}")))?;
+                    .map_err(|e| {
+                        EaiError::inference(format!("Speculative draft step failed: {e}"))
+                    })?;
                 feed_pos += 1;
                 let mut v: Vec<f32> = logits
                     .flatten_all()
                     .and_then(|t| t.to_vec1::<f32>())
-                    .map_err(|e| EaiError::inference(format!("Speculative decoding: logits extraction failed: {e}")))?;
+                    .map_err(|e| {
+                        EaiError::inference(format!(
+                            "Speculative decoding: logits extraction failed: {e}"
+                        ))
+                    })?;
                 draft_history.push(current_tok);
-                current_tok = penalized_argmax(&mut v, repeat_penalty, repeat_last_n, &draft_history);
+                current_tok =
+                    penalized_argmax(&mut v, repeat_penalty, repeat_last_n, &draft_history);
                 spec_chunk.push(current_tok);
                 if eos_token_ids.contains(&current_tok) {
                     break;
@@ -334,14 +366,17 @@ impl SpeculativeDecoder {
             // --- Verify: one batched target forward over the whole chunk ---
             let verify_logits = target
                 .forward_all_logits(&chunk_tensor(&spec_chunk)?, round_start_pos)
-                .map_err(|e| EaiError::inference(format!("Speculative verification forward failed: {e}")))?;
+                .map_err(|e| {
+                    EaiError::inference(format!("Speculative verification forward failed: {e}"))
+                })?;
 
             let mut mismatch: Option<(usize, u32)> = None; // (index into spec_chunk of the wrong token, correct replacement)
             for j in 0..k - 1 {
                 let mut row = tensor_row_to_vec(&verify_logits, j)?;
                 let mut window = all_tokens.clone();
                 window.extend_from_slice(&spec_chunk[0..=j]);
-                let target_pick = penalized_argmax(&mut row, repeat_penalty, repeat_last_n, &window);
+                let target_pick =
+                    penalized_argmax(&mut row, repeat_penalty, repeat_last_n, &window);
                 if target_pick != spec_chunk[j + 1] {
                     mismatch = Some((j + 1, target_pick));
                     break;
@@ -361,20 +396,31 @@ impl SpeculativeDecoder {
                     let mut last_row = tensor_row_to_vec(&verify_logits, k - 1)?;
                     let mut window = all_tokens.clone();
                     window.extend_from_slice(&spec_chunk);
-                    next_anchor = penalized_argmax(&mut last_row, repeat_penalty, repeat_last_n, &window);
+                    next_anchor =
+                        penalized_argmax(&mut last_row, repeat_penalty, repeat_last_n, &window);
                 }
                 Some((bad_idx, corrective)) => {
                     let m = bad_idx; // spec_chunk[0..m] confirmed correct
-                    target
-                        .truncate_kv_cache(round_start_pos + m)
-                        .map_err(|e| EaiError::inference(format!("Speculative decoding: cache truncation failed: {e}")))?;
+                    target.truncate_kv_cache(round_start_pos + m).map_err(|e| {
+                        EaiError::inference(format!(
+                            "Speculative decoding: cache truncation failed: {e}"
+                        ))
+                    })?;
 
                     // Emit the confirmed prefix plus the corrective token,
                     // then feed the corrective token to advance the
                     // target's cache and learn the real next anchor.
                     let mut emitted_this_round = spec_chunk[0..m].to_vec();
                     emitted_this_round.push(corrective);
-                    Self::emit(&emitted_this_round, &mut all_tokens, max_tokens, eos_token_ids, tokenizer, task_handle, callback);
+                    Self::emit(
+                        &emitted_this_round,
+                        &mut all_tokens,
+                        max_tokens,
+                        eos_token_ids,
+                        tokenizer,
+                        task_handle,
+                        callback,
+                    );
                     if all_tokens.len() >= max_tokens || eos_token_ids.contains(&corrective) {
                         // truncate_kv_cache already fixed the target; draft
                         // cache correctness no longer matters, we're done.
@@ -387,23 +433,38 @@ impl SpeculativeDecoder {
 
                     let corrective_logits = target
                         .forward(&single_token_tensor(corrective)?, round_start_pos + m)
-                        .map_err(|e| EaiError::inference(format!("Speculative correction forward failed: {e}")))?;
+                        .map_err(|e| {
+                            EaiError::inference(format!(
+                                "Speculative correction forward failed: {e}"
+                            ))
+                        })?;
                     let mut v: Vec<f32> = corrective_logits
                         .flatten_all()
                         .and_then(|t| t.to_vec1::<f32>())
-                        .map_err(|e| EaiError::inference(format!("Speculative decoding: logits extraction failed: {e}")))?;
-                    next_anchor = penalized_argmax(&mut v, repeat_penalty, repeat_last_n, &all_tokens);
+                        .map_err(|e| {
+                            EaiError::inference(format!(
+                                "Speculative decoding: logits extraction failed: {e}"
+                            ))
+                        })?;
+                    next_anchor =
+                        penalized_argmax(&mut v, repeat_penalty, repeat_last_n, &all_tokens);
 
                     // Resync draft: it only validly fed spec_chunk[0..m]
                     // (the confirmed prefix); discard whatever it fed
                     // beyond that, then feed it the corrective token so
                     // its cache matches the target's before next round.
-                    draft
-                        .truncate_kv_cache(round_start_pos + m)
-                        .map_err(|e| EaiError::inference(format!("Speculative decoding: draft cache truncation failed: {e}")))?;
+                    draft.truncate_kv_cache(round_start_pos + m).map_err(|e| {
+                        EaiError::inference(format!(
+                            "Speculative decoding: draft cache truncation failed: {e}"
+                        ))
+                    })?;
                     draft
                         .forward(&single_token_tensor(corrective)?, round_start_pos + m)
-                        .map_err(|e| EaiError::inference(format!("Speculative draft resync forward failed: {e}")))?;
+                        .map_err(|e| {
+                            EaiError::inference(format!(
+                                "Speculative draft resync forward failed: {e}"
+                            ))
+                        })?;
 
                     pos = round_start_pos + m + 1;
                     anchor_token = next_anchor;
@@ -414,8 +475,17 @@ impl SpeculativeDecoder {
             // Full-acceptance path: emit the whole chunk, resync the draft
             // (it fed spec_chunk[0..k-1] while drafting; the last drafted
             // token was only ever its own *output*, never fed as input).
-            Self::emit(&spec_chunk, &mut all_tokens, max_tokens, eos_token_ids, tokenizer, task_handle, callback);
-            if all_tokens.len() >= max_tokens || eos_token_ids.contains(spec_chunk.last().unwrap()) {
+            Self::emit(
+                &spec_chunk,
+                &mut all_tokens,
+                max_tokens,
+                eos_token_ids,
+                tokenizer,
+                task_handle,
+                callback,
+            );
+            if all_tokens.len() >= max_tokens || eos_token_ids.contains(spec_chunk.last().unwrap())
+            {
                 let output = tokenizer
                     .decode(&all_tokens, true)
                     .map_err(|e| EaiError::inference(format!("Decoding Error: {e}")))?;
@@ -423,8 +493,13 @@ impl SpeculativeDecoder {
                 return Ok(output);
             }
             draft
-                .forward(&single_token_tensor(*spec_chunk.last().unwrap())?, round_start_pos + k - 1)
-                .map_err(|e| EaiError::inference(format!("Speculative draft resync forward failed: {e}")))?;
+                .forward(
+                    &single_token_tensor(*spec_chunk.last().unwrap())?,
+                    round_start_pos + k - 1,
+                )
+                .map_err(|e| {
+                    EaiError::inference(format!("Speculative draft resync forward failed: {e}"))
+                })?;
 
             pos = round_start_pos + accepted_count;
             anchor_token = next_anchor;
@@ -473,7 +548,8 @@ mod tests {
     fn load(path: &Path) -> Qwen2Weights {
         let mut file = std::fs::File::open(path).expect("open gguf");
         let ct = gguf_file::Content::read(&mut file).expect("read gguf metadata");
-        Qwen2Weights::from_gguf_split(ct, &mut file, &Device::Cpu, &Device::Cpu, 0, 2304).expect("load model")
+        Qwen2Weights::from_gguf_split(ct, &mut file, &Device::Cpu, &Device::Cpu, 0, 2304)
+            .expect("load model")
     }
 
     fn eos_ids_for(path: &Path) -> Vec<u32> {
@@ -550,7 +626,10 @@ mod tests {
         let mut next_input = prompt_tokens.clone();
         let mut pos = 0usize;
         for step in 0..max_tokens {
-            let input = Tensor::new(next_input.as_slice(), &Device::Cpu).unwrap().unsqueeze(0).unwrap();
+            let input = Tensor::new(next_input.as_slice(), &Device::Cpu)
+                .unwrap()
+                .unsqueeze(0)
+                .unwrap();
             let logits = reference_model.forward(&input, pos).unwrap();
             let mut v: Vec<f32> = logits.flatten_all().unwrap().to_vec1().unwrap();
             let start = all_tokens.len().saturating_sub(repeat_last_n);
@@ -560,10 +639,16 @@ mod tests {
             if eos_ids.contains(&tok) {
                 break;
             }
-            pos = if step == 0 { prompt_tokens.len() } else { pos + 1 };
+            pos = if step == 0 {
+                prompt_tokens.len()
+            } else {
+                pos + 1
+            };
             next_input = vec![tok];
         }
-        let reference_output = tokenizer.decode(&all_tokens, true).expect("decode reference");
+        let reference_output = tokenizer
+            .decode(&all_tokens, true)
+            .expect("decode reference");
 
         assert_eq!(
             spec_output, reference_output,
@@ -585,7 +670,10 @@ mod tests {
         std::fs::write(&same_size_path, vec![0u8; 100_000_000]).unwrap();
 
         let result = SpeculativeDecoder::select_draft_model_in(&tmp, &target_path, 100_000_000);
-        assert!(result.is_none(), "a same-size or larger file must never be selected as a draft");
+        assert!(
+            result.is_none(),
+            "a same-size or larger file must never be selected as a draft"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -603,7 +691,10 @@ mod tests {
         std::fs::write(&tiny_path, vec![0u8; 4_096]).unwrap();
 
         let result = SpeculativeDecoder::select_draft_model_in(&tmp, &target_path, 5_000_000_000);
-        assert!(result.is_none(), "a KB-scale non-model file must never be selected as a draft");
+        assert!(
+            result.is_none(),
+            "a KB-scale non-model file must never be selected as a draft"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }

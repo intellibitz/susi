@@ -183,10 +183,12 @@ impl SusiSupervisor {
                     let mut buf = [0u8; 1024];
                     let local_caps = HardwareProfiler::get_caps_string();
                     let mut local_bloom = CapabilityBloom::local_snapshot();
-                    let mut last_registry_checksum = crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
-                    
+                    let mut last_registry_checksum =
+                        crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
+
                     loop {
-                        let registry_checksum = crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
+                        let registry_checksum =
+                            crate::gawd::agents::AgentMetaRegistry::global().get_checksum();
                         if registry_checksum != last_registry_checksum {
                             local_bloom = CapabilityBloom::local_snapshot();
                             last_registry_checksum = registry_checksum;
@@ -263,11 +265,9 @@ impl SusiSupervisor {
                                 }
                             }
                         }
-                        
-                        let _ = socket.send_to(
-                            ping_msg.as_bytes(),
-                            format!("255.255.255.255:{}", port),
-                        );
+
+                        let _ = socket
+                            .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
                         std::thread::sleep(Duration::from_millis(100)); // Relax lock contention heavily
                     }
                 }
@@ -465,27 +465,20 @@ impl SusiSupervisor {
 
                     // Empirical Expertise Ranking: reward success, penalize failure.
                     let (delta, source) = Self::rank_delta_for_output(output);
-                    crate::gawd::agents::AgentMetaRegistry::global().update_rank(
-                        agent_name,
-                        delta,
-                        source,
-                    );
+                    crate::gawd::agents::AgentMetaRegistry::global()
+                        .update_rank(agent_name, delta, source);
                 }
             }
 
             let is_query = GawdAgentFleet::is_meta_or_simple_query(goal);
-            let is_direct_synthesis = is_query
-                || blackboard.contains_key("TranslationAgent")
-                || blackboard.contains_key("SearchAgent");
+            let is_direct_synthesis = is_query;
 
             let valid_outputs: Vec<(String, String)> = blackboard
                 .iter()
                 .filter_map(|r| {
                     let agent_name = r.key().clone();
                     let output = r.value().trim().to_string();
-                    if !output.is_empty()
-                        && !output.contains("FAILURE")
-                        && !output.contains("GAP")
+                    if !output.is_empty() && !output.contains("FAILURE") && !output.contains("GAP")
                     {
                         Some((agent_name, output))
                     } else {
@@ -500,13 +493,7 @@ impl SusiSupervisor {
                     valid_outputs[0].1.clone()
                 } else if is_direct_synthesis {
                     let mut full_synthesis = String::new();
-                    if let Some(search) = blackboard.get("SearchAgent") {
-                        full_synthesis
-                            .push_str(&format!("### SearchAgent Output\n{}\n\n---\n\n", search));
-                    }
-                    if let Some(trans) = blackboard.get("TranslationAgent") {
-                        full_synthesis.push_str(&format!("### TranslationAgent Output\n{}", trans));
-                    }
+
                     if full_synthesis.is_empty() {
                         weighted_wisdom.clone()
                     } else {
@@ -727,10 +714,7 @@ impl SusiSupervisor {
             let _ = socket.set_broadcast(true);
             let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
 
-            let _ = socket.send_to(
-                b"SUSI_LAN_PING",
-                format!("255.255.255.255:{}", port),
-            );
+            let _ = socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
 
             let mut buf = [0u8; 512];
             while let Ok((amt, src)) = socket.recv_from(&mut buf) {
@@ -753,7 +737,8 @@ impl SusiSupervisor {
         // Parallel AOA Synchronization Logic (hardware saturation)
         // Hardened Limit: Cap concurrent peer syncs to 16 to prevent local resource exhaustion.
         let total_nodes = nodes.len();
-        let target_nodes: Vec<_> = nodes.into_iter()
+        let target_nodes: Vec<_> = nodes
+            .into_iter()
             .filter(|n| n.node_id != "susi-local-master")
             .take(16)
             .collect();
@@ -763,7 +748,11 @@ impl SusiSupervisor {
             .map(|node| {
                 let signed_payload = format!("SIG:{}:{}", node.node_id, payload);
                 let res = Self::dispatch_peer_task(&node.address, "swarm_sync", &signed_payload);
-                if res.contains("Sync complete") { 1 } else { 0 }
+                if res.contains("Sync complete") {
+                    1
+                } else {
+                    0
+                }
             })
             .sum::<usize>();
 
@@ -852,15 +841,20 @@ impl SusiSupervisor {
         let nodes = Self::list_cluster_nodes();
         use rayon::prelude::*;
 
-        let target_nodes: Vec<_> = nodes.into_iter()
+        let target_nodes: Vec<_> = nodes
+            .into_iter()
             .filter(|n| n.node_id != "susi-local-master")
             .collect();
-            
+
         let successes = target_nodes
             .par_iter()
             .map(|node| {
                 let res = Self::dispatch_peer_task(&node.address, "locks/acquire", resource_id);
-                if res.contains("SUCCESS") { 1 } else { 0 }
+                if res.contains("SUCCESS") {
+                    1
+                } else {
+                    0
+                }
             })
             .sum::<usize>();
 
@@ -1045,7 +1039,10 @@ mod tests {
         ];
 
         let leader = SusiSupervisor::dominant_rank_leader(&valid_outputs, &fleet_info);
-        assert_eq!(leader, Some("# SUSI Bloat & Security Audit\n- Files Scanned: 54"));
+        assert_eq!(
+            leader,
+            Some("# SUSI Bloat & Security Audit\n- Files Scanned: 54")
+        );
     }
 
     #[test]
@@ -1077,8 +1074,7 @@ mod tests {
 
     #[test]
     fn test_rank_delta_rewards_clean_success() {
-        let (delta, source) =
-            SusiSupervisor::rank_delta_for_output("Hardware Saturated: 8 CPUs.");
+        let (delta, source) = SusiSupervisor::rank_delta_for_output("Hardware Saturated: 8 CPUs.");
         assert_eq!(delta, 0.01);
         assert_eq!(source, "MISSION_SUCCESS");
     }

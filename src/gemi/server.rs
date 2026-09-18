@@ -77,7 +77,10 @@ impl GemiServer {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
-                eprintln!("[GEMI REST] Failed to start HTTP runtime: {}. GEMI HTTP is unavailable.", e);
+                eprintln!(
+                    "[GEMI REST] Failed to start HTTP runtime: {}. GEMI HTTP is unavailable.",
+                    e
+                );
                 return;
             }
         };
@@ -139,14 +142,18 @@ async fn handle_gemi_request(
     if method != Method::OPTIONS && path != "/health" {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if !crate::gawd::net_guard::NetGuard::is_authorized(
-            req.headers().get(hyper::header::AUTHORIZATION).and_then(|v| v.to_str().ok()),
+            req.headers()
+                .get(hyper::header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok()),
         ) {
             return Ok(json_response(
                 StatusCode::UNAUTHORIZED,
                 &json!({"error": "Unauthorized"}),
             ));
         }
-        if !crate::gawd::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute()) {
+        if !crate::gawd::net_guard::RateLimiter::global()
+            .check(peer_ip, cfg.rate_limit_per_minute())
+        {
             return Ok(json_response(
                 StatusCode::TOO_MANY_REQUESTS,
                 &json!({"error": "Rate limit exceeded"}),

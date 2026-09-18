@@ -4,9 +4,9 @@
 use serde_json::json;
 use std::collections::HashMap;
 
-use std::sync::{OnceLock, Arc};
-use std::process::Child;
 use parking_lot::RwLock;
+use std::process::Child;
+use std::sync::{Arc, OnceLock};
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -16,7 +16,6 @@ use std::process::{Command, Stdio};
 use super::tools::McpTool;
 use super::{GlobalMcpEntry, McpConfig, McpServerConfig};
 
-
 // Mandate 12: Hardware Authority over Process Lifecycle
 // MCP Client Cache prevents cold-booting processes for every Swarm Reflex.
 type McpProcessPool = Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>>>;
@@ -24,7 +23,9 @@ type McpProcessPool = Arc<RwLock<HashMap<String, Arc<parking_lot::Mutex<Child>>>
 static MCP_PROCESS_POOL: OnceLock<McpProcessPool> = OnceLock::new();
 
 fn get_process_pool() -> McpProcessPool {
-    MCP_PROCESS_POOL.get_or_init(|| Arc::new(RwLock::new(HashMap::new()))).clone()
+    MCP_PROCESS_POOL
+        .get_or_init(|| Arc::new(RwLock::new(HashMap::new())))
+        .clone()
 }
 
 fn write_mcp_message(writer: &mut impl Write, msg: &str) -> std::io::Result<()> {
@@ -76,7 +77,11 @@ fn read_mcp_message(reader: &mut impl BufRead) -> Option<String> {
         }
         let lower = trimmed.to_lowercase();
         if lower.starts_with("content-length:") {
-            if let Ok(l) = lower.trim_start_matches("content-length:").trim().parse::<usize>() {
+            if let Ok(l) = lower
+                .trim_start_matches("content-length:")
+                .trim()
+                .parse::<usize>()
+            {
                 clen = l;
             }
         }
@@ -362,12 +367,12 @@ impl GmcpClient {
 
         let pool = get_process_pool();
         let srv_key = format!("{} {:?}", srv.command, srv.args);
-        
+
         let child_arc = {
             let lock = pool.read();
             lock.get(&srv_key).cloned()
         };
-        
+
         let child_arc = match child_arc {
             Some(c) => c,
             None => {
@@ -379,9 +384,14 @@ impl GmcpClient {
                     .spawn()
                 {
                     Ok(c) => c,
-                    Err(e) => return format!("[FAIL] MCP Error: Failed to spawn '{}': {}", srv.command, e),
+                    Err(e) => {
+                        return format!(
+                            "[FAIL] MCP Error: Failed to spawn '{}': {}",
+                            srv.command, e
+                        )
+                    }
                 };
-                
+
                 // Initialize Handshake natively with LSP Framing
                 let init_req = json!({
                     "jsonrpc": "2.0",
@@ -392,8 +402,9 @@ impl GmcpClient {
                         "capabilities": {},
                         "clientInfo": { "name": "susi", "version": crate::SUSI_VERSION }
                     }
-                }).to_string();
-                
+                })
+                .to_string();
+
                 let scout_timeout = std::time::Duration::from_secs(
                     crate::sandbox::manager::SusiConfig::load_global()
                         .unwrap_or_default()
@@ -405,9 +416,10 @@ impl GmcpClient {
                 }
                 if let Some(stdout) = child.stdout.as_mut() {
                     let mut reader = BufReader::new(stdout);
-                    let _ = read_mcp_message_with_timeout(&mut reader, pid, scout_timeout); // consume init response
+                    let _ = read_mcp_message_with_timeout(&mut reader, pid, scout_timeout);
+                    // consume init response
                 }
-                
+
                 let arc = Arc::new(parking_lot::Mutex::new(child));
                 pool.write().insert(srv_key, arc.clone());
                 arc
@@ -416,14 +428,15 @@ impl GmcpClient {
 
         // Execution Scope (Lock process stdio exclusively)
         let mut locked_child = child_arc.lock();
-        
+
         let mut context_aware_args = args_json.to_string();
         if tool_name == "reason" {
             let context = Self::gather_workspace_context();
             context_aware_args = json!({
                 "intent": args_json,
                 "workspace_context": context,
-            }).to_string();
+            })
+            .to_string();
         }
 
         let params = match serde_json::from_str::<serde_json::Value>(&context_aware_args) {
@@ -436,12 +449,13 @@ impl GmcpClient {
             "id": 2,
             "method": "tools/call",
             "params": { "name": tool_name, "arguments": params }
-        }).to_string();
+        })
+        .to_string();
 
         if let Some(stdin) = locked_child.stdin.as_mut() {
             let _ = write_mcp_message(stdin, &call_req);
         }
-        
+
         let lease_timeout = std::time::Duration::from_secs(
             crate::sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
@@ -450,9 +464,17 @@ impl GmcpClient {
         let call_pid = locked_child.id();
         if let Some(stdout) = locked_child.stdout.as_mut() {
             let mut reader = BufReader::new(stdout);
-            if let Some(resp_str) = read_mcp_message_with_timeout(&mut reader, call_pid, lease_timeout) {
+            if let Some(resp_str) =
+                read_mcp_message_with_timeout(&mut reader, call_pid, lease_timeout)
+            {
                 let resp: serde_json::Value = serde_json::from_str(&resp_str).unwrap_or(json!({}));
-                if let Some(content) = resp.get("result").and_then(|r| r.get("content")).and_then(|c| c.get(0)).and_then(|i| i.get("text")).and_then(|t| t.as_str()) {
+                if let Some(content) = resp
+                    .get("result")
+                    .and_then(|r| r.get("content"))
+                    .and_then(|c| c.get(0))
+                    .and_then(|i| i.get("text"))
+                    .and_then(|t| t.as_str())
+                {
                     return content.to_string();
                 }
                 return format!("[MCP Proxy Response]: {}", resp_str.trim());

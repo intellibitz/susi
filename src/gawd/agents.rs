@@ -173,8 +173,6 @@ impl GawdAgent for DynamicAgent {
             || trimmed == "version"
             || trimmed == "models"
             || trimmed.starts_with("admin pulse")
-            || blackboard.contains_key("SearchAgent")
-            || blackboard.contains_key("TranslationAgent")
             || blackboard.contains_key("AdminAgent")
         {
             let res = format!(
@@ -276,8 +274,7 @@ impl GawdAgent for DevOpsAgent {
             .find(|a| a.name == self.name())
             .map(|a| a.description)
             .unwrap_or_else(|| {
-                "Software engineering, systems architecture, and repository management."
-                    .to_string()
+                "Software engineering, systems architecture, and repository management.".to_string()
             });
 
         DynamicAgent {
@@ -359,56 +356,15 @@ impl GawdAgent for HardwareAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         let lower = goal.trim().to_lowercase();
-        let is_os_cmd = lower.starts_with("git ")
-            || lower.starts_with("cargo ")
-            || lower.starts_with("find ")
-            || lower.starts_with("ls ")
-            || lower.starts_with("df ")
-            || lower.starts_with("docker ")
-            || lower.starts_with("npm ");
-
-        let report = if is_os_cmd {
-            let exec_res = crate::gmcp::tools::ToolRegistry::execute_tool(
-                "exec_command",
-                &serde_json::json!(goal),
-                workspace,
-            );
-            if exec_res.contains("[FAIL]") || exec_res.contains("[CAPABILITY_GAP]") {
-                crate::gawd::safety::SafetyDetector::audit_action("exec_command", goal, workspace)?;
-                crate::gawd::security::SecurityDetector::audit_action(
-                    "exec_command",
-                    goal,
-                    workspace,
-                )?;
-                if let Ok(output) = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(goal)
-                    .current_dir(workspace)
-                    .output()
-                {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    if output.status.success() && !stdout.trim().is_empty() {
-                        stdout
-                    } else {
-                        exec_res
-                    }
-                } else {
-                    exec_res
-                }
-            } else {
-                exec_res
-            }
-        } else {
-            let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
-            format!(
-                "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
-                profile.cpus,
-                profile.cpu_brand,
-                profile.ram_gb,
-                profile.gpu_info,
-                profile.native_acceleration
-            )
-        };
+        let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
+        let report = format!(
+            "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
+            profile.cpus,
+            profile.cpu_brand,
+            profile.ram_gb,
+            profile.gpu_info,
+            profile.native_acceleration
+        );
 
         blackboard.insert(self.name(), report.clone());
         Ok(report)
@@ -785,7 +741,10 @@ const CRITICAL_SIGNAL_MARKERS: &[&str] = &[
 /// own name) into agents reporting a genuine critical/problem signal versus
 /// agents reporting routine, non-empty status — the real cross-check
 /// "resolves agent findings and conflicts" requires, instead of a count.
-fn summarize_swarm_signals(blackboard: &MissionBlackboard, exclude: &str) -> (Vec<String>, Vec<String>) {
+fn summarize_swarm_signals(
+    blackboard: &MissionBlackboard,
+    exclude: &str,
+) -> (Vec<String>, Vec<String>) {
     let mut critical = Vec::new();
     let mut healthy = Vec::new();
     for entry in blackboard.iter() {
@@ -1027,21 +986,13 @@ impl GawdAgent for LibraryScoutAgent {
         }
 
         // Enhanced Library Scouting with reasoning and 'cargo add' suggestions
-        let query_term = if lower_goal.contains("async") {
-            "async"
-        } else if lower_goal.contains("json") {
-            "json"
-        } else if lower_goal.contains("inference") {
-            "inference"
-        } else if lower_goal.contains("web") {
-            "http"
-        } else if lower_goal.contains("db") || lower_goal.contains("database") {
-            "sql"
-        } else if lower_goal.contains("ui") || lower_goal.contains("gui") {
-            "gui"
-        } else {
-            "rust"
-        };
+        let prompt = format!("Extract a single dominant keyword (max 1-2 words, lowercase) representing the crate category needed for this goal: '{}'. Output ONLY the keyword, no explanation. Example outputs: async, json, sql, gui, web, inference.", goal);
+        let ws = workspace.to_path_buf();
+        let mut query_term = crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
+        query_term = query_term.trim().to_lowercase().replace(['"', '\''], "");
+        if query_term.is_empty() || query_term.contains(' ') {
+            query_term = "rust".to_string();
+        }
 
         let api_base = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
@@ -1098,83 +1049,6 @@ impl GawdAgent for LibraryScoutAgent {
         Ok(crate::gemi::engine::GemiEngine::generate_reasoning(
             &prompt, &ws,
         ))
-    }
-}
-
-/// Specialist Search & Knowledge Retrieval Agent
-pub struct SearchAgent;
-
-impl GawdAgent for SearchAgent {
-    fn name(&self) -> String {
-        "SearchAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.95
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        workspace: &Path,
-        blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        let res = if GawdAgentFleet::is_meta_command(goal) {
-            format!("[{}]: Query observation integrated.", self.name())
-        } else {
-            // Deliberately does NOT ask the model to narrate a "search
-            // process" - there is no real external search behind this
-            // agent, it's the same local model `UniversalReasoner` already
-            // answers directly. Verified live: the old "Perform deep
-            // knowledge retrieval and search synthesis..." framing made
-            // the model roleplay a multi-step fake-search narrative before
-            // giving the actual answer (e.g. "What is the capital of
-            // France?" produced ~15 sentences of "I will follow these
-            // steps..." scaffolding and took ~15s, generating far more
-            // tokens than the question needed), duplicating
-            // UniversalReasoner's correct 1-word answer at several times
-            // the cost for zero added information.
-            let prompt = format!(
-                "Answer directly and concisely - do not describe a search process or list steps, just give the answer.\n\nQuestion: {}\n\nContext: {}",
-                goal,
-                blackboard.to_json()
-            );
-            let ws = workspace.to_path_buf();
-            crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
-        };
-
-        blackboard.insert(self.name(), res.clone());
-        Ok(res)
-    }
-}
-
-/// Specialist Multilingual Translation Agent
-pub struct TranslationAgent;
-
-impl GawdAgent for TranslationAgent {
-    fn name(&self) -> String {
-        "TranslationAgent".into()
-    }
-    fn rank(&self) -> f32 {
-        0.95
-    }
-    fn execute(
-        &self,
-        goal: &str,
-        workspace: &Path,
-        blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
-        let res = if GawdAgentFleet::is_meta_command(goal) {
-            format!(
-                "[{}]: Query linguistic observation integrated.",
-                self.name()
-            )
-        } else {
-            let prompt = format!("Perform high-fidelity multilingual translation or linguistic formatting for goal: {}. Context: {}", goal, blackboard.to_json());
-            let ws = workspace.to_path_buf();
-            crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
-        };
-
-        blackboard.insert(self.name(), res.clone());
-        Ok(res)
     }
 }
 
@@ -1290,8 +1164,15 @@ impl AdminAgent {
     /// are phrased with) closes the hole without removing any real
     /// capability: an operator/caller who actually means to trigger one of
     /// these must say so unambiguously.
-    const MUTATING_ACTIONS: &'static [&'static str] =
-        &["sync", "audit", "verify", "release", "deep_scan", "install", "uninstall"];
+    const MUTATING_ACTIONS: &'static [&'static str] = &[
+        "sync",
+        "audit",
+        "verify",
+        "release",
+        "deep_scan",
+        "install",
+        "uninstall",
+    ];
 
     fn match_action(lower_goal: &str) -> Option<String> {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
@@ -1531,8 +1412,6 @@ impl AgentMetaRegistry {
             "ConsensusMediatorAgent" => Some(Arc::new(ConsensusMediatorAgent)),
             "SelfHealingAgent" => Some(Arc::new(SelfHealingAgent)),
             "LibraryScoutAgent" => Some(Arc::new(LibraryScoutAgent)),
-            "SearchAgent" => Some(Arc::new(SearchAgent)),
-            "TranslationAgent" => Some(Arc::new(TranslationAgent)),
             "AdminAgent" => Some(Arc::new(AdminAgent)),
             "ContextAgent" => Some(Arc::new(ContextAgent)),
             _ => None,
@@ -1605,7 +1484,9 @@ impl NeuralAgentFactory {
         // synthesis would inject into every subsequent mission forever.
         profile.is_core = false;
 
-        profile.name.retain(|c| c.is_ascii_alphanumeric() || c == '_');
+        profile
+            .name
+            .retain(|c| c.is_ascii_alphanumeric() || c == '_');
         profile.name.truncate(Self::MAX_NAME_LEN);
         if profile.name.is_empty() {
             return Err(crate::error::EaiError::protocol(
@@ -1744,8 +1625,8 @@ impl GawdAgentFleet {
         let lower_goal = goal.trim().to_lowercase();
         lower_goal.ends_with('?')
             || [
-                "what ", "who ", "when ", "where ", "why ", "how ", "which ",
-                "is ", "are ", "does ", "do ", "can ", "could ", "will ", "would ",
+                "what ", "who ", "when ", "where ", "why ", "how ", "which ", "is ", "are ",
+                "does ", "do ", "can ", "could ", "will ", "would ",
             ]
             .iter()
             .any(|w| lower_goal.starts_with(w))
@@ -1781,8 +1662,14 @@ impl GawdAgentFleet {
                 if keys.iter().any(|k| lower_goal.contains(k)) {
                     should_add = true;
                 }
-            } else if agent.semantic_anchors.iter().any(|anchor| lower_goal.contains(anchor))
-                || agent.categories.iter().any(|category| lower_goal.contains(category))
+            } else if agent
+                .semantic_anchors
+                .iter()
+                .any(|anchor| lower_goal.contains(anchor))
+                || agent
+                    .categories
+                    .iter()
+                    .any(|category| lower_goal.contains(category))
                 || lower_goal.contains(&agent.name.to_lowercase().replace("agent", ""))
             {
                 should_add = true;
@@ -1871,7 +1758,8 @@ impl GawdAgentFleet {
         // Mandate 16's "structural synthesis" — a standing config field with an
         // accessor (`SusiConfig::trust_level`) that no call site ever consulted
         // before this.
-        let synthesis_similarity_threshold = Self::synthesis_similarity_threshold(&cfg.trust_level());
+        let synthesis_similarity_threshold =
+            Self::synthesis_similarity_threshold(&cfg.trust_level());
         let only_mandatory = fleet.len() <= 12; // Adjusted baseline
         if !is_query_or_admin
             && (max_global_similarity < synthesis_similarity_threshold || only_mandatory)
@@ -1995,12 +1883,24 @@ mod tests {
     /// must be recognized so `synthesize_fleet` skips synthesis for it.
     #[test]
     fn test_is_meta_or_simple_query_covers_plain_questions() {
-        assert!(GawdAgentFleet::is_meta_or_simple_query("What is the capital of France?"));
-        assert!(GawdAgentFleet::is_meta_or_simple_query("who is the president of France"));
-        assert!(GawdAgentFleet::is_meta_or_simple_query("How do I reverse a string in Rust?"));
-        assert!(GawdAgentFleet::is_meta_or_simple_query("Is Rust memory safe?"));
-        assert!(GawdAgentFleet::is_meta_or_simple_query("Can you explain TCP vs UDP?"));
-        assert!(GawdAgentFleet::is_meta_or_simple_query("List three benefits of TDD?"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "What is the capital of France?"
+        ));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "who is the president of France"
+        ));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "How do I reverse a string in Rust?"
+        ));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "Is Rust memory safe?"
+        ));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "Can you explain TCP vs UDP?"
+        ));
+        assert!(GawdAgentFleet::is_meta_or_simple_query(
+            "List three benefits of TDD?"
+        ));
     }
 
     #[test]
@@ -2174,11 +2074,15 @@ mod tests {
             Some("release".to_string())
         );
         assert_eq!(
-            AdminAgent::match_action("admin pulse: remove and clean up sandboxed .susi environment"),
+            AdminAgent::match_action(
+                "admin pulse: remove and clean up sandboxed .susi environment"
+            ),
             Some("uninstall".to_string())
         );
         assert_eq!(
-            AdminAgent::match_action("admin pulse: initialize sandboxed .susi environment and provision weights"),
+            AdminAgent::match_action(
+                "admin pulse: initialize sandboxed .susi environment and provision weights"
+            ),
             Some("install".to_string())
         );
     }
@@ -2229,7 +2133,10 @@ mod tests {
         );
         let sanitized = NeuralAgentFactory::sanitize_profile(profile, Path::new(".")).unwrap();
         assert_eq!(sanitized.name, "EvilAgentscript");
-        assert_eq!(sanitized.description.len(), NeuralAgentFactory::MAX_DESCRIPTION_LEN);
+        assert_eq!(
+            sanitized.description.len(),
+            NeuralAgentFactory::MAX_DESCRIPTION_LEN
+        );
     }
 
     #[test]
@@ -2339,7 +2246,10 @@ mod tests {
         let (referenced, hallucinated) =
             audit_claim_grounding("See src/totally/made/up/file.rs for details.", workspace);
         assert_eq!(referenced, 1);
-        assert_eq!(hallucinated, vec!["src/totally/made/up/file.rs".to_string()]);
+        assert_eq!(
+            hallucinated,
+            vec!["src/totally/made/up/file.rs".to_string()]
+        );
     }
 
     #[test]
@@ -2350,9 +2260,7 @@ mod tests {
             "Fixed the bug in src/does/not/exist.rs".to_string(),
         );
         let agent = EpistemicAuditorAgent;
-        let res = agent
-            .execute("goal", Path::new("."), &blackboard)
-            .unwrap();
+        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
         assert!(res.contains("UNGROUNDED CLAIMS DETECTED"));
         assert!(res.contains("src/does/not/exist.rs"));
         // Must never trip the swarm's own FAILURE/GAP consensus filters.
@@ -2368,9 +2276,7 @@ mod tests {
             "Version is defined in Cargo.toml.".to_string(),
         );
         let agent = EpistemicAuditorAgent;
-        let res = agent
-            .execute("goal", Path::new("."), &blackboard)
-            .unwrap();
+        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
         assert!(res.contains("Epistemic integrity: VERIFIED"));
         assert!(res.contains("1 file-grounded"));
     }
@@ -2383,9 +2289,7 @@ mod tests {
             "The answer to your question is 42.".to_string(),
         );
         let agent = EpistemicAuditorAgent;
-        let res = agent
-            .execute("goal", Path::new("."), &blackboard)
-            .unwrap();
+        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
         assert!(res.contains("INCONCLUSIVE"));
     }
 
@@ -2412,14 +2316,9 @@ mod tests {
             "ResourceArbitratorAgent".to_string(),
             "OOM Critical Risk: true".to_string(),
         );
-        blackboard.insert(
-            "DevOpsAgent".to_string(),
-            "Bloat audit clean.".to_string(),
-        );
+        blackboard.insert("DevOpsAgent".to_string(), "Bloat audit clean.".to_string());
         let agent = ConsensusMediatorAgent;
-        let res = agent
-            .execute("goal", Path::new("."), &blackboard)
-            .unwrap();
+        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
         assert!(res.contains("CONFLICT"));
         assert!(res.contains("ResourceArbitratorAgent"));
         assert!(res.contains("DevOpsAgent"));
@@ -2430,14 +2329,9 @@ mod tests {
     #[test]
     fn test_consensus_mediator_reports_clean_when_no_critical_signals() {
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
-        blackboard.insert(
-            "DevOpsAgent".to_string(),
-            "Bloat audit clean.".to_string(),
-        );
+        blackboard.insert("DevOpsAgent".to_string(), "Bloat audit clean.".to_string());
         let agent = ConsensusMediatorAgent;
-        let res = agent
-            .execute("goal", Path::new("."), &blackboard)
-            .unwrap();
+        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
         assert!(res.contains("No critical/problem signals detected"));
         assert!(!res.contains("CONFLICT"));
     }
@@ -2490,7 +2384,10 @@ mod tests {
 
         assert!(res.contains("1 top-level file"));
         assert!(res.contains("Cargo.toml"));
-        assert_eq!(blackboard.get("ContextAgent").as_deref(), Some(res.as_str()));
+        assert_eq!(
+            blackboard.get("ContextAgent").as_deref(),
+            Some(res.as_str())
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

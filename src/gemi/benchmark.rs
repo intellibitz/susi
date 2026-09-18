@@ -89,8 +89,8 @@ impl BenchmarkRunner {
             _ => return Ok(None),
         };
         let api_key = std::env::var("SUSI_BENCH_CLOUD_API_KEY").unwrap_or_default();
-        let model = std::env::var("SUSI_BENCH_CLOUD_MODEL")
-            .unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let model =
+            std::env::var("SUSI_BENCH_CLOUD_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
 
         let payload = serde_json::json!({
             "model": model,
@@ -114,7 +114,10 @@ impl BenchmarkRunner {
         })?;
         let elapsed = start.elapsed();
 
-        let body: serde_json::Value = resp.into_body().read_json().unwrap_or(serde_json::json!({}));
+        let body: serde_json::Value = resp
+            .into_body()
+            .read_json()
+            .unwrap_or(serde_json::json!({}));
         let completion_text = body["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")

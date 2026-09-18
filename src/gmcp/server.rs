@@ -201,7 +201,10 @@ impl GmcpServer {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
-                eprintln!("[GMCP HTTP] Failed to start HTTP runtime: {}. GMCP HTTP is unavailable.", e);
+                eprintln!(
+                    "[GMCP HTTP] Failed to start HTTP runtime: {}. GMCP HTTP is unavailable.",
+                    e
+                );
                 return;
             }
         };
@@ -283,12 +286,18 @@ async fn handle_gmcp_request(
     // CORS preflight never carries an Authorization header (browsers won't
     // send credentials on OPTIONS), so it must always pass through.
     if req.method() == Method::OPTIONS {
-        return Ok(response_builder(StatusCode::NO_CONTENT, "text/plain", Bytes::new()));
+        return Ok(response_builder(
+            StatusCode::NO_CONTENT,
+            "text/plain",
+            Bytes::new(),
+        ));
     }
 
     let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     if !crate::gawd::net_guard::NetGuard::is_authorized(
-        req.headers().get(hyper::header::AUTHORIZATION).and_then(|v| v.to_str().ok()),
+        req.headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
     ) {
         return Ok(response_builder(
             StatusCode::UNAUTHORIZED,

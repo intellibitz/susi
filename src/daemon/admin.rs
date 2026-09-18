@@ -2,11 +2,11 @@
 // 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
 
 use crate::error::{EaiError, EaiResult};
+use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use rayon::prelude::*;
 
 pub struct SusiAdmin;
 
@@ -41,8 +41,12 @@ impl SusiAdmin {
     /// bash `CUDA_MAJOR == 13 && CUDA_MINOR > 3` check.
     fn cuda_version_needs_clamp(version: &str) -> bool {
         let mut parts = version.splitn(2, '.');
-        let Some(major) = parts.next() else { return false };
-        let Some(minor) = parts.next() else { return false };
+        let Some(major) = parts.next() else {
+            return false;
+        };
+        let Some(minor) = parts.next() else {
+            return false;
+        };
         major == "13"
             && minor.chars().all(|c| c.is_ascii_digit())
             && minor.parse::<u32>().map(|m| m > 3).unwrap_or(false)
@@ -72,7 +76,9 @@ impl SusiAdmin {
                 }
             }
         }
-        Err(EaiError::config("Could not find version in Cargo.toml".to_string()))
+        Err(EaiError::config(
+            "Could not find version in Cargo.toml".to_string(),
+        ))
     }
 
     /// Full Compliance Audit
@@ -398,7 +404,9 @@ impl SusiAdmin {
                 .spawn()?;
             let status = check.wait()?;
             if !status.success() {
-                return Err(EaiError::process("Release aborted: cargo check failed.".to_string()));
+                return Err(EaiError::process(
+                    "Release aborted: cargo check failed.".to_string(),
+                ));
             }
         }
 
@@ -414,7 +422,9 @@ impl SusiAdmin {
             .spawn()?;
         let status = test.wait()?;
         if !status.success() {
-            return Err(EaiError::process("Release aborted: Native tests failed.".to_string()));
+            return Err(EaiError::process(
+                "Release aborted: Native tests failed.".to_string(),
+            ));
         }
 
         eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
@@ -441,7 +451,9 @@ impl SusiAdmin {
                 .spawn()?;
             let status = clippy.wait()?;
             if !status.success() {
-                return Err(EaiError::process("Release aborted: Linting failed.".to_string()));
+                return Err(EaiError::process(
+                    "Release aborted: Linting failed.".to_string(),
+                ));
             }
         }
 
@@ -622,7 +634,9 @@ impl SusiAdmin {
         // 3. Inject into Section 1 (Pending)
         let mut section1_start = None;
         for (i, line) in lines.iter().enumerate() {
-            if line.contains("## 1. Sovereign Ledger (The Monotonic Proof)") || line.contains("## 1. Pending") {
+            if line.contains("## 1. Sovereign Ledger (The Monotonic Proof)")
+                || line.contains("## 1. Pending")
+            {
                 section1_start = Some(i);
                 break;
             }

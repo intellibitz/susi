@@ -366,8 +366,7 @@ fn main() {
 /// .agents/EVIDENCE.md) — that gap is worth a warning every time it's
 /// about to happen unnoticed.
 fn warn_if_gpu_available_but_unused() {
-    if env::var_os("CARGO_FEATURE_CUDA").is_some() || env::var_os("CARGO_FEATURE_METAL").is_some()
-    {
+    if env::var_os("CARGO_FEATURE_CUDA").is_some() || env::var_os("CARGO_FEATURE_METAL").is_some() {
         return; // already building with a GPU backend
     }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {

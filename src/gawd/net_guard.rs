@@ -134,8 +134,14 @@ mod tests {
     #[test]
     fn test_constant_time_eq_matches_equal_and_unequal_bytes() {
         assert!(NetGuard::constant_time_eq(b"secret-token", b"secret-token"));
-        assert!(!NetGuard::constant_time_eq(b"secret-token", b"secret-tokeX"));
-        assert!(!NetGuard::constant_time_eq(b"short", b"a-much-longer-value"));
+        assert!(!NetGuard::constant_time_eq(
+            b"secret-token",
+            b"secret-tokeX"
+        ));
+        assert!(!NetGuard::constant_time_eq(
+            b"short",
+            b"a-much-longer-value"
+        ));
         assert!(NetGuard::constant_time_eq(b"", b""));
     }
 
@@ -144,9 +150,16 @@ mod tests {
         let limiter = RateLimiter::with_capacity(10);
         let ip: IpAddr = "127.0.0.1".parse().unwrap();
         for i in 0..3 {
-            assert!(limiter.check(ip, 3), "request {} within limit should pass", i);
+            assert!(
+                limiter.check(ip, 3),
+                "request {} within limit should pass",
+                i
+            );
         }
-        assert!(!limiter.check(ip, 3), "4th request over limit should be blocked");
+        assert!(
+            !limiter.check(ip, 3),
+            "4th request over limit should be blocked"
+        );
     }
 
     #[test]

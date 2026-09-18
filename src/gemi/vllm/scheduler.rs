@@ -1,6 +1,6 @@
-use std::collections::{HashMap, VecDeque};
 use super::allocator::{BlockAllocator, PhysicalBlockId, BLOCK_SIZE};
 use parking_lot::RwLock;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SequenceId(pub u64);
@@ -49,15 +49,15 @@ impl ContinuousScheduler {
         };
         self.waiting.write().push_back(seq);
     }
-    
+
     pub fn step(&self) -> Vec<SequenceId> {
         let mut running = self.running.write();
         let mut waiting = self.waiting.write();
-        
+
         // Very basic continuous batching selection: Pull waiting sequences into running
         // until we run out of free KV blocks for their initial prompt sizes.
         while let Some(front) = waiting.front() {
-            let required_blocks = (front.logical_token_ids.len() + BLOCK_SIZE - 1) / BLOCK_SIZE;
+            let required_blocks = front.logical_token_ids.len().div_ceil(BLOCK_SIZE);
             if self.allocator.get_available_blocks() >= required_blocks {
                 let mut seq = waiting.pop_front().unwrap();
                 for _ in 0..required_blocks {
@@ -71,10 +71,10 @@ impl ContinuousScheduler {
                 break; // VRAM Full, hold sequence in waiting queue
             }
         }
-        
+
         running.iter().map(|s| s.id).collect()
     }
-    
+
     pub fn append_token(&self, seq_id: SequenceId, token_id: u32) {
         let mut running = self.running.write();
         if let Some(seq) = running.iter_mut().find(|s| s.id == seq_id) {
@@ -85,7 +85,7 @@ impl ContinuousScheduler {
                     seq.physical_blocks.push(new_block);
                 } else {
                     seq.state = SequenceState::Swapped;
-                    // In a real implementation we would move it to self.swapped queue 
+                    // In a real implementation we would move it to self.swapped queue
                     // and trigger CPU offload for the KV cache tensor memory mapping.
                 }
             }
