@@ -424,16 +424,7 @@ impl SusiSupervisor {
         }
 
         // 4.1 Reactive Swarm Reinforcement (Tier 1 Hardening)
-        let lower_goal = goal.to_lowercase();
-        let is_query_or_read = lower_goal.contains("identity")
-            || lower_goal.contains("status")
-            || lower_goal.contains("models")
-            || lower_goal.contains("version")
-            || lower_goal == "ls"
-            || lower_goal.starts_with("ls ")
-            || lower_goal == "dir"
-            || lower_goal.contains("who am i")
-            || lower_goal.contains("whoami");
+        let is_query_or_read = GawdAgentFleet::is_meta_or_simple_query(goal);
 
         if has_gap && !is_query_or_read {
             eprintln!(
@@ -482,17 +473,7 @@ impl SusiSupervisor {
                 }
             }
 
-            let lower_goal = goal.to_lowercase();
-            let is_query = lower_goal.contains("identity")
-                || lower_goal.contains("status")
-                || lower_goal.contains("models")
-                || lower_goal.contains("version")
-                || lower_goal.contains("admin")
-                || lower_goal == "ls"
-                || lower_goal.starts_with("ls ")
-                || lower_goal == "dir"
-                || lower_goal.contains("who am i")
-                || lower_goal.contains("whoami");
+            let is_query = GawdAgentFleet::is_meta_or_simple_query(goal);
             let is_direct_synthesis = is_query
                 || blackboard.contains_key("TranslationAgent")
                 || blackboard.contains_key("SearchAgent");
@@ -559,8 +540,17 @@ impl SusiSupervisor {
                 )
             };
 
-            // Epistemic Delegation: Calculate Convergence Score based on agent count and consensus matching
-            let consensus_score = if fleet_info.len() > 1 {
+            // Fraction of recruited agents whose own output text didn't
+            // contain the substrings "FAILURE"/"GAP" - an execution-status
+            // signal only. Named (and was previously renamed from
+            // "CONVERGENCE_SCORE") to avoid implying a factual-accuracy or
+            // truth-verification score: it says nothing about whether the
+            // content is actually correct, only that agents didn't
+            // self-report a failure. This used to be exploitable as a
+            // truth-check bypass (see truth.rs's now-removed "Epistemic
+            // Delegation" override) precisely because its name suggested
+            // more than it measured.
+            let agent_success_ratio = if fleet_info.len() > 1 {
                 let success_count = blackboard
                     .iter()
                     .filter(|r| !r.value().contains("FAILURE") && !r.value().contains("GAP"))
@@ -571,8 +561,8 @@ impl SusiSupervisor {
             };
 
             let final_payload = format!(
-                "{}\n\n[CONVERGENCE_SCORE: {:.2}]",
-                synthesized, consensus_score
+                "{}\n\n[AGENT_SUCCESS_RATIO: {:.2}]",
+                synthesized, agent_success_ratio
             );
 
             a2a_logs.push(A2AMessage {

@@ -2,7 +2,6 @@
 // Truth & Hallucination Sovereignty - Native Candle Verification and Meta Reality Verification
 
 use crate::error::{EaiError, EaiResult};
-use candle_core::{Device, Tensor};
 use std::path::Path;
 
 pub struct SusiTruthAgent;
@@ -58,59 +57,27 @@ impl SusiTruthAgent {
         }
 
         if !violations.is_empty() {
-            // Mandate: Epistemic Delegation
-            // If local verification fails, check if the result comes from a high-trust consensus
-            if result.contains("[CONVERGENCE_SCORE: ") {
-                if let Some(score_str) = result
-                    .split("[CONVERGENCE_SCORE: ")
-                    .nth(1)
-                    .and_then(|s| s.split(']').next())
-                {
-                    if let Ok(score) = score_str.parse::<f32>() {
-                        if score >= 0.85 {
-                            crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "EPISTEMIC_DELEGATION", &format!("Local verification failed but Swarm Consensus (Score: {}) accepted. Proceeding.", score));
-                            return Ok(format!("{} (Verified via Epistemic Delegation)", result));
-                        }
-                    }
-                }
-            }
-
+            // A concrete, verified reality violation (a claimed file write
+            // that doesn't exist, or exists empty) is never overridable.
+            // This used to be bypassable whenever the result string
+            // contained a "[CONVERGENCE_SCORE: >= 0.85]" marker (see
+            // amas.rs's AGENT_SUCCESS_RATIO, formerly CONVERGENCE_SCORE) -
+            // but that score measures only whether recruited agents'
+            // *own* output text happened to avoid the substrings
+            // "FAILURE"/"GAP", which has no relationship to whether the
+            // claimed file actually exists. That let a real, verified
+            // hallucination (a file write that never happened) get
+            // rubber-stamped "(Verified via Epistemic Delegation)" purely
+            // because unrelated agents didn't say the word "failure" -
+            // the one working ground-truth check in the substrate,
+            // defeated by a number that never measured truth to begin
+            // with. There is no legitimate override for a concrete,
+            // checkable violation.
             let error_msg = format!("TRUTH_VIOLATION: {}\nSTRUCTURED_FEEDBACK: Please grounded your response in the physical workspace state. Ensure files are actually written before reporting success.", violations.join(" | "));
             return Err(EaiError::governance(error_msg));
         }
 
         Ok(result.to_string())
-    }
-
-    #[allow(dead_code)]
-    fn calculate_neural_truth_score(_goal: &str, result: &str) -> EaiResult<f32> {
-        let bytes = result.as_bytes();
-        if bytes.is_empty() {
-            return Ok(0.0);
-        }
-
-        let device = Device::Cpu;
-        let data: Vec<f32> = bytes.iter().map(|&b| b as f32 / 255.0).collect();
-        let tensor = Tensor::from_vec(data, (bytes.len(),), &device)
-            .map_err(|e| EaiError::inference(e.to_string()))?;
-
-        let mean = tensor
-            .mean_all()
-            .map_err(|e| EaiError::inference(e.to_string()))?
-            .to_scalar::<f32>()
-            .map_err(|e| EaiError::inference(e.to_string()))?;
-
-        let var = tensor
-            .sqr()
-            .map_err(|e| EaiError::inference(e.to_string()))?
-            .mean_all()
-            .map_err(|e| EaiError::inference(e.to_string()))?
-            .to_scalar::<f32>()
-            .map_err(|e| EaiError::inference(e.to_string()))?
-            - (mean * mean);
-
-        let score = (var * 10.0 + 0.5).clamp(0.0, 1.0);
-        Ok(score)
     }
 }
 
@@ -124,5 +91,45 @@ impl TruthTransformer {
         workspace: &Path,
     ) -> EaiResult<String> {
         SusiTruthAgent::verify_mission_reality(goal, tool_name, result, workspace)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_claimed_write_to_nonexistent_file_is_a_violation() {
+        let tmp = std::env::temp_dir().join("susi_test_truth_nonexistent");
+        let _ = std::fs::create_dir_all(&tmp);
+        let result = "Wrote to output.txt successfully.";
+        assert!(SusiTruthAgent::verify_mission_reality("goal", "tool", result, &tmp).is_err());
+    }
+
+    /// Regression: a concrete, verified reality violation (a claimed file
+    /// write that doesn't exist) used to be overridable by a
+    /// `[CONVERGENCE_SCORE: >= 0.85]` marker in the same result string -
+    /// a score that measured only whether unrelated agents' own output
+    /// avoided the words "FAILURE"/"GAP", nothing about whether the file
+    /// actually existed. This must never bypass the check again, under
+    /// its old name or any other score-shaped marker.
+    #[test]
+    fn test_high_convergence_score_no_longer_bypasses_a_real_violation() {
+        let tmp = std::env::temp_dir().join("susi_test_truth_no_bypass");
+        let _ = std::fs::create_dir_all(&tmp);
+        let result = "Wrote to output.txt successfully.\n\n[CONVERGENCE_SCORE: 1.00]";
+        let err = SusiTruthAgent::verify_mission_reality("goal", "tool", result, &tmp)
+            .expect_err("a fabricated score must not override a verified missing-file violation");
+        assert!(err.to_string().contains("TRUTH_VIOLATION"));
+    }
+
+    #[test]
+    fn test_claimed_write_to_real_nonempty_file_passes() {
+        let tmp = std::env::temp_dir().join("susi_test_truth_real_file");
+        let _ = std::fs::create_dir_all(&tmp);
+        std::fs::write(tmp.join("output.txt"), b"real content").unwrap();
+        let result = "Wrote to output.txt successfully.";
+        assert!(SusiTruthAgent::verify_mission_reality("goal", "tool", result, &tmp).is_ok());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

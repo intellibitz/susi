@@ -1117,22 +1117,23 @@ impl GawdAgent for SearchAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let is_query = lower.contains("identity")
-            || lower.contains("status")
-            || lower.contains("models")
-            || lower.contains("version")
-            || lower == "ls"
-            || lower.starts_with("ls ")
-            || lower == "dir"
-            || lower.contains("who am i")
-            || lower.contains("whoami");
-
-        let res = if is_query {
+        let res = if GawdAgentFleet::is_meta_command(goal) {
             format!("[{}]: Query observation integrated.", self.name())
         } else {
+            // Deliberately does NOT ask the model to narrate a "search
+            // process" - there is no real external search behind this
+            // agent, it's the same local model `UniversalReasoner` already
+            // answers directly. Verified live: the old "Perform deep
+            // knowledge retrieval and search synthesis..." framing made
+            // the model roleplay a multi-step fake-search narrative before
+            // giving the actual answer (e.g. "What is the capital of
+            // France?" produced ~15 sentences of "I will follow these
+            // steps..." scaffolding and took ~15s, generating far more
+            // tokens than the question needed), duplicating
+            // UniversalReasoner's correct 1-word answer at several times
+            // the cost for zero added information.
             let prompt = format!(
-                "Perform deep knowledge retrieval and search synthesis for goal: {}. Context: {}",
+                "Answer directly and concisely - do not describe a search process or list steps, just give the answer.\n\nQuestion: {}\n\nContext: {}",
                 goal,
                 blackboard.to_json()
             );
@@ -1161,18 +1162,7 @@ impl GawdAgent for TranslationAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let lower = goal.to_lowercase();
-        let is_query = lower.contains("identity")
-            || lower.contains("status")
-            || lower.contains("models")
-            || lower.contains("version")
-            || lower == "ls"
-            || lower.starts_with("ls ")
-            || lower == "dir"
-            || lower.contains("who am i")
-            || lower.contains("whoami");
-
-        let res = if is_query {
+        let res = if GawdAgentFleet::is_meta_command(goal) {
             format!(
                 "[{}]: Query linguistic observation integrated.",
                 self.name()
@@ -1703,13 +1693,42 @@ impl GawdAgentFleet {
         ram_based_limit.min(base_limit)
     }
 
-    /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
-    /// Uses semantic centroids to match agents.
-    pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
-        let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![];
-        let lower_goal = goal.to_lowercase();
+    /// Whether `goal` is either a substrate meta-command (identity/status/
+    /// models/version/admin/ls/whoami - handled by dedicated fast paths
+    /// elsewhere) or an ordinary natural-language question. Either way,
+    /// spending a full LLM generation to invent a brand-new specialist
+    /// agent for it (`synthesize_fleet`'s Neural Agent Synthesis step) is
+    /// pure waste: a generalist agent (`UniversalReasoner`, or whatever
+    /// matched via routing/semantic similarity) already covers this class
+    /// of intent, and the synthesized agent would just route back to the
+    /// same generic LLM reasoning anyway.
+    ///
+    /// Verified live: "What is the capital of France?" (no substring
+    /// overlap with the meta-command list) fell through the old
+    /// meta-command-only gate and triggered *two* full ~256-token "invent
+    /// a specialist agent" generations (one per retry-loop iteration in
+    /// `ama.rs::solve_internal`) before the mission ever got to answering
+    /// the actual one-word question - over 30 seconds and 3-4 separate
+    /// model calls for something `UniversalReasoner` alone answered
+    /// correctly in 617ms once it was actually asked. This was duplicated
+    /// (and had silently drifted slightly out of sync) across three call
+    /// sites in `agents.rs`/`amas.rs`; consolidated here so a future
+    /// addition to the list only needs to happen once.
+    pub fn is_meta_or_simple_query(goal: &str) -> bool {
+        Self::is_meta_command(goal) || Self::is_plain_question(goal)
+    }
 
-        let is_query_or_admin = lower_goal.contains("admin")
+    /// Substrate meta-commands only (identity/status/models/version/admin/
+    /// ls/dir/whoami) - deliberately narrower than `is_meta_or_simple_query`
+    /// and does NOT treat question-shaped goals as a match. Agents whose
+    /// actual job is to process the goal's *content* (e.g. `TranslationAgent`)
+    /// must use this, not `is_meta_or_simple_query`: a request like "How do
+    /// you say hello in French?" is exactly the question-shaped input
+    /// `is_meta_or_simple_query` is meant to spare from wasted specialist
+    /// synthesis, but it's real translation work, not a no-op.
+    pub fn is_meta_command(goal: &str) -> bool {
+        let lower_goal = goal.trim().to_lowercase();
+        lower_goal.contains("admin")
             || lower_goal.contains("identity")
             || lower_goal.contains("status")
             || lower_goal.contains("models")
@@ -1718,7 +1737,27 @@ impl GawdAgentFleet {
             || lower_goal.starts_with("ls ")
             || lower_goal == "dir"
             || lower_goal.contains("who am i")
-            || lower_goal.contains("whoami");
+            || lower_goal.contains("whoami")
+    }
+
+    fn is_plain_question(goal: &str) -> bool {
+        let lower_goal = goal.trim().to_lowercase();
+        lower_goal.ends_with('?')
+            || [
+                "what ", "who ", "when ", "where ", "why ", "how ", "which ",
+                "is ", "are ", "does ", "do ", "can ", "could ", "will ", "would ",
+            ]
+            .iter()
+            .any(|w| lower_goal.starts_with(w))
+    }
+
+    /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
+    /// Uses semantic centroids to match agents.
+    pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
+        let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![];
+        let lower_goal = goal.to_lowercase();
+
+        let is_query_or_admin = Self::is_meta_or_simple_query(goal);
 
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.agent_routing();
@@ -1947,6 +1986,65 @@ impl GawdAgentFleet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression: "What is the capital of France?" (and ordinary questions
+    /// like it) used to fall through the meta-command-only allowlist and
+    /// trigger wasteful Neural Agent Synthesis - verified live to cost two
+    /// full ~256-token "invent a specialist agent" generations (~30s) before
+    /// the mission ever answered the actual question. Every phrasing here
+    /// must be recognized so `synthesize_fleet` skips synthesis for it.
+    #[test]
+    fn test_is_meta_or_simple_query_covers_plain_questions() {
+        assert!(GawdAgentFleet::is_meta_or_simple_query("What is the capital of France?"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("who is the president of France"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("How do I reverse a string in Rust?"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("Is Rust memory safe?"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("Can you explain TCP vs UDP?"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("List three benefits of TDD?"));
+    }
+
+    #[test]
+    fn test_is_meta_or_simple_query_covers_substrate_meta_commands() {
+        assert!(GawdAgentFleet::is_meta_or_simple_query("admin pulse: sync"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("susi identity"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("status"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("ls"));
+        assert!(GawdAgentFleet::is_meta_or_simple_query("whoami"));
+    }
+
+    #[test]
+    fn test_is_meta_or_simple_query_false_for_substantive_non_question_goals() {
+        // Must not swallow every goal - only real meta-commands and
+        // question-shaped natural language should skip synthesis.
+        assert!(!GawdAgentFleet::is_meta_or_simple_query(
+            "Refactor the authentication module to use JWT tokens"
+        ));
+        assert!(!GawdAgentFleet::is_meta_or_simple_query(
+            "custom domain analytics build pipeline"
+        ));
+    }
+
+    /// Regression: `TranslationAgent`/`SearchAgent` must gate their
+    /// no-op short-circuit on `is_meta_command` (substrate meta-commands
+    /// only), never on the broader `is_meta_or_simple_query` - a real
+    /// translation or search request is very often phrased as a question
+    /// ("How do you say hello in French?", "What is the capital of
+    /// France?"), and `is_meta_or_simple_query` treats question-shaped
+    /// goals as a match. Using it for these agents' skip-check would make
+    /// them silently do nothing for exactly the requests they exist to
+    /// handle.
+    #[test]
+    fn test_is_meta_command_excludes_plain_questions_unlike_is_meta_or_simple_query() {
+        let translation_question = "How do you say hello in French?";
+        assert!(
+            !GawdAgentFleet::is_meta_command(translation_question),
+            "a real translation request must not be treated as a no-op meta-command"
+        );
+        assert!(
+            GawdAgentFleet::is_meta_or_simple_query(translation_question),
+            "the broader check should still recognize it as question-shaped"
+        );
+    }
 
     #[test]
     fn test_context_store_eviction_past_capacity_does_not_self_deadlock() {

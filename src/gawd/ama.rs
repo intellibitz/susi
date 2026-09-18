@@ -450,7 +450,7 @@ impl SusiMasterAgent {
         let final_answer = if !swarm_context.trim().is_empty()
             && (swarm_context.contains("###")
                 || swarm_context.contains("| English")
-                || swarm_context.contains("CONVERGENCE_SCORE"))
+                || swarm_context.contains("AGENT_SUCCESS_RATIO"))
         {
             eprintln!("{}", swarm_context);
             swarm_context

@@ -332,8 +332,20 @@ fn main() {
                 println!("{}", answer);
             }
             Commands::SovereignDashboard => {
-                let answer = ama.solve_clean("sovereign_dashboard", &cwd, SUSI_VERSION);
-                println!("{}", answer);
+                // Calls the compiled-constants report (`AlphaSelf::RULES`/
+                // `COMPONENTS`, baked into the binary) directly, not
+                // `solve_clean`'s generic swarm/LLM pipeline: this command's
+                // whole purpose is to report the substrate's own state, and
+                // an LLM asked to narrate "how healthy is the substrate"
+                // will produce plausible-sounding but unverified figures
+                // (observed live: fabricated "100%" subsystem health
+                // claims with no measurement behind them - a direct
+                // violation of Mandate 2, No Hallucinations). This function
+                // existed but was never wired to any command before now.
+                match ama.generate_substrate_report(&cwd) {
+                    Ok(report) => println!("{}", report),
+                    Err(e) => eprintln!("[SUSI] Failed to generate substrate report: {}", e),
+                }
             }
             Commands::BloatAudit => {
                 let answer = ama.solve_clean("bloat_audit", &cwd, SUSI_VERSION);
