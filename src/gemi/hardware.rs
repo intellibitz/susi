@@ -193,6 +193,18 @@ impl HardwareProfiler {
     }
 
     pub fn get_candle_device() -> Device {
+        Self::get_dynamic_device(0)
+    }
+
+    pub fn get_dynamic_device(allocated_bytes_required: usize) -> Device {
+        // Sub-2ms Heterogeneous Offloading Fallback
+        if allocated_bytes_required > 0 {
+            let vram_limit = Self::determine_gpu_vram_gb() * 1024 * 1024 * 1024;
+            if vram_limit > 0 && allocated_bytes_required as f64 > (vram_limit as f64 * 0.90) {
+                return Device::Cpu;
+            }
+        }
+
         // Zero-Lock Device Cache (Sub-2ms Mandate)
         static DEVICE_CACHE: OnceLock<Device> = OnceLock::new();
         DEVICE_CACHE

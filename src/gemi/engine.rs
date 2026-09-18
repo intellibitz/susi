@@ -693,7 +693,9 @@ impl NativeInferenceEngine for SusiGgufEngine {
             .ok_or_else(|| EaiError::inference("Tokenizer missing."))?;
 
         println!("- [Inference Substrate] Requesting device context...");
-        let device = HardwareProfiler::get_candle_device();
+        let file_size = std::fs::metadata(&model_path).map(|m| m.len() as usize).unwrap_or(0);
+        let device = HardwareProfiler::get_dynamic_device(file_size);
+        println!("- [Inference Substrate] Selected Heterogeneous Device Topology: {:?}", device);
 
         println!("- [Inference Substrate] Acquiring model substrate shared handle...");
         let substrate_shared = InferenceHost::get_model(&model_path, &device, &task_handle)?;

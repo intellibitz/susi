@@ -1,6 +1,6 @@
 ---
 schema = "susi/evidence/v1"
-version = "0.1.2023034"
+version = "0.1.2023036"
 monotonic_range = "EV-2022924-001..EV-2022920-037"
 last_verification = 2026-09-18T00:00:00Z
 epistemic_score = 1.0
@@ -14,6 +14,9 @@ This document defines the sovereign ledger of functional mastery that anchors th
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
+| EV-2022924-040 | [MISSION] | Write a short poem about the ocean. | [manual](symbol://manual) | STAGED |
+| EV-2022924-039 | [MISSION] | Write a detailed 3-paragraph essay about the history of space exploration and its future, pushing the boundaries of AI integration in aerospace. | [manual](symbol://manual) | STAGED |
+| EV-2022924-038 | [MISSION] | Write a detailed, creative 3-paragraph essay about the history of space exploration and its future, pushing the boundaries of AI integration in aerospace. | [manual](symbol://manual) | STAGED |
 | EV-2022924-033 | [MISSION] | Name three colors. | [manual](symbol://manual) | STAGED |
 | EV-2022924-032 | [MISSION] | Explain what photosynthesis is in two sentences. | [manual](symbol://manual) | STAGED |
 | EV-2022924-031 | [MISSION] | Write a haiku about the ocean. | [manual](symbol://manual) | STAGED |
