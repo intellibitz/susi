@@ -52,8 +52,16 @@ fi
 # 2. Try Binary Download First (Lightning Fast) if no local source exists
 if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
     # Try downloading both launcher and engine
+    GPU_SUFFIX=""
+    if [[ "$PLATFORM" == "linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
+        if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
+            GPU_SUFFIX="-cuda"
+            echo "GPU Environment detected (nvidia-smi). Will request GPU-accelerated binary."
+        fi
+    fi
+
     LAUNCHER_BINARY="susi-$PLATFORM-$ARCH"
-    ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH"
+    ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH$GPU_SUFFIX"
 
     if [[ "$PLATFORM" == "windows" ]]; then
         LAUNCHER_BINARY="${LAUNCHER_BINARY}.exe"
