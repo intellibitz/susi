@@ -1,6 +1,6 @@
 ---
 schema = "susi/evidence/v1"
-version = "0.1.2023031"
+version = "0.1.2023032"
 monotonic_range = "EV-2022924-001..EV-2022920-031"
 last_verification = 2026-09-18T00:00:00Z
 epistemic_score = 1.0
