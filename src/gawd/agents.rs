@@ -552,6 +552,48 @@ impl GawdAgent for GmcpAgent {
     }
 }
 
+/// Extracts whitespace-delimited substrings from `text` that look like a
+/// file reference — a bare repo-root filename (`Cargo.toml`) or a nested
+/// path (`src/gawd/agents.rs`) — ending in a recognized source/doc
+/// extension, tolerating a trailing `:line` or surrounding punctuation.
+/// The extension whitelist alone bounds false positives; ordinary prose
+/// essentially never ends a word in `.rs`/`.toml`/`.json`/`.md`/`.sh`/`.lock`.
+/// Pure function (no I/O) so path extraction is directly unit-testable.
+fn extract_candidate_file_paths(text: &str) -> Vec<String> {
+    const EXTENSIONS: &[&str] = &[".rs", ".toml", ".json", ".md", ".sh", ".lock"];
+    text.split_whitespace()
+        .filter_map(|raw| {
+            let trimmed = raw.trim_matches(|c: char| {
+                matches!(c, '(' | ')' | ',' | ';' | '\'' | '"' | '`' | '[' | ']')
+            });
+            let path_part = trimmed.split(':').next().unwrap_or(trimmed);
+            let path_part = path_part.trim_end_matches('.');
+            if EXTENSIONS.iter().any(|ext| path_part.ends_with(ext)) {
+                Some(path_part.to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Verifies `claim`'s file-path references (if any) actually exist in
+/// `workspace`. This is the real, checkable slice of "backed by empirical
+/// evidence" available in the primary blackboard-based dispatch path — the
+/// structured `EvidenceRecord`/`Claim` provenance pipeline (`gawd/evidence.rs`)
+/// exists but is only ever populated by `MissionDag::execute_dag`, which
+/// nothing in `dispatch_explosive_swarm` currently calls, so there are no
+/// live `EvidenceRecord`s for this agent to audit in a real mission.
+fn audit_claim_grounding(claim: &str, workspace: &Path) -> (usize, Vec<String>) {
+    let paths = extract_candidate_file_paths(claim);
+    let hallucinated: Vec<String> = paths
+        .iter()
+        .filter(|p| !workspace.join(p).exists() && !Path::new(p).exists())
+        .cloned()
+        .collect();
+    (paths.len(), hallucinated)
+}
+
 /// Epistemic Auditor Agent: Ensures every agent claim is backed by empirical Evidence IR records.
 pub struct EpistemicAuditorAgent;
 
@@ -565,11 +607,45 @@ impl GawdAgent for EpistemicAuditorAgent {
     fn execute(
         &self,
         _goal: &str,
-        _workspace: &Path,
+        workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let count = blackboard.inner.len();
-        let res = format!("[EpistemicAuditorAgent]: Audited {} blackboard entries for empirical evidence grounding. Epistemic integrity: VERIFIED.", count);
+        let mut total = 0usize;
+        let mut grounded = 0usize;
+        let mut ungrounded = 0usize;
+        let mut hallucinated_paths: Vec<String> = Vec::new();
+
+        for entry in blackboard.iter() {
+            if entry.key() == &self.name() {
+                continue;
+            }
+            total += 1;
+            let (referenced, hallucinated) = audit_claim_grounding(entry.value(), workspace);
+            if referenced == 0 {
+                ungrounded += 1;
+            } else if hallucinated.is_empty() {
+                grounded += 1;
+            } else {
+                hallucinated_paths.extend(hallucinated);
+            }
+        }
+
+        let res = if !hallucinated_paths.is_empty() {
+            format!(
+                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED.",
+                total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
+            )
+        } else if grounded > 0 {
+            format!(
+                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded (verified against workspace), {} unverifiable (no file reference, not necessarily false). Epistemic integrity: VERIFIED.",
+                total, grounded, ungrounded
+            )
+        } else {
+            format!(
+                "[EpistemicAuditorAgent]: Audited {} agent claims — none referenced a checkable file path. Epistemic integrity: INCONCLUSIVE (nothing file-grounded to verify).",
+                total
+            )
+        };
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -602,6 +678,48 @@ impl GawdAgent for ResourceArbitratorAgent {
     }
 }
 
+/// Markers that mean a real agent contribution is flagging a genuine
+/// problem, not just a routine status line — matched case-insensitively
+/// against each blackboard entry's actual text. Deliberately excludes the
+/// exact uppercase substrings "FAILURE"/"GAP" the swarm-consensus and
+/// distillation filters elsewhere key off of (`amas.rs`, `ama.rs`): this
+/// agent's own generated report must never accidentally trip those filters
+/// and get treated as a failed/gapped contribution itself.
+const CRITICAL_SIGNAL_MARKERS: &[&str] = &[
+    "degraded",
+    "critical risk: true",
+    "mismatch",
+    "stalled",
+    "cancelled",
+    "governance_block",
+    "capability_gap",
+    ": failed",
+];
+
+/// Splits `blackboard`'s current entries (excluding `exclude`, this agent's
+/// own name) into agents reporting a genuine critical/problem signal versus
+/// agents reporting routine, non-empty status — the real cross-check
+/// "resolves agent findings and conflicts" requires, instead of a count.
+fn summarize_swarm_signals(blackboard: &MissionBlackboard, exclude: &str) -> (Vec<String>, Vec<String>) {
+    let mut critical = Vec::new();
+    let mut healthy = Vec::new();
+    for entry in blackboard.iter() {
+        if entry.key() == exclude {
+            continue;
+        }
+        let lower = entry.value().to_lowercase();
+        if lower.trim().is_empty() {
+            continue;
+        }
+        if CRITICAL_SIGNAL_MARKERS.iter().any(|m| lower.contains(m)) {
+            critical.push(entry.key().clone());
+        } else {
+            healthy.push(entry.key().clone());
+        }
+    }
+    (critical, healthy)
+}
+
 /// Consensus Mediator Agent: Resolves agent findings and conflicts using confidence and provenance.
 pub struct ConsensusMediatorAgent;
 
@@ -618,8 +736,25 @@ impl GawdAgent for ConsensusMediatorAgent {
         _workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let entries = blackboard.inner.len();
-        let res = format!("[ConsensusMediatorAgent]: Analyzed {} active agent contributions. Zero critical conflicts detected. Weighted consensus reached.", entries);
+        let (critical, healthy) = summarize_swarm_signals(blackboard, &self.name());
+        let total = critical.len() + healthy.len();
+
+        let res = if critical.is_empty() {
+            format!(
+                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. No critical/problem signals detected among them. Weighted consensus reached.",
+                total
+            )
+        } else if healthy.is_empty() {
+            format!(
+                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. All {} report critical/problem signals ({:?}) — swarm-wide distress, not a partial conflict.",
+                total, critical.len(), critical
+            )
+        } else {
+            format!(
+                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. CONFLICT: {} agent(s) report critical/problem signals ({:?}) while {} agent(s) report routine status ({:?}). Consensus not reached without further mediation.",
+                total, critical.len(), critical, healthy.len(), healthy
+            )
+        };
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -1991,5 +2126,135 @@ mod tests {
         let autonomous = GawdAgentFleet::synthesis_similarity_threshold("autonomous");
         assert!(conservative > balanced);
         assert!(balanced > autonomous);
+    }
+
+    #[test]
+    fn test_extract_candidate_file_paths_finds_real_shapes_and_ignores_noise() {
+        let text = "See src/gawd/agents.rs:606 and (Cargo.toml), also plain text with no path.";
+        let paths = extract_candidate_file_paths(text);
+        assert_eq!(paths, vec!["src/gawd/agents.rs", "Cargo.toml"]);
+    }
+
+    #[test]
+    fn test_extract_candidate_file_paths_empty_for_no_paths() {
+        assert!(extract_candidate_file_paths("Hardware Saturated: 8 CPUs, 32GB RAM.").is_empty());
+    }
+
+    #[test]
+    fn test_audit_claim_grounding_verifies_real_file() {
+        let workspace = Path::new(".");
+        let (referenced, hallucinated) =
+            audit_claim_grounding("See Cargo.toml for the version.", workspace);
+        assert_eq!(referenced, 1);
+        assert!(hallucinated.is_empty());
+    }
+
+    #[test]
+    fn test_audit_claim_grounding_flags_nonexistent_file() {
+        let workspace = Path::new(".");
+        let (referenced, hallucinated) =
+            audit_claim_grounding("See src/totally/made/up/file.rs for details.", workspace);
+        assert_eq!(referenced, 1);
+        assert_eq!(hallucinated, vec!["src/totally/made/up/file.rs".to_string()]);
+    }
+
+    #[test]
+    fn test_epistemic_auditor_flags_hallucinated_path() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "SomeAgent".to_string(),
+            "Fixed the bug in src/does/not/exist.rs".to_string(),
+        );
+        let agent = EpistemicAuditorAgent;
+        let res = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap();
+        assert!(res.contains("UNGROUNDED CLAIMS DETECTED"));
+        assert!(res.contains("src/does/not/exist.rs"));
+        // Must never trip the swarm's own FAILURE/GAP consensus filters.
+        assert!(!res.contains("FAILURE"));
+        assert!(!res.contains("GAP"));
+    }
+
+    #[test]
+    fn test_epistemic_auditor_verifies_real_path() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "SomeAgent".to_string(),
+            "Version is defined in Cargo.toml.".to_string(),
+        );
+        let agent = EpistemicAuditorAgent;
+        let res = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap();
+        assert!(res.contains("Epistemic integrity: VERIFIED"));
+        assert!(res.contains("1 file-grounded"));
+    }
+
+    #[test]
+    fn test_epistemic_auditor_inconclusive_when_nothing_file_grounded() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "SomeAgent".to_string(),
+            "The answer to your question is 42.".to_string(),
+        );
+        let agent = EpistemicAuditorAgent;
+        let res = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap();
+        assert!(res.contains("INCONCLUSIVE"));
+    }
+
+    #[test]
+    fn test_summarize_swarm_signals_detects_real_conflict() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "GmcpAgent".to_string(),
+            "Endpoint health status: DEGRADED".to_string(),
+        );
+        blackboard.insert(
+            "HardwareAgent".to_string(),
+            "Hardware Saturated: 8 CPUs.".to_string(),
+        );
+        let (critical, healthy) = summarize_swarm_signals(&blackboard, "ConsensusMediatorAgent");
+        assert_eq!(critical, vec!["GmcpAgent".to_string()]);
+        assert_eq!(healthy, vec!["HardwareAgent".to_string()]);
+    }
+
+    #[test]
+    fn test_consensus_mediator_reports_real_conflict_not_hardcoded_zero() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "ResourceArbitratorAgent".to_string(),
+            "OOM Critical Risk: true".to_string(),
+        );
+        blackboard.insert(
+            "DevOpsAgent".to_string(),
+            "Bloat audit clean.".to_string(),
+        );
+        let agent = ConsensusMediatorAgent;
+        let res = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap();
+        assert!(res.contains("CONFLICT"));
+        assert!(res.contains("ResourceArbitratorAgent"));
+        assert!(res.contains("DevOpsAgent"));
+        assert!(!res.contains("FAILURE"));
+        assert!(!res.contains("GAP"));
+    }
+
+    #[test]
+    fn test_consensus_mediator_reports_clean_when_no_critical_signals() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        blackboard.insert(
+            "DevOpsAgent".to_string(),
+            "Bloat audit clean.".to_string(),
+        );
+        let agent = ConsensusMediatorAgent;
+        let res = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap();
+        assert!(res.contains("No critical/problem signals detected"));
+        assert!(!res.contains("CONFLICT"));
     }
 }
