@@ -1,6 +1,5 @@
 // SUSI Runtime Admin: Autonomous Substrate Administration & Drift Correction
-// RULE 3: Reality Check Always On - Hardware-Aware Self-Tuning
-// RULE 23: Substrate Ingestion Motion - Autonomous Experience Distillation
+// Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
 use crate::error::EaiResult;
 use crate::gemi::hardware::HardwareProfiler;

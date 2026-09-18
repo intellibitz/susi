@@ -1,5 +1,5 @@
 // SUSI Native Reflexes (Synthesized)
-// RULE 11: Native Integration - This file is autonomously updated by the ReflexSynthesizer.
+// Native Integration - this file is autonomously updated by the ReflexSynthesizer.
 
 use crate::gmcp::tools::ToolRegistry;
 

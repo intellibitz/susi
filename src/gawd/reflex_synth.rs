@@ -1,5 +1,10 @@
 // SUSI Reflex Synthesizer
-// RULE 23: Motion Rule Protocol - Test-Driven Evolution Substrate
+// Test-Driven Evolution Substrate, implementing IDENTITY.md Mandate 20's
+// Alpha-Self Evolution Order (Motion -> Architecture -> Structure -> Logic) —
+// not the unrelated release-gate "Motion Rule" (Pillar IV item 3); this file
+// predates the renaming that split those two concepts apart and originally
+// called this one "Motion Rule Protocol" too, exactly the collision
+// Mandate 20's own note warns about.
 
 use crate::error::{EaiError, EaiResult};
 use std::fs;

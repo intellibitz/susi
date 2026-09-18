@@ -1,6 +1,6 @@
 // GAWD Agent Fleet: Universal Multi-Agent Swarm Logic
-// RULE 11: Agents must add functionality directly to the susi engine.
-// RULE 31: Substrate Purity & Meta-Only Mandate - Neural Swarm Synthesis
+// Agents must add functionality directly to the susi engine.
+// Substrate Purity & Meta-Only - Neural Swarm Synthesis
 
 use crate::error::EaiResult;
 use dashmap::DashMap;
@@ -1704,7 +1704,7 @@ impl GawdAgentFleet {
     }
 
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
-    /// RULE 31 Hardening: Uses semantic centroids to match agents.
+    /// Uses semantic centroids to match agents.
     pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {
         let mut fleet: Vec<Arc<dyn GawdAgent>> = vec![];
         let lower_goal = goal.to_lowercase();

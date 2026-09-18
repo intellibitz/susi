@@ -1,7 +1,6 @@
 // SUSI Safety & System Destruction Detector
 // 100% Rust implementation for real-time mission safety auditing
-// RULE 4: Reality Check Always On
-// RULE 31: Substrate Purity Hardening - Dynamic Pattern Loading
+// Reality Check Always On - Dynamic Pattern Loading
 
 use crate::error::{EaiError, EaiResult};
 use crate::sandbox::manager::SusiConfig;

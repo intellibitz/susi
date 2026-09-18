@@ -1,5 +1,5 @@
 // SUSI Network Guard: API Authentication & Rate Limiting for world-facing
-// HTTP surfaces (GMCP HTTP, GEMI REST). RULE 12: Hardware Authority (DoS
+// HTTP surfaces (GMCP HTTP, GEMI REST). Mandate 12: Hardware Authority (DoS
 // prevention) & general perimeter hardening for a substrate that is
 // reachable from the open network, not just localhost.
 

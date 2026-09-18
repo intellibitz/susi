@@ -1,5 +1,5 @@
 // SUSI Intelligence Substrate: The Orchestration Substrate
-// RULE 11: Agents must add functionality directly to the susi engine via ToolRegistry.
+// Agents must add functionality directly to the susi engine via ToolRegistry.
 // Agents must not simulate or "fake" susi capabilities by performing logic themselves.
 
 use super::agents::GawdAgentInfo;

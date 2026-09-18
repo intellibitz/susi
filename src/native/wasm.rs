@@ -1,5 +1,5 @@
 // SUSI Wasm Host Substrate
-// RULE 11: Native Integration - High-performance reflex execution environment
+// Native Integration - High-performance reflex execution environment
 
 use crate::error::{EaiError, EaiResult};
 use std::path::Path;

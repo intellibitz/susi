@@ -1,6 +1,5 @@
 // SUSI Truth Transformer: Formal Verification Substrate
-// RULE 15: Truth & Hallucination Sovereignty - Native Candle Verification
-// RULE 31: Substrate Purity Hardening - Meta Reality Verification
+// Truth & Hallucination Sovereignty - Native Candle Verification and Meta Reality Verification
 
 use crate::error::{EaiError, EaiResult};
 use candle_core::{Device, Tensor};
