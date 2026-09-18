@@ -158,6 +158,16 @@ if [ "$INSTALLED" = "0" ]; then
         fi
     fi
 
+    # neural reflex synthesizer target
+    if command -v rustup >/dev/null 2>&1 || [ -f "$HOME/.cargo/bin/rustup" ]; then
+        echo "Installing wasm32-wasip1 toolchain for Neural Reflex Generation..."
+        if command -v rustup >/dev/null 2>&1; then
+            rustup target add wasm32-wasip1 || true
+        else
+            "$HOME/.cargo/bin/rustup" target add wasm32-wasip1 || true
+        fi
+    fi
+
     if command -v cargo >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
         echo "Building release binaries from source. This crate has a large dependency"
         echo "tree (candle, wasmer, tantivy, tonic, ...) — a cold build with no cargo"
