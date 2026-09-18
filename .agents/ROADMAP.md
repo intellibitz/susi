@@ -1,6 +1,6 @@
 ---
 schema = "susi/roadmap/v1"
-version = "0.1.2023017"
+version = "0.1.2023018"
 strategic_priority = "Federation"
 target_version = "0.2.0"
 ---
