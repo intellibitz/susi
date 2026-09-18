@@ -221,7 +221,6 @@
     "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
     "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
     "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
-    "release_pulse": "admin pulse: execute full release orchestration sequence",
     "select_model_pulse": "admin pulse: select and override active model substrate to {}",
     "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
     "verify_pulse": "admin pulse: verify version alignment across manifest and documents"

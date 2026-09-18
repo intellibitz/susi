@@ -313,27 +313,51 @@ impl SusiAdmin {
         Ok(())
     }
 
-    /// Motion Rule (IDENTITY.md ENGINE-3): cargo check -> cargo test -> release
-    /// audit/lint/smoke -> susi admin sync -> git push, as one gated sequence.
-    /// Each step must pass before the next runs; a git push failure (e.g. no
-    /// configured upstream, diverged history) is reported as an error rather
-    /// than silently swallowed, since the caller needs to know deployment did
-    /// not complete.
+    /// Motion Rule (IDENTITY.md ENGINE-3): cargo check -> compliance audit ->
+    /// cargo test -> clippy -> mission smoke tests -> susi admin sync -> git
+    /// push, as one gated sequence. Each step must pass before the next runs;
+    /// a git push failure (e.g. no configured upstream, diverged history) is
+    /// reported as an error rather than silently swallowed, since the caller
+    /// needs to know deployment did not complete.
     pub fn execute_release(workspace: &Path) -> EaiResult<String> {
+        // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
+        // (e.g. metal pulls in macOS-only objc2 bindings) and cannot all build
+        // together on any single host, so `--all-features` is never used here.
+        // Instead, check default features plus the one GPU backend feature
+        // that can actually compile on the host OS, mirroring install.sh's own
+        // platform selection. `mkl` is intentionally excluded: it links against
+        // the closed-source Intel MKL runtime, which this pipeline cannot
+        // assume is installed, so it is left to be validated by whoever builds
+        // with it explicitly.
+        let host_gpu_feature: Option<&str> = if cfg!(target_os = "macos") {
+            Some("metal")
+        } else {
+            Some("cuda")
+        };
+        let feature_sets: Vec<Option<&str>> = std::iter::once(None)
+            .chain(host_gpu_feature.into_iter().map(Some))
+            .collect();
+
         eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
-        // Deliberately default-features only, matching the `cargo test` step below:
-        // `--all-features` activates cuda/mkl/metal simultaneously, which are mutually
-        // exclusive hardware backends and fail to build together on any single host
-        // (e.g. metal pulls in macOS-only objc2 bindings even on Linux).
-        let mut check = Command::new("cargo")
-            .args(["check", "--all-targets"])
-            .current_dir(workspace)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()?;
-        let status = check.wait()?;
-        if !status.success() {
-            return Err(EaiError::process("Release aborted: cargo check failed.".to_string()));
+        for features in &feature_sets {
+            let mut args = vec!["check", "--all-targets"];
+            if let Some(f) = features {
+                eprintln!("[Release Gatekeeper]    -> cargo check --features {}", f);
+                args.push("--features");
+                args.push(f);
+            } else {
+                eprintln!("[Release Gatekeeper]    -> cargo check (default features)");
+            }
+            let mut check = Command::new("cargo")
+                .args(&args)
+                .current_dir(workspace)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            let status = check.wait()?;
+            if !status.success() {
+                return Err(EaiError::process("Release aborted: cargo check failed.".to_string()));
+            }
         }
 
         eprintln!("[Release Gatekeeper] 2. Executing Compliance Audit...");
@@ -352,15 +376,26 @@ impl SusiAdmin {
         }
 
         eprintln!("[Release Gatekeeper] 4. Executing Static Analysis (Clippy)...");
-        let mut clippy = Command::new("cargo")
-            .args(["clippy", "--all-targets", "--", "-D", "warnings"])
-            .current_dir(workspace)
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
-            .spawn()?;
-        let status = clippy.wait()?;
-        if !status.success() {
-            return Err(EaiError::process("Release aborted: Linting failed.".to_string()));
+        for features in &feature_sets {
+            let mut args = vec!["clippy", "--all-targets"];
+            if let Some(f) = features {
+                eprintln!("[Release Gatekeeper]    -> cargo clippy --features {}", f);
+                args.push("--features");
+                args.push(f);
+            } else {
+                eprintln!("[Release Gatekeeper]    -> cargo clippy (default features)");
+            }
+            args.extend(["--", "-D", "warnings"]);
+            let mut clippy = Command::new("cargo")
+                .args(&args)
+                .current_dir(workspace)
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .spawn()?;
+            let status = clippy.wait()?;
+            if !status.success() {
+                return Err(EaiError::process("Release aborted: Linting failed.".to_string()));
+            }
         }
 
         eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");

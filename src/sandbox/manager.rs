@@ -623,8 +623,6 @@ pub struct AdminPulsesConfig {
     #[serde(default)]
     pub verify_pulse: String,
     #[serde(default)]
-    pub release_pulse: String,
-    #[serde(default)]
     pub lint_pulse: String,
     #[serde(default)]
     pub audit_deps_pulse: String,
