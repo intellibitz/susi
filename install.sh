@@ -180,6 +180,24 @@ if [ "$INSTALLED" = "0" ]; then
             fi
         fi
 
+        # Visibility for the common case the check above can't act on: most
+        # end users running this installer have an NVIDIA GPU and its driver,
+        # but not the multi-GB CUDA toolkit (nvcc) — which is genuinely
+        # required to compile --features cuda, not optional, so this can't
+        # just be flipped on. Without this, that host silently gets a
+        # CPU-only build with zero indication a GPU went unused. nvidia-smi
+        # is driver-level (no toolkit required), so it's the accurate signal
+        # for "a GPU exists here" independent of whether the toolkit that
+        # would let a build actually use it is installed (mirrors the same
+        # check build.rs makes for a manual `cargo build`, EV-2022920-036).
+        if [[ "$PLATFORM" == "linux" ]] && [ -z "$BUILD_FEATURES" ] && command -v nvidia-smi >/dev/null 2>&1; then
+            if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
+                echo "[GPU] NVIDIA GPU detected, but the CUDA toolkit (nvcc) was not found —"
+                echo "[GPU] building CPU-only. Install the CUDA toolkit and re-run this installer"
+                echo "[GPU] (or run ./build-gpu.sh from a source checkout) for GPU-accelerated inference."
+            fi
+        fi
+
         # Heartbeat so a long silent stretch (cargo prints a new line only when a
         # compilation unit starts/finishes, and a single large crate can take
         # several minutes) doesn't read as a frozen script.
