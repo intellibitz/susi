@@ -314,6 +314,24 @@ impl SusiDaemon {
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
+            // SAFETY: `pre_exec` requires the closure to only call
+            // async-signal-safe functions, since it runs in the forked child
+            // between fork() and execve() with the rest of this (possibly
+            // multi-threaded, e.g. the rayon pool) process's threads gone but
+            // its locks (malloc, etc.) in whatever state they were left in.
+            // `fork()`, `_exit()`, and `setsid()` are all POSIX
+            // async-signal-safe, so this closure does not risk deadlocking.
+            // The nested fork() here implements the classic Unix double-fork
+            // daemonize: this closure runs in Command::spawn()'s child, which
+            // is guaranteed single-threaded (fork() only carries the calling
+            // thread over), so this second fork() is not exposed to the
+            // "another thread held a lock at fork time" hazard either. The
+            // grandchild (fork() == 0) detaches into its own session via
+            // setsid() and returns Ok(()) to proceed to execve(); the
+            // intermediate middle process (fork() > 0) exits immediately via
+            // _exit() without ever reaching execve(), so only the detached
+            // grandchild becomes the running daemon. spawn() below then waits
+            // on the already-exited middle process, not the daemon itself.
             unsafe {
                 cmd.pre_exec(|| {
                     if libc::fork() > 0 {
@@ -394,8 +412,13 @@ impl SusiDaemon {
         crate::gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
-        let (gemi_server, gemi_port) =
-            Self::bind_http_with_fallback(cfg.gemi_port(), "GEMI", &workspace, &bind_address);
+        let (gemi_server, gemi_port) = Self::bind_http_with_fallback(
+            cfg.gemi_port(),
+            "GEMI",
+            &workspace,
+            &global_dir,
+            &bind_address,
+        );
         if gemi_port != cfg.gemi_port() {
             cfg.settings
                 .insert("gemi_port".to_string(), serde_json::json!(gemi_port));
@@ -407,6 +430,7 @@ impl SusiDaemon {
             cfg.gmcp_http_port(),
             "GMCP HTTP",
             &workspace,
+            &global_dir,
             &bind_address,
         );
         if gmcp_http_port != cfg.gmcp_http_port() {
@@ -418,8 +442,12 @@ impl SusiDaemon {
         }
 
         // 3. Bind A2A Cluster UDP Discovery Socket (Port 9092 / Dynamic)
-        let (udp_socket, udp_port) =
-            Self::bind_udp_with_fallback(cfg.udp_discovery_port(), &workspace, &bind_address);
+        let (udp_socket, udp_port) = Self::bind_udp_with_fallback(
+            cfg.udp_discovery_port(),
+            &workspace,
+            &global_dir,
+            &bind_address,
+        );
         if udp_port != cfg.udp_discovery_port() {
             cfg.settings.insert(
                 "udp_discovery_port".to_string(),
@@ -496,6 +524,7 @@ impl SusiDaemon {
         port: u16,
         name: &str,
         workspace: &Path,
+        global_dir: &Path,
         bind_address: &str,
     ) -> (std::net::TcpListener, u16) {
         let addr = format!("{}:{}", bind_address, port);
@@ -503,7 +532,7 @@ impl SusiDaemon {
             Ok(listener) => (listener, port),
             Err(_) => {
                 // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port) {
+                if Self::attempt_port_reclaim(port, global_dir) {
                     if let Ok(listener) = std::net::TcpListener::bind(&addr) {
                         return (listener, port);
                     }
@@ -535,6 +564,7 @@ impl SusiDaemon {
     fn bind_udp_with_fallback(
         port: u16,
         workspace: &Path,
+        global_dir: &Path,
         bind_address: &str,
     ) -> (std::net::UdpSocket, u16) {
         let addr = format!("{}:{}", bind_address, port);
@@ -542,7 +572,7 @@ impl SusiDaemon {
             Ok(socket) => (socket, port),
             Err(_) => {
                 // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port) {
+                if Self::attempt_port_reclaim(port, global_dir) {
                     if let Ok(socket) = std::net::UdpSocket::bind(&addr) {
                         return (socket, port);
                     }
@@ -572,7 +602,7 @@ impl SusiDaemon {
     }
 
     /// Aggressive Port Reclaim: Interrogates the process holding a port and evicts it if it's a susi instance.
-    fn attempt_port_reclaim(port: u16) -> bool {
+    fn attempt_port_reclaim(port: u16, global_dir: &Path) -> bool {
         #[cfg(unix)]
         {
             // Use fuser or lsof to find the PID
@@ -584,22 +614,55 @@ impl SusiDaemon {
             if let Ok(out) = output {
                 let pid_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if let Ok(pid) = pid_str.parse::<i32>() {
-                    // Check if this process is a susi-engine or susi
-                    let comm_output = fs::read_to_string(format!("/proc/{}/comm", pid));
-                    if let Ok(comm) = comm_output {
-                        if comm.trim() == "susi" || comm.trim() == "susi-engine" {
-                            eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
-                            unsafe {
-                                libc::kill(pid, libc::SIGKILL);
-                            }
-                            thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
-                            return true;
+                    if Self::is_trusted_susi_process(pid, global_dir) {
+                        eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
                         }
+                        thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
+                        return true;
                     }
                 }
             }
         }
         false
+    }
+
+    /// Confirms `pid` is genuinely running a trusted susi binary before the
+    /// Sovereign Eviction protocol (IDENTITY.md Mandate 22) is allowed to
+    /// SIGKILL it. `/proc/{pid}/comm` is deliberately NOT used as identity
+    /// evidence: it is the process's self-reported name (settable via
+    /// `prctl`/`argv[0]`), so any unprivileged process could claim to be
+    /// "susi-engine" and either get needlessly evicted or, worse, masquerade
+    /// as trusted. `/proc/{pid}/exe` is the kernel's own record of which file
+    /// was actually exec'd and cannot be altered by the running process, so
+    /// its SHA-256 is compared against this host's trusted `binary.hash`
+    /// (the same file `verify_binary_integrity` maintains) — this fails
+    /// closed (no eviction) if that trust anchor hasn't been established yet.
+    #[cfg(unix)]
+    fn is_trusted_susi_process(pid: i32, global_dir: &Path) -> bool {
+        let exe_path = match fs::read_link(format!("/proc/{}/exe", pid)) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+
+        let name_ok = exe_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n == "susi" || n == "susi-engine")
+            .unwrap_or(false);
+        if !name_ok {
+            return false;
+        }
+
+        let hash_file = Self::get_hash_file(global_dir);
+        let trusted_hash = match fs::read_to_string(&hash_file) {
+            Ok(h) => h.trim().to_string(),
+            Err(_) => return false,
+        };
+        Self::calculate_binary_hash(&exe_path)
+            .map(|h| h.trim() == trusted_hash)
+            .unwrap_or(false)
     }
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
@@ -667,5 +730,61 @@ mod tests {
 
         let stopped = SusiDaemon::stop_daemon(&tmp_dir, &tmp_dir);
         assert!(!stopped);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_trusted_susi_process_fails_closed_without_hash_file() {
+        let global_dir = std::env::temp_dir().join(format!("susi_trust_test_nohash_{}", std::process::id()));
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        // Own PID's exe is the test binary, not literally named "susi"/"susi-engine",
+        // so this exercises the name-mismatch branch regardless of hash state.
+        let own_pid = std::process::id() as i32;
+        assert!(!SusiDaemon::is_trusted_susi_process(own_pid, &global_dir));
+
+        let _ = std::fs::remove_dir_all(&global_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_trusted_susi_process_matches_only_the_trusted_hash() {
+        let base = std::env::temp_dir().join(format!("susi_trust_test_{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let global_dir = base.join("global");
+        std::fs::create_dir_all(&global_dir).unwrap();
+
+        // A real file literally named "susi-engine" standing in for the trusted
+        // binary, so /proc/{pid}/exe's basename check has something to match.
+        let fake_bin = base.join("susi-engine");
+        std::fs::copy("/bin/sleep", &fake_bin).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&fake_bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&fake_bin, perms).unwrap();
+        }
+
+        let mut child = Command::new(&fake_bin).arg("5").spawn().unwrap();
+        let pid = child.id() as i32;
+        // Give the kernel a moment to populate /proc/{pid}/exe.
+        thread::sleep(Duration::from_millis(50));
+
+        // No trust anchor written yet: fails closed even though the name matches.
+        assert!(!SusiDaemon::is_trusted_susi_process(pid, &global_dir));
+
+        // Trust anchor matches the real binary's hash: now trusted.
+        let real_hash = SusiDaemon::calculate_binary_hash(&fake_bin).unwrap();
+        std::fs::write(SusiDaemon::get_hash_file(&global_dir), &real_hash).unwrap();
+        assert!(SusiDaemon::is_trusted_susi_process(pid, &global_dir));
+
+        // Trust anchor stale/mismatched: no longer trusted.
+        std::fs::write(SusiDaemon::get_hash_file(&global_dir), "not-the-real-hash").unwrap();
+        assert!(!SusiDaemon::is_trusted_susi_process(pid, &global_dir));
+
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
