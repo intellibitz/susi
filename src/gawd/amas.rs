@@ -279,6 +279,45 @@ impl SusiSupervisor {
         peers_lock.read().clone()
     }
 
+    /// Rule 31 Hardening: when one agent's rank is a clear outlier above the
+    /// rest, return its answer directly instead of asking the local synthesis
+    /// model to reconcile it with the others. LLM re-synthesis is fine for
+    /// genuinely comparable free-form answers, but the local model is too
+    /// weak to merge a deterministic, tool-backed answer (e.g. DevOpsAgent's
+    /// real BloatAuditor report) with a generic-fallback agent's free-form
+    /// guess (e.g. UniversalReasoner, base rank 0.7) without corrupting or
+    /// fabricating content (Mandate 8: Epistemic Chain of Truth) — empirically
+    /// observed truncating and inventing numbers when asked to do so.
+    fn dominant_rank_leader<'a>(
+        valid_outputs: &'a [(String, String)],
+        fleet_info: &[GawdAgentInfo],
+    ) -> Option<&'a str> {
+        const DOMINANT_RANK_MARGIN: f32 = 0.15;
+
+        if valid_outputs.len() < 2 {
+            return None;
+        }
+
+        let mut ranked: Vec<(f32, &str)> = valid_outputs
+            .iter()
+            .map(|(name, output)| {
+                let rank = fleet_info
+                    .iter()
+                    .find(|i| &i.name == name)
+                    .map(|i| i.rank)
+                    .unwrap_or(0.0);
+                (rank, output.as_str())
+            })
+            .collect();
+        ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        if ranked[0].0 - ranked[1].0 >= DOMINANT_RANK_MARGIN {
+            Some(ranked[0].1)
+        } else {
+            None
+        }
+    }
+
     pub fn supervise_mission(
         goal: &str,
         workspace: &Path,
@@ -477,6 +516,10 @@ impl SusiSupervisor {
                 } else {
                     weighted_wisdom.clone()
                 }
+            } else if let Some(leader_output) =
+                Self::dominant_rank_leader(&valid_outputs, &fleet_info)
+            {
+                leader_output.to_string()
             } else {
                 let prompts = crate::sandbox::manager::SusiPrompts::load_global();
                 let consensus_prompt = prompts
@@ -948,6 +991,64 @@ mod tests {
         assert_eq!(
             valid_outputs[0].1,
             "Photosynthesis is the process by which plants turn sunlight into energy."
+        );
+    }
+
+    #[test]
+    fn test_dominant_rank_leader_prefers_clear_outlier_over_llm_resynthesis() {
+        let valid_outputs = vec![
+            (
+                "DevOpsAgent".to_string(),
+                "# SUSI Bloat & Security Audit\n- Files Scanned: 54".to_string(),
+            ),
+            (
+                "UniversalReasoner".to_string(),
+                "I'm ready to code review Susi.".to_string(),
+            ),
+        ];
+        let fleet_info = vec![
+            GawdAgentInfo {
+                name: "DevOpsAgent".to_string(),
+                provider: "SUSI Local".into(),
+                url: "native://substrate".into(),
+                rank: 1.0,
+            },
+            GawdAgentInfo {
+                name: "UniversalReasoner".to_string(),
+                provider: "SUSI Local".into(),
+                url: "native://substrate".into(),
+                rank: 0.7,
+            },
+        ];
+
+        let leader = SusiSupervisor::dominant_rank_leader(&valid_outputs, &fleet_info);
+        assert_eq!(leader, Some("# SUSI Bloat & Security Audit\n- Files Scanned: 54"));
+    }
+
+    #[test]
+    fn test_dominant_rank_leader_defers_to_llm_synthesis_when_ranks_are_close() {
+        let valid_outputs = vec![
+            ("AgentA".to_string(), "Answer A".to_string()),
+            ("AgentB".to_string(), "Answer B".to_string()),
+        ];
+        let fleet_info = vec![
+            GawdAgentInfo {
+                name: "AgentA".to_string(),
+                provider: "SUSI Local".into(),
+                url: "native://substrate".into(),
+                rank: 0.9,
+            },
+            GawdAgentInfo {
+                name: "AgentB".to_string(),
+                provider: "SUSI Local".into(),
+                url: "native://substrate".into(),
+                rank: 0.85,
+            },
+        ];
+
+        assert_eq!(
+            SusiSupervisor::dominant_rank_leader(&valid_outputs, &fleet_info),
+            None
         );
     }
 }
