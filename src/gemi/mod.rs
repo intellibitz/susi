@@ -1,5 +1,6 @@
 pub mod alpha;
 pub mod audio;
+pub mod benchmark;
 pub mod engine;
 pub mod hardware;
 pub mod models;

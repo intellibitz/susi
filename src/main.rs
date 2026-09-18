@@ -59,6 +59,9 @@ enum Commands {
     /// Scout or install model substrate via live foreground network stream
     #[command(name = "scout-model")]
     ScoutModel { url: String },
+    /// Measure real local inference latency/tokens-per-sec, and compare
+    /// against a cloud endpoint if SUSI_BENCH_CLOUD_API_BASE is set
+    Benchmark,
     /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
@@ -526,6 +529,10 @@ fn main() {
                 );
                 let res = susi_engine::gemi::models::ModelManager::install_model(&url);
                 println!("{}", res);
+            }
+            Commands::Benchmark => {
+                let report = susi_engine::gemi::benchmark::BenchmarkRunner::run_and_render(&cwd);
+                println!("{}", report);
             }
             Commands::Clean => match std::fs::remove_dir_all(cwd.join("target")) {
                 Ok(()) => println!("Workspace build artifacts cleaned."),
