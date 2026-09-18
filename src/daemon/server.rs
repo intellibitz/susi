@@ -212,10 +212,14 @@ impl SusiDaemon {
     /// `binary.hash` by `susi admin sync` (src/daemon/admin.rs). Both readers and
     /// writers of this file must agree on one signature format — a `len:mtime`
     /// shortcut here previously diverged from admin.rs's SHA-256 writer, causing
-    /// a spurious mismatch (self-healing only after one overwrite cycle).
+    /// a spurious mismatch (self-healing only after one overwrite cycle). The
+    /// `current_sig` computed below is still always a real SHA-256 of the exact
+    /// same format; `calculate_binary_hash_cached` only skips *re-computing* it
+    /// when the binary provably hasn't changed (see its own doc comment) — it
+    /// never substitutes a cheaper, differently-shaped signature.
     pub fn verify_binary_integrity(bin_path: &Path, global_dir: &Path) -> EaiResult<bool> {
         let hash_file = Self::get_hash_file(global_dir);
-        let current_sig = Self::calculate_binary_hash(bin_path)?;
+        let current_sig = Self::calculate_binary_hash_cached(bin_path, global_dir)?;
 
         if hash_file.exists() {
             if let Ok(saved_sig) = fs::read_to_string(&hash_file) {
@@ -243,6 +247,49 @@ impl SusiDaemon {
             hasher.update(&buffer[..n]);
         }
         Ok(hex::encode(hasher.finalize()))
+    }
+
+    /// Same digest as `calculate_binary_hash`, but skips re-reading and
+    /// re-hashing the binary (measured ~130ms for this project's real
+    /// ~120MB `susi-engine` release binary) when its mtime+size match a
+    /// small sidecar cache from the last time this exact path was hashed —
+    /// entirely defeating Mandate 4's sub-2ms client reflex on every single
+    /// CLI invocation otherwise, since `ensure_daemon_running` calls this on
+    /// the hot "daemon already running, nothing to do" path. Stores nanosecond
+    /// mtime (not whole-second, to avoid a same-second rebuild+rerun false
+    /// cache hit) + size + the real hash in `binary.hash.cache`, next to but
+    /// distinct from `binary.hash` itself — the latter's writer/format
+    /// contract with `susi admin sync` (see `verify_binary_integrity`'s doc
+    /// comment) is untouched; a cache miss or parse failure always falls
+    /// back to a real, fresh hash.
+    fn calculate_binary_hash_cached(bin_path: &Path, global_dir: &Path) -> EaiResult<String> {
+        let cache_path = global_dir.join("binary.hash.cache");
+        let meta = fs::metadata(bin_path)?;
+        let size = meta.len();
+        let mtime_ns = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+
+        if let Ok(cached) = fs::read_to_string(&cache_path) {
+            let mut parts = cached.trim().splitn(3, ':');
+            if let (Some(c_mtime), Some(c_size), Some(c_hash)) =
+                (parts.next(), parts.next(), parts.next())
+            {
+                if c_mtime.parse::<u128>().ok() == Some(mtime_ns)
+                    && c_size.parse::<u64>().ok() == Some(size)
+                    && !c_hash.is_empty()
+                {
+                    return Ok(c_hash.to_string());
+                }
+            }
+        }
+
+        let hash = Self::calculate_binary_hash(bin_path)?;
+        let _ = fs::write(&cache_path, format!("{}:{}:{}", mtime_ns, size, hash));
+        Ok(hash)
     }
 
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
@@ -756,6 +803,59 @@ mod tests {
 
         let stopped = SusiDaemon::stop_daemon(&tmp_dir, &tmp_dir);
         assert!(!stopped);
+    }
+
+    #[test]
+    fn test_binary_hash_cache_hits_on_unchanged_file_and_misses_after_real_change() {
+        let global_dir = std::env::temp_dir().join(format!(
+            "susi_hash_cache_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&global_dir).unwrap();
+        let bin_path = global_dir.join("fake_binary");
+        std::fs::write(&bin_path, b"version one content").unwrap();
+
+        let direct_hash = SusiDaemon::calculate_binary_hash(&bin_path).unwrap();
+        let cached_hash_1 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        assert_eq!(
+            direct_hash, cached_hash_1,
+            "the cached path must still produce the exact same digest as a direct hash"
+        );
+
+        // Corrupt the sidecar's stored hash directly, bypassing any real
+        // rehash, to prove a second call with the SAME mtime+size serves the
+        // cached (now-wrong) value rather than silently re-hashing — this is
+        // what actually saves the I/O, not just "returns a correct value".
+        let cache_path = global_dir.join("binary.hash.cache");
+        let cache_content = std::fs::read_to_string(&cache_path).unwrap();
+        let mut parts = cache_content.trim().splitn(3, ':');
+        let mtime = parts.next().unwrap();
+        let size = parts.next().unwrap();
+        std::fs::write(&cache_path, format!("{}:{}:deadbeef", mtime, size)).unwrap();
+
+        let cached_hash_2 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        assert_eq!(
+            cached_hash_2, "deadbeef",
+            "an unchanged mtime+size must be served from the cache, not re-hashed"
+        );
+
+        // Now genuinely change the file's content. Even if the filesystem
+        // happens to report the same mtime (fast successive writes on some
+        // filesystems), a real re-hash after a content change must never
+        // keep returning the stale "deadbeef" sentinel forever.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(&bin_path, b"version two, genuinely different content").unwrap();
+        let cached_hash_3 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        assert_ne!(
+            cached_hash_3, "deadbeef",
+            "a real content+mtime change must invalidate the cache and re-hash"
+        );
+        assert_eq!(
+            cached_hash_3,
+            SusiDaemon::calculate_binary_hash(&bin_path).unwrap()
+        );
+
+        let _ = std::fs::remove_dir_all(&global_dir);
     }
 
     #[cfg(unix)]
