@@ -491,14 +491,6 @@ impl SusiSupervisor {
             let synthesized = if is_direct_synthesis || valid_outputs.len() <= 1 {
                 if valid_outputs.len() == 1 {
                     valid_outputs[0].1.clone()
-                } else if is_direct_synthesis {
-                    let mut full_synthesis = String::new();
-
-                    if full_synthesis.is_empty() {
-                        weighted_wisdom.clone()
-                    } else {
-                        full_synthesis
-                    }
                 } else {
                     weighted_wisdom.clone()
                 }

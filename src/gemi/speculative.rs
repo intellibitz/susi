@@ -336,15 +336,13 @@ impl SpeculativeDecoder {
             // --- Draft: propose up to draft_chunk-1 more tokens beyond the anchor ---
             let mut spec_chunk = vec![anchor_token];
             let mut draft_history = all_tokens.clone();
-            let mut feed_pos = round_start_pos;
             let mut current_tok = anchor_token;
-            for _feed_pos in (round_start_pos..).take(draft_chunk - 1) {
+            for feed_pos in (round_start_pos..).take(draft_chunk - 1) {
                 let logits = draft
                     .forward(&single_token_tensor(current_tok)?, feed_pos)
                     .map_err(|e| {
                         EaiError::inference(format!("Speculative draft step failed: {e}"))
                     })?;
-                feed_pos += 1;
                 let mut v: Vec<f32> = logits
                     .flatten_all()
                     .and_then(|t| t.to_vec1::<f32>())

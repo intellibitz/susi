@@ -919,6 +919,73 @@ impl NativeInferenceEngine for SusiGgufEngine {
     }
 }
 
+pub struct SusiFederatedEngine;
+
+impl NativeInferenceEngine for SusiFederatedEngine {
+    fn name(&self) -> String {
+        "SusiFederatedEngine".to_string()
+    }
+
+    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
+        self.run_inference_stream(prompt, &|_| {})
+    }
+
+    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let endpoints = cfg.inference_endpoints();
+
+        println!("[SUSI Federated Router] Requesting remote consensus quorum...");
+        let _ = std::io::stdout().flush();
+        let endpoint = endpoints.endpoints.first().ok_or_else(|| {
+            crate::error::EaiError::inference(
+                "No active federated endpoints provisioned in config.default.json.",
+            )
+        })?;
+
+        println!("[SUSI Federated Router] Edge Delegation Active. Distributing evaluation payload to remote cluster: {} ({})", endpoint.name, endpoint.api_base);
+        let _ = std::io::stdout().flush();
+
+        let url = format!("{}/chat/completions", endpoint.api_base);
+        let api_key =
+            std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "susi-federated-key".to_string());
+
+        // Blocking Sync REST via ureq explicitly bound to federation consensus
+        let body = serde_json::json!({
+            "model": "600b-federated-swarm-logic",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1024,
+            "stream": false
+        });
+
+        match ureq::post(&url)
+            .header("Authorization", &format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .send_json(body)
+        {
+            Ok(response) => {
+                let body_str = response
+                    .into_body()
+                    .read_to_string()
+                    .map_err(|e| crate::error::EaiError::inference(format!("Read error: {}", e)))?;
+                let json: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| {
+                    crate::error::EaiError::inference(format!("Parse error: {}", e))
+                })?;
+                if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                    callback(content.to_string());
+                    return Ok(content.to_string());
+                }
+                Err(crate::error::EaiError::inference(
+                    "Federated swarm endpoint returned invalid consensus payload.",
+                ))
+            }
+            Err(e) => Err(crate::error::EaiError::inference(format!(
+                "Federated edge connection refused: {}",
+                e
+            ))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1165,72 +1232,5 @@ mod tests {
             logits_v[prompt_tokens[0] as usize], 10.0,
             "a prompt-only token must not be penalized just because it appears in the prompt"
         );
-    }
-}
-
-pub struct SusiFederatedEngine;
-
-impl NativeInferenceEngine for SusiFederatedEngine {
-    fn name(&self) -> String {
-        "SusiFederatedEngine".to_string()
-    }
-
-    fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        self.run_inference_stream(prompt, &|_| {})
-    }
-
-    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let endpoints = cfg.inference_endpoints();
-
-        println!("[SUSI Federated Router] Requesting remote consensus quorum...");
-        let _ = std::io::stdout().flush();
-        let endpoint = endpoints.endpoints.first().ok_or_else(|| {
-            crate::error::EaiError::inference(
-                "No active federated endpoints provisioned in config.default.json.",
-            )
-        })?;
-
-        println!("[SUSI Federated Router] Edge Delegation Active. Distributing evaluation payload to remote cluster: {} ({})", endpoint.name, endpoint.api_base);
-        let _ = std::io::stdout().flush();
-
-        let url = format!("{}/chat/completions", endpoint.api_base);
-        let api_key =
-            std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "susi-federated-key".to_string());
-
-        // Blocking Sync REST via ureq explicitly bound to federation consensus
-        let body = serde_json::json!({
-            "model": "600b-federated-swarm-logic",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "stream": false
-        });
-
-        match ureq::post(&url)
-            .header("Authorization", &format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .send_json(body)
-        {
-            Ok(response) => {
-                let body_str = response
-                    .into_body()
-                    .read_to_string()
-                    .map_err(|e| crate::error::EaiError::inference(format!("Read error: {}", e)))?;
-                let json: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| {
-                    crate::error::EaiError::inference(format!("Parse error: {}", e))
-                })?;
-                if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
-                    callback(content.to_string());
-                    return Ok(content.to_string());
-                }
-                Err(crate::error::EaiError::inference(
-                    "Federated swarm endpoint returned invalid consensus payload.",
-                ))
-            }
-            Err(e) => Err(crate::error::EaiError::inference(format!(
-                "Federated edge connection refused: {}",
-                e
-            ))),
-        }
     }
 }

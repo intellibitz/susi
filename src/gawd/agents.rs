@@ -351,11 +351,10 @@ impl GawdAgent for HardwareAgent {
     }
     fn execute(
         &self,
-        goal: &str,
-        workspace: &Path,
+        _goal: &str,
+        _workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let lower = goal.trim().to_lowercase();
         let profile = crate::gemi::hardware::HardwareProfiler::get_profile();
         let report = format!(
             "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
