@@ -14,7 +14,7 @@ use std::sync::{Arc, OnceLock};
 
 use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
-use candle_transformers::models::quantized_qwen2 as qwen2gguf;
+use crate::gemi::qwen2_split as qwen2gguf;
 use tokenizers::Tokenizer;
 
 /// Backing weights graph for a loaded GGUF. `quantized_llama` serves every
@@ -226,8 +226,11 @@ impl InferenceHost {
         );
         let _ = std::io::stdout().flush();
 
+        let file_size = file.metadata().map(|m| m.len() as usize).unwrap_or(0);
         let weights = if Self::needs_qwen2_backend(&arch) {
-            qwen2gguf::ModelWeights::from_gguf(model_data, &mut file, device)
+            let (cpu_dev, gpu_dev, split) = crate::gemi::hardware::HardwareProfiler::get_split_topology(file_size);
+            println!("- [Inference Substrate] Executing Heterogeneous Layer Split: {} layers on GPU", split);
+            qwen2gguf::ModelWeights::from_gguf_split(model_data, &mut file, &cpu_dev, &gpu_dev, split)
                 .map(ModelBackend::Qwen2)
         } else {
             llama::ModelWeights::from_gguf(model_data, &mut file, device).map(ModelBackend::Llama)

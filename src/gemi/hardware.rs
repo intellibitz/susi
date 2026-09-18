@@ -196,6 +196,34 @@ impl HardwareProfiler {
         Self::get_dynamic_device(0)
     }
 
+    pub fn get_split_topology(allocated_bytes_required: usize) -> (Device, Device, usize) {
+        let cpu = Device::Cpu;
+        let gpu = Self::get_dynamic_device(0); // Forcing cache pull
+        
+        if allocated_bytes_required == 0 {
+            return (cpu, gpu, 999);
+        }
+        
+        let vram_limit = Self::determine_gpu_vram_gb() * 1024 * 1024 * 1024;
+        if vram_limit == 0 {
+            return (cpu, gpu, 0); // No GPU layers
+        }
+        
+        let safe_vram = (vram_limit as f64 * 0.90) as usize;
+        
+        if allocated_bytes_required <= safe_vram {
+            return (cpu, gpu, 999); // All layers on GPU
+        }
+        
+        // Example: 14B Q4_K_M is ~9GB. safe_vram is 6.3GB.
+        // Ratio = 6.3 / 9.0 = 0.70
+        let fraction = safe_vram as f64 / allocated_bytes_required as f64;
+        
+        // Approximate standard 40 layers.
+        let split_layers = (40.0 * fraction) as usize;
+        (cpu, gpu, split_layers)
+    }
+
     pub fn get_dynamic_device(allocated_bytes_required: usize) -> Device {
         // Sub-2ms Heterogeneous Offloading Fallback
         if allocated_bytes_required > 0 {
