@@ -318,6 +318,30 @@ impl InferenceHost {
     }
 }
 
+/// Dampens the logits of already-seen tokens (llama.cpp convention: divide a
+/// positive logit or multiply a negative one by `penalty`) so greedy argmax
+/// decoding doesn't loop on its own recent output. A no-op for `penalty <= 0`
+/// or `penalty == 1.0`. `context` is the caller's choice of window - see the
+/// call site in `SusiGgufEngine::run_inference_stream` for why it must be
+/// generated tokens only, never the prompt.
+fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
+    if penalty == 1.0 || penalty <= 0.0 {
+        return;
+    }
+    let mut seen = std::collections::HashSet::new();
+    for &tok in context {
+        if seen.insert(tok) {
+            if let Some(logit) = logits.get_mut(tok as usize) {
+                *logit = if *logit < 0.0 {
+                    *logit * penalty
+                } else {
+                    *logit / penalty
+                };
+            }
+        }
+    }
+}
+
 pub struct ContextSummarizer;
 
 impl ContextSummarizer {
@@ -782,29 +806,15 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 .to_vec1::<f32>()
                 .map_err(|e| EaiError::inference(format!("Logits extraction failed: {}", e)))?;
 
-            if repeat_penalty != 1.0 && repeat_penalty > 0.0 {
-                let mut recent_tokens = Vec::with_capacity(prompt_tokens.len() + all_tokens.len());
-                recent_tokens.extend_from_slice(prompt_tokens);
-                recent_tokens.extend_from_slice(&all_tokens);
-
-                let start_idx = recent_tokens.len().saturating_sub(repeat_last_n);
-                let window = &recent_tokens[start_idx..];
-
-                let mut seen = std::collections::HashSet::new();
-                for &tok in window {
-                    if seen.insert(tok) {
-                        let idx = tok as usize;
-                        if idx < logits_v.len() {
-                            let logit = logits_v[idx];
-                            if logit < 0.0 {
-                                logits_v[idx] = logit * repeat_penalty;
-                            } else {
-                                logits_v[idx] = logit / repeat_penalty;
-                            }
-                        }
-                    }
-                }
-            }
+            // Windowed over generated tokens only, deliberately excluding the
+            // prompt: penalizing prompt tokens pushes the model away from
+            // restating necessary content from the question itself. Verified
+            // live: with the prompt included in the window, "What is the
+            // capital of France?" drifted into an unrelated fact about
+            // France without ever saying "Paris," because "France" (from the
+            // prompt) was already being penalized before generation started.
+            let start_idx = all_tokens.len().saturating_sub(repeat_last_n);
+            apply_repeat_penalty(&mut logits_v, repeat_penalty, &all_tokens[start_idx..]);
 
             let mut next_token = 0u32;
             let mut max_logit = f32::NEG_INFINITY;
@@ -1029,41 +1039,61 @@ mod tests {
 
     #[test]
     fn test_logits_repetition_penalty_dampens_recent_tokens() {
-        let repeat_penalty = 1.15f32;
-        let repeat_last_n = 64usize;
-        let prompt_tokens = vec![100u32, 200u32];
-        let all_tokens = vec![1u32]; // Token 1 has been generated
-
         let mut logits_v = vec![10.0f32, 10.0f32, 10.0f32]; // Equal logits for tokens 0, 1, 2
-
-        if repeat_penalty != 1.0 && repeat_penalty > 0.0 {
-            let mut recent_tokens = Vec::with_capacity(prompt_tokens.len() + all_tokens.len());
-            recent_tokens.extend_from_slice(&prompt_tokens);
-            recent_tokens.extend_from_slice(&all_tokens);
-
-            let start_idx = recent_tokens.len().saturating_sub(repeat_last_n);
-            let window = &recent_tokens[start_idx..];
-
-            let mut seen = std::collections::HashSet::new();
-            for &tok in window {
-                if seen.insert(tok) {
-                    let idx = tok as usize;
-                    if idx < logits_v.len() {
-                        let logit = logits_v[idx];
-                        if logit < 0.0 {
-                            logits_v[idx] = logit * repeat_penalty;
-                        } else {
-                            logits_v[idx] = logit / repeat_penalty;
-                        }
-                    }
-                }
-            }
-        }
+        apply_repeat_penalty(&mut logits_v, 1.15, &[1u32]); // Token 1 has been generated
 
         // Token 1 was penalized: 10.0 / 1.15 ~ 8.695
         assert!(logits_v[1] < logits_v[0]);
         assert!(logits_v[1] < logits_v[2]);
         assert_eq!(logits_v[0], 10.0);
         assert_eq!(logits_v[2], 10.0);
+    }
+
+    #[test]
+    fn test_repeat_penalty_disabled_at_1_0_or_below() {
+        let original = vec![10.0f32, -5.0, 3.0];
+        let mut logits_v = original.clone();
+        apply_repeat_penalty(&mut logits_v, 1.0, &[0, 1, 2]);
+        assert_eq!(logits_v, original);
+
+        let mut logits_v = original.clone();
+        apply_repeat_penalty(&mut logits_v, 0.0, &[0, 1, 2]);
+        assert_eq!(logits_v, original);
+    }
+
+    #[test]
+    fn test_repeat_penalty_dampens_negative_logits_by_multiplying() {
+        // llama.cpp convention: a negative logit is already "unlikely," so
+        // penalizing it means moving it further negative (multiply), not
+        // dividing (which would move a negative value toward zero, i.e.
+        // *more* likely - the opposite of a penalty).
+        let mut logits_v = vec![-4.0f32];
+        apply_repeat_penalty(&mut logits_v, 1.15, &[0]);
+        assert_eq!(logits_v[0], -4.6);
+    }
+
+    #[test]
+    fn test_generation_loop_excludes_prompt_tokens_from_repeat_penalty_window() {
+        // Regression: the window used to be built from prompt_tokens +
+        // all_tokens combined, so a short prompt sat inside the
+        // repeat_last_n window for the entire generation and got penalized
+        // from the very first token. Verified live: "What is the capital of
+        // France?" (where "France" is a prompt token) drifted into an
+        // unrelated fact about France without ever saying "Paris," because
+        // "France" was already penalized before generation started. The
+        // fix scopes the window to `all_tokens` (generated so far) only;
+        // this locks in that a prompt-only token is never penalized.
+        let prompt_tokens: Vec<u32> = vec![42]; // e.g. the token for "France"
+        let all_tokens: Vec<u32> = vec![]; // nothing generated yet
+        let repeat_last_n = 64usize;
+
+        let mut logits_v = vec![10.0f32; 100];
+        let start_idx = all_tokens.len().saturating_sub(repeat_last_n);
+        apply_repeat_penalty(&mut logits_v, 1.15, &all_tokens[start_idx..]);
+
+        assert_eq!(
+            logits_v[prompt_tokens[0] as usize], 10.0,
+            "a prompt-only token must not be penalized just because it appears in the prompt"
+        );
     }
 }
