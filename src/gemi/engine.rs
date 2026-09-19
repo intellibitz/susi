@@ -1142,7 +1142,7 @@ mod tests {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let tokenizer_path = home.join(".susi/models/tokenizer.json");
+        let tokenizer_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
             assert!(tokenizer.is_ok());

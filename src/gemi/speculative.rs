@@ -576,7 +576,7 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let models_dir = home.join(".susi/models");
+        let models_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("models");
         let target_path = models_dir.join("qwen2.5-1.5b-instruct-q4_k_m.gguf");
         let draft_path = models_dir.join("qwen2.5-0.5b-instruct-q4_k_m.gguf");
         let tokenizer_path = models_dir.join("tokenizer.json");

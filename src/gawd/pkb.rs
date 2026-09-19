@@ -97,10 +97,10 @@ impl ProtocolKnowledgeBase {
     }
 
     pub fn list_reflex_weights(workspace: &Path) -> Vec<String> {
-        let home = std::env::var("HOME")
+        let _home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
-        let models_dir = PathBuf::from(home).join(".susi").join("models");
+        let models_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("models");
         let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .alpha_weights_filename();
@@ -124,10 +124,10 @@ impl ProtocolKnowledgeBase {
     }
 
     pub fn verify_alpha_substrate() -> EaiResult<String> {
-        let home = std::env::var("HOME")
+        let _home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
-        let models_dir = PathBuf::from(home).join(".susi").join("models");
+        let models_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("models");
         let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .alpha_weights_filename();
@@ -149,10 +149,10 @@ impl ProtocolKnowledgeBase {
 
     #[allow(dead_code)]
     pub fn distill_reflex_to_binary(intent: &str, workspace: &Path) -> EaiResult<PathBuf> {
-        let home = std::env::var("HOME")
+        let _home = std::env::var("HOME")
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
-        let models_dir = PathBuf::from(home).join(".susi").join("models");
+        let models_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("models");
         let alpha_filename = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .alpha_weights_filename();

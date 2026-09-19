@@ -9,11 +9,11 @@ pub struct SafetyDetector;
 
 impl SafetyDetector {
     pub fn audit_action(tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 

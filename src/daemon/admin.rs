@@ -53,11 +53,11 @@ impl SusiAdmin {
     }
 
     pub fn get_global_susi_dir() -> std::path::PathBuf {
-        let home = env::var_os("HOME")
+        let _home = env::var_os("HOME")
             .or_else(|| env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        home.join(".susi")
+        crate::sandbox::xdg::SusiDirs::config_dir()
     }
 
     pub fn get_cargo_version(workspace: &Path) -> EaiResult<String> {

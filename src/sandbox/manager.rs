@@ -459,10 +459,10 @@ pub struct SusiPrompts {
 
 impl SusiPrompts {
     pub fn load_global() -> Self {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let prompts_file = home.join(".susi/prompts.json");
+        let prompts_file = crate::sandbox::xdg::SusiDirs::config_dir().join("prompts.json");
 
         static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> = std::sync::OnceLock::new();
         let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
@@ -479,7 +479,7 @@ impl SusiPrompts {
 
         // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
-        let templates_override = home.join(".susi/chat_templates.json");
+        let templates_override = crate::sandbox::xdg::SusiDirs::config_dir().join("chat_templates.json");
         if templates_override.is_file() {
             prompts.chat_templates =
                 ChatTemplateConfig::from_file(templates_override.to_str().unwrap_or_default());
@@ -572,10 +572,10 @@ pub struct SusiMessages {
 
 impl SusiMessages {
     pub fn load_global() -> Self {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let msgs_file = home.join(".susi/messages.json");
+        let msgs_file = crate::sandbox::xdg::SusiDirs::config_dir().join("messages.json");
 
         static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> = std::sync::OnceLock::new();
         let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
@@ -826,11 +826,11 @@ impl SusiConfig {
     }
 
     pub fn load_global() -> EaiResult<Self> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        Self::load(&home.join(".susi"))
+        Self::load(&crate::sandbox::xdg::SusiDirs::config_dir())
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct

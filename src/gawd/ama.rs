@@ -178,10 +178,10 @@ impl SusiMasterAgent {
         );
 
         eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
@@ -602,10 +602,10 @@ impl SusiMasterAgent {
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = crate::gemi::hardware::HardwareProfiler::get_profile();
-            let home = std::env::var_os("HOME")
+            let _home = std::env::var_os("HOME")
                 .map(std::path::PathBuf::from)
                 .unwrap_or_default();
-            let global_dir = home.join(".susi");
+            let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
             let daemon_status = if crate::daemon::server::SusiDaemon::check_status(
                 workspace,
                 &global_dir,

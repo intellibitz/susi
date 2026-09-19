@@ -184,11 +184,11 @@ impl BloatAuditor {
     }
 
     fn load_secret_patterns() -> Vec<String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        crate::sandbox::manager::SusiConfig::load(&home.join(".susi"))
+        crate::sandbox::manager::SusiConfig::load(&crate::sandbox::xdg::SusiDirs::config_dir())
             .map(|c| c.governance().secret_tokens)
             .unwrap_or_default()
     }

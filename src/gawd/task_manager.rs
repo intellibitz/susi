@@ -139,11 +139,11 @@ impl TelemetryHistoryStore {
     }
 
     fn get_history_file() -> PathBuf {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        home.join(".susi/telemetry_history.json")
+        crate::sandbox::xdg::SusiDirs::data_dir().join("telemetry_history.json")
     }
 
     fn load_history(&self) {
@@ -401,12 +401,12 @@ impl SwarmTaskManager {
                     if let Some(c) = mgr.cancel_map.get(&task_id) {
                         c.store(true, Ordering::Release);
                     }
-                    let home = std::env::var_os("HOME")
+                    let _home = std::env::var_os("HOME")
                         .or_else(|| std::env::var_os("USERPROFILE"))
                         .map(PathBuf::from)
                         .unwrap_or_else(|| PathBuf::from("."));
                     crate::sandbox::manager::SusiAuditLogger::log(
-                        &home.join(".susi"),
+                        &crate::sandbox::xdg::SusiDirs::config_dir(),
                         crate::sandbox::manager::LogLevel::Axiomatic,
                         "LEASE_EXPIRED",
                         &format!(

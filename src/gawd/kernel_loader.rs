@@ -59,10 +59,10 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         let gmcp_addr = format!("127.0.0.1:{}", cfg.gmcp_port());

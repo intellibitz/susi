@@ -26,11 +26,11 @@ impl SusiAlphaModel {
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
-            let home = std::env::var_os("HOME")
+            let _home = std::env::var_os("HOME")
                 .or_else(|| std::env::var_os("USERPROFILE"))
                 .map(std::path::PathBuf::from)
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
-            Self::load(&home.join(".susi")).unwrap_or_else(|_| {
+            Self::load(&crate::sandbox::xdg::SusiDirs::config_dir()).unwrap_or_else(|_| {
                 let device = crate::gemi::hardware::HardwareProfiler::get_candle_device();
                 let varmap = VarMap::new();
                 let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);

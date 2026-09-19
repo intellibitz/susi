@@ -99,8 +99,8 @@ pub struct GmcpClient;
 
 impl GmcpClient {
     pub fn get_config_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let susi_dir = PathBuf::from(home).join(".susi");
+        let _home = std::env::var("HOME").unwrap_or_default();
+        let susi_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
@@ -157,8 +157,8 @@ impl GmcpClient {
     }
 
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let global_dir = PathBuf::from(home).join(".susi");
+        let _home = std::env::var("HOME").unwrap_or_default();
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 

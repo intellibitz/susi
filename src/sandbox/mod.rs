@@ -1,3 +1,4 @@
+pub mod xdg;
 pub mod manager;
 pub use manager::SandboxManager;
 pub mod versioned_store;

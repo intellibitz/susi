@@ -89,11 +89,11 @@ impl EaiError {
     }
 
     fn log_to_metrics(&self) {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        let metrics_file = home.join(".susi/error_metrics.jsonl");
+        let metrics_file = crate::sandbox::xdg::SusiDirs::data_dir().join("error_metrics.jsonl");
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

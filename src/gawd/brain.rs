@@ -23,11 +23,11 @@ pub struct AlphaBrainContext {
 impl AlphaBrainContext {
     pub fn initialize(workspace: &Path) -> Self {
         let hardware = HardwareProfiler::get_profile();
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         // Reachable on every `identity` query during normal operation, not
         // just boot: degrade to bundled defaults rather than panic this
         // request's thread if config.json is torn by a concurrent writer.

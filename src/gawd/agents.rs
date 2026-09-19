@@ -323,11 +323,11 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
-            let home = std::env::var_os("HOME")
+            let _home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
             let cfg =
-                crate::sandbox::manager::SusiConfig::load(&home.join(".susi")).unwrap_or_default();
+                crate::sandbox::manager::SusiConfig::load(&crate::sandbox::xdg::SusiDirs::config_dir()).unwrap_or_default();
             crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
@@ -1132,11 +1132,11 @@ impl GawdAgent for AdminAgent {
 
 impl AdminAgent {
     fn global_dir() -> std::path::PathBuf {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        home.join(".susi")
+        crate::sandbox::xdg::SusiDirs::config_dir()
     }
 
     /// Command-trigger keywords are config-driven (Mandate 35: Registry + Trait +
@@ -1227,11 +1227,11 @@ impl AgentMetaRegistry {
     }
 
     fn registry_path() -> std::path::PathBuf {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
-        home.join(".susi/agent_registry.json")
+        crate::sandbox::xdg::SusiDirs::data_dir().join("agent_registry.json")
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
@@ -1294,12 +1294,12 @@ impl AgentMetaRegistry {
                         "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
                         name_owned, old_rank, agent.base_rank, source_owned
                     );
-                    let home = std::env::var_os("HOME")
+                    let _home = std::env::var_os("HOME")
                         .or_else(|| std::env::var_os("USERPROFILE"))
                         .map(std::path::PathBuf::from)
                         .unwrap_or_else(|| std::path::PathBuf::from("."));
                     crate::sandbox::manager::SusiAuditLogger::log(
-                        &home.join(".susi"),
+                        &crate::sandbox::xdg::SusiDirs::config_dir(),
                         crate::sandbox::manager::LogLevel::Info,
                         "AGENT_MUTATION",
                         &log_msg,

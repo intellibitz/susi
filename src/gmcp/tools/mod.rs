@@ -210,10 +210,10 @@ impl CoreTools {
         ));
 
         // Report Background Provisioning Progress
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = home.join(".susi/download_progress.json");
+        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) =
@@ -1333,8 +1333,8 @@ impl ToolRegistry {
 
         tools.extend(GmcpClient::list_external_tools());
 
-        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-            let reflex_dir = home.join(".susi/reflexes");
+        if let Some(_home) = std::env::var_os("HOME").map(PathBuf::from) {
+            let reflex_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes");
             if let Ok(entries) = fs::read_dir(&reflex_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
@@ -1385,8 +1385,8 @@ impl ToolRegistry {
 
         if name.starts_with("reflex_") {
             let wasm_name = format!("{}.wasm", name.trim_start_matches("reflex_"));
-            if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-                let wasm_path = home.join(".susi/reflexes").join(wasm_name);
+            if let Some(_home) = std::env::var_os("HOME").map(PathBuf::from) {
+                let wasm_path = crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes").join(wasm_name);
                 if wasm_path.exists() {
                     let arg_str = if let Some(s) = arg.as_str() {
                         s.to_string()

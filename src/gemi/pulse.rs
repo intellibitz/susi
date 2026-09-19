@@ -22,11 +22,11 @@ impl SusiPulse {
     pub fn reason(prompt: &str, workspace: &Path) -> Result<String> {
         let prompt_trimmed = prompt.trim();
 
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
 
         // Neural Synchronization (Cache Invalidation)
         {
@@ -50,11 +50,11 @@ impl SusiPulse {
             }
         }
 
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
 
         // Neural Reflex Attempt
         if let Ok(model) = SusiAlphaModel::load(&global_dir) {

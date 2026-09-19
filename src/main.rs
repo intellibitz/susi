@@ -222,8 +222,8 @@ fn main() {
     console_subscriber::init();
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let home = get_home_dir();
-    let global_dir = home.join(".susi");
+    let _home = get_home_dir();
+    let global_dir = susi_engine::sandbox::xdg::SusiDirs::config_dir();
     let _ = std::fs::create_dir_all(&global_dir);
 
     let file_appender = tracing_appender::rolling::never(&global_dir, "audit.log");

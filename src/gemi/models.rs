@@ -137,10 +137,10 @@ impl ModelDownloadController {
     }
 
     pub fn get_progress(&self, target: &str) -> Option<ModelDownloadProgress> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = home.join(".susi/download_progress.json");
+        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         if let Ok(content) = fs::read_to_string(&progress_file) {
             if let Ok(record) = serde_json::from_str::<ModelDownloadProgress>(&content) {
                 if record.target_url == target || record.model_name == target {
@@ -257,7 +257,7 @@ impl ModelManager {
             let _ = fs::create_dir_all(&p);
             return p;
         }
-        let global_dir = home.join(".susi/models");
+        let global_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("models");
         let _ = fs::create_dir_all(&global_dir);
         global_dir
     }
@@ -289,10 +289,10 @@ impl ModelManager {
     }
 
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let susi_dir = home.join(".susi");
+        let susi_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let _ = fs::create_dir_all(&susi_dir);
         let model_file = susi_dir.join("selected_model_override.txt");
         fs::write(&model_file, model_name.trim()).map_err(|e| e.to_string())?;
@@ -417,10 +417,10 @@ impl ModelManager {
     pub fn get_selected_model(
         intent: Option<crate::gemi::intent::IntentCategory>,
     ) -> Option<String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let override_file = home.join(".susi/selected_model_override.txt");
+        let override_file = crate::sandbox::xdg::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
@@ -432,10 +432,10 @@ impl ModelManager {
     }
 
     pub fn set_selected_engine(engine_name: &str) -> Result<String, String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let susi_dir = home.join(".susi");
+        let susi_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let _ = fs::create_dir_all(&susi_dir);
         let engine_file = susi_dir.join("selected_engine.txt");
         fs::write(&engine_file, engine_name.trim()).map_err(|e| e.to_string())?;
@@ -446,10 +446,10 @@ impl ModelManager {
     }
 
     pub fn get_selected_engine() -> Option<String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let engine_file = home.join(".susi/selected_engine.txt");
+        let engine_file = crate::sandbox::xdg::SusiDirs::config_dir().join("selected_engine.txt");
         fs::read_to_string(&engine_file)
             .ok()
             .map(|s| s.trim().to_string())
@@ -458,10 +458,10 @@ impl ModelManager {
     pub fn get_active_engine_and_model(
         intent: Option<crate::gemi::intent::IntentCategory>,
     ) -> (String, String) {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         // Reachable on every inference/model-routing decision, not just boot:
         // a config.json torn by a concurrent writer must degrade to bundled
         // defaults here rather than panic this request's thread.
@@ -1077,10 +1077,10 @@ impl ModelManager {
         total: u64,
         status: &str,
     ) {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = home.join(".susi/download_progress.json");
+        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         let record = ModelDownloadProgress {
             model_name: model_name.to_string(),
             target_url: target_url.to_string(),
@@ -1302,10 +1302,10 @@ impl ModelManager {
     }
 
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
-        let home = std::env::var_os("HOME")
+        let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = home.join(".susi");
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         let existing = Self::scan_system_for_local_models(workspace);
