@@ -14,7 +14,6 @@ This document defines the sovereign ledger of functional mastery that anchors th
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
-| EV-2022924-044 | [MISSION] | totally-bogus-subcommand-xyz | [manual](symbol://manual) | STAGED |
 | EV-2022924-042 | [MISSION] | What is the capital of France? Answer in one short sentence. | [manual](symbol://manual) | STAGED |
 | EV-2022924-041 | [MISSION] | Explain photosynthesis. | [manual](symbol://manual) | STAGED |
 | EV-2022924-040 | [MISSION] | Write a short poem about the ocean. | [manual](symbol://manual) | STAGED |
