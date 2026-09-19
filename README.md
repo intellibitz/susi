@@ -1,6 +1,6 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.1.2023062-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.1.2023063-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **susi** is a local-first Rust engine for running and orchestrating AI models. It loads model weights directly (`.safetensors`, GGUF, ONNX via Candle), queues work through a lock-free, async intent pipeline, and can fan work out across multiple agents running in parallel. It exposes tools over the Model Context Protocol (MCP) and checks its own outputs against the actual state of the workspace before treating them as fact.
 
