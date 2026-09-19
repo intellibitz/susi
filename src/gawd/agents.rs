@@ -1,6 +1,7 @@
-// GAWD Agent Fleet: Universal Multi-Agent Swarm Logic
-// Agents must add functionality directly to the susi engine.
-// Substrate Purity & Meta-Only - Neural Swarm Synthesis
+// Agent trait, built-in agent implementations, and the fleet synthesizer
+// that decides which agents to recruit for a given goal.
+// Agents must add functionality directly to the susi engine, not simulate
+// results themselves.
 
 use crate::error::EaiResult;
 use dashmap::DashMap;
@@ -37,9 +38,8 @@ pub struct AgentProfile {
     pub is_core: bool,
 }
 
-/// High-Density Context Store
-/// Implements lease-capped, memory-safe distributed context mapping.
-/// Optimized for Lock-Free Native Substrate using DashMap.
+/// Capacity-capped concurrent string map (DashMap-backed). Evicts an
+/// arbitrary entry when full rather than tracking real LRU order.
 #[derive(Debug)]
 pub struct HighDensityContextStore {
     inner: DashMap<String, String>,
@@ -109,12 +109,11 @@ impl HighDensityContextStore {
     }
 }
 
-/// Swarm Blackboard: Shared state for swarm agents to converge on the "Chain of Truth".
-/// Optimized for High-Density Context Mapping and a Lock-Free Substrate.
+/// Shared state agents write their outputs into during a mission.
 pub type SwarmBlackboard = Arc<HighDensityContextStore>;
 pub type MissionBlackboard = SwarmBlackboard;
 
-/// Core Intelligence Trait for SUSI Swarm Agents
+/// Trait every swarm agent implements.
 pub trait GawdAgent: Send + Sync {
     fn name(&self) -> String;
     fn rank(&self) -> f32;
@@ -126,7 +125,8 @@ pub trait GawdAgent: Send + Sync {
     ) -> EaiResult<String>;
 }
 
-/// Dynamic Agent: A generic substrate agent that loads behavior from models and tools.
+/// Generic agent that falls back to LLM reasoning when no specialist agent
+/// covers the goal.
 pub struct DynamicAgent {
     pub agent_name: String,
     pub mission_profile: String,
@@ -213,7 +213,7 @@ impl GawdAgent for DynamicAgent {
             || trimmed == "models"
             || trimmed.starts_with("admin pulse");
 
-        // Swarm Intelligence Escalation: Use native 'reason' tool directly for absolute autonomy.
+        // Prefer the registered 'reason' tool; fall back to calling the engine directly.
         let res = if is_admin_or_query {
             format!(
                 "[{}]: Observation integrated into blackboard.",
@@ -286,7 +286,8 @@ impl GawdAgent for DevOpsAgent {
     }
 }
 
-/// Runtime Substrate Preparation Agent
+/// Ensures a usable model is available (installs the default if none is
+/// found) and links essential MCP servers.
 pub struct SusiRuntimeAgent;
 
 impl GawdAgent for SusiRuntimeAgent {
@@ -310,17 +311,17 @@ impl GawdAgent for SusiRuntimeAgent {
         {
             return Ok("Runtime environment active for query.".into());
         }
-        // 1. Substrate Infrastructure Audit
+        // 1. Check whether a cloud API key is configured
         let cloud_env_keys = ["SUSI_API_KEY", "MODEL_API_KEY", "EAI_API_KEY", "API_KEY"];
         let cloud_available = cloud_env_keys.iter().any(|k| std::env::var(k).is_ok());
 
-        // 2. Local Weight Verification
+        // 2. Check whether a valid local model is already present
         let verifications = crate::gemi::models::ModelManager::verify_local_models(workspace);
         let valid_local_found = verifications
             .iter()
             .any(|v| v.is_valid_gguf || v.model_id.contains("native"));
 
-        // 3. Autonomous Provisioning & Hardware Tuning
+        // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
             let home = std::env::var_os("HOME")
                 .map(PathBuf::from)
@@ -331,15 +332,14 @@ impl GawdAgent for SusiRuntimeAgent {
             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
 
-        // 4. Protocol Linking
+        // 4. Link essential MCP servers
         crate::gmcp::tools::ToolRegistry::auto_link_essential_mcp_servers();
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
     }
 }
 
-/// Hardware Optimization Agent
-/// Autonomously interrogates host hardware and saturates compute resources.
+/// Reports the detected hardware profile (CPU, RAM, GPU/acceleration).
 pub struct HardwareAgent;
 
 impl GawdAgent for HardwareAgent {
@@ -850,7 +850,7 @@ impl GawdAgent for SelfHealingAgent {
     }
 }
 
-/// Universal Dynamic Inference Endpoint Agent (100% Vendor Agnostic)
+/// Wraps a configurable remote inference endpoint (base URL + protocol) as an agent.
 pub struct DynamicInferenceEndpointAgent {
     pub endpoint_name: String,
     pub api_base_url: String,
@@ -1051,7 +1051,8 @@ impl GawdAgent for LibraryScoutAgent {
     }
 }
 
-/// Administrative Substrate Agent
+/// Routes admin-shaped goals (install/uninstall/sync/release/...) to the
+/// matching `SusiAdmin` action.
 pub struct AdminAgent;
 
 impl GawdAgent for AdminAgent {

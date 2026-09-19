@@ -1,5 +1,6 @@
-// SUSI Evidence Intermediate Representation (Evidence IR)
-// Architecture Refinement: Structured Provenance & Claim Verification
+// Structured record type for an agent's claim plus the evidence backing it
+// (a file hash, a command's exit code, etc.), so the claim can be checked
+// against the workspace later.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -85,12 +86,12 @@ impl EvidenceRecord {
     }
 
     pub fn verify_reality(&self, workspace: &Path) -> bool {
-        // 1. Signature Check (Substrate Integrity)
+        // 1. The record hasn't been tampered with since it was created.
         if self.signature != self.calculate_signature() {
             return false;
         }
 
-        // 2. Physical Truth Check
+        // 2. The claimed evidence still checks out on disk.
         match &self.source {
             EvidenceSource::File { path, hash } => {
                 let target = workspace.join(path);

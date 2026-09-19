@@ -14,7 +14,10 @@ use std::process::Command;
 pub struct ReflexSynthesizer;
 
 impl ReflexSynthesizer {
-    /// Distills a neural intent into a native Rust reflex driven by Test-Driven specifications
+    /// Writes a boilerplate `SusiTool` stub for `intent` to
+    /// `src/gmcp/reflexes/<intent>.rs`. `execute()` just echoes its argument
+    /// back in a canned string — this scaffolds a reflex, it doesn't
+    /// implement one.
     pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
         let struct_name = intent
             .split_whitespace()

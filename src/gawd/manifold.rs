@@ -1,5 +1,5 @@
-// SUSI Continuous Intent Manifold
-// Replaces static enum classification with dynamic intent impact and risk profiling.
+// Classifies an intent string's scope of impact and risk level via keyword
+// matching, to decide whether it needs swarm dispatch and verification.
 
 use serde::{Deserialize, Serialize};
 

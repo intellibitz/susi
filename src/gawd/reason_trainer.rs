@@ -1,5 +1,5 @@
-// Reasoning Trainer: Autonomous Tier 2 Substrate Distillation
-// Implements the "Substrate Ingestion Motion".
+// Ensures reasoning_experience.jsonl has data (distilling it from AlphaSelf
+// if empty), then trains the local Tier 2 reasoning model from it.
 
 use crate::error::EaiResult;
 use crate::gawd::genome_distiller::GenomeDistiller;
@@ -17,7 +17,7 @@ impl ReasoningTrainer {
         let global_dir = home.join(".susi");
         let experience_file = global_dir.join("reasoning_experience.jsonl");
 
-        // Step 1: Ensure Genome is distilled into experience if buffer is low
+        // Ensure the experience buffer has data if it's currently empty
         let existing_count = if experience_file.exists() {
             std::fs::read_to_string(&experience_file)
                 .unwrap_or_default()

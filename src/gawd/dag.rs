@@ -1,5 +1,5 @@
-// SUSI Dynamic Task Graph (DAG) Execution Substrate
-// Enables agents to dynamically spawn sub-tasks, set dependencies, and consume verified EvidenceRecord outputs.
+// Dependency-ordered task graph: agents can spawn sub-tasks with
+// dependencies on parent tasks, executed in ready-batches via rayon.
 
 use super::agents::MissionBlackboard;
 use super::evidence::EvidenceRecord;

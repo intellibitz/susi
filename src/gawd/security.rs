@@ -1,7 +1,5 @@
-// SUSI Security & Violation Detector
-// 100% Rust implementation for detecting credential leaks and exfiltration
+// Flags/redacts secret-token and exfiltration patterns loaded from config.
 // Mandate 10: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
-// Dynamic Pattern Loading
 
 use crate::error::{EaiError, EaiResult};
 use crate::sandbox::manager::SusiConfig;

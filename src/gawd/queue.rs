@@ -1,6 +1,5 @@
-// SUSI Substrate Pulse Queue
-// Non-Blocking Pulse Ingestion & Serialized Pulse Execution
-// Refactored to use genuinely lock-free crossbeam SegQueue.
+// Priority queue for incoming intents ("pulses"), backed by crossbeam's
+// lock-free SegQueue.
 
 use crate::error::EaiResult;
 use crossbeam::queue::SegQueue;
@@ -42,7 +41,6 @@ impl SubstratePulseQueue {
         INSTANCE.get_or_init(Self::new)
     }
 
-    /// Truly Lock-Free Non-Blocking Ingestion
     pub fn ingest(&self, intent: &str, workspace: &Path, version: &str) -> EaiResult<()> {
         info!(intent = %intent, "Ingesting new pulse into lock-free substrate queue");
 

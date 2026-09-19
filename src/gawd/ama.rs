@@ -1,6 +1,7 @@
-// SUSI Intelligence Substrate: The Orchestration Substrate
-// Agents must add functionality directly to the susi engine via ToolRegistry.
-// Agents must not simulate or "fake" susi capabilities by performing logic themselves.
+// Top-level mission orchestrator: sanitizes input, dispatches the swarm, and
+// streams results back to the caller.
+// Agents must add functionality directly to the susi engine via ToolRegistry,
+// not simulate or "fake" susi capabilities by performing logic themselves.
 
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
@@ -101,7 +102,7 @@ impl SusiMasterAgent {
             ));
         }
 
-        // 2. High-Risk Pattern Intercept (Substrate Security)
+        // 2. Block high-risk shell/injection patterns
         let risk_patterns = ["$(", "`", "> /dev/", "| nc ", "| netcat ", "0xCC", "\\x"];
         for pattern in risk_patterns {
             if trimmed.contains(pattern) {
@@ -141,8 +142,7 @@ impl SusiMasterAgent {
 
         eprintln!("<thinking>");
 
-        // Glass Box Integrity Guard
-        // Ensures </thinking> is ALWAYS printed even if synthesis panics or hangs.
+        // Ensures </thinking> is always printed, even if synthesis panics or hangs.
         struct ThinkingGuard;
         impl Drop for ThinkingGuard {
             fn drop(&mut self) {
@@ -349,8 +349,38 @@ impl SusiMasterAgent {
             eprintln!();
 
             eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
-            eprintln!("- [Axiomatic Alignment Check] Status: SUCCESS | Fast-Path Read axiomatic alignment auto-verified.");
-            eprintln!("- [Reality Integrity Check] Status: SUCCESS | Fast-Path Read reality integrity auto-verified.");
+            let final_answer = match crate::gemi::engine::GemiEngine::verify_axiomatic_alignment(
+                &final_answer,
+                workspace,
+            ) {
+                Ok(v) => {
+                    eprintln!(
+                        "- [Axiomatic Alignment Check] Status: SUCCESS | Fast-Path Read axiomatic alignment verified."
+                    );
+                    v
+                }
+                Err(e) => {
+                    eprintln!("- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}", e);
+                    format!("Axiomatic Violation: {}", e)
+                }
+            };
+            let final_answer = match super::truth::TruthTransformer::verify_mission_reality(
+                goal,
+                "SUSI_SOLVE",
+                &final_answer,
+                workspace,
+            ) {
+                Ok(v) => {
+                    eprintln!(
+                        "- [Reality Integrity Check] Status: SUCCESS | Fast-Path Read reality integrity verified."
+                    );
+                    v
+                }
+                Err(e) => {
+                    eprintln!("- [Reality Integrity Check] Status: VIOLATION | Error: {}", e);
+                    format!("Reality Violation: {}", e)
+                }
+            };
 
             eprintln!("\n[FAST-PATH COMPLETE]");
             let report = SusiMissionReport {
@@ -416,8 +446,6 @@ impl SusiMasterAgent {
         let goal = Self::sanitize_input(goal)?;
 
         eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
-        eprintln!("- [Substrate Operation] Initializing Axiomatic Substrate...");
-        eprintln!("- [Substrate Operation] Loading Genome Mandates into Context Store...");
         eprintln!("- [Swarm Synthesis] Recruitment projection active over Active Agent Registry.");
 
         // 1. Swarm Supervision
@@ -428,7 +456,7 @@ impl SusiMasterAgent {
             eprintln!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
         }
 
-        eprintln!("- [Swarm Execution] Dispatching parallel CSP channels for non-blocking message loop...");
+        eprintln!("- [Swarm Execution] Dispatching agent fleet via rayon work-stealing parallel execution...");
         for msg in &interactions {
             if msg.sender != "ConsensusMaster" {
                 eprintln!(
@@ -542,7 +570,7 @@ impl SusiMasterAgent {
         let goal = Self::sanitize_input(goal)?;
         let lower_goal = goal.to_lowercase();
 
-        // Substrate Queries (Swarm-Dispatched Reflex Interrogation - see QUERIES.md)
+        // Meta-command fast paths (identity/status/models/version/...)
         let trimmed_query = lower_goal.trim();
         if trimmed_query == "identity" || trimmed_query == "susi identity" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
@@ -622,7 +650,7 @@ impl SusiMasterAgent {
             });
         }
 
-        // Recursive Parallel Parallelism
+        // Route goals that ask for parallel/split work to the parallel-mission path
         if lower_goal.contains("parallel") || lower_goal.contains("split") {
             return self.solve_parallel_mission(&goal, workspace, version, depth + 1);
         }
@@ -656,7 +684,7 @@ impl SusiMasterAgent {
             let swarm_context = SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
             let final_answer = if is_motion {
-                // Tier 1 GAWD Swarm Dispatch for Motions & Core Workspace Mutations
+                // Admin/motion goal: label the output accordingly
                 format!(
                     "SUSI-Motion-Convergence ({}):\n\n{}",
                     version, swarm_context
@@ -917,7 +945,7 @@ impl SusiMasterAgent {
         // 3. Memory persistence
         crate::sandbox::manager::SusiMemory::save_interaction(workspace, goal, &res.final_answer);
 
-        // 4. Autonomous Distillation: Capture learned wisdom from Power-Tier remotes
+        // 4. Stage successful power_reason (remote) interactions for distillation
         for msg in &res.interactions {
             if msg.action.contains("power_reason") && !msg.payload.contains("[FAIL]") {
                 let metadata = serde_json::json!({
@@ -1005,7 +1033,7 @@ impl SusiMasterAgent {
     pub fn handle_autonomous_evolution(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
         crate::sandbox::manager::SusiAuditLogger::log_event(workspace, "MISSION_START", goal);
 
-        // 1. Attempt mission with current substrate
+        // 1. Attempt the mission as-is
         let res = self.solve(goal, workspace, crate::SUSI_VERSION);
 
         match res {
@@ -1048,8 +1076,8 @@ impl SusiMasterAgent {
     }
 }
 
-/// SUSI Hybrid Agent: Converged Coding & Assistant Substrate
-/// Integrates specialized toolboxes for Production-Grade EAI.
+/// Routes a goal to either the coding toolbox (`ast_analyze`) or the
+/// assistant toolbox (`rag_query`) based on keyword matching.
 pub struct SusiHybridAgent {
     pub coding_toolbox: Vec<String>,
     pub assistant_toolbox: Vec<String>,

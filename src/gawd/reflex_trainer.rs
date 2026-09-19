@@ -1,5 +1,5 @@
-// Reflex Trainer: Autonomous Neural Substrate Evolution
-// Monitors learning staged buffer and triggers native distillation.
+// Watches distillation_staged.jsonl and kicks off training once it crosses
+// the configured sample threshold.
 
 use crate::error::EaiResult;
 use crate::gemi::alpha::SusiAlphaModel;
@@ -8,7 +8,7 @@ use std::path::Path;
 pub struct ReflexTrainer;
 
 impl ReflexTrainer {
-    /// Checks if the substrate needs a retraining cycle based on learned wisdom volume.
+    /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))

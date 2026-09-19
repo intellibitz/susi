@@ -1,5 +1,5 @@
-// SUSI: Universal EAI Swarm Supervisor
-// Tier 1 AOA Protocol governing Exponential Explosive Intelligence Swarms
+// Tier 1 swarm supervisor: dispatches and ranks agents for a mission, and
+// coordinates with peer nodes over the AOA federation protocol.
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -372,7 +372,7 @@ impl SusiSupervisor {
             let _ = std::io::stdout().flush();
         }
 
-        // 3. Active Distributed Swarm Consensus Protocol (Full Integration)
+        // 3. Broadcast the goal to active peer nodes; their results land on the blackboard
         let cluster_nodes = Self::rank_peers_for_goal(goal);
         let active_peers_count = cluster_nodes
             .iter()
@@ -402,7 +402,7 @@ impl SusiSupervisor {
             }
         }
 
-        // 4. Exponential Swarm Execution (Converging on Blackboard)
+        // 4. Dispatch the local agent fleet; each agent's output lands on the blackboard
         let swarm_logs = GawdAgentFleet::dispatch_explosive_swarm(
             goal.to_string(),
             workspace.to_path_buf(),
@@ -423,7 +423,7 @@ impl SusiSupervisor {
             });
         }
 
-        // 4.1 Reactive Swarm Reinforcement (Tier 1 Hardening)
+        // 4.1 If an agent reported a capability gap, dispatch a second reinforcement wave
         let is_query_or_read = GawdAgentFleet::is_meta_or_simple_query(goal);
 
         if has_gap && !is_query_or_read {
@@ -552,7 +552,7 @@ impl SusiSupervisor {
             });
         }
 
-        // 6. Autonomous Substrate Distillation
+        // 6. Kick off a background distillation-state check (skip if one's already running)
         static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
         if !DISTILLATION_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -577,7 +577,7 @@ impl SusiSupervisor {
         interactions: &[A2AMessage],
         _agents: &[GawdAgentInfo],
     ) -> String {
-        // Technical Mission Protocol: Prioritize ConsensusMaster and AdminAgent results
+        // Prioritize ConsensusMaster and AdminAgent results over other agents'
         let mut consensus_result = None;
         let mut admin_result = None;
         let mut wisdom = Vec::new();
@@ -726,8 +726,8 @@ impl SusiSupervisor {
         let nodes = Self::list_cluster_nodes();
         use rayon::prelude::*;
 
-        // Parallel AOA Synchronization Logic (hardware saturation)
-        // Hardened Limit: Cap concurrent peer syncs to 16 to prevent local resource exhaustion.
+        // Sync peers in parallel via rayon, capped at 16 concurrent to bound
+        // local resource use.
         let total_nodes = nodes.len();
         let target_nodes: Vec<_> = nodes
             .into_iter()
@@ -853,8 +853,8 @@ impl SusiSupervisor {
         successes == target_nodes.len()
     }
 
-    /// Federated Knowledge Vault
-    /// Aggregates distilled reasoning experience from independent nodes into a centralized vault.
+    /// Pulls distilled reasoning samples from each active peer node and stages
+    /// them locally for distillation.
     pub fn aggregate_federated_experience(workspace: &Path) -> EaiResult<String> {
         let nodes = Self::list_cluster_nodes();
         let mut total_samples = 0;

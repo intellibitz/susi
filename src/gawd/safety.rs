@@ -1,6 +1,5 @@
-// SUSI Safety & System Destruction Detector
-// 100% Rust implementation for real-time mission safety auditing
-// Reality Check Always On - Dynamic Pattern Loading
+// Blocks destructive commands and writes to critical system paths, using
+// patterns loaded from config plus a hardcoded exec_command allowlist.
 
 use crate::error::{EaiError, EaiResult};
 use crate::sandbox::manager::SusiConfig;

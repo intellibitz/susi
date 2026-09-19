@@ -1,5 +1,5 @@
-// SUSI Genome Distiller: Converts the Hard-Compiled Genome into Synthetic Training Data
-// This implements the first step of training a Native Tier 2 model on the Genome.
+// Converts the compiled-in rules/axioms/components (AlphaSelf) into synthetic
+// Q&A training samples for the local Tier 2 reasoning model.
 
 use crate::error::EaiResult;
 use crate::gawd::self_core::AlphaSelf;
@@ -57,7 +57,7 @@ impl GenomeDistiller {
             });
         }
 
-        // 4. Save to reasoning_experience.jsonl to trigger the Substrate Ingestion Motion
+        // 4. Append to reasoning_experience.jsonl for later training
         let home = std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(std::path::PathBuf::from)

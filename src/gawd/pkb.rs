@@ -1,5 +1,5 @@
-// SUSI Protocol Knowledge Base (PKB)
-// Tier 0: Reflex Data Synthesis for SUSI-Alpha Training
+// Builds/exports the training data (reflex records) used by the local
+// Tier 0 model: bootstrap examples plus ones mined from the audit log.
 
 use crate::error::EaiResult;
 use crate::gawd::agents::GawdAgent;
@@ -17,7 +17,8 @@ pub struct ProtocolReflex {
 pub struct ProtocolKnowledgeBase;
 
 impl ProtocolKnowledgeBase {
-    /// Ingests audit logs to synthesize new neural reflex training data
+    /// Scans the audit log for `[MISSION_START]` lines and turns each into a
+    /// pending (unverified) reflex record.
     pub fn synthesize_training_data(workspace: &Path) -> EaiResult<Vec<ProtocolReflex>> {
         let mut reflexes = Vec::new();
         let log_content = crate::sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 500);
@@ -78,7 +79,6 @@ impl ProtocolKnowledgeBase {
     }
 
     pub fn generate_synthetic_intent_pair(intent: &str, _workspace: &Path) -> EaiResult<String> {
-        // High-fidelity synthetic generation for Tier 0 reflex training
         let mut pair = format!("INTENT: {}\n", intent);
 
         let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -164,7 +164,8 @@ impl ProtocolKnowledgeBase {
             ));
         }
 
-        // Tier 0 Distillation Protocol: Synthesize neural reflex weights for the intent
+        // Placeholder reflex vector: each byte of `intent` scaled to [0,1].
+        // Not a trained embedding — a fixed, reversible encoding.
         let distilled_path =
             workspace.join(format!(".susi/reflexes/{}.bin", intent.replace(' ', "_")));
         if let Some(parent) = distilled_path.parent() {
@@ -216,7 +217,8 @@ impl ProtocolKnowledgeBase {
         Ok(())
     }
 
-    /// Autonomous consolidation of mission memory: Index successful missions for Tier 0 retrieval.
+    /// Stages successful, non-trivial past interactions (outcome > 100 chars,
+    /// not marked `[FAIL]`) from memory.jsonl as distillation pairs.
     pub fn consolidate_recent_interactions(workspace: &Path) -> EaiResult<usize> {
         let memory_file = workspace.join(".susi/memory.jsonl");
         if !memory_file.exists() {

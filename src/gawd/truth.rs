@@ -1,5 +1,6 @@
-// SUSI Truth Transformer: Formal Verification Substrate
-// Truth & Hallucination Sovereignty - Native Candle Verification and Meta Reality Verification
+// Checks tool-reported results against actual workspace state (e.g. a
+// claimed file write that never happened) before a mission treats the
+// result as fact.
 
 use crate::error::{EaiError, EaiResult};
 use std::path::Path;
@@ -16,8 +17,7 @@ impl SusiTruthAgent {
         Self::verify_mission_reality(goal, tool_name, result, workspace)
     }
 
-    /// Formal Verification Reflex
-    /// Validates tool output against physical workspace reality before pulse resolution.
+    /// Checks a tool result's claims against the workspace on disk.
     pub fn verify_mission_reality(
         _goal: &str,
         _tool_name: &str,
@@ -26,10 +26,10 @@ impl SusiTruthAgent {
     ) -> EaiResult<String> {
         let mut violations = Vec::new();
 
-        // META REALITY VERIFICATION
-        // Instead of hardcoded tool names, we detect "Intent of Effect" in the result string.
+        // Rather than switching on tool name, we look for phrases in the
+        // result text that imply a filesystem write ("Wrote to ", "Saved to ").
 
-        // Pattern: File System Mutation Detection
+        // Check: did a claimed file write actually happen?
         if result.contains("Wrote to ") || result.contains("Saved to ") {
             let mut found_path = false;
             let parts: Vec<&str> = result.split([' ', '[', ']']).collect();
@@ -57,22 +57,16 @@ impl SusiTruthAgent {
         }
 
         if !violations.is_empty() {
-            // A concrete, verified reality violation (a claimed file write
-            // that doesn't exist, or exists empty) is never overridable.
-            // This used to be bypassable whenever the result string
-            // contained a "[CONVERGENCE_SCORE: >= 0.85]" marker (see
-            // amas.rs's AGENT_SUCCESS_RATIO, formerly CONVERGENCE_SCORE) -
-            // but that score measures only whether recruited agents'
-            // *own* output text happened to avoid the substrings
-            // "FAILURE"/"GAP", which has no relationship to whether the
-            // claimed file actually exists. That let a real, verified
-            // hallucination (a file write that never happened) get
-            // rubber-stamped "(Verified via Epistemic Delegation)" purely
-            // because unrelated agents didn't say the word "failure" -
-            // the one working ground-truth check in the substrate,
-            // defeated by a number that never measured truth to begin
-            // with. There is no legitimate override for a concrete,
-            // checkable violation.
+            // A violation found here (claimed file write that doesn't exist,
+            // or exists empty) is never overridable. It used to be bypassable
+            // by a "[CONVERGENCE_SCORE: >= 0.85]" marker in the result string
+            // (see amas.rs's AGENT_SUCCESS_RATIO, formerly CONVERGENCE_SCORE),
+            // but that score only measures whether other agents' output text
+            // avoided the substrings "FAILURE"/"GAP" — it says nothing about
+            // whether the claimed file exists. That let a real missing-file
+            // violation get waved through as "(Verified via Epistemic
+            // Delegation)" just because unrelated agents didn't say the word
+            // "failure". Don't reintroduce a bypass here.
             let error_msg = format!("TRUTH_VIOLATION: {}\nSTRUCTURED_FEEDBACK: Please grounded your response in the physical workspace state. Ensure files are actually written before reporting success.", violations.join(" | "));
             return Err(EaiError::governance(error_msg));
         }
@@ -106,13 +100,12 @@ mod tests {
         assert!(SusiTruthAgent::verify_mission_reality("goal", "tool", result, &tmp).is_err());
     }
 
-    /// Regression: a concrete, verified reality violation (a claimed file
-    /// write that doesn't exist) used to be overridable by a
-    /// `[CONVERGENCE_SCORE: >= 0.85]` marker in the same result string -
-    /// a score that measured only whether unrelated agents' own output
-    /// avoided the words "FAILURE"/"GAP", nothing about whether the file
-    /// actually existed. This must never bypass the check again, under
-    /// its old name or any other score-shaped marker.
+    /// Regression: a claimed file write that doesn't exist used to be
+    /// overridable by a `[CONVERGENCE_SCORE: >= 0.85]` marker in the same
+    /// result string — a score that only reflects whether unrelated agents'
+    /// output avoided the words "FAILURE"/"GAP", not whether the file
+    /// actually existed. Must not bypass the check again, under this or any
+    /// other score-shaped marker.
     #[test]
     fn test_high_convergence_score_no_longer_bypasses_a_real_violation() {
         let tmp = std::env::temp_dir().join("susi_test_truth_no_bypass");

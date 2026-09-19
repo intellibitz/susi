@@ -1,5 +1,5 @@
-// SUSI Core Runtime Substrate: Unified Operational Status Tracking
-// Unifies Self (Compiled Binary Instructions), System Environment (Hardware/OS), and Node (Configurations/Workspace).
+// Combines compiled-in version/rule counts, detected hardware, and loaded
+// config into one status snapshot.
 
 use super::self_core::AlphaSelf;
 use crate::gemi::hardware::HardwareProfiler;

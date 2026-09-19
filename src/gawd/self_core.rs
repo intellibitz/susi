@@ -1,6 +1,5 @@
-// SUSI Core Substrate: Compiled Binary Instructions Core
-// Eliminates runtime string parsing by encoding axioms, agent rules, and component topologies
-// directly into strongly-typed compiled Rust data structures and enums.
+// Build-time-generated rule/component tables (see build.rs), compiled in as
+// static Rust data rather than parsed from config at runtime.
 
 #[derive(Debug, Clone, Copy)]
 pub enum SusiCoreTier {

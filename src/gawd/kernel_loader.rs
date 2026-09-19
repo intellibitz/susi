@@ -1,5 +1,5 @@
-// SUSI Kernel Loader: Dynamic Internal Component Self-Assembly
-// Architecture: Swarm-driven kernel bootstrap, port endpoint verification, and modular component hot-plugging.
+// Parses the built-in list of core module manifests at startup and checks
+// that the configured GMCP/GEMI/UDP ports are set.
 
 use crate::error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct SubstrateModuleManifest {
 pub struct SubstrateKernelLoader;
 
 impl SubstrateKernelLoader {
-    /// Bootstraps and dynamically loads all core substrate components using the active SUSI Swarm
+    /// Parses the fixed set of core module manifests below into `SubstrateModuleManifest`s.
     pub fn boot_kernel(workspace: &Path) -> EaiResult<Vec<SubstrateModuleManifest>> {
         let is_verbose = std::env::var("SUSI_VERBOSE").is_ok();
         if is_verbose {
@@ -56,7 +56,7 @@ impl SubstrateKernelLoader {
         Ok(loaded_modules)
     }
 
-    /// Verifies all core substrate port endpoints upon startup
+    /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
         let home = std::env::var_os("HOME")
@@ -78,7 +78,7 @@ impl SubstrateKernelLoader {
         Ok(())
     }
 
-    /// Dynamically discovers, verifies, and assembles modular components into the running kernel
+    /// Parses a module manifest JSON string into a `SubstrateModuleManifest`.
     pub fn assemble_module(manifest_content: &str) -> EaiResult<SubstrateModuleManifest> {
         let manifest: SubstrateModuleManifest = serde_json::from_str(manifest_content)
             .map_err(|e| EaiError::config(format!("Invalid module manifest JSON: {}", e)))?;

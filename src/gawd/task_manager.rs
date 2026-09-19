@@ -1,4 +1,4 @@
-// SUSI Universal Swarm Task Manager & Empirical Telemetry Watchdog
+// Tracks running task status and idle-timeout watchdog behavior.
 // Mandate 12: Hardware Authority - operations run as slow as legitimate hardware
 //   work requires; no blind wall-clock cap on total task duration.
 // Mandate 32: Zero-Client-Wait Guarantee - an operation with zero observed
