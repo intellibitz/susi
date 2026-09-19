@@ -993,7 +993,12 @@ impl SusiConfig {
         self.get_or_bundled_default("reflex_training_threshold")
     }
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
-        self.get_or_bundled_default("model_ladder")
+        let default_steps: Vec<ModelLadderConfigStep> = self.get_or_bundled_default("model_ladder");
+        if default_steps.is_empty() {
+            crate::gemi::hf_discovery::discover_dynamic_ladder()
+        } else {
+            default_steps
+        }
     }
     pub fn default_fallback_model(&self) -> ModelLadderConfigStep {
         self.get_or_bundled_default("default_fallback_model")

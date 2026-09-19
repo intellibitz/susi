@@ -3,6 +3,7 @@ pub mod audio;
 pub mod benchmark;
 pub mod engine;
 pub mod hardware;
+pub mod hf_discovery;
 pub mod models;
 pub mod pulse;
 pub mod qwen2_split;
