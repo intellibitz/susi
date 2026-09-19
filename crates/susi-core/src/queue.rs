@@ -1,12 +1,12 @@
 // Priority queue for incoming intents ("pulses"), backed by crossbeam's
 // lock-free SegQueue.
 
-use crate::error::EaiResult;
 use crossbeam::queue::SegQueue;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::thread::Thread;
+use susi_error::EaiResult;
 use tracing::info;
 
 #[derive(Debug, Clone)]

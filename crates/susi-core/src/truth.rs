@@ -2,8 +2,8 @@
 // claimed file write that never happened) before a mission treats the
 // result as fact.
 
-use crate::error::{EaiError, EaiResult};
 use std::path::Path;
+use susi_error::{EaiError, EaiResult};
 
 pub struct SusiTruthAgent;
 

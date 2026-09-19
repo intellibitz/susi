@@ -12,11 +12,15 @@
 //! - [`sandbox`]: workspace and config management
 
 pub mod daemon;
-pub mod error;
+pub mod error {
+    pub use susi_error::*;
+}
 pub mod gawd;
 pub mod gemi;
 pub mod gmcp;
-pub mod native;
+pub mod native {
+    pub use susi_native::*;
+}
 pub mod sandbox;
 
 pub const SUSI_VERSION: &str = env!("CARGO_PKG_VERSION");
