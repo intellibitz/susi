@@ -492,7 +492,7 @@ impl GemiEngine {
         }
 
         // Fallback Power Reasoning Tool
-        let power_res = crate::gmcp::tools::ToolRegistry::execute_tool(
+        let power_res = susi_tools::ToolRegistry::execute_tool(
             "power_reason",
             &serde_json::json!(prompt),
             workspace,

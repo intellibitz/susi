@@ -101,7 +101,7 @@ impl CapabilityBloom {
     /// with the local ToolRegistry (Registry + Trait + Config pattern: zero
     /// hardcoded capability strings, derived from what's actually loaded).
     pub fn local_snapshot() -> Self {
-        let tokens: Vec<String> = crate::gmcp::tools::ToolRegistry::global()
+        let tokens: Vec<String> = susi_tools::ToolRegistry::global()
             .tools
             .iter()
             .map(|entry| entry.key().to_lowercase())

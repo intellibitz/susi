@@ -26,7 +26,7 @@ impl ReflexSynthesizer {
             .join("");
         let code = format!(
             "// SUSI Native Reflex: {}\n\
-            use crate::gmcp::tools::SusiTool;\n\
+            use susi_tools::SusiTool;\n\
             use crate::error::EaiResult;\n\n\
             pub struct {}Reflex;\n\n\
             impl SusiTool for {}Reflex {{\n\

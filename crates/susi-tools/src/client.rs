@@ -13,8 +13,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use super::tools::McpTool;
-use super::{GlobalMcpEntry, McpConfig, McpServerConfig};
+use crate::config::{GlobalMcpEntry, McpConfig, McpServerConfig};
+use crate::hooks::hooks;
+use crate::types::McpTool;
 
 // Mandate 12: Hardware Authority over Process Lifecycle
 // MCP Client Cache prevents cold-booting processes for every Swarm Reflex.
@@ -99,8 +100,7 @@ pub struct GmcpClient;
 
 impl GmcpClient {
     pub fn get_config_path() -> PathBuf {
-        let _home = std::env::var("HOME").unwrap_or_default();
-        let susi_dir = crate::sandbox::xdg::SusiDirs::config_dir();
+        let susi_dir = susi_paths::SusiDirs::config_dir();
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
@@ -157,10 +157,9 @@ impl GmcpClient {
     }
 
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
-        let _home = std::env::var("HOME").unwrap_or_default();
-        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         let mtime = std::fs::metadata(&registry_path)
             .and_then(|m| m.modified())
@@ -169,9 +168,9 @@ impl GmcpClient {
             .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
             .unwrap_or(true);
 
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>> =
+        static STORE: std::sync::OnceLock<susi_sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
+        let store = STORE.get_or_init(susi_sandbox::VersionedJsonStore::new);
 
         let entries = store
             .load_with_healing(
@@ -197,7 +196,7 @@ impl GmcpClient {
                         }
                     }
                     let _guard = FetchGuard;
-                    if let Ok(resp) = crate::sandbox::manager::http_agent()
+                    if let Ok(resp) = susi_sandbox::manager::http_agent()
                         .get(&url)
                         .header("User-Agent", "SUSI/0.1")
                         .call()
@@ -363,13 +362,13 @@ impl GmcpClient {
                     "params": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {},
-                        "clientInfo": { "name": "susi", "version": crate::SUSI_VERSION }
+                        "clientInfo": { "name": "susi", "version": hooks().engine_version() }
                     }
                 })
                 .to_string();
 
                 let scout_timeout = std::time::Duration::from_secs(
-                    crate::sandbox::manager::SusiConfig::load_global()
+                    susi_sandbox::manager::SusiConfig::load_global()
                         .unwrap_or_default()
                         .cloud_scout_timeout_secs(),
                 );
@@ -420,7 +419,7 @@ impl GmcpClient {
         }
 
         let lease_timeout = std::time::Duration::from_secs(
-            crate::sandbox::manager::SusiConfig::load_global()
+            susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .execution_lease_secs(),
         );
@@ -452,7 +451,7 @@ impl GmcpClient {
 
         // 1. Establish SSE Connection to get the message endpoint
         let sse_url = format!("{}/sse", base_url);
-        let resp = match crate::sandbox::manager::http_agent().get(&sse_url).call() {
+        let resp = match susi_sandbox::manager::http_agent().get(&sse_url).call() {
             Ok(r) => r,
             Err(e) => {
                 return format!(
@@ -507,7 +506,7 @@ impl GmcpClient {
             }
         });
 
-        match crate::sandbox::manager::http_agent()
+        match susi_sandbox::manager::http_agent()
             .post(&endpoint)
             .send_json(call_req)
         {
@@ -555,12 +554,12 @@ impl GmcpClient {
         let src_count = std::fs::read_dir(cwd.join("src"))
             .map(|d| d.count())
             .unwrap_or(0);
-        let hardware = crate::gemi::hardware::HardwareProfiler::get_profile();
+        let hardware = hooks().hardware_snapshot();
 
         json!({
             "working_directory": cwd.display().to_string(),
             "source_file_count": src_count,
-            "engine_version": crate::SUSI_VERSION,
+            "engine_version": hooks().engine_version(),
             "available_ram_gb": hardware.available_ram_gb,
             "gpu_acceleration": hardware.acceleration_active
         })
@@ -568,7 +567,7 @@ impl GmcpClient {
 
     /// Autonomous Web-Scouting
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
-    pub fn autonomous_web_scout() -> Vec<super::GlobalMcpEntry> {
+    pub fn autonomous_web_scout() -> Vec<GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
         let home = std::env::var_os("HOME").unwrap_or_default();
         let registry_path = PathBuf::from(home).join(".susi/mcp_web_registry.json");

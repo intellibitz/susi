@@ -555,6 +555,7 @@ mod tests {
 
     #[test]
     fn test_susi_solve_is_registered() {
+        susi_tools::hooks::init(Box::new(crate::gmcp::tools::SusiEngineHooks));
         assert!(ToolRegistry::exists("susi_solve"));
     }
 }

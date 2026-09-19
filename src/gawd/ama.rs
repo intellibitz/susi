@@ -291,7 +291,7 @@ impl SusiMasterAgent {
                 } else {
                     "ls -la"
                 };
-                crate::gmcp::tools::ToolRegistry::execute_tool(
+                susi_tools::ToolRegistry::execute_tool(
                     "exec_command",
                     &serde_json::json!(cmd),
                     workspace,
@@ -300,7 +300,7 @@ impl SusiMasterAgent {
                 || lower_goal == "susi dashboard"
                 || lower_goal == "show dashboard"
             {
-                crate::gmcp::tools::ToolRegistry::execute_tool(
+                susi_tools::ToolRegistry::execute_tool(
                     "sovereign_dashboard",
                     &serde_json::json!(null),
                     workspace,
@@ -309,7 +309,7 @@ impl SusiMasterAgent {
                 || lower_goal == "run bloat audit"
                 || lower_goal == "bloat-audit"
             {
-                crate::gmcp::tools::ToolRegistry::execute_tool(
+                susi_tools::ToolRegistry::execute_tool(
                     "bloat_audit",
                     &serde_json::json!(null),
                     workspace,
@@ -1175,7 +1175,7 @@ impl SusiHybridAgent {
 
     fn solve_coding_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
         eprintln!("- [Coding Toolbox] Using: {:?}", self.coding_toolbox);
-        let res = crate::gmcp::tools::ToolRegistry::execute_tool(
+        let res = susi_tools::ToolRegistry::execute_tool(
             "ast_analyze",
             &serde_json::json!({"code": goal}),
             workspace,
@@ -1185,7 +1185,7 @@ impl SusiHybridAgent {
 
     fn solve_assistant_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
         eprintln!("- [Assistant Toolbox] Using: {:?}", self.assistant_toolbox);
-        let res = crate::gmcp::tools::ToolRegistry::execute_tool(
+        let res = susi_tools::ToolRegistry::execute_tool(
             "rag_query",
             &serde_json::json!({"query": goal}),
             workspace,

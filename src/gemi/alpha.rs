@@ -98,7 +98,7 @@ impl SusiAlphaModel {
         }
 
         // Add Installed Tools
-        let tools = crate::gmcp::tools::ToolRegistry::list_tools();
+        let tools = susi_tools::ToolRegistry::list_tools();
         for tool in tools {
             if !intents.contains(&tool.name) {
                 intents.push(tool.name);
@@ -352,6 +352,7 @@ mod tests {
 
     #[test]
     fn test_list_dynamic_intents() {
+        susi_tools::hooks::init(Box::new(crate::gmcp::tools::SusiEngineHooks));
         let intents = SusiAlphaModel::list_dynamic_intents();
         assert!(!intents.is_empty());
         // Must be sorted and contain foundational intents

@@ -26,6 +26,7 @@ fn test_substrate_bootstrap_and_config() {
 
 #[test]
 fn test_tool_registry_and_execution() {
+    susi_tools::hooks::init(Box::new(susi_engine::gmcp::tools::SusiEngineHooks));
     let ws = std::env::current_dir().unwrap();
 
     // Test Status Tool

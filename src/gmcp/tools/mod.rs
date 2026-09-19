@@ -1,73 +1,23 @@
 // GMCP Universal Meta MCP Tool Registry
 // 100% Pure Rust implementation for Dynamic MCP Server Proxying, Meta Tool Routing & Wasm Reflexes
 
-use dashmap::DashMap;
 use rmcp::tool;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use crate::error::{EaiError, EaiResult};
 use crate::gemi::hardware::HardwareProfiler;
 use crate::gemi::models::ModelManager;
-use crate::gmcp::client::GmcpClient;
+pub use susi_tools::{GmcpClient, McpTool, MetaCategory, SusiTool, ToolRegistry};
 
 // Specialist Integrations
 use fastembed::TextEmbedding;
 use headless_chrome::Browser;
 use qdrant_client::Qdrant;
 use tantivy::{collector::TopDocs, query::QueryParser, schema::*, Index, TantivyDocument};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpTool {
-    pub name: String,
-    pub description: String,
-}
-
-/// Dynamic Trait for SUSI Substrate Tools
-pub trait SusiTool: Send + Sync {
-    fn name(&self) -> String;
-    fn description(&self) -> String;
-    fn execute(&self, arg: &serde_json::Value, workspace: &Path) -> EaiResult<String>;
-}
-
-/// Enum representing Meta-Tool Category in SUSI Substrate
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MetaCategory {
-    SystemPrimitive,
-    WorkspaceIo,
-    McpProxy,
-    WasmReflex,
-    IntelligenceBridge,
-    CodingSpecialist,
-    AssistantSpecialist,
-}
-
-pub type MetaToolHandler =
-    Arc<dyn Fn(&serde_json::Value, &Path) -> EaiResult<String> + Send + Sync>;
-
-/// Generic Meta-Tool Struct
-pub struct MetaTool {
-    pub tool_name: String,
-    pub tool_desc: String,
-    pub category: MetaCategory,
-    pub handler: MetaToolHandler,
-}
-
-impl SusiTool for MetaTool {
-    fn name(&self) -> String {
-        self.tool_name.clone()
-    }
-    fn description(&self) -> String {
-        self.tool_desc.clone()
-    }
-    fn execute(&self, arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        (self.handler)(arg, workspace)
-    }
-}
 
 /// Ensure path is normalized and contained within workspace
 fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
@@ -1053,403 +1003,270 @@ impl CoreTools {
     }
 }
 
-pub struct ToolRegistry {
-    pub tools: DashMap<String, Arc<dyn SusiTool>>,
-    pub locks: DashMap<String, u64>,
+/// Populates a freshly created `ToolRegistry` with every concrete tool this
+/// engine provides - `susi_tools::ToolRegistry::global()` calls this via the
+/// `EngineHooks::bootstrap_tools` hook below, since the registry mechanism
+/// itself lives in `susi-tools` but the concrete `CoreTools::*` handlers
+/// (and their gemi/gawd dependencies) stay here in `gmcp`.
+fn bootstrap_registry(registry: &ToolRegistry) {
+    ToolRegistry::register_meta_tool(
+        registry,
+        "status",
+        "SUSI Substrate status report",
+        MetaCategory::SystemPrimitive,
+        CoreTools::status,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "identity",
+        "SUSI substrate identity report",
+        MetaCategory::SystemPrimitive,
+        CoreTools::identity,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "sovereign_dashboard",
+        "Report on autonomous invisible work performed by the substrate",
+        MetaCategory::SystemPrimitive,
+        CoreTools::sovereign_dashboard,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "bloat_audit",
+        "Recursively audit src/ and target/ for bloat and hardcoded secrets, rayon-parallel across all cores",
+        MetaCategory::SystemPrimitive,
+        CoreTools::bloat_audit,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "distill_genome",
+        "Distill the hard-compiled genome into the Tier 2 reasoning model",
+        MetaCategory::SystemPrimitive,
+        CoreTools::distill_genome,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "self_validate",
+        "Execute autonomous substrate self-validation",
+        MetaCategory::SystemPrimitive,
+        CoreTools::self_validate,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "list_models",
+        "List available model substrates",
+        MetaCategory::SystemPrimitive,
+        CoreTools::list_models,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "select_model",
+        "Select or override active model substrate",
+        MetaCategory::SystemPrimitive,
+        CoreTools::select_model,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "scout_model",
+        "Scout or install model substrate",
+        MetaCategory::SystemPrimitive,
+        CoreTools::scout_model,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "train_reflexes",
+        "Manually trigger native neural reflex distillation",
+        MetaCategory::SystemPrimitive,
+        CoreTools::train_reflexes,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "read_file",
+        "Read file content in workspace",
+        MetaCategory::WorkspaceIo,
+        CoreTools::read_file,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "write_file",
+        "Write content to workspace file",
+        MetaCategory::WorkspaceIo,
+        CoreTools::write_file,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "exec_command",
+        "Execute command in workspace",
+        MetaCategory::WorkspaceIo,
+        CoreTools::exec_command,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tasks_list",
+        "List active and historical swarm tasks with liveness telemetry",
+        MetaCategory::SystemPrimitive,
+        CoreTools::tasks_list,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tasks_pause",
+        "Pause a running task by task_id",
+        MetaCategory::SystemPrimitive,
+        CoreTools::tasks_pause,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tasks_resume",
+        "Resume a paused task by task_id",
+        MetaCategory::SystemPrimitive,
+        CoreTools::tasks_resume,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tasks_kill",
+        "Kill a running or stalled task by task_id",
+        MetaCategory::SystemPrimitive,
+        CoreTools::tasks_kill,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "mcp_registry",
+        "Interrogate global MCP registry and benchmark servers",
+        MetaCategory::McpProxy,
+        CoreTools::mcp_registry,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "mcp_configure",
+        "Configure external MCP server",
+        MetaCategory::McpProxy,
+        CoreTools::mcp_configure,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agent_register",
+        "Dynamically register a new agent profile",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agent_register,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "reason",
+        "Execute swarm reasoning substrate",
+        MetaCategory::SystemPrimitive,
+        CoreTools::reason,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "susi_solve",
+        "Solve a natural-language intent via the SUSI swarm substrate",
+        MetaCategory::SystemPrimitive,
+        CoreTools::susi_solve,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "power_reason",
+        "Delegate complex reasoning to Power-Tier MCP remotes",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::power_reason,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "meta_scout_agents",
+        "Discover agent capabilities from connected remotes",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::meta_scout_agents,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "meta_rank_agents",
+        "Report current agent expertise hierarchy",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::meta_rank_agents,
+    );
+
+    // SPECIALIST TOOLBOXES: Type 1 (Coding) & Type 2 (Assistant)
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ast_analyze",
+        "Structural AST code analysis via tree-sitter",
+        MetaCategory::CodingSpecialist,
+        CoreTools::ast_analyze,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "semantic_search",
+        "Fast embedded search via tantivy",
+        MetaCategory::CodingSpecialist,
+        CoreTools::semantic_search,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "sandbox_exec",
+        "Isolated Docker execution via bollard",
+        MetaCategory::CodingSpecialist,
+        CoreTools::sandbox_exec,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "browser_automate",
+        "DOM access and web automation via headless_chrome",
+        MetaCategory::AssistantSpecialist,
+        CoreTools::browser_automate,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "rag_query",
+        "Semantic memory retrieval via Qdrant/FastEmbed",
+        MetaCategory::AssistantSpecialist,
+        CoreTools::rag_query,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "audio_transcribe",
+        "Production-grade transcription substrate",
+        MetaCategory::AssistantSpecialist,
+        CoreTools::audio_transcribe,
+    );
+
+    // DYNAMIC DISCOVERY: Synthesized Native Reflexes
+    crate::gmcp::reflexes::register_synthesized_reflexes(registry);
+
+    // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
+    std::thread::spawn(|| {
+        ToolRegistry::auto_link_essential_mcp_servers();
+    });
 }
 
-impl ToolRegistry {
-    pub fn global() -> &'static Self {
-        static REGISTRY: OnceLock<ToolRegistry> = OnceLock::new();
-        REGISTRY.get_or_init(|| {
-            let registry = ToolRegistry {
-                tools: DashMap::new(),
-                locks: DashMap::new(),
-            };
-            registry.bootstrap();
-            registry
-        })
+/// Implements `susi_tools::EngineHooks` - the one seam that lets
+/// `susi-tools`' dispatch logic (self-healing capability provisioning,
+/// distributed lock broadcast, initial tool registration) reach gawd/gemi
+/// capabilities without `susi-tools` depending on `gawd`/`gemi` directly.
+/// Wired in once via `susi_tools::hooks::init` early in `main()`.
+pub struct SusiEngineHooks;
+
+impl susi_tools::EngineHooks for SusiEngineHooks {
+    fn engine_version(&self) -> &'static str {
+        crate::SUSI_VERSION
     }
 
-    fn register_meta_tool<F>(
-        registry: &ToolRegistry,
-        name: &str,
-        desc: &str,
-        category: MetaCategory,
-        handler: F,
-    ) where
-        F: Fn(&serde_json::Value, &Path) -> EaiResult<String> + Send + Sync + 'static,
-    {
-        let tool = MetaTool {
-            tool_name: name.to_string(),
-            tool_desc: desc.to_string(),
-            category,
-            handler: Arc::new(handler),
-        };
-        registry.tools.insert(name.to_string(), Arc::new(tool));
-    }
-
-    fn bootstrap(&self) {
-        Self::register_meta_tool(
-            self,
-            "status",
-            "SUSI Substrate status report",
-            MetaCategory::SystemPrimitive,
-            CoreTools::status,
-        );
-        Self::register_meta_tool(
-            self,
-            "identity",
-            "SUSI substrate identity report",
-            MetaCategory::SystemPrimitive,
-            CoreTools::identity,
-        );
-        Self::register_meta_tool(
-            self,
-            "sovereign_dashboard",
-            "Report on autonomous invisible work performed by the substrate",
-            MetaCategory::SystemPrimitive,
-            CoreTools::sovereign_dashboard,
-        );
-        Self::register_meta_tool(
-            self,
-            "bloat_audit",
-            "Recursively audit src/ and target/ for bloat and hardcoded secrets, rayon-parallel across all cores",
-            MetaCategory::SystemPrimitive,
-            CoreTools::bloat_audit,
-        );
-        Self::register_meta_tool(
-            self,
-            "distill_genome",
-            "Distill the hard-compiled genome into the Tier 2 reasoning model",
-            MetaCategory::SystemPrimitive,
-            CoreTools::distill_genome,
-        );
-        Self::register_meta_tool(
-            self,
-            "self_validate",
-            "Execute autonomous substrate self-validation",
-            MetaCategory::SystemPrimitive,
-            CoreTools::self_validate,
-        );
-        Self::register_meta_tool(
-            self,
-            "list_models",
-            "List available model substrates",
-            MetaCategory::SystemPrimitive,
-            CoreTools::list_models,
-        );
-        Self::register_meta_tool(
-            self,
-            "select_model",
-            "Select or override active model substrate",
-            MetaCategory::SystemPrimitive,
-            CoreTools::select_model,
-        );
-        Self::register_meta_tool(
-            self,
-            "scout_model",
-            "Scout or install model substrate",
-            MetaCategory::SystemPrimitive,
-            CoreTools::scout_model,
-        );
-        Self::register_meta_tool(
-            self,
-            "train_reflexes",
-            "Manually trigger native neural reflex distillation",
-            MetaCategory::SystemPrimitive,
-            CoreTools::train_reflexes,
-        );
-        Self::register_meta_tool(
-            self,
-            "read_file",
-            "Read file content in workspace",
-            MetaCategory::WorkspaceIo,
-            CoreTools::read_file,
-        );
-        Self::register_meta_tool(
-            self,
-            "write_file",
-            "Write content to workspace file",
-            MetaCategory::WorkspaceIo,
-            CoreTools::write_file,
-        );
-        Self::register_meta_tool(
-            self,
-            "exec_command",
-            "Execute command in workspace",
-            MetaCategory::WorkspaceIo,
-            CoreTools::exec_command,
-        );
-        Self::register_meta_tool(
-            self,
-            "tasks_list",
-            "List active and historical swarm tasks with liveness telemetry",
-            MetaCategory::SystemPrimitive,
-            CoreTools::tasks_list,
-        );
-        Self::register_meta_tool(
-            self,
-            "tasks_pause",
-            "Pause a running task by task_id",
-            MetaCategory::SystemPrimitive,
-            CoreTools::tasks_pause,
-        );
-        Self::register_meta_tool(
-            self,
-            "tasks_resume",
-            "Resume a paused task by task_id",
-            MetaCategory::SystemPrimitive,
-            CoreTools::tasks_resume,
-        );
-        Self::register_meta_tool(
-            self,
-            "tasks_kill",
-            "Kill a running or stalled task by task_id",
-            MetaCategory::SystemPrimitive,
-            CoreTools::tasks_kill,
-        );
-        Self::register_meta_tool(
-            self,
-            "mcp_registry",
-            "Interrogate global MCP registry and benchmark servers",
-            MetaCategory::McpProxy,
-            CoreTools::mcp_registry,
-        );
-        Self::register_meta_tool(
-            self,
-            "mcp_configure",
-            "Configure external MCP server",
-            MetaCategory::McpProxy,
-            CoreTools::mcp_configure,
-        );
-        Self::register_meta_tool(
-            self,
-            "agent_register",
-            "Dynamically register a new agent profile",
-            MetaCategory::IntelligenceBridge,
-            CoreTools::agent_register,
-        );
-        Self::register_meta_tool(
-            self,
-            "reason",
-            "Execute swarm reasoning substrate",
-            MetaCategory::SystemPrimitive,
-            CoreTools::reason,
-        );
-        Self::register_meta_tool(
-            self,
-            "susi_solve",
-            "Solve a natural-language intent via the SUSI swarm substrate",
-            MetaCategory::SystemPrimitive,
-            CoreTools::susi_solve,
-        );
-        Self::register_meta_tool(
-            self,
-            "power_reason",
-            "Delegate complex reasoning to Power-Tier MCP remotes",
-            MetaCategory::IntelligenceBridge,
-            CoreTools::power_reason,
-        );
-        Self::register_meta_tool(
-            self,
-            "meta_scout_agents",
-            "Discover agent capabilities from connected remotes",
-            MetaCategory::IntelligenceBridge,
-            CoreTools::meta_scout_agents,
-        );
-        Self::register_meta_tool(
-            self,
-            "meta_rank_agents",
-            "Report current agent expertise hierarchy",
-            MetaCategory::IntelligenceBridge,
-            CoreTools::meta_rank_agents,
-        );
-
-        // SPECIALIST TOOLBOXES: Type 1 (Coding) & Type 2 (Assistant)
-        Self::register_meta_tool(
-            self,
-            "ast_analyze",
-            "Structural AST code analysis via tree-sitter",
-            MetaCategory::CodingSpecialist,
-            CoreTools::ast_analyze,
-        );
-        Self::register_meta_tool(
-            self,
-            "semantic_search",
-            "Fast embedded search via tantivy",
-            MetaCategory::CodingSpecialist,
-            CoreTools::semantic_search,
-        );
-        Self::register_meta_tool(
-            self,
-            "sandbox_exec",
-            "Isolated Docker execution via bollard",
-            MetaCategory::CodingSpecialist,
-            CoreTools::sandbox_exec,
-        );
-        Self::register_meta_tool(
-            self,
-            "browser_automate",
-            "DOM access and web automation via headless_chrome",
-            MetaCategory::AssistantSpecialist,
-            CoreTools::browser_automate,
-        );
-        Self::register_meta_tool(
-            self,
-            "rag_query",
-            "Semantic memory retrieval via Qdrant/FastEmbed",
-            MetaCategory::AssistantSpecialist,
-            CoreTools::rag_query,
-        );
-        Self::register_meta_tool(
-            self,
-            "audio_transcribe",
-            "Production-grade transcription substrate",
-            MetaCategory::AssistantSpecialist,
-            CoreTools::audio_transcribe,
-        );
-
-        // DYNAMIC DISCOVERY: Synthesized Native Reflexes
-        crate::gmcp::reflexes::register_synthesized_reflexes(self);
-
-        // Zero-Config Auto-Link: Ensure essential MCP tools are mapped (Non-Blocking Mandate)
-        std::thread::spawn(|| {
-            Self::auto_link_essential_mcp_servers();
-        });
-    }
-
-    pub fn list_tools() -> Vec<McpTool> {
-        let registry = Self::global();
-        let mut tools: Vec<McpTool> = registry
-            .tools
-            .iter()
-            .map(|r| McpTool {
-                name: r.key().clone(),
-                description: r.value().description(),
-            })
-            .collect();
-
-        tools.extend(GmcpClient::list_external_tools());
-
-        if let Some(_home) = std::env::var_os("HOME").map(PathBuf::from) {
-            let reflex_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes");
-            if let Ok(entries) = fs::read_dir(&reflex_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().is_some_and(|ext| ext == "wasm") {
-                        if let Ok(name) = entry.file_name().into_string() {
-                            tools.push(McpTool {
-                                name: format!("reflex_{}", name.replace(".wasm", "")),
-                                description: "Dynamic Wasm neural reflex tool".to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        tools.sort_by(|a, b| a.name.cmp(&b.name));
-        tools.dedup_by(|a, b| a.name == b.name);
-        tools
-    }
-
-    pub fn exists(name: &str) -> bool {
-        let registry = Self::global();
-        if registry.tools.contains_key(name) {
-            return true;
-        }
-        let lower_name = name.to_lowercase();
-        if lower_name.contains(':')
-            || lower_name.starts_with("ext_")
-            || lower_name.starts_with("reflex_")
-        {
-            return Self::list_tools()
-                .iter()
-                .any(|t| t.name == name || t.name.starts_with(name));
-        }
-        false
-    }
-
-    pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
-        if name.contains(':') && !name.starts_with("ext_") {
-            let parts: Vec<&str> = name.splitn(2, ':').collect();
-            let arg_str = if let Some(s) = arg.as_str() {
-                s.to_string()
-            } else {
-                arg.to_string()
-            };
-            return GmcpClient::execute_external_tool(parts[0], parts[1], &arg_str);
-        }
-
-        if name.starts_with("reflex_") {
-            let wasm_name = format!("{}.wasm", name.trim_start_matches("reflex_"));
-            if let Some(_home) = std::env::var_os("HOME").map(PathBuf::from) {
-                let wasm_path = crate::sandbox::xdg::SusiDirs::data_dir()
-                    .join("reflexes")
-                    .join(wasm_name);
-                if wasm_path.exists() {
-                    let arg_str = if let Some(s) = arg.as_str() {
-                        s.to_string()
-                    } else {
-                        arg.to_string()
-                    };
-                    match crate::native::wasm::WasmHost::execute_reflex(&wasm_path, &arg_str) {
-                        Ok(res) => return res,
-                        Err(e) => return format!("Reflex Error: {}", e),
-                    }
-                }
-            }
-        }
-
-        let registry = Self::global();
-        if let Some(tool) = registry.tools.get(name) {
-            match tool.execute(arg, workspace) {
-                Ok(res) => res,
-                Err(e) => format!("{}", e),
-            }
-        } else {
-            // Self-Healing Protocol: Attempt autonomous resolution
-            if let Ok(provisioned_res) = Self::resolve_capability_gap(name) {
-                if provisioned_res == "SUCCESS_CONFIGURED" {
-                    return format!("[RECOVERY] Capability '{}' was missing and autonomously provisioned. Please retry the mission.", name);
-                }
-            }
-            format!("[CAPABILITY_GAP] Tool '{}' missing from Meta-Substrate. Report to Substrate Swarm for native evolution.", name)
+    fn hardware_snapshot(&self) -> susi_tools::HardwareSnapshot {
+        let profile = HardwareProfiler::get_profile();
+        susi_tools::HardwareSnapshot {
+            available_ram_gb: profile.available_ram_gb,
+            acceleration_active: profile.acceleration_active,
         }
     }
 
-    /// Autonomous Capability Resolution
-    pub fn resolve_capability_gap(name: &str) -> EaiResult<String> {
-        let server_name = name.split(':').next().unwrap_or(name);
-
-        // Proactive Semantic Scout (Tier 1 Hardening)
-        // If the tool name isn't an exact match, we search for semantic overlaps in the registry
-        let registry = GmcpClient::fetch_global_registry();
-        if let Some(entry) = registry
-            .iter()
-            .find(|e| e.name == server_name || e.description.to_lowercase().contains(server_name))
-        {
-            return Ok(GmcpClient::auto_configure_server(
-                &entry.name,
-                &entry.package,
-            ));
-        }
-
-        let res = GmcpClient::provision_tool_package(server_name);
-        if res != "NOT_FOUND_IN_REGISTRY" {
-            return Ok(res);
-        }
-
+    fn resolve_capability_gap(&self, server_name: &str, workspace: &Path) -> EaiResult<String> {
         // VC-200-002 (ROADMAP.md): last-resort autonomous hot-patch. No registry
         // match and no installable package exist for this capability, so
         // synthesize and compile a real WASI reflex for it and hot-load it under
         // the `reflex_<name>` convention execute_tool already understands —
         // closing the gap without a daemon restart.
-        let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         match crate::gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex(
             server_name,
-            &workspace,
+            workspace,
         ) {
             Ok(wasm_path) => Ok(format!(
                 "[HOT_PATCH] Synthesized and compiled a WASI reflex for '{}' at {}. Retry as 'reflex_{}'.",
@@ -1463,77 +1280,12 @@ impl ToolRegistry {
         }
     }
 
-    pub fn acquire_meta_lock(resource_id: &str) -> bool {
-        if !Self::acquire_local_lock(resource_id) {
-            return false;
-        }
-
-        // Distributed Resource Sovereignty: Broadcast to peers
-        if !crate::gawd::amas::SusiSupervisor::broadcast_lock_request(resource_id) {
-            Self::release_meta_lock(resource_id);
-            return false;
-        }
-
-        true
+    fn broadcast_lock_request(&self, resource_id: &str) -> bool {
+        crate::gawd::amas::SusiSupervisor::broadcast_lock_request(resource_id)
     }
 
-    pub fn acquire_local_lock(resource_id: &str) -> bool {
-        let registry = Self::global();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        if let Some(timestamp) = registry.locks.get(resource_id) {
-            // Lease-Based Timed Locks (300s TTL)
-            if now - *timestamp < 300 {
-                return false;
-            }
-        }
-        registry.locks.insert(resource_id.to_string(), now);
-        true
-    }
-
-    pub fn release_meta_lock(resource_id: &str) {
-        let registry = Self::global();
-        registry.locks.remove(resource_id);
-    }
-
-    /// Zero-Config Autonomous Tool Linking
-    pub fn auto_link_essential_mcp_servers() {
-        let registry = GmcpClient::fetch_global_registry();
-        let config_path = GmcpClient::get_config_path();
-
-        let config_exists = config_path.exists();
-        let mut essential_found = false;
-
-        if config_exists {
-            if let Ok(content) = fs::read_to_string(&config_path) {
-                if let Ok(config) = serde_json::from_str::<crate::gmcp::McpConfig>(&content) {
-                    essential_found = !config.mcp_servers.is_empty();
-                }
-            }
-        }
-
-        if !essential_found {
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!(
-                    "[GMCP] No external tools configured. Auto-linking essential substrates..."
-                );
-            }
-            let essentials = [
-                "brave_search",
-                "filesystem",
-                "google_search",
-                "github",
-                "google_maps",
-            ];
-            for e in essentials {
-                if let Some(entry) = registry.iter().find(|r| r.name == e) {
-                    let _res = GmcpClient::auto_configure_server(&entry.name, &entry.package);
-                }
-            }
-        }
+    fn bootstrap_tools(&self, registry: &ToolRegistry) {
+        bootstrap_registry(registry);
     }
 }
 

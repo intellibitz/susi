@@ -218,6 +218,12 @@ fn run_shell(workspace: &Path) {
 }
 
 fn main() {
+    // Must run before anything can touch susi_tools::ToolRegistry (which
+    // panics on first use if this hasn't happened yet) - see
+    // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
+    // indirection exists instead of a direct dependency.
+    susi_tools::hooks::init(Box::new(susi_engine::gmcp::tools::SusiEngineHooks));
+
     susi_engine::sandbox::auto_install::push_to_hardware_if_dev_build();
     #[cfg(tokio_unstable)]
     console_subscriber::init();

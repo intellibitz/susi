@@ -26,7 +26,7 @@ use tokio_stream::StreamExt;
 
 use crate::gawd::ama::SusiMasterAgent;
 use crate::gemi::models::ModelManager;
-use crate::gmcp::tools::ToolRegistry;
+use susi_tools::ToolRegistry;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 

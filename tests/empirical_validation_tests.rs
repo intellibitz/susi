@@ -51,6 +51,7 @@ fn test_empirical_credential_masking() {
 
 #[test]
 fn test_empirical_gmcp_agent_verification() {
+    susi_tools::hooks::init(Box::new(susi_engine::gmcp::tools::SusiEngineHooks));
     let ws = std::env::current_dir().unwrap();
     let blackboard: susi_engine::gawd::agents::MissionBlackboard =
         std::sync::Arc::new(susi_engine::gawd::agents::HighDensityContextStore::new(10));

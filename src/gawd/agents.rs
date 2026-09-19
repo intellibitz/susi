@@ -108,8 +108,8 @@ impl GawdAgent for DynamicAgent {
                 "[{}]: Observation integrated into blackboard.",
                 self.agent_name
             )
-        } else if crate::gmcp::tools::ToolRegistry::exists("reason") {
-            crate::gmcp::tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
+        } else if susi_tools::ToolRegistry::exists("reason") {
+            susi_tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
         } else {
             crate::gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
         };
@@ -224,7 +224,7 @@ impl GawdAgent for SusiRuntimeAgent {
         }
 
         // 4. Link essential MCP servers
-        crate::gmcp::tools::ToolRegistry::auto_link_essential_mcp_servers();
+        susi_tools::ToolRegistry::auto_link_essential_mcp_servers();
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
     }
@@ -463,14 +463,11 @@ impl GawdAgent for GmcpAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         // Test Tool Registry endpoints (Internal Reflex)
-        let registry = crate::gmcp::tools::ToolRegistry::global();
+        let registry = susi_tools::ToolRegistry::global();
         let tool_count = registry.tools.len();
 
-        let status_res = crate::gmcp::tools::ToolRegistry::execute_tool(
-            "status",
-            &serde_json::json!(null),
-            workspace,
-        );
+        let status_res =
+            susi_tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), workspace);
         let healthy = status_res.contains("Operational");
 
         let res = format!(
@@ -775,17 +772,14 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         _workspace: &Path,
         _blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let client = crate::gmcp::client::GmcpClient::scout_reasoning_remotes();
+        let client = susi_tools::GmcpClient::scout_reasoning_remotes();
         for remote_name in client {
             if remote_name
                 .to_lowercase()
                 .contains(&self.endpoint_name.to_lowercase())
             {
-                let res = crate::gmcp::client::GmcpClient::execute_external_tool(
-                    &remote_name,
-                    "generate",
-                    goal,
-                );
+                let res =
+                    susi_tools::GmcpClient::execute_external_tool(&remote_name, "generate", goal);
                 if !res.contains("[FAIL]") {
                     return Ok(format!("[{} Power-Tier]: {}", self.endpoint_name, res));
                 }
@@ -1614,6 +1608,7 @@ mod tests {
     /// not just "the code compiles and doesn't panic".
     #[test]
     fn test_dispatch_explosive_swarm_runs_mission_dag_and_populates_blackboard() {
+        susi_tools::hooks::init(Box::new(crate::gmcp::tools::SusiEngineHooks));
         std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
         let tmp = std::env::temp_dir().join("susi_test_dispatch_dag");
         let _ = std::fs::create_dir_all(&tmp);
