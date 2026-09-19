@@ -58,10 +58,6 @@ impl GenomeDistiller {
         }
 
         // 4. Append to reasoning_experience.jsonl for later training
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         if !global_dir.exists() {
             fs::create_dir_all(&global_dir)?;

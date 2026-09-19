@@ -569,8 +569,8 @@ impl GmcpClient {
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
     pub fn autonomous_web_scout() -> Vec<GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
-        let home = std::env::var_os("HOME").unwrap_or_default();
-        let registry_path = PathBuf::from(home).join(".susi/mcp_web_registry.json");
+        let home = susi_paths::SusiDirs::home_dir();
+        let registry_path = home.join(".susi/mcp_web_registry.json");
 
         // Benchmark and Rank each entry
         for entry in &mut entries {

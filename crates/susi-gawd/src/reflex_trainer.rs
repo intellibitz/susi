@@ -10,10 +10,6 @@ pub struct ReflexTrainer;
 impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         let staged_file = global_dir.join("distillation_staged.jsonl");
 
@@ -39,10 +35,6 @@ impl ReflexTrainer {
     }
 
     pub fn force_train(_workspace: &Path) -> EaiResult<String> {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         SusiAlphaModel::train_on_staged_data(&global_dir)
             .map_err(|e| susi_error::EaiError::inference(e.to_string()))

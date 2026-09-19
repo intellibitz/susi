@@ -160,9 +160,6 @@ impl CoreTools {
         ));
 
         // Report Background Provisioning Progress
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let progress_file = susi_paths::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {

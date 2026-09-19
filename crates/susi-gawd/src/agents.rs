@@ -212,9 +212,6 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
-            let _home = std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
             let cfg = susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
                 .unwrap_or_default();
             susi_gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
@@ -1019,10 +1016,6 @@ impl GawdAgent for AdminAgent {
 
 impl AdminAgent {
     fn global_dir() -> std::path::PathBuf {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
         susi_paths::SusiDirs::config_dir()
     }
 
@@ -1105,26 +1098,36 @@ impl AdminAgent {
 // functions construct concrete agent structs below, so they stay here in
 // `gawd` as free functions rather than methods on the (now cross-crate)
 // `AgentMetaRegistry` type; nothing outside `gawd` ever called them.
-pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
-    match name {
-        "DevOpsAgent" => Some(Arc::new(DevOpsAgent)),
-        "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
-        "HardwareAgent" => Some(Arc::new(HardwareAgent)),
-        "SafetyAgent" => Some(Arc::new(SafetyAgent)),
-        "SecurityAgent" => Some(Arc::new(SecurityAgent)),
-        "EvolutionAgent" => Some(Arc::new(EvolutionAgent)),
-        "GmcpAgent" => Some(Arc::new(GmcpAgent)),
-        "EpistemicAuditorAgent" => Some(Arc::new(EpistemicAuditorAgent)),
-        "ResourceArbitratorAgent" => Some(Arc::new(ResourceArbitratorAgent)),
-        "ConsensusMediatorAgent" => Some(Arc::new(ConsensusMediatorAgent)),
-        "SelfHealingAgent" => Some(Arc::new(SelfHealingAgent)),
-        "LibraryScoutAgent" => Some(Arc::new(LibraryScoutAgent)),
-        "AdminAgent" => Some(Arc::new(AdminAgent)),
-        "ContextAgent" => Some(Arc::new(ContextAgent)),
-        _ => None,
-    }
+use std::sync::OnceLock;
+use susi_core::registry::DynamicServiceRegistry;
+
+pub fn agent_registry() -> &'static DynamicServiceRegistry {
+    static REGISTRY: OnceLock<DynamicServiceRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let registry = DynamicServiceRegistry::new();
+        registry.register_factory("DevOpsAgent", || Arc::new(Arc::new(DevOpsAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("SusiRuntimeAgent", || Arc::new(Arc::new(SusiRuntimeAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("HardwareAgent", || Arc::new(Arc::new(HardwareAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("SafetyAgent", || Arc::new(Arc::new(SafetyAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("SecurityAgent", || Arc::new(Arc::new(SecurityAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("EvolutionAgent", || Arc::new(Arc::new(EvolutionAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("GmcpAgent", || Arc::new(Arc::new(GmcpAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("EpistemicAuditorAgent", || Arc::new(Arc::new(EpistemicAuditorAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("ResourceArbitratorAgent", || Arc::new(Arc::new(ResourceArbitratorAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("ConsensusMediatorAgent", || Arc::new(Arc::new(ConsensusMediatorAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("SelfHealingAgent", || Arc::new(Arc::new(SelfHealingAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("LibraryScoutAgent", || Arc::new(Arc::new(LibraryScoutAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("AdminAgent", || Arc::new(Arc::new(AdminAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("ContextAgent", || Arc::new(Arc::new(ContextAgent) as Arc<dyn GawdAgent>));
+        registry
+    })
 }
 
+pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
+    agent_registry()
+        .instantiate::<std::sync::Arc<dyn GawdAgent>>(name)
+        .map(|arc_of_arc| (*arc_of_arc).clone())
+}
 pub fn instantiate_agent(profile: &AgentProfile) -> Arc<dyn GawdAgent> {
     if let Some(agent) = instantiate_native_agent(&profile.name) {
         agent

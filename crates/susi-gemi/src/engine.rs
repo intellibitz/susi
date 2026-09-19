@@ -32,23 +32,30 @@ use tokenizers::Tokenizer;
 /// starts with "qwen2" (covers "qwen2" and "qwen2moe"); every other
 /// architecture keeps using the generic, actually-universal `quantized_llama`
 /// path via the metadata-shimming pass below.
-pub(crate) enum ModelBackend {
-    Llama(llama::ModelWeights),
-    Qwen2(qwen2gguf::ModelWeights),
-}
-
-impl ModelBackend {
+pub trait NeuralBackend: Send + Sync {
     fn forward(
         &mut self,
         x: &candle_core::Tensor,
         index_pos: usize,
-    ) -> candle_core::Result<candle_core::Tensor> {
-        match self {
-            Self::Llama(m) => m.forward(x, index_pos),
-            Self::Qwen2(m) => m.forward(x, index_pos),
-        }
+    ) -> candle_core::Result<candle_core::Tensor>;
+    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> { None }
+}
+
+impl NeuralBackend for llama::ModelWeights {
+    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+        self.forward(x, index_pos)
     }
 }
+
+impl NeuralBackend for qwen2gguf::ModelWeights {
+    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+        self.forward(x, index_pos)
+    }
+    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> { Some(self) }
+}
+
+pub type ModelBackend = Box<dyn NeuralBackend>;
+
 
 /// Loaded neural weights (Mandate 23: Substrate Purity). See `ModelBackend`
 /// for why Qwen2 needs its own graph rather than the otherwise-universal
@@ -254,9 +261,9 @@ impl InferenceHost {
                 split,
                 kv_cache_capacity,
             )
-            .map(ModelBackend::Qwen2)
+            .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         } else {
-            llama::ModelWeights::from_gguf(model_data, &mut file, device).map(ModelBackend::Llama)
+            llama::ModelWeights::from_gguf(model_data, &mut file, device).map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         }
         .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
@@ -386,6 +393,21 @@ impl ContextSummarizer {
     }
 }
 
+
+
+use susi_core::registry::DynamicServiceRegistry;
+
+pub fn engine_registry() -> &'static DynamicServiceRegistry {
+    static REGISTRY: OnceLock<DynamicServiceRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let registry = DynamicServiceRegistry::new();
+        registry.register_factory("susi-federated", || Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>));
+        registry.register_factory("cloud", || Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>));
+        registry.register_factory("llamacpp", || Arc::new(Arc::new(LlamaCppEngine) as Arc<dyn NativeInferenceEngine>));
+        registry
+    })
+}
+
 pub struct GemiEngine;
 
 impl GemiEngine {
@@ -443,13 +465,21 @@ impl GemiEngine {
         let active_engine_identifier = crate::models::ModelManager::get_selected_engine()
             .unwrap_or(global_config.default_engine());
 
-        let engine: Box<dyn NativeInferenceEngine> = if requested_model.is_none()
+        let engine_key = if requested_model.is_none()
             && (active_engine_identifier == "susi-federated" || active_engine_identifier == "cloud")
         {
-            Box::new(SusiFederatedEngine)
+            active_engine_identifier.as_str()
         } else {
-            Box::new(LlamaCppEngine)
+            "llamacpp"
         };
+
+        // Fully Dynamic Native Engine Instantiation using susi_core ServiceRegistry
+        // Resolves the engine via Semantic Generics instead of hardcoded enum matching
+        let engine = engine_registry()
+            .instantiate::<std::sync::Arc<dyn NativeInferenceEngine>>(engine_key)
+            .map(|arc_of_arc| (*arc_of_arc).clone())
+            .unwrap_or_else(|| std::sync::Arc::new(LlamaCppEngine) as std::sync::Arc<dyn NativeInferenceEngine>);
+
 
         let selected_model = requested_model.map(str::to_owned).or_else(|| {
             ModelManager::get_selected_model_for_request_with_min_complexity(
@@ -869,7 +899,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         // `speculative::SpeculativeDecoder` for why, and returns `None`
         // when it isn't applicable (disabled, no suitable draft model,
         // tokenizer mismatch), leaving the classic loop below untouched.
-        if let ModelBackend::Qwen2(ref mut target_weights) = substrate.weights {
+        if let Some(target_weights) = substrate.weights.as_qwen2_mut() {
             if let Some(result) = crate::speculative::SpeculativeDecoder::try_generate(
                 target_weights,
                 &model_path,
@@ -1217,10 +1247,7 @@ mod tests {
 
     #[test]
     fn test_native_tokenization() {
-        let home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
+        let home = susi_paths::SusiDirs::home_dir();
         let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);

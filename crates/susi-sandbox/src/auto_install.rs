@@ -1,15 +1,11 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
 
 pub fn push_to_hardware_if_dev_build() {
     if let Ok(exe) = env::current_exe() {
         let exe_str = exe.to_string_lossy();
         if exe_str.contains("target/debug") || exe_str.contains("target/release") {
-            let home = env::var_os("HOME")
-                .or_else(|| env::var_os("USERPROFILE"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."));
+        let home = susi_paths::SusiDirs::home_dir();
             let bin_dir = home.join(".susi").join("bin");
             let target = bin_dir.join(if cfg!(windows) {
                 "susi-engine.exe"

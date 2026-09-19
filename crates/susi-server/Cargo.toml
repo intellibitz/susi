@@ -4,6 +4,7 @@ version = "0.1.2023081"
 edition = "2024"
 
 [dependencies]
+susi-agents = { workspace = true }
 susi-gawd = { path = "../susi-gawd" }
 susi-gemi = { path = "../susi-gemi" }
 susi-tools = { path = "../susi-tools" }

@@ -4,7 +4,7 @@
 use rayon::prelude::*;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use susi_error::{EaiError, EaiResult};
 
@@ -53,10 +53,6 @@ impl SusiAdmin {
     }
 
     pub fn get_global_susi_dir() -> std::path::PathBuf {
-        let _home = env::var_os("HOME")
-            .or_else(|| env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         susi_paths::SusiDirs::config_dir()
     }
 

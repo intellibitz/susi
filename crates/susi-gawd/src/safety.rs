@@ -1,7 +1,7 @@
 // Blocks destructive commands and writes to critical system paths, using
 // patterns loaded from config plus a hardcoded exec_command allowlist.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
 
@@ -9,10 +9,6 @@ pub struct SafetyDetector;
 
 impl SafetyDetector {
     pub fn audit_action(tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();

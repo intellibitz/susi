@@ -466,9 +466,6 @@ pub struct SusiPrompts {
 
 impl SusiPrompts {
     pub fn load_global() -> Self {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = susi_paths::SusiDirs::config_dir().join("prompts.json");
 
         static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiPrompts>> =
@@ -584,9 +581,6 @@ pub struct SusiMessages {
 
 impl SusiMessages {
     pub fn load_global() -> Self {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = susi_paths::SusiDirs::config_dir().join("messages.json");
 
         static STORE: std::sync::OnceLock<
@@ -864,10 +858,6 @@ impl SusiConfig {
     }
 
     pub fn load_global() -> EaiResult<Self> {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         Self::load(&susi_paths::SusiDirs::config_dir())
     }
 

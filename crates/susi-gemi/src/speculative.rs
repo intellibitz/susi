@@ -47,7 +47,7 @@
 // draft_chunk, or different hardware, but it must never default on
 // without remeasuring first.
 
-use crate::engine::{apply_repeat_penalty, InferenceHost, ModelBackend};
+use crate::engine::{apply_repeat_penalty, InferenceHost};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::qwen2_split::ModelWeights as Qwen2Weights;
@@ -244,10 +244,7 @@ impl SpeculativeDecoder {
                 Err(_) => return None, // draft failed to load: not fatal, just not applicable
             };
         let mut draft_guard = draft_substrate.write();
-        let draft = match &mut draft_guard.weights {
-            ModelBackend::Qwen2(w) => w,
-            ModelBackend::Llama(_) => return None, // arch filter above should prevent this
-        };
+        let draft = draft_guard.weights.as_qwen2_mut()?;
         if !draft.is_fully_gpu_resident() {
             // The target left no VRAM headroom for even a tiny draft model
             // (or no GPU is actually active); a CPU-bound draft is just as

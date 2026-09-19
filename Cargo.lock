@@ -6489,6 +6489,7 @@ name = "susi-core"
 version = "0.1.0"
 dependencies = [
  "crossbeam",
+ "dashmap",
  "flume",
  "hex",
  "parking_lot",
@@ -6505,7 +6506,9 @@ version = "0.1.2023081"
 dependencies = [
  "ciborium",
  "hex",
+ "libc",
  "nix",
+ "serde_json",
  "signal-hook 0.3.18",
  "susi-error",
  "susi-gawd",
@@ -6648,6 +6651,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-agents",
+ "susi-core",
  "susi-error",
  "susi-paths",
  "susi-sandbox",
@@ -6734,6 +6738,7 @@ dependencies = [
  "hyper-util",
  "rayon",
  "serde_json",
+ "susi-agents",
  "susi-error",
  "susi-gawd",
  "susi-gemi",

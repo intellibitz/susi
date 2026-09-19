@@ -172,9 +172,6 @@ impl ModelDownloadController {
     }
 
     pub fn get_progress(&self, target: &str) -> Option<ModelDownloadProgress> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let progress_file = ModelManager::progress_path(target);
         if let Ok(content) = fs::read_to_string(&progress_file) {
             if let Ok(record) = serde_json::from_str::<ModelDownloadProgress>(&content) {
@@ -391,9 +388,7 @@ impl ModelManager {
             let _ = fs::create_dir_all(&p);
             return p;
         }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
+        let home = susi_paths::SusiDirs::home_dir();
         if std::env::var("SUSI_USE_DOWNLOADS_DIR").is_ok() {
             let p = home.join("Downloads/.susi/models");
             let _ = fs::create_dir_all(&p);
@@ -431,9 +426,6 @@ impl ModelManager {
     }
 
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let susi_dir = susi_paths::SusiDirs::config_dir();
         let _ = fs::create_dir_all(&susi_dir);
         let model_file = susi_dir.join("selected_model_override.txt");
@@ -685,9 +677,6 @@ impl ModelManager {
         intent: Option<crate::intent::IntentCategory>,
         complexity: Option<crate::intent::TaskComplexity>,
     ) -> Option<String> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let override_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
@@ -718,9 +707,6 @@ impl ModelManager {
     }
 
     pub fn set_selected_engine(engine_name: &str) -> Result<String, String> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let susi_dir = susi_paths::SusiDirs::config_dir();
         let _ = fs::create_dir_all(&susi_dir);
         let engine_file = susi_dir.join("selected_engine.txt");
@@ -732,9 +718,6 @@ impl ModelManager {
     }
 
     pub fn get_selected_engine() -> Option<String> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let engine_file = susi_paths::SusiDirs::config_dir().join("selected_engine.txt");
         fs::read_to_string(&engine_file)
             .ok()
@@ -744,9 +727,6 @@ impl ModelManager {
     pub fn get_active_engine_and_model(
         intent: Option<crate::intent::IntentCategory>,
     ) -> (String, String) {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         // Reachable on every inference/model-routing decision, not just boot:
         // a config.json torn by a concurrent writer must degrade to bundled
@@ -1073,9 +1053,7 @@ impl ModelManager {
     }
 
     pub fn deep_scan_home_and_register(global_dir: &Path) -> EaiResult<String> {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
+        let home = susi_paths::SusiDirs::home_dir();
         if !home.is_dir() {
             return Err(susi_error::EaiError::filesystem(
                 "User home directory not detected",
@@ -1357,9 +1335,6 @@ impl ModelManager {
         total: u64,
         status: &str,
     ) {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let progress_file = Self::progress_path(target_url);
         let _ = fs::create_dir_all(progress_file.parent().unwrap());
         let previous: Option<ModelDownloadProgress> = fs::read(&progress_file)

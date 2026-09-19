@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 pub struct SusiPulse;
@@ -22,10 +22,6 @@ impl SusiPulse {
     pub fn reason(prompt: &str, workspace: &Path) -> Result<String> {
         let prompt_trimmed = prompt.trim();
 
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
 
         // Neural Synchronization (Cache Invalidation)
@@ -50,10 +46,6 @@ impl SusiPulse {
             }
         }
 
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
 
         // Neural Reflex Attempt

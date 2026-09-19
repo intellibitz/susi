@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,9 +59,6 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 

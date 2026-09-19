@@ -4,11 +4,18 @@ pub struct SusiDirs;
 
 impl SusiDirs {
     fn legacy_base() -> PathBuf {
-        std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".susi")
+        Self::home_dir().join(".susi")
+    }
+
+    pub fn home_dir() -> PathBuf {
+        directories::BaseDirs::new()
+            .map(|d| d.home_dir().to_path_buf())
+            .unwrap_or_else(|| {
+                std::env::var_os("HOME")
+                    .or_else(|| std::env::var_os("USERPROFILE"))
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("."))
+            })
     }
 
     fn use_xdg() -> bool {
@@ -26,6 +33,7 @@ impl SusiDirs {
         directories::ProjectDirs::from("", "intellibitz", "susi")
     }
 
+    #[must_use]
     pub fn config_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {
@@ -35,6 +43,7 @@ impl SusiDirs {
         Self::legacy_base()
     }
 
+    #[must_use]
     pub fn data_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {
@@ -44,6 +53,7 @@ impl SusiDirs {
         Self::legacy_base()
     }
 
+    #[must_use]
     pub fn cache_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {

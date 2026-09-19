@@ -139,10 +139,6 @@ impl TelemetryHistoryStore {
     }
 
     fn get_history_file() -> PathBuf {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         susi_paths::SusiDirs::data_dir().join("telemetry_history.json")
     }
 
@@ -401,10 +397,6 @@ impl SwarmTaskManager {
                     if let Some(c) = mgr.cancel_map.get(&task_id) {
                         c.store(true, Ordering::Release);
                     }
-                    let _home = std::env::var_os("HOME")
-                        .or_else(|| std::env::var_os("USERPROFILE"))
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| PathBuf::from("."));
                     susi_sandbox::manager::SusiAuditLogger::log(
                         &susi_paths::SusiDirs::config_dir(),
                         susi_sandbox::manager::LogLevel::Axiomatic,

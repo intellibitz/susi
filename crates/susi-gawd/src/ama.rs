@@ -178,9 +178,6 @@ impl SusiMasterAgent {
         );
 
         eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let _home = std::env::var_os("HOME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
@@ -605,9 +602,6 @@ impl SusiMasterAgent {
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
-            let _home = std::env::var_os("HOME")
-                .map(std::path::PathBuf::from)
-                .unwrap_or_default();
             let global_dir = susi_paths::SusiDirs::config_dir();
             let daemon_status = if susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,

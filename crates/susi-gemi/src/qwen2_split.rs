@@ -690,10 +690,7 @@ mod tests {
     /// weights aren't checked into the repo.
     #[test]
     fn test_plan_gpu_layers_partial_offload_on_real_32b_gguf() {
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/Qwen2.5-32B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {
@@ -755,10 +752,7 @@ mod tests {
     #[test]
     #[ignore = "real tensor computation against a local model (~20s solo, slower under full-suite contention) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_batched_verify_matches_sequential_one_token_at_a_time() {
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
@@ -838,10 +832,7 @@ mod tests {
     #[test]
     #[ignore = "real tensor computation against a local model (~22s solo, slower under full-suite contention) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_truncate_kv_cache_restores_state_bit_identical_to_never_having_grown() {
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
@@ -922,10 +913,7 @@ mod tests {
             eprintln!("skipping: no CUDA device available");
             return;
         };
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
@@ -963,10 +951,7 @@ mod tests {
 
     #[test]
     fn test_is_fully_gpu_resident_false_for_cpu_only_load() {
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
@@ -995,10 +980,7 @@ mod tests {
             eprintln!("skipping: no CUDA device available");
             return;
         };
-        let home = match std::env::var_os("HOME") {
-            Some(h) => std::path::PathBuf::from(h),
-            None => return,
-        };
+        let home = susi_paths::SusiDirs::home_dir();
         let model_path =
             susi_paths::SusiDirs::data_dir().join("models/Qwen2.5-14B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {

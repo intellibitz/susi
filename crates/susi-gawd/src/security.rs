@@ -1,7 +1,7 @@
 // Flags/redacts secret-token and exfiltration patterns loaded from config.
 // Mandate 10: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
 
@@ -9,10 +9,6 @@ pub struct SecurityDetector;
 
 impl SecurityDetector {
     pub fn audit_action(_tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
