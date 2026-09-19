@@ -50,8 +50,8 @@ sha256_verify() {
     elif command -v shasum >/dev/null 2>&1; then
         actual=$(shasum -a 256 "$file" | awk '{print $1}')
     else
-        echo "  Warning: no sha256sum/shasum available to verify checksum; skipping verification." >&2
-        return 0
+        echo "  Error: no sha256sum/shasum available to verify checksum. Refusing to install unverified binary." >&2
+        return 1
     fi
     [ "$actual" = "$expected" ]
 }
@@ -63,7 +63,11 @@ ARCH_TYPE="$(uname -m)"
 case "$OS_TYPE" in
     linux*)  PLATFORM="linux" ;;
     darwin*) PLATFORM="macos" ;;
-    mingw*|cygwin*|msys*) PLATFORM="windows" ;;
+    mingw*|cygwin*|msys*)
+        echo "Error: Native Windows is not currently supported." >&2
+        echo "Please install susi via Windows Subsystem for Linux (WSL)." >&2
+        exit 1
+        ;;
     *)       PLATFORM="unknown" ;;
 esac
 
@@ -75,10 +79,18 @@ esac
 
 INSTALLED=0
 
+check_is_susi_source() {
+    local toml_path="$1"
+    if [ -f "$toml_path" ] && grep -q '^name *= *"susi"' "$toml_path"; then
+        return 0
+    fi
+    return 1
+}
+
 HAS_LOCAL_SOURCE=0
-if [ -f "Cargo.toml" ]; then
+if check_is_susi_source "Cargo.toml"; then
     HAS_LOCAL_SOURCE=1
-elif [[ -n "${BASH_SOURCE[0]}" && -f "$(dirname "${BASH_SOURCE[0]}")/Cargo.toml" ]]; then
+elif [[ -n "${BASH_SOURCE[0]}" ]] && check_is_susi_source "$(dirname "${BASH_SOURCE[0]}")/Cargo.toml"; then
     HAS_LOCAL_SOURCE=1
 fi
 
@@ -94,19 +106,10 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     fi
 
     ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH$GPU_SUFFIX"
-
-    if [[ "$PLATFORM" == "windows" ]]; then
-        ENGINE_BINARY="${ENGINE_BINARY}.exe"
-    fi
-
     BASE_URL="https://github.com/$SUSI_REPO/releases/latest/download"
 
     echo "Attempting to download pre-compiled engine binary from $SUSI_REPO..."
 
-    # --connect-timeout: fail fast if the host is unreachable.
-    # --speed-limit/--speed-time (curl) and --timeout (wget, read-timeout):
-    # abort on a genuine stall (no bytes for 30s) without capping total
-    # transfer time, so a slow-but-progressing download isn't killed early.
     DEPLOYED=0
     ENGINE_TMP="$GLOBAL_BIN_DIR/susi-engine-new"
     CHECKSUM_TMP="$ENGINE_TMP.sha256"
@@ -136,37 +139,30 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         rm -f "$CHECKSUM_TMP"
     fi
 
+    # Check executable before swapping
+    if [ "$DEPLOYED" = "1" ]; then
+        chmod +x "$ENGINE_TMP"
+        if ! "$ENGINE_TMP" --version >/dev/null 2>&1 && ! "$ENGINE_TMP" --help >/dev/null 2>&1; then
+            echo "  Downloaded executable validation failed; discarding and falling back to build."
+            DEPLOYED=0
+        fi
+    fi
+
     if [ "$DEPLOYED" = "1" ]; then
         # `susi` is a symlink to susi-engine, so its process cmdline shows as
         # ".../bin/susi", not ".../bin/susi-engine" - match the shared path
         # prefix so a running daemon started via either name is caught.
         pkill -f "$GLOBAL_BIN_DIR/susi" || true
 
-        BIN_EXE=""
-        ENGINE_EXE="-engine"
-        if [[ "$PLATFORM" == "windows" ]]; then
-            BIN_EXE=".exe"
-            ENGINE_EXE="-engine.exe"
-        fi
-
-        rm -f "$GLOBAL_BIN_DIR/susi${BIN_EXE}" "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}" 2>/dev/null || true
-        mv "$GLOBAL_BIN_DIR/susi-engine-new" "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}"
-        chmod +x "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}"
-        # `susi` is not a separate binary - susi-engine's own CLI already
-        # accepts "susi" as its command name and handles every subcommand
-        # (install, status, etc.) directly. Symlink on Unix; a real copy on
-        # Windows/msys, since a bash-created symlink there isn't reliably a
-        # native executable outside the bash session that made it.
-        if [[ "$PLATFORM" == "windows" ]]; then
-            cp "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}" "$GLOBAL_BIN_DIR/susi${BIN_EXE}"
-        else
-            ln -sf "susi${ENGINE_EXE}" "$GLOBAL_BIN_DIR/susi${BIN_EXE}"
-        fi
+        # Transactional deployment
+        rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
+        mv "$ENGINE_TMP" "$GLOBAL_BIN_DIR/susi-engine"
+        ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
         INSTALLED=1
         echo "Successfully deployed the engine binary from GitHub ($SUSI_REPO)."
     else
         echo "Binary download unavailable or failed. Falling back to build."
-        rm -f "$GLOBAL_BIN_DIR/susi-engine-new" 2>/dev/null || true
+        rm -f "$ENGINE_TMP" 2>/dev/null || true
     fi
 else
     if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
@@ -297,22 +293,17 @@ if [ "$INSTALLED" = "0" ]; then
 
         ENGINE_SRC="$SCRIPT_DIR/target/release/susi-engine"
 
-        if [[ "$PLATFORM" == "windows" ]]; then
-            ENGINE_SRC="${ENGINE_SRC}.exe"
-        fi
-
         if [ -f "$ENGINE_SRC" ]; then
+            # Validate built binary
+            if ! "$ENGINE_SRC" --version >/dev/null 2>&1 && ! "$ENGINE_SRC" --help >/dev/null 2>&1; then
+                echo "Error: Built executable validation failed."
+                exit 1
+            fi
             pkill -f "$GLOBAL_BIN_DIR/susi" || true
             rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
             cp "$ENGINE_SRC" "$GLOBAL_BIN_DIR/susi-engine"
             chmod +x "$GLOBAL_BIN_DIR/susi-engine"
-            # `susi` is not a separate binary - symlink on Unix, real copy on
-            # Windows/msys (see the binary-download branch above for why).
-            if [[ "$PLATFORM" == "windows" ]]; then
-                cp "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi"
-            else
-                ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
-            fi
+            ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
             INSTALLED=1
             echo "Deployed engine binary to $GLOBAL_BIN_DIR"
         fi
@@ -412,57 +403,30 @@ EOF
     fi
 fi
 
-# 6. Intelligence Substrate Provisioning (Proof of Life Handshake)
-MODEL_DIR="$GLOBAL_SUSI_DIR/models"
-REFLEX_MODEL="$MODEL_DIR/susi-alpha.safetensors"
-if [ ! -f "$REFLEX_MODEL" ]; then
-    echo "Fetching Reflex-Alpha intelligence substrate (Proof of Life)..."
-    # The engine's 'install' command already enqueues weights, but we force a tiny fetch for immediate response
-    # Using the default HF URL from config if not provided
-    WEIGHTS_URL="${SUSI_WEIGHTS_URL:-https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors}"
-    WEIGHTS_TMP="$REFLEX_MODEL.part"
-    # Hugging Face LFS files echo the object's sha256 in the X-Linked-ETag
-    # header - grab it up front (best effort) so the download can be
-    # verified before it lands in the models directory.
-    EXPECTED_WEIGHTS_SHA=""
-    WEIGHTS_FETCHED=0
-    if command -v curl >/dev/null 2>&1; then
-        EXPECTED_WEIGHTS_SHA=$(curl -sSIL --connect-timeout 15 "$WEIGHTS_URL" 2>/dev/null | tr -d '\r' | grep -i '^x-linked-etag:' | tail -1 | sed -E 's/.*"([a-f0-9]{64})".*/\1/' || true)
-        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$WEIGHTS_URL" -o "$WEIGHTS_TMP"; then
-            WEIGHTS_FETCHED=1
-        fi
-    elif command -v wget >/dev/null 2>&1; then
-        if wget -q --timeout=30 --tries=2 "$WEIGHTS_URL" -O "$WEIGHTS_TMP"; then
-            WEIGHTS_FETCHED=1
-        fi
-    fi
-
-    if [ "$WEIGHTS_FETCHED" = "1" ]; then
-        if [ -n "$EXPECTED_WEIGHTS_SHA" ] && ! sha256_verify "$WEIGHTS_TMP" "$EXPECTED_WEIGHTS_SHA"; then
-            echo "Reflex weights failed checksum verification; discarding. 'susi install' will retry provisioning in the background."
-            rm -f "$WEIGHTS_TMP"
-        else
-            mv "$WEIGHTS_TMP" "$REFLEX_MODEL"
-        fi
-    else
-        rm -f "$WEIGHTS_TMP" 2>/dev/null || true
-        echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
-    fi
-fi
-
-# 7. PATH Management
+# 6. PATH Management
 if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
+    ADDED_PATH=0
     CONFIG_FILES=("$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile")
     for config in "${CONFIG_FILES[@]}"; do
-        if [ -f "$config" ] && ! grep -q ".susi/bin" "$config"; then
-            echo -e "\n# susi path initialization\nexport PATH=\"\$HOME/.susi/bin:\$PATH\"" >> "$config"
+        if [ -f "$config" ]; then
+            if ! grep -q "\.susi/bin" "$config"; then
+                echo -e "\n# susi path initialization\nexport PATH=\"\$HOME/.susi/bin:\$PATH\"" >> "$config"
+            fi
+            ADDED_PATH=1
         fi
     done
+
+    if [ "$ADDED_PATH" = "0" ]; then
+        echo -e "\n# susi path initialization\nexport PATH=\"\$HOME/.susi/bin:\$PATH\"" >> "$HOME/.profile"
+    fi
+
+    # Export for the rest of the script/session execution
+    export PATH="$GLOBAL_BIN_DIR:$PATH"
 
     FISH_CONFIG="$HOME/.config/fish/config.fish"
     if [ -d "$HOME/.config/fish" ] || command -v fish >/dev/null 2>&1; then
         mkdir -p "$HOME/.config/fish"
-        if [ -f "$FISH_CONFIG" ] && ! grep -q ".susi/bin" "$FISH_CONFIG"; then
+        if [ -f "$FISH_CONFIG" ] && ! grep -q "\.susi/bin" "$FISH_CONFIG"; then
             echo -e "\n# susi path initialization\nfish_add_path \$HOME/.susi/bin" >> "$FISH_CONFIG"
         elif [ ! -f "$FISH_CONFIG" ]; then
             echo -e "fish_add_path \$HOME/.susi/bin" > "$FISH_CONFIG"
@@ -473,7 +437,7 @@ if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
     fi
 fi
 
-# 8. Finalize
+# 7. Finalize
 if [ -t 0 ] && [ -t 1 ] && [ -z "$NONINTERACTIVE" ] && [ -x "$GLOBAL_BIN_DIR/susi" ]; then
     echo "Installation complete. Starting interactive susi session..."
     echo ""
