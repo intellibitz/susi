@@ -1660,6 +1660,7 @@ mod tests {
             fn broadcast_lock_request(&self, _r: &str) -> bool {
                 true
             }
+            fn bootstrap_tools(&self, _registry: &susi_tools::ToolRegistry) {}
         }
         susi_tools::hooks::init(Box::new(DummyHooks));
         std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");

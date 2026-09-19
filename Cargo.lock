@@ -6608,6 +6608,7 @@ name = "susi-gawd"
 version = "0.1.2023081"
 dependencies = [
  "base64 0.23.1",
+ "dashmap",
  "flume",
  "log",
  "md5 0.7.0",
@@ -6621,6 +6622,7 @@ dependencies = [
  "susi-core",
  "susi-error",
  "susi-gemi",
+ "susi-native",
  "susi-paths",
  "susi-sandbox",
  "susi-tools",
@@ -6638,6 +6640,7 @@ dependencies = [
  "candle-transformers",
  "dashmap",
  "directories 6.0.0",
+ "flume",
  "hex",
  "hound",
  "image",

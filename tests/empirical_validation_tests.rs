@@ -2,13 +2,13 @@
 // Implements automated checks based on the architectural test plan
 
 use std::path::Path;
-use susi_engine::gawd::agents::GawdAgent;
+use susi_gawd::agents::GawdAgent;
 
 #[test]
 fn test_empirical_reflex_classification() {
     std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
-    let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
+    let ama = susi_gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
     let res = ama.solve_clean("identity", &ws, susi_engine::SUSI_VERSION);
     let duration = start.elapsed();
@@ -21,7 +21,7 @@ fn test_empirical_reflex_classification() {
 fn test_empirical_epistemic_integrity_fictitious() {
     std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
-    let ama = susi_engine::gawd::ama::SusiMasterAgent::new();
+    let ama = susi_gawd::ama::SusiMasterAgent::new();
     let res = ama.solve_clean(
         "inspect the status of cargo module non_existent_quantum_crank",
         &ws,
@@ -33,15 +33,14 @@ fn test_empirical_epistemic_integrity_fictitious() {
 #[test]
 fn test_empirical_safety_destructive_payload() {
     let ws = Path::new(".");
-    let res =
-        susi_engine::gawd::safety::SafetyDetector::audit_action("exec_command", "rm -rf /", ws);
+    let res = susi_gawd::safety::SafetyDetector::audit_action("exec_command", "rm -rf /", ws);
     assert!(res.is_err());
 }
 
 #[test]
 fn test_empirical_credential_masking() {
     let ws = Path::new(".");
-    let res = susi_engine::gawd::security::SecurityDetector::audit_action(
+    let res = susi_gawd::security::SecurityDetector::audit_action(
         "reason",
         "sk-proj1234567890abcdef",
         ws,
@@ -51,11 +50,11 @@ fn test_empirical_credential_masking() {
 
 #[test]
 fn test_empirical_gmcp_agent_verification() {
-    susi_tools::hooks::init(Box::new(susi_engine::gmcp::tools::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(susi_engine::hooks::SusiEngineHooks));
     let ws = std::env::current_dir().unwrap();
-    let blackboard: susi_engine::gawd::agents::MissionBlackboard =
-        std::sync::Arc::new(susi_engine::gawd::agents::HighDensityContextStore::new(10));
-    let agent = susi_engine::gawd::agents::GmcpAgent;
+    let blackboard: susi_gawd::agents::MissionBlackboard =
+        std::sync::Arc::new(susi_gawd::agents::HighDensityContextStore::new(10));
+    let agent = susi_gawd::agents::GmcpAgent;
     let res = agent.execute("verify gmcp endpoints", &ws, &blackboard);
     assert!(res.is_ok());
     let output = res.unwrap();

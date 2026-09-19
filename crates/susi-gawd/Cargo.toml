@@ -10,6 +10,8 @@ syn = { version = "3.0.6", features = ["full", "visit"] }
 base64 = "0.23"
 parking_lot = { workspace = true }
 flume = { workspace = true }
+dashmap = { workspace = true }
+susi-native = { workspace = true }
 reqwest = { workspace = true }
 susi-error = { workspace = true }
 susi-core = { workspace = true }

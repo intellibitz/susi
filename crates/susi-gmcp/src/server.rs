@@ -555,7 +555,32 @@ mod tests {
 
     #[test]
     fn test_susi_solve_is_registered() {
-        susi_tools::hooks::init(Box::new(crate::tools::SusiEngineHooks));
+        struct TestHooks;
+        impl susi_tools::EngineHooks for TestHooks {
+            fn engine_version(&self) -> &'static str {
+                "test"
+            }
+            fn hardware_snapshot(&self) -> susi_tools::HardwareSnapshot {
+                susi_tools::HardwareSnapshot {
+                    available_ram_gb: 0,
+                    acceleration_active: false,
+                }
+            }
+            fn resolve_capability_gap(
+                &self,
+                _name: &str,
+                _workspace: &std::path::Path,
+            ) -> susi_error::EaiResult<String> {
+                Ok("".into())
+            }
+            fn broadcast_lock_request(&self, _resource_id: &str) -> bool {
+                false
+            }
+            fn bootstrap_tools(&self, registry: &ToolRegistry) {
+                crate::tools::bootstrap_registry(registry);
+            }
+        }
+        susi_tools::hooks::init(Box::new(TestHooks));
         assert!(ToolRegistry::exists("susi_solve"));
     }
 }

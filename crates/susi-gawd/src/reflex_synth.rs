@@ -179,7 +179,6 @@ impl ReflexSynthesizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     fn test_native_reflex_synthesis_logic() {
@@ -239,9 +238,9 @@ mod tests {
         let intent = format!("test_hot_patch_reflex_{}", std::process::id());
         match ReflexSynthesizer::synthesize_wasm_reflex(&intent, Path::new(".")) {
             Ok(wasm_path) => {
-                let home = susi_paths::SusiDirs::home_dir();
+                let _home = susi_paths::SusiDirs::home_dir();
                 let result =
-                    crate::native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
+                    susi_native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
                 let _ = std::fs::remove_file(
                     susi_paths::SusiDirs::data_dir()

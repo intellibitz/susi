@@ -196,25 +196,25 @@ impl SusiDaemon {
             return None;
         }
 
-        if let Ok(content) = fs::read_to_string(lock_file_path) {
-            if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() {
-                #[cfg(unix)]
-                {
-                    if unsafe { libc::kill(pid as i32, 0) } == 0 {
-                        return Some(pid);
-                    } else {
-                        let _ = fs::remove_file(lock_file_path);
-                        return None;
-                    }
+        if let Ok(content) = fs::read_to_string(lock_file_path)
+            && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>()
+        {
+            #[cfg(unix)]
+            {
+                if unsafe { libc::kill(pid as i32, 0) } == 0 {
+                    return Some(pid);
+                } else {
+                    let _ = fs::remove_file(lock_file_path);
+                    return None;
                 }
-                #[cfg(windows)]
-                {
-                    if Self::is_process_alive(lock_file_path) {
-                        return Some(pid);
-                    } else {
-                        let _ = fs::remove_file(lock_file_path);
-                        return None;
-                    }
+            }
+            #[cfg(windows)]
+            {
+                if Self::is_process_alive(lock_file_path) {
+                    return Some(pid);
+                } else {
+                    let _ = fs::remove_file(lock_file_path);
+                    return None;
                 }
             }
         }
@@ -222,21 +222,21 @@ impl SusiDaemon {
     }
 
     fn is_process_alive(lock_file_path: &Path) -> bool {
-        if let Ok(content) = fs::read_to_string(lock_file_path) {
-            if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>() {
-                #[cfg(unix)]
-                {
-                    return unsafe { libc::kill(pid as i32, 0) == 0 };
-                }
-                #[cfg(windows)]
-                {
-                    use std::process::Command;
-                    return Command::new("tasklist")
-                        .args(&["/FI", &format!("PID eq {}", pid)])
-                        .output()
-                        .map(|o| o.status.success())
-                        .unwrap_or(false);
-                }
+        if let Ok(content) = fs::read_to_string(lock_file_path)
+            && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>()
+        {
+            #[cfg(unix)]
+            {
+                return unsafe { libc::kill(pid as i32, 0) == 0 };
+            }
+            #[cfg(windows)]
+            {
+                use std::process::Command;
+                return Command::new("tasklist")
+                    .args(&["/FI", &format!("PID eq {}", pid)])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
             }
         }
         false
@@ -413,14 +413,13 @@ impl SusiDaemon {
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
-        if let Ok(metadata) = std::fs::metadata(&lock_file_path) {
-            if let Ok(modified) = metadata.modified() {
-                if let Ok(age) = modified.elapsed() {
-                    if age.as_secs() > 3600 && !Self::is_process_alive(&lock_file_path) {
-                        let _ = std::fs::remove_file(&lock_file_path);
-                    }
-                }
-            }
+        if let Ok(metadata) = std::fs::metadata(&lock_file_path)
+            && let Ok(modified) = metadata.modified()
+            && let Ok(age) = modified.elapsed()
+            && age.as_secs() > 3600
+            && !Self::is_process_alive(&lock_file_path)
+        {
+            let _ = std::fs::remove_file(&lock_file_path);
         }
 
         let mut lock = match DaemonLock::acquire(&lock_file_path) {
@@ -590,10 +589,10 @@ impl SusiDaemon {
             Ok(listener) => (listener, port),
             Err(_) => {
                 // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port, global_dir) {
-                    if let Ok(listener) = std::net::TcpListener::bind(&addr) {
-                        return (listener, port);
-                    }
+                if Self::attempt_port_reclaim(port, global_dir)
+                    && let Ok(listener) = std::net::TcpListener::bind(&addr)
+                {
+                    return (listener, port);
                 }
 
                 // Last resort: if even a random ephemeral port on the
@@ -642,10 +641,10 @@ impl SusiDaemon {
             Ok(socket) => (socket, port),
             Err(_) => {
                 // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port, global_dir) {
-                    if let Ok(socket) = std::net::UdpSocket::bind(&addr) {
-                        return (socket, port);
-                    }
+                if Self::attempt_port_reclaim(port, global_dir)
+                    && let Ok(socket) = std::net::UdpSocket::bind(&addr)
+                {
+                    return (socket, port);
                 }
 
                 // Last resort, same reasoning as bind_http_with_fallback above.
@@ -690,18 +689,18 @@ impl SusiDaemon {
 
             if let Ok(out) = output {
                 let pid_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if let Ok(pid) = pid_str.parse::<i32>() {
-                    if Self::is_trusted_susi_process(pid, global_dir) {
-                        eprintln!(
-                            "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
-                            pid, port
-                        );
-                        unsafe {
-                            libc::kill(pid, libc::SIGKILL);
-                        }
-                        thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
-                        return true;
+                if let Ok(pid) = pid_str.parse::<i32>()
+                    && Self::is_trusted_susi_process(pid, global_dir)
+                {
+                    eprintln!(
+                        "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
+                        pid, port
+                    );
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
                     }
+                    thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
+                    return true;
                 }
             }
         }
@@ -774,12 +773,12 @@ impl SusiDaemon {
         let target_lock = &global_lock;
 
         if target_lock.exists() {
-            if let Ok(content) = fs::read_to_string(target_lock) {
-                if let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<i32>() {
-                    #[cfg(unix)]
-                    unsafe {
-                        libc::kill(pid, libc::SIGTERM);
-                    }
+            if let Ok(content) = fs::read_to_string(target_lock)
+                && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<i32>()
+            {
+                #[cfg(unix)]
+                unsafe {
+                    libc::kill(pid, libc::SIGTERM);
                 }
             }
             let _ = fs::remove_file(&global_lock);
@@ -912,9 +911,14 @@ mod tests {
         let bin_path = global_dir.join("fake_binary");
         std::fs::write(&bin_path, b"version one content").unwrap();
 
-        let direct_hash = SusiDaemon::calculate_binary_hash(&bin_path).unwrap();
+        let direct_hash =
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path).unwrap();
         let cached_hash_1 =
-            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+                &bin_path,
+                &global_dir,
+            )
+            .unwrap();
         assert_eq!(
             direct_hash, cached_hash_1,
             "the cached path must still produce the exact same digest as a direct hash"
@@ -932,7 +936,11 @@ mod tests {
         std::fs::write(&cache_path, format!("{}:{}:deadbeef", mtime, size)).unwrap();
 
         let cached_hash_2 =
-            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+                &bin_path,
+                &global_dir,
+            )
+            .unwrap();
         assert_eq!(
             cached_hash_2, "deadbeef",
             "an unchanged mtime+size must be served from the cache, not re-hashed"
@@ -945,14 +953,18 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(5));
         std::fs::write(&bin_path, b"version two, genuinely different content").unwrap();
         let cached_hash_3 =
-            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+                &bin_path,
+                &global_dir,
+            )
+            .unwrap();
         assert_ne!(
             cached_hash_3, "deadbeef",
             "a real content+mtime change must invalidate the cache and re-hash"
         );
         assert_eq!(
             cached_hash_3,
-            SusiDaemon::calculate_binary_hash(&bin_path).unwrap()
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path).unwrap()
         );
 
         let _ = std::fs::remove_dir_all(&global_dir);
@@ -1002,7 +1014,8 @@ mod tests {
         assert!(!SusiDaemon::is_trusted_susi_process(pid, &global_dir));
 
         // Trust anchor matches the real binary's hash: now trusted.
-        let real_hash = SusiDaemon::calculate_binary_hash(&fake_bin).unwrap();
+        let real_hash =
+            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&fake_bin).unwrap();
         std::fs::write(SusiDaemon::get_hash_file(&global_dir), &real_hash).unwrap();
         assert!(SusiDaemon::is_trusted_susi_process(pid, &global_dir));
 

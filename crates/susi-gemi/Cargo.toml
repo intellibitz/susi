@@ -24,6 +24,7 @@ directories = "6.0.0"
 anyhow = { workspace = true }
 once_cell = { workspace = true }
 dashmap = { workspace = true }
+flume = { workspace = true }
 sha2 = { workspace = true }
 hound = "3.5"
 url = { workspace = true }

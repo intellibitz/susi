@@ -1237,7 +1237,6 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
 /// distributed lock broadcast, initial tool registration) reach gawd/gemi
 /// capabilities without `susi-tools` depending on `gawd`/`gemi` directly.
 /// Wired in once via `susi_tools::hooks::init` early in `main()`.
-
 #[cfg(test)]
 mod shared_runtime_tests {
     use super::CoreTools;

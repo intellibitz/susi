@@ -574,7 +574,7 @@ mod tests {
     #[test]
     #[ignore = "real tensor computation against two local models, ~4.5 minutes solo - the dominant cost of the entire suite. Run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_speculative_output_matches_plain_greedy_decoding() {
-        let home = match std::env::var_os("HOME") {
+        let _home = match std::env::var_os("HOME") {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };

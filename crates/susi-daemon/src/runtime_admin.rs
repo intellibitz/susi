@@ -42,15 +42,15 @@ impl SusiRuntimeAdmin {
     fn perform_hardware_watchdog_audit() {
         let profile = HardwareProfiler::get_profile();
         let load_parts: Vec<&str> = profile.load_avg.split(',').collect();
-        if let Some(load_1m_str) = load_parts.first() {
-            if let Ok(load_1m) = load_1m_str.trim().parse::<f32>() {
-                let cpu_threshold = profile.cpus as f32 * 0.85;
-                if load_1m > cpu_threshold {
-                    // System is under stress. Ladder down concurrency.
-                    susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
-                } else {
-                    susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
-                }
+        if let Some(load_1m_str) = load_parts.first()
+            && let Ok(load_1m) = load_1m_str.trim().parse::<f32>()
+        {
+            let cpu_threshold = profile.cpus as f32 * 0.85;
+            if load_1m > cpu_threshold {
+                // System is under stress. Ladder down concurrency.
+                susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
+            } else {
+                susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
             }
         }
     }

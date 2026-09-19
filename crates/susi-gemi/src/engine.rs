@@ -1115,7 +1115,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+
     use std::thread;
 
     #[test]
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn test_native_tokenization() {
-        let home = susi_paths::SusiDirs::home_dir();
+        let _home = susi_paths::SusiDirs::home_dir();
         let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
