@@ -1101,6 +1101,32 @@ impl ModelManager {
         }
     }
 
+    /// Picks what `spawn_background_hardware_model_provisioner` should
+    /// proactively prefetch: only the single best-fit tier (`ladder.last()`),
+    /// matching exactly what `ensure_hardware_optimal_models` downloads
+    /// elsewhere. This used to filter `step >= 4`, which on a 64GB+ machine
+    /// (qualifies for both the 32B and 72B tiers) proactively downloaded
+    /// BOTH: 32B (~20GB) as well as 72B (~45GB), even though
+    /// `identify_best_suited_local_model`'s scoring always prefers the
+    /// largest model that fits the RAM budget, so the 32B download would
+    /// never actually get used - pure wasted disk and bandwidth. Split out
+    /// from `spawn_background_hardware_model_provisioner` so this selection
+    /// logic is unit-testable without needing to intercept a spawned
+    /// background thread.
+    fn select_background_prefetch_targets(
+        ladder: &[crate::gemi::hardware::ModelLadderStep],
+        hf_base_url: &str,
+    ) -> Vec<(String, u64)> {
+        ladder
+            .last()
+            .map(|s| {
+                let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
+                (url, s.min_bytes)
+            })
+            .into_iter()
+            .collect()
+    }
+
     pub fn spawn_background_hardware_model_provisioner(_workspace: &Path) {
         if cfg!(test) {
             return;
@@ -1110,14 +1136,7 @@ impl ModelManager {
                 .unwrap_or_default()
                 .hf_base_url();
             let ladder = HardwareProfiler::get_progressive_model_ladder();
-            let targets: Vec<(String, u64)> = ladder
-                .iter()
-                .filter(|s| s.step >= 4 || ladder.len() <= 2)
-                .map(|s| {
-                    let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
-                    (url, s.min_bytes)
-                })
-                .collect();
+            let targets = Self::select_background_prefetch_targets(&ladder, &hf_base_url);
 
             for (u, threshold) in targets {
                 let u_clone = u.clone();
@@ -1440,6 +1459,67 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gemi::hardware::ModelLadderStep;
+
+    fn fixture_step(step: usize, hf_repo: &str) -> ModelLadderStep {
+        ModelLadderStep {
+            step,
+            label: format!("{step}-tier"),
+            hf_repo: hf_repo.to_string(),
+            hf_file: format!("{hf_repo}.gguf"),
+            tokenizer_repo: String::new(),
+            min_bytes: (step as u64) * 1_000_000_000,
+            expected_bytes: (step as u64) * 2_000_000_000,
+        }
+    }
+
+    /// Regression for the fix in EV-2022920-052: on a 64GB+ machine the
+    /// hardware-qualified ladder contains both the 32B (step 4) and 72B
+    /// (step 5) tiers. The background provisioner used to prefetch every
+    /// step >= 4, downloading both even though only the biggest one (72B)
+    /// would ever actually get selected for inference - wasted ~20GB.
+    #[test]
+    fn test_select_background_prefetch_targets_picks_only_the_best_fit_tier() {
+        let ladder = vec![
+            fixture_step(1, "qwen-1.5b"),
+            fixture_step(2, "qwen-7b"),
+            fixture_step(3, "qwen-14b"),
+            fixture_step(4, "qwen-32b"),
+            fixture_step(5, "qwen-72b"),
+        ];
+        let targets =
+            ModelManager::select_background_prefetch_targets(&ladder, "https://hf.example");
+        assert_eq!(
+            targets.len(),
+            1,
+            "must target exactly one tier, not every step >= 4"
+        );
+        assert!(
+            targets[0].0.contains("qwen-72b"),
+            "must target the single best-fit (last/highest) tier, got: {}",
+            targets[0].0
+        );
+    }
+
+    /// Weak-hardware case: a short ladder (e.g. only the 1.5B tier
+    /// qualifies) must still resolve to that one tier, not zero targets.
+    #[test]
+    fn test_select_background_prefetch_targets_handles_short_ladder() {
+        let ladder = vec![fixture_step(1, "qwen-1.5b")];
+        let targets =
+            ModelManager::select_background_prefetch_targets(&ladder, "https://hf.example");
+        assert_eq!(targets.len(), 1);
+        assert!(targets[0].0.contains("qwen-1.5b"));
+    }
+
+    /// Empty ladder (defensive - shouldn't happen in practice since
+    /// get_progressive_model_ladder falls back to a synthetic step 1 entry
+    /// when nothing qualifies) must not panic and yields no targets.
+    #[test]
+    fn test_select_background_prefetch_targets_empty_ladder_yields_nothing() {
+        let targets = ModelManager::select_background_prefetch_targets(&[], "https://hf.example");
+        assert!(targets.is_empty());
+    }
 
     #[test]
     fn test_universal_format_recognition() {
