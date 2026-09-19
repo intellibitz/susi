@@ -55,10 +55,10 @@ jobs:
             name: macos-aarch64
             artifact: susi-engine-macos-aarch64
             src: target/release/susi-engine
-          - os: windows-latest
-            name: windows-x86_64
-            artifact: susi-engine-windows-x86_64.exe
-            src: target/release/susi-engine.exe
+    # Windows builds are not published here: the cfg(windows) build of
+    # wasmer used on that target pulls in wasmer-compiler-singlepass,
+    # which is BUSL-1.1 licensed and requires a paid Wasmer sponsorship
+    # for production use. Re-add once there's a compliant Windows backend.
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -77,17 +77,9 @@ jobs:
         shell: bash
         run: mv "${{ matrix.src }}" "${{ matrix.artifact }}"
 
-      - name: Generate Checksum (Unix)
-        if: runner.os != 'Windows'
+      - name: Generate Checksum
         shell: bash
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
-
-      - name: Generate Checksum (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $hash = (Get-FileHash "${{ matrix.artifact }}" -Algorithm SHA256).Hash.ToLower()
-          "$hash  ${{ matrix.artifact }}" | Set-Content -NoNewline -Path "${{ matrix.artifact }}.sha256"
 
       - name: Publish Dev Release
         uses: softprops/action-gh-release@v2
