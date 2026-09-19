@@ -36,13 +36,15 @@ pub struct SusiDaemon;
 pub struct DaemonContext {
     pub shutdown_signal: Arc<AtomicBool>,
     _lock: DaemonLock,
+    _global_lock: DaemonLock,
 }
 
 impl DaemonContext {
-    pub fn new(lock: DaemonLock) -> Self {
+    pub fn new(lock: DaemonLock, global_lock: DaemonLock) -> Self {
         DaemonContext {
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             _lock: lock,
+            _global_lock: global_lock,
         }
     }
 
@@ -442,7 +444,44 @@ impl SusiDaemon {
             return;
         }
 
-        let ctx = DaemonContext::new(lock);
+        // GEMI/GMCP/UDP bind to 0.0.0.0 - genuinely global, shared ports,
+        // not per-workspace ones - so a daemon started from workspace A
+        // must refuse to start if a daemon for workspace B already holds
+        // them, not just check its own workspace's lock. Before this,
+        // `check_status`'s cross-workspace fallback read from
+        // `substrate.lock` but nothing had written to that file since the
+        // per-workspace lock split (workspace-scoped daemons only wrote
+        // their own `substrate_<hash>.lock`), so the fallback always found
+        // nothing: a `susi` invocation from a second workspace directory
+        // believed no daemon was running, started a second one, and the two
+        // then fought over the same ports - the loser's "Sovereign
+        // Eviction" self-healing reflex (`attempt_port_reclaim`,
+        // Mandate 22) SIGKILLed the winner outright, repeatedly, as long as
+        // anything kept invoking `susi` from that other workspace. This
+        // flock is the actual mutual-exclusion fix: only one process can
+        // hold it at a time, closing the race `check_status`'s PID-liveness
+        // read alone cannot (a dead-but-not-yet-cleaned-up lock file is a
+        // real TOCTOU window; flock isn't).
+        let global_lock_path = Self::get_lock_file(&global_dir);
+        let mut global_lock = match DaemonLock::acquire(&global_lock_path) {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!(
+                    "[SusiDaemon] Failed to acquire global lock: {}. A daemon for another workspace already holds the shared network ports; not starting a second one.",
+                    e
+                );
+                return;
+            }
+        };
+        if let Err(e) = global_lock.write_pid() {
+            eprintln!(
+                "[SusiDaemon] Failed to write PID to global lock file: {}",
+                e
+            );
+            return;
+        }
+
+        let ctx = DaemonContext::new(lock, global_lock);
         if let Err(e) = ctx.setup_signal_handlers() {
             eprintln!("[SusiDaemon] Signal handler setup failed: {}", e);
         }
@@ -751,14 +790,15 @@ impl SusiDaemon {
     #[allow(dead_code)]
     pub fn stop_daemon(workspace: &Path, global_dir: &Path) -> bool {
         let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
+        let global_lock = Self::get_lock_file(global_dir);
         let target_lock = if ws_lock.exists() {
-            ws_lock
+            &ws_lock
         } else {
-            Self::get_lock_file(global_dir)
+            &global_lock
         };
 
         if target_lock.exists() {
-            if let Ok(content) = fs::read_to_string(&target_lock) {
+            if let Ok(content) = fs::read_to_string(target_lock) {
                 if let Ok(pid) = content.trim().parse::<i32>() {
                     #[cfg(unix)]
                     unsafe {
@@ -766,7 +806,13 @@ impl SusiDaemon {
                     }
                 }
             }
-            let _ = fs::remove_file(&target_lock);
+            // A running daemon now holds both its workspace-scoped lock and
+            // the global one (see run_daemon_loop) - remove both, not just
+            // whichever this call happened to pick, so a stale PID never
+            // lingers in the other file for `check_status`'s fallback read
+            // to trip over later.
+            let _ = fs::remove_file(&ws_lock);
+            let _ = fs::remove_file(&global_lock);
             true
         } else {
             false
@@ -790,6 +836,46 @@ mod tests {
             .to_str()
             .unwrap()
             .starts_with("substrate_"));
+    }
+
+    #[test]
+    fn test_global_lock_is_mutually_exclusive_across_different_workspace_paths() {
+        // Regression test for the bug this pass fixed: two `run_daemon_loop`
+        // calls for two *different* workspaces both bind the same global
+        // GEMI/GMCP/UDP ports, so the second one starting must refuse
+        // rather than race the first and get evicted by its self-healing
+        // "Sovereign Eviction" reflex. The actual mutual-exclusion
+        // primitive is the global lock's flock, independent of which
+        // workspace path is asking - this proves that property directly,
+        // without needing to spin up two real daemon processes.
+        let global_dir = std::env::temp_dir().join(format!(
+            "susi_global_lock_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&global_dir);
+        let global_lock_path = SusiDaemon::get_lock_file(&global_dir);
+        let _ = std::fs::remove_file(&global_lock_path);
+
+        let first = DaemonLock::acquire(&global_lock_path);
+        assert!(
+            first.is_ok(),
+            "the first daemon (any workspace) must be able to acquire the global lock"
+        );
+
+        let second = DaemonLock::acquire(&global_lock_path);
+        assert!(
+            second.is_err(),
+            "a second daemon for a DIFFERENT workspace must be refused the global lock while the first is still running, since they'd otherwise fight over the same shared network ports"
+        );
+
+        drop(first);
+        let third = DaemonLock::acquire(&global_lock_path);
+        assert!(
+            third.is_ok(),
+            "once the first daemon releases the lock, a new one must be able to acquire it"
+        );
+
+        let _ = std::fs::remove_dir_all(&global_dir);
     }
 
     #[test]
