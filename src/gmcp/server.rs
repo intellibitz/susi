@@ -294,7 +294,7 @@ async fn handle_gmcp_request(
     }
 
     let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-    if !crate::gawd::net_guard::NetGuard::is_authorized(
+    if !susi_agents::net_guard::NetGuard::is_authorized(
         req.headers()
             .get(hyper::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok()),
@@ -306,7 +306,7 @@ async fn handle_gmcp_request(
                 .to_string(),
         ));
     }
-    if !crate::gawd::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute()) {
+    if !susi_agents::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute()) {
         return Ok(response_builder(
             StatusCode::TOO_MANY_REQUESTS,
             "application/json",

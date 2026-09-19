@@ -18,7 +18,7 @@ impl NetGuard {
     /// local/desktop installs keep working unmodified; an operator exposing
     /// susi beyond localhost is expected to set `api_auth_token`.
     pub fn is_authorized(auth_header: Option<&str>) -> bool {
-        let token = crate::sandbox::manager::SusiConfig::load_global()
+        let token = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
         if token.is_empty() {

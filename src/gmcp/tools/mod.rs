@@ -480,7 +480,7 @@ impl CoreTools {
         crate::gawd::safety::SafetyDetector::audit_action("exec_command", clean, workspace)?;
         crate::gawd::security::SecurityDetector::audit_action("exec_command", clean, workspace)?;
 
-        let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
+        let task_handle = susi_agents::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
 
         let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
@@ -558,7 +558,7 @@ impl CoreTools {
         description = "List active and historical swarm tasks with liveness telemetry"
     )]
     pub fn tasks_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let tasks = crate::gawd::task_manager::SwarmTaskManager::global().list_tasks();
+        let tasks = susi_agents::task_manager::SwarmTaskManager::global().list_tasks();
         serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -570,7 +570,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if crate::gawd::task_manager::SwarmTaskManager::global().pause_task(id) {
+        if susi_agents::task_manager::SwarmTaskManager::global().pause_task(id) {
             Ok(format!("Task '{}' paused.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -585,7 +585,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if crate::gawd::task_manager::SwarmTaskManager::global().resume_task(id) {
+        if susi_agents::task_manager::SwarmTaskManager::global().resume_task(id) {
             Ok(format!("Task '{}' resumed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -603,7 +603,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if crate::gawd::task_manager::SwarmTaskManager::global().kill_task(id) {
+        if susi_agents::task_manager::SwarmTaskManager::global().kill_task(id) {
             Ok(format!("Task '{}' killed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -660,7 +660,7 @@ impl CoreTools {
         let cats = arg.get("categories").and_then(|v| v.as_str());
 
         if let (Some(n), Some(d), Some(c)) = (name, desc, cats) {
-            let profile = crate::gawd::agents::AgentProfile {
+            let profile = susi_agents::AgentProfile {
                 name: n.to_string(),
                 description: d.to_string(),
                 categories: c.split(',').map(|s| s.trim().to_string()).collect(),
@@ -668,7 +668,7 @@ impl CoreTools {
                 base_rank: 0.8,
                 is_core: false,
             };
-            crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);
+            susi_agents::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", n))
         } else {
             let arg_s = arg.as_str().unwrap_or("");
@@ -679,7 +679,7 @@ impl CoreTools {
                 ));
             }
 
-            let profile = crate::gawd::agents::AgentProfile {
+            let profile = susi_agents::AgentProfile {
                 name: parts[0].to_string(),
                 description: parts[1].to_string(),
                 categories: parts[2].split(',').map(|s| s.trim().to_string()).collect(),
@@ -688,7 +688,7 @@ impl CoreTools {
                 is_core: false,
             };
 
-            crate::gawd::agents::AgentMetaRegistry::global().register_agent(profile);
+            susi_agents::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", parts[0]))
         }
     }
@@ -792,7 +792,7 @@ impl CoreTools {
         description = "Report current agent expertise hierarchy"
     )]
     pub fn meta_rank_agents(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let registry = crate::gawd::agents::AgentMetaRegistry::global();
+        let registry = susi_agents::AgentMetaRegistry::global();
         let agents = registry.list_agents();
         let mut report = "SUSI Expertise Hierarchy:\n\n".to_string();
         for a in agents {

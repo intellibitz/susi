@@ -3,13 +3,13 @@
 
 use super::hardware::HardwareProfiler;
 use crate::error::EaiResult;
-use crate::gawd::task_manager::{SwarmTaskManager, TaskHandle, TaskStatus};
 use crate::sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use susi_agents::task_manager::{SwarmTaskManager, TaskHandle, TaskStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {

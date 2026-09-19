@@ -143,7 +143,7 @@ impl TelemetryHistoryStore {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        crate::sandbox::xdg::SusiDirs::data_dir().join("telemetry_history.json")
+        susi_paths::SusiDirs::data_dir().join("telemetry_history.json")
     }
 
     fn load_history(&self) {
@@ -232,7 +232,7 @@ impl TelemetryHistoryStore {
         if profile.sample_count < 3 {
             return u64::MAX;
         }
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let floor_ms = cfg.execution_lease_secs().saturating_mul(1000);
         profile.p99_idle_interval_ms.saturating_mul(5).max(floor_ms)
     }
@@ -405,9 +405,9 @@ impl SwarmTaskManager {
                         .or_else(|| std::env::var_os("USERPROFILE"))
                         .map(PathBuf::from)
                         .unwrap_or_else(|| PathBuf::from("."));
-                    crate::sandbox::manager::SusiAuditLogger::log(
-                        &crate::sandbox::xdg::SusiDirs::config_dir(),
-                        crate::sandbox::manager::LogLevel::Axiomatic,
+                    susi_sandbox::manager::SusiAuditLogger::log(
+                        &susi_paths::SusiDirs::config_dir(),
+                        susi_sandbox::manager::LogLevel::Axiomatic,
                         "LEASE_EXPIRED",
                         &format!(
                             "Task {} idle for {}ms (threshold {}ms) — cancelled by watchdog.",

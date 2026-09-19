@@ -141,7 +141,7 @@ async fn handle_gemi_request(
     // world-facing surface is gated below.
     if method != Method::OPTIONS && path != "/health" {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        if !crate::gawd::net_guard::NetGuard::is_authorized(
+        if !susi_agents::net_guard::NetGuard::is_authorized(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok()),
@@ -151,7 +151,7 @@ async fn handle_gemi_request(
                 &json!({"error": "Unauthorized"}),
             ));
         }
-        if !crate::gawd::net_guard::RateLimiter::global()
+        if !susi_agents::net_guard::RateLimiter::global()
             .check(peer_ip, cfg.rate_limit_per_minute())
         {
             return Ok(json_response(

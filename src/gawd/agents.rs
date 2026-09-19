@@ -4,126 +4,15 @@
 // results themselves.
 
 use crate::error::EaiResult;
-use dashmap::DashMap;
 
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GawdAgentInfo {
-    pub name: String,
-    pub provider: String,
-    pub url: String,
-    pub rank: f32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiscoverableAsset {
-    pub tier: String,
-    pub name: String,
-    pub provider: String,
-    pub url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentProfile {
-    pub name: String,
-    pub description: String,
-    pub categories: Vec<String>,
-    pub semantic_anchors: Vec<String>,
-    pub base_rank: f32,
-    #[serde(default)]
-    pub is_core: bool,
-}
-
-/// Capacity-capped concurrent string map (DashMap-backed). Evicts an
-/// arbitrary entry when full rather than tracking real LRU order.
-#[derive(Debug)]
-pub struct HighDensityContextStore {
-    inner: DashMap<String, String>,
-    capacity_limit: usize,
-}
-
-impl Default for HighDensityContextStore {
-    fn default() -> Self {
-        Self::new(1024)
-    }
-}
-
-impl HighDensityContextStore {
-    pub fn new(capacity: usize) -> Self {
-        Self {
-            inner: DashMap::new(),
-            capacity_limit: capacity,
-        }
-    }
-
-    pub fn insert(&self, key: String, value: String) {
-        if self.inner.len() >= self.capacity_limit && !self.inner.contains_key(&key) {
-            // Mandate: Strict LRU or oldest key removal
-            // For DashMap we just remove a random key if we are over capacity.
-            //
-            // Self-deadlock hazard: `self.inner.iter()` is an unnamed
-            // temporary, and DashMap's `Iter` holds its current shard's read
-            // lock for the `Iter`'s own lifetime (not just the yielded
-            // `RefMulti`'s). Using it directly as an `if let` scrutinee
-            // extends that temporary's lifetime to the end of the block
-            // (Rust's standard "if let" temporary-extension rule), so the
-            // `remove()` below would try to take a write lock on the same
-            // shard whose read lock the still-alive `Iter` temporary is
-            // holding. Binding to a `let` first forces the `Iter` (and its
-            // lock) to drop at the end of this statement, before `remove()`
-            // ever runs.
-            let key_to_remove = self.inner.iter().next().map(|r| r.key().clone());
-            if let Some(key_to_remove) = key_to_remove {
-                self.inner.remove(&key_to_remove);
-            }
-        }
-        self.inner.insert(key, value);
-    }
-
-    pub fn get(&self, key: &str) -> Option<String> {
-        self.inner.get(key).map(|r| r.value().clone())
-    }
-
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.inner.contains_key(key)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    pub fn iter(&self) -> dashmap::iter::Iter<'_, String, String> {
-        self.inner.iter()
-    }
-
-    pub fn to_json(&self) -> String {
-        let mut map = std::collections::HashMap::new();
-        for r in self.inner.iter() {
-            map.insert(r.key().clone(), r.value().clone());
-        }
-        serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
-    }
-}
-
-/// Shared state agents write their outputs into during a mission.
-pub type SwarmBlackboard = Arc<HighDensityContextStore>;
-pub type MissionBlackboard = SwarmBlackboard;
-
-/// Trait every swarm agent implements.
-pub trait GawdAgent: Send + Sync {
-    fn name(&self) -> String;
-    fn rank(&self) -> f32;
-    fn execute(
-        &self,
-        goal: &str,
-        workspace: &Path,
-        blackboard: &MissionBlackboard,
-    ) -> EaiResult<String>;
-}
+pub use susi_agents::{
+    AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo,
+    HighDensityContextStore, MissionBlackboard, SwarmBlackboard,
+};
 
 /// Generic agent that falls back to LLM reasoning when no specialist agent
 /// covers the goal.
@@ -1216,180 +1105,41 @@ impl AdminAgent {
     }
 }
 
-pub struct AgentMetaRegistry {
-    store: crate::sandbox::VersionedJsonStore<Vec<AgentProfile>>,
+// `AgentMetaRegistry`'s data-persistence methods (list/register/re-rank)
+// live in `susi_agents::registry` now - it's what `gemi`/`gmcp` actually
+// need, and it has no dependency on any concrete agent struct. These two
+// functions construct concrete agent structs below, so they stay here in
+// `gawd` as free functions rather than methods on the (now cross-crate)
+// `AgentMetaRegistry` type; nothing outside `gawd` ever called them.
+pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
+    match name {
+        "DevOpsAgent" => Some(Arc::new(DevOpsAgent)),
+        "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
+        "HardwareAgent" => Some(Arc::new(HardwareAgent)),
+        "SafetyAgent" => Some(Arc::new(SafetyAgent)),
+        "SecurityAgent" => Some(Arc::new(SecurityAgent)),
+        "EvolutionAgent" => Some(Arc::new(EvolutionAgent)),
+        "GmcpAgent" => Some(Arc::new(GmcpAgent)),
+        "EpistemicAuditorAgent" => Some(Arc::new(EpistemicAuditorAgent)),
+        "ResourceArbitratorAgent" => Some(Arc::new(ResourceArbitratorAgent)),
+        "ConsensusMediatorAgent" => Some(Arc::new(ConsensusMediatorAgent)),
+        "SelfHealingAgent" => Some(Arc::new(SelfHealingAgent)),
+        "LibraryScoutAgent" => Some(Arc::new(LibraryScoutAgent)),
+        "AdminAgent" => Some(Arc::new(AdminAgent)),
+        "ContextAgent" => Some(Arc::new(ContextAgent)),
+        _ => None,
+    }
 }
 
-impl AgentMetaRegistry {
-    pub fn global() -> &'static Self {
-        static REGISTRY: OnceLock<AgentMetaRegistry> = OnceLock::new();
-        REGISTRY.get_or_init(|| AgentMetaRegistry {
-            store: crate::sandbox::VersionedJsonStore::new(),
+pub fn instantiate_agent(profile: &AgentProfile) -> Arc<dyn GawdAgent> {
+    if let Some(agent) = instantiate_native_agent(&profile.name) {
+        agent
+    } else {
+        Arc::new(DynamicAgent {
+            agent_name: profile.name.clone(),
+            mission_profile: profile.description.clone(),
+            agent_rank: profile.base_rank,
         })
-    }
-
-    fn registry_path() -> std::path::PathBuf {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from("."));
-        crate::sandbox::xdg::SusiDirs::data_dir().join("agent_registry.json")
-    }
-
-    fn bootstrap_data(&self) -> Vec<AgentProfile> {
-        // Mandate 42: safe - agents.default.json is compiled into the binary
-        // via include_str!, not a user-editable runtime file (same pattern
-        // as SusiConfig::default() in sandbox/manager.rs). Its content is
-        // fixed for any given binary, so this either always succeeds or
-        // always fails for that binary - a failure here is a build/
-        // packaging bug caught by any test run, never a runtime condition
-        // that varies between invocations.
-        serde_json::from_str(include_str!("../../config/agents.default.json"))
-            .expect("Fatal: agents.default.json must be valid JSON.")
-    }
-
-    /// Caps how many non-core (i.e. Neural-Agent-Synthesis-originated)
-    /// profiles the registry will hold, evicting the lowest-rank one to make
-    /// room. Bounds unbounded registry growth from an attacker (or just
-    /// heavy use) repeatedly triggering synthesis with novel goal text —
-    /// otherwise `agent_registry.json` and the linear scans over it in
-    /// `synthesize_fleet` grow without limit.
-    const MAX_NON_CORE_AGENTS: usize = 300;
-
-    pub fn register_agent(&self, profile: AgentProfile) {
-        let _ = self.store.modify(
-            &Self::registry_path(),
-            || Ok(self.bootstrap_data()),
-            |_| false,
-            false,
-            |agents| {
-                if !agents.iter().any(|a| a.name == profile.name) {
-                    let non_core_count = agents.iter().filter(|a| !a.is_core).count();
-                    if non_core_count >= Self::MAX_NON_CORE_AGENTS {
-                        if let Some(idx) = agents
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, a)| !a.is_core)
-                            .min_by(|(_, a), (_, b)| {
-                                a.base_rank
-                                    .partial_cmp(&b.base_rank)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            })
-                            .map(|(i, _)| i)
-                        {
-                            agents.remove(idx);
-                        }
-                    }
-                    agents.push(profile);
-                }
-            },
-        );
-    }
-
-    pub fn update_rank(&self, name: &str, delta: f32, source: &str) {
-        let name_owned = name.to_string();
-        let source_owned = source.to_string();
-        let _ = self.store.modify(
-            &Self::registry_path(),
-            || Ok(self.bootstrap_data()),
-            |_| false,
-            false,
-            move |agents| {
-                if let Some(agent) = agents.iter_mut().find(|a| a.name == name_owned) {
-                    let old_rank = agent.base_rank;
-                    agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
-
-                    let log_msg = format!(
-                        "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
-                        name_owned, old_rank, agent.base_rank, source_owned
-                    );
-                    let _home = std::env::var_os("HOME")
-                        .or_else(|| std::env::var_os("USERPROFILE"))
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(|| std::path::PathBuf::from("."));
-                    crate::sandbox::manager::SusiAuditLogger::log(
-                        &crate::sandbox::xdg::SusiDirs::config_dir(),
-                        crate::sandbox::manager::LogLevel::Info,
-                        "AGENT_MUTATION",
-                        &log_msg,
-                    );
-                }
-            },
-        );
-    }
-
-    pub fn list_agents(&self) -> Vec<AgentProfile> {
-        self.store
-            .load_with_healing(
-                &Self::registry_path(),
-                || Ok(self.bootstrap_data()),
-                |unique_agents| {
-                    let mut deduplicated = Vec::new();
-                    for a in unique_agents.drain(..) {
-                        if !deduplicated.iter().any(|x: &AgentProfile| x.name == a.name) {
-                            deduplicated.push(a);
-                        }
-                    }
-                    *unique_agents = deduplicated;
-
-                    let mut changed = false;
-                    for default_agent in self.bootstrap_data() {
-                        if !unique_agents
-                            .iter()
-                            .any(|x: &AgentProfile| x.name == default_agent.name)
-                        {
-                            unique_agents.push(default_agent);
-                            changed = true;
-                        }
-                    }
-                    changed
-                },
-                false,
-            )
-            .unwrap_or_else(|_| self.bootstrap_data())
-    }
-
-    pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
-        match name {
-            "DevOpsAgent" => Some(Arc::new(DevOpsAgent)),
-            "SusiRuntimeAgent" => Some(Arc::new(SusiRuntimeAgent)),
-            "HardwareAgent" => Some(Arc::new(HardwareAgent)),
-            "SafetyAgent" => Some(Arc::new(SafetyAgent)),
-            "SecurityAgent" => Some(Arc::new(SecurityAgent)),
-            "EvolutionAgent" => Some(Arc::new(EvolutionAgent)),
-            "GmcpAgent" => Some(Arc::new(GmcpAgent)),
-            "EpistemicAuditorAgent" => Some(Arc::new(EpistemicAuditorAgent)),
-            "ResourceArbitratorAgent" => Some(Arc::new(ResourceArbitratorAgent)),
-            "ConsensusMediatorAgent" => Some(Arc::new(ConsensusMediatorAgent)),
-            "SelfHealingAgent" => Some(Arc::new(SelfHealingAgent)),
-            "LibraryScoutAgent" => Some(Arc::new(LibraryScoutAgent)),
-            "AdminAgent" => Some(Arc::new(AdminAgent)),
-            "ContextAgent" => Some(Arc::new(ContextAgent)),
-            _ => None,
-        }
-    }
-
-    pub fn instantiate_agent(profile: &AgentProfile) -> Arc<dyn GawdAgent> {
-        if let Some(agent) = Self::instantiate_native_agent(&profile.name) {
-            agent
-        } else {
-            Arc::new(DynamicAgent {
-                agent_name: profile.name.clone(),
-                mission_profile: profile.description.clone(),
-                agent_rank: profile.base_rank,
-            })
-        }
-    }
-
-    pub fn get_checksum(&self) -> u64 {
-        let agents = self.list_agents();
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        use std::hash::{Hash, Hasher};
-        for agent in agents.iter() {
-            agent.name.hash(&mut hasher);
-            agent.description.hash(&mut hasher);
-        }
-        hasher.finish()
     }
 }
 
@@ -1601,7 +1351,7 @@ impl GawdAgentFleet {
         for agent in &available_agents {
             if agent.is_core {
                 if !fleet.iter().any(|a| a.name() == agent.name) {
-                    fleet.push(AgentMetaRegistry::instantiate_agent(agent));
+                    fleet.push(instantiate_agent(agent));
                 }
                 continue;
             }
@@ -1626,7 +1376,7 @@ impl GawdAgentFleet {
             }
 
             if should_add && !fleet.iter().any(|a| a.name() == agent.name) {
-                fleet.push(AgentMetaRegistry::instantiate_agent(agent));
+                fleet.push(instantiate_agent(agent));
             }
         }
 
@@ -1692,7 +1442,7 @@ impl GawdAgentFleet {
                             .iter()
                             .any(|c| goal.to_lowercase().contains(c))
                     {
-                        fleet.push(AgentMetaRegistry::instantiate_agent(&agent));
+                        fleet.push(instantiate_agent(&agent));
                     }
                 }
             }
@@ -2353,7 +2103,7 @@ mod tests {
 
     #[test]
     fn test_context_agent_is_natively_instantiated_not_generic_fallback() {
-        let agent = AgentMetaRegistry::instantiate_native_agent("ContextAgent")
+        let agent = instantiate_native_agent("ContextAgent")
             .expect("ContextAgent must have a real native implementation");
         assert_eq!(agent.name(), "ContextAgent");
     }
