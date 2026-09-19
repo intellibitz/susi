@@ -1,8 +1,8 @@
 #![allow(unexpected_cfgs)]
-use susi_engine::daemon::SusiDaemon;
-use susi_engine::gawd::ama::SusiMasterAgent;
-use susi_engine::gemi::server::GemiServer;
-use susi_engine::gmcp::server::GmcpServer;
+use susi_engine::daemon::server::SusiDaemon;
+use susi_gawd::ama::SusiMasterAgent;
+use susi_engine::gemi_server::GemiServer;
+use susi_gmcp::server::GmcpServer;
 use susi_engine::SUSI_VERSION;
 
 use clap::{Parser, Subcommand};
@@ -136,7 +136,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
-    let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let max_size = cfg.max_stdin_size_bytes();
     // Read one past the limit so exact-sized payloads are accepted and oversize
     // inputs are distinguishable from a full-but-valid buffer.
@@ -172,7 +172,7 @@ fn glass_box_callback(piece: String) {
 }
 
 fn run_shell(workspace: &Path) {
-    use susi_engine::gawd::queue::SubstratePulseQueue;
+    use susi_gawd::queue::SubstratePulseQueue;
     let queue = SubstratePulseQueue::global();
     let ama = SusiMasterAgent::new();
 
@@ -222,15 +222,15 @@ fn main() {
     // panics on first use if this hasn't happened yet) - see
     // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
     // indirection exists instead of a direct dependency.
-    susi_tools::hooks::init(Box::new(susi_engine::gmcp::tools::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(susi_engine::hooks::SusiEngineHooks));
 
-    susi_engine::sandbox::auto_install::push_to_hardware_if_dev_build();
+    susi_sandbox::auto_install::push_to_hardware_if_dev_build();
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let _home = get_home_dir();
-    let global_dir = susi_engine::sandbox::xdg::SusiDirs::config_dir();
+    let global_dir = susi_paths::SusiDirs::config_dir();
     let _ = std::fs::create_dir_all(&global_dir);
 
     let file_appender = tracing_appender::rolling::never(&global_dir, "audit.log");
@@ -258,7 +258,7 @@ fn main() {
         .try_init();
 
     // Boot dynamic kernel assembly (Dynamic Self-Assembly Axiom)
-    let _ = susi_engine::gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
+    let _ = susi_gawd::kernel_loader::SubstrateKernelLoader::boot_kernel(&cwd);
 
     // Mandate 12: Hardware Authority - Force initialize Rayon thread pool to saturate all cores
     let num_cpus = std::thread::available_parallelism()
@@ -284,7 +284,7 @@ fn main() {
 
     if let Some(command) = cli.command {
         let ama = SusiMasterAgent::new();
-        let cfg = susi_engine::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
             Commands::Start => match SusiDaemon::check_status(&cwd, &global_dir) {
                 Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
@@ -315,7 +315,7 @@ fn main() {
                 // Degrade to bundled defaults rather than panic if
                 // config.json is torn by a concurrent writer.
                 let gemi_cfg =
-                    susi_engine::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+                    susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
                 let bind_address: String = gemi_cfg
                     .get("bind_address")
                     .unwrap_or_else(|| "127.0.0.1".to_string());
@@ -376,7 +376,7 @@ fn main() {
             }
             Commands::Pulse { intent } => {
                 let intent_str = intent.join(" ");
-                match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(
+                match susi_gawd::admin::SusiAdmin::ingest_natural_intent(
                     &cwd,
                     &intent_str,
                 ) {
@@ -388,7 +388,7 @@ fn main() {
                 }
             }
             Commands::Accept => {
-                match susi_engine::sandbox::manager::IntentBundleManager::accept_all(&cwd) {
+                match susi_sandbox::manager::IntentBundleManager::accept_all(&cwd) {
                     Ok(msg) => println!("{}", msg),
                     Err(e) => {
                         eprintln!("Accept failed: {}", e);
@@ -397,7 +397,7 @@ fn main() {
                 }
             }
             Commands::Undo => {
-                match susi_engine::sandbox::manager::IntentBundleManager::rollback_all(&cwd) {
+                match susi_sandbox::manager::IntentBundleManager::rollback_all(&cwd) {
                     Ok(msg) => println!("{}", msg),
                     Err(e) => {
                         eprintln!("Undo failed: {}", e);
@@ -409,7 +409,7 @@ fn main() {
                 print_golden_rule_summary(&cwd, &global_dir);
             }
             Commands::OsClean => {
-                let msg = susi_engine::gemi::hardware::HardwareProfiler::execute_os_clean();
+                let msg = susi_gemi::hardware::HardwareProfiler::execute_os_clean();
                 println!("{}", msg);
             }
             Commands::Audit => {
@@ -418,7 +418,7 @@ fn main() {
             }
             Commands::Admin { subcommand } => match subcommand {
                 AdminCommands::Sync => {
-                    match susi_engine::daemon::admin::SusiAdmin::enforce_version_consistency(&cwd)
+                    match susi_gawd::admin::SusiAdmin::enforce_version_consistency(&cwd)
                     {
                         Ok(v) => println!("Version synchronization complete: v{}", v),
                         Err(e) => {
@@ -429,7 +429,7 @@ fn main() {
                 }
                 AdminCommands::Pulse { intent } => {
                     let intent_str = intent.join(" ");
-                    match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(
+                    match susi_gawd::admin::SusiAdmin::ingest_natural_intent(
                         &cwd,
                         &intent_str,
                     ) {
@@ -451,7 +451,7 @@ fn main() {
                     println!("{}", answer);
                 }
                 AdminCommands::Release => {
-                    match susi_engine::daemon::admin::SusiAdmin::execute_release(&cwd) {
+                    match susi_gawd::admin::SusiAdmin::execute_release(&cwd) {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {
                             eprintln!("Release failed: {}", e);
@@ -469,7 +469,7 @@ fn main() {
                     println!("{}", answer);
                 }
                 AdminCommands::Reload => {
-                    match susi_engine::sandbox::manager::SusiConfig::reload(&global_dir) {
+                    match susi_sandbox::manager::SusiConfig::reload(&global_dir) {
                         Ok(reloaded) => {
                             println!(
                                 "Dynamic configuration reloaded successfully from {}.",
@@ -479,7 +479,7 @@ fn main() {
                             println!("- Model: {}", reloaded.default_model());
                             println!(
                                 "- Model Ladder Steps: {}",
-                                susi_engine::gemi::hf_discovery::resolve_model_ladder(&reloaded)
+                                susi_gemi::hf_discovery::resolve_model_ladder(&reloaded)
                                     .len()
                             );
                             println!(
@@ -497,7 +497,7 @@ fn main() {
                 }
             },
             Commands::VerifyDownloadAgent => {
-                match susi_engine::gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(
+                match susi_gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(
                     &cwd,
                 ) {
                     Ok(report) => {
@@ -549,11 +549,11 @@ fn main() {
                     "[Substrate Download Agent] Connecting to {} in foreground...",
                     cfg.hf_base_url()
                 );
-                let res = susi_engine::gemi::models::ModelManager::install_model(&url);
+                let res = susi_gemi::models::ModelManager::install_model(&url);
                 println!("{}", res);
             }
             Commands::Benchmark => {
-                let report = susi_engine::gemi::benchmark::BenchmarkRunner::run_and_render(&cwd);
+                let report = susi_gemi::benchmark::BenchmarkRunner::run_and_render(&cwd);
                 println!("{}", report);
             }
             Commands::Clean => match std::fs::remove_dir_all(cwd.join("target")) {
@@ -575,7 +575,7 @@ fn main() {
         let goal = cli.intent.join(" ");
 
         let ama = SusiMasterAgent::new();
-        match susi_engine::daemon::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
+        match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
             Ok(msg) => {
                 info!("Natural intent ingested successfully: {}", msg);
                 let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &glass_box_callback);
@@ -610,8 +610,8 @@ fn main() {
 }
 
 fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
-    use susi_engine::gemi::hardware::HardwareProfiler;
-    use susi_engine::sandbox::manager::IntentBundleManager;
+    use susi_gemi::hardware::HardwareProfiler;
+    use susi_sandbox::manager::IntentBundleManager;
 
     println!("=== SUSI SUBSTRATE SUMMARY ===");
     let os_report = HardwareProfiler::audit_os_environment_care();

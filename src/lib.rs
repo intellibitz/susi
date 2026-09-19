@@ -1,23 +1,22 @@
-//! susi-engine: a local-first Rust engine for running and orchestrating AI
-//! models. Loads model weights directly (.safetensors, GGUF, ONNX via
-//! Candle), queues work through a lock-free async intent pipeline, and can
-//! fan work out across multiple agents running in parallel. Exposes tools
-//! over the Model Context Protocol (MCP).
-//!
-//! - [`daemon`]: background process management and lifecycle
-//! - [`gawd`]: agent orchestration and reflex synthesis
-//! - [`gemi`]: model loading and inference (Candle-based)
-//! - [`gmcp`]: Model Context Protocol server/client and tool registry
-//! - [`native`]: native/WASM execution primitives
-//! - [`sandbox`]: workspace and config management
+pub mod hooks;
+// susi-engine: a local-first Rust engine for running and orchestrating AI
+// models. Loads model weights directly (.safetensors, GGUF, ONNX via
+// Candle), queues work through a lock-free async intent pipeline, and can
+// fan work out across multiple agents running in parallel. Exposes tools
+// over the Model Context Protocol (MCP).
+//
+// - [`daemon`]: background process management and lifecycle
+// - [`gawd`]: agent orchestration and reflex synthesis
+// - [`gemi`]: model loading and inference (Candle-based)
+// - [`gmcp`]: Model Context Protocol server/client and tool registry
+// - [`native`]: native/WASM execution primitives
+// - [`sandbox`]: workspace and config management
 
 pub mod daemon;
 pub mod error {
     pub use susi_error::*;
 }
-pub mod gawd;
-pub mod gemi;
-pub mod gmcp;
+pub mod gemi_server;
 pub mod native {
     pub use susi_native::*;
 }

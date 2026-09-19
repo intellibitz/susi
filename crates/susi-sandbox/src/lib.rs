@@ -1,3 +1,4 @@
+pub mod daemon_state;
 pub mod auto_install;
 pub mod manager;
 pub mod versioned_store;

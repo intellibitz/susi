@@ -57,7 +57,7 @@ fn main() {
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
 
-    let is_build = args.get(0).map(|s| s.as_str()) == Some("build");
+    let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
 
@@ -118,7 +118,7 @@ fn main() {
         } else {
             "susi-engine"
         };
-        let built_bin = target_dir.join(profile_dir).join(&bin_name);
+        let built_bin = target_dir.join(profile_dir).join(bin_name);
 
         if !built_bin.exists() {
             eprintln!(
@@ -135,7 +135,7 @@ fn main() {
             exit(1);
         });
 
-        let dest = bin_dir.join(&bin_name);
+        let dest = bin_dir.join(bin_name);
         println!(
             "xtask: Installing {} to {}",
             built_bin.display(),
@@ -161,7 +161,7 @@ fn main() {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::symlink;
-                    let _ = symlink(&bin_name, &susi_dest);
+                    let _ = symlink(bin_name, &susi_dest);
                 }
 
                 println!("xtask: Successfully installed latest susi to your local system.");

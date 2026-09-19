@@ -1,10 +1,10 @@
 // SUSI Runtime Admin: Autonomous Substrate Administration & Drift Correction
 // Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
-use crate::error::EaiResult;
-use crate::gemi::hardware::HardwareProfiler;
-use crate::gemi::models::ModelManager;
-use crate::sandbox::manager::SusiAuditLogger;
+use susi_error::EaiResult;
+use susi_gemi::hardware::HardwareProfiler;
+use susi_gemi::models::ModelManager;
+use susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
 use std::time::Duration;
 use tracing::info;
@@ -47,9 +47,9 @@ impl SusiRuntimeAdmin {
                 let cpu_threshold = profile.cpus as f32 * 0.85;
                 if load_1m > cpu_threshold {
                     // System is under stress. Ladder down concurrency.
-                    crate::gawd::agents::GawdAgentFleet::throttle_concurrency(true);
+                    susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
                 } else {
-                    crate::gawd::agents::GawdAgentFleet::throttle_concurrency(false);
+                    susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
                 }
             }
         }
@@ -58,7 +58,7 @@ impl SusiRuntimeAdmin {
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
     fn consolidate_sovereign_memory(workspace: &Path) -> EaiResult<()> {
         info!("[Sovereign Mind] Consolidating mission experience into PKB...");
-        let _ = crate::gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
+        let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
         Ok(())
     }
 
@@ -66,8 +66,8 @@ impl SusiRuntimeAdmin {
     /// Autonomously monitors and fixes pathologies in the user's workspace.
     /// All actions are performed with 100% Transparency and Accountability.
     pub fn perform_proactive_workspace_pulse(workspace: &Path, interactive: bool) -> EaiResult<()> {
-        let ama = crate::gawd::ama::SusiMasterAgent::new();
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let ama = susi_gawd::ama::SusiMasterAgent::new();
+        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         println!("\n[AUTONOMOUS PROACTIVE PULSE INITIATED]");
         println!("- Status: Susi is performing routine substrate optimization to ensure full availability.");
@@ -95,7 +95,7 @@ impl SusiRuntimeAdmin {
 
         // Check for Self-Healing
         let evo_res =
-            crate::daemon::evolution::EvolutionManager::execute_evolutionary_cycle(workspace)?;
+            susi_gawd::evolution::EvolutionManager::execute_evolutionary_cycle(workspace)?;
         if !evo_res.contains("No evolutionary pressure") {
             pending_tasks.push((
                 "Self-Healing: Apply autonomous repairs to failing tests/builds",
@@ -206,7 +206,7 @@ impl SusiRuntimeAdmin {
 
         // 2. Autonomous Drift Detection
         let _ =
-            crate::daemon::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+            susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
 
         // 3. Model Substrate Tuning
         let _ = ModelManager::ensure_hardware_optimal_models(workspace);

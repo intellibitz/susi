@@ -1,0 +1,25 @@
+[package]
+name = "susi-gawd"
+version = "0.1.2023079"
+edition = "2021"
+
+[dependencies]
+susi-paths = { path = "../susi-paths" }
+md5 = "0.7"
+syn = { version = "3.0.6", features = ["full", "visit"] }
+base64 = "0.23"
+parking_lot = "0.12"
+flume = "0.12"
+reqwest = { version = "0.13", features = ["blocking", "json"] }
+susi-error = { path = "../susi-error" }
+susi-core = { path = "../susi-core" }
+susi-sandbox = { path = "../susi-sandbox" }
+susi-tools = { path = "../susi-tools" }
+susi-agents = { path = "../susi-agents" }
+susi-gemi = { path = "../susi-gemi" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rayon = "1.10"
+log = "0.4"
+tokio = { version = "1.37", features = ["full"] }
+once_cell = "1.19"

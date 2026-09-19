@@ -9,6 +9,9 @@ members = [
     "crates/susi-sandbox",
     "crates/susi-agents",
     "crates/susi-tools",
+    "crates/susi-gemi",
+    "crates/susi-gmcp",
+    "crates/susi-gawd",
 ]
 
 [package]
@@ -35,6 +38,9 @@ susi-error = { path = "crates/susi-error" }
 susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
 susi-sandbox = { path = "crates/susi-sandbox" }
+susi-gemi = { path = "crates/susi-gemi" }
+susi-gmcp = { path = "crates/susi-gmcp" }
+susi-gawd = { path = "crates/susi-gawd" }
 susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }
 serde = { version = "1.0", features = ["derive"] }

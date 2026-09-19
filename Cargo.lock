@@ -3949,6 +3949,12 @@ dependencies = [
 
 [[package]]
 name = "md5"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+
+[[package]]
+name = "md5"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
@@ -6511,7 +6517,7 @@ dependencies = [
  "image",
  "indicatif",
  "libc",
- "md5",
+ "md5 0.8.1",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -6529,6 +6535,9 @@ dependencies = [
  "susi-agents",
  "susi-core",
  "susi-error",
+ "susi-gawd",
+ "susi-gemi",
+ "susi-gmcp",
  "susi-native",
  "susi-paths",
  "susi-sandbox",
@@ -6560,6 +6569,95 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-gawd"
+version = "0.1.2023079"
+dependencies = [
+ "base64 0.23.1",
+ "flume",
+ "log",
+ "md5 0.7.0",
+ "once_cell",
+ "parking_lot",
+ "rayon",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "susi-agents",
+ "susi-core",
+ "susi-error",
+ "susi-gemi",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-tools",
+ "syn 3.0.6",
+ "tokio",
+]
+
+[[package]]
+name = "susi-gemi"
+version = "0.1.2023079"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "dashmap",
+ "directories 6.0.0",
+ "hex",
+ "hound",
+ "image",
+ "indicatif",
+ "libc",
+ "once_cell",
+ "parking_lot",
+ "rayon",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "susi-agents",
+ "susi-error",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-tools",
+ "tokenizers 0.23.2",
+ "tokio",
+ "tracing",
+ "ureq 3.4.2",
+ "url",
+]
+
+[[package]]
+name = "susi-gmcp"
+version = "0.1.2023079"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "fastembed",
+ "headless_chrome",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "once_cell",
+ "qdrant-client",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "shlex 2.0.1",
+ "susi-agents",
+ "susi-error",
+ "susi-gawd",
+ "susi-gemi",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-tools",
+ "syn 3.0.6",
+ "tantivy",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "susi-native"
 version = "0.1.0"
 dependencies = [
@@ -6582,9 +6680,11 @@ version = "0.1.0"
 dependencies = [
  "bollard",
  "futures",
+ "hex",
  "parking_lot",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
  "susi-error",
  "susi-paths",

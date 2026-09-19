@@ -2,7 +2,7 @@
 // 100% Rust implementation managing GMCP (Port 9090), GEMI (Port 9091) & A2A Cluster UDP (Port 9092)
 
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom, Write};
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,12 +24,12 @@ use std::sync::{
 };
 use tracing::{info, warn};
 
-use crate::error::{EaiError, EaiResult};
-use crate::gawd::ama::SusiMasterAgent;
-use crate::gawd::queue::SubstratePulseQueue;
-use crate::gemi::GemiServer;
-use crate::gmcp::server::GmcpServer;
-use crate::sandbox::manager::SusiConfig;
+use susi_error::EaiError;
+use susi_gawd::ama::SusiMasterAgent;
+use susi_gawd::queue::SubstratePulseQueue;
+use crate::gemi_server::GemiServer;
+use susi_gmcp::server::GmcpServer;
+use susi_sandbox::manager::SusiConfig;
 
 pub struct SusiDaemon;
 
@@ -51,7 +51,7 @@ impl DaemonContext {
         thread::spawn(move || {
             if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
                 for sig in signals.forever() {
-                    let msgs = crate::sandbox::manager::SusiMessages::load_global();
+                    let msgs = susi_sandbox::manager::SusiMessages::load_global();
                     let def_msg = "[SusiDaemon] Received signal: {}".to_string();
                     let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
                     eprintln!("{}", msg.replace("{}", &sig.to_string()));
@@ -258,38 +258,6 @@ impl SusiDaemon {
     /// same format; `calculate_binary_hash_cached` only skips *re-computing* it
     /// when the binary provably hasn't changed (see its own doc comment) — it
     /// never substitutes a cheaper, differently-shaped signature.
-    pub fn verify_binary_integrity(bin_path: &Path, global_dir: &Path) -> EaiResult<bool> {
-        let hash_file = Self::get_hash_file(global_dir);
-        let current_sig = Self::calculate_binary_hash_cached(bin_path, global_dir)?;
-
-        if hash_file.exists() {
-            if let Ok(saved_sig) = fs::read_to_string(&hash_file) {
-                if saved_sig.trim() == current_sig.trim() {
-                    return Ok(true);
-                }
-            }
-            let _ = fs::write(&hash_file, &current_sig);
-            return Ok(false);
-        }
-
-        let _ = fs::write(&hash_file, &current_sig);
-        Ok(true)
-    }
-
-    pub fn calculate_binary_hash(path: &Path) -> EaiResult<String> {
-        use sha2::{Digest, Sha256};
-        let mut file = fs::File::open(path)?;
-        let mut hasher = Sha256::new();
-        let mut buffer = [0u8; 65536];
-        while let Ok(n) = file.read(&mut buffer) {
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-        }
-        Ok(hex::encode(hasher.finalize()))
-    }
-
     /// Same digest as `calculate_binary_hash`, but skips re-reading and
     /// re-hashing the binary (measured ~130ms for this project's real
     /// ~120MB `susi-engine` release binary) when its mtime+size match a
@@ -303,42 +271,12 @@ impl SusiDaemon {
     /// contract with `susi admin sync` (see `verify_binary_integrity`'s doc
     /// comment) is untouched; a cache miss or parse failure always falls
     /// back to a real, fresh hash.
-    fn calculate_binary_hash_cached(bin_path: &Path, global_dir: &Path) -> EaiResult<String> {
-        let cache_path = global_dir.join("binary.hash.cache");
-        let meta = fs::metadata(bin_path)?;
-        let size = meta.len();
-        let mtime_ns = meta
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-
-        if let Ok(cached) = fs::read_to_string(&cache_path) {
-            let mut parts = cached.trim().splitn(3, ':');
-            if let (Some(c_mtime), Some(c_size), Some(c_hash)) =
-                (parts.next(), parts.next(), parts.next())
-            {
-                if c_mtime.parse::<u128>().ok() == Some(mtime_ns)
-                    && c_size.parse::<u64>().ok() == Some(size)
-                    && !c_hash.is_empty()
-                {
-                    return Ok(c_hash.to_string());
-                }
-            }
-        }
-
-        let hash = Self::calculate_binary_hash(bin_path)?;
-        let _ = fs::write(&cache_path, format!("{}:{}:{}", mtime_ns, size, hash));
-        Ok(hash)
-    }
-
     pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
         let current_exe = std::env::current_exe().ok();
-        let msgs = crate::sandbox::manager::SusiMessages::load_global();
+        let msgs = susi_sandbox::manager::SusiMessages::load_global();
         if let Some(running) = Self::find_running_daemon(workspace, global_dir) {
             if let Some(ref exe) = current_exe {
-                if let Ok(false) = Self::verify_binary_integrity(exe, global_dir) {
+                if let Ok(false) = susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(exe, global_dir) {
                     if !running.same_workspace {
                         // A daemon IS running (globally, for some other
                         // workspace) with a stale binary - but restarting
@@ -387,7 +325,7 @@ impl SusiDaemon {
         };
 
         // Binary Integrity Check
-        match Self::verify_binary_integrity(&bin_to_run, global_dir) {
+        match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(&bin_to_run, global_dir) {
             Ok(true) => {
                 let def_verified = "[SusiDaemon] Binary integrity verified.".to_string();
                 info!(
@@ -515,7 +453,7 @@ impl SusiDaemon {
                 return;
             }
         };
-        let bind_address = crate::sandbox::manager::SusiConfig::load_global()
+        let bind_address = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .get("bind_address")
             .unwrap_or_else(|| "0.0.0.0".to_string());
@@ -525,7 +463,7 @@ impl SusiDaemon {
         crate::daemon::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
-        crate::gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
+        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
         let (gemi_server, gemi_port) = Self::bind_http_with_fallback(
@@ -671,9 +609,9 @@ impl SusiDaemon {
                         })
                     });
                 let new_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-                crate::sandbox::manager::SusiAuditLogger::log(
+                susi_sandbox::manager::SusiAuditLogger::log(
                     workspace,
-                    crate::sandbox::manager::LogLevel::Warning,
+                    susi_sandbox::manager::LogLevel::Warning,
                     "SELF_HEALING_RANDOMIZATION",
                     &format!(
                         "{} default port {} occupied. Reclaim failed. Randomized to {}",
@@ -718,9 +656,9 @@ impl SusiDaemon {
                         })
                     });
                 let new_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
-                crate::sandbox::manager::SusiAuditLogger::log(
+                susi_sandbox::manager::SusiAuditLogger::log(
                     workspace,
-                    crate::sandbox::manager::LogLevel::Warning,
+                    susi_sandbox::manager::LogLevel::Warning,
                     "SELF_HEALING_RANDOMIZATION",
                     &format!(
                         "UDP Discovery port {} occupied. Reclaim failed. Randomized to {}",
@@ -795,7 +733,7 @@ impl SusiDaemon {
             Ok(h) => h.trim().to_string(),
             Err(_) => return false,
         };
-        Self::calculate_binary_hash(&exe_path)
+        susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&exe_path)
             .map(|h| h.trim() == trusted_hash)
             .unwrap_or(false)
     }

@@ -1,0 +1,18 @@
+pub mod alpha;
+pub mod audio;
+pub mod benchmark;
+pub(crate) mod download;
+pub mod engine;
+pub mod hardware;
+pub mod hf_discovery;
+pub mod models;
+pub mod pulse;
+pub mod qwen2_split;
+pub mod reasoning;
+pub mod reflex;
+pub mod speculative;
+pub mod unified;
+pub mod vision;
+pub mod vllm;
+
+pub mod intent;

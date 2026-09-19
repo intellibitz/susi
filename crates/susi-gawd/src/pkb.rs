@@ -1,0 +1,244 @@
+// Builds/exports the training data (reflex records) used by the local
+// Tier 0 model: bootstrap examples plus ones mined from the audit log.
+
+use susi_error::EaiResult;
+use crate::agents::GawdAgent;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtocolReflex {
+    pub intent: String,
+    pub action: String,
+    pub context: String,
+    pub verified: bool,
+}
+
+pub struct ProtocolKnowledgeBase;
+
+impl ProtocolKnowledgeBase {
+    /// Scans the audit log for `[MISSION_START]` lines and turns each into a
+    /// pending (unverified) reflex record.
+    pub fn synthesize_training_data(workspace: &Path) -> EaiResult<Vec<ProtocolReflex>> {
+        let mut reflexes = Vec::new();
+        let log_content = susi_sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 500);
+
+        for line in log_content.lines() {
+            if line.contains("[MISSION_START]") {
+                let intent = line
+                    .split("[MISSION_START]")
+                    .nth(1)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if intent.len() > 5 {
+                    reflexes.push(ProtocolReflex {
+                        intent,
+                        action: "PENDING_DISTILLATION".to_string(),
+                        context: "SYNTHETIC_AUDIT_DERIVED".to_string(),
+                        verified: false,
+                    });
+                }
+            }
+        }
+        Ok(reflexes)
+    }
+
+    pub fn bootstrap_alpha_reflexes() -> Vec<ProtocolReflex> {
+        vec![
+            ProtocolReflex {
+                intent: "install".to_string(),
+                action: "SandboxManager::ensure_global_sandbox".to_string(),
+                context: "CORE_INITIALIZATION".to_string(),
+                verified: true,
+            },
+            ProtocolReflex {
+                intent: "audit compliance".to_string(),
+                action: "SusiAdmin::audit_compliance".to_string(),
+                context: "GOVERNANCE_ENFORCEMENT".to_string(),
+                verified: true,
+            },
+        ]
+    }
+
+    pub fn export_reflex_dataset(workspace: &Path) -> EaiResult<String> {
+        let mut reflexes = Self::bootstrap_alpha_reflexes();
+        let synthetic = Self::synthesize_training_data(workspace)?;
+        reflexes.extend(synthetic);
+
+        let data = serde_json::to_string_pretty(&reflexes)
+            .map_err(|e| susi_error::EaiError::internal(e.to_string()))?;
+        let export_path = workspace.join(".susi/reflex_dataset.json");
+        std::fs::write(&export_path, data)?;
+
+        Ok(format!(
+            "Exported {} neural reflexes to {}",
+            reflexes.len(),
+            export_path.display()
+        ))
+    }
+
+    pub fn generate_synthetic_intent_pair(intent: &str, _workspace: &Path) -> EaiResult<String> {
+        let mut pair = format!("INTENT: {}\n", intent);
+
+        let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let bb = std::sync::Arc::new(super::agents::HighDensityContextStore::new(10));
+
+        let safety = super::agents::SafetyAgent;
+        if let Ok(res) = safety.execute(intent, &workspace, &bb) {
+            pair.push_str(&format!("REFLEX_GUARD (SafetyAgent): {}\n", res));
+        }
+
+        let action = susi_gemi::pulse::SusiPulse::reason(intent, &workspace)
+            .unwrap_or_else(|_| "ACTION: status".into());
+        pair.push_str(&format!("FINAL_ACTION: {}\n", action));
+
+        Ok(pair)
+    }
+
+    pub fn list_reflex_weights(workspace: &Path) -> Vec<String> {
+        let _home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        let models_dir = susi_paths::SusiDirs::data_dir().join("models");
+        let alpha_filename = susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
+
+        let mut weights = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(models_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.ends_with(".safetensors") || name.ends_with(".gguf") {
+                    weights.push(name);
+                }
+            }
+        }
+
+        let local_weights = workspace.join("target/release").join(&alpha_filename);
+        if local_weights.exists() {
+            weights.push(format!("target/release/{}", alpha_filename));
+        }
+
+        weights
+    }
+
+    pub fn verify_alpha_substrate() -> EaiResult<String> {
+        let _home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        let models_dir = susi_paths::SusiDirs::data_dir().join("models");
+        let alpha_filename = susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_file = models_dir.join(alpha_filename);
+
+        if weights_file.exists() {
+            let meta = std::fs::metadata(&weights_file)?;
+            Ok(format!(
+                "SUSI-Alpha Substrate Verified: {} ({} bytes)",
+                weights_file.display(),
+                meta.len()
+            ))
+        } else {
+            Err(susi_error::EaiError::inference(
+                "SUSI-Alpha weights missing. Run 'susi install'.",
+            ))
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn distill_reflex_to_binary(intent: &str, workspace: &Path) -> EaiResult<PathBuf> {
+        let _home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        let models_dir = susi_paths::SusiDirs::data_dir().join("models");
+        let alpha_filename = susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .alpha_weights_filename();
+        let weights_file = models_dir.join(alpha_filename);
+
+        if !weights_file.exists() {
+            return Err(susi_error::EaiError::inference(
+                "SUSI-Alpha substrate missing.",
+            ));
+        }
+
+        // Placeholder reflex vector: each byte of `intent` scaled to [0,1].
+        // Not a trained embedding — a fixed, reversible encoding.
+        let distilled_path =
+            workspace.join(format!(".susi/reflexes/{}.bin", intent.replace(' ', "_")));
+        if let Some(parent) = distilled_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let reflex_record = serde_json::json!({
+            "intent": intent,
+            "reflex_vector": intent.bytes().map(|b| (b as f32) / 255.0).collect::<Vec<f32>>(),
+            "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        });
+
+        std::fs::write(
+            &distilled_path,
+            serde_json::to_vec(&reflex_record)
+                .map_err(|e| susi_error::EaiError::internal(e.to_string()))?,
+        )?;
+
+        Ok(distilled_path)
+    }
+
+    /// Stages a reasoning pair for autonomous distillation into local reflexes
+    pub fn stage_distillation_pair(
+        intent: &str,
+        action: &str,
+        workspace: &Path,
+        metadata: Option<serde_json::Value>,
+    ) -> EaiResult<()> {
+        let susi_dir = workspace.join(".susi");
+        if !susi_dir.exists() {
+            let _ = std::fs::create_dir_all(&susi_dir);
+        }
+        let distillation_file = susi_dir.join("distillation_staged.jsonl");
+        let entry = serde_json::json!({
+            "intent": intent,
+            "action": action,
+            "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+            "performance_metadata": metadata,
+        });
+
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(distillation_file)
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{}", entry);
+        }
+        Ok(())
+    }
+
+    /// Stages successful, non-trivial past interactions (outcome > 100 chars,
+    /// not marked `[FAIL]`) from memory.jsonl as distillation pairs.
+    pub fn consolidate_recent_interactions(workspace: &Path) -> EaiResult<usize> {
+        let memory_file = workspace.join(".susi/memory.jsonl");
+        if !memory_file.exists() {
+            return Ok(0);
+        }
+
+        let content = std::fs::read_to_string(&memory_file)?;
+        let mut count = 0;
+        for line in content.lines() {
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                let intent = entry["intent"].as_str().unwrap_or("");
+                let outcome = entry["outcome"].as_str().unwrap_or("");
+
+                // Only consolidate successful, complex reasoning ( > 100 chars )
+                if outcome.len() > 100 && !outcome.contains("[FAIL]") {
+                    Self::stage_distillation_pair(intent, outcome, workspace, None)?;
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
+    }
+}
