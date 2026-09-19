@@ -6250,6 +6250,16 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2a0c28ca5908dbdbcd52e6fdaa00358ab88637f8ab33e1f188dd510eb44b53d"
@@ -6490,6 +6500,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-daemon"
+version = "0.1.2023080"
+dependencies = [
+ "ciborium",
+ "hex",
+ "nix",
+ "signal-hook 0.3.18",
+ "susi-error",
+ "susi-gawd",
+ "susi-gemi",
+ "susi-gmcp",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-server",
+ "tokio",
+ "tracing",
+ "winapi",
+]
+
+[[package]]
 name = "susi-engine"
 version = "0.1.2023079"
 dependencies = [
@@ -6531,9 +6561,10 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
- "signal-hook",
+ "signal-hook 0.4.4",
  "susi-agents",
  "susi-core",
+ "susi-daemon",
  "susi-error",
  "susi-gawd",
  "susi-gemi",
@@ -6541,6 +6572,7 @@ dependencies = [
  "susi-native",
  "susi-paths",
  "susi-sandbox",
+ "susi-server",
  "susi-tools",
  "syn 3.0.6",
  "tantivy",
@@ -6690,6 +6722,26 @@ dependencies = [
  "susi-paths",
  "tracing",
  "ureq 3.4.2",
+]
+
+[[package]]
+name = "susi-server"
+version = "0.1.2023080"
+dependencies = [
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rayon",
+ "serde_json",
+ "susi-error",
+ "susi-gawd",
+ "susi-gemi",
+ "susi-sandbox",
+ "susi-tools",
+ "tokio",
+ "tokio-stream",
+ "tracing",
 ]
 
 [[package]]

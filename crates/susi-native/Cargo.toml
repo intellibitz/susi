@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 wasmer-types = "7"
-susi-error = { path = "../susi-error" }
+susi-error = { workspace = true }
 
 [target.'cfg(not(windows))'.dependencies]
 wasmer = { version = "7", features = ["cranelift", "sys"] }

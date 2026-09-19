@@ -27,7 +27,7 @@ use tracing::{info, warn};
 use susi_error::EaiError;
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gawd::queue::SubstratePulseQueue;
-use crate::gemi_server::GemiServer;
+use susi_server::GemiServer;
 use susi_gmcp::server::GmcpServer;
 use susi_sandbox::manager::SusiConfig;
 
@@ -460,7 +460,7 @@ impl SusiDaemon {
         let mut config_changed = false;
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
-        crate::daemon::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
+        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
@@ -558,7 +558,7 @@ impl SusiDaemon {
                     let _ = ama.solve_stream(
                         &pulse.intent,
                         &workspace_pulse,
-                        crate::SUSI_VERSION,
+                        env!("CARGO_PKG_VERSION"),
                         &|_| {},
                     );
                 }

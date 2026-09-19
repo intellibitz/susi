@@ -1,7 +1,7 @@
 #![allow(unexpected_cfgs)]
-use susi_engine::daemon::server::SusiDaemon;
+use susi_daemon::SusiDaemon;
 use susi_gawd::ama::SusiMasterAgent;
-use susi_engine::gemi_server::GemiServer;
+use susi_server::GemiServer;
 use susi_gmcp::server::GmcpServer;
 use susi_engine::SUSI_VERSION;
 

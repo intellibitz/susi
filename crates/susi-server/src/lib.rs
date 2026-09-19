@@ -166,7 +166,7 @@ async fn handle_gemi_request(
             let api_status = json!({
                 "object": "api_status",
                 "name": "SUSI OpenAI-Compatible REST Substrate",
-                "version": crate::SUSI_VERSION,
+                "version": env!("CARGO_PKG_VERSION"),
                 "status": "active",
                 "endpoints": [
                     "/v1/chat/completions",
@@ -196,7 +196,7 @@ async fn handle_gemi_request(
                 let (engine, model) = ModelManager::get_active_engine_and_model(None);
                 let tools = ToolRegistry::list_tools();
                 json!({
-                    "version": crate::SUSI_VERSION,
+                    "version": env!("CARGO_PKG_VERSION"),
                     "identity": "SUSI Intelligence Substrate",
                     "engine": engine,
                     "model": model,
@@ -258,12 +258,12 @@ async fn handle_gemi_request(
                 let prompt_for_task = trimmed_prompt.clone();
                 let content = tokio::task::spawn_blocking(move || {
                     let ama = SusiMasterAgent::new();
-                    let final_resp = ama.solve_clean(&prompt_for_task, &ws, crate::SUSI_VERSION);
+                    let final_resp = ama.solve_clean(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
                     susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
                         &final_resp,
-                        crate::SUSI_VERSION,
+                        env!("CARGO_PKG_VERSION"),
                     );
                     final_resp
                 })
@@ -338,7 +338,7 @@ fn build_streaming_response(
         ));
 
         let ama = SusiMasterAgent::new();
-        let _ = ama.solve_stream(&prompt, &workspace, crate::SUSI_VERSION, &|piece| {
+        let _ = ama.solve_stream(&prompt, &workspace, env!("CARGO_PKG_VERSION"), &|piece| {
             let json_piece = serde_json::to_string(&piece).unwrap_or_default();
             let _ = tx.send(format!(
                 "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n"

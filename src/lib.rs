@@ -12,11 +12,9 @@ pub mod hooks;
 // - [`native`]: native/WASM execution primitives
 // - [`sandbox`]: workspace and config management
 
-pub mod daemon;
 pub mod error {
     pub use susi_error::*;
 }
-pub mod gemi_server;
 pub mod native {
     pub use susi_native::*;
 }

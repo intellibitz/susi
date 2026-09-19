@@ -1,0 +1,25 @@
+[package]
+name = "susi-server"
+version = "0.1.2023080"
+edition = "2024"
+
+[dependencies]
+susi-gawd = { path = "../susi-gawd" }
+susi-gemi = { path = "../susi-gemi" }
+susi-tools = { path = "../susi-tools" }
+susi-sandbox = { path = "../susi-sandbox" }
+susi-error = { path = "../susi-error" }
+
+hyper = { version = "1.0", features = ["full"] }
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
+serde_json = "1.0"
+tokio = { version = "1.34", features = ["full"] }
+tokio-stream = "0.1"
+rayon = "1.8"
+bytes = "1.5"
+tracing = "0.1"
+
+[features]
+default = []
+cuda = ["susi-gemi/cuda"]
