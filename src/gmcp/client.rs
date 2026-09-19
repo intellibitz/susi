@@ -160,102 +160,59 @@ impl GmcpClient {
         let home = std::env::var("HOME").unwrap_or_default();
         let global_dir = PathBuf::from(home).join(".susi");
         let registry_path = global_dir.join("global_mcp_registry.json");
-        // Reachable on every MCP registry fetch during normal operation, not
-        // just boot: degrade to bundled defaults rather than panic this
-        // request's thread if config.json is torn by a concurrent writer.
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
-        // 1. Instant Non-Blocking Local Cache Read (<2ms Reflex Mandate)
-        if registry_path.is_file() {
-            if let Ok(content) = fs::read_to_string(&registry_path) {
-                if let Ok(local_entries) = serde_json::from_str::<Vec<GlobalMcpEntry>>(&content) {
-                    if !local_entries.is_empty() {
-                        // Refresh cache only if older than 24 hours
-                        let is_stale = registry_path
-                            .metadata()
-                            .and_then(|m| m.modified())
-                            .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
-                            .unwrap_or(false);
+        let mtime = std::fs::metadata(&registry_path).and_then(|m| m.modified()).ok();
+        let is_stale = mtime
+            .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
+            .unwrap_or(true);
 
-                        static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool =
-                            std::sync::atomic::AtomicBool::new(false);
-                        if is_stale
-                            && !REGISTRY_FETCH_RUNNING
-                                .swap(true, std::sync::atomic::Ordering::SeqCst)
-                        {
-                            let url = cfg.mcp_registry_url();
-                            let reg_p = registry_path.clone();
-                            std::thread::spawn(move || {
-                                struct FetchGuard;
-                                impl Drop for FetchGuard {
-                                    fn drop(&mut self) {
-                                        REGISTRY_FETCH_RUNNING
-                                            .store(false, std::sync::atomic::Ordering::SeqCst);
-                                    }
-                                }
-                                let _guard = FetchGuard;
-                                if let Ok(resp) = crate::sandbox::manager::http_agent()
-                                    .get(&url)
-                                    .header("User-Agent", "SUSI/0.1")
-                                    .call()
-                                {
-                                    if let Ok(remote_entries) =
-                                        resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
-                                    {
-                                        if !remote_entries.is_empty() {
-                                            let _ = fs::write(
-                                                &reg_p,
-                                                serde_json::to_string_pretty(&remote_entries)
-                                                    .unwrap_or_default(),
-                                            );
-                                        }
-                                    }
-                                }
-                            });
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>> =
+            std::sync::OnceLock::new();
+        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
+
+        let entries = store
+            .load_with_healing(
+                &registry_path,
+                || Ok(cfg.bootstrap_mcp_servers()),
+                |_| false,
+                false,
+            )
+            .unwrap_or_else(|_| cfg.bootstrap_mcp_servers());
+
+        if is_stale {
+            static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if !REGISTRY_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let url = cfg.mcp_registry_url();
+                let reg_p = registry_path;
+                std::thread::spawn(move || {
+                    struct FetchGuard;
+                    impl Drop for FetchGuard {
+                        fn drop(&mut self) {
+                            REGISTRY_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
                         }
-                        return local_entries;
                     }
-                }
-            }
-        }
-
-        // 2. Fallback to Bootstrap Config (Sub-1ms Instant Return)
-        let entries = cfg.bootstrap_mcp_servers();
-        let _ = fs::write(
-            &registry_path,
-            serde_json::to_string_pretty(&entries).unwrap_or_default(),
-        );
-
-        // Spawn background fetch for initial registry population
-        static INIT_FETCH_RUNNING: std::sync::atomic::AtomicBool =
-            std::sync::atomic::AtomicBool::new(false);
-        if !INIT_FETCH_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-            let url = cfg.mcp_registry_url();
-            let reg_p = registry_path;
-            std::thread::spawn(move || {
-                struct InitGuard;
-                impl Drop for InitGuard {
-                    fn drop(&mut self) {
-                        INIT_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
-                    }
-                }
-                let _guard = InitGuard;
-                if let Ok(resp) = crate::sandbox::manager::http_agent()
-                    .get(&url)
-                    .header("User-Agent", "SUSI/0.1")
-                    .call()
-                {
-                    if let Ok(remote_entries) = resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
+                    let _guard = FetchGuard;
+                    if let Ok(resp) = crate::sandbox::manager::http_agent()
+                        .get(&url)
+                        .header("User-Agent", "SUSI/0.1")
+                        .call()
                     {
-                        if !remote_entries.is_empty() {
-                            let _ = fs::write(
-                                &reg_p,
-                                serde_json::to_string_pretty(&remote_entries).unwrap_or_default(),
-                            );
+                        if let Ok(remote_entries) =
+                            resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
+                        {
+                            if !remote_entries.is_empty() {
+                                let _ = fs::write(
+                                    &reg_p,
+                                    serde_json::to_string_pretty(&remote_entries)
+                                        .unwrap_or_default(),
+                                );
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
 
         entries

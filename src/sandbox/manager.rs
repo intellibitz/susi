@@ -19,6 +19,93 @@ pub type StringRegistry = HashMap<String, String>;
 pub type ModelTier = String;
 pub type ProviderType = String;
 
+// === SHARED SELF-HEALING JSON LOAD/SAVE ===
+// Every `*.default.json`-backed config type (SusiConfig, SusiPrompts,
+// SusiMessages) needs the same two things: an atomic write (so a concurrent
+// reader never observes a torn file) and a recursive merge that backfills a
+// key/array-element present in the compiled-in default but missing from the
+// user's persisted file, without ever touching a value the user already set.
+// Factored out once here instead of three separately hand-rolled (and, until
+// this was noticed, inconsistently deep) copies.
+
+/// Writes `value` as pretty JSON to `path` via a same-directory temp file +
+/// rename, so a concurrent reader — another process's CLI invocation, the
+/// daemon's own background cycle — never observes a torn/empty file.
+pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResult<()> {
+    let json = serde_json::to_string_pretty(value).map_err(|e| EaiError::config(e.to_string()))?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    let tmp_path = dir.join(format!(
+        "{}.tmp.{}",
+        path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp"),
+        std::process::id()
+    ));
+    fs::write(&tmp_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
+    fs::rename(&tmp_path, path).map_err(|e| EaiError::filesystem(e.to_string()))
+}
+
+/// Recursively backfills any key (object) or element (same-length array)
+/// present in `default` but absent from `existing`. Returns whether
+/// `existing` was modified. A value `existing` already has is never
+/// overwritten, at any nesting depth.
+pub fn merge_missing_json_defaults(existing: &mut DynamicValue, default: &DynamicValue) -> bool {
+    match (existing, default) {
+        (DynamicValue::Object(existing_map), DynamicValue::Object(default_map)) => {
+            let mut changed = false;
+            for (k, def_v) in default_map {
+                match existing_map.get_mut(k) {
+                    Some(existing_v) => {
+                        if merge_missing_json_defaults(existing_v, def_v) {
+                            changed = true;
+                        }
+                    }
+                    None => {
+                        existing_map.insert(k.clone(), def_v.clone());
+                        changed = true;
+                    }
+                }
+            }
+            changed
+        }
+        (DynamicValue::Array(existing_arr), DynamicValue::Array(default_arr))
+            if existing_arr.len() == default_arr.len() =>
+        {
+            let mut changed = false;
+            for (e, d) in existing_arr.iter_mut().zip(default_arr.iter()) {
+                if merge_missing_json_defaults(e, d) {
+                    changed = true;
+                }
+            }
+            changed
+        }
+        _ => false,
+    }
+}
+
+/// Backfills into `existing` any top-level key present in `default` but
+/// missing, and recursively self-heals nested values (via
+/// `merge_missing_json_defaults`) for keys both sides already have. Returns
+/// whether `existing` changed.
+pub fn merge_missing_registry_defaults(
+    existing: &mut DynamicRegistry,
+    default: &DynamicRegistry,
+) -> bool {
+    let mut changed = false;
+    for (key, default_val) in default {
+        match existing.get_mut(key) {
+            Some(existing_val) => {
+                if merge_missing_json_defaults(existing_val, default_val) {
+                    changed = true;
+                }
+            }
+            None => {
+                existing.insert(key.clone(), default_val.clone());
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// Shared ureq Agent with connect/read/write timeouts. `ureq::get`/`ureq::post`
 /// free functions use a default agent with NO timeouts at all — a stalled
 /// remote (or one that completes the handshake but then goes silent
@@ -377,56 +464,18 @@ impl SusiPrompts {
             .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = home.join(".susi/prompts.json");
 
-        static PROMPTS_CACHE: std::sync::OnceLock<
-            parking_lot::RwLock<Option<(std::time::SystemTime, SusiPrompts)>>,
-        > = std::sync::OnceLock::new();
-        let cache_lock = PROMPTS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
-        let current_modified = std::fs::metadata(&prompts_file)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
-
-        {
-            let guard = cache_lock.read();
-            if let Some((cached_time, cached_cfg)) = guard.as_ref() {
-                if cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
-                    return cached_cfg.clone();
-                }
-            }
-        }
-
-        let mut loaded = if prompts_file.is_file() {
-            fs::read_to_string(&prompts_file)
-                .ok()
-                .and_then(|content| serde_json::from_str::<SusiPrompts>(&content).ok())
-        } else {
-            None
-        };
-
-        if loaded.is_none() {
-            let default_prompts = Self::default_dynamic();
-            let _ = fs::create_dir_all(home.join(".susi"));
-            if let Ok(json) = serde_json::to_string_pretty(&default_prompts) {
-                let _ = fs::write(&prompts_file, json);
-            }
-            loaded = Some(default_prompts);
-        } else if let Some(existing) = loaded.as_mut() {
-            // Backfill keys a prompts.json predating a newer default doesn't
-            // have yet (e.g. a new prompt template shipped after the user's
-            // file was first written) - same self-healing merge SusiConfig
-            // already does for config.json, and for the same reason: once
-            // written, this file is never regenerated, so a new key is
-            // otherwise permanently invisible to load_global() on any host
-            // that installed before it existed. Never touches a key the user
-            // already has, matching that same existing-value guarantee.
-            let default_prompts = Self::default_dynamic();
-            if Self::backfill_missing_prompt_keys(&mut existing.prompts, &default_prompts.prompts) {
-                if let Ok(json) = serde_json::to_string_pretty(existing) {
-                    let _ = fs::write(&prompts_file, json);
-                }
-            }
-        }
-        let mut prompts = loaded.expect("checked Some above");
+        let mut prompts = store.load_with_healing(
+            &prompts_file,
+            || Ok(Self::default_dynamic()),
+            |cfg| {
+                let default_prompts = Self::default_dynamic();
+                merge_missing_registry_defaults(&mut cfg.prompts, &default_prompts.prompts)
+            },
+            false
+        ).unwrap_or_else(|_| Self::default_dynamic());
 
         // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
@@ -447,23 +496,6 @@ impl SusiPrompts {
             prompts,
             chat_templates: ChatTemplateConfig::default(),
         }
-    }
-
-    /// Inserts any key present in `defaults` but absent from `existing`.
-    /// Never overwrites a key `existing` already has. Returns whether
-    /// anything was inserted.
-    fn backfill_missing_prompt_keys(
-        existing: &mut DynamicRegistry,
-        defaults: &DynamicRegistry,
-    ) -> bool {
-        let mut changed = false;
-        for (key, default_val) in defaults {
-            if !existing.contains_key(key) {
-                existing.insert(key.clone(), default_val.clone());
-                changed = true;
-            }
-        }
-        changed
     }
 
     pub fn get(&self, key: &str) -> Option<&DynamicValue> {
@@ -545,44 +577,27 @@ impl SusiMessages {
             .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = home.join(".susi/messages.json");
 
-        static MSGS_CACHE: std::sync::OnceLock<
-            parking_lot::RwLock<Option<(std::time::SystemTime, SusiMessages)>>,
-        > = std::sync::OnceLock::new();
-        let cache_lock = MSGS_CACHE.get_or_init(|| parking_lot::RwLock::new(None));
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
-        let current_modified = std::fs::metadata(&msgs_file)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
-
-        {
-            let guard = cache_lock.read();
-            if let Some((cached_time, cached_cfg)) = guard.as_ref() {
-                if cached_time == &current_modified && current_modified != std::time::UNIX_EPOCH {
-                    return cached_cfg.clone();
+        store.load_with_healing(
+            &msgs_file,
+            || Ok(Self::default_dynamic()),
+            |m| {
+                let default_msgs = Self::default_dynamic();
+                let mut existing_val = serde_json::to_value(&*m).unwrap_or(DynamicValue::Null);
+                let default_val = serde_json::to_value(&default_msgs).unwrap_or(DynamicValue::Null);
+                
+                if merge_missing_json_defaults(&mut existing_val, &default_val) {
+                    if let Ok(merged) = serde_json::from_value::<SusiMessages>(existing_val) {
+                        *m = merged;
+                        return true;
+                    }
                 }
-            }
-        }
-
-        if msgs_file.is_file() {
-            if let Ok(content) = fs::read_to_string(&msgs_file) {
-                if let Ok(m) = serde_json::from_str::<SusiMessages>(&content) {
-                    let mut guard = cache_lock.write();
-                    *guard = Some((current_modified, m.clone()));
-                    return m;
-                }
-            }
-        }
-        let default_msgs = Self::default_dynamic();
-        let _ = fs::create_dir_all(home.join(".susi"));
-        if let Ok(json) = serde_json::to_string_pretty(&default_msgs) {
-            let _ = fs::write(&msgs_file, json);
-        }
-        let new_modified = std::fs::metadata(&msgs_file)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
-        let mut guard = cache_lock.write();
-        *guard = Some((new_modified, default_msgs.clone()));
-        default_msgs
+                false
+            },
+            false
+        ).unwrap_or_else(|_| Self::default_dynamic())
     }
 
     fn default_dynamic() -> Self {
@@ -790,92 +805,18 @@ impl SusiConfig {
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiConfig>> = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
-        static CACHE: std::sync::OnceLock<
-            parking_lot::RwLock<Option<(std::time::SystemTime, std::path::PathBuf, SusiConfig)>>,
-        > = std::sync::OnceLock::new();
-        let cache_lock = CACHE.get_or_init(|| parking_lot::RwLock::new(None));
-
-        let current_modified = std::fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::UNIX_EPOCH);
-
-        {
-            let guard = cache_lock.read();
-            if let Some((cached_time, cached_path, cached_cfg)) = guard.as_ref() {
-                if cached_path == &path
-                    && cached_time == &current_modified
-                    && current_modified != std::time::UNIX_EPOCH
-                {
-                    return Ok(cached_cfg.clone());
-                }
-            }
-        }
-
-        if path.is_file() {
-            let content = fs::read_to_string(&path)
-                .map_err(|e| EaiError::config(format!("Failed to read config: {}", e)))?;
-            let mut cfg: Self = serde_json::from_str(&content)
-                .map_err(|e| EaiError::config(format!("Malformed configuration: {}", e)))?;
-
-            let default = Self::default();
-            let mut changed = false;
-            for (key, default_val) in &default.settings {
-                match cfg.settings.get_mut(key) {
-                    Some(user_val) => {
-                        if Self::merge_missing_defaults(user_val, default_val) {
-                            changed = true;
-                        }
-                    }
-                    None => {
-                        cfg.settings.insert(key.clone(), default_val.clone());
-                        changed = true;
-                    }
-                }
-            }
-            if changed {
-                let _ = cfg.save(global_dir);
-            }
-            return Ok(cfg);
-        }
-        Ok(Self::default())
-    }
-
-    /// Recursively backfills keys present in `default` but absent from `user`,
-    /// for objects and for same-length arrays (matched by position). Returns
-    /// whether `user` was modified. Existing user values are never overwritten.
-    fn merge_missing_defaults(user: &mut DynamicValue, default: &DynamicValue) -> bool {
-        match (user, default) {
-            (DynamicValue::Object(user_map), DynamicValue::Object(default_map)) => {
-                let mut changed = false;
-                for (k, def_v) in default_map {
-                    match user_map.get_mut(k) {
-                        Some(user_v) => {
-                            if Self::merge_missing_defaults(user_v, def_v) {
-                                changed = true;
-                            }
-                        }
-                        None => {
-                            user_map.insert(k.clone(), def_v.clone());
-                            changed = true;
-                        }
-                    }
-                }
-                changed
-            }
-            (DynamicValue::Array(user_arr), DynamicValue::Array(default_arr))
-                if user_arr.len() == default_arr.len() =>
-            {
-                let mut changed = false;
-                for (u, d) in user_arr.iter_mut().zip(default_arr.iter()) {
-                    if Self::merge_missing_defaults(u, d) {
-                        changed = true;
-                    }
-                }
-                changed
-            }
-            _ => false,
-        }
+        store.load_with_healing(
+            &path,
+            || Ok(Self::default()),
+            |cfg| {
+                let default = Self::default();
+                merge_missing_registry_defaults(&mut cfg.settings, &default.settings)
+            },
+            true
+        )
     }
 
     pub fn reload(global_dir: &Path) -> EaiResult<Self> {
@@ -900,12 +841,7 @@ impl SusiConfig {
     /// writers to the same config.json from multiple processes routine rather
     /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
-        let path = Self::get_config_path(global_dir);
-        let json =
-            serde_json::to_string_pretty(self).map_err(|e| EaiError::config(e.to_string()))?;
-        let tmp_path = global_dir.join(format!("config.json.tmp.{}", std::process::id()));
-        fs::write(&tmp_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        fs::rename(&tmp_path, &path).map_err(|e| EaiError::filesystem(e.to_string()))
+        atomic_write_json_pretty(&Self::get_config_path(global_dir), self)
     }
 
     // === TYPED ACCESSORS - No hardcoded fields, dynamic getters with defaults ===
@@ -1912,7 +1848,7 @@ mod tests {
             DynamicValue::String("direct-answer prompt".to_string()),
         );
 
-        let changed = SusiPrompts::backfill_missing_prompt_keys(&mut existing, &defaults);
+        let changed = merge_missing_registry_defaults(&mut existing, &defaults);
 
         assert!(changed);
         assert_eq!(
@@ -1940,10 +1876,7 @@ mod tests {
         );
         let defaults = existing.clone();
 
-        assert!(!SusiPrompts::backfill_missing_prompt_keys(
-            &mut existing,
-            &defaults
-        ));
+        assert!(!merge_missing_registry_defaults(&mut existing, &defaults));
     }
 
     #[test]

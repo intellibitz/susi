@@ -5,7 +5,7 @@
 
 use crate::error::EaiResult;
 use dashmap::DashMap;
-use parking_lot::RwLock;
+
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -1213,20 +1213,16 @@ impl AdminAgent {
 }
 
 pub struct AgentMetaRegistry {
-    agents: Arc<RwLock<Vec<AgentProfile>>>,
-    last_loaded_mtime_secs: std::sync::atomic::AtomicU64,
+    store: crate::sandbox::VersionedJsonStore<Vec<AgentProfile>>,
 }
 
 impl AgentMetaRegistry {
     pub fn global() -> &'static Self {
         static REGISTRY: OnceLock<AgentMetaRegistry> = OnceLock::new();
         REGISTRY.get_or_init(|| {
-            let registry = AgentMetaRegistry {
-                agents: Arc::new(RwLock::new(Vec::new())),
-                last_loaded_mtime_secs: std::sync::atomic::AtomicU64::new(0),
-            };
-            registry.load_or_provision();
-            registry
+            AgentMetaRegistry {
+                store: crate::sandbox::VersionedJsonStore::new(),
+            }
         })
     }
 
@@ -1236,67 +1232,6 @@ impl AgentMetaRegistry {
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("."));
         home.join(".susi/agent_registry.json")
-    }
-
-    /// Registry Hot-Reload (Mandate 15): re-reads agent_registry.json whenever its
-    /// on-disk mtime has advanced past what was last loaded, preventing stale
-    /// agent behavior injection in the long-lived `global susi` daemon process.
-    fn refresh_if_stale(&self) {
-        let registry_path = Self::registry_path();
-        let mtime_secs = std::fs::metadata(&registry_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs());
-
-        if let Some(mtime_secs) = mtime_secs {
-            if mtime_secs
-                > self
-                    .last_loaded_mtime_secs
-                    .load(std::sync::atomic::Ordering::Relaxed)
-            {
-                self.load_or_provision();
-            }
-        }
-    }
-
-    fn load_or_provision(&self) {
-        let registry_path = Self::registry_path();
-
-        if registry_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&registry_path) {
-                if let Ok(agents) = serde_json::from_str::<Vec<AgentProfile>>(&content) {
-                    let mut registry = self.agents.write();
-                    let mut unique_agents = Vec::new();
-                    for a in agents {
-                        if !unique_agents
-                            .iter()
-                            .any(|x: &AgentProfile| x.name == a.name)
-                        {
-                            unique_agents.push(a);
-                        }
-                    }
-                    *registry = unique_agents;
-                    self.record_mtime(&registry_path);
-                    return;
-                }
-            }
-        }
-
-        // Bootstrap Provisioning
-        let new_agents = self.bootstrap_data();
-        {
-            let mut registry = self.agents.write();
-            *registry = new_agents.clone();
-        }
-        if let Some(parent) = registry_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let _ = std::fs::write(
-            &registry_path,
-            serde_json::to_string_pretty(&new_agents).unwrap_or_default(),
-        );
-        self.record_mtime(&registry_path);
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
@@ -1313,89 +1248,94 @@ impl AgentMetaRegistry {
     const MAX_NON_CORE_AGENTS: usize = 300;
 
     pub fn register_agent(&self, profile: AgentProfile) {
-        {
-            let mut agents = self.agents.write();
-            if !agents.iter().any(|a| a.name == profile.name) {
-                let non_core_count = agents.iter().filter(|a| !a.is_core).count();
-                if non_core_count >= Self::MAX_NON_CORE_AGENTS {
-                    if let Some(idx) = agents
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, a)| !a.is_core)
-                        .min_by(|(_, a), (_, b)| {
-                            a.base_rank
-                                .partial_cmp(&b.base_rank)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        })
-                        .map(|(i, _)| i)
-                    {
-                        agents.remove(idx);
+        let _ = self.store.modify(
+            &Self::registry_path(),
+            || Ok(self.bootstrap_data()),
+            |_| false,
+            false,
+            |agents| {
+                if !agents.iter().any(|a| a.name == profile.name) {
+                    let non_core_count = agents.iter().filter(|a| !a.is_core).count();
+                    if non_core_count >= Self::MAX_NON_CORE_AGENTS {
+                        if let Some(idx) = agents
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, a)| !a.is_core)
+                            .min_by(|(_, a), (_, b)| {
+                                a.base_rank
+                                    .partial_cmp(&b.base_rank)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                            .map(|(i, _)| i)
+                        {
+                            agents.remove(idx);
+                        }
                     }
+                    agents.push(profile);
                 }
-                agents.push(profile);
-            }
-        }
-        self.save();
+            },
+        );
     }
 
     pub fn update_rank(&self, name: &str, delta: f32, source: &str) {
-        let needs_save = {
-            let mut agents = self.agents.write();
-            if let Some(agent) = agents.iter_mut().find(|a| a.name == name) {
-                let old_rank = agent.base_rank;
-                agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
+        let name_owned = name.to_string();
+        let source_owned = source.to_string();
+        let _ = self.store.modify(
+            &Self::registry_path(),
+            || Ok(self.bootstrap_data()),
+            |_| false,
+            false,
+            move |agents| {
+                if let Some(agent) = agents.iter_mut().find(|a| a.name == name_owned) {
+                    let old_rank = agent.base_rank;
+                    agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
 
-                let log_msg = format!(
-                    "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
-                    name, old_rank, agent.base_rank, source
-                );
-                let home = std::env::var_os("HOME")
-                    .or_else(|| std::env::var_os("USERPROFILE"))
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| std::path::PathBuf::from("."));
-                crate::sandbox::manager::SusiAuditLogger::log(
-                    &home.join(".susi"),
-                    crate::sandbox::manager::LogLevel::Info,
-                    "AGENT_MUTATION",
-                    &log_msg,
-                );
-                true
-            } else {
-                false
-            }
-        };
-
-        if needs_save {
-            self.save();
-        }
-    }
-
-    fn save(&self) {
-        let registry_path = Self::registry_path();
-        let agents = self.agents.read();
-        let _ = std::fs::write(
-            &registry_path,
-            serde_json::to_string_pretty(&*agents).unwrap_or_default(),
+                    let log_msg = format!(
+                        "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
+                        name_owned, old_rank, agent.base_rank, source_owned
+                    );
+                    let home = std::env::var_os("HOME")
+                        .or_else(|| std::env::var_os("USERPROFILE"))
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| std::path::PathBuf::from("."));
+                    crate::sandbox::manager::SusiAuditLogger::log(
+                        &home.join(".susi"),
+                        crate::sandbox::manager::LogLevel::Info,
+                        "AGENT_MUTATION",
+                        &log_msg,
+                    );
+                }
+            },
         );
-        drop(agents);
-        self.record_mtime(&registry_path);
-    }
-
-    fn record_mtime(&self, registry_path: &Path) {
-        if let Some(mtime_secs) = std::fs::metadata(registry_path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-        {
-            self.last_loaded_mtime_secs
-                .store(mtime_secs, std::sync::atomic::Ordering::Relaxed);
-        }
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
-        self.refresh_if_stale();
-        self.agents.read().clone()
+        self.store.load_with_healing(
+            &Self::registry_path(),
+            || Ok(self.bootstrap_data()),
+            |unique_agents| {
+                let mut deduplicated = Vec::new();
+                for a in unique_agents.drain(..) {
+                    if !deduplicated.iter().any(|x: &AgentProfile| x.name == a.name) {
+                        deduplicated.push(a);
+                    }
+                }
+                *unique_agents = deduplicated;
+
+                let mut changed = false;
+                for default_agent in self.bootstrap_data() {
+                    if !unique_agents
+                        .iter()
+                        .any(|x: &AgentProfile| x.name == default_agent.name)
+                    {
+                        unique_agents.push(default_agent);
+                        changed = true;
+                    }
+                }
+                changed
+            },
+            false,
+        ).unwrap_or_else(|_| self.bootstrap_data())
     }
 
     pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {
@@ -1431,8 +1371,7 @@ impl AgentMetaRegistry {
     }
 
     pub fn get_checksum(&self) -> u64 {
-        self.refresh_if_stale();
-        let agents = self.agents.read();
+        let agents = self.list_agents();
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         use std::hash::{Hash, Hasher};
         for agent in agents.iter() {
@@ -1698,10 +1637,6 @@ impl GawdAgentFleet {
         }
 
         // 3. Semantic Meta-Registry Discovery
-        if available_agents.is_empty() {
-            eprintln!("[Swarm] Registry empty. Triggering bootstrap...");
-            registry.load_or_provision();
-        }
         let available_agents = registry.list_agents();
         let mut max_global_similarity = 0.0f32;
 
