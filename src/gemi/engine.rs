@@ -720,10 +720,8 @@ impl NativeInferenceEngine for SusiGgufEngine {
             return Ok("Simulated inference for test suite.".to_string());
         }
 
-        let model_id = ModelManager::get_selected_model(Some(
-            crate::gemi::intent::IntentClassifier::classify(prompt),
-        ))
-        .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
+        let model_id = ModelManager::get_selected_model_for_request(prompt)
+            .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
 
         println!("- [Inference Substrate] Active Model: {}", model_id);
         let model_path = ModelManager::get_model_path(&model_id)

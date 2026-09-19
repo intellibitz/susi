@@ -702,9 +702,9 @@ impl SusiMasterAgent {
                 swarm_context
             } else {
                 // Tier 2 Native Local Model Inference Fallback for Open Missions
-                let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(
-                    crate::gemi::intent::IntentClassifier::classify(&current_goal),
-                ))
+                let model_name = crate::gemi::models::ModelManager::get_selected_model_for_request(
+                    &current_goal,
+                )
                 .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
                 let reasoning_prompt = format!(
@@ -1007,14 +1007,12 @@ impl SusiMasterAgent {
             agents.len()
         ));
 
-        let model_name = crate::gemi::models::ModelManager::get_selected_model(Some(
-            crate::gemi::intent::IntentClassifier::classify(&goal),
-        ))
-        .unwrap_or_else(|| {
-            crate::sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .alpha_weights_filename()
-        });
+        let model_name = crate::gemi::models::ModelManager::get_selected_model_for_request(&goal)
+            .unwrap_or_else(|| {
+                crate::sandbox::manager::SusiConfig::load_global()
+                    .unwrap_or_default()
+                    .alpha_weights_filename()
+            });
 
         let ans = format!(
             "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",

@@ -307,6 +307,44 @@ impl ModelManager {
         workspace: &Path,
         intent: Option<crate::gemi::intent::IntentCategory>,
     ) -> Option<ModelInfo> {
+        Self::identify_best_suited_local_model_with_complexity(workspace, intent, None)
+    }
+
+    /// The size term of a candidate model's fitness score, among models
+    /// that already fit the RAM budget: normally rewards bigger models
+    /// (today's "biggest that fits wins" behavior), but flips sign for
+    /// `TaskComplexity::Simple` so the smallest resident model scores
+    /// highest instead - the mechanism behind routing simple requests to
+    /// the small baseline tier. Split out as a pure function so this
+    /// inversion is unit-testable without real hardware/filesystem
+    /// scanning.
+    fn size_preference_score(
+        model_size_gb: f32,
+        complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> f32 {
+        let size_sign = if complexity == Some(crate::gemi::intent::TaskComplexity::Simple) {
+            -1.0
+        } else {
+            1.0
+        };
+        model_size_gb * 5.0 * size_sign
+    }
+
+    /// Same as `identify_best_suited_local_model`, plus a `complexity`
+    /// signal: for `TaskComplexity::Simple`, smaller resident models score
+    /// *higher* (inverted from the default "biggest that fits wins"), so a
+    /// trivial request routes to the small baseline tier
+    /// (`ModelManager::baseline_download_target` ensures one stays
+    /// resident) instead of always loading the biggest model available.
+    /// `None`/`Complex` preserves the original behavior exactly - existing
+    /// callers that don't have a live prompt to classify (report/status
+    /// generation, the provisioning check in `ensure_hardware_optimal_models`)
+    /// are unaffected.
+    pub fn identify_best_suited_local_model_with_complexity(
+        workspace: &Path,
+        intent: Option<crate::gemi::intent::IntentCategory>,
+        complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> Option<ModelInfo> {
         let hw = HardwareProfiler::get_profile();
         let models = Self::list_models(workspace);
         let local_models: Vec<ModelInfo> = models
@@ -356,7 +394,10 @@ impl ModelManager {
             if model_size_gb > ram_budget_gb {
                 score -= 1000.0;
             } else {
-                score += model_size_gb * 5.0;
+                // Only the base size term flips for Simple; the GPU/VRAM-fit
+                // bonus below stays unconditional, since fitting in VRAM is
+                // a speed win regardless of task complexity.
+                score += Self::size_preference_score(model_size_gb, complexity);
                 if hw.acceleration_active && vram_budget_gb > 0.0 {
                     if model_size_gb <= vram_budget_gb {
                         score += 100.0;
@@ -418,6 +459,26 @@ impl ModelManager {
     pub fn get_selected_model(
         intent: Option<crate::gemi::intent::IntentCategory>,
     ) -> Option<String> {
+        Self::get_selected_model_inner(intent, None)
+    }
+
+    /// Complexity-aware selection for a real, live user prompt: routes
+    /// clearly-simple prompts to the small resident baseline model instead
+    /// of always picking the biggest one available. Use this at actual
+    /// inference-dispatch call sites (where a real prompt exists);
+    /// `get_selected_model` remains what callers with no prompt to
+    /// classify (status/report generation) should use - unaffected by
+    /// this addition.
+    pub fn get_selected_model_for_request(prompt: &str) -> Option<String> {
+        let intent = crate::gemi::intent::IntentClassifier::classify(prompt);
+        let complexity = crate::gemi::intent::IntentClassifier::classify_complexity(prompt);
+        Self::get_selected_model_inner(Some(intent), Some(complexity))
+    }
+
+    fn get_selected_model_inner(
+        intent: Option<crate::gemi::intent::IntentCategory>,
+        complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> Option<String> {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
@@ -430,7 +491,8 @@ impl ModelManager {
             }
         }
         let ws = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        Self::identify_best_suited_local_model(&ws, intent).map(|m| m.model_id().to_string())
+        Self::identify_best_suited_local_model_with_complexity(&ws, intent, complexity)
+            .map(|m| m.model_id().to_string())
     }
 
     pub fn set_selected_engine(engine_name: &str) -> Result<String, String> {
@@ -1603,6 +1665,41 @@ mod tests {
     fn test_baseline_download_target_none_for_empty_ladder() {
         let target = ModelManager::baseline_download_target(&[], false);
         assert!(target.is_none());
+    }
+
+    /// Regression for the auto step-up/step-down feature: a Simple prompt
+    /// must make a *smaller* model score higher, not lower - proves the
+    /// sign actually flips, not just that some number changes.
+    #[test]
+    fn test_size_preference_score_simple_favors_smaller_models() {
+        use crate::gemi::intent::TaskComplexity;
+        let small_score = ModelManager::size_preference_score(1.5, Some(TaskComplexity::Simple));
+        let big_score = ModelManager::size_preference_score(40.0, Some(TaskComplexity::Simple));
+        assert!(
+            small_score > big_score,
+            "smaller model must score higher for Simple: small={small_score}, big={big_score}"
+        );
+    }
+
+    #[test]
+    fn test_size_preference_score_complex_favors_bigger_models() {
+        use crate::gemi::intent::TaskComplexity;
+        let small_score = ModelManager::size_preference_score(1.5, Some(TaskComplexity::Complex));
+        let big_score = ModelManager::size_preference_score(40.0, Some(TaskComplexity::Complex));
+        assert!(
+            big_score > small_score,
+            "bigger model must score higher for Complex: small={small_score}, big={big_score}"
+        );
+    }
+
+    #[test]
+    fn test_size_preference_score_none_matches_complex_default() {
+        use crate::gemi::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::size_preference_score(14.0, None),
+            ModelManager::size_preference_score(14.0, Some(TaskComplexity::Complex)),
+            "None must preserve today's default (bigger-wins) behavior for existing callers"
+        );
     }
 
     #[test]
