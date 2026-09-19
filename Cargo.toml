@@ -7,6 +7,14 @@ description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GE
 license = "Apache-2.0"
 repository = "https://github.com/intellibitz/susi"
 homepage = "https://github.com/intellibitz/susi"
+publish = false
+# Last toolchain this was actually built and tested against; CI tracks
+# `stable` rather than pinning to this, so treat it as a floor, not a
+# guarantee earlier versions work.
+rust-version = "1.98"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
