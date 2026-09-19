@@ -8,7 +8,7 @@
 
 use crate::error::{EaiError, EaiResult};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 pub struct ReflexSynthesizer;
@@ -49,6 +49,10 @@ impl ReflexSynthesizer {
 
         let reflex_path =
             workspace.join(format!("src/gmcp/reflexes/{}.rs", intent.replace(' ', "_")));
+        // Mandate 42: safe - `reflex_path` is `workspace.join("src/gmcp/reflexes/...")`,
+        // a join with a non-empty multi-segment relative path, so it always has
+        // at least one path component beyond `workspace` and `.parent()` can
+        // never be `None` here, regardless of what `workspace` itself is.
         let _ = fs::create_dir_all(reflex_path.parent().unwrap());
         fs::write(&reflex_path, code)?;
 
@@ -71,11 +75,6 @@ impl ReflexSynthesizer {
     /// silently swallowed, so callers can tell a real patch from a missing
     /// toolchain component.
     pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
-        let _home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("."));
-
         let reflex_dir = crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes");
         let _ = fs::create_dir_all(&reflex_dir);
         let slug = intent.trim().replace(' ', "_").to_lowercase();
@@ -85,14 +84,31 @@ impl ReflexSynthesizer {
         fs::write(&wasm_src, code)?;
 
         let wasm_out = reflex_dir.join(format!("{}.wasm", slug));
+        // Mandate 42: `to_str()` is `None` on a non-UTF8 path (possible, if
+        // rare, under an unusual locale/HOME) - propagate that as a real
+        // error instead of panicking, consistent with every other failure
+        // mode this function already returns as `Err` below.
+        let wasm_out_str = wasm_out.to_str().ok_or_else(|| {
+            EaiError::process(format!(
+                "WASM output path is not valid UTF-8: {}",
+                wasm_out.display()
+            ))
+        })?;
+        let wasm_src_str = wasm_src.to_str().ok_or_else(|| {
+            EaiError::process(format!(
+                "WASM source path is not valid UTF-8: {}",
+                wasm_src.display()
+            ))
+        })?;
+
         let build = Command::new("rustc")
             .args([
                 "--target",
                 "wasm32-wasip1",
                 "-O",
                 "-o",
-                wasm_out.to_str().unwrap(),
-                wasm_src.to_str().unwrap(),
+                wasm_out_str,
+                wasm_src_str,
             ])
             .output();
 
@@ -163,6 +179,7 @@ impl ReflexSynthesizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn test_native_reflex_synthesis_logic() {

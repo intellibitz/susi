@@ -226,10 +226,12 @@ impl GmcpClient {
         let mut config = if let Ok(content) = fs::read_to_string(&config_path) {
             serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig {
                 mcp_servers: HashMap::new(),
+                extra: HashMap::new(),
             })
         } else {
             McpConfig {
                 mcp_servers: HashMap::new(),
+                extra: HashMap::new(),
             }
         };
 
@@ -270,6 +272,7 @@ impl GmcpClient {
             command: cmd,
             args,
             env: None,
+            extra: HashMap::new(),
         };
 
         config.mcp_servers.insert(name.to_string(), new_srv);
