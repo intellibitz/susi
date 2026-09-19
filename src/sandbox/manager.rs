@@ -473,7 +473,7 @@ impl SusiPrompts {
 
         static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
+        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
 
         let mut prompts = store
             .load_with_healing(
@@ -592,7 +592,7 @@ impl SusiMessages {
 
         static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
+        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
 
         store
             .load_with_healing(
@@ -790,6 +790,21 @@ pub struct ModelLadderConfigStep {
     pub expected_bytes: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelLifecycleConfig {
+    pub download_attempts: u32,
+    pub download_timeout_secs: u64,
+    pub max_parallel_downloads: usize,
+    pub discovery_refresh_secs: u64,
+    pub discovery_retry_secs: u64,
+    pub discovery_limit: usize,
+    pub max_ladder_tiers: usize,
+    pub ladder_size_ratio: f32,
+    pub memory_overhead_ratio: f32,
+    pub prefetch_tiers: usize,
+    pub failure_cooldown_secs: u64,
+}
+
 // === 100% DYNAMIC SUSI CONFIG - THE ROOT ===
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -829,7 +844,7 @@ impl SusiConfig {
         let path = Self::get_config_path(global_dir);
         static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiConfig>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
+        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
 
         store.load_with_healing(
             &path,
@@ -992,6 +1007,10 @@ impl SusiConfig {
     pub fn reflex_training_threshold(&self) -> usize {
         self.get_or_bundled_default("reflex_training_threshold")
     }
+    pub fn model_lifecycle(&self) -> ModelLifecycleConfig {
+        self.get_or_bundled_default("model_lifecycle")
+    }
+
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
         let default_steps: Vec<ModelLadderConfigStep> = self.get_or_bundled_default("model_ladder");
         if default_steps.is_empty() {
@@ -1728,38 +1747,35 @@ mod tests {
         // User's customized scalar value survives the merge untouched.
         assert_eq!(cfg.gmcp_port(), 12345);
 
-        // The bundled default's full model_ladder (5 steps, all with
-        // tokenizer_repo) was backfilled since the user's array only had 1
-        // element (length mismatch means no positional merge is attempted and
-        // the top-level key is left as the user's own value)... but a key the
-        // user never set at all (default_fallback_model) must be pulled in
-        // wholesale from the bundled default.
+        // An explicit user ladder is preserved; the default is now dynamic.
+        let custom_ladder = cfg.model_ladder();
+        assert_eq!(custom_ladder.len(), 1);
+        assert_eq!(custom_ladder[0].hf_repo, "Qwen/Qwen2.5-1.5B-Instruct-GGUF");
         let fallback = cfg.default_fallback_model();
         assert!(!fallback.tokenizer_repo.is_empty());
 
-        // Same-length-array positional backfill: drop the tokenizer_repo field
-        // from one element of a same-length ladder and confirm it gets healed.
-        let mut same_len = SusiConfig::default().settings;
-        if let Some(serde_json::Value::Array(steps)) = same_len.get_mut("model_ladder") {
-            if let Some(serde_json::Value::Object(step0)) = steps.get_mut(0) {
-                step0.remove("tokenizer_repo");
-            }
+        // Missing nested lifecycle settings heal without replacing user tuning.
+        let mut settings = SusiConfig::default().settings;
+        if let Some(serde_json::Value::Object(policy)) = settings.get_mut("model_lifecycle") {
+            policy.remove("download_attempts");
+            policy.insert("max_parallel_downloads".into(), serde_json::json!(1));
         }
-        let healed = SusiConfig { settings: same_len };
-        healed
-            .save(dir)
-            .expect("Failed to save same-length stale config");
-        let reloaded = SusiConfig::load(dir).expect("Failed to load same-length stale config");
-        let ladder = reloaded.model_ladder();
-        assert!(ladder.len() >= 5);
-        assert!(
-            !ladder[0].tokenizer_repo.is_empty(),
-            "missing tokenizer_repo on an existing array element must be backfilled by position"
+        SusiConfig { settings }.save(dir).unwrap();
+        let reloaded = SusiConfig::load(dir).expect("Failed to load stale lifecycle config");
+        let policy = reloaded.model_lifecycle();
+        assert_eq!(
+            policy.download_attempts,
+            SusiConfig::default().model_lifecycle().download_attempts
+        );
+        assert_eq!(policy.max_parallel_downloads, 1);
+        assert_eq!(
+            reloaded.settings.get("model_ladder"),
+            Some(&serde_json::json!([]))
         );
 
         // The merge must have persisted back to disk (self-healing).
         let on_disk = fs::read_to_string(SusiConfig::get_config_path(dir)).unwrap();
-        assert!(on_disk.contains("tokenizer_repo"));
+        assert!(on_disk.contains("download_attempts"));
 
         let _ = fs::remove_dir_all(dir);
     }

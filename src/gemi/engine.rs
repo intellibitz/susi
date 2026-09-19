@@ -390,11 +390,27 @@ pub struct GemiEngine;
 
 impl GemiEngine {
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, true, &|_| {})
+        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None)
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, false, &|_| {})
+        Self::generate_reasoning_deep_with_min_complexity(prompt, workspace, None)
+    }
+
+    pub fn generate_reasoning_deep_with_min_complexity(
+        prompt: &str,
+        workspace: &Path,
+        min_complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> String {
+        Self::reason_internal(prompt, workspace, false, &|_| {}, min_complexity, None)
+    }
+
+    pub fn generate_reasoning_deep_with_model(
+        prompt: &str,
+        workspace: &Path,
+        model: &str,
+    ) -> String {
+        Self::reason_internal(prompt, workspace, false, &|_| {}, None, Some(model))
     }
 
     pub fn generate_reasoning_stream(
@@ -402,7 +418,7 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback)
+        Self::reason_internal(prompt, workspace, true, callback, None, None)
     }
 
     /// Ultra-Latency Competitive Inference Racing
@@ -411,6 +427,8 @@ impl GemiEngine {
         workspace: &Path,
         allow_reflex: bool,
         callback: &dyn Fn(String),
+        min_complexity: Option<crate::gemi::intent::TaskComplexity>,
+        requested_model: Option<&str>,
     ) -> String {
         if allow_reflex {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
@@ -425,15 +443,33 @@ impl GemiEngine {
         let active_engine_identifier = crate::gemi::models::ModelManager::get_selected_engine()
             .unwrap_or(global_config.default_engine());
 
-        let engine: Box<dyn NativeInferenceEngine> = if active_engine_identifier == "susi-federated"
-            || active_engine_identifier == "cloud"
+        let engine: Box<dyn NativeInferenceEngine> = if requested_model.is_none()
+            && (active_engine_identifier == "susi-federated" || active_engine_identifier == "cloud")
         {
             Box::new(SusiFederatedEngine)
         } else {
             Box::new(LlamaCppEngine)
         };
 
-        if let Ok(res) = engine.run_inference_stream(prompt, callback) {
+        let selected_model = requested_model.map(str::to_owned).or_else(|| {
+            ModelManager::get_selected_model_for_request_with_min_complexity(
+                prompt,
+                None,
+                min_complexity,
+            )
+        });
+        let result = engine.run_inference_stream(prompt, callback, selected_model.as_deref());
+        if let Some(model) = selected_model.as_deref() {
+            if active_engine_identifier != "susi-federated" && active_engine_identifier != "cloud"
+                || requested_model.is_some()
+            {
+                ModelManager::record_inference_result(
+                    model,
+                    result.as_ref().is_ok_and(|text| !text.trim().is_empty()),
+                );
+            }
+        }
+        if let Ok(res) = result {
             if !res.trim().is_empty() {
                 return match Self::verify_axiomatic_alignment(&res, workspace) {
                     Ok(v) => v,
@@ -447,8 +483,10 @@ impl GemiEngine {
         // must fetch a hardware-fit model and retry before giving up. Only
         // engaged when no local GGUF actually exists yet (not on inference
         // errors against an existing model, which a re-download can't fix).
-        if !Self::has_usable_local_model(workspace) {
-            if let Some(res) = Self::provision_and_retry(prompt, workspace, callback) {
+        if requested_model.is_none() && !Self::has_usable_local_model(workspace) {
+            if let Some(res) =
+                Self::provision_and_retry(prompt, workspace, callback, min_complexity)
+            {
                 return res;
             }
         }
@@ -473,9 +511,7 @@ impl GemiEngine {
     }
 
     fn has_usable_local_model(workspace: &Path) -> bool {
-        ModelManager::verify_local_models(workspace)
-            .iter()
-            .any(|v| v.is_valid_gguf)
+        ModelManager::identify_best_suited_local_model(workspace, None).is_some()
     }
 
     /// Kicks off hardware-optimal provisioning and blocks, polling for a
@@ -489,23 +525,47 @@ impl GemiEngine {
         prompt: &str,
         workspace: &Path,
         callback: &dyn Fn(String),
+        min_complexity: Option<crate::gemi::intent::TaskComplexity>,
     ) -> Option<String> {
         callback(
             "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),
         );
-        let _ = ModelManager::ensure_hardware_optimal_models(workspace);
-
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        if cfg
+            .settings
+            .get("auto_download_models")
+            .and_then(|v| v.as_bool())
+            == Some(false)
+        {
+            return None;
+        }
+        let (sender, provisioning) = std::sync::mpsc::channel();
+        let provisioning_workspace = workspace.to_path_buf();
+        std::thread::spawn(move || {
+            let result = ModelManager::ensure_hardware_optimal_models(&provisioning_workspace);
+            let _ = sender.send(result);
+        });
+
         let wait_secs = cfg.model_provisioning_wait_secs();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_secs);
         let poll_interval = std::time::Duration::from_secs(10);
         let mut last_reported_pct: i64 = -1;
 
         while std::time::Instant::now() < deadline {
+            if let Ok(Err(error)) = provisioning.try_recv() {
+                callback(format!("[SUSI] Provisioning unavailable: {error}\n"));
+                return None;
+            }
             if Self::has_usable_local_model(workspace) {
                 callback("[SUSI] Model provisioned. Resuming inference...\n".to_string());
                 let engine = LlamaCppEngine;
-                if let Ok(res) = engine.run_inference_stream(prompt, callback) {
+                let selected = ModelManager::get_selected_model_for_request_with_min_complexity(
+                    prompt,
+                    None,
+                    min_complexity,
+                );
+                if let Ok(res) = engine.run_inference_stream(prompt, callback, selected.as_deref())
+                {
                     if !res.trim().is_empty() {
                         return Some(match Self::verify_axiomatic_alignment(&res, workspace) {
                             Ok(v) => v,
@@ -680,7 +740,12 @@ impl MissionPlanner {
 pub trait NativeInferenceEngine: Send + Sync {
     fn name(&self) -> String;
     fn run_inference(&self, prompt: &str) -> EaiResult<String>;
-    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String>;
+    fn run_inference_stream(
+        &self,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String>;
 }
 
 pub struct LlamaCppEngine;
@@ -693,8 +758,13 @@ impl NativeInferenceEngine for LlamaCppEngine {
         // Native Priority: Use the hardened SusiGgufEngine directly
         SusiGgufEngine.run_inference(prompt)
     }
-    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
-        SusiGgufEngine.run_inference_stream(prompt, callback)
+    fn run_inference_stream(
+        &self,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
+        SusiGgufEngine.run_inference_stream(prompt, callback, selected_model)
     }
 }
 
@@ -706,10 +776,15 @@ impl NativeInferenceEngine for SusiGgufEngine {
     }
 
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        self.run_inference_stream(prompt, &|_| {})
+        self.run_inference_stream(prompt, &|_| {}, None)
     }
 
-    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
+    fn run_inference_stream(
+        &self,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+    ) -> EaiResult<String> {
         let task_handle = crate::gawd::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
@@ -720,7 +795,9 @@ impl NativeInferenceEngine for SusiGgufEngine {
             return Ok("Simulated inference for test suite.".to_string());
         }
 
-        let model_id = ModelManager::get_selected_model_for_request(prompt)
+        let model_id = selected_model
+            .map(str::to_owned)
+            .or_else(|| ModelManager::get_selected_model_for_request(prompt))
             .ok_or_else(|| EaiError::inference("No reasoning model selected."))?;
 
         println!("- [Inference Substrate] Active Model: {}", model_id);
@@ -925,10 +1002,15 @@ impl NativeInferenceEngine for SusiFederatedEngine {
     }
 
     fn run_inference(&self, prompt: &str) -> EaiResult<String> {
-        self.run_inference_stream(prompt, &|_| {})
+        self.run_inference_stream(prompt, &|_| {}, None)
     }
 
-    fn run_inference_stream(&self, prompt: &str, callback: &dyn Fn(String)) -> EaiResult<String> {
+    fn run_inference_stream(
+        &self,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        _selected_model: Option<&str>,
+    ) -> EaiResult<String> {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let endpoints = cfg.inference_endpoints();
 

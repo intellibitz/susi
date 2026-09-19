@@ -1,6 +1,7 @@
 pub mod alpha;
 pub mod audio;
 pub mod benchmark;
+pub(crate) mod download;
 pub mod engine;
 pub mod hardware;
 pub mod hf_discovery;

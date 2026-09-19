@@ -43,31 +43,64 @@ impl ModelDownloadController {
 
     pub fn start_download(&self, url: &str) -> Result<String, String> {
         let target = url.trim().to_string();
-        if self.active_downloads.contains_key(&target) {
-            return Ok(format!("Download already active for: {}", target));
-        }
-
-        let file_name = target
-            .split('/')
-            .next_back()
-            .unwrap_or("model.gguf")
-            .to_string();
+        let file_name = super::download::artifact_name(&target)?;
+        let entry = match self.active_downloads.entry(target.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(_) => {
+                return Ok(format!("Download already active for: {}", target))
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => entry,
+        };
         let task_handle = SwarmTaskManager::global().register_task("model_download", &target);
 
         let task_clone = Arc::clone(&task_handle);
         let target_clone = target.clone();
 
-        self.active_downloads.insert(
-            target.clone(),
-            ActiveDownloadTask {
-                target_url: target.clone(),
-                model_name: file_name.clone(),
-                task_handle: Arc::clone(&task_handle),
-            },
-        );
+        entry.insert(ActiveDownloadTask {
+            target_url: target.clone(),
+            model_name: file_name.clone(),
+            task_handle: Arc::clone(&task_handle),
+        });
+        ModelManager::save_download_progress(&file_name, &target, 0, 0, "QUEUED");
 
         std::thread::spawn(move || {
-            let res = ModelManager::execute_download_stream(&target_clone, &task_clone);
+            static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let limit = crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .model_lifecycle()
+                .max_parallel_downloads
+                .clamp(1, 4);
+            let acquired = loop {
+                if task_clone.is_cancelled() {
+                    break false;
+                }
+                let count = RUNNING.load(std::sync::atomic::Ordering::Acquire);
+                if count < limit
+                    && RUNNING
+                        .compare_exchange(
+                            count,
+                            count + 1,
+                            std::sync::atomic::Ordering::AcqRel,
+                            std::sync::atomic::Ordering::Relaxed,
+                        )
+                        .is_ok()
+                {
+                    break true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            };
+            struct Permit(&'static std::sync::atomic::AtomicUsize);
+            impl Drop for Permit {
+                fn drop(&mut self) {
+                    self.0.fetch_sub(1, std::sync::atomic::Ordering::Release);
+                }
+            }
+            let permit = acquired.then(|| Permit(&RUNNING));
+            let res = if acquired {
+                ModelManager::execute_download_stream(&target_clone, &task_clone)
+            } else {
+                Err("Download cancelled".into())
+            };
+            drop(permit);
             ModelDownloadController::global()
                 .active_downloads
                 .remove(&target_clone);
@@ -76,7 +109,9 @@ impl ModelDownloadController {
                     "[ModelDownloadController] Download failed for {}: {}",
                     target_clone, e
                 );
-                task_clone.mark_failed(&e);
+                if !task_clone.is_cancelled() {
+                    task_clone.mark_failed(&e);
+                }
             }
         });
 
@@ -121,7 +156,7 @@ impl ModelDownloadController {
     }
 
     pub fn stop_download(&self, target: &str) -> bool {
-        if let Some((_, task)) = self.active_downloads.remove(target) {
+        if let Some(task) = self.active_downloads.get(target) {
             task.task_handle
                 .cancel_flag
                 .store(true, std::sync::atomic::Ordering::Release);
@@ -140,8 +175,7 @@ impl ModelDownloadController {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file =
-            crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file = ModelManager::progress_path(target);
         if let Ok(content) = fs::read_to_string(&progress_file) {
             if let Ok(record) = serde_json::from_str::<ModelDownloadProgress>(&content) {
                 if record.target_url == target || record.model_name == target {
@@ -234,9 +268,116 @@ struct ModelScanRules {
     min_bytes: u64,
 }
 
+static MODEL_SCAN_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> =
+    std::sync::OnceLock::new();
+
 pub struct ModelManager;
 
 impl ModelManager {
+    pub(crate) fn record_inference_result(model: &str, success: bool) {
+        let failures = MODEL_FAILURES.get_or_init(DashMap::new);
+        if success {
+            failures.remove(model);
+        } else {
+            failures.insert(model.into(), std::time::Instant::now());
+        }
+    }
+
+    fn cooling_down(model: &str) -> bool {
+        let cooldown = crate::sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .model_lifecycle()
+            .failure_cooldown_secs;
+        MODEL_FAILURES
+            .get_or_init(DashMap::new)
+            .get(model)
+            .is_some_and(|failed| failed.elapsed().as_secs() < cooldown)
+    }
+
+    fn fits_memory(size_gb: f32, available_gb: f32, reserve_gb: f32, overhead: f32) -> bool {
+        [size_gb, available_gb, reserve_gb, overhead]
+            .iter()
+            .all(|n| n.is_finite())
+            && size_gb > 0.0
+            && size_gb * overhead.max(1.0) <= (available_gb - reserve_gb.max(0.0)).max(0.0)
+    }
+
+    fn is_complete_model_file(path: &Path, minimum_bytes: u64) -> bool {
+        path.metadata()
+            .map(|metadata| metadata.len() >= minimum_bytes)
+            .unwrap_or(false)
+            && Self::valid_gguf_payload(path)
+    }
+
+    pub(crate) fn valid_gguf_payload(path: &Path) -> bool {
+        type Entry = (u64, std::time::SystemTime, bool);
+        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
+        let cache = CACHE.get_or_init(DashMap::new);
+        let Ok(meta) = path.metadata() else {
+            return false;
+        };
+        let Ok(modified) = meta.modified() else {
+            return Self::read_gguf_payload(path);
+        };
+        if let Some(entry) = cache.get(path) {
+            if entry.0 == meta.len() && entry.1 == modified {
+                return entry.2;
+            }
+        }
+        let valid = Self::read_gguf_payload(path);
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (meta.len(), modified, valid));
+        valid
+    }
+
+    fn read_gguf_payload(path: &Path) -> bool {
+        let Ok(mut file) = fs::File::open(path) else {
+            return false;
+        };
+        let Ok(metadata) = file.metadata() else {
+            return false;
+        };
+        let Ok(content) = candle_core::quantized::gguf_file::Content::read(&mut file) else {
+            return false;
+        };
+        !content.tensor_infos.is_empty()
+            && content.tensor_infos.values().all(|tensor| {
+                let Some(elements) = tensor
+                    .shape
+                    .dims()
+                    .iter()
+                    .try_fold(1usize, |n, d| n.checked_mul(*d))
+                else {
+                    return false;
+                };
+                let block = tensor.ggml_dtype.block_size();
+                if elements == 0 || !elements.is_multiple_of(block) {
+                    return false;
+                }
+                let Some(bytes) = (elements / block).checked_mul(tensor.ggml_dtype.type_size())
+                else {
+                    return false;
+                };
+                content
+                    .tensor_data_offset
+                    .checked_add(tensor.offset)
+                    .and_then(|start| start.checked_add(bytes as u64))
+                    .is_some_and(|end| end <= metadata.len())
+            })
+    }
+
+    fn is_complete_gguf(
+        header_is_valid: bool,
+        size_bytes: u64,
+        minimum_bytes: Option<u64>,
+    ) -> bool {
+        header_is_valid && minimum_bytes.is_none_or(|minimum| size_bytes >= minimum)
+    }
+
     /// Resolves the model storage directory. If SUSI_MODEL_DIR or SUSI_USE_DOWNLOADS_DIR is active,
     /// prioritizes ~/Downloads/.susi/models as requested for expert testing.
     pub fn get_models_dir() -> PathBuf {
@@ -352,7 +493,7 @@ impl ModelManager {
         m: &ModelInfo,
         heuristics: &crate::sandbox::manager::ModelScoringHeuristics,
     ) -> f32 {
-        let p = PathBuf::from(&m.model_id());
+        let p = PathBuf::from(m.model_id());
         if p.is_file() {
             if let Ok(meta) = p.metadata() {
                 return meta.len() as f32 / (1024.0 * 1024.0 * 1024.0);
@@ -387,6 +528,13 @@ impl ModelManager {
         let local_models: Vec<ModelInfo> = models
             .into_iter()
             .filter(|m| m.is_local() && !m.model_id().contains("native"))
+            .filter(|m| {
+                let path = PathBuf::from(m.model_id());
+                path.extension().and_then(|ext| ext.to_str()) == Some("gguf")
+                    && !Self::cooling_down(m.model_id())
+                    && Self::valid_gguf_payload(&path)
+                    && Self::get_tokenizer_path(m.model_id()).is_some()
+            })
             .collect();
 
         if local_models.is_empty() {
@@ -402,9 +550,15 @@ impl ModelManager {
         // before scoring the first one.
         let sized_models: Vec<(ModelInfo, f32)> = local_models
             .into_iter()
-            .map(|m| {
+            .filter_map(|m| {
                 let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
-                (m, size_gb)
+                Self::fits_memory(
+                    size_gb,
+                    hw.available_ram_gb as f32,
+                    heuristics.system_ram_buffer_gb,
+                    cfg.model_lifecycle().memory_overhead_ratio,
+                )
+                .then_some((m, size_gb))
             })
             .collect();
         let min_size_gb = sized_models
@@ -416,36 +570,15 @@ impl ModelManager {
             .map(|(_, s)| *s)
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let mut ram_budget_gb =
-            (hw.available_ram_gb as f32 - heuristics.system_ram_buffer_gb).max(0.5);
-        if hw.swap_gb > 0 && hw.nvme_active {
-            ram_budget_gb += (hw.swap_gb as f32 * 0.5).min(32.0);
-        }
-
         let vram_budget_gb = hw.gpu_vram_gb as f32;
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
 
         for (m, model_size_gb) in sized_models {
             let mut score = 0.0f32;
-            if model_size_gb > ram_budget_gb {
-                score -= 1000.0;
-            } else {
-                // Only the base size term is complexity-aware; the
-                // GPU/VRAM-fit bonus below stays unconditional, since
-                // fitting in VRAM is a speed win regardless of complexity.
-                score += Self::size_preference_score(
-                    model_size_gb,
-                    min_size_gb,
-                    max_size_gb,
-                    complexity,
-                );
-                if hw.acceleration_active && vram_budget_gb > 0.0 {
-                    if model_size_gb <= vram_budget_gb {
-                        score += 100.0;
-                    } else {
-                        score -= (model_size_gb - vram_budget_gb) * 5.0;
-                    }
-                }
+            score +=
+                Self::size_preference_score(model_size_gb, min_size_gb, max_size_gb, complexity);
+            if hw.acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
+                score += 20.0;
             }
             if m.provider() == "NativeCandle" {
                 score += heuristics.native_candle_bonus;
@@ -486,7 +619,7 @@ impl ModelManager {
                     crate::gemi::intent::IntentCategory::General => false,
                 };
                 if matches {
-                    score *= 5.0; // 500% priority boost for matching intent
+                    score += 25.0; // Specialization helps without reversing negative size scores.
                 }
             }
 
@@ -561,8 +694,26 @@ impl ModelManager {
             crate::sandbox::xdg::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
+            if !trimmed.is_empty() && trimmed != "auto" && !Self::cooling_down(trimmed) {
+                if let Some(path) = Self::get_model_path(trimmed) {
+                    let cfg =
+                        crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+                    let size = path
+                        .metadata()
+                        .map(|m| m.len() as f32 / 1073741824.0)
+                        .unwrap_or(0.0);
+                    if Self::valid_gguf_payload(&path)
+                        && Self::get_tokenizer_path(trimmed).is_some()
+                        && Self::fits_memory(
+                            size,
+                            HardwareProfiler::determine_available_ram_gb() as f32,
+                            cfg.model_scoring_heuristics().system_ram_buffer_gb,
+                            cfg.model_lifecycle().memory_overhead_ratio,
+                        )
+                    {
+                        return Some(trimmed.to_string());
+                    }
+                }
             }
         }
         let ws = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -632,7 +783,7 @@ impl ModelManager {
             .iter()
             .find(|m| m.name().contains(model_id) || m.model_id().contains(model_id))
         {
-            return Some(PathBuf::from(&m.model_id()));
+            return Some(PathBuf::from(m.model_id()));
         }
 
         None
@@ -669,21 +820,48 @@ impl ModelManager {
         Ok(())
     }
 
+    fn valid_tokenizer(path: &Path) -> bool {
+        type Entry = (u64, std::time::SystemTime, bool);
+        static CACHE: std::sync::OnceLock<DashMap<PathBuf, Entry>> = std::sync::OnceLock::new();
+        let Ok(meta) = path.metadata() else {
+            return false;
+        };
+        let Ok(modified) = meta.modified() else {
+            return false;
+        };
+        let cache = CACHE.get_or_init(DashMap::new);
+        if let Some(entry) = cache.get(path) {
+            if entry.0 == meta.len() && entry.1 == modified {
+                return entry.2;
+            }
+        }
+        let valid = tokenizers::Tokenizer::from_file(path).is_ok();
+        if cache.len() > 256 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (meta.len(), modified, valid));
+        valid
+    }
+
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {
         let tokenizer_filename = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .tokenizer_filename();
         let model_path = Self::get_model_path(model_id)?;
+        let dedicated = model_path.with_extension("tokenizer.json");
+        if dedicated.is_file() {
+            return Self::valid_tokenizer(&dedicated).then_some(dedicated);
+        }
         if let Some(parent) = model_path.parent() {
             let tokenizer_path = parent.join(&tokenizer_filename);
-            if tokenizer_path.exists() {
+            if Self::valid_tokenizer(&tokenizer_path) {
                 return Some(tokenizer_path);
             }
         }
 
         let susi_models = Self::get_models_dir();
         let default_tokenizer = susi_models.join(&tokenizer_filename);
-        if default_tokenizer.exists() {
+        if Self::valid_tokenizer(&default_tokenizer) {
             return Some(default_tokenizer);
         }
 
@@ -692,20 +870,35 @@ impl ModelManager {
 
     pub fn verify_local_models(workspace: &Path) -> Vec<ModelVerificationResult> {
         let models = Self::list_models(workspace);
+        let managed_minimum_bytes: std::collections::HashMap<String, u64> =
+            crate::sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .model_ladder()
+                .into_iter()
+                .map(|step| (step.hf_file, step.min_bytes))
+                .collect();
         let mut results = Vec::new();
         for m in models {
             if m.is_local() && !m.model_id().contains("native") {
-                let path = PathBuf::from(&m.model_id());
+                let path = PathBuf::from(m.model_id());
                 if path.is_file() {
                     let size_bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-                    let mut is_valid_gguf = false;
+                    let mut has_valid_gguf_header = false;
                     if let Ok(mut file) = fs::File::open(&path) {
                         use std::io::Read;
                         let mut header = [0u8; 4];
                         if file.read_exact(&mut header).is_ok() && &header == b"GGUF" {
-                            is_valid_gguf = true;
+                            has_valid_gguf_header = true;
                         }
                     }
+                    let minimum_bytes = path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .and_then(|name| managed_minimum_bytes.get(name))
+                        .copied();
+                    let is_valid_gguf =
+                        Self::is_complete_gguf(has_valid_gguf_header, size_bytes, minimum_bytes)
+                            && Self::valid_gguf_payload(&path);
 
                     let checksum = Self::calculate_simple_checksum(&path).unwrap_or_default();
                     let verified = match m.checksum() {
@@ -752,13 +945,17 @@ impl ModelManager {
     #[allow(clippy::type_complexity)]
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
         static MODEL_SCAN_CACHE: once_cell::sync::Lazy<
-            parking_lot::RwLock<Option<(std::time::Instant, Vec<ModelInfo>)>>,
+            parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<ModelInfo>)>>,
         > = once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
 
         {
             let cache = MODEL_SCAN_CACHE.read();
-            if let Some((ts, ref list)) = *cache {
-                if ts.elapsed().as_secs() < 60 {
+            if let Some((ref cached_workspace, generation, ts, ref list)) = *cache {
+                if cached_workspace == workspace
+                    && generation
+                        == MODEL_SCAN_GENERATION.load(std::sync::atomic::Ordering::Acquire)
+                    && ts.elapsed().as_secs() < 60
+                {
                     return list.clone();
                 }
             }
@@ -798,7 +995,12 @@ impl ModelManager {
 
         {
             let mut cache = MODEL_SCAN_CACHE.write();
-            *cache = Some((std::time::Instant::now(), discovered.clone()));
+            *cache = Some((
+                workspace.to_path_buf(),
+                MODEL_SCAN_GENERATION.load(std::sync::atomic::Ordering::Acquire),
+                std::time::Instant::now(),
+                discovered.clone(),
+            ));
         }
 
         discovered
@@ -1037,165 +1239,100 @@ impl ModelManager {
             return Ok(());
         }
         let models_dir = Self::get_models_dir();
-        let _ = fs::create_dir_all(&models_dir);
-
-        let file_name = target.split('/').next_back().unwrap_or("model.gguf");
-        let dest_path = models_dir.join(file_name);
-
-        let mut start_pos = 0;
-        if dest_path.exists() {
-            if let Ok(meta) = dest_path.metadata() {
-                let len = meta.len();
-                if len >= 1_000_000 {
-                    start_pos = len;
-                }
-            }
-        }
-
-        // Only bound connection establishment, not overall transfer time — a
-        // multi-GB model download legitimately runs for many minutes, but a
-        // stalled/unreachable connect attempt should fail fast rather than
-        // hang forever with no read/body timeout to fall back on.
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| e.to_string())?;
-
-        let mut request = client
-            .get(target)
-            .header("User-Agent", format!("SUSI/{}", crate::SUSI_VERSION));
-        if let Ok(token) = std::env::var("HF_TOKEN") {
-            if !token.trim().is_empty() {
-                request = request.header("Authorization", format!("Bearer {}", token.trim()));
-            }
-        }
-
-        if start_pos > 0 {
-            request = request.header("Range", format!("bytes={}-", start_pos));
-        }
-
-        let mut resp = request.send().map_err(|e| e.to_string())?;
-        let status = resp.status();
-        if status.is_client_error() || status.is_server_error() {
-            if status.as_u16() == 416 && start_pos > 0 {
-                // HTTP 416 Range Not Satisfiable means byte range exceeds server file size (file already fully downloaded)
-                Self::save_download_progress(file_name, target, start_pos, start_pos, "COMPLETED");
-                task_handle.mark_completed("Download already complete");
-                return Ok(());
-            }
-            if status.as_u16() == 401 || status.as_u16() == 403 || status.as_u16() == 404 {
-                let _ = Self::trigger_ladder_fallback();
-            }
-            return Err(format!("HTTP Error: {}", status));
-        }
-
-        let is_partial = status.as_u16() == 206;
-        let effective_start = if is_partial { start_pos } else { 0 };
-
-        let content_len = resp
-            .headers()
-            .get(reqwest::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok())
-            .map(|len| len + effective_start)
-            .unwrap_or(0);
-
-        let tokenizer_filename = crate::sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .tokenizer_filename();
-        let is_tokenizer = target.contains(&tokenizer_filename);
-        let report_total = if content_len > 0 {
-            content_len
-        } else if is_tokenizer {
-            1_000_000
-        } else {
-            42_500_000_000
-        };
-
-        Self::save_download_progress(file_name, target, effective_start, report_total, "RUNNING");
-
-        let file_options = if is_partial {
-            fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&dest_path)
-        } else {
-            fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&dest_path)
-        };
-
-        let mut file = file_options.map_err(|e| e.to_string())?;
-        use std::io::Read;
-        let mut buffer = [0u8; 1024 * 1024]; // 1MB buffer
-        let mut downloaded = effective_start;
-        let mut last_report = std::time::Instant::now();
-
-        loop {
+        fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
+        let file_name = super::download::artifact_name(target)?;
+        let path = models_dir.join(&file_name);
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let trusted_origin = url::Url::parse(target)
+            .ok()
+            .zip(url::Url::parse(&cfg.hf_base_url()).ok())
+            .is_some_and(|(target, base)| target.origin() == base.origin());
+        let token = trusted_origin
+            .then(|| std::env::var("HF_TOKEN").ok())
+            .flatten();
+        let policy = cfg.model_lifecycle();
+        let mut last_error = String::new();
+        for attempt in 0..policy.download_attempts.clamp(1, 8) {
             task_handle.check_pause();
             if task_handle.is_cancelled() {
-                Self::save_download_progress(
-                    file_name,
-                    target,
-                    downloaded,
-                    report_total,
-                    "STOPPED",
-                );
-                return Err("Download stopped/cancelled".to_string());
+                return Err("Download cancelled".into());
             }
-
-            match resp.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
+            let last_report = std::cell::RefCell::new(
+                std::time::Instant::now() - std::time::Duration::from_secs(3),
+            );
+            let result = super::download::transfer(
+                target,
+                &path,
+                policy.download_timeout_secs,
+                token.as_deref(),
+                &|| {
+                    task_handle.check_pause();
+                    task_handle.is_cancelled()
+                },
+                &|done, total| {
                     task_handle.report_progress();
-                    std::io::Write::write_all(&mut file, &buffer[..n])
-                        .map_err(|e| e.to_string())?;
-                    downloaded += n as u64;
-                    if last_report.elapsed().as_secs() >= 2 {
-                        Self::save_download_progress(
-                            file_name,
-                            target,
-                            downloaded,
-                            report_total,
-                            "RUNNING",
-                        );
-                        last_report = std::time::Instant::now();
+                    if last_report.borrow().elapsed().as_secs() >= 1 || done == total {
+                        Self::save_download_progress(&file_name, target, done, total, "RUNNING");
+                        *last_report.borrow_mut() = std::time::Instant::now();
                     }
+                },
+                &|p| {
+                    if file_name.ends_with(".gguf") {
+                        Self::valid_gguf_payload(p)
+                    } else if file_name.ends_with(".json") {
+                        tokenizers::Tokenizer::from_file(p).is_ok()
+                    } else {
+                        p.metadata().is_ok_and(|m| m.len() > 0)
+                    }
+                },
+            );
+            match result {
+                Ok(()) => {
+                    let size = path.metadata().map(|m| m.len()).unwrap_or(0);
+                    Self::save_download_progress(&file_name, target, size, size, "COMPLETED");
+                    MODEL_SCAN_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Release);
+                    task_handle.mark_completed("Download validated and ready");
+                    return Ok(());
                 }
-                Err(e) => {
-                    return Err(format!("Read error: {}", e));
+                Err(error) => {
+                    let permanent = [
+                        "HTTP 400",
+                        "HTTP 401",
+                        "HTTP 403",
+                        "HTTP 404",
+                        "different source",
+                        "Insufficient free disk",
+                    ]
+                    .iter()
+                    .any(|s| error.contains(s));
+                    last_error = error;
+                    if permanent || task_handle.is_cancelled() {
+                        break;
+                    }
+                    if attempt + 1 < policy.download_attempts.clamp(1, 8) {
+                        Self::save_download_progress(&file_name, target, 0, 0, "RETRYING");
+                        for _ in 0..(1u64 << attempt) * 10 {
+                            if task_handle.is_cancelled() {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    }
                 }
             }
         }
-
         Self::save_download_progress(
-            file_name,
+            &file_name,
             target,
-            downloaded,
-            downloaded.max(report_total),
-            "COMPLETED",
+            0,
+            0,
+            if task_handle.is_cancelled() {
+                "STOPPED"
+            } else {
+                "FAILED"
+            },
         );
-        task_handle.mark_completed("Download completed");
-        Ok(())
-    }
-
-    fn trigger_ladder_fallback() -> EaiResult<()> {
-        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let fallback = cfg.default_fallback_model();
-        let fallback_url = format!(
-            "{}/{}/resolve/main/{}",
-            cfg.hf_base_url(),
-            fallback.hf_repo,
-            fallback.hf_file
-        );
-        eprintln!(
-            "[Model Manager] Pivoting to 100% public substrate: {}",
-            fallback_url
-        );
-        let _ = ModelDownloadController::global().start_download(&fallback_url);
-        Ok(())
+        Err(last_error)
     }
 
     /// The furthest-along active download's completion percentage, if any
@@ -1209,6 +1346,14 @@ impl ModelManager {
             .fold(None, |acc, pct| Some(acc.map_or(pct, |a: f32| a.max(pct))))
     }
 
+    fn progress_path(target: &str) -> PathBuf {
+        use sha2::Digest;
+        let key = hex::encode(sha2::Sha256::digest(target.as_bytes()));
+        crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("downloads")
+            .join(format!("{key}.json"))
+    }
+
     pub fn save_download_progress(
         model_name: &str,
         target_url: &str,
@@ -1219,8 +1364,29 @@ impl ModelManager {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file =
-            crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file = Self::progress_path(target_url);
+        let _ = fs::create_dir_all(progress_file.parent().unwrap());
+        let previous: Option<ModelDownloadProgress> = fs::read(&progress_file)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        let keep_progress =
+            bytes == 0 && total == 0 && (status != "RUNNING" || model_name.is_empty());
+        let (bytes, total) = if keep_progress {
+            previous
+                .as_ref()
+                .map(|p| (p.bytes_downloaded, p.expected_bytes))
+                .unwrap_or((bytes, total))
+        } else {
+            (bytes, total)
+        };
+        let model_name = if model_name.is_empty() {
+            previous
+                .as_ref()
+                .map(|p| p.model_name.as_str())
+                .unwrap_or(model_name)
+        } else {
+            model_name
+        };
         let record = ModelDownloadProgress {
             model_name: model_name.to_string(),
             target_url: target_url.to_string(),
@@ -1234,65 +1400,34 @@ impl ModelManager {
             status: status.to_string(),
         };
         if let Ok(json) = serde_json::to_string(&record) {
-            let _ = fs::write(&progress_file, json);
+            let temporary = progress_file.with_extension("json.tmp");
+            if fs::write(&temporary, &json).is_ok() {
+                let _ = fs::rename(temporary, &progress_file);
+            }
+            let _ = fs::write(
+                crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json"),
+                json,
+            );
         }
     }
 
-    /// Picks what `spawn_background_hardware_model_provisioner` should
-    /// proactively prefetch: only the single best-fit tier (`ladder.last()`),
-    /// matching exactly what `ensure_hardware_optimal_models` downloads
-    /// elsewhere. This used to filter `step >= 4`, which on a 64GB+ machine
-    /// (qualifies for both the 32B and 72B tiers) proactively downloaded
-    /// BOTH: 32B (~20GB) as well as 72B (~45GB), even though
-    /// `identify_best_suited_local_model`'s scoring always prefers the
-    /// largest model that fits the RAM budget, so the 32B download would
-    /// never actually get used - pure wasted disk and bandwidth. Split out
-    /// from `spawn_background_hardware_model_provisioner` so this selection
-    /// logic is unit-testable without needing to intercept a spawned
-    /// background thread.
-    fn select_background_prefetch_targets(
-        ladder: &[crate::gemi::hardware::ModelLadderStep],
-        hf_base_url: &str,
-    ) -> Vec<(String, u64)> {
-        ladder
-            .last()
-            .map(|s| {
-                let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
-                (url, s.min_bytes)
-            })
-            .into_iter()
-            .collect()
-    }
-
-    pub fn spawn_background_hardware_model_provisioner(_workspace: &Path) {
+    pub fn spawn_background_hardware_model_provisioner(workspace: &Path) {
         if cfg!(test) {
             return;
         }
-        std::thread::spawn(move || {
-            let hf_base_url = crate::sandbox::manager::SusiConfig::load_global()
+        static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        if STARTED.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let workspace = workspace.to_path_buf();
+        std::thread::spawn(move || loop {
+            let _ = Self::ensure_hardware_optimal_models(&workspace);
+            let policy = crate::sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
-                .hf_base_url();
-            let ladder = HardwareProfiler::get_progressive_model_ladder();
-            let targets = Self::select_background_prefetch_targets(&ladder, &hf_base_url);
-
-            for (u, threshold) in targets {
-                let u_clone = u.clone();
-                std::thread::spawn(move || loop {
-                    let models_dir = Self::get_models_dir();
-                    let _ = fs::create_dir_all(&models_dir);
-
-                    let file_name = u_clone.split('/').next_back().unwrap_or("model.gguf");
-                    let dest_path = models_dir.join(file_name);
-                    let size = dest_path.metadata().map(|m| m.len()).unwrap_or(0);
-
-                    if size >= threshold {
-                        break;
-                    }
-
-                    let _ = ModelDownloadController::global().start_download(&u_clone);
-                    std::thread::sleep(std::time::Duration::from_secs(30));
-                });
-            }
+                .model_lifecycle();
+            std::thread::sleep(std::time::Duration::from_secs(
+                policy.discovery_retry_secs.clamp(60, 3600),
+            ));
         });
     }
 
@@ -1358,53 +1493,53 @@ impl ModelManager {
         );
 
         let ladder = HardwareProfiler::get_progressive_model_ladder();
-        let target_steps: Vec<_> = ladder
-            .iter()
-            .filter(|s| s.step >= 4 || ladder.len() <= 2)
-            .collect();
-
         let test_mode = std::env::var("SUSI_TEST_MODE").is_ok() || cfg!(test);
+        if !test_mode {
+            Self::spawn_background_hardware_model_provisioner(workspace);
+        }
         let mut steps = Vec::new();
-
-        for (idx, s) in target_steps.iter().enumerate() {
-            let file_name = &s.hf_file;
-            let path = models_dir.join(file_name);
+        let controller = ModelDownloadController::global();
+        for s in &ladder {
+            let path = models_dir.join(&s.hf_file);
             let url = format!("{}/{}/resolve/main/{}", hf_base_url, s.hf_repo, s.hf_file);
-
-            let threshold = s.min_bytes;
-
-            if !test_mode {
-                let size = path.metadata().map(|m| m.len()).unwrap_or(0);
-                if size < threshold {
-                    let _ = ModelDownloadController::global().start_download(&url);
-                }
+            let complete = Self::is_complete_model_file(&path, s.min_bytes);
+            let partial = PathBuf::from(format!("{}.part", path.display()));
+            let size = if complete {
+                path.metadata()
             } else {
-                if !path.exists() {
-                    let mut content = b"GGUF".to_vec();
-                    content.extend(vec![0u8; 2048]);
-                    let _ = fs::write(&path, content);
-                }
+                partial.metadata().or_else(|_| path.metadata())
             }
-
-            let size = path.metadata().map(|m| m.len()).unwrap_or(0);
-            let expected = s.expected_bytes;
-
-            let status = if test_mode || size >= threshold {
-                "COMPLETED_VERIFIED"
+            .map(|m| m.len())
+            .unwrap_or(0);
+            let progress = controller.get_progress(&url);
+            let status = if complete {
+                "COMPLETED_VERIFIED".to_string()
+            } else if controller.active_downloads.contains_key(&url) {
+                progress
+                    .as_ref()
+                    .map(|p| p.status.clone())
+                    .unwrap_or("QUEUED".into())
+            } else if let Some(p) =
+                progress.filter(|p| matches!(p.status.as_str(), "FAILED" | "STOPPED"))
+            {
+                p.status
             } else if size > 0 {
-                "PARTIAL_DOWNLOAD"
+                "PARTIAL_DOWNLOAD".into()
             } else {
-                "ACTIVE_NETWORK_DOWNLOADING"
+                "AVAILABLE".into()
             };
-
             steps.push(ModelAgentStepStatus {
-                step: idx + 1,
+                step: s.step,
                 model_label: s.label.clone(),
                 hf_repo: s.hf_repo.clone(),
-                status: status.to_string(),
+                status,
                 bytes_downloaded: size,
-                expected_bytes: expected,
-                percentage: (size as f32 / expected as f32) * 100.0,
+                expected_bytes: s.expected_bytes,
+                percentage: if s.expected_bytes > 0 {
+                    (size as f32 / s.expected_bytes as f32 * 100.0).min(100.0)
+                } else {
+                    0.0
+                },
                 path: path.to_string_lossy().to_string(),
             });
         }
@@ -1413,11 +1548,16 @@ impl ModelManager {
         let total_discovered = discovered.len();
 
         Ok(ModelAgentReport {
-            active_step: steps.len(),
-            total_steps: steps.len().max(2),
+            active_step: steps
+                .iter()
+                .filter(|s| s.status == "COMPLETED_VERIFIED")
+                .map(|s| s.step)
+                .max()
+                .unwrap_or(0),
+            total_steps: steps.len(),
             total_discovered_on_system: total_discovered,
             network_status: network_status_str,
-            download_agent_active: net_ok,
+            download_agent_active: !controller.active_downloads.is_empty(),
             steps,
         })
     }
@@ -1460,171 +1600,145 @@ impl ModelManager {
         }
     }
 
-    /// Decides whether the "step down" baseline (the smallest
-    /// hardware-qualified tier, `ladder.first()`) needs fetching, so a
-    /// small/fast model stays resident alongside the best-fit tier
-    /// `ensure_hardware_optimal_models` already ensures - the foundation
-    /// for routing simple requests to something fast without waiting on
-    /// (or competing for RAM with, mid-request) the larger tier. Returns
-    /// `None` when there's nothing to step down FROM (only one qualifying
-    /// tier - e.g. weak hardware where the baseline already *is* the best
-    /// tier) or the baseline is already present. Split out as a pure
-    /// function so this decision is unit-testable without real hardware
-    /// detection or filesystem I/O.
-    fn baseline_download_target(
-        ladder: &[crate::gemi::hardware::ModelLadderStep],
-        baseline_already_exists: bool,
-    ) -> Option<&crate::gemi::hardware::ModelLadderStep> {
-        let baseline = ladder.first()?;
-        let best = ladder.last()?;
-        if baseline.step == best.step || baseline_already_exists {
-            return None;
+    fn ensure_ladder_tokenizer(
+        step: &crate::gemi::hardware::ModelLadderStep,
+        models_dir: &Path,
+        cfg: &crate::sandbox::manager::SusiConfig,
+    ) -> EaiResult<()> {
+        let path = models_dir
+            .join(&step.hf_file)
+            .with_extension("tokenizer.json");
+        if tokenizers::Tokenizer::from_file(&path).is_ok() {
+            return Ok(());
         }
-        Some(baseline)
-    }
-
-    /// Whether free disk comfortably covers downloading every hardware-
-    /// qualified tier, not just the floor (baseline) and ceiling
-    /// (best-fit) pair `ensure_hardware_optimal_models` always fetches.
-    /// "Comfortably" requires free disk to cover the full ladder's
-    /// combined size with a 2x safety margin - not just barely fit it,
-    /// since downloading right up to the edge of free space would leave
-    /// no room for the OS, user files, or files generated during actual
-    /// model use (temp files, caches, checkpoints). Downloading tiers
-    /// nothing can route to yet is the same mistake as the already-fixed
-    /// 32B/72B redundant-download bug (EV-2022920-052) - this is only
-    /// worth doing now that `TaskComplexity` has enough levels
-    /// (EV-2022920-057) to actually route to a middle tier.
-    fn should_download_full_ladder(
-        ladder: &[crate::gemi::hardware::ModelLadderStep],
-        free_disk_bytes: u64,
-    ) -> bool {
-        if ladder.len() <= 2 {
-            return false; // floor and ceiling already cover the whole ladder
-        }
-        let total_ladder_bytes: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
-        free_disk_bytes >= total_ladder_bytes.saturating_mul(2) || (total_ladder_bytes > 50_000_000_000 && free_disk_bytes >= total_ladder_bytes + 20_000_000_000)
-    }
-
-    /// The middle tiers - excluding the floor (downloaded as the
-    /// baseline) and the ceiling (downloaded as the best-fit tier) -
-    /// that should additionally be fetched when
-    /// `should_download_full_ladder` holds. Split out as a pure function
-    /// so the selection is unit-testable independent of real
-    /// disk/filesystem state.
-    fn middle_tier_download_targets(
-        ladder: &[crate::gemi::hardware::ModelLadderStep],
-    ) -> &[crate::gemi::hardware::ModelLadderStep] {
-        if ladder.len() <= 2 {
-            return &[];
-        }
-        &ladder[1..ladder.len() - 1]
-    }
-
-    pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
-        let _home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
-        let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
-
-        let existing = Self::scan_system_for_local_models(workspace);
-        if existing.is_empty() || existing.iter().all(|m| m.model_id().contains("native")) {
-            let _ = Self::deep_scan_home_and_register(&global_dir);
-        }
-
-        let best_local = Self::identify_best_suited_local_model(workspace, None);
-        let ladder = HardwareProfiler::get_progressive_model_ladder();
-        if let Some(best_step) = ladder.last() {
-            let models_dir = Self::get_models_dir();
-            let model_path = models_dir.join(&best_step.hf_file);
-            let tokenizer_path = models_dir.join(cfg.tokenizer_filename());
-
-            let needs_upgrade = match &best_local {
-                None => true,
-                Some(m) => {
-                    let path = PathBuf::from(&m.model_id());
-                    let local_size_gb = path
-                        .metadata()
-                        .map(|meta| meta.len() as f32 / 1e9)
-                        .unwrap_or(0.0);
-
-                    best_step.step >= 5 && local_size_gb < 35.0
-                        || best_step.step >= 4 && local_size_gb < 15.0
-                        || best_step.step >= 3 && local_size_gb < 5.0
-                }
-            };
-
-            if needs_upgrade && !model_path.exists() {
-                let verified_url = format!(
-                    "{}/{}/resolve/main/{}",
-                    cfg.hf_base_url(),
-                    best_step.hf_repo,
-                    best_step.hf_file
-                );
-                let _ = ModelDownloadController::global().start_download(&verified_url);
-            }
-
-            if !tokenizer_path.exists() {
-                // GGUF-quantization repos (e.g. bartowski/*-GGUF) generally don't
-                // carry a tokenizer.json themselves; it lives in the original
-                // instruct-tuned repo, so a dedicated tokenizer_repo is required.
-                let tokenizer_repo = if best_step.tokenizer_repo.is_empty() {
-                    &best_step.hf_repo
-                } else {
-                    &best_step.tokenizer_repo
-                };
-                let url = format!(
-                    "{}/{}/resolve/main/{}",
-                    cfg.hf_base_url(),
-                    tokenizer_repo,
-                    cfg.tokenizer_filename()
-                );
-                let _ = ModelDownloadController::global().start_download(&url);
-            }
-
-            // "Step down" baseline: keep the smallest hardware-qualified
-            // tier resident too, not just the best-fit one. All Qwen2.5
-            // sizes in the ladder share an identical tokenizer, so no
-            // separate tokenizer fetch is needed here - only the model
-            // weights differ between tiers.
-            let baseline_path = ladder
-                .first()
-                .map(|b| models_dir.join(&b.hf_file))
-                .unwrap_or_default();
-            if let Some(baseline_step) =
-                Self::baseline_download_target(&ladder, baseline_path.exists())
-            {
-                let baseline_url = format!(
-                    "{}/{}/resolve/main/{}",
-                    cfg.hf_base_url(),
-                    baseline_step.hf_repo,
-                    baseline_step.hf_file
-                );
-                let _ = ModelDownloadController::global().start_download(&baseline_url);
-            }
-
-            // Widen to the full qualifying ladder when free disk
-            // comfortably covers it - now that TaskComplexity has enough
-            // levels (Trivial..VeryComplex) to actually route requests to
-            // a middle tier, not just floor and ceiling.
-            let free_disk_bytes = HardwareProfiler::get_free_disk_bytes(&models_dir);
-            if Self::should_download_full_ladder(&ladder, free_disk_bytes) {
-                for step in Self::middle_tier_download_targets(&ladder) {
-                    let middle_path = models_dir.join(&step.hf_file);
-                    if !middle_path.exists() {
-                        let middle_url = format!(
-                            "{}/{}/resolve/main/{}",
-                            cfg.hf_base_url(),
-                            step.hf_repo,
-                            step.hf_file
-                        );
-                        let _ = ModelDownloadController::global().start_download(&middle_url);
+        let repo = if step.tokenizer_repo.is_empty() {
+            &step.hf_repo
+        } else {
+            &step.tokenizer_repo
+        };
+        let url = format!(
+            "{}/{}/resolve/main/{}",
+            cfg.hf_base_url(),
+            repo,
+            cfg.tokenizer_filename()
+        );
+        fs::create_dir_all(models_dir)?;
+        let policy = cfg.model_lifecycle();
+        let token = std::env::var("HF_TOKEN").ok();
+        let mut error = String::new();
+        for _ in 0..policy.download_attempts.clamp(1, 8) {
+            match super::download::transfer(
+                &url,
+                &path,
+                policy.download_timeout_secs,
+                token.as_deref(),
+                &|| false,
+                &|_, _| {},
+                &|p| tokenizers::Tokenizer::from_file(p).is_ok(),
+            ) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    error = e;
+                    if error.starts_with("HTTP 4") {
+                        break;
                     }
                 }
             }
         }
-        Ok("Substrate optimal".into())
+        Err(crate::error::EaiError::inference(format!(
+            "Tokenizer for {}: {error}",
+            step.hf_repo
+        )))
+    }
+
+    pub fn ensure_hardware_optimal_models(_workspace: &Path) -> EaiResult<String> {
+        static PLANNING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let Ok(_planning) = PLANNING.try_lock() else {
+            return Ok("Automatic provisioning already active".into());
+        };
+        let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        if cfg
+            .settings
+            .get("auto_download_models")
+            .and_then(|v| v.as_bool())
+            == Some(false)
+        {
+            return Ok("Automatic downloads disabled".into());
+        }
+        let ladder = HardwareProfiler::get_progressive_model_ladder();
+        if ladder.is_empty() {
+            return Err(crate::error::EaiError::inference(
+                "No discovered model fits current available memory and disk",
+            ));
+        }
+        let models_dir = Self::get_models_dir();
+        let mut remaining =
+            HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
+        let targets =
+            Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
+        let mut queued = 0;
+        let mut errors = Vec::new();
+        for index in targets {
+            let step = &ladder[index];
+            let path = models_dir.join(&step.hf_file);
+            let complete = Self::is_complete_model_file(&path, step.min_bytes);
+            let partial = PathBuf::from(format!("{}.part", path.display()))
+                .metadata()
+                .map(|m| m.len())
+                .unwrap_or(0);
+            let needed = if complete {
+                0
+            } else {
+                step.expected_bytes.saturating_sub(partial)
+            };
+            if needed > remaining {
+                continue;
+            }
+            // Re-admit each tier: RAM can change while tokenizer requests run.
+            if !HardwareProfiler::get_progressive_model_ladder()
+                .iter()
+                .any(|s| s.hf_repo == step.hf_repo && s.hf_file == step.hf_file)
+            {
+                continue;
+            }
+            if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
+                errors.push(error.to_string());
+                continue;
+            }
+            if !complete {
+                let url = format!(
+                    "{}/{}/resolve/main/{}",
+                    cfg.hf_base_url(),
+                    step.hf_repo,
+                    step.hf_file
+                );
+                ModelDownloadController::global()
+                    .start_download(&url)
+                    .map_err(crate::error::EaiError::inference)?;
+                remaining = remaining.saturating_sub(needed);
+                queued += 1;
+            }
+        }
+        if queued == 0 && !errors.is_empty() {
+            return Err(crate::error::EaiError::inference(errors.join("; ")));
+        }
+        Ok(format!("Automatic ladder ready: {queued} downloads queued"))
+    }
+
+    fn provisioning_indices(count: usize, limit: usize) -> Vec<usize> {
+        if count == 0 {
+            return Vec::new();
+        }
+        let tiers = limit.clamp(1, count);
+        (0..tiers)
+            .map(|i| {
+                if tiers == 1 {
+                    0
+                } else {
+                    i * (count - 1) / (tiers - 1)
+                }
+            })
+            .collect()
     }
 
     /// Expert Diagnostic Audit: Checks hardware stats, file stats, network stats, and active background downloads in ~/Downloads
@@ -1698,165 +1812,75 @@ impl ModelManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gemi::hardware::ModelLadderStep;
-
-    fn fixture_step(step: usize, hf_repo: &str) -> ModelLadderStep {
-        ModelLadderStep {
-            step,
-            label: format!("{step}-tier"),
-            hf_repo: hf_repo.to_string(),
-            hf_file: format!("{hf_repo}.gguf"),
-            tokenizer_repo: String::new(),
-            min_bytes: (step as u64) * 1_000_000_000,
-            expected_bytes: (step as u64) * 2_000_000_000,
-        }
+    #[test]
+    fn test_automatic_admission_is_a_hard_gate() {
+        assert!(!ModelManager::fits_memory(32.0, 8.0, 2.0, 1.25));
+        assert!(!ModelManager::fits_memory(5.0, 8.0, 2.0, 1.25));
+        assert!(ModelManager::fits_memory(4.0, 8.0, 2.0, 1.25));
+        assert!(!ModelManager::fits_memory(1.0, f32::NAN, 0.0, 1.0));
     }
 
-    /// Regression for the fix in EV-2022920-052: on a 64GB+ machine the
-    /// hardware-qualified ladder contains both the 32B (step 4) and 72B
-    /// (step 5) tiers. The background provisioner used to prefetch every
-    /// step >= 4, downloading both even though only the biggest one (72B)
-    /// would ever actually get selected for inference - wasted ~20GB.
     #[test]
-    fn test_select_background_prefetch_targets_picks_only_the_best_fit_tier() {
-        let ladder = vec![
-            fixture_step(1, "qwen-1.5b"),
-            fixture_step(2, "qwen-7b"),
-            fixture_step(3, "qwen-14b"),
-            fixture_step(4, "qwen-32b"),
-            fixture_step(5, "qwen-72b"),
-        ];
-        let targets =
-            ModelManager::select_background_prefetch_targets(&ladder, "https://hf.example");
+    fn test_prefetch_plan_starts_small_and_spans_the_ladder() {
+        assert_eq!(ModelManager::provisioning_indices(5, 3), vec![0, 2, 4]);
+        assert_eq!(ModelManager::provisioning_indices(1, 3), vec![0]);
         assert_eq!(
-            targets.len(),
-            1,
-            "must target exactly one tier, not every step >= 4"
+            ModelManager::provisioning_indices(0, 3),
+            Vec::<usize>::new()
         );
+        assert_eq!(ModelManager::provisioning_indices(5, 1), vec![0]);
+    }
+
+    #[test]
+    fn test_failed_model_recovers_after_success() {
+        let name = "test_failure_cooldown_model";
+        ModelManager::record_inference_result(name, false);
+        assert!(ModelManager::cooling_down(name));
+        ModelManager::record_inference_result(name, true);
+        assert!(!ModelManager::cooling_down(name));
+    }
+
+    #[test]
+    fn test_complete_gguf_requires_the_managed_artifact_size() {
+        assert!(ModelManager::is_complete_gguf(true, 10_000, Some(10_000)));
         assert!(
-            targets[0].0.contains("qwen-72b"),
-            "must target the single best-fit (last/highest) tier, got: {}",
-            targets[0].0
+            !ModelManager::is_complete_gguf(true, 9_999, Some(10_000)),
+            "a truncated managed GGUF must not be considered usable solely from its header"
         );
-    }
-
-    /// Weak-hardware case: a short ladder (e.g. only the 1.5B tier
-    /// qualifies) must still resolve to that one tier, not zero targets.
-    #[test]
-    fn test_select_background_prefetch_targets_handles_short_ladder() {
-        let ladder = vec![fixture_step(1, "qwen-1.5b")];
-        let targets =
-            ModelManager::select_background_prefetch_targets(&ladder, "https://hf.example");
-        assert_eq!(targets.len(), 1);
-        assert!(targets[0].0.contains("qwen-1.5b"));
-    }
-
-    /// Empty ladder (defensive - shouldn't happen in practice since
-    /// get_progressive_model_ladder falls back to a synthetic step 1 entry
-    /// when nothing qualifies) must not panic and yields no targets.
-    #[test]
-    fn test_select_background_prefetch_targets_empty_ladder_yields_nothing() {
-        let targets = ModelManager::select_background_prefetch_targets(&[], "https://hf.example");
-        assert!(targets.is_empty());
-    }
-
-    /// Regression for the "step down" baseline feature: on capable
-    /// hardware (multiple qualifying tiers), the smallest tier should be
-    /// fetched too, not just the best-fit one, so there's always a
-    /// small/fast model to route simple requests to.
-    #[test]
-    fn test_baseline_download_target_fetches_smallest_tier_when_multiple_qualify() {
-        let ladder = vec![
-            fixture_step(1, "qwen-1.5b"),
-            fixture_step(3, "qwen-14b"),
-            fixture_step(5, "qwen-72b"),
-        ];
-        let target = ModelManager::baseline_download_target(&ladder, false);
-        assert!(target.is_some());
-        assert_eq!(target.unwrap().hf_repo, "qwen-1.5b");
+        assert!(!ModelManager::is_complete_gguf(false, 10_000, Some(10_000)));
     }
 
     #[test]
-    fn test_baseline_download_target_none_when_only_one_tier_qualifies() {
-        // Weak hardware: only the smallest tier qualifies at all, so
-        // "baseline" and "best" are the same thing - nothing to step down
-        // FROM, and ensure_hardware_optimal_models's own best-tier logic
-        // already handles fetching it.
-        let ladder = vec![fixture_step(1, "qwen-1.5b")];
-        let target = ModelManager::baseline_download_target(&ladder, false);
-        assert!(target.is_none());
+    fn test_header_only_gguf_is_not_complete() {
+        let path =
+            std::env::temp_dir().join(format!("susi_header_only_{}.gguf", std::process::id()));
+        fs::write(&path, b"GGUF").unwrap();
+        assert!(!ModelManager::is_complete_model_file(&path, 0));
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
-    fn test_baseline_download_target_none_when_already_present() {
-        let ladder = vec![fixture_step(1, "qwen-1.5b"), fixture_step(5, "qwen-72b")];
-        let target = ModelManager::baseline_download_target(&ladder, true);
-        assert!(target.is_none());
-    }
-
-    #[test]
-    fn test_baseline_download_target_none_for_empty_ladder() {
-        let target = ModelManager::baseline_download_target(&[], false);
-        assert!(target.is_none());
-    }
-
-    /// Regression matching the user's real hardware discussion: 5
-    /// qualifying tiers (1.5/7/14/32/72B, ~80GB combined) with ~1.98TB
-    /// free disk must trigger the full-ladder download.
-    #[test]
-    fn test_should_download_full_ladder_true_with_abundant_disk() {
-        let ladder = vec![
-            fixture_step(1, "1.5b"),
-            fixture_step(2, "7b"),
-            fixture_step(3, "14b"),
-            fixture_step(4, "32b"),
-            fixture_step(5, "72b"),
-        ];
-        let total: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
-        assert!(ModelManager::should_download_full_ladder(&ladder, total * 25));
-    }
-
-    #[test]
-    fn test_should_download_full_ladder_false_when_disk_only_barely_fits() {
-        let ladder = vec![
-            fixture_step(1, "1.5b"),
-            fixture_step(2, "7b"),
-            fixture_step(3, "14b"),
-            fixture_step(4, "32b"),
-            fixture_step(5, "72b"),
-        ];
-        let total: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
-        // Just barely enough to fit the ladder once, not comfortably -
-        // must NOT trigger the full download (stay with floor+ceiling).
-        assert!(!ModelManager::should_download_full_ladder(&ladder, total));
-    }
-
-    #[test]
-    fn test_should_download_full_ladder_false_with_two_or_fewer_tiers() {
-        // Floor and ceiling already cover the whole ladder - nothing
-        // extra to widen to, regardless of how much disk is free.
-        let ladder = vec![fixture_step(1, "1.5b"), fixture_step(5, "72b")];
-        assert!(!ModelManager::should_download_full_ladder(&ladder, u64::MAX));
-    }
-
-    #[test]
-    fn test_middle_tier_download_targets_excludes_floor_and_ceiling() {
-        let ladder = vec![
-            fixture_step(1, "1.5b"),
-            fixture_step(2, "7b"),
-            fixture_step(3, "14b"),
-            fixture_step(4, "32b"),
-            fixture_step(5, "72b"),
-        ];
-        let middle = ModelManager::middle_tier_download_targets(&ladder);
-        let repos: Vec<&str> = middle.iter().map(|s| s.hf_repo.as_str()).collect();
-        assert_eq!(repos, vec!["7b", "14b", "32b"]);
-    }
-
-    #[test]
-    fn test_middle_tier_download_targets_empty_with_two_or_fewer_tiers() {
-        let ladder = vec![fixture_step(1, "1.5b"), fixture_step(5, "72b")];
-        assert!(ModelManager::middle_tier_download_targets(&ladder).is_empty());
+    fn test_gguf_payload_rejects_truncated_tensor() {
+        let path =
+            std::env::temp_dir().join(format!("susi_tensor_bounds_{}.gguf", std::process::id()));
+        let mut bytes = b"GGUF".to_vec();
+        bytes.extend(3u32.to_le_bytes());
+        bytes.extend(1u64.to_le_bytes()); // tensors
+        bytes.extend(0u64.to_le_bytes()); // metadata
+        bytes.extend(1u64.to_le_bytes()); // name length
+        bytes.push(b'x');
+        bytes.extend(1u32.to_le_bytes()); // dimensions
+        bytes.extend(4u64.to_le_bytes()); // four f32 values
+        bytes.extend(0u32.to_le_bytes()); // f32
+        bytes.extend(0u64.to_le_bytes()); // tensor offset
+        bytes.resize(64, 0); // alignment
+        bytes.resize(80, 0); // complete tensor
+        fs::write(&path, &bytes).unwrap();
+        assert!(ModelManager::valid_gguf_payload(&path));
+        bytes.pop();
+        fs::write(&path, &bytes).unwrap();
+        assert!(!ModelManager::valid_gguf_payload(&path));
+        fs::remove_file(path).unwrap();
     }
 
     /// Regression for the auto step-up/step-down feature: a Simple prompt

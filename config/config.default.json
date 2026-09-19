@@ -137,6 +137,19 @@
     ]
   },
   "model_ladder": [],
+  "model_lifecycle": {
+    "download_attempts": 4,
+    "download_timeout_secs": 60,
+    "max_parallel_downloads": 2,
+    "discovery_refresh_secs": 21600,
+    "discovery_retry_secs": 300,
+    "discovery_limit": 24,
+    "max_ladder_tiers": 5,
+    "ladder_size_ratio": 1.6,
+    "memory_overhead_ratio": 1.25,
+    "prefetch_tiers": 3,
+    "failure_cooldown_secs": 300
+  },
   "max_stdin_size_bytes": 104857600,
   "stdin_timeout_secs": 120,
   "bootstrap_mcp_servers": [

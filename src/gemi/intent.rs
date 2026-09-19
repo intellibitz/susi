@@ -83,7 +83,10 @@ impl IntentClassifier {
     /// resident; the reverse risks a materially worse answer.
     pub fn classify_complexity(prompt: &str, context_words: Option<usize>) -> TaskComplexity {
         let trimmed = prompt.trim();
-        let word_count = trimmed.split_whitespace().count();
+        let word_count = trimmed
+            .split_whitespace()
+            .count()
+            .max(context_words.unwrap_or(0));
         let lower = trimmed.to_lowercase();
 
         let multi_step_markers = [
@@ -207,6 +210,15 @@ impl IntentClassifier {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_context_raises_starting_complexity() {
+        assert!(
+            IntentClassifier::classify_complexity("summarize this", Some(2000))
+                >= TaskComplexity::Complex
+        );
+        assert!(IntentClassifier::classify_complexity("hello", None) < TaskComplexity::Complex);
+    }
 
     #[test]
     fn test_classify_coding_prompt() {

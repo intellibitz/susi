@@ -176,3 +176,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         Ok(val)
     }
 }
+
+impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> Default for VersionedJsonStore<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

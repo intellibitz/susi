@@ -713,7 +713,7 @@ impl SusiMasterAgent {
                     "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",
                     current_goal, swarm_context
                 );
-                
+
                 let context_words = reasoning_prompt.split_whitespace().count();
 
                 let min_complexity_for_attempt = match retry_count {
@@ -721,18 +721,31 @@ impl SusiMasterAgent {
                     1 => Some(crate::gemi::intent::TaskComplexity::Moderate),
                     _ => Some(crate::gemi::intent::TaskComplexity::Complex),
                 };
-                let model_name =
+                let selected_model =
                     crate::gemi::models::ModelManager::get_selected_model_for_request_with_min_complexity(
                         &current_goal,
                         Some(context_words),
                         min_complexity_for_attempt,
-                    )
-                    .unwrap_or_else(|| "susi-native-synthesis".to_string());
-
-                let local_inference = crate::gemi::engine::GemiEngine::generate_reasoning_deep(
-                    &reasoning_prompt,
-                    workspace,
-                );
+                    );
+                let model_name = selected_model
+                    .as_deref()
+                    .unwrap_or("automatic provisioning");
+                let local_inference = match selected_model.as_deref() {
+                    Some(model) => {
+                        crate::gemi::engine::GemiEngine::generate_reasoning_deep_with_model(
+                            &reasoning_prompt,
+                            workspace,
+                            model,
+                        )
+                    }
+                    None => {
+                        crate::gemi::engine::GemiEngine::generate_reasoning_deep_with_min_complexity(
+                            &reasoning_prompt,
+                            workspace,
+                            min_complexity_for_attempt,
+                        )
+                    }
+                };
                 format!(
                     "SUSI-Tier2-Mission-Synthesis ({} via {}):\n\n{}",
                     version, model_name, local_inference

@@ -403,7 +403,7 @@ impl HardwareProfiler {
                         let parts: Vec<&str> = line.split_whitespace().collect();
                         if let Some(kb_str) = parts.get(1) {
                             if let Ok(kb) = kb_str.parse::<usize>() {
-                                return kb / (1024 * 1024);
+                                return Self::container_available_kb(kb) / (1024 * 1024);
                             }
                         }
                     }
@@ -499,7 +499,79 @@ impl HardwareProfiler {
                 }
             }
         }
-        Self::determine_total_ram_gb() // Fallback
+        if cfg!(target_os = "macos") {
+            if let Ok(output) = std::process::Command::new("vm_stat").output() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let page_size = text
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split("page size of ").nth(1))
+                    .and_then(|s| s.split_whitespace().next())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(4096);
+                let pages: u64 = text
+                    .lines()
+                    .filter(|l| {
+                        l.starts_with("Pages free:")
+                            || l.starts_with("Pages inactive:")
+                            || l.starts_with("Pages speculative:")
+                    })
+                    .filter_map(|l| {
+                        l.split(':')
+                            .nth(1)?
+                            .trim()
+                            .trim_end_matches('.')
+                            .parse::<u64>()
+                            .ok()
+                    })
+                    .sum();
+                return (pages.saturating_mul(page_size) / 1073741824) as usize;
+            }
+        }
+        if cfg!(target_os = "windows") {
+            if let Ok(output) = std::process::Command::new("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory",
+                ])
+                .output()
+            {
+                if let Ok(kb) = String::from_utf8_lossy(&output.stdout)
+                    .trim()
+                    .parse::<u64>()
+                {
+                    return (kb / 1048576) as usize;
+                }
+            }
+        }
+        0 // Unknown available memory must not authorize automatic downloads.
+    }
+
+    fn container_available_kb(host_kb: usize) -> usize {
+        let Ok(groups) = std::fs::read_to_string("/proc/self/cgroup") else {
+            return host_kb;
+        };
+        let Some(relative) = groups.lines().find_map(|l| l.strip_prefix("0::")) else {
+            return host_kb;
+        };
+        let root = std::path::Path::new("/sys/fs/cgroup");
+        let path = root.join(relative.trim_start_matches('/'));
+        let mut available = host_kb;
+        // Parent cgroups can impose a tighter limit than the leaf.
+        for group in path.ancestors().take_while(|p| p.starts_with(root)) {
+            let maximum = std::fs::read_to_string(group.join("memory.max"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            let current = std::fs::read_to_string(group.join("memory.current"))
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok());
+            if let (Some(maximum), Some(current)) = (maximum, current) {
+                available = available.min((maximum.saturating_sub(current) / 1024) as usize);
+            }
+        }
+        available
     }
 
     /// A step qualifies only if the hardware has enough RAM *and* enough
@@ -520,22 +592,58 @@ impl HardwareProfiler {
         steps
             .iter()
             .filter(|s| {
-                ram_gb as f32 >= s.min_ram_gb
+                ram_gb > 0
+                    && ram_gb as f32 >= s.min_ram_gb
                     && free_disk_bytes >= s.expected_bytes.saturating_add(DISK_SAFETY_MARGIN_BYTES)
             })
             .cloned()
             .collect()
     }
 
+    fn admission_ram_gb(available_gb: usize, reserve_gb: f32) -> usize {
+        if !reserve_gb.is_finite() {
+            return 0;
+        }
+        (available_gb as f32 - reserve_gb.max(0.0)).max(0.0).floor() as usize
+    }
+
     pub fn get_progressive_model_ladder() -> Vec<ModelLadderStep> {
-        let ram_gb = Self::determine_total_ram_gb();
+        // Model admission must reflect memory that is actually available to
+        // this process, not RAM installed in the machine. The latter can
+        // qualify a model that will immediately OOM on a busy host.
+        let ram_gb = Self::determine_available_ram_gb();
         let free_disk_bytes =
             Self::get_free_disk_bytes(&crate::gemi::models::ModelManager::get_models_dir());
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let config_steps = cfg.model_ladder();
-        let qualifying = Self::filter_ladder_by_hardware(&config_steps, ram_gb, free_disk_bytes);
-        let mut ladder: Vec<ModelLadderStep> = qualifying
+        let reserve = cfg.model_scoring_heuristics().system_ram_buffer_gb;
+        let budget = Self::admission_ram_gb(ram_gb, reserve);
+        let models_dir = crate::gemi::models::ModelManager::get_models_dir();
+        let qualifying: Vec<_> = config_steps
+            .into_iter()
+            .filter(|step| {
+                let path = models_dir.join(&step.hf_file);
+                let mut admission = step.clone();
+                let resident = crate::gemi::models::ModelManager::valid_gguf_payload(&path);
+                let partial = std::path::PathBuf::from(format!("{}.part", path.display()))
+                    .metadata()
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                admission.expected_bytes = if resident {
+                    0
+                } else {
+                    step.expected_bytes.saturating_sub(partial)
+                };
+                // Configured tiers cannot understate the minimum weight footprint.
+                admission.min_ram_gb = admission.min_ram_gb.max(
+                    step.expected_bytes as f32 / 1073741824.0
+                        * cfg.model_lifecycle().memory_overhead_ratio.max(1.0),
+                );
+                !Self::filter_ladder_by_hardware(&[admission], budget, free_disk_bytes).is_empty()
+            })
+            .collect();
+        let ladder: Vec<ModelLadderStep> = qualifying
             .into_iter()
             .map(|step| ModelLadderStep {
                 step: step.step,
@@ -547,29 +655,6 @@ impl HardwareProfiler {
                 expected_bytes: step.expected_bytes,
             })
             .collect();
-
-        if ladder.is_empty() {
-            let fallback = cfg.default_fallback_model();
-            // The fallback entry doesn't carry its own min_bytes/expected_bytes
-            // in config (nothing reads them off it directly today), but this
-            // struct's expected_bytes is used as a percentage denominator
-            // downstream — 0 would divide-by-zero into NaN, so fall back to
-            // the smallest real ladder step's thresholds rather than 0/0.
-            let (min_bytes, expected_bytes) = cfg
-                .model_ladder()
-                .first()
-                .map(|s| (s.min_bytes, s.expected_bytes))
-                .unwrap_or((1_000_000_000, 5_000_000_000));
-            ladder.push(ModelLadderStep {
-                step: 1,
-                label: "Minimum Viable Substrate (Config Fallback)".to_string(),
-                hf_repo: fallback.hf_repo,
-                hf_file: fallback.hf_file,
-                tokenizer_repo: fallback.tokenizer_repo,
-                min_bytes,
-                expected_bytes,
-            });
-        }
 
         ladder
     }
@@ -728,6 +813,19 @@ mod tests {
     }
 
     #[test]
+    fn test_admission_reserves_available_memory() {
+        let steps = vec![
+            fixture_config_step(1, 4.0, 2_000_000_000),
+            fixture_config_step(4, 32.0, 20_000_000_000),
+        ];
+        let budget = HardwareProfiler::admission_ram_gb(5, 2.0);
+        assert!(HardwareProfiler::filter_ladder_by_hardware(&steps, budget, u64::MAX).is_empty());
+        assert_eq!(HardwareProfiler::admission_ram_gb(5, 1.0), 4);
+        assert_eq!(HardwareProfiler::admission_ram_gb(1, 2.0), 0);
+        assert_eq!(HardwareProfiler::admission_ram_gb(64, f32::NAN), 0);
+    }
+
+    #[test]
     fn test_filter_ladder_by_hardware_still_gates_on_ram_too() {
         let steps = vec![
             fixture_config_step(1, 0.0, 5_000_000_000),
@@ -755,7 +853,6 @@ mod tests {
     #[test]
     fn test_progressive_model_ladder_ordering() {
         let ladder = HardwareProfiler::get_progressive_model_ladder();
-        assert!(!ladder.is_empty());
         let mut last_step = 0;
         let mut last_min_bytes = 0;
         for step in ladder {
