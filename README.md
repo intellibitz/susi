@@ -22,6 +22,13 @@
 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | sh
 ```
 
+Downloaded binaries and model weights are verified against a published SHA-256 checksum before use; if no matching binary/checksum is available for your platform, the installer falls back to building from source (requires Rust, see [rustup.rs](https://rustup.rs)).
+
+By default the installer also registers a persistent background daemon (systemd user service on Linux, a launchd agent on macOS) that starts `susi` on login. Set `SUSI_NO_DAEMON=1` before running the installer to skip this:
+```bash
+SUSI_NO_DAEMON=1 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | sh
+```
+
 ### Usage
 ```bash
 # Run a task across the agent swarm

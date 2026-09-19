@@ -1,27 +1,38 @@
 #!/usr/bin/env bash
 # susi installer - Lightning Fast Intelligence Substrate Onboarding
 set -e
+set -o pipefail
 
 GLOBAL_SUSI_DIR="$HOME/.susi"
 GLOBAL_BIN_DIR="$GLOBAL_SUSI_DIR/bin"
 mkdir -p "$GLOBAL_BIN_DIR"
 mkdir -p "$GLOBAL_SUSI_DIR/models"
 
+# SUSI_REPO is intentionally only settable via env var, never auto-detected
+# from an ambient `.git` remote in the current directory - this script is
+# usually run via `curl ... | sh` from an arbitrary CWD, and trusting a
+# stray local git remote there would let an unrelated repo silently redirect
+# the binary download/build to itself.
 SUSI_REPO="${SUSI_REPO:-intellibitz/susi}"
 
-# Try to detect repo from git if available
-if command -v git >/dev/null 2>&1 && [ -d ".git" ]; then
-    GIT_REMOTE=$(git remote get-url origin 2>/dev/null || true)
-    if [[ "$GIT_REMOTE" == *"github.com"* ]]; then
-        # Extract owner/repo from https://github.com/owner/repo.git or git@github.com:owner/repo.git
-        DETECTED_REPO=$(echo "$GIT_REMOTE" | sed -E 's/.*github\.com[:\/](.*)\.git/\1/' | sed -E 's/.*github\.com[:\/](.*)/\1/')
-        if [[ -n "$DETECTED_REPO" ]]; then
-            SUSI_REPO="$DETECTED_REPO"
-        fi
-    fi
-fi
-
 echo "Initializing susi environment (Repo: $SUSI_REPO)..."
+
+# sha256_verify <file> <expected-hex-digest>
+sha256_verify() {
+    local file="$1" expected="$2" actual
+    if [ -z "$expected" ]; then
+        return 1
+    fi
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "$file" | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+        actual=$(shasum -a 256 "$file" | awk '{print $1}')
+    else
+        echo "  Warning: no sha256sum/shasum available to verify checksum; skipping verification." >&2
+        return 0
+    fi
+    [ "$actual" = "$expected" ]
+}
 
 # 1. Detect Environment
 OS_TYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -75,16 +86,32 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     # abort on a genuine stall (no bytes for 30s) without capping total
     # transfer time, so a slow-but-progressing download isn't killed early.
     DEPLOYED=0
+    ENGINE_TMP="$GLOBAL_BIN_DIR/susi-engine-new"
+    CHECKSUM_TMP="$ENGINE_TMP.sha256"
     if command -v curl >/dev/null 2>&1; then
         echo "  Downloading engine: $ENGINE_BINARY..."
-        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$GLOBAL_BIN_DIR/susi-engine-new"; then
+        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$ENGINE_TMP" \
+            && curl -sSfL --connect-timeout 15 "$BASE_URL/$ENGINE_BINARY.sha256" -o "$CHECKSUM_TMP"; then
             DEPLOYED=1
         fi
     elif command -v wget >/dev/null 2>&1; then
         echo "  Downloading engine: $ENGINE_BINARY..."
-        if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$GLOBAL_BIN_DIR/susi-engine-new"; then
+        if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$ENGINE_TMP" \
+            && wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY.sha256" -O "$CHECKSUM_TMP"; then
             DEPLOYED=1
         fi
+    fi
+
+    # Never run a downloaded binary without verifying it against the
+    # published checksum first - a missing/mismatched checksum falls back
+    # to a source build rather than executing an unverified binary.
+    if [ "$DEPLOYED" = "1" ]; then
+        EXPECTED_SHA=$(awk '{print $1}' "$CHECKSUM_TMP" 2>/dev/null || true)
+        if ! sha256_verify "$ENGINE_TMP" "$EXPECTED_SHA"; then
+            echo "  Checksum verification failed for $ENGINE_BINARY; discarding download and falling back to source build."
+            DEPLOYED=0
+        fi
+        rm -f "$CHECKSUM_TMP"
     fi
 
     if [ "$DEPLOYED" = "1" ]; then
@@ -271,7 +298,14 @@ if [ "$INSTALLED" = "0" ]; then
 fi
 
 if [ "$INSTALLED" = "0" ]; then
-    echo "Error: Installation failed. Ensure 'cargo' or 'curl' is available and you have internet access."
+    if command -v cargo >/dev/null 2>&1; then
+        echo "Error: Installation failed while building from source. Check the cargo build output above for details."
+    else
+        echo "Error: Installation failed. No pre-built binary is available for $PLATFORM/$ARCH from $SUSI_REPO,"
+        echo "and 'cargo' (Rust) is not installed to build from source."
+        echo "Install Rust from https://rustup.rs and re-run this installer, or check"
+        echo "https://github.com/$SUSI_REPO/releases for a supported binary."
+    fi
     exit 1
 fi
 
@@ -282,9 +316,14 @@ if [ -x "$GLOBAL_BIN_DIR/susi" ]; then
 fi
 
 # 5. Persistence Management (Daemon Auto-Start)
-if [[ "$PLATFORM" == "linux" ]]; then
+# Set SUSI_NO_DAEMON=1 before running this installer to skip registering a
+# persistent background daemon (systemd user service / launchd agent) that
+# auto-starts susi on login and restarts it if it exits.
+if [ -n "$SUSI_NO_DAEMON" ]; then
+    echo "Skipping daemon registration (SUSI_NO_DAEMON is set)."
+elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v systemctl >/dev/null 2>&1 && [ "$EUID" -ne 0 ]; then
-        echo "Registering susi daemon with systemd (User Session)..."
+        echo "Registering susi daemon with systemd (User Session). Set SUSI_NO_DAEMON=1 to skip this."
         mkdir -p "$HOME/.config/systemd/user"
         cat <<EOF > "$HOME/.config/systemd/user/susi.service"
 [Unit]
@@ -304,7 +343,7 @@ EOF
         systemctl --user start susi.service
     fi
 elif [[ "$PLATFORM" == "macos" ]]; then
-    echo "Registering susi daemon with launchd..."
+    echo "Registering susi daemon with launchd. Set SUSI_NO_DAEMON=1 to skip this."
     LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
     cat <<EOF > "$LAUNCHD_PLIST"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -338,10 +377,33 @@ if [ ! -f "$REFLEX_MODEL" ]; then
     # The engine's 'install' command already enqueues weights, but we force a tiny fetch for immediate response
     # Using the default HF URL from config if not provided
     WEIGHTS_URL="${SUSI_WEIGHTS_URL:-https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors}"
+    WEIGHTS_TMP="$REFLEX_MODEL.part"
+    # Hugging Face LFS files echo the object's sha256 in the X-Linked-ETag
+    # header - grab it up front (best effort) so the download can be
+    # verified before it lands in the models directory.
+    EXPECTED_WEIGHTS_SHA=""
+    WEIGHTS_FETCHED=0
     if command -v curl >/dev/null 2>&1; then
-        curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$WEIGHTS_URL" -o "$REFLEX_MODEL" || echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
+        EXPECTED_WEIGHTS_SHA=$(curl -sSIL --connect-timeout 15 "$WEIGHTS_URL" 2>/dev/null | tr -d '\r' | grep -i '^x-linked-etag:' | tail -1 | sed -E 's/.*"([a-f0-9]{64})".*/\1/' || true)
+        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$WEIGHTS_URL" -o "$WEIGHTS_TMP"; then
+            WEIGHTS_FETCHED=1
+        fi
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --timeout=30 --tries=2 "$WEIGHTS_URL" -O "$REFLEX_MODEL" || echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
+        if wget -q --timeout=30 --tries=2 "$WEIGHTS_URL" -O "$WEIGHTS_TMP"; then
+            WEIGHTS_FETCHED=1
+        fi
+    fi
+
+    if [ "$WEIGHTS_FETCHED" = "1" ]; then
+        if [ -n "$EXPECTED_WEIGHTS_SHA" ] && ! sha256_verify "$WEIGHTS_TMP" "$EXPECTED_WEIGHTS_SHA"; then
+            echo "Reflex weights failed checksum verification; discarding. 'susi install' will retry provisioning in the background."
+            rm -f "$WEIGHTS_TMP"
+        else
+            mv "$WEIGHTS_TMP" "$REFLEX_MODEL"
+        fi
+    else
+        rm -f "$WEIGHTS_TMP" 2>/dev/null || true
+        echo "Reflex weights fetch failed or timed out; 'susi install' will retry provisioning in the background."
     fi
 fi
 

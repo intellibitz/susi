@@ -11,7 +11,71 @@ permissions:
 
 jobs:
   build:
-    name: Build Linux x86_64 Binaries
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            artifact: susi-engine-linux-x86_64
+            src: target/release/susi-engine
+          - os: ubuntu-24.04-arm
+            name: linux-aarch64
+            artifact: susi-engine-linux-aarch64
+            src: target/release/susi-engine
+          - os: macos-13
+            name: macos-x86_64
+            artifact: susi-engine-macos-x86_64
+            src: target/release/susi-engine
+          - os: macos-14
+            name: macos-aarch64
+            artifact: susi-engine-macos-aarch64
+            src: target/release/susi-engine
+          - os: windows-latest
+            name: windows-x86_64
+            artifact: susi-engine-windows-x86_64.exe
+            src: target/release/susi-engine.exe
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+
+      - name: Build Engine
+        run: cargo build --release
+
+      - name: Rename Binary
+        shell: bash
+        run: mv "${{ matrix.src }}" "${{ matrix.artifact }}"
+
+      - name: Generate Checksum (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+
+      - name: Generate Checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "${{ matrix.artifact }}" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.artifact }}" | Set-Content -NoNewline -Path "${{ matrix.artifact }}.sha256"
+
+      - name: Upload Artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  build-cuda:
+    name: Build linux-x86_64-cuda
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
@@ -23,29 +87,23 @@ jobs:
       - name: Install System Dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
-      - name: Build CPU Engine
-        run: cargo build --release
-
-      - name: Rename CPU Binary
-        run: mv target/release/susi-engine susi-engine-linux-x86_64
-
       - name: Install CUDA Toolkit
         run: |
           sudo apt-get update
           sudo apt-get install -y nvidia-cuda-toolkit
 
-      - name: Clean previous Cargo build
-        run: cargo clean
-
       - name: Build GPU-Accelerated Engine (CUDA)
         run: cargo build --release --features cuda
 
-      - name: Rename GPU Binary
+      - name: Rename Binary
         run: mv target/release/susi-engine susi-engine-linux-x86_64-cuda
+
+      - name: Generate Checksum
+        run: shasum -a 256 susi-engine-linux-x86_64-cuda > susi-engine-linux-x86_64-cuda.sha256
 
       - name: Upload Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            susi-engine-linux-x86_64
             susi-engine-linux-x86_64-cuda
+            susi-engine-linux-x86_64-cuda.sha256

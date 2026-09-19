@@ -24,20 +24,39 @@ if ($null -eq $env:LOCAL_SOURCE) {
     Write-Host "🔐 Fetching latest susi engine..." -ForegroundColor Yellow
 
     $EngineBinary = "susi-engine-windows-x86_64.exe"
+    $EngineTmpPath = Join-Path $GlobalBinDir "susi-engine-new.exe"
+    $ChecksumTmpPath = "$EngineTmpPath.sha256"
 
     Stop-Process -Name "susi" -ErrorAction SilentlyContinue
     Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
 
     try {
-        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineExePath -UseBasicParsing
-        # `susi.exe` is not a separate binary - susi-engine's own CLI already
-        # accepts "susi" as its command name and handles every subcommand
-        # directly. A real copy (not a symlink) since NTFS symlinks need
-        # elevated privileges/Developer Mode that a fresh install can't assume.
-        Copy-Item $EngineExePath $LauncherExePath -Force
-        $Installed = $true
-        Write-Host "  ✅ Downloaded & installed the engine binary from GitHub." -ForegroundColor Green
+        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineTmpPath -UseBasicParsing
+        Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary.sha256" -OutFile $ChecksumTmpPath -UseBasicParsing
+
+        # Never run a downloaded binary without verifying it against the
+        # published checksum first - a missing/mismatched checksum falls
+        # back to a source build rather than executing an unverified binary.
+        $ExpectedSha = (Get-Content $ChecksumTmpPath -Raw).Trim().Split(" ")[0].ToLower()
+        $ActualSha = (Get-FileHash $EngineTmpPath -Algorithm SHA256).Hash.ToLower()
+        Remove-Item $ChecksumTmpPath -Force -ErrorAction SilentlyContinue
+
+        if ($ExpectedSha -and ($ActualSha -eq $ExpectedSha)) {
+            Move-Item $EngineTmpPath $EngineExePath -Force
+            # `susi.exe` is not a separate binary - susi-engine's own CLI already
+            # accepts "susi" as its command name and handles every subcommand
+            # directly. A real copy (not a symlink) since NTFS symlinks need
+            # elevated privileges/Developer Mode that a fresh install can't assume.
+            Copy-Item $EngineExePath $LauncherExePath -Force
+            $Installed = $true
+            Write-Host "  ✅ Downloaded & verified the engine binary from GitHub." -ForegroundColor Green
+        } else {
+            Remove-Item $EngineTmpPath -Force -ErrorAction SilentlyContinue
+            Write-Host "  ⚠️ Checksum verification failed for $EngineBinary. Discarding download and falling back to source build." -ForegroundColor Yellow
+        }
     } catch {
+        Remove-Item $EngineTmpPath -Force -ErrorAction SilentlyContinue
+        Remove-Item $ChecksumTmpPath -Force -ErrorAction SilentlyContinue
         Write-Host "  ⚠️ Binary download failed. Falling back to source build." -ForegroundColor Yellow
     }
 }
@@ -64,7 +83,11 @@ if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
 }
 
 if (-not $Installed) {
-    Write-Error "Installation failed. Ensure 'cargo' is available or binary downloads are accessible."
+    if (Get-Command "cargo" -ErrorAction SilentlyContinue) {
+        Write-Error "Installation failed while building from source. Check the cargo build output above for details."
+    } else {
+        Write-Error "Installation failed. No verified pre-built binary is available from $SusiRepo, and 'cargo' (Rust) is not installed to build from source. Install Rust from https://rustup.rs and re-run this installer."
+    }
     exit 1
 }
 
