@@ -175,6 +175,41 @@ impl HardwareProfiler {
         (256, 0)
     }
 
+    /// Free bytes on the filesystem containing `path` (falls back to `/` if
+    /// `path` doesn't exist yet, e.g. the models directory hasn't been
+    /// created on first run - `statvfs` needs an existing path to resolve).
+    /// Unlike `get_disk_stats` (hardcoded to `/`, used only for
+    /// `HardwareProfile` reporting), this checks the actual target
+    /// directory a model download would land in, and returns exact bytes
+    /// rather than a rounded GB figure, so `get_progressive_model_ladder`
+    /// can gate tier selection on real available space, not just RAM.
+    #[cfg(unix)]
+    pub fn get_free_disk_bytes(path: &std::path::Path) -> u64 {
+        use std::ffi::CString;
+        let probe_path = if path.exists() {
+            path
+        } else {
+            std::path::Path::new("/")
+        };
+        let Some(path_str) = probe_path.to_str() else {
+            return 0;
+        };
+        let Ok(c_path) = CString::new(path_str) else {
+            return 0;
+        };
+        let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
+            (stat.f_bavail as u64) * (stat.f_frsize as u64)
+        } else {
+            0
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub fn get_free_disk_bytes(_path: &std::path::Path) -> u64 {
+        u64::MAX // Unknown on this platform - don't block downloads over it.
+    }
+
     fn determine_disk_usage_pct() -> u8 {
         Self::get_disk_stats().1
     }
@@ -467,24 +502,51 @@ impl HardwareProfiler {
         Self::determine_total_ram_gb() // Fallback
     }
 
+    /// A step qualifies only if the hardware has enough RAM *and* enough
+    /// free disk space to hold it, plus a safety margin so a download
+    /// doesn't run the disk to zero (temp files, partial-download
+    /// overhead, and leaving the OS some breathing room). Split out from
+    /// `get_progressive_model_ladder` as a pure function so this filtering
+    /// logic is unit-testable without depending on real RAM-detection/
+    /// `statvfs` syscalls. Before this, tier selection was RAM-only - a
+    /// machine with plenty of RAM but little free disk would still attempt
+    /// a download (up to ~45GB for the 72B tier) with no check at all.
+    fn filter_ladder_by_hardware(
+        steps: &[crate::sandbox::manager::ModelLadderConfigStep],
+        ram_gb: usize,
+        free_disk_bytes: u64,
+    ) -> Vec<crate::sandbox::manager::ModelLadderConfigStep> {
+        const DISK_SAFETY_MARGIN_BYTES: u64 = 2_000_000_000; // 2GB headroom
+        steps
+            .iter()
+            .filter(|s| {
+                ram_gb as f32 >= s.min_ram_gb
+                    && free_disk_bytes >= s.expected_bytes.saturating_add(DISK_SAFETY_MARGIN_BYTES)
+            })
+            .cloned()
+            .collect()
+    }
+
     pub fn get_progressive_model_ladder() -> Vec<ModelLadderStep> {
         let ram_gb = Self::determine_total_ram_gb();
+        let free_disk_bytes =
+            Self::get_free_disk_bytes(&crate::gemi::models::ModelManager::get_models_dir());
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-        let mut ladder = Vec::new();
-        for step in cfg.model_ladder() {
-            if ram_gb as f32 >= step.min_ram_gb {
-                ladder.push(ModelLadderStep {
-                    step: step.step,
-                    label: step.label,
-                    hf_repo: step.hf_repo,
-                    hf_file: step.hf_file,
-                    tokenizer_repo: step.tokenizer_repo,
-                    min_bytes: step.min_bytes,
-                    expected_bytes: step.expected_bytes,
-                });
-            }
-        }
+        let config_steps = cfg.model_ladder();
+        let qualifying = Self::filter_ladder_by_hardware(&config_steps, ram_gb, free_disk_bytes);
+        let mut ladder: Vec<ModelLadderStep> = qualifying
+            .into_iter()
+            .map(|step| ModelLadderStep {
+                step: step.step,
+                label: step.label,
+                hf_repo: step.hf_repo,
+                hf_file: step.hf_file,
+                tokenizer_repo: step.tokenizer_repo,
+                min_bytes: step.min_bytes,
+                expected_bytes: step.expected_bytes,
+            })
+            .collect();
 
         if ladder.is_empty() {
             let fallback = cfg.default_fallback_model();
@@ -627,6 +689,67 @@ mod tests {
         let profile = HardwareProfiler::get_profile();
         assert!(profile.cpus > 0);
         assert!(profile.ram_gb > 0);
+    }
+
+    fn fixture_config_step(
+        step: usize,
+        min_ram_gb: f32,
+        expected_bytes: u64,
+    ) -> crate::sandbox::manager::ModelLadderConfigStep {
+        crate::sandbox::manager::ModelLadderConfigStep {
+            fields: Default::default(),
+            step,
+            label: format!("{step}-tier"),
+            hf_repo: format!("repo-{step}"),
+            hf_file: format!("file-{step}.gguf"),
+            tokenizer_repo: String::new(),
+            min_ram_gb,
+            min_bytes: expected_bytes / 5,
+            expected_bytes,
+        }
+    }
+
+    /// Regression for EV-2022920-054: tier selection used to be RAM-only,
+    /// so a machine with plenty of RAM but little free disk would still
+    /// attempt a download it can't fit (up to ~45GB for 72B) with no
+    /// check at all.
+    #[test]
+    fn test_filter_ladder_by_hardware_excludes_tiers_that_dont_fit_on_disk() {
+        let steps = vec![
+            fixture_config_step(1, 0.0, 5_000_000_000),   // 1.5B, 5GB
+            fixture_config_step(4, 32.0, 20_000_000_000), // 32B, 20GB
+            fixture_config_step(5, 64.0, 45_000_000_000), // 72B, 45GB
+        ];
+        // 64GB RAM qualifies for all three by RAM alone, but only 10GB free
+        // disk - only the 1.5B tier (5GB + 2GB margin = 7GB) fits.
+        let ladder = HardwareProfiler::filter_ladder_by_hardware(&steps, 64, 10_000_000_000);
+        assert_eq!(ladder.len(), 1, "only the 1.5B tier should fit on disk");
+        assert_eq!(ladder[0].step, 1);
+    }
+
+    #[test]
+    fn test_filter_ladder_by_hardware_still_gates_on_ram_too() {
+        let steps = vec![
+            fixture_config_step(1, 0.0, 5_000_000_000),
+            fixture_config_step(2, 8.0, 5_000_000_000),
+        ];
+        // Plenty of disk, but only 4GB RAM - the 7B tier (needs 8GB) must
+        // still be excluded even though it would easily fit on disk.
+        let ladder = HardwareProfiler::filter_ladder_by_hardware(&steps, 4, 1_000_000_000_000);
+        assert_eq!(ladder.len(), 1);
+        assert_eq!(ladder[0].step, 1);
+    }
+
+    #[test]
+    fn test_filter_ladder_by_hardware_requires_the_safety_margin_not_just_exact_fit() {
+        let steps = vec![fixture_config_step(1, 0.0, 5_000_000_000)];
+        // Exactly 5GB free - the tier needs 5GB + 2GB margin, so it must
+        // NOT qualify on a bare exact-fit amount.
+        let ladder = HardwareProfiler::filter_ladder_by_hardware(&steps, 64, 5_000_000_000);
+        assert!(
+            ladder.is_empty(),
+            "must require the safety margin, not just the raw model size"
+        );
     }
 
     #[test]
