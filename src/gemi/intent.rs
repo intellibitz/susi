@@ -21,7 +21,7 @@ pub enum IntentCategory {
 /// once the download policy fetches middle tiers too), not a hardcoded
 /// size. Mandate 35 (100% Dynamic Config): the classifier expresses a
 /// *position* between whatever's available, never a specific model size.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum TaskComplexity {
     Trivial,
     Simple,
@@ -32,6 +32,21 @@ pub enum TaskComplexity {
 }
 
 impl TaskComplexity {
+    /// One level up, saturating at `VeryComplex`. Used to force genuine
+    /// escalation on a retry after a verified failure (see
+    /// `ModelManager::get_selected_model_for_request_with_min_complexity`),
+    /// rather than relying on a longer retry prompt happening to cross a
+    /// heuristic threshold on its own.
+    pub fn escalate(self) -> Self {
+        match self {
+            TaskComplexity::Trivial => TaskComplexity::Simple,
+            TaskComplexity::Simple => TaskComplexity::Moderate,
+            TaskComplexity::Moderate => TaskComplexity::Complex,
+            TaskComplexity::Complex => TaskComplexity::VeryComplex,
+            TaskComplexity::VeryComplex => TaskComplexity::VeryComplex,
+        }
+    }
+
     /// Where this complexity level should sit between the smallest (0.0)
     /// and largest (1.0) resident model, by size. See
     /// `ModelManager::size_preference_score`, which scores candidates by
@@ -336,5 +351,32 @@ mod tests {
         }
         assert_eq!(TaskComplexity::Trivial.target_percentile(), 0.0);
         assert_eq!(TaskComplexity::VeryComplex.target_percentile(), 1.0);
+    }
+
+    #[test]
+    fn test_task_complexity_escalate_moves_up_one_level() {
+        assert_eq!(TaskComplexity::Trivial.escalate(), TaskComplexity::Simple);
+        assert_eq!(TaskComplexity::Simple.escalate(), TaskComplexity::Moderate);
+        assert_eq!(TaskComplexity::Moderate.escalate(), TaskComplexity::Complex);
+        assert_eq!(
+            TaskComplexity::Complex.escalate(),
+            TaskComplexity::VeryComplex
+        );
+    }
+
+    #[test]
+    fn test_task_complexity_escalate_saturates_at_very_complex() {
+        assert_eq!(
+            TaskComplexity::VeryComplex.escalate(),
+            TaskComplexity::VeryComplex
+        );
+    }
+
+    #[test]
+    fn test_task_complexity_ord_matches_declared_severity_order() {
+        assert!(TaskComplexity::Trivial < TaskComplexity::Simple);
+        assert!(TaskComplexity::Simple < TaskComplexity::Moderate);
+        assert!(TaskComplexity::Moderate < TaskComplexity::Complex);
+        assert!(TaskComplexity::Complex < TaskComplexity::VeryComplex);
     }
 }

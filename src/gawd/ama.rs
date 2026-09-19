@@ -701,11 +701,25 @@ impl SusiMasterAgent {
                 // Swarm Convergence: Use high-confidence swarm wisdom directly without CPU model loop hang
                 swarm_context
             } else {
-                // Tier 2 Native Local Model Inference Fallback for Open Missions
-                let model_name = crate::gemi::models::ModelManager::get_selected_model_for_request(
-                    &current_goal,
-                )
-                .unwrap_or_else(|| "susi-native-synthesis".to_string());
+                // Tier 2 Native Local Model Inference Fallback for Open Missions.
+                // Escalate the minimum model tier by retry attempt: a
+                // verified TRUTH_VIOLATION on a previous attempt (below)
+                // means that attempt's model genuinely failed, so a retry
+                // must not be allowed to reselect the same (or a smaller)
+                // tier just because the heuristic complexity guess on the
+                // longer, correction-annotated goal happens to land low
+                // again - it forces a strictly bigger model each attempt.
+                let min_complexity_for_attempt = match retry_count {
+                    0 => None,
+                    1 => Some(crate::gemi::intent::TaskComplexity::Moderate),
+                    _ => Some(crate::gemi::intent::TaskComplexity::Complex),
+                };
+                let model_name =
+                    crate::gemi::models::ModelManager::get_selected_model_for_request_with_min_complexity(
+                        &current_goal,
+                        min_complexity_for_attempt,
+                    )
+                    .unwrap_or_else(|| "susi-native-synthesis".to_string());
 
                 let reasoning_prompt = format!(
                     "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",

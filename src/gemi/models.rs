@@ -511,9 +511,42 @@ impl ModelManager {
     /// classify (status/report generation) should use - unaffected by
     /// this addition.
     pub fn get_selected_model_for_request(prompt: &str) -> Option<String> {
+        Self::get_selected_model_for_request_with_min_complexity(prompt, None)
+    }
+
+    /// Same as `get_selected_model_for_request`, but never selects below
+    /// `min_complexity` even if the prompt's own heuristic classification
+    /// would pick something lower. This is the escalation mechanism: on a
+    /// retry after `TruthTransformer` verifies a previous attempt actually
+    /// failed (see `SusiMasterAgent::solve_internal`), the caller passes a
+    /// floor one level above what was already tried, forcing a genuinely
+    /// bigger model rather than hoping a longer retry prompt happens to
+    /// cross a heuristic threshold on its own.
+    pub fn get_selected_model_for_request_with_min_complexity(
+        prompt: &str,
+        min_complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> Option<String> {
         let intent = crate::gemi::intent::IntentClassifier::classify(prompt);
-        let complexity = crate::gemi::intent::IntentClassifier::classify_complexity(prompt);
+        let heuristic_complexity =
+            crate::gemi::intent::IntentClassifier::classify_complexity(prompt);
+        let complexity = Self::resolve_complexity_floor(heuristic_complexity, min_complexity);
         Self::get_selected_model_inner(Some(intent), Some(complexity))
+    }
+
+    /// Never resolves below `min_complexity`: `TaskComplexity` derives
+    /// `Ord` in declared severity order (`Trivial` < ... < `VeryComplex`),
+    /// so `.max()` is exactly "whichever is more demanding". Split out as
+    /// a pure function so the escalation-floor logic is unit-testable
+    /// without the hardware/filesystem dependencies the rest of model
+    /// selection carries.
+    fn resolve_complexity_floor(
+        heuristic: crate::gemi::intent::TaskComplexity,
+        min_complexity: Option<crate::gemi::intent::TaskComplexity>,
+    ) -> crate::gemi::intent::TaskComplexity {
+        match min_complexity {
+            Some(floor) => heuristic.max(floor),
+            None => heuristic,
+        }
     }
 
     fn get_selected_model_inner(
@@ -1779,6 +1812,42 @@ mod tests {
         assert_eq!(
             small, same,
             "degenerate range must ignore complexity entirely"
+        );
+    }
+
+    /// Regression for the escalation mechanism: a retry's floor must win
+    /// even when the heuristic guess on the (now longer, correction-
+    /// annotated) retry prompt is still low.
+    #[test]
+    fn test_resolve_complexity_floor_floor_wins_over_lower_heuristic() {
+        use crate::gemi::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::Trivial,
+                Some(TaskComplexity::Complex)
+            ),
+            TaskComplexity::Complex
+        );
+    }
+
+    #[test]
+    fn test_resolve_complexity_floor_heuristic_wins_when_already_above_floor() {
+        use crate::gemi::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(
+                TaskComplexity::VeryComplex,
+                Some(TaskComplexity::Moderate)
+            ),
+            TaskComplexity::VeryComplex
+        );
+    }
+
+    #[test]
+    fn test_resolve_complexity_floor_none_means_pure_heuristic() {
+        use crate::gemi::intent::TaskComplexity;
+        assert_eq!(
+            ModelManager::resolve_complexity_floor(TaskComplexity::Simple, None),
+            TaskComplexity::Simple
         );
     }
 
