@@ -87,6 +87,21 @@ fn cache_path() -> std::path::PathBuf {
     crate::sandbox::xdg::SusiDirs::data_dir().join("model-discovery.json")
 }
 
+/// The ladder to actually use: whatever `cfg` explicitly configures, or the
+/// dynamic HF-discovered ladder when the config leaves it empty. Lives here
+/// (not as a `SusiConfig` method) because `sandbox::manager::SusiConfig` must
+/// stay a pure config accessor with no dependency on `gemi`.
+pub fn resolve_model_ladder(
+    cfg: &crate::sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
+    let configured = cfg.model_ladder();
+    if configured.is_empty() {
+        discover_dynamic_ladder()
+    } else {
+        configured
+    }
+}
+
 /// Fresh snapshots return immediately. Stale snapshots remain usable while one
 /// worker refreshes them; outages never erase the last successful discovery.
 pub fn discover_dynamic_ladder() -> Vec<ModelLadderConfigStep> {

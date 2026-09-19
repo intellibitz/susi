@@ -471,7 +471,11 @@ fn main() {
                             );
                             println!("- Engine: {}", reloaded.default_engine());
                             println!("- Model: {}", reloaded.default_model());
-                            println!("- Model Ladder Steps: {}", reloaded.model_ladder().len());
+                            println!(
+                                "- Model Ladder Steps: {}",
+                                susi_engine::gemi::hf_discovery::resolve_model_ladder(&reloaded)
+                                    .len()
+                            );
                             println!(
                                 "- MCP Bootstrap Servers: {}",
                                 reloaded

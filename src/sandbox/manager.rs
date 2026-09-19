@@ -1011,13 +1011,14 @@ impl SusiConfig {
         self.get_or_bundled_default("model_lifecycle")
     }
 
+    /// The explicitly configured ladder, or empty if none is set. This is a
+    /// pure config accessor with no network/discovery fallback — `sandbox`
+    /// must not depend on `gemi::hf_discovery` for that (it would create a
+    /// cycle, since `gemi` already depends on `sandbox` for `SusiConfig`
+    /// itself). Callers that want the dynamic-discovery fallback when this
+    /// is empty should use `gemi::hf_discovery::resolve_model_ladder`.
     pub fn model_ladder(&self) -> Vec<ModelLadderConfigStep> {
-        let default_steps: Vec<ModelLadderConfigStep> = self.get_or_bundled_default("model_ladder");
-        if default_steps.is_empty() {
-            crate::gemi::hf_discovery::discover_dynamic_ladder()
-        } else {
-            default_steps
-        }
+        self.get_or_bundled_default("model_ladder")
     }
     pub fn default_fallback_model(&self) -> ModelLadderConfigStep {
         self.get_or_bundled_default("default_fallback_model")
@@ -1280,8 +1281,15 @@ impl SusiAuditLogger {
 
         // Deterministic credential masking (Mandate 10: No Secret Leaks) — every
         // telemetry write funnels through here, so this is the one chokepoint
-        // that guarantees secrets never reach the persistent audit trail.
-        let details = crate::gawd::security::SecurityDetector::redact(details);
+        // that guarantees secrets never reach the persistent audit trail. Loads
+        // config and redacts locally (rather than calling into
+        // `gawd::security::SecurityDetector::redact`) so `sandbox` doesn't
+        // depend on `gawd` just to reach a pure text-transform primitive.
+        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
+        let secret_patterns = SusiConfig::load(&global_dir)
+            .map(|cfg| cfg.governance().secret_tokens)
+            .unwrap_or_default();
+        let details = susi_core::redact::redact_patterns(&secret_patterns, details);
         let details = details.as_str();
 
         let log_entry = serde_json::json!({

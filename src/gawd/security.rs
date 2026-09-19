@@ -48,27 +48,12 @@ impl SecurityDetector {
     /// persist to telemetry/audit logs — no reliance on an LLM's output happening
     /// to mention a sentinel word.
     pub fn redact(text: &str) -> String {
-        let _home = std::env::var_os("HOME")
-            .or_else(|| std::env::var_os("USERPROFILE"))
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."));
         let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
         let patterns = match SusiConfig::load(&global_dir) {
             Ok(cfg) => cfg.governance().secret_tokens,
             Err(_) => return text.to_string(),
         };
-
-        let mut redacted = text.to_string();
-        for pattern in &patterns {
-            if pattern.is_empty() {
-                continue;
-            }
-            if let Ok(re) = regex::Regex::new(&format!("{}[A-Za-z0-9_-]*", regex::escape(pattern)))
-            {
-                redacted = re.replace_all(&redacted, "[REDACTED]").to_string();
-            }
-        }
-        redacted
+        susi_core::redact::redact_patterns(&patterns, text)
     }
 }
 

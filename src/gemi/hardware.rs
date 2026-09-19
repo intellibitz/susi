@@ -616,7 +616,7 @@ impl HardwareProfiler {
             Self::get_free_disk_bytes(&crate::gemi::models::ModelManager::get_models_dir());
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
-        let config_steps = cfg.model_ladder();
+        let config_steps = crate::gemi::hf_discovery::resolve_model_ladder(&cfg);
         let reserve = cfg.model_scoring_heuristics().system_ram_buffer_gb;
         let budget = Self::admission_ram_gb(ram_gb, reserve);
         let models_dir = crate::gemi::models::ModelManager::get_models_dir();

@@ -368,9 +368,7 @@ impl CoreTools {
         description = "Execute autonomous substrate self-validation"
     )]
     pub fn self_validate(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        match crate::daemon::runtime_admin::SusiRuntimeAdmin::execute_autonomous_self_validation(
-            workspace,
-        ) {
+        match crate::gawd::self_validation::execute_autonomous_self_validation(workspace) {
             Ok(report) => Ok(format!(
                 "# Substrate Self-Validation Successful\n\n{}",
                 report

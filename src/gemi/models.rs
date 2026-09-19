@@ -871,12 +871,12 @@ impl ModelManager {
     pub fn verify_local_models(workspace: &Path) -> Vec<ModelVerificationResult> {
         let models = Self::list_models(workspace);
         let managed_minimum_bytes: std::collections::HashMap<String, u64> =
-            crate::sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .model_ladder()
-                .into_iter()
-                .map(|step| (step.hf_file, step.min_bytes))
-                .collect();
+            crate::gemi::hf_discovery::resolve_model_ladder(
+                &crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default(),
+            )
+            .into_iter()
+            .map(|step| (step.hf_file, step.min_bytes))
+            .collect();
         let mut results = Vec::new();
         for m in models {
             if m.is_local() && !m.model_id().contains("native") {

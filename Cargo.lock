@@ -6463,6 +6463,7 @@ dependencies = [
  "flume",
  "hex",
  "parking_lot",
+ "regex",
  "serde",
  "sha2 0.11.0",
  "susi-error",

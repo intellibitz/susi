@@ -213,33 +213,4 @@ impl SusiRuntimeAdmin {
 
         Ok(())
     }
-
-    /// Empirical Self-Validation
-    pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
-        let profile = HardwareProfiler::get_profile();
-        let mut report = "# SUSI Substrate Self-Validation Report\n\n".to_string();
-        report.push_str(&format!(
-            "- **Hardware Profile**: {} | {}GB RAM | {}\n",
-            profile.cpu_brand, profile.ram_gb, profile.gpu_info
-        ));
-
-        // Test Tensor Substrate
-        let device = HardwareProfiler::get_candle_device();
-        report.push_str(&format!("- **Neural Device**: {:?}\n", device));
-
-        // Verify Local Genome Integrity
-        let genome_integrity = crate::gawd::self_core::AlphaSelf::RULES.len();
-        report.push_str(&format!(
-            "- **Genome Integrity**: {} Compiled Rules Verified.\n",
-            genome_integrity
-        ));
-
-        SusiAuditLogger::log_event(
-            workspace,
-            "SELF_VALIDATION",
-            "Autonomous foundational readiness test completed.",
-        );
-
-        Ok(report)
-    }
 }

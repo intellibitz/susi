@@ -15,6 +15,7 @@ pub mod reflex_trainer;
 pub mod safety;
 pub mod security;
 pub mod self_core;
+pub mod self_validation;
 pub mod task_manager;
 
 pub use susi_core::{bus, evidence, manifold, queue, truth};
