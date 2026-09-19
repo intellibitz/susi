@@ -8,7 +8,6 @@
 # Rust build outputs
 /target/
 **/target/
-susi-native
 
 # Kotlin compiler & cache
 .kotlin/

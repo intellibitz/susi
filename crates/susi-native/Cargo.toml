@@ -1,0 +1,17 @@
+[package]
+name = "susi-native"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+wasmer-types = "7"
+susi-error = { path = "../susi-error" }
+
+[target.'cfg(not(windows))'.dependencies]
+wasmer = { version = "7", features = ["cranelift", "sys"] }
+wasmer-wasix = { version = "0.704.2", features = ["sys"] }
+
+[target.'cfg(windows)'.dependencies]
+wasmer = { version = "7", features = ["singlepass", "sys"] }
+wasmer-wasix = { version = "0.704.2", features = ["sys"] }
