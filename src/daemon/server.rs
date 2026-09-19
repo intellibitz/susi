@@ -552,7 +552,19 @@ impl SusiDaemon {
             eprintln!("[SusiDaemon] Signal handler setup failed: {}", e);
         }
 
-        let mut cfg = SusiConfig::load(&global_dir).expect("Fatal: Malformed configuration");
+        // Mandate 42: config.json is user-editable and can be hand-corrupted
+        // into invalid JSON; with `panic = "abort"` (Cargo.toml release
+        // profile) a panic here would abort the whole daemon process, not
+        // just this thread, so this follows the same eprintln+return
+        // pattern as the lock-acquisition failures just above rather than
+        // panicking.
+        let mut cfg = match SusiConfig::load(&global_dir) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                eprintln!("[SusiDaemon] Fatal: malformed configuration: {}", e);
+                return;
+            }
+        };
         let bind_address = crate::sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .get("bind_address")
@@ -839,9 +851,17 @@ impl SusiDaemon {
     }
 
     fn start_udp_discovery_server(socket: std::net::UdpSocket, gmcp_port: u16) {
+        // Mandate 42: `local_addr()` failing here would only degrade a log
+        // message, not the actual listener below - a graceful fallback is
+        // the right scope of fix, not restructuring this function to
+        // propagate a Result for a purely decorative failure.
+        let addr_display = socket
+            .local_addr()
+            .map(|a| a.to_string())
+            .unwrap_or_else(|_| "<unknown>".to_string());
         eprintln!(
             "[A2A Cluster UDP] Discovery listener active on {}",
-            socket.local_addr().unwrap()
+            addr_display
         );
         let mut buf = [0u8; 512];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
