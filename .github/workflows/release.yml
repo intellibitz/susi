@@ -25,14 +25,9 @@ jobs:
 
       - name: Build CPU Engine
         run: cargo build --release
-      
-      - name: Build Launcher
-        run: cd src/native/susi && cargo build --release
 
-      - name: Rename CPU Binaries
-        run: |
-          mv target/release/susi-engine susi-engine-linux-x86_64
-          mv src/native/susi/target/release/susi susi-linux-x86_64
+      - name: Rename CPU Binary
+        run: mv target/release/susi-engine susi-engine-linux-x86_64
 
       - name: Install CUDA Toolkit
         run: |
@@ -53,5 +48,4 @@ jobs:
         with:
           files: |
             susi-engine-linux-x86_64
-            susi-linux-x86_64
             susi-engine-linux-x86_64-cuda

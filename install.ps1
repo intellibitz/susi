@@ -21,19 +21,22 @@ $Installed = $false
 
 # 1. Try Binary Download First (Lightning Fast)
 if ($null -eq $env:LOCAL_SOURCE) {
-    Write-Host "🔐 Fetching latest susi executables..." -ForegroundColor Yellow
+    Write-Host "🔐 Fetching latest susi engine..." -ForegroundColor Yellow
 
-    $LauncherBinary = "susi-windows-x86_64.exe"
     $EngineBinary = "susi-engine-windows-x86_64.exe"
 
     Stop-Process -Name "susi" -ErrorAction SilentlyContinue
     Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
 
     try {
-        Invoke-WebRequest -Uri "$ReleaseUrl/$LauncherBinary" -OutFile $LauncherExePath -UseBasicParsing
         Invoke-WebRequest -Uri "$ReleaseUrl/$EngineBinary" -OutFile $EngineExePath -UseBasicParsing
+        # `susi.exe` is not a separate binary - susi-engine's own CLI already
+        # accepts "susi" as its command name and handles every subcommand
+        # directly. A real copy (not a symlink) since NTFS symlinks need
+        # elevated privileges/Developer Mode that a fresh install can't assume.
+        Copy-Item $EngineExePath $LauncherExePath -Force
         $Installed = $true
-        Write-Host "  ✅ Downloaded & installed binaries from GitHub." -ForegroundColor Green
+        Write-Host "  ✅ Downloaded & installed the engine binary from GitHub." -ForegroundColor Green
     } catch {
         Write-Host "  ⚠️ Binary download failed. Falling back to source build." -ForegroundColor Yellow
     }
@@ -41,7 +44,7 @@ if ($null -eq $env:LOCAL_SOURCE) {
 
 # 2. Fallback to Source Build
 if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
-    Write-Host "[susi Native] Compiling standalone Rust AI engine & launcher..." -ForegroundColor Yellow
+    Write-Host "[susi Native] Compiling standalone Rust AI engine..." -ForegroundColor Yellow
 
     Stop-Process -Name "susi" -ErrorAction SilentlyContinue
     Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
@@ -50,20 +53,13 @@ if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
     Write-Host "  Building engine..." -ForegroundColor Gray
     cargo build --release | Out-Null
 
-    # Build Launcher
-    Write-Host "  Building launcher..." -ForegroundColor Gray
-    Push-Location "src/native/susi"
-    cargo build --release | Out-Null
-    Pop-Location
-
     $EngineSrc = "target\release\susi-engine.exe"
-    $LauncherSrc = "src\native\susi\target\release\susi.exe"
 
-    if ((Test-Path $EngineSrc) -and (Test-Path $LauncherSrc)) {
+    if (Test-Path $EngineSrc) {
         Copy-Item $EngineSrc $EngineExePath -Force
-        Copy-Item $LauncherSrc $LauncherExePath -Force
+        Copy-Item $EngineExePath $LauncherExePath -Force
         $Installed = $true
-        Write-Host "  ✅ Compiled & installed native binaries." -ForegroundColor Green
+        Write-Host "  ✅ Compiled & installed the engine binary." -ForegroundColor Green
     }
 }
 

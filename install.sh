@@ -51,7 +51,7 @@ fi
 
 # 2. Try Binary Download First (Lightning Fast) if no local source exists
 if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
-    # Try downloading both launcher and engine
+    # Download the engine binary; `susi` is derived from it locally (symlink)
     GPU_SUFFIX=""
     if [[ "$PLATFORM" == "linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
         if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
@@ -60,17 +60,15 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         fi
     fi
 
-    LAUNCHER_BINARY="susi-$PLATFORM-$ARCH"
     ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH$GPU_SUFFIX"
 
     if [[ "$PLATFORM" == "windows" ]]; then
-        LAUNCHER_BINARY="${LAUNCHER_BINARY}.exe"
         ENGINE_BINARY="${ENGINE_BINARY}.exe"
     fi
 
     BASE_URL="https://github.com/$SUSI_REPO/releases/latest/download"
 
-    echo "Attempting to download pre-compiled binaries from $SUSI_REPO..."
+    echo "Attempting to download pre-compiled engine binary from $SUSI_REPO..."
 
     # --connect-timeout: fail fast if the host is unreachable.
     # --speed-limit/--speed-time (curl) and --timeout (wget, read-timeout):
@@ -78,29 +76,22 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     # transfer time, so a slow-but-progressing download isn't killed early.
     DEPLOYED=0
     if command -v curl >/dev/null 2>&1; then
-        # Download Launcher
-        echo "  [1/2] Downloading launcher: $LAUNCHER_BINARY..."
-        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$LAUNCHER_BINARY" -o "$GLOBAL_BIN_DIR/susi-new"; then
-            # Download Engine
-            echo "  [2/2] Downloading engine: $ENGINE_BINARY..."
-            if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$GLOBAL_BIN_DIR/susi-engine-new"; then
-                DEPLOYED=1
-            fi
+        echo "  Downloading engine: $ENGINE_BINARY..."
+        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$GLOBAL_BIN_DIR/susi-engine-new"; then
+            DEPLOYED=1
         fi
     elif command -v wget >/dev/null 2>&1; then
-        # Download Launcher
-        echo "  [1/2] Downloading launcher: $LAUNCHER_BINARY..."
-        if wget -q --timeout=30 --tries=2 "$BASE_URL/$LAUNCHER_BINARY" -O "$GLOBAL_BIN_DIR/susi-new"; then
-            # Download Engine
-            echo "  [2/2] Downloading engine: $ENGINE_BINARY..."
-            if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$GLOBAL_BIN_DIR/susi-engine-new"; then
-                DEPLOYED=1
-            fi
+        echo "  Downloading engine: $ENGINE_BINARY..."
+        if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$GLOBAL_BIN_DIR/susi-engine-new"; then
+            DEPLOYED=1
         fi
     fi
 
     if [ "$DEPLOYED" = "1" ]; then
-        pkill -f susi-engine || true
+        # `susi` is a symlink to susi-engine, so its process cmdline shows as
+        # ".../bin/susi", not ".../bin/susi-engine" - match the shared path
+        # prefix so a running daemon started via either name is caught.
+        pkill -f "$GLOBAL_BIN_DIR/susi" || true
 
         BIN_EXE=""
         ENGINE_EXE="-engine"
@@ -110,14 +101,23 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         fi
 
         rm -f "$GLOBAL_BIN_DIR/susi${BIN_EXE}" "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}" 2>/dev/null || true
-        mv "$GLOBAL_BIN_DIR/susi-new" "$GLOBAL_BIN_DIR/susi${BIN_EXE}"
         mv "$GLOBAL_BIN_DIR/susi-engine-new" "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}"
-        chmod +x "$GLOBAL_BIN_DIR/susi${BIN_EXE}" "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}"
+        chmod +x "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}"
+        # `susi` is not a separate binary - susi-engine's own CLI already
+        # accepts "susi" as its command name and handles every subcommand
+        # (install, status, etc.) directly. Symlink on Unix; a real copy on
+        # Windows/msys, since a bash-created symlink there isn't reliably a
+        # native executable outside the bash session that made it.
+        if [[ "$PLATFORM" == "windows" ]]; then
+            cp "$GLOBAL_BIN_DIR/susi${ENGINE_EXE}" "$GLOBAL_BIN_DIR/susi${BIN_EXE}"
+        else
+            ln -sf "susi${ENGINE_EXE}" "$GLOBAL_BIN_DIR/susi${BIN_EXE}"
+        fi
         INSTALLED=1
-        echo "Successfully deployed binaries from GitHub ($SUSI_REPO)."
+        echo "Successfully deployed the engine binary from GitHub ($SUSI_REPO)."
     else
         echo "Binary download unavailable or failed. Falling back to build."
-        rm -f "$GLOBAL_BIN_DIR/susi-new" "$GLOBAL_BIN_DIR/susi-engine-new" 2>/dev/null || true
+        rm -f "$GLOBAL_BIN_DIR/susi-engine-new" 2>/dev/null || true
     fi
 else
     if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
@@ -246,28 +246,26 @@ if [ "$INSTALLED" = "0" ]; then
         (cd "$SCRIPT_DIR" && cargo build --release $BUILD_FEATURES)
         stop_heartbeat
 
-        # Build Launcher
-        echo "  Building launcher..."
-        start_heartbeat
-        (cd "$SCRIPT_DIR/src/native/susi" && cargo build --release)
-        stop_heartbeat
-
         ENGINE_SRC="$SCRIPT_DIR/target/release/susi-engine"
-        LAUNCHER_SRC="$SCRIPT_DIR/src/native/susi/target/release/susi"
 
         if [[ "$PLATFORM" == "windows" ]]; then
             ENGINE_SRC="${ENGINE_SRC}.exe"
-            LAUNCHER_SRC="${LAUNCHER_SRC}.exe"
         fi
 
-        if [ -f "$ENGINE_SRC" ] && [ -f "$LAUNCHER_SRC" ]; then
-            pkill -f susi-engine || true
+        if [ -f "$ENGINE_SRC" ]; then
+            pkill -f "$GLOBAL_BIN_DIR/susi" || true
             rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
             cp "$ENGINE_SRC" "$GLOBAL_BIN_DIR/susi-engine"
-            cp "$LAUNCHER_SRC" "$GLOBAL_BIN_DIR/susi"
-            chmod +x "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi"
+            chmod +x "$GLOBAL_BIN_DIR/susi-engine"
+            # `susi` is not a separate binary - symlink on Unix, real copy on
+            # Windows/msys (see the binary-download branch above for why).
+            if [[ "$PLATFORM" == "windows" ]]; then
+                cp "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi"
+            else
+                ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
+            fi
             INSTALLED=1
-            echo "Deployed engine and launcher binaries to $GLOBAL_BIN_DIR"
+            echo "Deployed engine binary to $GLOBAL_BIN_DIR"
         fi
     fi
 fi

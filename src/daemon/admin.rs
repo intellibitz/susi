@@ -220,29 +220,7 @@ impl SusiAdmin {
         let version_string = Self::get_cargo_version(workspace)?;
         let version = version_string.as_str();
 
-        // 1. Sync Native Launcher Cargo.toml
-        let launcher_cargo = workspace.join("src/native/susi/Cargo.toml");
-        if launcher_cargo.exists() {
-            let launcher_content = fs::read_to_string(&launcher_cargo)?;
-            let mut updated = Vec::new();
-            let mut in_package = false;
-            for line in launcher_content.lines() {
-                let trimmed = line.trim();
-                if trimmed == "[package]" {
-                    in_package = true;
-                } else if trimmed.starts_with("[") {
-                    in_package = false;
-                }
-                if in_package && trimmed.starts_with("version = \"") {
-                    updated.push(format!("version = \"{}\"", version));
-                } else {
-                    updated.push(line.to_string());
-                }
-            }
-            fs::write(&launcher_cargo, updated.join("\n") + "\n")?;
-        }
-
-        // 2. Sync README.md Badge
+        // 1. Sync README.md Badge
         let readme_path = workspace.join("README.md");
         if readme_path.exists() {
             let readme_content = fs::read_to_string(&readme_path)?;
@@ -258,7 +236,7 @@ impl SusiAdmin {
             fs::write(&readme_path, updated.join("\n") + "\n")?;
         }
 
-        // 3. Sync Governance Files (.agents/*.md)
+        // 2. Sync Governance Files (.agents/*.md)
         let governance_files = ["IDENTITY.md", "ROADMAP.md", "EVIDENCE.md"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
@@ -294,7 +272,7 @@ impl SusiAdmin {
             }
         }
 
-        // 4. Update Binary Integrity Hash
+        // 3. Update Binary Integrity Hash
         if let Ok(current_exe) = env::current_exe() {
             let global_dir = Self::get_global_susi_dir();
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;

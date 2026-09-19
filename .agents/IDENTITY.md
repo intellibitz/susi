@@ -1,6 +1,6 @@
 ---
 schema = "susi/identity/v1"
-version = "0.1.2023049"
+version = "0.1.2023050"
 pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
@@ -114,4 +114,4 @@ A related, distinct kind of drift — comments citing `Mandate N` using the *cur
 4. **Conventional Reflex**: Mandatory use of conventional commit prefixes and zero-emoji policy.
 5. **Binary Dominance**: Prioritize pre-compiled binary deployment with transparent local build fallback.
 6. **Auto-Path Injection**: Installer must inject `.susi/bin` into host environment variables.
-7. **Canonical Binary Dynamics & Hot-Reload Protocol**: Single canonical binary suite at `~/.susi/bin/` (`susi` launcher and `susi-engine`). Invocations in `cwd` capture local context, check `~/.susi/substrate.lock`, and delegate pulses to `global susi` without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` executes a sovereign eviction of stale daemons and hot-reloads `global susi` automatically.
+7. **Canonical Binary Dynamics & Hot-Reload Protocol**: A single compiled binary, `susi-engine`, deployed at `~/.susi/bin/susi-engine`; `~/.susi/bin/susi` is that same binary (a symlink on Unix, a copy on Windows), not a separate launcher process — `susi-engine`'s own CLI (`#[command(name = "susi")]`) already handles every subcommand directly, so there is nothing left for a second binary to forward. Invocations in `cwd` capture local context, check `~/.susi/substrate.lock`, and delegate pulses to `global susi` without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` executes a sovereign eviction of stale daemons and hot-reloads `global susi` automatically.
