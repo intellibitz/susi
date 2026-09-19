@@ -279,23 +279,32 @@ impl SusiSupervisor {
         peers_lock.read().clone()
     }
 
-    /// How much (and in which direction) an agent's rank should move given
-    /// its actual output text. Previously rank only ever moved up: every
-    /// agent that didn't self-report FAILURE/GAP got +0.01 forever, with no
-    /// path back down, so any core agent (recruited into every mission)
-    /// saturated toward the 1.0 ceiling almost immediately and stayed there
-    /// regardless of later real reliability — the "Empirical Expertise
-    /// Ranking" this backs stopped being empirical once nothing could ever
-    /// lower a rank again. The penalty outweighs the reward (5x) so trust is
-    /// harder to earn back than it was to lose — deliberate asymmetry, not
-    /// an arbitrary number. Pure function (no I/O) so the mapping is
-    /// directly unit-testable.
+    /// Text alone cannot earn trust. Explicit execution failures may lower rank;
+    /// positive rewards require independent evidence not supplied by this API.
     fn rank_delta_for_output(output: &str) -> (f32, &'static str) {
-        if output.contains("FAILURE") || output.contains("GAP") {
+        if crate::accountability::is_failure(output) {
             (-0.05, "MISSION_FAILURE")
         } else {
-            (0.01, "MISSION_SUCCESS")
+            (0.0, "UNVERIFIED_OUTPUT")
         }
+    }
+
+    fn reported_success_ratio(logs: &[A2AMessage], fleet: &[GawdAgentInfo]) -> f32 {
+        let names: std::collections::HashSet<_> =
+            fleet.iter().map(|agent| agent.name.as_str()).collect();
+        if names.is_empty() {
+            return 0.0;
+        }
+        let successes = names
+            .iter()
+            .filter(|name| {
+                logs.iter()
+                    .rev()
+                    .find(|log| log.sender == **name && log.action == "MISSION_FLUX")
+                    .is_some_and(|log| crate::accountability::is_usable(&log.payload))
+            })
+            .count();
+        successes as f32 / names.len() as f32
     }
 
     /// When one agent's rank is a clear outlier above the
@@ -423,6 +432,20 @@ impl SusiSupervisor {
             });
         }
 
+        if let Some(veto) = a2a_logs
+            .iter()
+            .find(|log| log.payload.contains("[GOVERNANCE_BLOCK]"))
+        {
+            let payload = veto.payload.clone();
+            a2a_logs.push(A2AMessage {
+                sender: "ConsensusMaster".into(),
+                recipient: "SUSI-Master".into(),
+                action: "GOVERNANCE_BLOCK".into(),
+                payload,
+            });
+            return (a2a_logs, fleet_info);
+        }
+
         // 4.1 If an agent reported a capability gap, dispatch a second reinforcement wave
         let is_query_or_read = GawdAgentFleet::is_meta_or_simple_query(goal);
 
@@ -458,15 +481,19 @@ impl SusiSupervisor {
                 let output = r.value();
 
                 if let Some(info) = fleet_info.iter().find(|i| &i.name == agent_name) {
-                    weighted_wisdom.push_str(&format!(
-                        "[AGENT: {} (Rank: {:.2})] {}\n",
-                        agent_name, info.rank, output
-                    ));
+                    if crate::accountability::is_usable(output) {
+                        weighted_wisdom.push_str(&format!(
+                            "[AGENT: {} (Rank: {:.2})] {}\n",
+                            agent_name, info.rank, output
+                        ));
+                    }
 
                     // Empirical Expertise Ranking: reward success, penalize failure.
                     let (delta, source) = Self::rank_delta_for_output(output);
-                    crate::agents::AgentMetaRegistry::global()
-                        .update_rank(agent_name, delta, source);
+                    if delta != 0.0 {
+                        crate::agents::AgentMetaRegistry::global()
+                            .update_rank(agent_name, delta, source);
+                    }
                 }
             }
 
@@ -478,8 +505,7 @@ impl SusiSupervisor {
                 .filter_map(|r| {
                     let agent_name = r.key().clone();
                     let output = r.value().trim().to_string();
-                    if !output.is_empty() && !output.contains("FAILURE") && !output.contains("GAP")
-                    {
+                    if crate::accountability::is_usable(&output) {
                         Some((agent_name, output))
                     } else {
                         None
@@ -519,25 +545,8 @@ impl SusiSupervisor {
                 )
             };
 
-            // Fraction of recruited agents whose own output text didn't
-            // contain the substrings "FAILURE"/"GAP" - an execution-status
-            // signal only. Named (and was previously renamed from
-            // "CONVERGENCE_SCORE") to avoid implying a factual-accuracy or
-            // truth-verification score: it says nothing about whether the
-            // content is actually correct, only that agents didn't
-            // self-report a failure. This used to be exploitable as a
-            // truth-check bypass (see truth.rs's now-removed "Epistemic
-            // Delegation" override) precisely because its name suggested
-            // more than it measured.
-            let agent_success_ratio = if fleet_info.len() > 1 {
-                let success_count = blackboard
-                    .iter()
-                    .filter(|r| !r.value().contains("FAILURE") && !r.value().contains("GAP"))
-                    .count();
-                (success_count as f32 / fleet_info.len() as f32).min(1.0)
-            } else {
-                0.90 // Single trusted agent default
-            };
+            // Measures reported execution outcomes, never factual accuracy.
+            let agent_success_ratio = Self::reported_success_ratio(&a2a_logs, &fleet_info);
 
             let final_payload = format!(
                 "{}\n\n[AGENT_SUCCESS_RATIO: {:.2}]",
@@ -577,24 +586,27 @@ impl SusiSupervisor {
         interactions: &[A2AMessage],
         _agents: &[GawdAgentInfo],
     ) -> String {
+        if let Some(veto) = interactions
+            .iter()
+            .find(|log| log.payload.contains("[GOVERNANCE_BLOCK]"))
+        {
+            return veto.payload.clone();
+        }
         // Prioritize ConsensusMaster and AdminAgent results over other agents'
         let mut consensus_result = None;
         let mut admin_result = None;
         let mut wisdom = Vec::new();
 
         for msg in interactions {
+            if !crate::accountability::is_usable(&msg.payload) {
+                continue;
+            }
             if msg.sender == "ConsensusMaster" {
                 consensus_result = Some(msg.payload.clone());
             } else if msg.sender == "AdminAgent" {
                 admin_result = Some(msg.payload.clone());
             }
-
-            if !msg.payload.contains("FAILURE")
-                && !msg.payload.contains("GAP")
-                && !msg.payload.is_empty()
-            {
-                wisdom.push(format!("[{}]: {}", msg.sender, msg.payload));
-            }
+            wisdom.push(format!("[{}]: {}", msg.sender, msg.payload));
         }
 
         consensus_result.or(admin_result).unwrap_or_else(|| {
@@ -988,7 +1000,7 @@ mod tests {
             .filter_map(|r| {
                 let agent_name = r.key().clone();
                 let output = r.value().trim().to_string();
-                if !output.is_empty() && !output.contains("FAILURE") && !output.contains("GAP") {
+                if crate::accountability::is_usable(&output) {
                     Some((agent_name, output))
                 } else {
                     None
@@ -1065,10 +1077,10 @@ mod tests {
     }
 
     #[test]
-    fn test_rank_delta_rewards_clean_success() {
+    fn test_unverified_text_does_not_increase_rank() {
         let (delta, source) = SusiSupervisor::rank_delta_for_output("Hardware Saturated: 8 CPUs.");
-        assert_eq!(delta, 0.01);
-        assert_eq!(source, "MISSION_SUCCESS");
+        assert_eq!(delta, 0.0);
+        assert_eq!(source, "UNVERIFIED_OUTPUT");
     }
 
     #[test]

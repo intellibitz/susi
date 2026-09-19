@@ -1,6 +1,6 @@
 // SUSI Asynchronous Swarm Event Bus
 // Real-time inter-agent messaging and telemetry streaming via flume.
-// Refactored to feature an innovative generically-typed dynamic Pub/Sub event bus.
+// Each typed subscription receives its own copy of subsequent events.
 
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -39,8 +39,11 @@ pub fn create_swarm_bus() -> LegacySwarmEventBus {
     flume::unbounded()
 }
 
-/// A highly innovative, dynamically typed Pub/Sub event bus leveraging Rust generics.
-/// Automatically allocates and multiplexes independent flume channels per Event type.
+type Subscribers<E> = parking_lot::Mutex<Vec<flume::Sender<E>>>;
+
+/// Broadcasts events to independent subscribers of each event type.
+/// Events published before subscription are not retained. Cloning a returned
+/// receiver shares that subscription's queue rather than creating a new one.
 #[derive(Default, Clone)]
 pub struct TypedEventBus {
     channels: Arc<DashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
@@ -51,33 +54,69 @@ impl TypedEventBus {
         Self::default()
     }
 
-    /// Dispatches an event of generic type E.
     pub fn publish<E: Send + Sync + Clone + 'static>(&self, event: E) {
-        if let Some(chan) = self.get_channel::<E>() {
-            let _ = chan.0.send(event);
+        let subscribers = self
+            .channels
+            .get(&TypeId::of::<E>())
+            .map(|entry| Arc::clone(entry.value()));
+        if let Some(subscribers) = subscribers {
+            let subscribers = subscribers
+                .downcast::<Subscribers<E>>()
+                .expect("event type must match its subscriber list");
+            subscribers
+                .lock()
+                .retain(|sender| sender.send(event.clone()).is_ok());
         }
     }
 
-    /// Subscribes to events of strictly generic type E.
     pub fn subscribe<E: Send + Sync + Clone + 'static>(&self) -> flume::Receiver<E> {
-        self.get_or_create_channel::<E>().1.clone()
+        let subscribers = {
+            let entry = self
+                .channels
+                .entry(TypeId::of::<E>())
+                .or_insert_with(|| Arc::new(Subscribers::<E>::new(Vec::new())));
+            Arc::clone(entry.value())
+        };
+        let subscribers = subscribers
+            .downcast::<Subscribers<E>>()
+            .expect("event type must match its subscriber list");
+        let (sender, receiver) = flume::unbounded();
+        let mut subscribers = subscribers.lock();
+        subscribers.retain(|sender| !sender.is_disconnected());
+        subscribers.push(sender);
+        receiver
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broadcasts_to_every_subscription_across_bus_clones() {
+        let bus = TypedEventBus::new();
+        let first = bus.subscribe::<u32>();
+        let second = bus.clone().subscribe::<u32>();
+        bus.publish(42_u32);
+        assert_eq!(first.try_recv(), Ok(42));
+        assert_eq!(second.try_recv(), Ok(42));
     }
 
-    fn get_channel<E: Send + Sync + 'static>(
-        &self,
-    ) -> Option<Arc<(flume::Sender<E>, flume::Receiver<E>)>> {
-        self.channels
-            .get(&TypeId::of::<E>())
-            .and_then(|any| any.clone().downcast().ok())
-    }
-
-    fn get_or_create_channel<E: Send + Sync + 'static>(
-        &self,
-    ) -> Arc<(flume::Sender<E>, flume::Receiver<E>)> {
-        let entry = self
-            .channels
-            .entry(TypeId::of::<E>())
-            .or_insert_with(|| Arc::new(flume::unbounded::<E>()));
-        entry.clone().downcast().unwrap()
+    #[test]
+    fn isolates_types_and_does_not_replay_old_events() {
+        let bus = TypedEventBus::new();
+        bus.publish(1_u32);
+        let numbers = bus.subscribe::<u32>();
+        let strings = bus.subscribe::<String>();
+        assert!(numbers.try_recv().is_err());
+        bus.publish(2_u32);
+        assert_eq!(numbers.try_recv(), Ok(2));
+        assert!(strings.try_recv().is_err());
+        drop(numbers);
+        bus.publish(3_u32);
+        let replacement = bus.subscribe::<u32>();
+        assert!(replacement.try_recv().is_err());
+        bus.publish(4_u32);
+        assert_eq!(replacement.try_recv(), Ok(4));
     }
 }

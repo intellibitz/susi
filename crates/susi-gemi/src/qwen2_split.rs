@@ -358,6 +358,29 @@ impl ModelWeights {
             .and_then(|m| m.to_f32())
             .unwrap_or(10000f32);
 
+        if head_count == 0
+            || head_count_kv == 0
+            || embedding_length == 0
+            || context_length == 0
+            || block_count == 0
+            || kv_cache_capacity == 0
+        {
+            candle_core::bail!("Qwen2 model dimensions and KV cache capacity must be nonzero");
+        }
+        if !embedding_length.is_multiple_of(head_count) || !head_count.is_multiple_of(head_count_kv)
+        {
+            candle_core::bail!("Qwen2 attention dimensions must divide evenly");
+        }
+        if !rms_norm_eps.is_finite()
+            || rms_norm_eps <= 0.0
+            || !rope_freq_base.is_finite()
+            || rope_freq_base <= 0.0
+        {
+            candle_core::bail!(
+                "Qwen2 normalization epsilon and RoPE frequency must be positive and finite"
+            );
+        }
+
         let head_dim = embedding_length / head_count;
 
         let neg_inf_cpu = Tensor::new(f32::NEG_INFINITY, device)?;
@@ -655,6 +678,53 @@ impl ModelWeights {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn invalid_attention_dimensions_fail_before_reading_tensors() {
+        for (heads, kv_heads, width) in [(0, 1, 64), (4, 0, 64), (3, 1, 64), (4, 3, 64)] {
+            let ct = gguf_file::Content {
+                magic: gguf_file::VersionedMagic::GgufV3,
+                metadata: HashMap::from([
+                    (
+                        "qwen2.attention.head_count".into(),
+                        gguf_file::Value::U32(heads),
+                    ),
+                    (
+                        "qwen2.attention.head_count_kv".into(),
+                        gguf_file::Value::U32(kv_heads),
+                    ),
+                    (
+                        "qwen2.embedding_length".into(),
+                        gguf_file::Value::U32(width),
+                    ),
+                    ("qwen2.context_length".into(), gguf_file::Value::U32(64)),
+                    ("qwen2.block_count".into(), gguf_file::Value::U32(1)),
+                    (
+                        "qwen2.attention.layer_norm_rms_epsilon".into(),
+                        gguf_file::Value::F32(1e-6),
+                    ),
+                ]),
+                tensor_infos: HashMap::new(),
+                tensor_data_offset: 0,
+            };
+            let result = ModelWeights::from_gguf_split(
+                ct,
+                &mut std::io::Cursor::new(Vec::<u8>::new()),
+                &Device::Cpu,
+                &Device::Cpu,
+                0,
+                32,
+            );
+            let error = match result {
+                Ok(_) => panic!("invalid model accepted"),
+                Err(error) => error.to_string(),
+            };
+            assert!(
+                error.contains("nonzero") || error.contains("divide evenly"),
+                "{error}"
+            );
+        }
+    }
 
     #[test]
     fn test_plan_gpu_layers_zero_budget_is_cpu_only() {

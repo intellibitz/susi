@@ -1,3 +1,4 @@
+mod accountability;
 pub mod admin;
 pub mod agents;
 pub mod ama;

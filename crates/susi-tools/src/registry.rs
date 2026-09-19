@@ -125,7 +125,11 @@ impl ToolRegistry {
         }
 
         let registry = Self::global();
-        if let Some(tool) = registry.tools.get(name) {
+        let tool = registry
+            .tools
+            .get(name)
+            .map(|entry| Arc::clone(entry.value()));
+        if let Some(tool) = tool {
             match tool.execute(arg, workspace) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),
@@ -185,19 +189,27 @@ impl ToolRegistry {
     }
 
     pub fn acquire_local_lock(resource_id: &str) -> bool {
-        let registry = Self::global();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs();
+        Self::global().try_acquire_local_lock(resource_id, now)
+    }
 
-        if let Some(timestamp) = registry.locks.get(resource_id) {
-            // Lease-Based Timed Locks (300s TTL)
-            if now - *timestamp < 300 {
-                return false;
+    fn try_acquire_local_lock(&self, resource_id: &str, now: u64) -> bool {
+        const LEASE_SECS: u64 = 300;
+        match self.locks.entry(resource_id.to_owned()) {
+            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
+                // A backwards clock adjustment must not expire an active lease.
+                if now.saturating_sub(*entry.get()) < LEASE_SECS {
+                    return false;
+                }
+                entry.insert(now);
+            }
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                entry.insert(now);
             }
         }
-        registry.locks.insert(resource_id.to_string(), now);
         true
     }
 
@@ -241,5 +253,49 @@ impl ToolRegistry {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn registry() -> ToolRegistry {
+        ToolRegistry {
+            tools: DashMap::new(),
+            locks: DashMap::new(),
+        }
+    }
+
+    #[test]
+    fn lease_expires_at_boundary_and_tolerates_clock_rollback() {
+        let registry = registry();
+        assert!(registry.try_acquire_local_lock("resource", 100));
+        assert!(!registry.try_acquire_local_lock("resource", 99));
+        assert!(!registry.try_acquire_local_lock("resource", 399));
+        assert!(registry.try_acquire_local_lock("resource", 400));
+        assert!(!registry.try_acquire_local_lock("resource", 400));
+        assert!(registry.try_acquire_local_lock("another", 400));
+    }
+
+    #[test]
+    fn concurrent_callers_have_one_lease_owner() {
+        let registry = registry();
+        let barrier = std::sync::Barrier::new(16);
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..16)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        registry.try_acquire_local_lock("resource", 100)
+                    })
+                })
+                .collect();
+            let winners = handles
+                .into_iter()
+                .filter_map(|handle| handle.join().unwrap().then_some(()))
+                .count();
+            assert_eq!(winners, 1);
+        });
     }
 }

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use susi_agents::task_manager::{SwarmTaskManager, TaskHandle, TaskStatus};
+use susi_agents::task_manager::{SwarmTaskManager, TaskHandle};
 use susi_error::EaiResult;
 use susi_sandbox::manager::ModelInfo;
 
@@ -124,13 +124,9 @@ impl ModelDownloadController {
 
     pub fn pause_download(&self, target: &str) -> bool {
         if let Some(task) = self.active_downloads.get(target) {
-            task.task_handle
-                .pause_flag
-                .store(true, std::sync::atomic::Ordering::Release);
-            task.task_handle.status.store(
-                TaskStatus::Paused as u8,
-                std::sync::atomic::Ordering::Release,
-            );
+            if !SwarmTaskManager::global().pause_task(&task.task_handle.task_id) {
+                return false;
+            }
             ModelManager::save_download_progress("", target, 0, 0, "PAUSED");
             true
         } else {
@@ -140,13 +136,9 @@ impl ModelDownloadController {
 
     pub fn resume_download(&self, target: &str) -> bool {
         if let Some(task) = self.active_downloads.get(target) {
-            task.task_handle
-                .pause_flag
-                .store(false, std::sync::atomic::Ordering::Release);
-            task.task_handle.status.store(
-                TaskStatus::Running as u8,
-                std::sync::atomic::Ordering::Release,
-            );
+            if !SwarmTaskManager::global().resume_task(&task.task_handle.task_id) {
+                return false;
+            }
             ModelManager::save_download_progress("", target, 0, 0, "RUNNING");
             true
         } else {
@@ -157,13 +149,9 @@ impl ModelDownloadController {
 
     pub fn stop_download(&self, target: &str) -> bool {
         if let Some(task) = self.active_downloads.get(target) {
-            task.task_handle
-                .cancel_flag
-                .store(true, std::sync::atomic::Ordering::Release);
-            task.task_handle.status.store(
-                TaskStatus::Killed as u8,
-                std::sync::atomic::Ordering::Release,
-            );
+            if !SwarmTaskManager::global().kill_task(&task.task_handle.task_id) {
+                return false;
+            }
             ModelManager::save_download_progress("", target, 0, 0, "STOPPED");
             true
         } else {

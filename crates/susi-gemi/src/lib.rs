@@ -5,6 +5,7 @@ pub(crate) mod download;
 pub mod engine;
 pub mod hardware;
 pub mod hf_discovery;
+mod model_cache;
 pub mod models;
 pub mod pulse;
 pub mod qwen2_split;

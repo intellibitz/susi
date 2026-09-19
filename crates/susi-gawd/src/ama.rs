@@ -47,7 +47,7 @@ impl SusiMissionReport {
         let primary_step = serde_json::json!({
             "action": "supervise_mission_swarm",
             "action_input": { "goal": self.goal },
-            "observation": "Swarm telemetry converged successfully",
+            "observation": format!("Mission status: {}", self.status),
             "thought": full_thinking_trace.trim()
         });
 
@@ -1180,5 +1180,25 @@ impl SusiHybridAgent {
             workspace,
         );
         Ok(format!("[HYBRID_ASSISTANT] {}", res))
+    }
+}
+
+#[cfg(test)]
+mod report_tests {
+    use super::*;
+    #[test]
+    fn protocol_preserves_failed_and_blocked_outcomes() {
+        for status in ["FAILED", "BLOCKED", "ABORTED", "COMPLETE"] {
+            let report = SusiMissionReport {
+                goal: "test".into(),
+                status: status.into(),
+                agents: vec![],
+                interactions: vec![],
+                final_answer: String::new(),
+            };
+            let value: serde_json::Value =
+                serde_json::from_str(&report.to_protocol_format(false)).unwrap();
+            assert_eq!(value["observation"], format!("Mission status: {status}"));
+        }
     }
 }

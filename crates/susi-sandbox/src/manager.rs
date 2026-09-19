@@ -34,13 +34,38 @@ pub type ProviderType = String;
 pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResult<()> {
     let json = serde_json::to_string_pretty(value).map_err(|e| EaiError::config(e.to_string()))?;
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let tmp_path = dir.join(format!(
-        "{}.tmp.{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("tmp"),
-        std::process::id()
-    ));
-    fs::write(&tmp_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
-    fs::rename(&tmp_path, path).map_err(|e| EaiError::filesystem(e.to_string()))
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    // Each writer owns a distinct file, including simultaneous writes in one process.
+    let (tmp_path, mut file) = loop {
+        let tmp_path = dir.join(format!(
+            ".{}.tmp.{}.{}",
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("config"),
+            std::process::id(),
+            NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
+        ));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp_path)
+        {
+            Ok(file) => break (tmp_path, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(EaiError::filesystem(error.to_string())),
+        }
+    };
+    let result = file
+        .write_all(json.as_bytes())
+        .and_then(|()| file.sync_all());
+    drop(file);
+    let result = result.and_then(|()| fs::rename(&tmp_path, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+    result.map_err(|error| EaiError::filesystem(error.to_string()))
 }
 
 /// Recursively backfills any key (object) or element (same-length array)
@@ -800,26 +825,31 @@ pub struct ModelLifecycleConfig {
 }
 
 // === 100% DYNAMIC SUSI CONFIG - THE ROOT ===
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiConfig {
     #[serde(flatten)]
     pub settings: DynamicRegistry, // ALL settings are dynamic, loaded from config.default.json
 }
 
+impl Default for SusiConfig {
+    fn default() -> Self {
+        Self::bundled_defaults().clone()
+    }
+}
+
 impl SusiConfig {
-    // Intentionally shadows the derived Default trait impl (which yields an
-    // empty settings map): this inherent method is the one that loads the
-    // bundled config.default.json, and call sites that need those bundled
-    // values reach it via `Self::default()`/`SusiConfig::default()` rather
-    // than through `Default::default()` trait dispatch.
-    #[allow(clippy::should_implement_trait)]
-    pub fn default() -> Self {
-        // Mandate 42: safe - see ChatTemplateConfig::default's comment
-        // earlier in this file; same compile-time include_str! pattern.
-        // This is the reference instance of the pattern cited in Mandate 35.
-        serde_json::from_str(include_str!("../../../config/config.default.json"))
-            .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
+    fn bundled_defaults() -> &'static Self {
+        static DEFAULTS: std::sync::OnceLock<SusiConfig> = std::sync::OnceLock::new();
+        DEFAULTS.get_or_init(|| {
+            serde_json::from_str(include_str!("../../../config/config.default.json"))
+                .expect("bundled config.default.json must be valid JSON")
+        })
+    }
+
+    fn store() -> &'static crate::versioned_store::VersionedJsonStore<Self> {
+        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiConfig>> =
+            std::sync::OnceLock::new();
+        STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new)
     }
 
     pub fn get_config_path(global_dir: &Path) -> PathBuf {
@@ -836,25 +866,31 @@ impl SusiConfig {
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
-        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiConfig>> =
-            std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
-
-        store.load_with_healing(
+        Self::store().load_with_healing(
             &path,
             || Ok(Self::default()),
             |cfg| {
-                let default = Self::default();
-                merge_missing_registry_defaults(&mut cfg.settings, &default.settings)
+                merge_missing_registry_defaults(
+                    &mut cfg.settings,
+                    &Self::bundled_defaults().settings,
+                )
             },
             true,
         )
     }
 
     pub fn reload(global_dir: &Path) -> EaiResult<Self> {
-        let loaded = Self::load(global_dir)?;
-        let _ = loaded.save(global_dir);
-        Ok(loaded)
+        Self::store().reload_with_healing(
+            &Self::get_config_path(global_dir),
+            || Ok(Self::default()),
+            |cfg| {
+                merge_missing_registry_defaults(
+                    &mut cfg.settings,
+                    &Self::bundled_defaults().settings,
+                )
+            },
+            true,
+        )
     }
 
     pub fn load_global() -> EaiResult<Self> {
@@ -869,13 +905,14 @@ impl SusiConfig {
     /// writers to the same config.json from multiple processes routine rather
     /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
+        fs::create_dir_all(global_dir)?;
         atomic_write_json_pretty(&Self::get_config_path(global_dir), self)
     }
 
     // === TYPED ACCESSORS - No hardcoded fields, dynamic getters with defaults ===
     pub fn get<T: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<T> {
         let v = self.settings.get(key)?;
-        serde_json::from_value(v.clone()).ok()
+        T::deserialize(v).ok()
     }
 
     /// Falls back to the bundled config.default.json's value for `key` (not a
@@ -890,7 +927,7 @@ impl SusiConfig {
     /// mcp_registry_url's Rust fallback was an empty string).
     fn get_or_bundled_default<T: for<'de> Deserialize<'de> + Default>(&self, key: &str) -> T {
         self.get(key)
-            .unwrap_or_else(|| Self::default().get(key).unwrap_or_default())
+            .unwrap_or_else(|| Self::bundled_defaults().get(key).unwrap_or_default())
     }
 
     // Backward compat accessors and helpers

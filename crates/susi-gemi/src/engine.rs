@@ -8,7 +8,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use susi_error::{EaiError, EaiResult};
 
@@ -17,21 +17,8 @@ use candle_core::quantized::gguf_file;
 use candle_transformers::models::quantized_llama as llama;
 use tokenizers::Tokenizer;
 
-/// Backing weights graph for a loaded GGUF. `quantized_llama` serves every
-/// GGUF architecture *except* Qwen2: verified live (checksummed against the
-/// official Qwen/Qwen2.5-0.5B-Instruct-GGUF file, so not a bad download) that
-/// `quantized_llama::from_gguf` only reads `attn_{q,k,v}.weight` and never
-/// `attn_{q,k,v}.bias` - tensors Qwen2's GGUF export always carries, since
-/// Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections. Loading
-/// a Qwen2 GGUF through `quantized_llama` silently drops that bias in every
-/// layer with no error, producing confident-looking but completely wrong
-/// attention output from the first generated token - reproduced identically
-/// on CPU and CUDA and across Q4_K_M/Q8_0, ruling out a device or
-/// quantization-format cause. `quantized_qwen2` is candle's own
-/// bias-aware Qwen2 loader and is used whenever `general.architecture`
-/// starts with "qwen2" (covers "qwen2" and "qwen2moe"); every other
-/// architecture keeps using the generic, actually-universal `quantized_llama`
-/// path via the metadata-shimming pass below.
+/// Inference graph for explicitly supported GGUF architectures. Dense Qwen2
+/// requires its bias-aware backend; Llama uses Candle's quantized Llama graph.
 pub trait NeuralBackend: Send + Sync {
     fn forward(
         &mut self,
@@ -69,8 +56,7 @@ impl NeuralBackend for qwen2gguf::ModelWeights {
 pub type ModelBackend = Box<dyn NeuralBackend>;
 
 /// Loaded neural weights (Mandate 23: Substrate Purity). See `ModelBackend`
-/// for why Qwen2 needs its own graph rather than the otherwise-universal
-/// `quantized_llama` one.
+/// for why Qwen2 needs its own graph rather than the Llama backend.
 ///
 /// Also carries the model's own declared stop token(s) and chat-prompt
 /// format, both read from the GGUF's own metadata at load time (never
@@ -135,49 +121,42 @@ impl PromptFormat {
     }
 }
 
-type ModelCacheMap = HashMap<PathBuf, Arc<RwLock<ModelSubstrate>>>;
-
 pub struct InferenceHost;
 
 impl InferenceHost {
-    /// Universal Substrate Ingestion
-    /// Dynamically identifies and loads any GGUF architecture from local or web sources.
+    /// Loads a supported local GGUF, reusing weights only for the same file
+    /// version, device context, and KV cache capacity.
     pub fn get_model(
         model_path: &Path,
         device: &candle_core::Device,
-        _task_handle: &Arc<susi_agents::task_manager::TaskHandle>,
+        task_handle: &Arc<susi_agents::task_manager::TaskHandle>,
     ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
-        static CACHED_MODELS: OnceLock<Arc<RwLock<ModelCacheMap>>> = OnceLock::new();
-        let cache = CACHED_MODELS.get_or_init(|| Arc::new(RwLock::new(HashMap::new())));
-
-        // 1. Concurrent Read Access
-        {
-            let map = cache.read();
-            if let Some(m) = map.get(model_path) {
-                return Ok(Arc::clone(m));
-            }
+        static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
+        if task_handle.is_cancelled() {
+            return Err(EaiError::inference("Model loading cancelled"));
         }
+        let kv_capacity = susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .kv_cache_capacity_tokens();
+        CACHE
+            .get_or_init(Default::default)
+            .get_or_load(model_path, device, kv_capacity, |path| {
+                if task_handle.is_cancelled() {
+                    return Err(EaiError::inference("Model loading cancelled"));
+                }
+                let model = Self::load_model(path, device, kv_capacity)?;
+                if task_handle.is_cancelled() {
+                    return Err(EaiError::inference("Model loading cancelled"));
+                }
+                Ok(model)
+            })
+    }
 
-        // Anti-Thundering-Herd Lock: Ensure only one thread loads the model from disk
-        static LOAD_LOCKS: once_cell::sync::Lazy<
-            dashmap::DashMap<PathBuf, Arc<parking_lot::Mutex<()>>>,
-        > = once_cell::sync::Lazy::new(dashmap::DashMap::new);
-        let load_mutex = LOAD_LOCKS
-            .entry(model_path.to_path_buf())
-            .or_insert_with(|| Arc::new(parking_lot::Mutex::new(())))
-            .value()
-            .clone();
-
-        let _guard = load_mutex.lock();
-
-        // Double-check cache after acquiring the exclusive load lock
-        {
-            let map = cache.read();
-            if let Some(m) = map.get(model_path) {
-                return Ok(Arc::clone(m));
-            }
-        }
-
+    fn load_model(
+        model_path: &Path,
+        device: &candle_core::Device,
+        kv_cache_capacity: usize,
+    ) -> EaiResult<ModelSubstrate> {
         // 2. Load Weights (Outside global cache lock to prevent substrate-wide stalls)
         println!(
             "- [Substrate Operation] Loading neural weights: {}",
@@ -214,7 +193,8 @@ impl InferenceHost {
             .get("general.architecture")
             .and_then(|v| v.to_string().ok())
             .map(|s| s.to_lowercase())
-            .unwrap_or_else(|| "llama".to_string());
+            .ok_or_else(|| EaiError::inference("GGUF is missing general.architecture"))?;
+        Self::validate_architecture(&arch)?;
 
         // Dynamic Metadata Shimming
         if arch != "llama" {
@@ -250,11 +230,12 @@ impl InferenceHost {
 
         let weights = if Self::needs_qwen2_backend(&arch) {
             let cpu_dev = candle_core::Device::Cpu;
-            let gpu_dev = HardwareProfiler::get_candle_device();
-            let vram_budget = HardwareProfiler::gpu_vram_budget_bytes();
-            let kv_cache_capacity = susi_sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .kv_cache_capacity_tokens();
+            let gpu_dev = device;
+            let vram_budget = if device.is_cpu() {
+                0
+            } else {
+                HardwareProfiler::gpu_vram_budget_bytes()
+            };
             let split = qwen2gguf::ModelWeights::plan_gpu_layers(
                 &model_data,
                 vram_budget,
@@ -268,7 +249,7 @@ impl InferenceHost {
                 model_data,
                 &mut file,
                 &cpu_dev,
-                &gpu_dev,
+                gpu_dev,
                 split,
                 kv_cache_capacity,
             )
@@ -283,35 +264,24 @@ impl InferenceHost {
         let _ = std::io::stdout().flush();
         pb.finish_and_clear();
 
-        let shared = Arc::new(RwLock::new(ModelSubstrate {
+        Ok(ModelSubstrate {
             weights,
             eos_token_ids,
             prompt_format,
-        }));
-
-        // 3. Exclusive Write Access for Cache Registration
-        {
-            let mut map = cache.write();
-            // Double-check if another thread loaded it in the meantime
-            if let Some(m) = map.get(model_path) {
-                return Ok(Arc::clone(m));
-            }
-            map.insert(model_path.to_path_buf(), Arc::clone(&shared));
-        }
-
-        Ok(shared)
+        })
     }
 
-    /// Backfills `llama.*`-prefixed metadata keys that
-    /// `candle_transformers::quantized_llama::from_gguf` requires
-    /// unconditionally, from whatever architecture-prefixed keys the GGUF
-    /// actually carries (e.g. `qwen2.embedding_length`), so one forward pass
-    /// serves every architecture without a per-vendor Rust variant.
-    /// `general.architecture` covers both "qwen2" and the MoE variant
-    /// "qwen2moe" - both export the same bias-bearing attention tensors
-    /// `quantized_llama` silently drops (see `ModelBackend`).
+    fn validate_architecture(arch: &str) -> EaiResult<()> {
+        match arch {
+            "llama" | "qwen2" => Ok(()),
+            _ => Err(EaiError::inference(format!(
+                "Unsupported GGUF architecture '{arch}'; supported architectures: llama, qwen2"
+            ))),
+        }
+    }
+
     fn needs_qwen2_backend(arch: &str) -> bool {
-        arch.starts_with("qwen2")
+        arch == "qwen2"
     }
 
     fn shim_llama_compatible_metadata(metadata: &mut HashMap<String, gguf_file::Value>) {
@@ -1119,7 +1089,31 @@ mod tests {
     use std::thread;
 
     #[test]
-    fn test_needs_qwen2_backend_covers_qwen2_and_moe_variant() {
+    #[ignore = "requires the local Qwen2.5 0.5B GGUF fixture"]
+    fn local_model_loads_on_cpu_and_reuses_cached_weights() {
+        let path =
+            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        assert!(
+            path.is_file(),
+            "local model fixture missing: {}",
+            path.display()
+        );
+        let task = susi_agents::task_manager::SwarmTaskManager::global()
+            .register_task("model_load_test", "CPU model loading");
+        let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
+        let again = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
+        assert!(Arc::ptr_eq(&model, &again));
+        let mut model = model.write();
+        let backend = model.weights.as_qwen2_mut().expect("dense Qwen2 backend");
+        assert!(!backend.is_fully_gpu_resident());
+        let input = candle_core::Tensor::new(&[[100_u32, 200]], &candle_core::Device::Cpu).unwrap();
+        let logits = backend.forward(&input, 0).unwrap();
+        assert!(logits.device().is_cpu());
+        assert!(logits.elem_count() > 0);
+    }
+
+    #[test]
+    fn test_backend_dispatch_rejects_unsupported_architectures() {
         // Regression: quantized_llama (the generic GGUF loader) never reads
         // attn_{q,k,v}.bias, which Qwen2's GGUF export always carries since
         // Qwen2 (unlike Llama) trains a bias term on its Q/K/V projections.
@@ -1130,7 +1124,12 @@ mod tests {
         // out a device or quantization-format cause) because every layer's
         // attention silently dropped its trained bias.
         assert!(InferenceHost::needs_qwen2_backend("qwen2"));
-        assert!(InferenceHost::needs_qwen2_backend("qwen2moe"));
+        assert!(!InferenceHost::needs_qwen2_backend("qwen2moe"));
+        for arch in ["qwen2moe", "qwen3", "gemma", "unknown"] {
+            assert!(InferenceHost::validate_architecture(arch).is_err());
+        }
+        assert!(InferenceHost::validate_architecture("llama").is_ok());
+        assert!(InferenceHost::validate_architecture("qwen2").is_ok());
         assert!(!InferenceHost::needs_qwen2_backend("llama"));
         assert!(!InferenceHost::needs_qwen2_backend("qwen3"));
         assert!(!InferenceHost::needs_qwen2_backend("gemma"));

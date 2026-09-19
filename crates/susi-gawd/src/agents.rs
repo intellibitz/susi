@@ -512,7 +512,7 @@ fn audit_claim_grounding(claim: &str, workspace: &Path) -> (usize, Vec<String>) 
     let paths = extract_candidate_file_paths(claim);
     let hallucinated: Vec<String> = paths
         .iter()
-        .filter(|p| !workspace.join(p).exists() && !Path::new(p).exists())
+        .filter(|p| !workspace.join(p).exists())
         .cloned()
         .collect();
     (paths.len(), hallucinated)
@@ -561,7 +561,7 @@ impl GawdAgent for EpistemicAuditorAgent {
             )
         } else if grounded > 0 {
             format!(
-                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded (verified against workspace), {} unverifiable (no file reference, not necessarily false). Epistemic integrity: VERIFIED.",
+                "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded (verified against workspace), {} unverifiable (no file reference, not necessarily false). Epistemic integrity: FILE REFERENCES VERIFIED (claim contents not independently verified).",
                 total, grounded, ungrounded
             )
         } else {
@@ -1536,14 +1536,19 @@ impl GawdAgentFleet {
         for agent in governance_agents {
             let name = agent.name();
             match agent.execute(&goal, &workspace, &blackboard) {
-                Ok(res) => results.push((name, res)),
+                Ok(res) => {
+                    blackboard.insert(name.clone(), res.clone());
+                    results.push((name, res));
+                }
                 Err(e) => {
                     println!(
                         "- [Swarm Dispatch] Governance veto from {}: {} — aborting swarm dispatch.",
                         name, e
                     );
                     let _ = std::io::stdout().flush();
-                    results.push((name, format!("[GOVERNANCE_BLOCK] {}", e)));
+                    let failure = format!("[GOVERNANCE_BLOCK] {}", e);
+                    blackboard.insert(name.clone(), failure.clone());
+                    results.push((name, failure));
                     return results;
                 }
             }
@@ -1569,7 +1574,12 @@ impl GawdAgentFleet {
             let res = agent.execute(&goal, &workspace, &blackboard).unwrap_or_else(|e| format!("Agent Execution Failed: {}", e));
             let elapsed = start.elapsed();
 
-            if res.contains("Agent Execution Failed") || res.contains("[STALLED]") {
+            let res = if task_handle.is_cancelled() {
+                "[STALLED] Agent execution cancelled before its result was accepted.".to_string()
+            } else { res };
+            // The returned outcome supersedes optimistic intermediate observations.
+            blackboard.insert(name.clone(), res.clone());
+            if !crate::accountability::is_usable(&res) {
                 task_handle.mark_failed(&res);
             } else {
                 task_handle.mark_completed(&res);
@@ -2091,7 +2101,7 @@ mod tests {
         );
         let agent = EpistemicAuditorAgent;
         let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
-        assert!(res.contains("Epistemic integrity: VERIFIED"));
+        assert!(res.contains("Epistemic integrity: FILE REFERENCES VERIFIED"));
         assert!(res.contains("1 file-grounded"));
     }
 

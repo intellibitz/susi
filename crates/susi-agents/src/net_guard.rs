@@ -115,14 +115,30 @@ impl RateLimiter {
             *entry = (now, 1);
             return true;
         }
+        if entry.1 >= limit {
+            return false;
+        }
         entry.1 += 1;
-        entry.1 <= limit
+        true
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exhausted_counter_never_wraps_and_expired_window_resets() {
+        let limiter = RateLimiter::with_capacity(10);
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        limiter.buckets.insert(ip, (Instant::now(), u32::MAX));
+        assert!(!limiter.check(ip, u32::MAX));
+        limiter
+            .buckets
+            .insert(ip, (Instant::now() - RateLimiter::WINDOW, u32::MAX));
+        assert!(limiter.check(ip, 1));
+        assert!(!limiter.check(ip, 1));
+    }
 
     #[test]
     fn test_is_authorized_open_when_no_token_configured() {
