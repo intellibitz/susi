@@ -93,7 +93,14 @@ jobs:
           sudo apt-get install -y nvidia-cuda-toolkit
 
       - name: Build GPU-Accelerated Engine (CUDA)
-        run: cargo build --release --features cuda
+        # candle-kernels' build script shells out to `nvidia-smi` to detect
+        # the compute capability to target - CI runners have no GPU, so that
+        # probe fails outright ("Failed to run nvidia-smi: No such file or
+        # directory"). CUDA_COMPUTE_CAP short-circuits that probe. 75
+        # (Turing) is used as a broadly-compatible baseline for this
+        # distributed binary; a contributor building for their own GPU
+        # should use ./build-gpu.sh instead, which auto-detects it.
+        run: CUDA_COMPUTE_CAP=75 cargo build --release --features cuda
 
       - name: Rename Binary
         run: mv target/release/susi-engine susi-engine-linux-x86_64-cuda

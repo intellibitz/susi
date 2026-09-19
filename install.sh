@@ -1,5 +1,27 @@
 #!/usr/bin/env bash
 # susi installer - Lightning Fast Intelligence Substrate Onboarding
+#
+# This script uses bash-only features (arrays, [[ ]], BASH_SOURCE) throughout.
+# `sh` is dash/ash on most Linux distros (Debian, Ubuntu, Alpine, ...), not
+# bash, so `curl ... | sh` or `sh install.sh` fails partway with a cryptic
+# "Bad substitution"/syntax error rather than running. Re-exec under bash:
+# - downloaded-then-run (`sh install.sh`): $0 is a real path, re-exec it.
+# - piped directly (`curl ... | sh`): $0 isn't a readable path (it's e.g.
+#   "sh"), and stdin has already been partially consumed by the outer shell,
+#   so a reliable re-exec isn't possible here - point the user at `| bash`.
+if [ -z "$BASH_VERSION" ]; then
+    if ! command -v bash >/dev/null 2>&1; then
+        echo "Error: this installer requires bash, which was not found on PATH. Install bash and re-run." >&2
+        exit 1
+    fi
+    if [ -f "$0" ]; then
+        exec bash "$0" "$@"
+    fi
+    echo "Error: this installer needs to be run with bash, not sh. Re-run as:" >&2
+    echo "  curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash" >&2
+    exit 1
+fi
+
 set -e
 set -o pipefail
 
@@ -338,9 +360,27 @@ RestartSec=5
 [Install]
 WantedBy=default.target
 EOF
-        systemctl --user daemon-reload
-        systemctl --user enable susi.service
-        systemctl --user start susi.service
+        # Enable lingering so the user systemd instance (and this service)
+        # keeps running after logout/reboot without an active login session -
+        # best effort; some systems restrict this to root/polkit-approved users.
+        if command -v loginctl >/dev/null 2>&1; then
+            loginctl enable-linger "$(id -un)" 2>/dev/null || true
+        fi
+
+        # `systemctl --user` requires a reachable user session bus, which
+        # isn't always up (e.g. a fresh SSH session before lingering takes
+        # effect, WSL without systemd, minimal containers). Without this
+        # guard a failure here would abort the whole installer under `set -e`
+        # even though the binary itself installed fine.
+        if systemctl --user daemon-reload 2>/dev/null \
+            && systemctl --user enable susi.service 2>/dev/null \
+            && systemctl --user start susi.service 2>/dev/null; then
+            :
+        else
+            echo "  Warning: could not reach the systemd user session bus; skipping daemon start."
+            echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
+            echo "  Or re-run this installer after 'loginctl enable-linger $(id -un)' takes effect (e.g. after re-login)."
+        fi
     fi
 elif [[ "$PLATFORM" == "macos" ]]; then
     echo "Registering susi daemon with launchd. Set SUSI_NO_DAEMON=1 to skip this."
@@ -366,7 +406,10 @@ elif [[ "$PLATFORM" == "macos" ]]; then
 </dict>
 </plist>
 EOF
-    launchctl load "$LAUNCHD_PLIST" 2>/dev/null || true
+    if ! launchctl load "$LAUNCHD_PLIST" 2>/dev/null; then
+        echo "  Warning: could not register with launchd; skipping daemon start."
+        echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
+    fi
 fi
 
 # 6. Intelligence Substrate Provisioning (Proof of Life Handshake)
@@ -430,7 +473,7 @@ if [[ ":$PATH:" != *":$GLOBAL_BIN_DIR:"* ]]; then
     fi
 fi
 
-# 6. Finalize
+# 8. Finalize
 if [ -t 0 ] && [ -t 1 ] && [ -z "$NONINTERACTIVE" ] && [ -x "$GLOBAL_BIN_DIR/susi" ]; then
     echo "Installation complete. Starting interactive susi session..."
     echo ""

@@ -18,7 +18,6 @@ dashmap = "6.0"
 indicatif = "0.18.6"
 reqwest = { version = "0.13.5", features = ["json", "blocking"] }
 ureq = { version = "3.4.2", features = ["json"] }
-wasmer = { version = "7", features = ["cranelift", "sys"] }
 wasmer-wasix = { version = "0.704.2", features = ["sys"] }
 wasmer-types = "7"
 bytes = "1.0"
@@ -70,7 +69,15 @@ candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
 candle-nn = { version = "0.11.0", features = ["metal", "accelerate"] }
 candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 
+[target.'cfg(not(windows))'.dependencies]
+# wasmer's cranelift compiler backend has a hard compile_error on Windows
+# (wasmer-compiler-cranelift 7.4.2 lib.rs); singlepass is used there instead
+# below. `wasmer::Engine::default()` (src/native/wasm.rs) picks whichever
+# backend feature was compiled in, so no source changes are needed.
+wasmer = { version = "7", features = ["cranelift", "sys"] }
+
 [target.'cfg(windows)'.dependencies]
+wasmer = { version = "7", features = ["singlepass", "sys"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
 [features]

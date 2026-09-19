@@ -17,16 +17,23 @@
 
 ## Installation & Quickstart
 
-### Universal One-Liner (Linux / macOS / Windows / WSL)
+### One-Liner (Linux / macOS / WSL)
 ```bash
-curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | sh
+curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash
 ```
+
+The installer uses bash-specific features, so it must be piped into `bash`, not `sh` — on Debian, Ubuntu, and Alpine, `sh` is dash/ash, not bash, and will fail partway through.
 
 Downloaded binaries and model weights are verified against a published SHA-256 checksum before use; if no matching binary/checksum is available for your platform, the installer falls back to building from source (requires Rust, see [rustup.rs](https://rustup.rs)).
 
-By default the installer also registers a persistent background daemon (systemd user service on Linux, a launchd agent on macOS) that starts `susi` on login. Set `SUSI_NO_DAEMON=1` before running the installer to skip this:
+By default the installer also registers a persistent background daemon (systemd user service on Linux, a launchd agent on macOS) that starts `susi` on login. Set `SUSI_NO_DAEMON=1` to skip this — note it goes on the `bash` side of the pipe, not before `curl` (a prefix before `curl` only sets the variable for `curl`, not for the piped-to shell):
 ```bash
-SUSI_NO_DAEMON=1 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | sh
+curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
+```
+
+### One-Liner (Windows PowerShell, native — not WSL)
+```powershell
+irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
 ```
 
 ### Usage
