@@ -13,7 +13,7 @@ members = [
 
 [package]
 name = "susi-engine"
-version = "0.1.2023078"
+version = "0.1.2023079"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi-engine: EAI: Exponential Intelligence for Any AI. - GAWD, GEMI & GMCP Multi-Agent Engine"
