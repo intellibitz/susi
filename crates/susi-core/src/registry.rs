@@ -1,5 +1,5 @@
-use std::any::{Any, TypeId};
 use dashmap::DashMap;
+use std::any::{Any, TypeId};
 use std::sync::Arc;
 
 /// An innovative dynamic Service Locator mapping `TypeId` to generic instances.

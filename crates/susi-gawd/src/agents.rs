@@ -1105,20 +1105,48 @@ pub fn agent_registry() -> &'static DynamicServiceRegistry {
     static REGISTRY: OnceLock<DynamicServiceRegistry> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let registry = DynamicServiceRegistry::new();
-        registry.register_factory("DevOpsAgent", || Arc::new(Arc::new(DevOpsAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("SusiRuntimeAgent", || Arc::new(Arc::new(SusiRuntimeAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("HardwareAgent", || Arc::new(Arc::new(HardwareAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("SafetyAgent", || Arc::new(Arc::new(SafetyAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("SecurityAgent", || Arc::new(Arc::new(SecurityAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("EvolutionAgent", || Arc::new(Arc::new(EvolutionAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("GmcpAgent", || Arc::new(Arc::new(GmcpAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("EpistemicAuditorAgent", || Arc::new(Arc::new(EpistemicAuditorAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("ResourceArbitratorAgent", || Arc::new(Arc::new(ResourceArbitratorAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("ConsensusMediatorAgent", || Arc::new(Arc::new(ConsensusMediatorAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("SelfHealingAgent", || Arc::new(Arc::new(SelfHealingAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("LibraryScoutAgent", || Arc::new(Arc::new(LibraryScoutAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("AdminAgent", || Arc::new(Arc::new(AdminAgent) as Arc<dyn GawdAgent>));
-        registry.register_factory("ContextAgent", || Arc::new(Arc::new(ContextAgent) as Arc<dyn GawdAgent>));
+        registry.register_factory("DevOpsAgent", || {
+            Arc::new(Arc::new(DevOpsAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("SusiRuntimeAgent", || {
+            Arc::new(Arc::new(SusiRuntimeAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("HardwareAgent", || {
+            Arc::new(Arc::new(HardwareAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("SafetyAgent", || {
+            Arc::new(Arc::new(SafetyAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("SecurityAgent", || {
+            Arc::new(Arc::new(SecurityAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("EvolutionAgent", || {
+            Arc::new(Arc::new(EvolutionAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("GmcpAgent", || {
+            Arc::new(Arc::new(GmcpAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("EpistemicAuditorAgent", || {
+            Arc::new(Arc::new(EpistemicAuditorAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("ResourceArbitratorAgent", || {
+            Arc::new(Arc::new(ResourceArbitratorAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("ConsensusMediatorAgent", || {
+            Arc::new(Arc::new(ConsensusMediatorAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("SelfHealingAgent", || {
+            Arc::new(Arc::new(SelfHealingAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("LibraryScoutAgent", || {
+            Arc::new(Arc::new(LibraryScoutAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("AdminAgent", || {
+            Arc::new(Arc::new(AdminAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("ContextAgent", || {
+            Arc::new(Arc::new(ContextAgent) as Arc<dyn GawdAgent>)
+        });
         registry
     })
 }

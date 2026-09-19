@@ -2,10 +2,10 @@
 // Real-time inter-agent messaging and telemetry streaming via flume.
 // Refactored to feature an innovative generically-typed dynamic Pub/Sub event bus.
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::sync::Arc;
-use dashmap::DashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SwarmEventType {
@@ -63,16 +63,21 @@ impl TypedEventBus {
         self.get_or_create_channel::<E>().1.clone()
     }
 
-    fn get_channel<E: Send + Sync + 'static>(&self) -> Option<Arc<(flume::Sender<E>, flume::Receiver<E>)>> {
+    fn get_channel<E: Send + Sync + 'static>(
+        &self,
+    ) -> Option<Arc<(flume::Sender<E>, flume::Receiver<E>)>> {
         self.channels
             .get(&TypeId::of::<E>())
             .and_then(|any| any.clone().downcast().ok())
     }
 
-    fn get_or_create_channel<E: Send + Sync + 'static>(&self) -> Arc<(flume::Sender<E>, flume::Receiver<E>)> {
-        let entry = self.channels.entry(TypeId::of::<E>()).or_insert_with(|| {
-            Arc::new(flume::unbounded::<E>())
-        });
+    fn get_or_create_channel<E: Send + Sync + 'static>(
+        &self,
+    ) -> Arc<(flume::Sender<E>, flume::Receiver<E>)> {
+        let entry = self
+            .channels
+            .entry(TypeId::of::<E>())
+            .or_insert_with(|| Arc::new(flume::unbounded::<E>()));
         entry.clone().downcast().unwrap()
     }
 }

@@ -38,24 +38,35 @@ pub trait NeuralBackend: Send + Sync {
         x: &candle_core::Tensor,
         index_pos: usize,
     ) -> candle_core::Result<candle_core::Tensor>;
-    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> { None }
+    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
+        None
+    }
 }
 
 impl NeuralBackend for llama::ModelWeights {
-    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+    fn forward(
+        &mut self,
+        x: &candle_core::Tensor,
+        index_pos: usize,
+    ) -> candle_core::Result<candle_core::Tensor> {
         self.forward(x, index_pos)
     }
 }
 
 impl NeuralBackend for qwen2gguf::ModelWeights {
-    fn forward(&mut self, x: &candle_core::Tensor, index_pos: usize) -> candle_core::Result<candle_core::Tensor> {
+    fn forward(
+        &mut self,
+        x: &candle_core::Tensor,
+        index_pos: usize,
+    ) -> candle_core::Result<candle_core::Tensor> {
         self.forward(x, index_pos)
     }
-    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> { Some(self) }
+    fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
+        Some(self)
+    }
 }
 
 pub type ModelBackend = Box<dyn NeuralBackend>;
-
 
 /// Loaded neural weights (Mandate 23: Substrate Purity). See `ModelBackend`
 /// for why Qwen2 needs its own graph rather than the otherwise-universal
@@ -263,7 +274,8 @@ impl InferenceHost {
             )
             .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         } else {
-            llama::ModelWeights::from_gguf(model_data, &mut file, device).map(|m| Box::new(m) as Box<dyn NeuralBackend>)
+            llama::ModelWeights::from_gguf(model_data, &mut file, device)
+                .map(|m| Box::new(m) as Box<dyn NeuralBackend>)
         }
         .map_err(|e| EaiError::inference(format!("Architecture '{}' load failure: {}", arch, e)))?;
 
@@ -393,17 +405,21 @@ impl ContextSummarizer {
     }
 }
 
-
-
 use susi_core::registry::DynamicServiceRegistry;
 
 pub fn engine_registry() -> &'static DynamicServiceRegistry {
     static REGISTRY: OnceLock<DynamicServiceRegistry> = OnceLock::new();
     REGISTRY.get_or_init(|| {
         let registry = DynamicServiceRegistry::new();
-        registry.register_factory("susi-federated", || Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>));
-        registry.register_factory("cloud", || Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>));
-        registry.register_factory("llamacpp", || Arc::new(Arc::new(LlamaCppEngine) as Arc<dyn NativeInferenceEngine>));
+        registry.register_factory("susi-federated", || {
+            Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>)
+        });
+        registry.register_factory("cloud", || {
+            Arc::new(Arc::new(SusiFederatedEngine) as Arc<dyn NativeInferenceEngine>)
+        });
+        registry.register_factory("llamacpp", || {
+            Arc::new(Arc::new(LlamaCppEngine) as Arc<dyn NativeInferenceEngine>)
+        });
         registry
     })
 }
@@ -478,8 +494,9 @@ impl GemiEngine {
         let engine = engine_registry()
             .instantiate::<std::sync::Arc<dyn NativeInferenceEngine>>(engine_key)
             .map(|arc_of_arc| (*arc_of_arc).clone())
-            .unwrap_or_else(|| std::sync::Arc::new(LlamaCppEngine) as std::sync::Arc<dyn NativeInferenceEngine>);
-
+            .unwrap_or_else(|| {
+                std::sync::Arc::new(LlamaCppEngine) as std::sync::Arc<dyn NativeInferenceEngine>
+            });
 
         let selected_model = requested_model.map(str::to_owned).or_else(|| {
             ModelManager::get_selected_model_for_request_with_min_complexity(

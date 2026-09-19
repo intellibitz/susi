@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# 🛡️ SUSI Pre-Commit Compliance Hook
+
+echo "🛡️ Running SUSI Code Compliance Checks..."
+
+echo "- Checking Rustfmt..."
+cargo fmt --all -- --check
+if [ $? -ne 0 ]; then
+    echo "❌ Compliance Violation: Code formatting is not compliant."
+    echo "👉 Run 'cargo fmt --all' to fix."
+    exit 1
+fi
+
+echo "- Checking Clippy lints..."
+cargo clippy --workspace --all-targets -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "❌ Compliance Violation: Clippy found warnings/errors."
+    echo "👉 Fix the clippy issues before committing."
+    exit 1
+fi
+
+echo "- Running SUSI Mandate Compliance Auditor..."
+cargo run -- admin audit
+if [ $? -ne 0 ]; then
+    echo "❌ Compliance Violation: SUSI Bloat/Security Audit failed."
+    exit 1
+fi
+
+echo "✅ SUSI Compliance Pre-Commit Check Passed."
+exit 0

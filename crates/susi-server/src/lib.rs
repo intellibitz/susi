@@ -383,17 +383,18 @@ fn now_secs() -> u64 {
 fn extract_prompt_from_json(body: &str) -> Option<String> {
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(body)
         && let Some(messages) = v.get("messages").and_then(|m| m.as_array())
-            && let Some(last) = messages.last()
-                && let Some(c) = last.get("content") {
-                    if let Some(s) = c.as_str() {
-                        return Some(s.to_string());
-                    } else if let Some(arr) = c.as_array() {
-                        for item in arr {
-                            if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                                return Some(text.to_string());
-                            }
-                        }
-                    }
+        && let Some(last) = messages.last()
+        && let Some(c) = last.get("content")
+    {
+        if let Some(s) = c.as_str() {
+            return Some(s.to_string());
+        } else if let Some(arr) = c.as_array() {
+            for item in arr {
+                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                    return Some(text.to_string());
                 }
+            }
+        }
+    }
     None
 }
