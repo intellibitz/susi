@@ -299,6 +299,7 @@ impl ModelWeights {
         };
 
         let seq_budget = (kv_cache_capacity as u64).min(context_length);
+        let vram_budget_bytes = (vram_budget_bytes as f64 * 0.98) as u64; // Pack tight to GPU boundary
         let kv_bytes_per_layer = 2 * head_count_kv * head_dim * seq_budget * 4; // f32 k+v cache
 
         let mut used = 0u64;

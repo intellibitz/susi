@@ -277,7 +277,7 @@ impl HardwareProfiler {
         // Sub-2ms Heterogeneous Offloading Fallback
         if allocated_bytes_required > 0 {
             let vram_limit = Self::determine_gpu_vram_gb() * 1024 * 1024 * 1024;
-            if vram_limit > 0 && allocated_bytes_required as f64 > (vram_limit as f64 * 0.90) {
+            if vram_limit > 0 && allocated_bytes_required as f64 > (vram_limit as f64 * 0.98) {
                 return Device::Cpu;
             }
         }
