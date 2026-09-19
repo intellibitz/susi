@@ -621,11 +621,13 @@ fn extract_candidate_file_paths(text: &str) -> Vec<String> {
 
 /// Verifies `claim`'s file-path references (if any) actually exist in
 /// `workspace`. This is the real, checkable slice of "backed by empirical
-/// evidence" available in the primary blackboard-based dispatch path — the
-/// structured `EvidenceRecord`/`Claim` provenance pipeline (`gawd/evidence.rs`)
-/// exists but is only ever populated by `MissionDag::execute_dag`, which
-/// nothing in `dispatch_explosive_swarm` currently calls, so there are no
-/// live `EvidenceRecord`s for this agent to audit in a real mission.
+/// evidence" this agent uses — it audits raw blackboard text directly, not
+/// the structured `EvidenceRecord`/`Claim` provenance pipeline
+/// (`gawd/evidence.rs`), which is a separate mechanism `dispatch_explosive_swarm`
+/// now populates via `MissionDag::execute_dag` (stored on the blackboard
+/// under `EvidenceRecord::<subject>` keys) but which this agent does not
+/// currently consume — a possible future improvement, not a gap in this
+/// function's own design.
 fn audit_claim_grounding(claim: &str, workspace: &Path) -> (usize, Vec<String>) {
     let paths = extract_candidate_file_paths(claim);
     let hallucinated: Vec<String> = paths
@@ -1811,6 +1813,42 @@ impl GawdAgentFleet {
         }).collect();
 
         results.extend(par_results);
+
+        // Pillar III item 2 ("Swarm Synthesis: GAWD constructs a Dynamic
+        // Execution Graph") / Mandate 17 (Recursive Decomposition) / Mandate
+        // 19 (Decoupled Messaging): dependency-ordered task execution for
+        // the mission's root goal via the Evidence IR provenance pipeline
+        // (gawd::dag / gawd::evidence / gawd::bus), run additively alongside
+        // the specialist-agent fanout above rather than replacing it - that
+        // fanout is the well-tested existing path and is left untouched.
+        // Currently a single-node DAG (root only): nothing yet calls
+        // MissionDag::spawn_subtask to expand it into real sub-tasks, so
+        // this exercises the pipeline end-to-end on every real mission
+        // without yet using its actual decomposition capability. Adds one
+        // additional reasoning call's worth of latency per mission - a real
+        // cost, not free reachability.
+        let mut dag = crate::gawd::dag::MissionDag::new(&goal);
+        let (event_tx, _event_rx) = crate::gawd::bus::create_swarm_bus();
+        match dag.execute_dag(&workspace, &blackboard, &event_tx) {
+            Ok(evidence_records) => {
+                for record in &evidence_records {
+                    blackboard.insert(
+                        format!("EvidenceRecord::{}", record.claim.subject),
+                        record.render_for_gemi(),
+                    );
+                }
+                if let Some(record) = evidence_records.first() {
+                    results.push(("MissionDag".to_string(), record.claim.value.clone()));
+                }
+            }
+            Err(e) => {
+                results.push((
+                    "MissionDag".to_string(),
+                    format!("[DAG_EXECUTION_FAILED] {}", e),
+                ));
+            }
+        }
+
         results
     }
 }
@@ -1818,6 +1856,39 @@ impl GawdAgentFleet {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// dispatch_explosive_swarm previously had zero test coverage. Proves
+    /// the MissionDag wiring added alongside the specialist-agent fanout
+    /// actually runs end-to-end: a "MissionDag" result is present, and its
+    /// EvidenceRecord landed on the blackboard under the expected key -
+    /// not just "the code compiles and doesn't panic".
+    #[test]
+    fn test_dispatch_explosive_swarm_runs_mission_dag_and_populates_blackboard() {
+        std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
+        let tmp = std::env::temp_dir().join("susi_test_dispatch_dag");
+        let _ = std::fs::create_dir_all(&tmp);
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(1024));
+
+        let results = GawdAgentFleet::dispatch_explosive_swarm(
+            "status".to_string(),
+            tmp.clone(),
+            Arc::clone(&blackboard),
+        );
+
+        assert!(
+            results.iter().any(|(name, _)| name == "MissionDag"),
+            "expected a MissionDag entry in the swarm results, got: {:?}",
+            results.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+        assert!(
+            blackboard
+                .iter()
+                .any(|entry| entry.key().starts_with("EvidenceRecord::")),
+            "expected at least one EvidenceRecord::* key on the blackboard"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 
     /// Regression: "What is the capital of France?" (and ordinary questions
     /// like it) used to fall through the meta-command-only allowlist and
