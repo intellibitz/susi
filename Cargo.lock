@@ -6501,7 +6501,7 @@ dependencies = [
 
 [[package]]
 name = "susi-daemon"
-version = "0.1.2023080"
+version = "0.1.2023081"
 dependencies = [
  "ciborium",
  "hex",
@@ -6726,7 +6726,7 @@ dependencies = [
 
 [[package]]
 name = "susi-server"
-version = "0.1.2023080"
+version = "0.1.2023081"
 dependencies = [
  "bytes",
  "http-body-util",

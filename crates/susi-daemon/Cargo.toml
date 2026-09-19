@@ -1,6 +1,6 @@
 [package]
 name = "susi-daemon"
-version = "0.1.2023080"
+version = "0.1.2023081"
 edition = "2024"
 
 [dependencies]
