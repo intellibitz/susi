@@ -482,6 +482,10 @@ impl SpeculativeDecoder {
                 task_handle,
                 callback,
             );
+            // Mandate 42: safe - `spec_chunk` is initialized as
+            // `vec![anchor_token]` (never `vec![]`) and only ever grows via
+            // `.push` afterward, so it's non-empty for the rest of this
+            // scope and `.last()` can never return `None` here or below.
             if all_tokens.len() >= max_tokens || eos_token_ids.contains(spec_chunk.last().unwrap())
             {
                 let output = tokenizer

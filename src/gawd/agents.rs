@@ -1235,6 +1235,13 @@ impl AgentMetaRegistry {
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
+        // Mandate 42: safe - agents.default.json is compiled into the binary
+        // via include_str!, not a user-editable runtime file (same pattern
+        // as SusiConfig::default() in sandbox/manager.rs). Its content is
+        // fixed for any given binary, so this either always succeeds or
+        // always fails for that binary - a failure here is a build/
+        // packaging bug caught by any test run, never a runtime condition
+        // that varies between invocations.
         serde_json::from_str(include_str!("../../config/agents.default.json"))
             .expect("Fatal: agents.default.json must be valid JSON.")
     }
