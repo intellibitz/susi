@@ -6471,7 +6471,7 @@ dependencies = [
 
 [[package]]
 name = "susi-engine"
-version = "0.1.2023074"
+version = "0.1.2023075"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
