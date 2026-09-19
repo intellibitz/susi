@@ -1,0 +1,149 @@
+name: Dev Release (main)
+
+# Rolling pre-release that always reflects the tip of `main`. Unlike
+# release.yml (tag-triggered, immutable, semver), this workflow moves a
+# single `dev` tag forward on every push and republishes the same release
+# in place, so there is never more than one dev release cluttering the
+# releases page.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: true
+
+jobs:
+  move-tag:
+    name: Move dev tag to HEAD
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Force-update dev tag
+        run: |
+          git tag -f dev
+          git push origin dev --force
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: move-tag
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x86_64
+            artifact: susi-engine-linux-x86_64
+            src: target/release/susi-engine
+          - os: ubuntu-24.04-arm
+            name: linux-aarch64
+            artifact: susi-engine-linux-aarch64
+            src: target/release/susi-engine
+          - os: macos-13
+            name: macos-x86_64
+            artifact: susi-engine-macos-x86_64
+            src: target/release/susi-engine
+          - os: macos-14
+            name: macos-aarch64
+            artifact: susi-engine-macos-aarch64
+            src: target/release/susi-engine
+          - os: windows-latest
+            name: windows-x86_64
+            artifact: susi-engine-windows-x86_64.exe
+            src: target/release/susi-engine.exe
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+
+      - name: Build Engine
+        run: cargo build --release
+
+      - name: Rename Binary
+        shell: bash
+        run: mv "${{ matrix.src }}" "${{ matrix.artifact }}"
+
+      - name: Generate Checksum (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
+
+      - name: Generate Checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash "${{ matrix.artifact }}" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.artifact }}" | Set-Content -NoNewline -Path "${{ matrix.artifact }}.sha256"
+
+      - name: Publish Dev Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: "Development Build (main)"
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          body: |
+            Automated build of `main` @ ${{ github.sha }}.
+
+            This release is overwritten on every push to `main` — it is not
+            a stable release. For production use, use a tagged `vX.Y.Z`
+            release instead.
+          files: |
+            ${{ matrix.artifact }}
+            ${{ matrix.artifact }}.sha256
+
+  build-cuda:
+    name: Build linux-x86_64-cuda
+    needs: move-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+
+      - name: Install CUDA Toolkit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nvidia-cuda-toolkit
+
+      - name: Build GPU-Accelerated Engine (CUDA)
+        # See release.yml for why CUDA_COMPUTE_CAP is hardcoded here.
+        run: CUDA_COMPUTE_CAP=75 cargo build --release --features cuda
+
+      - name: Rename Binary
+        run: mv target/release/susi-engine susi-engine-linux-x86_64-cuda
+
+      - name: Generate Checksum
+        run: shasum -a 256 susi-engine-linux-x86_64-cuda > susi-engine-linux-x86_64-cuda.sha256
+
+      - name: Publish Dev Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev
+          name: "Development Build (main)"
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          make_latest: false
+          files: |
+            susi-engine-linux-x86_64-cuda
+            susi-engine-linux-x86_64-cuda.sha256
