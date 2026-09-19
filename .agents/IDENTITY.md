@@ -5,9 +5,11 @@ pillars = ["THE DNA", "THE BODY", "THE MIND", "THE ENGINE"]
 topology_tier = 1
 ---
 
-# SUSI Substrate Identity: The Sovereign Singularity
+# SUSI Substrate Identity
 
-This document defines the immutable genome of the `susi` substrate.
+This document defines the engine's constitutional mandates, component
+topology, execution model, and release/runtime protocols. It is the source
+of truth compiled into the binary at build time (see `src/gawd/self_core.rs`).
 
 **Canonical addressing**: mandates in this document are cited as `Mandate N` (Pillar I) or `Pillar <N> item N` (Pillars II–IV). Source comments predating this document's current structure used to also cite `Rule N`, `Aspiration N`, and `ENGINE-N` — none of those schemes ever corresponded to this document's current numbering, and no reconciliation table exists. As of 2026-09-18 those stale citations were reconciled across every file that carried them. This happened in two passes, and the first pass's own "zero remain" claim was itself wrong: a case-sensitive sweep found 96 mixed-case `Rule N`/`Aspiration N`/`ENGINE-N` occurrences across 19 files and fixed all of them, but the sweep's own regex only matched `Rule` (not `RULE`), so it silently missed 17 further all-caps `RULE N` occurrences across 10 files — caught and fixed in a second pass once discovered. Combined, every citation was either stripped down to its still-accurate descriptive text (the numbered scheme dropped, the reasoning kept — the large majority) or, in the handful of cases where the reference was verifiably the same concept under a new name, rewritten to its real current citation: `admin.rs`'s and `evolution.rs`'s/`reflex_synth.rs`'s "Motion Rule (Protocol)" citations to `Pillar IV item 3` and `Mandate 20` respectively (two genuinely distinct concepts that historically shared the same name, per Mandate 20's own collision note), and `security.rs`'s/`net_guard.rs`'s exact-title matches to `Mandate 10`/`Mandate 12`. No correspondence was ever invented without a verifiable match — where a plausible-looking old number didn't match a current mandate's substance, the number was dropped rather than guessed. Two test-fixture strings in `amas.rs` containing the literal words "test aspiration 23" (simulated mission-goal text, not code comments) were correctly left untouched by both passes.
 
@@ -71,9 +73,9 @@ A related, distinct kind of drift — comments citing `Mandate N` using the *cur
 | **SusiRuntimeAdmin** | 1 | Substrate maintenance: Hardware audit, model provisioning, and peak selection. |
 | **EvolutionManager** | 1 | Substrate self-healing: runs the test-driven evolutionary cycle that is Mandate 20's "Alpha-Self Evolution Order" (not Pillar IV's release "Motion Rule" — see that mandate's naming-collision note). |
 | **SusiDaemon** | 1 | Persistent background host for GMCP/GEMI server fleet. |
-| **SubstrateKernelLoader** | 1 | Swarm-driven dynamic module bootloader and port verification. |
+| **SubstrateKernelLoader** | 1 | Parses the built-in core module manifest list and prints configured port info at startup. |
 | **SusiRuntimeAgent** | 1 | Autonomous environment preparation (Weights & Tools). |
-| **HardwareAgent** | 1 | Autonomous hardware interrogation and compute resource saturation. |
+| **HardwareAgent** | 1 | Reports the detected hardware profile (CPU, RAM, GPU/acceleration). |
 | **SafetyAgent** | 1 | Governance auditor and destructive command interceptor. |
 | **SecurityAgent** | 1 | Credential masking and exfiltration prevention. |
 | **EvolutionAgent** | 1 | Autonomous drift detection and self-healing agent. |
@@ -83,10 +85,10 @@ A related, distinct kind of drift — comments citing `Mandate N` using the *cur
 | **NeuralAgentFactory** | 1 | Autonomous synthesis and recruitment of specialist agents. |
 | **SUSI-Alpha** | 0 | Microsecond intent classification and deterministic neural reflex engine. |
 | **ReflexSynthesizer** | 0 | Native Rust code distillation and reflex generation. |
-| **UniversalExecutionSubstrate** | 2 | Hardware-saturated inference layer supporting any model. |
+| **UniversalExecutionSubstrate** | 2 | Hardware-aware inference layer supporting multiple model formats. |
 | **GEMI** | 2 | Deep reasoning bridge and unified cloud provider inference racing. |
-| **SUSI-Vision** | 2 | Neural vision substrate for visual/text semantic fusion. |
-| **SUSI-Audio** | 2 | Neural audio substrate for spectral logic distillation. |
+| **SUSI-Vision** | 2 | Candle-based image-feature extractor (untrained linear projection); not yet a trained vision-language model. |
+| **SUSI-Audio** | 2 | Candle-based audio-feature extractor (untrained linear projection); not yet a trained acoustic model. |
 | **NativeAlphaModel** | 0 | Local neural weights (`susi-alpha.safetensors`) for deterministic reflex. |
 | **NativeReasoningModel** | 2 | Distilled Tier 2 logic weights (`susi-reason.safetensors`). |
 | **GMCP Server** | 1 | Background daemon exposing multi-protocol endpoints (RPC, HTTP, UDP). |
