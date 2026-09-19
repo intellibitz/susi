@@ -14,20 +14,6 @@ This file mixes two kinds of rows: short entries auto-logged by the engine for e
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
-| EV-2022924-042 | [MISSION] | What is the capital of France? Answer in one short sentence. | [manual](symbol://manual) | STAGED |
-| EV-2022924-041 | [MISSION] | Explain photosynthesis. | [manual](symbol://manual) | STAGED |
-| EV-2022924-040 | [MISSION] | Write a short poem about the ocean. | [manual](symbol://manual) | STAGED |
-| EV-2022924-039 | [MISSION] | Write a detailed 3-paragraph essay about the history of space exploration and its future, pushing the boundaries of AI integration in aerospace. | [manual](symbol://manual) | STAGED |
-| EV-2022924-038 | [MISSION] | Write a detailed, creative 3-paragraph essay about the history of space exploration and its future, pushing the boundaries of AI integration in aerospace. | [manual](symbol://manual) | STAGED |
-| EV-2022924-033 | [MISSION] | Name three colors. | [manual](symbol://manual) | STAGED |
-| EV-2022924-032 | [MISSION] | Explain what photosynthesis is in two sentences. | [manual](symbol://manual) | STAGED |
-| EV-2022924-031 | [MISSION] | Write a haiku about the ocean. | [manual](symbol://manual) | STAGED |
-| EV-2022924-030 | [MISSION] | What is 12 times 12? | [manual](symbol://manual) | STAGED |
-| EV-2022924-029 | [MISSION] | What is the capital of France? | [manual](symbol://manual) | STAGED |
-| EV-2022924-028 | [MISSION] | Do a final code review of susi | [manual](symbol://manual) | STAGED |
-| EV-2022924-027 | [MISSION] | stop | [manual](symbol://manual) | STAGED |
-| EV-2022924-026 | [MOTION] | Code review the architecture of susi and print out improvements. | [manual](symbol://manual) | STAGED |
-| EV-2022924-025 | [MISSION] | Do a code review of susi | [manual](symbol://manual) | STAGED |
 | EV-2022924-001 | [GENOME] | Trinity Synthesis (Self, Memory, Will convergence) | [AlphaSelf](class://AlphaSelf) | Realized (3 Pillars) |
 | EV-2022924-002 | [TOOL] | Type 1 Specialist Toolbox (AST, Search, Sandbox) | [CoreTools](class://CoreTools) | Operational (Code Intel) |
 | EV-2022924-003 | [TOOL] | Type 2 Specialist Toolbox (Browser, RAG, Audio) | [CoreTools](class://CoreTools) | Operational (Research) |
