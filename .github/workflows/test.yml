@@ -1,0 +1,45 @@
+name: Test
+
+# Runs independently of release.yml / dev-release.yml (no `needs` between
+# workflows) — tests and releases run in parallel on GitHub, so pushing
+# never blocks on either. The local pre-push hook only checks version
+# compliance; it does not run tests, by design.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux System Dependencies
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets
