@@ -10,34 +10,62 @@ pub enum IntentCategory {
     General,
 }
 
-/// Whether a prompt likely needs more than the smallest resident model, or
-/// the baseline tier can probably handle it. Orthogonal to `IntentCategory`
-/// (domain vs. difficulty) - a one-line arithmetic question and a one-line
-/// "write a poem" prompt are both short/simple even though they'd classify
-/// into different `IntentCategory` values.
+/// How demanding a prompt likely is, on a 5-level scale. Orthogonal to
+/// `IntentCategory` (domain vs. difficulty) - a one-line arithmetic
+/// question and a one-line "write a poem" prompt are both trivial even
+/// though they'd classify into different `IntentCategory` values.
+///
+/// Deliberately a *percentile* concept (`target_percentile`), not a fixed
+/// GB threshold: which actual model that maps to depends entirely on
+/// what's resident (2 tiers today - baseline + best-fit; potentially more
+/// once the download policy fetches middle tiers too), not a hardcoded
+/// size. Mandate 35 (100% Dynamic Config): the classifier expresses a
+/// *position* between whatever's available, never a specific model size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TaskComplexity {
+    Trivial,
     Simple,
+    Moderate,
     #[default]
     Complex,
+    VeryComplex,
+}
+
+impl TaskComplexity {
+    /// Where this complexity level should sit between the smallest (0.0)
+    /// and largest (1.0) resident model, by size. See
+    /// `ModelManager::size_preference_score`, which scores candidates by
+    /// closeness to this target rather than always preferring the
+    /// biggest (or always the smallest).
+    pub fn target_percentile(self) -> f32 {
+        match self {
+            TaskComplexity::Trivial => 0.0,
+            TaskComplexity::Simple => 0.25,
+            TaskComplexity::Moderate => 0.5,
+            TaskComplexity::Complex => 0.75,
+            TaskComplexity::VeryComplex => 1.0,
+        }
+    }
 }
 
 pub struct IntentClassifier;
 
 impl IntentClassifier {
-    /// Zero-latency heuristic for whether a prompt is likely simple enough
-    /// for the small resident baseline model, used to pick a *starting*
-    /// tier instead of always defaulting to the biggest model available
-    /// (see `ModelManager::identify_best_suited_local_model`'s
-    /// `complexity` parameter). This is a starting-tier guess, not a
-    /// correctness guarantee - there is no cheap way to know in advance
-    /// whether a model can actually solve a given prompt. Deliberately
-    /// biased toward `Complex` (today's existing "prefer the biggest
-    /// model" behavior) except for prompts that clearly look trivial:
-    /// misclassifying a simple prompt as complex just costs a bit more
-    /// compute on a model that's already resident; the reverse risks a
-    /// materially worse answer for something that actually needed the
-    /// bigger model.
+    /// Zero-latency heuristic for how demanding a prompt likely is, used
+    /// to pick a *starting* tier instead of always defaulting to the
+    /// biggest model available (see
+    /// `ModelManager::identify_best_suited_local_model`'s `complexity`
+    /// parameter). This is a starting-tier guess, not a correctness
+    /// guarantee - there is no cheap way to know in advance whether a
+    /// model can actually solve a given prompt, and precision beyond a
+    /// handful of buckets from static text heuristics alone is inherently
+    /// rough; a later escalate-on-failure mechanism (not yet built) is
+    /// meant to correct a wrong initial guess, not this heuristic alone.
+    /// Deliberately biased toward `Complex` (today's existing "prefer the
+    /// biggest model" behavior) for anything that isn't a reasonably
+    /// clear match to a lower bucket: misclassifying a simple prompt as
+    /// complex just costs a bit more compute on a model that's already
+    /// resident; the reverse risks a materially worse answer.
     pub fn classify_complexity(prompt: &str) -> TaskComplexity {
         let trimmed = prompt.trim();
         let word_count = trimmed.split_whitespace().count();
@@ -56,13 +84,35 @@ impl IntentClassifier {
         let has_multi_step_marker = multi_step_markers.iter().any(|m| lower.contains(m));
         let question_count = trimmed.matches('?').count();
         let sentence_count = trimmed.matches(['.', '!', '?']).count();
+        let is_single_clause = question_count <= 1 && sentence_count <= 1;
 
-        if word_count <= 12 && !has_multi_step_marker && question_count <= 1 && sentence_count <= 1
-        {
-            TaskComplexity::Simple
-        } else {
-            TaskComplexity::Complex
+        // VeryComplex: strong combined signal - explicit multi-step
+        // language on an already-long prompt, or a long prompt with
+        // several distinct questions.
+        if word_count > 60 && (has_multi_step_marker || question_count > 1) {
+            return TaskComplexity::VeryComplex;
         }
+        // Complex (default bucket): any single strong signal - a
+        // multi-step marker, more than one question, more than one
+        // sentence, or simply a long prompt.
+        if has_multi_step_marker || question_count > 1 || sentence_count > 2 || word_count > 60 {
+            return TaskComplexity::Complex;
+        }
+        // Moderate: longer than a "simple" one-liner but no complexity
+        // markers - a normal-length single-clause request.
+        if word_count > 25 && is_single_clause {
+            return TaskComplexity::Moderate;
+        }
+        // Simple: short, single-clause.
+        if word_count > 4 && word_count <= 25 && is_single_clause {
+            return TaskComplexity::Simple;
+        }
+        // Trivial: very short (greeting-length) and single-clause.
+        if word_count <= 4 && is_single_clause {
+            return TaskComplexity::Trivial;
+        }
+
+        TaskComplexity::Complex
     }
 
     /// Zero-latency heuristic intent classification based on semantic triggers.
@@ -195,6 +245,14 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_complexity_greeting_is_trivial() {
+        assert_eq!(
+            IntentClassifier::classify_complexity("hi there"),
+            TaskComplexity::Trivial
+        );
+    }
+
+    #[test]
     fn test_classify_complexity_short_single_question_is_simple() {
         assert_eq!(
             IntentClassifier::classify_complexity("What is the capital of France?"),
@@ -203,21 +261,15 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_complexity_greeting_is_simple() {
-        assert_eq!(
-            IntentClassifier::classify_complexity("hi there"),
-            TaskComplexity::Simple
-        );
-    }
-
-    #[test]
-    fn test_classify_complexity_long_prompt_is_complex() {
-        let prompt = "Design a distributed rate limiter that works correctly across \
-            multiple servers without a single point of failure, handles clock skew \
-            between nodes, and degrades gracefully under network partitions.";
+    fn test_classify_complexity_medium_single_clause_is_moderate() {
+        // ~30 words, single sentence, no multi-step language - longer than
+        // a quick factual ask but not clearly "complex" either.
+        let prompt = "Describe the main differences between a hash map and a \
+            balanced binary search tree in terms of average and worst-case \
+            time complexity for insertion, lookup, and deletion operations.";
         assert_eq!(
             IntentClassifier::classify_complexity(prompt),
-            TaskComplexity::Complex
+            TaskComplexity::Moderate
         );
     }
 
@@ -238,12 +290,51 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_complexity_long_multi_step_prompt_is_very_complex() {
+        let prompt = "Design a distributed rate limiter that works correctly across \
+            multiple independent servers without relying on a single point of \
+            failure, handles clock skew between nodes gracefully, supports both \
+            token-bucket and sliding-window strategies configurable per client, \
+            persists state across restarts without losing accuracy, and degrades \
+            predictably under network partitions. Walk through this step by step, \
+            covering the data model, the synchronization protocol, and the failure \
+            modes at each stage.";
+        assert_eq!(
+            IntentClassifier::classify_complexity(prompt),
+            TaskComplexity::VeryComplex
+        );
+    }
+
+    #[test]
     fn test_classify_complexity_defaults_to_complex_not_simple_when_ambiguous() {
         // Regression: complexity must be biased toward Complex (today's
         // existing "prefer the biggest model" behavior) for anything that
-        // isn't clearly trivial - a wrong "simple" guess risks a
+        // isn't clearly a lower bucket - a wrong "simple" guess risks a
         // materially worse answer, a wrong "complex" guess just costs a
         // bit more compute on an already-resident model.
         assert_eq!(TaskComplexity::default(), TaskComplexity::Complex);
+    }
+
+    #[test]
+    fn test_task_complexity_target_percentile_is_monotonically_increasing() {
+        let levels = [
+            TaskComplexity::Trivial,
+            TaskComplexity::Simple,
+            TaskComplexity::Moderate,
+            TaskComplexity::Complex,
+            TaskComplexity::VeryComplex,
+        ];
+        for pair in levels.windows(2) {
+            assert!(
+                pair[0].target_percentile() < pair[1].target_percentile(),
+                "{:?} ({}) must target a lower percentile than {:?} ({})",
+                pair[0],
+                pair[0].target_percentile(),
+                pair[1],
+                pair[1].target_percentile()
+            );
+        }
+        assert_eq!(TaskComplexity::Trivial.target_percentile(), 0.0);
+        assert_eq!(TaskComplexity::VeryComplex.target_percentile(), 1.0);
     }
 }

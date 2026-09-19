@@ -311,23 +311,60 @@ impl ModelManager {
     }
 
     /// The size term of a candidate model's fitness score, among models
-    /// that already fit the RAM budget: normally rewards bigger models
-    /// (today's "biggest that fits wins" behavior), but flips sign for
-    /// `TaskComplexity::Simple` so the smallest resident model scores
-    /// highest instead - the mechanism behind routing simple requests to
-    /// the small baseline tier. Split out as a pure function so this
-    /// inversion is unit-testable without real hardware/filesystem
-    /// scanning.
+    /// that already fit the RAM budget: scores by closeness to a *target*
+    /// size positioned at `complexity`'s percentile between the smallest
+    /// and largest resident candidate (see `TaskComplexity::target_percentile`),
+    /// rather than always rewarding the biggest model. With only two
+    /// resident tiers (today's common case), `Complex`'s 0.75 percentile
+    /// still lands closest to the larger one, preserving the original
+    /// "prefer the biggest that fits" behavior for `None`/`Complex`
+    /// callers; with more resident tiers, `Moderate` (0.5) can actually
+    /// land on a real middle tier instead of ricocheting between two
+    /// extremes. When every candidate is the same size (no real range to
+    /// target between), falls back to magnitude-based ranking. Split out
+    /// as a pure function so this targeting is unit-testable without real
+    /// hardware/filesystem scanning.
     fn size_preference_score(
         model_size_gb: f32,
+        min_size_gb: f32,
+        max_size_gb: f32,
         complexity: Option<crate::gemi::intent::TaskComplexity>,
     ) -> f32 {
-        let size_sign = if complexity == Some(crate::gemi::intent::TaskComplexity::Simple) {
-            -1.0
-        } else {
-            1.0
-        };
-        model_size_gb * 5.0 * size_sign
+        let range_gb = max_size_gb - min_size_gb;
+        if range_gb <= f32::EPSILON {
+            return model_size_gb * 5.0;
+        }
+        let percentile = complexity.unwrap_or_default().target_percentile();
+        let target_gb = min_size_gb + percentile * range_gb;
+        let distance_gb = (model_size_gb - target_gb).abs();
+        -(distance_gb * 5.0)
+    }
+
+    /// Resolves a candidate model's size in GB: real file size when it's a
+    /// local file, else a name-based heuristic lookup, else a 2GB
+    /// fallback. Split out from the scoring loop so
+    /// `identify_best_suited_local_model_with_complexity` can resolve
+    /// every candidate's size once, up front, before scoring any of
+    /// them - `size_preference_score` needs the min/max across all
+    /// candidates, which requires knowing every size before scoring the
+    /// first one.
+    fn resolve_model_size_gb(
+        m: &ModelInfo,
+        heuristics: &crate::sandbox::manager::ModelScoringHeuristics,
+    ) -> f32 {
+        let p = PathBuf::from(&m.model_id());
+        if p.is_file() {
+            if let Ok(meta) = p.metadata() {
+                return meta.len() as f32 / (1024.0 * 1024.0 * 1024.0);
+            }
+        }
+        let name_lower = m.model_id().to_lowercase();
+        for (key, val) in &heuristics.size_gb_multipliers {
+            if name_lower.contains(key) {
+                return *val;
+            }
+        }
+        2.0
     }
 
     /// Same as `identify_best_suited_local_model`, plus a `complexity`
@@ -359,6 +396,26 @@ impl ModelManager {
         let cfg = crate::sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let heuristics = cfg.model_scoring_heuristics();
 
+        // Resolve every candidate's size up front: size_preference_score
+        // needs the min/max across ALL candidates to place a percentile
+        // target between them, which means every size must be known
+        // before scoring the first one.
+        let sized_models: Vec<(ModelInfo, f32)> = local_models
+            .into_iter()
+            .map(|m| {
+                let size_gb = Self::resolve_model_size_gb(&m, &heuristics);
+                (m, size_gb)
+            })
+            .collect();
+        let min_size_gb = sized_models
+            .iter()
+            .map(|(_, s)| *s)
+            .fold(f32::INFINITY, f32::min);
+        let max_size_gb = sized_models
+            .iter()
+            .map(|(_, s)| *s)
+            .fold(f32::NEG_INFINITY, f32::max);
+
         let mut ram_budget_gb =
             (hw.available_ram_gb as f32 - heuristics.system_ram_buffer_gb).max(0.5);
         if hw.swap_gb > 0 && hw.nvme_active {
@@ -368,36 +425,20 @@ impl ModelManager {
         let vram_budget_gb = hw.gpu_vram_gb as f32;
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
 
-        for m in local_models {
-            let mut model_size_gb: f32 = 4.0;
-            let p = PathBuf::from(&m.model_id());
-            if p.is_file() {
-                if let Ok(meta) = p.metadata() {
-                    model_size_gb = meta.len() as f32 / (1024.0 * 1024.0 * 1024.0);
-                }
-            } else {
-                let name_lower = m.model_id().to_lowercase();
-                let mut found = false;
-                for (key, val) in &heuristics.size_gb_multipliers {
-                    if name_lower.contains(key) {
-                        model_size_gb = *val;
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    model_size_gb = 2.0;
-                }
-            }
-
+        for (m, model_size_gb) in sized_models {
             let mut score = 0.0f32;
             if model_size_gb > ram_budget_gb {
                 score -= 1000.0;
             } else {
-                // Only the base size term flips for Simple; the GPU/VRAM-fit
-                // bonus below stays unconditional, since fitting in VRAM is
-                // a speed win regardless of task complexity.
-                score += Self::size_preference_score(model_size_gb, complexity);
+                // Only the base size term is complexity-aware; the
+                // GPU/VRAM-fit bonus below stays unconditional, since
+                // fitting in VRAM is a speed win regardless of complexity.
+                score += Self::size_preference_score(
+                    model_size_gb,
+                    min_size_gb,
+                    max_size_gb,
+                    complexity,
+                );
                 if hw.acceleration_active && vram_budget_gb > 0.0 {
                     if model_size_gb <= vram_budget_gb {
                         score += 100.0;
@@ -1668,13 +1709,14 @@ mod tests {
     }
 
     /// Regression for the auto step-up/step-down feature: a Simple prompt
-    /// must make a *smaller* model score higher, not lower - proves the
-    /// sign actually flips, not just that some number changes.
+    /// must make a *smaller* model score higher, not lower.
     #[test]
     fn test_size_preference_score_simple_favors_smaller_models() {
         use crate::gemi::intent::TaskComplexity;
-        let small_score = ModelManager::size_preference_score(1.5, Some(TaskComplexity::Simple));
-        let big_score = ModelManager::size_preference_score(40.0, Some(TaskComplexity::Simple));
+        let small_score =
+            ModelManager::size_preference_score(1.5, 1.5, 40.0, Some(TaskComplexity::Simple));
+        let big_score =
+            ModelManager::size_preference_score(40.0, 1.5, 40.0, Some(TaskComplexity::Simple));
         assert!(
             small_score > big_score,
             "smaller model must score higher for Simple: small={small_score}, big={big_score}"
@@ -1684,8 +1726,10 @@ mod tests {
     #[test]
     fn test_size_preference_score_complex_favors_bigger_models() {
         use crate::gemi::intent::TaskComplexity;
-        let small_score = ModelManager::size_preference_score(1.5, Some(TaskComplexity::Complex));
-        let big_score = ModelManager::size_preference_score(40.0, Some(TaskComplexity::Complex));
+        let small_score =
+            ModelManager::size_preference_score(1.5, 1.5, 40.0, Some(TaskComplexity::Complex));
+        let big_score =
+            ModelManager::size_preference_score(40.0, 1.5, 40.0, Some(TaskComplexity::Complex));
         assert!(
             big_score > small_score,
             "bigger model must score higher for Complex: small={small_score}, big={big_score}"
@@ -1696,9 +1740,45 @@ mod tests {
     fn test_size_preference_score_none_matches_complex_default() {
         use crate::gemi::intent::TaskComplexity;
         assert_eq!(
-            ModelManager::size_preference_score(14.0, None),
-            ModelManager::size_preference_score(14.0, Some(TaskComplexity::Complex)),
+            ModelManager::size_preference_score(14.0, 1.5, 40.0, None),
+            ModelManager::size_preference_score(14.0, 1.5, 40.0, Some(TaskComplexity::Complex)),
             "None must preserve today's default (bigger-wins) behavior for existing callers"
+        );
+    }
+
+    /// The actual point of the percentile redesign: with a genuine middle
+    /// tier present, Moderate must prefer it over BOTH extremes - not just
+    /// be "less extreme in one direction" the way a binary sign-flip
+    /// could only ever produce.
+    #[test]
+    fn test_size_preference_score_moderate_favors_middle_sized_model_over_both_extremes() {
+        use crate::gemi::intent::TaskComplexity;
+        let small =
+            ModelManager::size_preference_score(1.5, 1.5, 45.0, Some(TaskComplexity::Moderate));
+        let middle =
+            ModelManager::size_preference_score(14.0, 1.5, 45.0, Some(TaskComplexity::Moderate));
+        let big =
+            ModelManager::size_preference_score(45.0, 1.5, 45.0, Some(TaskComplexity::Moderate));
+        assert!(
+            middle > small && middle > big,
+            "middle-sized model must beat both extremes for Moderate: small={small}, middle={middle}, big={big}"
+        );
+    }
+
+    #[test]
+    fn test_size_preference_score_falls_back_to_magnitude_when_no_size_range() {
+        use crate::gemi::intent::TaskComplexity;
+        // min == max: nothing to target between (e.g. only one distinct
+        // size among candidates) - must not divide by zero or panic, and
+        // must fall back to preferring the bigger raw size.
+        let small =
+            ModelManager::size_preference_score(5.0, 5.0, 5.0, Some(TaskComplexity::Simple));
+        let same =
+            ModelManager::size_preference_score(5.0, 5.0, 5.0, Some(TaskComplexity::Complex));
+        assert!(small.is_finite() && same.is_finite());
+        assert_eq!(
+            small, same,
+            "degenerate range must ignore complexity entirely"
         );
     }
 
