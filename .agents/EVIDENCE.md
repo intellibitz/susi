@@ -1,16 +1,16 @@
 ---
 schema = "susi/evidence/v1"
 version = "0.1.2023050"
-monotonic_range = "EV-2022924-001..EV-2022920-044"
+id_scheme = "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table."
 last_verification = 2026-09-19T00:00:00Z
 epistemic_score = 1.0
 ---
 
-# SUSI Substrate Experience: The Sovereign Memory
+# SUSI Evidence Ledger
 
-This document defines the sovereign ledger of functional mastery that anchors the `susi` genome. Every entry reflects a hard-compiled proof of operational capability.
+This file mixes two kinds of rows: short entries auto-logged by the engine for each dispatched mission (`STAGED`, uncurated — raw telemetry, not audit findings), and hand-written `[AUDIT]` entries documenting a specific investigated bug or decision, its root cause, the fix, and how it was verified. IDs use two independent counters (`EV-2022924-*`, `EV-2022920-*`); neither is a single continuous sequence, and entries are not always listed in ID order.
 
-## 1. Sovereign Ledger (The Monotonic Proof)
+## Entries
 
 | ID | Type | Milestone | Symbolic Anchor | Proof/Status |
 | :--- | :--- | :--- | :--- | :--- |
