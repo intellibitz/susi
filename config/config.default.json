@@ -186,6 +186,36 @@
       "step": 5,
       "min_bytes": 35000000000,
       "expected_bytes": 45000000000
+    },
+    {
+      "hf_file": "DeepSeek-R1-Distill-Llama-70B-Q4_K_M.gguf",
+      "hf_repo": "unsloth/DeepSeek-R1-Distill-Llama-70B-GGUF",
+      "tokenizer_repo": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B",
+      "label": "70B Logic/Math (Dual GPU Workstation)",
+      "min_ram_gb": 64,
+      "step": 6,
+      "min_bytes": 40000000000,
+      "expected_bytes": 45000000000
+    },
+    {
+      "hf_file": "Command-R-Plus-08-2024-Q4_K_M-00001-of-00002.gguf",
+      "hf_repo": "bartowski/c4ai-command-r-plus-08-2024-GGUF",
+      "tokenizer_repo": "CohereForAI/c4ai-command-r-plus-08-2024",
+      "label": "104B Parameters (Enterprise Workstation)",
+      "min_ram_gb": 100,
+      "step": 7,
+      "min_bytes": 60000000000,
+      "expected_bytes": 65000000000
+    },
+    {
+      "hf_file": "Llama-3.1-405B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Llama-3.1-405B-Instruct-GGUF",
+      "tokenizer_repo": "meta-llama/Llama-3.1-405B-Instruct",
+      "label": "405B Parameters (Server-Grade Node)",
+      "min_ram_gb": 250,
+      "step": 8,
+      "min_bytes": 240000000000,
+      "expected_bytes": 255000000000
     }
   ],
   "max_stdin_size_bytes": 104857600,
@@ -373,20 +403,70 @@
   "sandbox_image": "alpine:latest",
   "memory_experience_heuristics": {
     "min_output_len": 50,
-    "failure_markers": ["[FAIL]", "error"]
+    "failure_markers": [
+      "[FAIL]",
+      "error"
+    ]
   },
-  "eos_token_ids": [1, 2, 32000, 151643],
+  "eos_token_ids": [
+    1,
+    2,
+    32000,
+    151643
+  ],
   "max_generation_tokens": 256,
   "repeat_penalty": 1.15,
   "repeat_last_n": 64,
   "speculative_decoding_enabled": false,
   "speculative_draft_tokens": 4,
   "kv_cache_capacity_tokens": 2304,
-  "axiomatic_risk_patterns": ["rm -rf /", "drop database", "eval(", "chmod 777", "curl | sh"],
-  "model_scan_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys", ".cache", "Library"],
-  "model_discovery_exclude_dirs": [".git", "node_modules", "target", "vendor", ".cargo", ".rustup", ".gradle", "proc", "sys"],
-  "home_scan_root_exclude_dirs": ["node_modules", "target", "vendor", "proc", "sys", "dev", "Library"],
-  "model_file_extensions": ["gguf", "safetensors", "onnx", "pt", "ckpt"],
+  "axiomatic_risk_patterns": [
+    "rm -rf /",
+    "drop database",
+    "eval(",
+    "chmod 777",
+    "curl | sh"
+  ],
+  "model_scan_exclude_dirs": [
+    ".git",
+    "node_modules",
+    "target",
+    "vendor",
+    ".cargo",
+    ".rustup",
+    ".gradle",
+    "proc",
+    "sys",
+    ".cache",
+    "Library"
+  ],
+  "model_discovery_exclude_dirs": [
+    ".git",
+    "node_modules",
+    "target",
+    "vendor",
+    ".cargo",
+    ".rustup",
+    ".gradle",
+    "proc",
+    "sys"
+  ],
+  "home_scan_root_exclude_dirs": [
+    "node_modules",
+    "target",
+    "vendor",
+    "proc",
+    "sys",
+    "dev",
+    "Library"
+  ],
+  "model_file_extensions": [
+    "gguf",
+    "safetensors",
+    "onnx",
+    "pt",
+    "ckpt"
+  ],
   "model_file_min_bytes": 1000000,
   "susi_alpha_default": "susi-alpha"
 }
