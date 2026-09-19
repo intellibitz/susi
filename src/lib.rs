@@ -21,6 +21,11 @@ pub mod gmcp;
 pub mod native {
     pub use susi_native::*;
 }
-pub mod sandbox;
+pub mod sandbox {
+    pub use susi_sandbox::*;
+    pub mod xdg {
+        pub use susi_paths::SusiDirs;
+    }
+}
 
 pub const SUSI_VERSION: &str = env!("CARGO_PKG_VERSION");

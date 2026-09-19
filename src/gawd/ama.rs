@@ -979,7 +979,12 @@ impl SusiMasterAgent {
         let res = self.solve(goal, workspace, crate::SUSI_VERSION)?;
 
         // 3. Memory persistence
-        crate::sandbox::manager::SusiMemory::save_interaction(workspace, goal, &res.final_answer);
+        crate::sandbox::manager::SusiMemory::save_interaction(
+            workspace,
+            goal,
+            &res.final_answer,
+            crate::SUSI_VERSION,
+        );
 
         // 4. Stage successful power_reason (remote) interactions for distillation
         for msg in &res.interactions {
@@ -1059,7 +1064,12 @@ impl SusiMasterAgent {
             workspace,
         )?;
 
-        crate::sandbox::manager::SusiMemory::save_interaction(workspace, &goal, &verified);
+        crate::sandbox::manager::SusiMemory::save_interaction(
+            workspace,
+            &goal,
+            &verified,
+            crate::SUSI_VERSION,
+        );
 
         Ok(verified)
     }

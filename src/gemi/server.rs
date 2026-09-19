@@ -263,6 +263,7 @@ async fn handle_gemi_request(
                         &ws,
                         &prompt_for_task,
                         &final_resp,
+                        crate::SUSI_VERSION,
                     );
                     final_resp
                 })

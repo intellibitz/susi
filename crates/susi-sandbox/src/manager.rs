@@ -2,11 +2,11 @@
 // Pattern used by Astral (ruff) and Claude Code: Registry + HashMap + Value
 // Add new model, prompt, message, endpoint without touching Rust
 
-use crate::error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use susi_error::{EaiError, EaiResult};
 
 // === CORE DYNAMIC TYPES ===
 // Everything is a registry. No struct fields are hardcoded.
@@ -379,7 +379,7 @@ impl Default for ChatTemplateConfig {
         // that binary - a failure is a build/packaging bug caught by any
         // test run, never a runtime condition that varies between calls.
         let templates: StringRegistry = serde_json::from_str(include_str!(
-            "../../config/chat_templates.default.json"
+            "../../../config/chat_templates.default.json"
         ))
         .expect(
             "Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.",
@@ -469,11 +469,11 @@ impl SusiPrompts {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let prompts_file = crate::sandbox::xdg::SusiDirs::config_dir().join("prompts.json");
+        let prompts_file = susi_paths::SusiDirs::config_dir().join("prompts.json");
 
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> =
+        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiPrompts>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
+        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
 
         let mut prompts = store
             .load_with_healing(
@@ -489,8 +489,7 @@ impl SusiPrompts {
 
         // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
-        let templates_override =
-            crate::sandbox::xdg::SusiDirs::config_dir().join("chat_templates.json");
+        let templates_override = susi_paths::SusiDirs::config_dir().join("chat_templates.json");
         if templates_override.is_file() {
             prompts.chat_templates =
                 ChatTemplateConfig::from_file(templates_override.to_str().unwrap_or_default());
@@ -502,7 +501,7 @@ impl SusiPrompts {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.
         let prompts: DynamicRegistry = serde_json::from_str(include_str!(
-            "../../config/prompts.default.json"
+            "../../../config/prompts.default.json"
         ))
         .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self {
@@ -588,11 +587,12 @@ impl SusiMessages {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let msgs_file = crate::sandbox::xdg::SusiDirs::config_dir().join("messages.json");
+        let msgs_file = susi_paths::SusiDirs::config_dir().join("messages.json");
 
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> =
-            std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
+        static STORE: std::sync::OnceLock<
+            crate::versioned_store::VersionedJsonStore<SusiMessages>,
+        > = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
 
         store
             .load_with_healing(
@@ -621,7 +621,7 @@ impl SusiMessages {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.
         let categories: HashMap<String, StringRegistry> = serde_json::from_str(include_str!(
-            "../../config/messages.default.json"
+            "../../../config/messages.default.json"
         ))
         .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { categories }
@@ -824,7 +824,7 @@ impl SusiConfig {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // earlier in this file; same compile-time include_str! pattern.
         // This is the reference instance of the pattern cited in Mandate 35.
-        serde_json::from_str(include_str!("../../config/config.default.json"))
+        serde_json::from_str(include_str!("../../../config/config.default.json"))
             .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
     }
 
@@ -842,9 +842,9 @@ impl SusiConfig {
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiConfig>> =
+        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiConfig>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::sandbox::VersionedJsonStore::new);
+        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
 
         store.load_with_healing(
             &path,
@@ -868,7 +868,7 @@ impl SusiConfig {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        Self::load(&crate::sandbox::xdg::SusiDirs::config_dir())
+        Self::load(&susi_paths::SusiDirs::config_dir())
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct
@@ -1285,7 +1285,7 @@ impl SusiAuditLogger {
         // config and redacts locally (rather than calling into
         // `gawd::security::SecurityDetector::redact`) so `sandbox` doesn't
         // depend on `gawd` just to reach a pure text-transform primitive.
-        let global_dir = crate::sandbox::xdg::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let secret_patterns = SusiConfig::load(&global_dir)
             .map(|cfg| cfg.governance().secret_tokens)
             .unwrap_or_default();
@@ -1468,7 +1468,12 @@ impl IntentBundleManager {
 
 pub struct SusiMemory;
 impl SusiMemory {
-    pub fn save_interaction(workspace: &Path, input: &str, output: &str) {
+    /// `engine_version` is the caller's `SUSI_VERSION` (the root `susi-engine`
+    /// package version) - `susi-sandbox` doesn't know it at compile time
+    /// (its own crate version is unrelated), so callers pass it explicitly,
+    /// same as the rest of the codebase already threads it through
+    /// `solve_clean`/`solve_stream` call sites.
+    pub fn save_interaction(workspace: &Path, input: &str, output: &str, engine_version: &str) {
         let susi_dir = workspace.join(".susi");
         let _ = fs::create_dir_all(&susi_dir);
         let memory_file = susi_dir.join("memory.jsonl");
@@ -1483,7 +1488,7 @@ impl SusiMemory {
             "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
             "provenance": {
                 "workspace": workspace.display().to_string(),
-                "engine_version": crate::SUSI_VERSION,
+                "engine_version": engine_version,
             }
         });
 
@@ -1566,7 +1571,7 @@ mod tests {
     fn test_config_accessors_match_bundled_default_single_source_of_truth() {
         let default = SusiConfig::default();
         let raw: serde_json::Value =
-            serde_json::from_str(include_str!("../../config/config.default.json")).unwrap();
+            serde_json::from_str(include_str!("../../../config/config.default.json")).unwrap();
 
         assert_eq!(
             default.gmcp_port(),
@@ -1792,7 +1797,7 @@ mod tests {
     fn test_susi_memory_lifecycle() {
         let ws = Path::new("test_mem");
         let _ = fs::create_dir_all(ws);
-        SusiMemory::save_interaction(ws, "hello", "world");
+        SusiMemory::save_interaction(ws, "hello", "world", "test");
         let memory_file = ws.join(".susi/memory.jsonl");
         assert!(memory_file.is_file());
         let _ = fs::remove_dir_all(ws);
@@ -1810,14 +1815,14 @@ mod tests {
 
         let heuristics = SusiConfig::default().memory_experience_heuristics();
         let short_output = "x".repeat(heuristics.min_output_len); // exactly at threshold: not > min_output_len
-        SusiMemory::save_interaction(ws, "goal a", &short_output);
+        SusiMemory::save_interaction(ws, "goal a", &short_output, "test");
         assert!(
             !exp_file.exists(),
             "output at, not over, the threshold must not be promoted"
         );
 
         let long_output = "x".repeat(heuristics.min_output_len + 1);
-        SusiMemory::save_interaction(ws, "goal b", &long_output);
+        SusiMemory::save_interaction(ws, "goal b", &long_output, "test");
         assert!(
             exp_file.is_file(),
             "output over the threshold must be promoted"
@@ -1825,7 +1830,7 @@ mod tests {
 
         let with_marker = format!("{} {}", heuristics.failure_markers[0], long_output);
         let before = fs::read_to_string(&exp_file).unwrap();
-        SusiMemory::save_interaction(ws, "goal c", &with_marker);
+        SusiMemory::save_interaction(ws, "goal c", &with_marker, "test");
         let after = fs::read_to_string(&exp_file).unwrap();
         assert_eq!(
             before, after,

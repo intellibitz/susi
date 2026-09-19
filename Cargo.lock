@@ -6517,6 +6517,7 @@ dependencies = [
  "susi-error",
  "susi-native",
  "susi-paths",
+ "susi-sandbox",
  "syn 3.0.6",
  "tantivy",
  "tokenizers 0.23.2",
@@ -6558,6 +6559,22 @@ name = "susi-paths"
 version = "0.1.0"
 dependencies = [
  "directories 6.0.0",
+]
+
+[[package]]
+name = "susi-sandbox"
+version = "0.1.0"
+dependencies = [
+ "bollard",
+ "futures",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "susi-core",
+ "susi-error",
+ "susi-paths",
+ "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]

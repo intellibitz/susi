@@ -11,7 +11,11 @@ pub fn push_to_hardware_if_dev_build() {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
             let bin_dir = home.join(".susi").join("bin");
-            let target = bin_dir.join(if cfg!(windows) { "susi-engine.exe" } else { "susi-engine" });
+            let target = bin_dir.join(if cfg!(windows) {
+                "susi-engine.exe"
+            } else {
+                "susi-engine"
+            });
 
             let mut should_install = true;
             if let Ok(meta_self) = fs::metadata(&exe) {

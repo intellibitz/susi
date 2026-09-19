@@ -21,10 +21,10 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> crate::error::EaiResult<T>
+    ) -> susi_error::EaiResult<T>
     where
-        F: FnOnce() -> crate::error::EaiResult<T>, // Generates the default to adopt if missing
-        H: FnOnce(&mut T) -> bool,                 // Modifies in-place, returns true if save needed
+        F: FnOnce() -> susi_error::EaiResult<T>, // Generates the default to adopt if missing
+        H: FnOnce(&mut T) -> bool,               // Modifies in-place, returns true if save needed
     {
         let current_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -76,9 +76,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         heal_fn: H,
         strict_parse: bool,
         mut_fn: M,
-    ) -> crate::error::EaiResult<T>
+    ) -> susi_error::EaiResult<T>
     where
-        F: FnOnce() -> crate::error::EaiResult<T>,
+        F: FnOnce() -> susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
         M: FnOnce(&mut T),
     {
@@ -106,7 +106,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let _ = crate::sandbox::manager::atomic_write_json_pretty(path, &val);
+        let _ = crate::manager::atomic_write_json_pretty(path, &val);
 
         let final_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -122,9 +122,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> crate::error::EaiResult<T>
+    ) -> susi_error::EaiResult<T>
     where
-        F: FnOnce() -> crate::error::EaiResult<T>,
+        F: FnOnce() -> susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         let mut loaded_opt = None;
@@ -134,7 +134,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                     Ok(val) => loaded_opt = Some(val),
                     Err(e) => {
                         if strict_parse {
-                            return Err(crate::error::EaiError::config(format!(
+                            return Err(susi_error::EaiError::config(format!(
                                 "Malformed configuration {}: {}",
                                 path.display(),
                                 e
@@ -144,7 +144,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                 },
                 Err(e) => {
                     if strict_parse {
-                        return Err(crate::error::EaiError::config(format!(
+                        return Err(susi_error::EaiError::config(format!(
                             "Failed to read {}: {}",
                             path.display(),
                             e
@@ -170,7 +170,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let _ = crate::sandbox::manager::atomic_write_json_pretty(path, &val);
+            let _ = crate::manager::atomic_write_json_pretty(path, &val);
         }
 
         Ok(val)
