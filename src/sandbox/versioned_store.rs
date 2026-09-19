@@ -1,6 +1,6 @@
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use parking_lot::RwLock;
 
 /// Generic "versioned JSON config store" abstraction that unifies mtime-cache
 /// and self-healing-merge logic originally hand-rolled in five places.
@@ -24,7 +24,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
     ) -> crate::error::EaiResult<T>
     where
         F: FnOnce() -> crate::error::EaiResult<T>, // Generates the default to adopt if missing
-        H: FnOnce(&mut T) -> bool, // Modifies in-place, returns true if save needed
+        H: FnOnce(&mut T) -> bool,                 // Modifies in-place, returns true if save needed
     {
         let current_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -43,11 +43,11 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         }
 
         let mut guard = self.cache.write();
-        
+
         let current_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-            
+
         if let Some((cached_time, cached_path, cached_val)) = guard.as_ref() {
             if cached_path == path
                 && *cached_time == current_modified

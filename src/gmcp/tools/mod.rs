@@ -213,7 +213,8 @@ impl CoreTools {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file =
+            crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) =
@@ -1386,7 +1387,9 @@ impl ToolRegistry {
         if name.starts_with("reflex_") {
             let wasm_name = format!("{}.wasm", name.trim_start_matches("reflex_"));
             if let Some(_home) = std::env::var_os("HOME").map(PathBuf::from) {
-                let wasm_path = crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes").join(wasm_name);
+                let wasm_path = crate::sandbox::xdg::SusiDirs::data_dir()
+                    .join("reflexes")
+                    .join(wasm_name);
                 if wasm_path.exists() {
                     let arg_str = if let Some(s) = arg.as_str() {
                         s.to_string()
@@ -1627,7 +1630,13 @@ mod reason_tool_governance_tests {
     #[test]
     fn test_reason_tool_rejects_secret_leak() {
         let err = CoreTools::reason(
-            &serde_json::json!(format!("what does this key do: {}", String::from_utf8(vec![115, 107, 45, 112, 114, 111, 106, 49, 50, 51, 52, 53, 97, 98, 99, 88, 89, 90]).unwrap())),
+            &serde_json::json!(format!(
+                "what does this key do: {}",
+                String::from_utf8(vec![
+                    115, 107, 45, 112, 114, 111, 106, 49, 50, 51, 52, 53, 97, 98, 99, 88, 89, 90
+                ])
+                .unwrap()
+            )),
             Path::new("."),
         )
         .unwrap_err();

@@ -464,22 +464,26 @@ impl SusiPrompts {
             .unwrap_or_else(|| PathBuf::from("."));
         let prompts_file = crate::sandbox::xdg::SusiDirs::config_dir().join("prompts.json");
 
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> = std::sync::OnceLock::new();
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiPrompts>> =
+            std::sync::OnceLock::new();
         let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
-        let mut prompts = store.load_with_healing(
-            &prompts_file,
-            || Ok(Self::default_dynamic()),
-            |cfg| {
-                let default_prompts = Self::default_dynamic();
-                merge_missing_registry_defaults(&mut cfg.prompts, &default_prompts.prompts)
-            },
-            false
-        ).unwrap_or_else(|_| Self::default_dynamic());
+        let mut prompts = store
+            .load_with_healing(
+                &prompts_file,
+                || Ok(Self::default_dynamic()),
+                |cfg| {
+                    let default_prompts = Self::default_dynamic();
+                    merge_missing_registry_defaults(&mut cfg.prompts, &default_prompts.prompts)
+                },
+                false,
+            )
+            .unwrap_or_else(|_| Self::default_dynamic());
 
         // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
-        let templates_override = crate::sandbox::xdg::SusiDirs::config_dir().join("chat_templates.json");
+        let templates_override =
+            crate::sandbox::xdg::SusiDirs::config_dir().join("chat_templates.json");
         if templates_override.is_file() {
             prompts.chat_templates =
                 ChatTemplateConfig::from_file(templates_override.to_str().unwrap_or_default());
@@ -577,27 +581,31 @@ impl SusiMessages {
             .unwrap_or_else(|| PathBuf::from("."));
         let msgs_file = crate::sandbox::xdg::SusiDirs::config_dir().join("messages.json");
 
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> = std::sync::OnceLock::new();
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiMessages>> =
+            std::sync::OnceLock::new();
         let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
-        store.load_with_healing(
-            &msgs_file,
-            || Ok(Self::default_dynamic()),
-            |m| {
-                let default_msgs = Self::default_dynamic();
-                let mut existing_val = serde_json::to_value(&*m).unwrap_or(DynamicValue::Null);
-                let default_val = serde_json::to_value(&default_msgs).unwrap_or(DynamicValue::Null);
-                
-                if merge_missing_json_defaults(&mut existing_val, &default_val) {
-                    if let Ok(merged) = serde_json::from_value::<SusiMessages>(existing_val) {
-                        *m = merged;
-                        return true;
+        store
+            .load_with_healing(
+                &msgs_file,
+                || Ok(Self::default_dynamic()),
+                |m| {
+                    let default_msgs = Self::default_dynamic();
+                    let mut existing_val = serde_json::to_value(&*m).unwrap_or(DynamicValue::Null);
+                    let default_val =
+                        serde_json::to_value(&default_msgs).unwrap_or(DynamicValue::Null);
+
+                    if merge_missing_json_defaults(&mut existing_val, &default_val) {
+                        if let Ok(merged) = serde_json::from_value::<SusiMessages>(existing_val) {
+                            *m = merged;
+                            return true;
+                        }
                     }
-                }
-                false
-            },
-            false
-        ).unwrap_or_else(|_| Self::default_dynamic())
+                    false
+                },
+                false,
+            )
+            .unwrap_or_else(|_| Self::default_dynamic())
     }
 
     fn default_dynamic() -> Self {
@@ -805,7 +813,8 @@ impl SusiConfig {
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
         let path = Self::get_config_path(global_dir);
-        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiConfig>> = std::sync::OnceLock::new();
+        static STORE: std::sync::OnceLock<crate::sandbox::VersionedJsonStore<SusiConfig>> =
+            std::sync::OnceLock::new();
         let store = STORE.get_or_init(|| crate::sandbox::VersionedJsonStore::new());
 
         store.load_with_healing(
@@ -815,7 +824,7 @@ impl SusiConfig {
                 let default = Self::default();
                 merge_missing_registry_defaults(&mut cfg.settings, &default.settings)
             },
-            true
+            true,
         )
     }
 

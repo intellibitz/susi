@@ -693,7 +693,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/Qwen2.5-32B-Instruct-Q4_K_M.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/Qwen2.5-32B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {
             eprintln!(
                 "skipping: {} not present on this host",
@@ -756,7 +757,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
             eprintln!(
                 "skipping: {} not present on this host",
@@ -837,7 +839,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
             eprintln!(
                 "skipping: {} not present on this host",
@@ -920,7 +923,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
             eprintln!(
                 "skipping: {} not present on this host",
@@ -960,7 +964,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !model_path.exists() {
             return;
         }
@@ -991,7 +996,8 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let model_path = crate::sandbox::xdg::SusiDirs::data_dir().join("models/Qwen2.5-14B-Instruct-Q4_K_M.gguf");
+        let model_path = crate::sandbox::xdg::SusiDirs::data_dir()
+            .join("models/Qwen2.5-14B-Instruct-Q4_K_M.gguf");
         if !model_path.exists() {
             eprintln!(
                 "skipping: {} not present on this host",

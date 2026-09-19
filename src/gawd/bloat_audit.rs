@@ -462,7 +462,8 @@ mod tests {
         writeln!(f, "mod tests {{").unwrap();
         writeln!(f, "    #[test]").unwrap();
         writeln!(f, "    fn test_rejects_secret() {{").unwrap();
-        let secret_str = String::from_utf8(vec![115, 107, 45, 112, 114, 111, 106, 49, 50, 51, 52, 53]).unwrap();
+        let secret_str =
+            String::from_utf8(vec![115, 107, 45, 112, 114, 111, 106, 49, 50, 51, 52, 53]).unwrap();
         writeln!(f, "        assert!(audit(\"{}\").is_err());", secret_str).unwrap();
         writeln!(f, "    }}").unwrap();
         writeln!(f, "}}").unwrap();
@@ -484,7 +485,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("leaky.rs");
         let mut f = std::fs::File::create(&path).unwrap();
-        let secret_str = String::from_utf8(vec![115, 107, 45, 114, 101, 97, 108, 45, 108, 101, 97, 107, 101, 100, 45, 107, 101, 121]).unwrap();
+        let secret_str = String::from_utf8(vec![
+            115, 107, 45, 114, 101, 97, 108, 45, 108, 101, 97, 107, 101, 100, 45, 107, 101, 121,
+        ])
+        .unwrap();
         writeln!(f, "const KEY: &str = \"{}\";", secret_str).unwrap();
         writeln!(f).unwrap();
         writeln!(f, "#[cfg(test)]").unwrap();

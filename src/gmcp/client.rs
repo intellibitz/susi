@@ -162,7 +162,9 @@ impl GmcpClient {
         let registry_path = global_dir.join("global_mcp_registry.json");
         let cfg = crate::sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
-        let mtime = std::fs::metadata(&registry_path).and_then(|m| m.modified()).ok();
+        let mtime = std::fs::metadata(&registry_path)
+            .and_then(|m| m.modified())
+            .ok();
         let is_stale = mtime
             .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
             .unwrap_or(true);
@@ -190,7 +192,8 @@ impl GmcpClient {
                     struct FetchGuard;
                     impl Drop for FetchGuard {
                         fn drop(&mut self) {
-                            REGISTRY_FETCH_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+                            REGISTRY_FETCH_RUNNING
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
                         }
                     }
                     let _guard = FetchGuard;

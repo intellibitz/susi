@@ -326,8 +326,10 @@ impl GawdAgent for SusiRuntimeAgent {
             let _home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
-            let cfg =
-                crate::sandbox::manager::SusiConfig::load(&crate::sandbox::xdg::SusiDirs::config_dir()).unwrap_or_default();
+            let cfg = crate::sandbox::manager::SusiConfig::load(
+                &crate::sandbox::xdg::SusiDirs::config_dir(),
+            )
+            .unwrap_or_default();
             crate::gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ = crate::gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
@@ -1219,10 +1221,8 @@ pub struct AgentMetaRegistry {
 impl AgentMetaRegistry {
     pub fn global() -> &'static Self {
         static REGISTRY: OnceLock<AgentMetaRegistry> = OnceLock::new();
-        REGISTRY.get_or_init(|| {
-            AgentMetaRegistry {
-                store: crate::sandbox::VersionedJsonStore::new(),
-            }
+        REGISTRY.get_or_init(|| AgentMetaRegistry {
+            store: crate::sandbox::VersionedJsonStore::new(),
         })
     }
 
@@ -1310,32 +1310,34 @@ impl AgentMetaRegistry {
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
-        self.store.load_with_healing(
-            &Self::registry_path(),
-            || Ok(self.bootstrap_data()),
-            |unique_agents| {
-                let mut deduplicated = Vec::new();
-                for a in unique_agents.drain(..) {
-                    if !deduplicated.iter().any(|x: &AgentProfile| x.name == a.name) {
-                        deduplicated.push(a);
+        self.store
+            .load_with_healing(
+                &Self::registry_path(),
+                || Ok(self.bootstrap_data()),
+                |unique_agents| {
+                    let mut deduplicated = Vec::new();
+                    for a in unique_agents.drain(..) {
+                        if !deduplicated.iter().any(|x: &AgentProfile| x.name == a.name) {
+                            deduplicated.push(a);
+                        }
                     }
-                }
-                *unique_agents = deduplicated;
+                    *unique_agents = deduplicated;
 
-                let mut changed = false;
-                for default_agent in self.bootstrap_data() {
-                    if !unique_agents
-                        .iter()
-                        .any(|x: &AgentProfile| x.name == default_agent.name)
-                    {
-                        unique_agents.push(default_agent);
-                        changed = true;
+                    let mut changed = false;
+                    for default_agent in self.bootstrap_data() {
+                        if !unique_agents
+                            .iter()
+                            .any(|x: &AgentProfile| x.name == default_agent.name)
+                        {
+                            unique_agents.push(default_agent);
+                            changed = true;
+                        }
                     }
-                }
-                changed
-            },
-            false,
-        ).unwrap_or_else(|_| self.bootstrap_data())
+                    changed
+                },
+                false,
+            )
+            .unwrap_or_else(|_| self.bootstrap_data())
     }
 
     pub fn instantiate_native_agent(name: &str) -> Option<Arc<dyn GawdAgent>> {

@@ -186,14 +186,16 @@ impl SusiDaemon {
         if let Some(pid) = Self::check_status_path(&ws_lock) {
             return Some(RunningDaemon {
                 pid,
-                workspace: Self::read_recorded_workspace(&ws_lock).unwrap_or_else(|| workspace.to_path_buf()),
+                workspace: Self::read_recorded_workspace(&ws_lock)
+                    .unwrap_or_else(|| workspace.to_path_buf()),
                 same_workspace: true,
             });
         }
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock).map(|pid| RunningDaemon {
             pid,
-            workspace: Self::read_recorded_workspace(&global_lock).unwrap_or_else(|| workspace.to_path_buf()),
+            workspace: Self::read_recorded_workspace(&global_lock)
+                .unwrap_or_else(|| workspace.to_path_buf()),
             same_workspace: false,
         })
     }
@@ -912,10 +914,8 @@ mod tests {
         // primitive is the global lock's flock, independent of which
         // workspace path is asking - this proves that property directly,
         // without needing to spin up two real daemon processes.
-        let global_dir = std::env::temp_dir().join(format!(
-            "susi_global_lock_test_{}",
-            std::process::id()
-        ));
+        let global_dir =
+            std::env::temp_dir().join(format!("susi_global_lock_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&global_dir);
         let global_lock_path = SusiDaemon::get_lock_file(&global_dir);
         let _ = std::fs::remove_file(&global_lock_path);
@@ -953,10 +953,8 @@ mod tests {
         // recorded workspace (workspace_a below), not the caller's
         // (workspace_b), and must say `same_workspace: false` so
         // `ensure_daemon_running` knows not to touch it.
-        let global_dir = std::env::temp_dir().join(format!(
-            "susi_find_running_test_{}",
-            std::process::id()
-        ));
+        let global_dir =
+            std::env::temp_dir().join(format!("susi_find_running_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&global_dir);
         std::fs::create_dir_all(&global_dir).unwrap();
 
@@ -978,8 +976,9 @@ mod tests {
         // A CLI invocation from workspace_b asks "is a daemon running?" -
         // it has no lock of its own, so it must fall back to the global
         // lock and correctly report workspace_a's daemon, not its own path.
-        let found = SusiDaemon::find_running_daemon(&workspace_b, &global_dir)
-            .expect("a daemon is running (workspace_a's) and must be found via the global fallback");
+        let found = SusiDaemon::find_running_daemon(&workspace_b, &global_dir).expect(
+            "a daemon is running (workspace_a's) and must be found via the global fallback",
+        );
         assert_eq!(
             found.workspace, workspace_a,
             "must recover the daemon's REAL recorded workspace, not the caller's own workspace_b"
@@ -1014,16 +1013,15 @@ mod tests {
 
     #[test]
     fn test_binary_hash_cache_hits_on_unchanged_file_and_misses_after_real_change() {
-        let global_dir = std::env::temp_dir().join(format!(
-            "susi_hash_cache_test_{}",
-            std::process::id()
-        ));
+        let global_dir =
+            std::env::temp_dir().join(format!("susi_hash_cache_test_{}", std::process::id()));
         std::fs::create_dir_all(&global_dir).unwrap();
         let bin_path = global_dir.join("fake_binary");
         std::fs::write(&bin_path, b"version one content").unwrap();
 
         let direct_hash = SusiDaemon::calculate_binary_hash(&bin_path).unwrap();
-        let cached_hash_1 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        let cached_hash_1 =
+            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
         assert_eq!(
             direct_hash, cached_hash_1,
             "the cached path must still produce the exact same digest as a direct hash"
@@ -1040,7 +1038,8 @@ mod tests {
         let size = parts.next().unwrap();
         std::fs::write(&cache_path, format!("{}:{}:deadbeef", mtime, size)).unwrap();
 
-        let cached_hash_2 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        let cached_hash_2 =
+            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
         assert_eq!(
             cached_hash_2, "deadbeef",
             "an unchanged mtime+size must be served from the cache, not re-hashed"
@@ -1052,7 +1051,8 @@ mod tests {
         // keep returning the stale "deadbeef" sentinel forever.
         std::thread::sleep(std::time::Duration::from_millis(5));
         std::fs::write(&bin_path, b"version two, genuinely different content").unwrap();
-        let cached_hash_3 = SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
+        let cached_hash_3 =
+            SusiDaemon::calculate_binary_hash_cached(&bin_path, &global_dir).unwrap();
         assert_ne!(
             cached_hash_3, "deadbeef",
             "a real content+mtime change must invalidate the cache and re-hash"

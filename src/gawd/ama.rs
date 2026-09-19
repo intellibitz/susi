@@ -360,7 +360,10 @@ impl SusiMasterAgent {
                     v
                 }
                 Err(e) => {
-                    eprintln!("- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}", e);
+                    eprintln!(
+                        "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
+                        e
+                    );
                     format!("Axiomatic Violation: {}", e)
                 }
             };
@@ -377,7 +380,10 @@ impl SusiMasterAgent {
                     v
                 }
                 Err(e) => {
-                    eprintln!("- [Reality Integrity Check] Status: VIOLATION | Error: {}", e);
+                    eprintln!(
+                        "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                        e
+                    );
                     format!("Reality Violation: {}", e)
                 }
             };

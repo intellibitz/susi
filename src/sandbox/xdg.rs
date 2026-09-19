@@ -14,7 +14,9 @@ impl SusiDirs {
     fn use_xdg() -> bool {
         let legacy = Self::legacy_base();
         if legacy.is_dir() {
-            std::env::var("SUSI_XDG").map(|v| v == "1" || v == "true").unwrap_or(false)
+            std::env::var("SUSI_XDG")
+                .map(|v| v == "1" || v == "true")
+                .unwrap_or(false)
         } else {
             true
         }

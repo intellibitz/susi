@@ -227,7 +227,9 @@ mod tests {
                     crate::native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
                 let _ = std::fs::remove_file(
-                    crate::sandbox::xdg::SusiDirs::data_dir().join("reflexes").join(format!("{}.rs", intent)),
+                    crate::sandbox::xdg::SusiDirs::data_dir()
+                        .join("reflexes")
+                        .join(format!("{}.rs", intent)),
                 );
                 let output = result.expect("compiled reflex must execute successfully");
                 assert!(output.contains("input=hello"));

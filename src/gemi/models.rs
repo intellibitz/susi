@@ -140,7 +140,8 @@ impl ModelDownloadController {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file =
+            crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         if let Ok(content) = fs::read_to_string(&progress_file) {
             if let Ok(record) = serde_json::from_str::<ModelDownloadProgress>(&content) {
                 if record.target_url == target || record.model_name == target {
@@ -420,7 +421,8 @@ impl ModelManager {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let override_file = crate::sandbox::xdg::SusiDirs::config_dir().join("selected_model_override.txt");
+        let override_file =
+            crate::sandbox::xdg::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
             if !trimmed.is_empty() {
@@ -1080,7 +1082,8 @@ impl ModelManager {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file = crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file =
+            crate::sandbox::xdg::SusiDirs::data_dir().join("download_progress.json");
         let record = ModelDownloadProgress {
             model_name: model_name.to_string(),
             target_url: target_url.to_string(),
