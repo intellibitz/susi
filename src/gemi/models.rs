@@ -1503,7 +1503,7 @@ impl ModelManager {
             return false; // floor and ceiling already cover the whole ladder
         }
         let total_ladder_bytes: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
-        free_disk_bytes >= total_ladder_bytes.saturating_mul(2)
+        free_disk_bytes >= total_ladder_bytes.saturating_mul(2) || (total_ladder_bytes > 50_000_000_000 && free_disk_bytes >= total_ladder_bytes + 20_000_000_000)
     }
 
     /// The middle tiers - excluding the floor (downloaded as the
