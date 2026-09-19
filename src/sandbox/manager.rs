@@ -371,6 +371,13 @@ impl Default for ChatTemplateConfig {
         // container's #[serde(default)] makes Self's Deserialize impl call
         // Self::default() to backfill missing fields, which would recurse
         // infinitely (stack overflow) if this constructed a Self via serde_json.
+        // Mandate 42: safe - this and the other bundled-default `.expect()`
+        // calls in this file (default_dynamic x2, SusiConfig::default) all
+        // deserialize a file compiled into the binary via include_str!, not
+        // a user-editable runtime file. Content is fixed for a given
+        // binary, so parsing either always succeeds or always fails for
+        // that binary - a failure is a build/packaging bug caught by any
+        // test run, never a runtime condition that varies between calls.
         let templates: StringRegistry = serde_json::from_str(include_str!(
             "../../config/chat_templates.default.json"
         ))
@@ -492,6 +499,8 @@ impl SusiPrompts {
     }
 
     fn default_dynamic() -> Self {
+        // Mandate 42: safe - see ChatTemplateConfig::default's comment
+        // above; same compile-time include_str! pattern.
         let prompts: DynamicRegistry = serde_json::from_str(include_str!(
             "../../config/prompts.default.json"
         ))
@@ -609,6 +618,8 @@ impl SusiMessages {
     }
 
     fn default_dynamic() -> Self {
+        // Mandate 42: safe - see ChatTemplateConfig::default's comment
+        // above; same compile-time include_str! pattern.
         let categories: HashMap<String, StringRegistry> = serde_json::from_str(include_str!(
             "../../config/messages.default.json"
         ))
@@ -795,6 +806,9 @@ impl SusiConfig {
     // than through `Default::default()` trait dispatch.
     #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
+        // Mandate 42: safe - see ChatTemplateConfig::default's comment
+        // earlier in this file; same compile-time include_str! pattern.
+        // This is the reference instance of the pattern cited in Mandate 35.
         serde_json::from_str(include_str!("../../config/config.default.json"))
             .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
     }
