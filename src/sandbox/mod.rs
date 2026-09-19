@@ -3,3 +3,4 @@ pub mod xdg;
 pub use manager::SandboxManager;
 pub mod versioned_store;
 pub use versioned_store::VersionedJsonStore;
+pub mod auto_install;

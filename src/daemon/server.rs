@@ -36,15 +36,13 @@ pub struct SusiDaemon;
 pub struct DaemonContext {
     pub shutdown_signal: Arc<AtomicBool>,
     _lock: DaemonLock,
-    _global_lock: DaemonLock,
 }
 
 impl DaemonContext {
-    pub fn new(lock: DaemonLock, global_lock: DaemonLock) -> Self {
+    pub fn new(lock: DaemonLock) -> Self {
         DaemonContext {
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             _lock: lock,
-            _global_lock: global_lock,
         }
     }
 
@@ -153,23 +151,8 @@ impl SusiDaemon {
         global_dir.join("substrate.lock")
     }
 
-    pub fn get_lock_file_for_workspace(global_dir: &Path, workspace: &Path) -> PathBuf {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let canonical = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
-        let mut hasher = DefaultHasher::new();
-        canonical.hash(&mut hasher);
-        let hash = hasher.finish();
-        global_dir.join(format!("substrate_{:016x}.lock", hash))
-    }
 
-    pub fn check_status(workspace: &Path, global_dir: &Path) -> Option<u32> {
-        let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
-        if let Some(pid) = Self::check_status_path(&ws_lock) {
-            return Some(pid);
-        }
+    pub fn check_status(_workspace: &Path, global_dir: &Path) -> Option<u32> {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock)
     }
@@ -182,22 +165,26 @@ impl SusiDaemon {
     /// because a different workspace's CLI invocation was the one that
     /// noticed a binary change.
     pub fn find_running_daemon(workspace: &Path, global_dir: &Path) -> Option<RunningDaemon> {
-        let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
-        if let Some(pid) = Self::check_status_path(&ws_lock) {
-            return Some(RunningDaemon {
-                pid,
-                workspace: Self::read_recorded_workspace(&ws_lock)
-                    .unwrap_or_else(|| workspace.to_path_buf()),
-                same_workspace: true,
-            });
-        }
         let global_lock = Self::get_lock_file(global_dir);
-        Self::check_status_path(&global_lock).map(|pid| RunningDaemon {
-            pid,
-            workspace: Self::read_recorded_workspace(&global_lock)
-                .unwrap_or_else(|| workspace.to_path_buf()),
-            same_workspace: false,
+        Self::check_status_path(&global_lock).map(|pid| {
+            let running_workspace = Self::read_recorded_workspace(&global_lock)
+                .unwrap_or_else(|| workspace.to_path_buf());
+            let same_workspace = Self::paths_identify_same_workspace(&running_workspace, workspace);
+
+            RunningDaemon {
+                pid,
+                workspace: running_workspace,
+                same_workspace,
+            }
         })
+    }
+
+    fn paths_identify_same_workspace(left: &Path, right: &Path) -> bool {
+        let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
+        let right = right
+            .canonicalize()
+            .unwrap_or_else(|_| right.to_path_buf());
+        left == right
     }
 
     fn read_recorded_workspace(lock_file_path: &Path) -> Option<PathBuf> {
@@ -481,7 +468,7 @@ impl SusiDaemon {
         if cfg!(test) {
             return;
         }
-        let lock_file_path = Self::get_lock_file_for_workspace(&global_dir, &workspace);
+        let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
         if let Ok(metadata) = std::fs::metadata(&lock_file_path) {
@@ -510,44 +497,7 @@ impl SusiDaemon {
             return;
         }
 
-        // GEMI/GMCP/UDP bind to 0.0.0.0 - genuinely global, shared ports,
-        // not per-workspace ones - so a daemon started from workspace A
-        // must refuse to start if a daemon for workspace B already holds
-        // them, not just check its own workspace's lock. Before this,
-        // `check_status`'s cross-workspace fallback read from
-        // `substrate.lock` but nothing had written to that file since the
-        // per-workspace lock split (workspace-scoped daemons only wrote
-        // their own `substrate_<hash>.lock`), so the fallback always found
-        // nothing: a `susi` invocation from a second workspace directory
-        // believed no daemon was running, started a second one, and the two
-        // then fought over the same ports - the loser's "Sovereign
-        // Eviction" self-healing reflex (`attempt_port_reclaim`,
-        // Mandate 22) SIGKILLed the winner outright, repeatedly, as long as
-        // anything kept invoking `susi` from that other workspace. This
-        // flock is the actual mutual-exclusion fix: only one process can
-        // hold it at a time, closing the race `check_status`'s PID-liveness
-        // read alone cannot (a dead-but-not-yet-cleaned-up lock file is a
-        // real TOCTOU window; flock isn't).
-        let global_lock_path = Self::get_lock_file(&global_dir);
-        let mut global_lock = match DaemonLock::acquire(&global_lock_path) {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!(
-                    "[SusiDaemon] Failed to acquire global lock: {}. A daemon for another workspace already holds the shared network ports; not starting a second one.",
-                    e
-                );
-                return;
-            }
-        };
-        if let Err(e) = global_lock.write_pid_for_workspace(&workspace) {
-            eprintln!(
-                "[SusiDaemon] Failed to write PID to global lock file: {}",
-                e
-            );
-            return;
-        }
-
-        let ctx = DaemonContext::new(lock, global_lock);
+        let ctx = DaemonContext::new(lock);
         if let Err(e) = ctx.setup_signal_handlers() {
             eprintln!("[SusiDaemon] Signal handler setup failed: {}", e);
         }
@@ -874,14 +824,9 @@ impl SusiDaemon {
     }
 
     #[allow(dead_code)]
-    pub fn stop_daemon(workspace: &Path, global_dir: &Path) -> bool {
-        let ws_lock = Self::get_lock_file_for_workspace(global_dir, workspace);
+    pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
         let global_lock = Self::get_lock_file(global_dir);
-        let target_lock = if ws_lock.exists() {
-            &ws_lock
-        } else {
-            &global_lock
-        };
+        let target_lock = &global_lock;
 
         if target_lock.exists() {
             if let Ok(content) = fs::read_to_string(target_lock) {
@@ -892,12 +837,6 @@ impl SusiDaemon {
                     }
                 }
             }
-            // A running daemon now holds both its workspace-scoped lock and
-            // the global one (see run_daemon_loop) - remove both, not just
-            // whichever this call happened to pick, so a stale PID never
-            // lingers in the other file for `check_status`'s fallback read
-            // to trip over later.
-            let _ = fs::remove_file(&ws_lock);
             let _ = fs::remove_file(&global_lock);
             true
         } else {
@@ -915,13 +854,6 @@ mod tests {
         let tmp_dir = std::env::temp_dir();
         let path = SusiDaemon::get_lock_file(&tmp_dir);
         assert_eq!(path, tmp_dir.join("substrate.lock"));
-        let ws_path = SusiDaemon::get_lock_file_for_workspace(&tmp_dir, &tmp_dir);
-        assert!(ws_path
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .starts_with("substrate_"));
     }
 
     #[test]
@@ -983,13 +915,9 @@ mod tests {
         std::fs::create_dir_all(&workspace_a).unwrap();
         std::fs::create_dir_all(&workspace_b).unwrap();
 
-        // Simulate workspace_a's daemon having started: it writes its own
-        // PID/workspace to both its workspace-scoped lock and the global
-        // one (mirroring what run_daemon_loop actually does).
-        let ws_a_lock_path = SusiDaemon::get_lock_file_for_workspace(&global_dir, &workspace_a);
+        // Simulate workspace_a's daemon having started. The global lock
+        // records the workspace that owns the daemon.
         let global_lock_path = SusiDaemon::get_lock_file(&global_dir);
-        let mut ws_a_lock = DaemonLock::acquire(&ws_a_lock_path).unwrap();
-        ws_a_lock.write_pid_for_workspace(&workspace_a).unwrap();
         let mut global_lock = DaemonLock::acquire(&global_lock_path).unwrap();
         global_lock.write_pid_for_workspace(&workspace_a).unwrap();
 

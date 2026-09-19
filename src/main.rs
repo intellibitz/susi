@@ -218,6 +218,7 @@ fn run_shell(workspace: &Path) {
 }
 
 fn main() {
+    susi_engine::sandbox::auto_install::push_to_hardware_if_dev_build();
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 
