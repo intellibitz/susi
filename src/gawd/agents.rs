@@ -1235,7 +1235,7 @@ impl AgentMetaRegistry {
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
-        serde_json::from_str(include_str!("../../agents.default.json"))
+        serde_json::from_str(include_str!("../../config/agents.default.json"))
             .expect("Fatal: agents.default.json must be valid JSON.")
     }
 

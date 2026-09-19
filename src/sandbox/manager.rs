@@ -372,7 +372,7 @@ impl Default for ChatTemplateConfig {
         // Self::default() to backfill missing fields, which would recurse
         // infinitely (stack overflow) if this constructed a Self via serde_json.
         let templates: StringRegistry = serde_json::from_str(include_str!(
-            "../../chat_templates.default.json"
+            "../../config/chat_templates.default.json"
         ))
         .expect(
             "Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.",
@@ -489,7 +489,7 @@ impl SusiPrompts {
 
     fn default_dynamic() -> Self {
         let prompts: DynamicRegistry = serde_json::from_str(include_str!(
-            "../../prompts.default.json"
+            "../../config/prompts.default.json"
         ))
         .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self {
@@ -602,7 +602,7 @@ impl SusiMessages {
 
     fn default_dynamic() -> Self {
         let categories: HashMap<String, StringRegistry> = serde_json::from_str(include_str!(
-            "../../messages.default.json"
+            "../../config/messages.default.json"
         ))
         .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { categories }
@@ -787,7 +787,7 @@ impl SusiConfig {
     // than through `Default::default()` trait dispatch.
     #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
-        serde_json::from_str(include_str!("../../config.default.json"))
+        serde_json::from_str(include_str!("../../config/config.default.json"))
             .expect("Fatal: config.default.json must be valid JSON. Zero hardcoded config allowed.")
     }
 
@@ -1511,7 +1511,7 @@ mod tests {
     fn test_config_accessors_match_bundled_default_single_source_of_truth() {
         let default = SusiConfig::default();
         let raw: serde_json::Value =
-            serde_json::from_str(include_str!("../../config.default.json")).unwrap();
+            serde_json::from_str(include_str!("../../config/config.default.json")).unwrap();
 
         assert_eq!(
             default.gmcp_port(),
