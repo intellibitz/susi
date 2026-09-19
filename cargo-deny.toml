@@ -1,4 +1,0 @@
-[advisories]
-ignore = [
-    "RUSTSEC-2026-0173", # proc-macro-error2 is unmaintained, waiting for wasmer to migrate to proc-macro-error3
-]
