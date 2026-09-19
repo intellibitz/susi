@@ -709,6 +709,13 @@ impl SusiMasterAgent {
                 // tier just because the heuristic complexity guess on the
                 // longer, correction-annotated goal happens to land low
                 // again - it forces a strictly bigger model each attempt.
+                let reasoning_prompt = format!(
+                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",
+                    current_goal, swarm_context
+                );
+                
+                let context_words = reasoning_prompt.split_whitespace().count();
+
                 let min_complexity_for_attempt = match retry_count {
                     0 => None,
                     1 => Some(crate::gemi::intent::TaskComplexity::Moderate),
@@ -717,14 +724,10 @@ impl SusiMasterAgent {
                 let model_name =
                     crate::gemi::models::ModelManager::get_selected_model_for_request_with_min_complexity(
                         &current_goal,
+                        Some(context_words),
                         min_complexity_for_attempt,
                     )
                     .unwrap_or_else(|| "susi-native-synthesis".to_string());
-
-                let reasoning_prompt = format!(
-                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",
-                    current_goal, swarm_context
-                );
 
                 let local_inference = crate::gemi::engine::GemiEngine::generate_reasoning_deep(
                     &reasoning_prompt,

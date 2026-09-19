@@ -511,7 +511,7 @@ impl ModelManager {
     /// classify (status/report generation) should use - unaffected by
     /// this addition.
     pub fn get_selected_model_for_request(prompt: &str) -> Option<String> {
-        Self::get_selected_model_for_request_with_min_complexity(prompt, None)
+        Self::get_selected_model_for_request_with_min_complexity(prompt, None, None)
     }
 
     /// Same as `get_selected_model_for_request`, but never selects below
@@ -524,11 +524,12 @@ impl ModelManager {
     /// cross a heuristic threshold on its own.
     pub fn get_selected_model_for_request_with_min_complexity(
         prompt: &str,
+        context_words: Option<usize>,
         min_complexity: Option<crate::gemi::intent::TaskComplexity>,
     ) -> Option<String> {
         let intent = crate::gemi::intent::IntentClassifier::classify(prompt);
         let heuristic_complexity =
-            crate::gemi::intent::IntentClassifier::classify_complexity(prompt);
+            crate::gemi::intent::IntentClassifier::classify_complexity(prompt, context_words);
         let complexity = Self::resolve_complexity_floor(heuristic_complexity, min_complexity);
         Self::get_selected_model_inner(Some(intent), Some(complexity))
     }

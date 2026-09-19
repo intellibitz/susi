@@ -81,7 +81,7 @@ impl IntentClassifier {
     /// clear match to a lower bucket: misclassifying a simple prompt as
     /// complex just costs a bit more compute on a model that's already
     /// resident; the reverse risks a materially worse answer.
-    pub fn classify_complexity(prompt: &str) -> TaskComplexity {
+    pub fn classify_complexity(prompt: &str, context_words: Option<usize>) -> TaskComplexity {
         let trimmed = prompt.trim();
         let word_count = trimmed.split_whitespace().count();
         let lower = trimmed.to_lowercase();
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_classify_complexity_greeting_is_trivial() {
         assert_eq!(
-            IntentClassifier::classify_complexity("hi there"),
+            IntentClassifier::classify_complexity("hi there", None),
             TaskComplexity::Trivial
         );
     }
@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn test_classify_complexity_short_single_question_is_simple() {
         assert_eq!(
-            IntentClassifier::classify_complexity("What is the capital of France?"),
+            IntentClassifier::classify_complexity("What is the capital of France?", None),
             TaskComplexity::Simple
         );
     }
@@ -283,7 +283,7 @@ mod tests {
             balanced binary search tree in terms of average and worst-case \
             time complexity for insertion, lookup, and deletion operations.";
         assert_eq!(
-            IntentClassifier::classify_complexity(prompt),
+            IntentClassifier::classify_complexity(prompt, None),
             TaskComplexity::Moderate
         );
     }
@@ -291,7 +291,7 @@ mod tests {
     #[test]
     fn test_classify_complexity_multi_step_marker_forces_complex_even_if_short() {
         assert_eq!(
-            IntentClassifier::classify_complexity("explain this step by step"),
+            IntentClassifier::classify_complexity("explain this step by step", None),
             TaskComplexity::Complex
         );
     }
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_classify_complexity_multiple_questions_is_complex() {
         assert_eq!(
-            IntentClassifier::classify_complexity("What is Rust? Why use it?"),
+            IntentClassifier::classify_complexity("What is Rust? Why use it?", None),
             TaskComplexity::Complex
         );
     }
@@ -315,7 +315,7 @@ mod tests {
             covering the data model, the synchronization protocol, and the failure \
             modes at each stage.";
         assert_eq!(
-            IntentClassifier::classify_complexity(prompt),
+            IntentClassifier::classify_complexity(prompt, None),
             TaskComplexity::VeryComplex
         );
     }
