@@ -1323,6 +1323,29 @@ impl ModelManager {
         }
     }
 
+    /// Decides whether the "step down" baseline (the smallest
+    /// hardware-qualified tier, `ladder.first()`) needs fetching, so a
+    /// small/fast model stays resident alongside the best-fit tier
+    /// `ensure_hardware_optimal_models` already ensures - the foundation
+    /// for routing simple requests to something fast without waiting on
+    /// (or competing for RAM with, mid-request) the larger tier. Returns
+    /// `None` when there's nothing to step down FROM (only one qualifying
+    /// tier - e.g. weak hardware where the baseline already *is* the best
+    /// tier) or the baseline is already present. Split out as a pure
+    /// function so this decision is unit-testable without real hardware
+    /// detection or filesystem I/O.
+    fn baseline_download_target(
+        ladder: &[crate::gemi::hardware::ModelLadderStep],
+        baseline_already_exists: bool,
+    ) -> Option<&crate::gemi::hardware::ModelLadderStep> {
+        let baseline = ladder.first()?;
+        let best = ladder.last()?;
+        if baseline.step == best.step || baseline_already_exists {
+            return None;
+        }
+        Some(baseline)
+    }
+
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -1383,6 +1406,27 @@ impl ModelManager {
                     cfg.tokenizer_filename()
                 );
                 let _ = ModelDownloadController::global().start_download(&url);
+            }
+
+            // "Step down" baseline: keep the smallest hardware-qualified
+            // tier resident too, not just the best-fit one. All Qwen2.5
+            // sizes in the ladder share an identical tokenizer, so no
+            // separate tokenizer fetch is needed here - only the model
+            // weights differ between tiers.
+            let baseline_path = ladder
+                .first()
+                .map(|b| models_dir.join(&b.hf_file))
+                .unwrap_or_default();
+            if let Some(baseline_step) =
+                Self::baseline_download_target(&ladder, baseline_path.exists())
+            {
+                let baseline_url = format!(
+                    "{}/{}/resolve/main/{}",
+                    cfg.hf_base_url(),
+                    baseline_step.hf_repo,
+                    baseline_step.hf_file
+                );
+                let _ = ModelDownloadController::global().start_download(&baseline_url);
             }
         }
         Ok("Substrate optimal".into())
@@ -1519,6 +1563,46 @@ mod tests {
     fn test_select_background_prefetch_targets_empty_ladder_yields_nothing() {
         let targets = ModelManager::select_background_prefetch_targets(&[], "https://hf.example");
         assert!(targets.is_empty());
+    }
+
+    /// Regression for the "step down" baseline feature: on capable
+    /// hardware (multiple qualifying tiers), the smallest tier should be
+    /// fetched too, not just the best-fit one, so there's always a
+    /// small/fast model to route simple requests to.
+    #[test]
+    fn test_baseline_download_target_fetches_smallest_tier_when_multiple_qualify() {
+        let ladder = vec![
+            fixture_step(1, "qwen-1.5b"),
+            fixture_step(3, "qwen-14b"),
+            fixture_step(5, "qwen-72b"),
+        ];
+        let target = ModelManager::baseline_download_target(&ladder, false);
+        assert!(target.is_some());
+        assert_eq!(target.unwrap().hf_repo, "qwen-1.5b");
+    }
+
+    #[test]
+    fn test_baseline_download_target_none_when_only_one_tier_qualifies() {
+        // Weak hardware: only the smallest tier qualifies at all, so
+        // "baseline" and "best" are the same thing - nothing to step down
+        // FROM, and ensure_hardware_optimal_models's own best-tier logic
+        // already handles fetching it.
+        let ladder = vec![fixture_step(1, "qwen-1.5b")];
+        let target = ModelManager::baseline_download_target(&ladder, false);
+        assert!(target.is_none());
+    }
+
+    #[test]
+    fn test_baseline_download_target_none_when_already_present() {
+        let ladder = vec![fixture_step(1, "qwen-1.5b"), fixture_step(5, "qwen-72b")];
+        let target = ModelManager::baseline_download_target(&ladder, true);
+        assert!(target.is_none());
+    }
+
+    #[test]
+    fn test_baseline_download_target_none_for_empty_ladder() {
+        let target = ModelManager::baseline_download_target(&[], false);
+        assert!(target.is_none());
     }
 
     #[test]
