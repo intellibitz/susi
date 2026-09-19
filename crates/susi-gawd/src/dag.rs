@@ -3,9 +3,9 @@
 
 use super::agents::MissionBlackboard;
 use super::evidence::EvidenceRecord;
-use susi_error::EaiResult;
 use std::path::Path;
 use std::sync::Arc;
+use susi_error::EaiResult;
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {

@@ -19,17 +19,17 @@ use signal_hook::{
     iterator::Signals,
 };
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tracing::{info, warn};
 
 use susi_error::EaiError;
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gawd::queue::SubstratePulseQueue;
-use susi_server::GemiServer;
 use susi_gmcp::server::GmcpServer;
 use susi_sandbox::manager::SusiConfig;
+use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
@@ -151,7 +151,6 @@ impl SusiDaemon {
         global_dir.join("substrate.lock")
     }
 
-
     pub fn check_status(_workspace: &Path, global_dir: &Path) -> Option<u32> {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock)
@@ -181,9 +180,7 @@ impl SusiDaemon {
 
     fn paths_identify_same_workspace(left: &Path, right: &Path) -> bool {
         let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
-        let right = right
-            .canonicalize()
-            .unwrap_or_else(|_| right.to_path_buf());
+        let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
         left == right
     }
 
@@ -276,7 +273,11 @@ impl SusiDaemon {
         let msgs = susi_sandbox::manager::SusiMessages::load_global();
         if let Some(running) = Self::find_running_daemon(workspace, global_dir) {
             if let Some(ref exe) = current_exe {
-                if let Ok(false) = susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(exe, global_dir) {
+                if let Ok(false) =
+                    susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+                        exe, global_dir,
+                    )
+                {
                     if !running.same_workspace {
                         // A daemon IS running (globally, for some other
                         // workspace) with a stale binary - but restarting
@@ -325,7 +326,10 @@ impl SusiDaemon {
         };
 
         // Binary Integrity Check
-        match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(&bin_to_run, global_dir) {
+        match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+            &bin_to_run,
+            global_dir,
+        ) {
             Ok(true) => {
                 let def_verified = "[SusiDaemon] Binary integrity verified.".to_string();
                 info!(
@@ -688,7 +692,10 @@ impl SusiDaemon {
                 let pid_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if let Ok(pid) = pid_str.parse::<i32>() {
                     if Self::is_trusted_susi_process(pid, global_dir) {
-                        eprintln!("[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...", pid, port);
+                        eprintln!(
+                            "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
+                            pid, port
+                        );
                         unsafe {
                             libc::kill(pid, libc::SIGKILL);
                         }

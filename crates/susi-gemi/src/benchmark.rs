@@ -11,10 +11,10 @@
 // available, the fallback is a whitespace-count estimate and is labeled as
 // such rather than silently presented as equivalent.
 
-use susi_error::{EaiError, EaiResult};
 use crate::models::ModelBenchmarkResult;
 use std::path::Path;
 use std::time::Instant;
+use susi_error::{EaiError, EaiResult};
 
 /// Small, fixed prompt set so repeated runs are comparable to each other.
 /// Deliberately short — this benchmarks latency/throughput characteristics,

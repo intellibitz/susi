@@ -6,10 +6,10 @@
 // called this one "Motion Rule Protocol" too, exactly the collision
 // Mandate 20's own note warns about.
 
-use susi_error::{EaiError, EaiResult};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use susi_error::{EaiError, EaiResult};
 
 pub struct ReflexSynthesizer;
 

@@ -163,8 +163,7 @@ impl CoreTools {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let progress_file =
-            susi_paths::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file = susi_paths::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) =
@@ -249,9 +248,7 @@ impl CoreTools {
     )]
     pub fn bloat_audit(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let report = susi_gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
-        Ok(susi_gawd::bloat_audit::BloatAuditor::render_report(
-            &report,
-        ))
+        Ok(susi_gawd::bloat_audit::BloatAuditor::render_report(&report))
     }
 
     #[tool(name = "identity", description = "SUSI substrate identity report")]

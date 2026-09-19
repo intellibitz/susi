@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod agents;
 pub mod ama;
 pub mod amas;
@@ -6,7 +7,6 @@ pub mod bloat_audit;
 pub mod brain;
 pub mod dag;
 pub mod evolution;
-pub mod admin;
 pub mod genome_distiller;
 pub mod kernel_loader;
 pub mod pkb;

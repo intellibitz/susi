@@ -117,8 +117,7 @@ impl SusiReasoningModel {
     fn project_features(intent: &str, context: &str) -> Result<Vec<f32>> {
         let mut vec = vec![0.0f32; Self::DIM];
         let i_vec = crate::alpha::SusiAlphaModel::semantic_centroid_projection(intent, None)?;
-        let c_vec =
-            crate::alpha::SusiAlphaModel::semantic_centroid_projection(context, None)?;
+        let c_vec = crate::alpha::SusiAlphaModel::semantic_centroid_projection(context, None)?;
 
         // Interleave for high-density feature mapping
         for (i, &v) in i_vec.iter().enumerate() {

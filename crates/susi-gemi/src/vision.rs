@@ -62,8 +62,7 @@ impl SusiVisionEngine {
         }
 
         // Semantic Fusion: Combining Visual Features with Text Intent
-        let text_vec =
-            crate::alpha::SusiAlphaModel::semantic_centroid_projection(prompt, None)?;
+        let text_vec = crate::alpha::SusiAlphaModel::semantic_centroid_projection(prompt, None)?;
 
         // Simulating the "Axiomatic Alignment" of vision
         let similarity: f32 = feature_vec

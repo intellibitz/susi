@@ -1,10 +1,10 @@
 // Parses the built-in list of core module manifests at startup and checks
 // that the configured GMCP/GEMI/UDP ports are set.
 
-use susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateModuleManifest {

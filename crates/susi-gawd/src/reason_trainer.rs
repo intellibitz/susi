@@ -1,10 +1,10 @@
 // Ensures reasoning_experience.jsonl has data (distilling it from AlphaSelf
 // if empty), then trains the local Tier 2 reasoning model from it.
 
-use susi_error::EaiResult;
 use crate::genome_distiller::GenomeDistiller;
-use susi_gemi::reasoning::SusiReasoningModel;
 use std::path::Path;
+use susi_error::EaiResult;
+use susi_gemi::reasoning::SusiReasoningModel;
 
 pub struct ReasoningTrainer;
 

@@ -1,6 +1,6 @@
 [package]
 name = "susi-gmcp"
-version = "0.1.2023079"
+version = "0.1.2023081"
 edition = "2021"
 
 [dependencies]

@@ -1,11 +1,11 @@
 // Converts the compiled-in rules/axioms/components (AlphaSelf) into synthetic
 // Q&A training samples for the local Tier 2 reasoning model.
 
-use susi_error::EaiResult;
 use crate::self_core::AlphaSelf;
-use susi_gemi::reasoning::ReasoningSample;
 use std::fs;
 use std::path::Path;
+use susi_error::EaiResult;
+use susi_gemi::reasoning::ReasoningSample;
 
 pub struct GenomeDistiller;
 

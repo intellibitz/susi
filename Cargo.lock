@@ -6521,7 +6521,7 @@ dependencies = [
 
 [[package]]
 name = "susi-engine"
-version = "0.1.2023079"
+version = "0.1.2023081"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -6602,7 +6602,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.1.2023079"
+version = "0.1.2023081"
 dependencies = [
  "base64 0.23.1",
  "flume",
@@ -6627,7 +6627,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.1.2023079"
+version = "0.1.2023081"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -6661,7 +6661,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.1.2023079"
+version = "0.1.2023081"
 dependencies = [
  "anyhow",
  "bytes",

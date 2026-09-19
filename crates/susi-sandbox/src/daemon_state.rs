@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Read;
-use std::path::{Path};
+use std::path::Path;
 
 pub struct SusiDaemonState;
 
@@ -19,7 +19,10 @@ impl SusiDaemonState {
         Ok(hex::encode(hasher.finalize()))
     }
 
-    pub fn calculate_binary_hash_cached(bin_path: &Path, global_dir: &Path) -> std::io::Result<String> {
+    pub fn calculate_binary_hash_cached(
+        bin_path: &Path,
+        global_dir: &Path,
+    ) -> std::io::Result<String> {
         let cache_path = global_dir.join("binary.hash.cache");
         let meta = fs::metadata(bin_path)?;
         let size = meta.len();
@@ -32,8 +35,13 @@ impl SusiDaemonState {
 
         if let Ok(cached) = fs::read_to_string(&cache_path) {
             let mut parts = cached.trim().splitn(3, ':');
-            if let (Some(c_mtime), Some(c_size), Some(c_hash)) = (parts.next(), parts.next(), parts.next()) {
-                if c_mtime.parse::<u128>().ok() == Some(mtime_ns) && c_size.parse::<u64>().ok() == Some(size) && !c_hash.is_empty() {
+            if let (Some(c_mtime), Some(c_size), Some(c_hash)) =
+                (parts.next(), parts.next(), parts.next())
+            {
+                if c_mtime.parse::<u128>().ok() == Some(mtime_ns)
+                    && c_size.parse::<u64>().ok() == Some(size)
+                    && !c_hash.is_empty()
+                {
                     return Ok(c_hash.to_string());
                 }
             }
@@ -61,8 +69,13 @@ impl SusiDaemonState {
     }
 
     pub fn check_status(workspace: &Path, global_dir: &Path) -> bool {
-        let lock = global_dir.join(format!("daemon_{}.lock", hex::encode(workspace.to_string_lossy().as_bytes())));
-        if !lock.exists() { return false; }
+        let lock = global_dir.join(format!(
+            "daemon_{}.lock",
+            hex::encode(workspace.to_string_lossy().as_bytes())
+        ));
+        if !lock.exists() {
+            return false;
+        }
         if let Ok(pid_str) = fs::read_to_string(&lock) {
             if let Some(pid_line) = pid_str.lines().next() {
                 if let Ok(pid) = pid_line.parse::<u32>() {

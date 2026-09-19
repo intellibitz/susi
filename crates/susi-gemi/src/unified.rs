@@ -1,12 +1,12 @@
 // SUSI Unified Substrate: Multi-Modal Semantic Projection & Paged KV Storage
 // 100% Rust implementation for memory-efficient multi-threaded reasoning
 
-use susi_error::EaiResult;
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
+use susi_error::EaiResult;
 
 /// Paged KV Store (vLLM Parity)
 /// Implements virtual memory paging for KV caches to prevent memory fragmentation

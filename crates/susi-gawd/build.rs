@@ -8,9 +8,12 @@ fn main() {
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
 
-    let identity_md_raw = fs::read_to_string("../../.agents/IDENTITY.md").expect("Missing IDENTITY.md");
-    let roadmap_md_raw = fs::read_to_string("../../.agents/ROADMAP.md").expect("Missing ROADMAP.md");
-    let evidence_md_raw = fs::read_to_string("../../.agents/EVIDENCE.md").expect("Missing EVIDENCE.md");
+    let identity_md_raw =
+        fs::read_to_string("../../.agents/IDENTITY.md").expect("Missing IDENTITY.md");
+    let roadmap_md_raw =
+        fs::read_to_string("../../.agents/ROADMAP.md").expect("Missing ROADMAP.md");
+    let evidence_md_raw =
+        fs::read_to_string("../../.agents/EVIDENCE.md").expect("Missing EVIDENCE.md");
     let readme_md_raw = fs::read_to_string("../../README.md").unwrap_or_default();
 
     // SUSI Version Synchronization Hook

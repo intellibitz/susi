@@ -2,7 +2,6 @@
 // 100% Rust implementation for Native Intelligence Substrate
 // Competitive Inference Racing (unrelated to the release Motion Rule, IDENTITY.md Pillar IV item 3 — this file predates that name and reused it for a different concept)
 
-use susi_error::{EaiError, EaiResult};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -11,6 +10,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use susi_error::{EaiError, EaiResult};
 
 use crate::qwen2_split as qwen2gguf;
 use candle_core::quantized::gguf_file;
@@ -1047,9 +1047,8 @@ impl NativeInferenceEngine for SusiFederatedEngine {
                     .into_body()
                     .read_to_string()
                     .map_err(|e| susi_error::EaiError::inference(format!("Read error: {}", e)))?;
-                let json: serde_json::Value = serde_json::from_str(&body_str).map_err(|e| {
-                    susi_error::EaiError::inference(format!("Parse error: {}", e))
-                })?;
+                let json: serde_json::Value = serde_json::from_str(&body_str)
+                    .map_err(|e| susi_error::EaiError::inference(format!("Parse error: {}", e)))?;
                 if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
                     callback(content.to_string());
                     return Ok(content.to_string());
@@ -1222,8 +1221,7 @@ mod tests {
             .or_else(|| std::env::var_os("USERPROFILE"))
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let tokenizer_path =
-            susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
+        let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
             assert!(tokenizer.is_ok());

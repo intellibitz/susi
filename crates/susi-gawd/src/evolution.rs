@@ -6,12 +6,12 @@
 // called this one "Motion Rule Protocol" too, exactly the collision
 // Mandate 20's own note warns about.
 
-use susi_error::EaiResult;
 use crate::reflex_synth::ReflexSynthesizer;
-use susi_sandbox::manager::SusiAuditLogger;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use susi_error::EaiResult;
+use susi_sandbox::manager::SusiAuditLogger;
 
 pub struct EvolutionManager;
 
@@ -42,8 +42,7 @@ impl EvolutionManager {
             let res = ReflexSynthesizer::distill_native_reflex(&intent_to_heal, workspace)?;
 
             // Substrate Ingestion: Retrain Tier 2 model if experience buffer is full
-            let _ =
-                crate::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace);
+            let _ = crate::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace);
 
             return Ok(format!("# SUSI Motion Rule Triggered\n\n\
                 Test-Driven Evolution has detected a substrate failure and autonomously synthesis a repair.\n\n\

@@ -215,10 +215,8 @@ impl GawdAgent for SusiRuntimeAgent {
             let _home = std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("."));
-            let cfg = susi_sandbox::manager::SusiConfig::load(
-                &susi_paths::SusiDirs::config_dir(),
-            )
-            .unwrap_or_default();
+            let cfg = susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
+                .unwrap_or_default();
             susi_gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
         }
@@ -436,8 +434,7 @@ impl GawdAgent for EvolutionAgent {
                     }
                 }
                 let _guard = AuditGuard;
-                let _ =
-                    crate::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
+                let _ = crate::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
             });
         }
         let res = "Evolutionary health: Substrate Optimal.".to_string();
@@ -974,7 +971,10 @@ impl GawdAgent for AdminAgent {
                     hw.ram_gb
                 ))
             }
-            Some("version") => Ok(format!("SUSI Engine Version: v{}", env!("CARGO_PKG_VERSION"))),
+            Some("version") => Ok(format!(
+                "SUSI Engine Version: v{}",
+                env!("CARGO_PKG_VERSION")
+            )),
             Some("identity") => {
                 let brain = crate::brain::AlphaBrainContext::initialize(workspace);
                 Ok(format!(
@@ -1610,10 +1610,25 @@ mod tests {
     fn test_dispatch_explosive_swarm_runs_mission_dag_and_populates_blackboard() {
         struct DummyHooks;
         impl susi_tools::EngineHooks for DummyHooks {
-            fn engine_version(&self) -> &'static str { "test" }
-            fn hardware_snapshot(&self) -> susi_tools::HardwareSnapshot { susi_tools::HardwareSnapshot { available_ram_gb: 0, acceleration_active: false } }
-            fn resolve_capability_gap(&self, _s: &str, _w: &std::path::Path) -> susi_error::EaiResult<String> { Ok("".into()) }
-            fn broadcast_lock_request(&self, _r: &str) -> bool { true }
+            fn engine_version(&self) -> &'static str {
+                "test"
+            }
+            fn hardware_snapshot(&self) -> susi_tools::HardwareSnapshot {
+                susi_tools::HardwareSnapshot {
+                    available_ram_gb: 0,
+                    acceleration_active: false,
+                }
+            }
+            fn resolve_capability_gap(
+                &self,
+                _s: &str,
+                _w: &std::path::Path,
+            ) -> susi_error::EaiResult<String> {
+                Ok("".into())
+            }
+            fn broadcast_lock_request(&self, _r: &str) -> bool {
+                true
+            }
         }
         susi_tools::hooks::init(Box::new(DummyHooks));
         std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");

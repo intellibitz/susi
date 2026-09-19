@@ -1,12 +1,12 @@
 // SUSI Native Administrative Substrate
 // 100% Rust implementation for Full Compliance Enforcement, Version Synchronization & Release Orchestration
 
-use susi_error::{EaiError, EaiResult};
 use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_error::{EaiError, EaiResult};
 
 pub struct SusiAdmin;
 
@@ -278,7 +278,8 @@ impl SusiAdmin {
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
 
-            if let Ok(hash) = susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&current_exe)
+            if let Ok(hash) =
+                susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&current_exe)
             {
                 fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
             }
@@ -549,10 +550,7 @@ impl SusiAdmin {
                 // Synthesize a new local evidence from hard-compiled genome if missing
                 fs::create_dir_all(workspace.join(".susi"))
                     .map_err(|e| EaiError::filesystem(e.to_string()))?;
-                fs::write(
-                    &evidence_path,
-                    crate::self_core::AlphaSelf::EVIDENCE_MD,
-                )?;
+                fs::write(&evidence_path, crate::self_core::AlphaSelf::EVIDENCE_MD)?;
             }
         }
 

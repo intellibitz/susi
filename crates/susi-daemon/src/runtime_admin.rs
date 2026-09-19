@@ -1,12 +1,12 @@
 // SUSI Runtime Admin: Autonomous Substrate Administration & Drift Correction
 // Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
+use std::path::Path;
+use std::time::Duration;
 use susi_error::EaiResult;
 use susi_gemi::hardware::HardwareProfiler;
 use susi_gemi::models::ModelManager;
 use susi_sandbox::manager::SusiAuditLogger;
-use std::path::Path;
-use std::time::Duration;
 use tracing::info;
 
 pub struct SusiRuntimeAdmin;
@@ -70,7 +70,9 @@ impl SusiRuntimeAdmin {
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         println!("\n[AUTONOMOUS PROACTIVE PULSE INITIATED]");
-        println!("- Status: Susi is performing routine substrate optimization to ensure full availability.");
+        println!(
+            "- Status: Susi is performing routine substrate optimization to ensure full availability."
+        );
         println!("- Mandate: 100% Transparency Active. All background missions reported live.");
 
         // --- 1. Readiness Tasks (Executed AUTO with Information) ---
@@ -157,7 +159,9 @@ impl SusiRuntimeAdmin {
                     println!("\n[POSTPONED] Tasks remain in the mission queue.");
                 }
             } else {
-                println!("\n[BACKGROUND MODE] Tasks logged to sovereign mission queue. Run interactive pulse to execute.");
+                println!(
+                    "\n[BACKGROUND MODE] Tasks logged to sovereign mission queue. Run interactive pulse to execute."
+                );
                 for (desc, _) in pending_tasks {
                     SusiAuditLogger::log_event(workspace, "PENDING_MISSION", desc);
                 }
@@ -205,8 +209,7 @@ impl SusiRuntimeAdmin {
         }
 
         // 2. Autonomous Drift Detection
-        let _ =
-            susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+        let _ = susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
 
         // 3. Model Substrate Tuning
         let _ = ModelManager::ensure_hardware_optimal_models(workspace);

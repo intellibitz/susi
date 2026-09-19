@@ -47,7 +47,6 @@
 // draft_chunk, or different hardware, but it must never default on
 // without remeasuring first.
 
-use susi_error::{EaiError, EaiResult};
 use crate::engine::{apply_repeat_penalty, InferenceHost, ModelBackend};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
@@ -57,6 +56,7 @@ use candle_core::{Device, IndexOp, Tensor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use susi_agents::task_manager::TaskHandle;
+use susi_error::{EaiError, EaiResult};
 use tokenizers::Tokenizer;
 
 /// Rules out llama.cpp's KB-scale `ggml-vocab-*.gguf` test fixtures (found

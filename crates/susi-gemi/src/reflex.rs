@@ -22,14 +22,13 @@ impl ReflexEngine {
     pub fn try_solve(intent: &str, workspace: &Path) -> (ReflexDecision, u128) {
         let start = Instant::now();
 
-        let (decision, elapsed_micros) =
-            match crate::pulse::SusiPulse::reason(intent, workspace) {
-                Ok(action) => (ReflexDecision::Solved(action), start.elapsed().as_micros()),
-                Err(_) => (
-                    ReflexDecision::RequiresDeepReasoning,
-                    start.elapsed().as_micros(),
-                ),
-            };
+        let (decision, elapsed_micros) = match crate::pulse::SusiPulse::reason(intent, workspace) {
+            Ok(action) => (ReflexDecision::Solved(action), start.elapsed().as_micros()),
+            Err(_) => (
+                ReflexDecision::RequiresDeepReasoning,
+                start.elapsed().as_micros(),
+            ),
+        };
 
         // Sub-2ms Reflex Mandate: audit (not enforce) breaches, consistent with
         // the swarm-level guard in src/gawd/ama.rs — genuine reasoning work can

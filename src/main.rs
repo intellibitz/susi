@@ -1,9 +1,9 @@
 #![allow(unexpected_cfgs)]
 use susi_daemon::SusiDaemon;
-use susi_gawd::ama::SusiMasterAgent;
-use susi_server::GemiServer;
-use susi_gmcp::server::GmcpServer;
 use susi_engine::SUSI_VERSION;
+use susi_gawd::ama::SusiMasterAgent;
+use susi_gmcp::server::GmcpServer;
+use susi_server::GemiServer;
 
 use clap::{Parser, Subcommand};
 use std::env;
@@ -288,9 +288,9 @@ fn main() {
         match command {
             Commands::Start => match SusiDaemon::check_status(&cwd, &global_dir) {
                 Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
-                None => println!(
-                    "[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details."
-                ),
+                None => {
+                    println!("[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details.")
+                }
             },
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
@@ -367,19 +367,18 @@ fn main() {
                 println!("{}", answer);
             }
             Commands::DeepScan => {
-                let answer = ama.solve_clean(&cfg.admin_pulses().deep_scan_pulse, &cwd, SUSI_VERSION);
+                let answer =
+                    ama.solve_clean(&cfg.admin_pulses().deep_scan_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::McpScout => {
-                let answer = ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, &cwd, SUSI_VERSION);
+                let answer =
+                    ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
             Commands::Pulse { intent } => {
                 let intent_str = intent.join(" ");
-                match susi_gawd::admin::SusiAdmin::ingest_natural_intent(
-                    &cwd,
-                    &intent_str,
-                ) {
+                match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &intent_str) {
                     Ok(msg) => println!("{}", msg),
                     Err(e) => {
                         eprintln!("Pulse ingestion failed: {}", e);
@@ -418,8 +417,7 @@ fn main() {
             }
             Commands::Admin { subcommand } => match subcommand {
                 AdminCommands::Sync => {
-                    match susi_gawd::admin::SusiAdmin::enforce_version_consistency(&cwd)
-                    {
+                    match susi_gawd::admin::SusiAdmin::enforce_version_consistency(&cwd) {
                         Ok(v) => println!("Version synchronization complete: v{}", v),
                         Err(e) => {
                             eprintln!("Sync failed: {}", e);
@@ -429,10 +427,7 @@ fn main() {
                 }
                 AdminCommands::Pulse { intent } => {
                     let intent_str = intent.join(" ");
-                    match susi_gawd::admin::SusiAdmin::ingest_natural_intent(
-                        &cwd,
-                        &intent_str,
-                    ) {
+                    match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &intent_str) {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {
                             eprintln!("Pulse ingestion failed: {}", e);
@@ -460,7 +455,8 @@ fn main() {
                     }
                 }
                 AdminCommands::Lint => {
-                    let answer = ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
+                    let answer =
+                        ama.solve_clean(&cfg.admin_pulses().lint_pulse, &cwd, SUSI_VERSION);
                     println!("{}", answer);
                 }
                 AdminCommands::AuditDeps => {
@@ -479,8 +475,7 @@ fn main() {
                             println!("- Model: {}", reloaded.default_model());
                             println!(
                                 "- Model Ladder Steps: {}",
-                                susi_gemi::hf_discovery::resolve_model_ladder(&reloaded)
-                                    .len()
+                                susi_gemi::hf_discovery::resolve_model_ladder(&reloaded).len()
                             );
                             println!(
                                 "- MCP Bootstrap Servers: {}",
@@ -497,13 +492,10 @@ fn main() {
                 }
             },
             Commands::VerifyDownloadAgent => {
-                match susi_gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(
-                    &cwd,
-                ) {
+                match susi_gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(&cwd)
+                {
                     Ok(report) => {
-                        println!(
-                            "=== SUSI Model Download Agent & Network Verification Report ==="
-                        );
+                        println!("=== SUSI Model Download Agent & Network Verification Report ===");
                         println!("- Network Status: {}", report.network_status);
                         println!("- Download Agent Active: {}", report.download_agent_active);
                         println!(

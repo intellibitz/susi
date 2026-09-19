@@ -6,10 +6,10 @@
 use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
 use super::axiom::AxiomSubstrate;
-use susi_error::EaiResult;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
+use susi_error::EaiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiMissionReport {
@@ -241,11 +241,8 @@ impl SusiMasterAgent {
             let safety_result =
                 crate::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace);
             eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
-            let security_result = crate::security::SecurityDetector::audit_action(
-                "SUSI_SOLVE",
-                goal,
-                workspace,
-            );
+            let security_result =
+                crate::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace);
 
             if let Err(e) = safety_result.and(security_result) {
                 eprintln!("- [Governance] Fast-path Read blocked: {}", e);
@@ -615,8 +612,7 @@ impl SusiMasterAgent {
             let daemon_status = if susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
                 &global_dir,
-            )
-            {
+            ) {
                 "RUNNING"
             } else {
                 "STOPPED"
@@ -949,8 +945,8 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name = susi_gemi::models::ModelManager::get_selected_model(None)
-            .unwrap_or_else(|| {
+        let model_name =
+            susi_gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
                 let filename = susi_sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename();

@@ -1,7 +1,7 @@
 use std::path::Path;
 use susi_error::EaiResult;
 use susi_gemi::hardware::HardwareProfiler;
-use susi_gmcp::tools::{ToolRegistry, bootstrap_registry};
+use susi_gmcp::tools::{bootstrap_registry, ToolRegistry};
 
 pub struct SusiEngineHooks;
 

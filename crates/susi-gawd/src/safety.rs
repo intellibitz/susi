@@ -1,9 +1,9 @@
 // Blocks destructive commands and writes to critical system paths, using
 // patterns loaded from config plus a hardcoded exec_command allowlist.
 
+use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
-use std::path::{Path, PathBuf};
 
 pub struct SafetyDetector;
 

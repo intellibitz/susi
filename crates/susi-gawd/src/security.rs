@@ -1,9 +1,9 @@
 // Flags/redacts secret-token and exfiltration patterns loaded from config.
 // Mandate 10: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
 
+use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
-use std::path::{Path, PathBuf};
 
 pub struct SecurityDetector;
 

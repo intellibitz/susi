@@ -2,14 +2,14 @@
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
 use super::hardware::HardwareProfiler;
-use susi_error::EaiResult;
-use susi_sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use susi_agents::task_manager::{SwarmTaskManager, TaskHandle, TaskStatus};
+use susi_error::EaiResult;
+use susi_sandbox::manager::ModelInfo;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {
@@ -630,9 +630,7 @@ impl ModelManager {
         scored_models.first().map(|(_, m)| m.clone())
     }
 
-    pub fn get_selected_model(
-        intent: Option<crate::intent::IntentCategory>,
-    ) -> Option<String> {
+    pub fn get_selected_model(intent: Option<crate::intent::IntentCategory>) -> Option<String> {
         Self::get_selected_model_inner(intent, None)
     }
 
@@ -690,14 +688,12 @@ impl ModelManager {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        let override_file =
-            susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+        let override_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
             if !trimmed.is_empty() && trimmed != "auto" && !Self::cooling_down(trimmed) {
                 if let Some(path) = Self::get_model_path(trimmed) {
-                    let cfg =
-                        susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+                    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
                     let size = path
                         .metadata()
                         .map(|m| m.len() as f32 / 1073741824.0)

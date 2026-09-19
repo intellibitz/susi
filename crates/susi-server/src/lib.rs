@@ -11,7 +11,7 @@
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
-use hyper::header::{HeaderValue, CONTENT_TYPE};
+use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -21,8 +21,8 @@ use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gemi::models::ModelManager;
@@ -258,7 +258,8 @@ async fn handle_gemi_request(
                 let prompt_for_task = trimmed_prompt.clone();
                 let content = tokio::task::spawn_blocking(move || {
                     let ama = SusiMasterAgent::new();
-                    let final_resp = ama.solve_clean(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
+                    let final_resp =
+                        ama.solve_clean(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
                     susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,

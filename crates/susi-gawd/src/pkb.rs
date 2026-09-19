@@ -1,10 +1,10 @@
 // Builds/exports the training data (reflex records) used by the local
 // Tier 0 model: bootstrap examples plus ones mined from the audit log.
 
-use susi_error::EaiResult;
 use crate::agents::GawdAgent;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use susi_error::EaiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtocolReflex {
