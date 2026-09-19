@@ -752,6 +752,7 @@ mod tests {
     /// CPU-only by construction (`cpu_device == gpu_device == Cpu`), so it
     /// runs without a GPU; only needs the small local model present.
     #[test]
+    #[ignore = "real tensor computation against a local model (~20s solo, slower under full-suite contention) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_batched_verify_matches_sequential_one_token_at_a_time() {
         let home = match std::env::var_os("HOME") {
             Some(h) => std::path::PathBuf::from(h),
@@ -834,6 +835,7 @@ mod tests {
     /// that a subsequent forward call produces bit-identical logits to a
     /// second model that only ever saw the untruncated prefix.
     #[test]
+    #[ignore = "real tensor computation against a local model (~22s solo, slower under full-suite contention) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_truncate_kv_cache_restores_state_bit_identical_to_never_having_grown() {
         let home = match std::env::var_os("HOME") {
             Some(h) => std::path::PathBuf::from(h),
