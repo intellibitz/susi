@@ -1482,6 +1482,44 @@ impl ModelManager {
         Some(baseline)
     }
 
+    /// Whether free disk comfortably covers downloading every hardware-
+    /// qualified tier, not just the floor (baseline) and ceiling
+    /// (best-fit) pair `ensure_hardware_optimal_models` always fetches.
+    /// "Comfortably" requires free disk to cover the full ladder's
+    /// combined size with a 2x safety margin - not just barely fit it,
+    /// since downloading right up to the edge of free space would leave
+    /// no room for the OS, user files, or files generated during actual
+    /// model use (temp files, caches, checkpoints). Downloading tiers
+    /// nothing can route to yet is the same mistake as the already-fixed
+    /// 32B/72B redundant-download bug (EV-2022920-052) - this is only
+    /// worth doing now that `TaskComplexity` has enough levels
+    /// (EV-2022920-057) to actually route to a middle tier.
+    fn should_download_full_ladder(
+        ladder: &[crate::gemi::hardware::ModelLadderStep],
+        free_disk_bytes: u64,
+    ) -> bool {
+        if ladder.len() <= 2 {
+            return false; // floor and ceiling already cover the whole ladder
+        }
+        let total_ladder_bytes: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
+        free_disk_bytes >= total_ladder_bytes.saturating_mul(2)
+    }
+
+    /// The middle tiers - excluding the floor (downloaded as the
+    /// baseline) and the ceiling (downloaded as the best-fit tier) -
+    /// that should additionally be fetched when
+    /// `should_download_full_ladder` holds. Split out as a pure function
+    /// so the selection is unit-testable independent of real
+    /// disk/filesystem state.
+    fn middle_tier_download_targets(
+        ladder: &[crate::gemi::hardware::ModelLadderStep],
+    ) -> &[crate::gemi::hardware::ModelLadderStep] {
+        if ladder.len() <= 2 {
+            return &[];
+        }
+        &ladder[1..ladder.len() - 1]
+    }
+
     pub fn ensure_hardware_optimal_models(workspace: &Path) -> EaiResult<String> {
         let _home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -1563,6 +1601,26 @@ impl ModelManager {
                     baseline_step.hf_file
                 );
                 let _ = ModelDownloadController::global().start_download(&baseline_url);
+            }
+
+            // Widen to the full qualifying ladder when free disk
+            // comfortably covers it - now that TaskComplexity has enough
+            // levels (Trivial..VeryComplex) to actually route requests to
+            // a middle tier, not just floor and ceiling.
+            let free_disk_bytes = HardwareProfiler::get_free_disk_bytes(&models_dir);
+            if Self::should_download_full_ladder(&ladder, free_disk_bytes) {
+                for step in Self::middle_tier_download_targets(&ladder) {
+                    let middle_path = models_dir.join(&step.hf_file);
+                    if !middle_path.exists() {
+                        let middle_url = format!(
+                            "{}/{}/resolve/main/{}",
+                            cfg.hf_base_url(),
+                            step.hf_repo,
+                            step.hf_file
+                        );
+                        let _ = ModelDownloadController::global().start_download(&middle_url);
+                    }
+                }
             }
         }
         Ok("Substrate optimal".into())
@@ -1739,6 +1797,65 @@ mod tests {
     fn test_baseline_download_target_none_for_empty_ladder() {
         let target = ModelManager::baseline_download_target(&[], false);
         assert!(target.is_none());
+    }
+
+    /// Regression matching the user's real hardware discussion: 5
+    /// qualifying tiers (1.5/7/14/32/72B, ~80GB combined) with ~1.98TB
+    /// free disk must trigger the full-ladder download.
+    #[test]
+    fn test_should_download_full_ladder_true_with_abundant_disk() {
+        let ladder = vec![
+            fixture_step(1, "1.5b"),
+            fixture_step(2, "7b"),
+            fixture_step(3, "14b"),
+            fixture_step(4, "32b"),
+            fixture_step(5, "72b"),
+        ];
+        let total: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
+        assert!(ModelManager::should_download_full_ladder(&ladder, total * 25));
+    }
+
+    #[test]
+    fn test_should_download_full_ladder_false_when_disk_only_barely_fits() {
+        let ladder = vec![
+            fixture_step(1, "1.5b"),
+            fixture_step(2, "7b"),
+            fixture_step(3, "14b"),
+            fixture_step(4, "32b"),
+            fixture_step(5, "72b"),
+        ];
+        let total: u64 = ladder.iter().map(|s| s.expected_bytes).sum();
+        // Just barely enough to fit the ladder once, not comfortably -
+        // must NOT trigger the full download (stay with floor+ceiling).
+        assert!(!ModelManager::should_download_full_ladder(&ladder, total));
+    }
+
+    #[test]
+    fn test_should_download_full_ladder_false_with_two_or_fewer_tiers() {
+        // Floor and ceiling already cover the whole ladder - nothing
+        // extra to widen to, regardless of how much disk is free.
+        let ladder = vec![fixture_step(1, "1.5b"), fixture_step(5, "72b")];
+        assert!(!ModelManager::should_download_full_ladder(&ladder, u64::MAX));
+    }
+
+    #[test]
+    fn test_middle_tier_download_targets_excludes_floor_and_ceiling() {
+        let ladder = vec![
+            fixture_step(1, "1.5b"),
+            fixture_step(2, "7b"),
+            fixture_step(3, "14b"),
+            fixture_step(4, "32b"),
+            fixture_step(5, "72b"),
+        ];
+        let middle = ModelManager::middle_tier_download_targets(&ladder);
+        let repos: Vec<&str> = middle.iter().map(|s| s.hf_repo.as_str()).collect();
+        assert_eq!(repos, vec!["7b", "14b", "32b"]);
+    }
+
+    #[test]
+    fn test_middle_tier_download_targets_empty_with_two_or_fewer_tiers() {
+        let ladder = vec![fixture_step(1, "1.5b"), fixture_step(5, "72b")];
+        assert!(ModelManager::middle_tier_download_targets(&ladder).is_empty());
     }
 
     /// Regression for the auto step-up/step-down feature: a Simple prompt
