@@ -8,9 +8,114 @@ use std::path::Path;
 use std::process::Command;
 use susi_error::{EaiError, EaiResult};
 
+/// How much to bump the engine's own semver when cutting a release (see
+/// `SusiAdmin::execute_release`'s `cut` parameter). Plain `FromStr`, not
+/// `clap::ValueEnum` - this crate stays free of CLI-parsing dependencies;
+/// clap's derive macro accepts any `FromStr` type for an `Option<T>` arg
+/// without that.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionBump {
+    Patch,
+    Minor,
+    Major,
+}
+
+impl std::str::FromStr for VersionBump {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "patch" => Ok(Self::Patch),
+            "minor" => Ok(Self::Minor),
+            "major" => Ok(Self::Major),
+            other => Err(format!(
+                "'{other}' is not a valid version bump (expected patch, minor, or major)"
+            )),
+        }
+    }
+}
+
 pub struct SusiAdmin;
 
 impl SusiAdmin {
+    /// The Cargo.toml files that share the engine's own release version -
+    /// susi-error/core/native/sandbox/paths/tools/agents are independently
+    /// versioned library crates (all pinned at 0.1.0) and are deliberately
+    /// not part of this list.
+    const ENGINE_VERSION_MANIFESTS: [&'static str; 6] = [
+        "Cargo.toml",
+        "crates/susi-gawd/Cargo.toml",
+        "crates/susi-gemi/Cargo.toml",
+        "crates/susi-gmcp/Cargo.toml",
+        "crates/susi-daemon/Cargo.toml",
+        "crates/susi-server/Cargo.toml",
+    ];
+
+    /// Bumps a clean `major.minor.patch` version string. Pure/no I/O so the
+    /// arithmetic is directly unit-testable without a real Cargo.toml.
+    pub fn bump_version_string(current: &str, level: VersionBump) -> EaiResult<String> {
+        let parts: Vec<&str> = current.split('.').collect();
+        let [maj, min, pat]: [&str; 3] = parts.try_into().map_err(|_| {
+            EaiError::config(format!(
+                "cannot bump '{current}': expected major.minor.patch"
+            ))
+        })?;
+        let parse = |s: &str| {
+            s.parse::<u64>()
+                .map_err(|e| EaiError::config(format!("invalid version '{current}': {e}")))
+        };
+        let (major, minor, patch) = (parse(maj)?, parse(min)?, parse(pat)?);
+        Ok(match level {
+            VersionBump::Major => format!("{}.0.0", major + 1),
+            VersionBump::Minor => format!("{}.{}.0", major, minor + 1),
+            VersionBump::Patch => format!("{}.{}.{}", major, minor, patch + 1),
+        })
+    }
+
+    /// Writes `new_version` into one Cargo.toml's `[package] version = "..."`
+    /// line only, mirroring `get_cargo_version`'s own `[package]`-section
+    /// tracking so a same-named `version = "..."` inside a dependency table
+    /// (e.g. `reqwest = { version = "0.13" }`) is never touched. Returns
+    /// whether the file actually changed.
+    fn set_cargo_version(path: &Path, new_version: &str) -> EaiResult<bool> {
+        let content = fs::read_to_string(path)?;
+        let mut in_package = false;
+        let mut changed = false;
+        let mut updated = Vec::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[package]" {
+                in_package = true;
+                updated.push(line.to_string());
+            } else if trimmed.starts_with('[') {
+                in_package = false;
+                updated.push(line.to_string());
+            } else if in_package && trimmed.starts_with("version = \"") {
+                let new_line = format!("version = \"{}\"", new_version);
+                changed |= new_line != trimmed;
+                updated.push(new_line);
+            } else {
+                updated.push(line.to_string());
+            }
+        }
+        if changed {
+            fs::write(path, updated.join("\n") + "\n")?;
+        }
+        Ok(changed)
+    }
+
+    /// Bumps every engine-version Cargo.toml to `new_version` together, so
+    /// they can never drift out of sync with each other the way the root
+    /// version alone used to drift from the (nonexistent) release tag.
+    fn cut_version(workspace: &Path, new_version: &str) -> EaiResult<()> {
+        for rel in Self::ENGINE_VERSION_MANIFESTS {
+            let path = workspace.join(rel);
+            if path.exists() {
+                Self::set_cargo_version(&path, new_version)?;
+            }
+        }
+        Ok(())
+    }
     /// Mirrors install.sh's `CUDARC_CUDA_VERSION` clamp: cudarc (candle's CUDA
     /// backend) pins an exact allowlist of CUDA toolkit versions and panics on
     /// any newer 13.x point release it hasn't added yet (as of cudarc 0.19.9,
@@ -337,7 +442,7 @@ impl SusiAdmin {
     /// a git push failure (e.g. no configured upstream, diverged history) is
     /// reported as an error rather than silently swallowed, since the caller
     /// needs to know deployment did not complete.
-    pub fn execute_release(workspace: &Path) -> EaiResult<String> {
+    pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {
         // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
         // (e.g. metal pulls in macOS-only objc2 bindings) and cannot all build
         // together on any single host, so `--all-features` is never used here.
@@ -450,10 +555,49 @@ impl SusiAdmin {
             }
         }
 
-        eprintln!(
-            "[Release Gatekeeper] 6. Synchronizing Substrate Version Manifests (admin sync)..."
-        );
+        let new_version = match cut {
+            Some(level) => {
+                let current = Self::get_cargo_version(workspace)?;
+                let bumped = Self::bump_version_string(&current, level)?;
+                eprintln!(
+                    "[Release Gatekeeper] 6. Cutting Release: v{} -> v{}...",
+                    current, bumped
+                );
+                Self::cut_version(workspace, &bumped)?;
+                Some(bumped)
+            }
+            None => {
+                eprintln!(
+                    "[Release Gatekeeper] 6. Synchronizing Substrate Version Manifests (admin sync)..."
+                );
+                None
+            }
+        };
         Self::enforce_version_consistency(workspace)?;
+
+        if let Some(ref version) = new_version {
+            let commit_msg = format!("chore: release v{}", version);
+            let add = Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(workspace)
+                .output()?;
+            if !add.status.success() {
+                return Err(EaiError::process(format!(
+                    "Release aborted: could not stage version-cut changes:\n{}",
+                    String::from_utf8_lossy(&add.stderr)
+                )));
+            }
+            let commit = Command::new("git")
+                .args(["commit", "-m", &commit_msg])
+                .current_dir(workspace)
+                .output()?;
+            if !commit.status.success() {
+                return Err(EaiError::process(format!(
+                    "Release aborted: could not commit version cut:\n{}",
+                    String::from_utf8_lossy(&commit.stderr)
+                )));
+            }
+        }
 
         eprintln!("[Release Gatekeeper] 7. Pushing to Remote (git push)...");
         let push = Command::new("git")
@@ -484,6 +628,55 @@ impl SusiAdmin {
             "MOTION_RULE_COMPLETE",
             "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
         );
+
+        if let Some(version) = new_version {
+            eprintln!("[Release Gatekeeper] 8. Tagging Release (v{})...", version);
+            let tag_name = format!("v{}", version);
+            let tag = Command::new("git")
+                .args([
+                    "tag",
+                    "-a",
+                    &tag_name,
+                    "-m",
+                    &format!("Release {}", tag_name),
+                ])
+                .current_dir(workspace)
+                .output()?;
+            if !tag.status.success() {
+                return Err(EaiError::process(format!(
+                    "Release, tests, sync, and push succeeded, but creating tag {} failed:\n{}",
+                    tag_name,
+                    String::from_utf8_lossy(&tag.stderr)
+                )));
+            }
+            let push_tag = Command::new("git")
+                .args(["push", "origin", &tag_name])
+                .env("GIT_TERMINAL_PROMPT", "0")
+                .current_dir(workspace)
+                .output()?;
+            if !push_tag.status.success() {
+                return Err(EaiError::process(format!(
+                    "Release, tests, sync, and push succeeded, and tag {} was created locally, \
+                     but pushing it failed (release.yml only triggers on a pushed tag - push it \
+                     manually with `git push origin {}`):\n{}",
+                    tag_name,
+                    tag_name,
+                    String::from_utf8_lossy(&push_tag.stderr)
+                )));
+            }
+            susi_sandbox::manager::SusiAuditLogger::log(
+                &global_dir,
+                susi_sandbox::manager::LogLevel::Axiomatic,
+                "RELEASE_CUT",
+                &format!("Cut and pushed release {}.", tag_name),
+            );
+            return Ok(format!(
+                "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, push, and \
+                 tag all succeeded. Release {} is live - release.yml will build and publish its \
+                 binaries now.",
+                tag_name
+            ));
+        }
 
         Ok("Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, and push all succeeded. Substrate deployed.".into())
     }
@@ -643,7 +836,10 @@ impl SusiAdmin {
 
     pub fn execute_autonomous_evolution_cycle(workspace: &Path) -> EaiResult<String> {
         let res = crate::evolution::EvolutionManager::evolve_substrate(workspace)?;
-        let _ = Self::execute_release(workspace)?;
+        // Never auto-cuts a version bump - that's a deliberate `--cut`-only
+        // action (see execute_release's own doc comment on why), not
+        // something an autonomous cycle should ever decide on its own.
+        let _ = Self::execute_release(workspace, None)?;
         Ok(res)
     }
 
@@ -692,6 +888,73 @@ mod tests {
     #[test]
     fn test_cuda_version_from_nvcc_output_none_without_release_line() {
         assert_eq!(SusiAdmin::cuda_version_from_nvcc_output("garbage\n"), None);
+    }
+
+    #[test]
+    fn test_bump_version_string_patch_minor_major() {
+        assert_eq!(
+            SusiAdmin::bump_version_string("0.2.3", VersionBump::Patch).unwrap(),
+            "0.2.4"
+        );
+        assert_eq!(
+            SusiAdmin::bump_version_string("0.2.3", VersionBump::Minor).unwrap(),
+            "0.3.0"
+        );
+        assert_eq!(
+            SusiAdmin::bump_version_string("0.2.3", VersionBump::Major).unwrap(),
+            "1.0.0"
+        );
+    }
+
+    #[test]
+    fn test_bump_version_string_rejects_wrong_shape() {
+        // Wrong part count.
+        assert!(SusiAdmin::bump_version_string("1.2", VersionBump::Patch).is_err());
+        // A pre-release suffix makes the last segment non-numeric.
+        assert!(SusiAdmin::bump_version_string("1.2.3-rc1", VersionBump::Patch).is_err());
+    }
+
+    #[test]
+    fn test_version_bump_from_str_is_case_insensitive_and_rejects_unknown() {
+        use std::str::FromStr;
+        assert_eq!(VersionBump::from_str("patch").unwrap(), VersionBump::Patch);
+        assert_eq!(VersionBump::from_str("MINOR").unwrap(), VersionBump::Minor);
+        assert_eq!(VersionBump::from_str("Major").unwrap(), VersionBump::Major);
+        assert!(VersionBump::from_str("banana").is_err());
+    }
+
+    #[test]
+    fn test_set_cargo_version_only_touches_package_section() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_set_cargo_version_test_{}",
+            std::process::id()
+        ));
+        let _ = fs::create_dir_all(&dir);
+        let path = dir.join("Cargo.toml");
+        fs::write(
+            &path,
+            "[package]\n\
+             name = \"demo\"\n\
+             version = \"0.2.3\"\n\
+             edition = \"2021\"\n\
+             \n\
+             [dependencies]\n\
+             reqwest = { version = \"0.13\" }\n",
+        )
+        .unwrap();
+
+        let changed = SusiAdmin::set_cargo_version(&path, "0.3.0").unwrap();
+        assert!(changed);
+
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("version = \"0.3.0\""));
+        // The dependency's own inline `version = "0.13"` must survive untouched.
+        assert!(content.contains("reqwest = { version = \"0.13\" }"));
+
+        // Re-applying the same version is a no-op (reported as unchanged).
+        assert!(!SusiAdmin::set_cargo_version(&path, "0.3.0").unwrap());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

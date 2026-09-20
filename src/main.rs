@@ -105,8 +105,16 @@ enum AdminCommands {
     Audit,
     /// Verify version alignment
     Verify,
-    /// Full release orchestration
-    Release,
+    /// Full release orchestration. With --cut, also bumps the engine
+    /// version and pushes the matching vX.Y.Z tag atomically, so a git tag
+    /// (what actually makes a new release appear on GitHub - release.yml
+    /// only triggers on a pushed `v*.*.*` tag) can never again drift out of
+    /// sync with the version number the way it did under the old
+    /// bump-on-every-push scheme.
+    Release {
+        #[arg(long)]
+        cut: Option<susi_gawd::admin::VersionBump>,
+    },
     /// Run clippy
     Lint,
     /// Run cargo audit
@@ -128,7 +136,10 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Pulse { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
-            matches!(subcommand, AdminCommands::Release | AdminCommands::Audit)
+            matches!(
+                subcommand,
+                AdminCommands::Release { .. } | AdminCommands::Audit
+            )
         }
         _ => true,
     }
@@ -445,8 +456,8 @@ fn main() {
                         ama.solve_clean(&cfg.admin_pulses().verify_pulse, &cwd, SUSI_VERSION);
                     println!("{}", answer);
                 }
-                AdminCommands::Release => {
-                    match susi_gawd::admin::SusiAdmin::execute_release(&cwd) {
+                AdminCommands::Release { cut } => {
+                    match susi_gawd::admin::SusiAdmin::execute_release(&cwd, cut) {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {
                             eprintln!("Release failed: {}", e);

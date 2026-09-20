@@ -957,7 +957,7 @@ impl GawdAgent for AdminAgent {
             Some("audit") => crate::admin::SusiAdmin::audit_compliance(workspace, None),
             Some("verify") => crate::admin::SusiAdmin::verify_version_alignment(workspace)
                 .map(|_| "Version alignment verified.".to_string()),
-            Some("release") => crate::admin::SusiAdmin::execute_release(workspace),
+            Some("release") => crate::admin::SusiAdmin::execute_release(workspace, None),
             Some("status_health") => {
                 let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
                 Ok(format!(

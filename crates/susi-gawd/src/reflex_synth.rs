@@ -172,7 +172,7 @@ impl ReflexSynthesizer {
         let path = workspace.join(format!("src/gmcp/tools/{}.rs", tool_name));
         fs::write(&path, code)?;
 
-        crate::admin::SusiAdmin::execute_release(workspace)
+        crate::admin::SusiAdmin::execute_release(workspace, None)
     }
 }
 

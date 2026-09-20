@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
 # 🛡️ SUSI Pre-Push Safety Guard
-# Requires a version bump for any push that touches engine source (src/),
-# so every pushed change to the engine is uniquely addressable. Pushes that
-# only touch non-src files (docs, config, etc.) are exempt.
+#
+# Does NOT require a version bump on every push. It used to: any push
+# touching src/ or crates/ had to bump Cargo.toml's version versus
+# origin/main, which produced 30+ "chore: bump version ... for compliance
+# check" commits with a version number that meant nothing (just an
+# incrementing counter) and, critically, was never connected to a git tag -
+# release.yml only builds/publishes on a pushed `v*.*.*` tag, and nothing
+# ever pushed one automatically, so GitHub's actual Releases page stayed
+# frozen at whatever was last tagged by hand while Cargo.toml kept racing
+# ahead internally. Cutting a real, tagged release is now a deliberate,
+# atomic action - `susi admin release --cut <patch|minor|major>` - which
+# bumps every engine Cargo.toml, syncs docs, commits, tags, and pushes the
+# tag together in one step, so the tag can never again drift from the
+# version. Routine pushes just need to build and pass the checks below.
 
 echo "🛡️ Running SUSI Deep Compliance Checks (Deferred from Commit)..."
 
@@ -47,38 +58,18 @@ else
     echo "⏭️ No Rust/Cargo files in this push, skipping Clippy and Audit checks."
 fi
 
-# 1. Sync All Manifests (Ensure internal consistency)
-# This uses Cargo.toml as the source of truth and updates README/PROJECTS.md
-cargo run -- admin sync >/dev/null 2>&1
-
-# 2. Get the version from the local Cargo.toml
+# Documentation-alignment safety net only - not a version-bump requirement.
+# In normal operation this can't drift: the only thing that ever changes
+# the version is `admin release --cut`, which syncs docs to it atomically
+# in the same commit. A mismatch here means someone hand-edited Cargo.toml's
+# version outside that path; warn loudly rather than silently rewriting
+# files mid-push (which would need its own commit anyway) or blocking an
+# otherwise-unrelated push on it.
 LOCAL_VERSION=$(grep '^version =' Cargo.toml | head -n 1 | cut -d '"' -f 2)
-
-# 3. Get the version from the remote (origin/main)
-# We fetch first to ensure we have the latest remote state
-git fetch origin main >/dev/null 2>&1
-REMOTE_VERSION=$(git show origin/main:Cargo.toml | grep '^version =' | head -n 1 | cut -d '"' -f 2)
-
-echo "🛡️ SUSI Versioning Check: Local v$LOCAL_VERSION vs Remote v$REMOTE_VERSION"
-
-# 4. Only require a version bump when this push actually changes engine
-# source. A push whose diff against origin/main never touches src/ (e.g.
-# README/docs-only changes) is exempt from the bump requirement.
-TOUCHES_SRC=$(git diff --name-only origin/main..HEAD -- src/ crates/ 2>/dev/null | head -n 1)
-
-if [[ -n "$TOUCHES_SRC" && "$LOCAL_VERSION" == "$REMOTE_VERSION" ]]; then
-    echo "❌ Compliance Violation: Source code (src/ or crates/) changed but version was not incremented."
-    echo "👉 Please increment version in Cargo.toml manually before pushing."
-    exit 1
-fi
-
-# 5. Verify Documentation Alignment
 README_VERSION=$(grep 'badge/version-v' README.md | sed -n 's/.*version-v\([0-9.]*\)-.*/\1/p')
 if [[ "$LOCAL_VERSION" != "$README_VERSION" ]]; then
-    echo "❌ Compliance Violation: README.md version ($README_VERSION) does not match Cargo.toml ($LOCAL_VERSION)."
-    echo "👉 Running 'susi admin sync'..."
-    cargo run -- admin sync
-    exit 1
+    echo "⚠️  README.md version ($README_VERSION) does not match Cargo.toml ($LOCAL_VERSION)."
+    echo "    Run 'cargo run -- admin sync', commit the result, and push again."
 fi
 
 echo "✅ SUSI Compliance Check Passed."
