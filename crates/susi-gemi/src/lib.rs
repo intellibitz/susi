@@ -1,10 +1,12 @@
 pub mod alpha;
 pub mod audio;
 pub mod benchmark;
+pub mod candle_provider;
 pub(crate) mod download;
 pub mod engine;
 pub mod hardware;
 pub mod hf_discovery;
+pub mod http_provider;
 mod model_cache;
 pub mod models;
 pub mod pulse;

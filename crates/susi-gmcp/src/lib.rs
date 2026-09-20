@@ -1,4 +1,5 @@
 pub mod catalog;
+pub mod mcp_wrapper;
 pub mod protocol;
 pub mod reflexes;
 pub mod server;

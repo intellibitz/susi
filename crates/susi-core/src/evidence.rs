@@ -17,6 +17,10 @@ pub enum EvidenceSource {
         exit_code: i32,
         output_hash: String,
     },
+    McpTool {
+        tool_name: String,
+        raw_response: String,
+    },
     System {
         metric: String,
         value: String,
@@ -92,7 +96,7 @@ impl EvidenceRecord {
             return false;
         }
 
-        // 2. The claimed evidence still checks out on disk.
+        // 2. The claimed evidence still checks out physically.
         match &self.source {
             EvidenceSource::File { path, hash } => {
                 let target = workspace.join(path);
@@ -108,6 +112,13 @@ impl EvidenceRecord {
                 false
             }
             EvidenceSource::Command { exit_code, .. } => *exit_code == 0,
+            EvidenceSource::McpTool { raw_response, .. } => {
+                // An empty claim or a recorded error from an MCP tool is physically invalid
+                if raw_response.trim().is_empty() || raw_response.to_lowercase().contains("error") {
+                    return false;
+                }
+                true
+            }
             _ => true,
         }
     }

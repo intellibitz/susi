@@ -12,6 +12,7 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 libc = "0.2"
 susi-error = { workspace = true }
+susi-core = { workspace = true }
 susi-paths = { path = "../susi-paths" }
 susi-sandbox = { workspace = true }
 susi-native = { workspace = true }

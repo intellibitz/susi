@@ -8,6 +8,8 @@ publish = false
 [dependencies]
 dashmap = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt"] }
 sha2 = { workspace = true }
 hex = { workspace = true }
 crossbeam = "0.8"

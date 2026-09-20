@@ -1,17 +1,21 @@
-# susi
+# susi: The Zero-Trust AI Operating System
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.3.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**susi** is a local-first Rust engine for running and orchestrating AI models. It loads model weights directly (`.safetensors`, GGUF, ONNX via Candle), queues work through a lock-free, async intent pipeline, and can fan work out across multiple agents running in parallel. It exposes tools over the Model Context Protocol (MCP) and checks its own outputs against the actual state of the workspace before treating them as fact.
+> **susi** is a zero-trust AI operating system. It is infinitely **Pluggable (4)**—bring any model, any agent, and any MCP tool. We orchestrate them into a consensus-driven **Swarm (1)**. But unlike naive frameworks, susi operates on strict **Evidence (2)**. Our Universal **Truth (3)** Transformer cross-examines every claim to physically and semantically eliminate hallucinations. Every action is **Cryptographically Audited (5)** for compliance, untrusted code is tightly **Sandboxed (6)** for security, routine intelligence is compiled into fast **Reflexes (7)** for speed, and missing tools are **Autonomously Provisioned (8)** on the fly.
 
 ---
 
-## What it does
+## The 8 Pillars of SUSI
 
-1. **Model execution**: Runs local model weights across multiple formats (`.safetensors`, GGUF, ONNX) via Candle, with hardware-aware memory management.
-2. **Concurrent task queue**: Non-blocking intent ingestion via `crossbeam::queue::SegQueue`, with parallel execution across agents using `rayon`.
-3. **MCP tool registry**: JSON-RPC 2.0 tool server (`gmcp`) for dynamic tool discovery, workspace file I/O, and process execution.
-4. **Output verification**: Structured `EvidenceRecord`/`Claim` types and a `TruthTransformer` step that checks generated claims against actual workspace state before surfacing them.
+1. **Swarm Orchestration**: A multi-agent consensus engine (`susi-gawd`) that routes, debates, and forces convergence on complex intents.
+2. **Strict Evidence**: Structured `EvidenceRecord` and `Claim` types ensure no logic is accepted without a paper trail.
+3. **Universal Truth**: The `TruthTransformer` evaluates claims against deterministic workspace realities and semantic cross-examinations, eliminating hallucinations.
+4. **Infinitely Pluggable**: The dynamic `CapabilityRegistry` mounts local models (Candle, llama.cpp), remote APIs (vLLM, Ollama), and dynamic MCP tools behind a unified interface.
+5. **Cryptographic Auditability**: Every agent action is cryptographically signed (`SHA256`) creating an immutable chain of accountability.
+6. **Zero-Trust Sandboxing**: `wasmer`-powered Wasm environments securely isolate untrusted plugins, agents, and reflexes.
+7. **Neural Reflexes**: Heavy LLM reasoning paths are distilled into lightning-fast, compiled Wasm and Tensor reflexes for routine tasks.
+8. **Autonomous Provisioning**: Missing capabilities (like absent MCP servers) are actively scouted, downloaded, and hot-plugged at runtime without fatal crashes.
 
 ---
 

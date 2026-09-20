@@ -8,6 +8,7 @@ edition = "2021"
 susi-paths = { path = "../susi-paths" }
 susi-gawd = { workspace = true }
 susi-error = { workspace = true }
+susi-core = { workspace = true }
 susi-tools = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-gemi = { workspace = true }

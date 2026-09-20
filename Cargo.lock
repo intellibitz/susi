@@ -7268,8 +7268,10 @@ dependencies = [
  "parking_lot",
  "regex",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "susi-error",
+ "tokio",
  "tracing",
 ]
 
@@ -7394,6 +7396,7 @@ dependencies = [
  "serde_json",
  "shlex 2.0.1",
  "susi-agents",
+ "susi-core",
  "susi-error",
  "susi-gawd",
  "susi-gemi",
@@ -7474,6 +7477,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "susi-core",
  "susi-error",
  "susi-native",
  "susi-paths",

@@ -51,6 +51,78 @@ impl DynamicServiceRegistry {
     }
 }
 
+use crate::provider::Provider;
+
+/// An abstract Tool that can be invoked dynamically.
+pub trait Tool: Send + Sync + 'static {
+    fn name(&self) -> &str;
+    fn description(&self) -> &str;
+    fn execute(
+        &self,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> susi_error::EaiResult<String>;
+}
+
+/// A specialized registry for managing capabilities (providers, tools, agents)
+/// in the susi ecosystem. This acts as the central router for dynamic discovery.
+#[derive(Default, Clone)]
+pub struct CapabilityRegistry {
+    /// Underlying generic registry for holding capability instances
+    services: Arc<DynamicServiceRegistry>,
+    /// Maps provider names to their instantiated capabilities
+    providers: Arc<DashMap<String, Arc<dyn Provider>>>,
+    /// Maps tool names to their instantiated capabilities
+    tools: Arc<DashMap<String, Arc<dyn Tool>>>,
+}
+
+impl CapabilityRegistry {
+    pub fn new() -> Self {
+        Self {
+            services: Arc::new(DynamicServiceRegistry::new()),
+            providers: Arc::new(DashMap::new()),
+            tools: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Registers a model provider with the capability registry.
+    pub fn register_provider<P: Provider + 'static>(&self, provider: P) {
+        let name = provider.name().to_string();
+        self.providers.insert(name, Arc::new(provider));
+    }
+
+    /// Retrieves a provider by name.
+    pub fn get_provider(&self, name: &str) -> Option<Arc<dyn Provider>> {
+        self.providers.get(name).map(|v| v.clone())
+    }
+
+    /// Retrieves a list of all registered provider names.
+    pub fn list_providers(&self) -> Vec<String> {
+        self.providers.iter().map(|kv| kv.key().clone()).collect()
+    }
+
+    /// Registers an abstract Tool with the capability registry.
+    pub fn register_tool<T: Tool + 'static>(&self, tool: T) {
+        let name = tool.name().to_string();
+        self.tools.insert(name, Arc::new(tool));
+    }
+
+    /// Retrieves a tool by name.
+    pub fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        self.tools.get(name).map(|v| v.clone())
+    }
+
+    /// Retrieves a list of all registered tool names.
+    pub fn list_tools(&self) -> Vec<String> {
+        self.tools.iter().map(|kv| kv.key().clone()).collect()
+    }
+
+    /// Exposes the underlying dynamic service registry for ad-hoc capability registration.
+    pub fn dynamic_services(&self) -> &DynamicServiceRegistry {
+        &self.services
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
