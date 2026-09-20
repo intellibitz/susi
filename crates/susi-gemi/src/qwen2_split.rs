@@ -334,6 +334,7 @@ impl ModelWeights {
         n_gpu_layers
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_gguf_split<R: std::io::Seek + std::io::Read>(
         ct: gguf_file::Content,
         reader: &mut R,

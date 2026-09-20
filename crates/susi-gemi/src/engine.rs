@@ -430,6 +430,7 @@ impl GemiEngine {
     }
 
     /// Ultra-Latency Competitive Inference Racing
+    #[allow(clippy::too_many_arguments)]
     fn reason_internal(
         prompt: &str,
         workspace: &Path,

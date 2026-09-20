@@ -514,6 +514,7 @@ impl SpeculativeDecoder {
         Ok(output)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit(
         tokens: &[u32],
         all_tokens: &mut Vec<u32>,
