@@ -531,8 +531,10 @@ mod tests {
     #[test]
     fn preferred_cloud_substring_match() {
         let prev = InferenceRouter::load_preference();
-        let mut pref = RoutingPreference::default();
-        pref.preferred_cloud = Some("deepseek".into());
+        let pref = RoutingPreference {
+            preferred_cloud: Some("deepseek".into()),
+            ..Default::default()
+        };
         InferenceRouter::save_preference(&pref);
         assert!(InferenceRouter::matches_preferred_cloud(
             "deepseek-deepseek-chat"
