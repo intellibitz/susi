@@ -16,6 +16,20 @@ targets = [
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
 ]
+# intel-mkl-src is an optional dependency reachable only through the
+# `mkl` Cargo feature (candle-core/candle-nn/candle-transformers), which
+# nothing this repo actually builds ever enables - install.sh, xtask,
+# and release.yml/dev-release.yml only ever pass `cuda`, `metal`, or no
+# GPU feature at all (see admin.rs: mkl "cannot assume [the toolkit] is
+# installed", intentionally left out of the release pipeline). It ships
+# in no published binary. Its License.txt is the real Intel Simplified
+# Software License, just not auto-detectable as a clean SPDX expression
+# (cargo-deny's license-text confidence scoring varies by tool version -
+# passes locally on cargo-deny 0.20.2, hard-fails in CI's action), so
+# excluding it from the graph (same "never shipped, don't gate on it"
+# precedent as the Windows/wasmer-singlepass case above) is more robust
+# than an allow-list that depends on the exact scanner version being used.
+exclude = ["intel-mkl-src"]
 
 [advisories]
 ignore = [
