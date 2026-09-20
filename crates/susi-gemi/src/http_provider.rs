@@ -951,23 +951,17 @@ OPENAI_API_KEY=sk-oai
 
     #[test]
     fn upsert_and_register_roundtrip_in_temp_cloud_env() {
-        use std::sync::Mutex;
-        static LOCK: Mutex<()> = Mutex::new(());
-        let _guard = LOCK.lock().unwrap();
-
-        let dir = std::env::temp_dir().join(format!("susi_key_reg_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        // SAFETY: test isolates HOME so cloud.env lands in the temp dir.
-        let prev_home = std::env::var_os("HOME");
-        unsafe {
-            std::env::set_var("HOME", &dir);
-            std::env::remove_var("DEEPSEEK_API_KEY");
-        }
+        let _guard = cloud_env_test_lock();
+        let isolated = IsolatedCloudHome::new("susi_key_reg");
 
         let msg = register_api_key("deepseek", "sk-test-deepseek").unwrap();
         assert!(msg.contains("DEEPSEEK_API_KEY"));
         let path = cloud_env_path();
+        assert!(
+            path.starts_with(&isolated.dir),
+            "cloud.env must land under isolated home, got {}",
+            path.display()
+        );
         assert!(path.exists());
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("DEEPSEEK_API_KEY=sk-test-deepseek"));
@@ -979,15 +973,7 @@ OPENAI_API_KEY=sk-oai
         remove_api_key("deepseek").unwrap();
         let body = std::fs::read_to_string(cloud_env_path()).unwrap_or_default();
         assert!(!body.contains("DEEPSEEK_API_KEY"));
-
-        unsafe {
-            match prev_home {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
-            std::env::remove_var("DEEPSEEK_API_KEY");
-        }
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(isolated);
     }
 
     #[test]
@@ -1012,16 +998,9 @@ OPENAI_API_KEY=sk-oai
 
     #[test]
     fn register_configured_respects_api_key_presence() {
-        use std::sync::Mutex;
-        static ENV_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let dir = std::env::temp_dir().join(format!("susi_key_cfg_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let prev_home = std::env::var_os("HOME");
+        let _guard = cloud_env_test_lock();
+        let _isolated = IsolatedCloudHome::new("susi_key_cfg");
         unsafe {
-            std::env::set_var("HOME", &dir);
             std::env::remove_var("OPENAI_API_KEY");
             std::env::remove_var("ANTHROPIC_API_KEY");
             std::env::remove_var("GEMINI_API_KEY");
@@ -1069,14 +1048,70 @@ OPENAI_API_KEY=sk-oai
         assert_eq!(http.api_key, "sk-unit-test");
         assert!(!http.model.is_empty());
         unsafe {
-            match prev_home {
-                Some(h) => std::env::set_var("HOME", h),
-                None => std::env::remove_var("HOME"),
-            }
             std::env::remove_var("OPENAI_API_KEY");
             std::env::remove_var("DEEPSEEK_API_KEY");
         }
-        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn cloud_env_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    /// Redirect HOME + XDG_* so cloud.env never reads the developer machine.
+    struct IsolatedCloudHome {
+        dir: std::path::PathBuf,
+        prev_home: Option<std::ffi::OsString>,
+        prev_xdg_config: Option<std::ffi::OsString>,
+        prev_xdg_data: Option<std::ffi::OsString>,
+    }
+
+    impl IsolatedCloudHome {
+        fn new(prefix: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("{}_{}", prefix, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let xdg_config = dir.join("config");
+            let xdg_data = dir.join("data");
+            std::fs::create_dir_all(&xdg_config).unwrap();
+            std::fs::create_dir_all(&xdg_data).unwrap();
+            let prev_home = std::env::var_os("HOME");
+            let prev_xdg_config = std::env::var_os("XDG_CONFIG_HOME");
+            let prev_xdg_data = std::env::var_os("XDG_DATA_HOME");
+            unsafe {
+                std::env::set_var("HOME", &dir);
+                std::env::set_var("XDG_CONFIG_HOME", &xdg_config);
+                std::env::set_var("XDG_DATA_HOME", &xdg_data);
+            }
+            Self {
+                dir,
+                prev_home,
+                prev_xdg_config,
+                prev_xdg_data,
+            }
+        }
+    }
+
+    impl Drop for IsolatedCloudHome {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.prev_home {
+                    Some(h) => std::env::set_var("HOME", h),
+                    None => std::env::remove_var("HOME"),
+                }
+                match &self.prev_xdg_config {
+                    Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
+                    None => std::env::remove_var("XDG_CONFIG_HOME"),
+                }
+                match &self.prev_xdg_data {
+                    Some(h) => std::env::set_var("XDG_DATA_HOME", h),
+                    None => std::env::remove_var("XDG_DATA_HOME"),
+                }
+                std::env::remove_var("DEEPSEEK_API_KEY");
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
     }
 
     fn is_bundled_cloud_prefix(n: &str) -> bool {
