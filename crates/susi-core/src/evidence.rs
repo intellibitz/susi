@@ -46,6 +46,7 @@ pub struct EvidenceRecord {
 }
 
 impl EvidenceRecord {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         agent_id: String,
         rank: f32,
