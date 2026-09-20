@@ -361,26 +361,27 @@ impl SusiMasterAgent {
                     format!("Axiomatic Violation: {}", e)
                 }
             };
-            let final_answer = match super::truth::TruthTransformer::verify_mission_reality(
-                goal,
-                "SUSI_SOLVE",
-                &final_answer,
-                workspace,
-            ) {
-                Ok(v) => {
-                    eprintln!(
+            let final_answer =
+                match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    goal,
+                    "SUSI_SOLVE",
+                    &final_answer,
+                    workspace,
+                ) {
+                    Ok(v) => {
+                        eprintln!(
                         "- [Reality Integrity Check] Status: SUCCESS | Fast-Path Read reality integrity verified."
                     );
-                    v
-                }
-                Err(e) => {
-                    eprintln!(
-                        "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
-                        e
-                    );
-                    format!("Reality Violation: {}", e)
-                }
-            };
+                        v
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                            e
+                        );
+                        format!("Reality Violation: {}", e)
+                    }
+                };
 
             eprintln!("\n[FAST-PATH COMPLETE]");
             let report = SusiMissionReport {
@@ -511,7 +512,7 @@ impl SusiMasterAgent {
             }
         };
 
-        let verified_final = match super::truth::TruthTransformer::verify_mission_reality(
+        let verified_final = match super::truth::TruthTransformer::verify_mission_with_cross_examine(
             &goal,
             "SUSI_SOLVE",
             &verified,
@@ -748,7 +749,7 @@ impl SusiMasterAgent {
             ) {
                 Ok(ans) => {
                     // 5. Reality Verification
-                    match super::truth::TruthTransformer::verify_mission_reality(
+                    match super::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &current_goal,
                         "SUSI_SOLVE",
                         &ans,
@@ -1046,7 +1047,7 @@ impl SusiMasterAgent {
             agents.len()
         );
 
-        let verified = super::truth::TruthTransformer::verify_mission_reality(
+        let verified = super::truth::TruthTransformer::verify_mission_with_cross_examine(
             &goal,
             "SUSI_SOLVE",
             &ans,

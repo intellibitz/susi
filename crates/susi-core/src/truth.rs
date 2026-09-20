@@ -1,10 +1,7 @@
-// Checks tool-reported results against actual workspace state (e.g. a
-// claimed file write that never happened) before a mission treats the
-// result as fact.
-
-use crate::evidence::EvidenceSource;
+use crate::evidence::{EvidenceRecord, EvidenceSource};
 use crate::registry::CapabilityRegistry;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use susi_error::{EaiError, EaiResult};
 
@@ -81,13 +78,47 @@ impl TruthTransformer {
         SusiTruthAgent::verify_mission_reality(goal, tool_name, result, workspace)
     }
 
+    /// Dual pipeline for swarm finals: physical reality check, then semantic
+    /// cross-examination via discovered CapabilityRegistry providers.
+    pub fn verify_mission_with_cross_examine(
+        goal: &str,
+        tool_name: &str,
+        result: &str,
+        workspace: &Path,
+    ) -> EaiResult<String> {
+        let verified = Self::verify_mission_reality(goal, tool_name, result, workspace)?;
+        let record = Self::mission_evidence_record(goal, tool_name, &verified);
+        Self::cross_examine_sync(&record, workspace)?;
+        Ok(verified)
+    }
+
+    /// Build an AgentObservation evidence record from a mission result string.
+    pub fn mission_evidence_record(goal: &str, agent_id: &str, result: &str) -> EvidenceRecord {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        EvidenceRecord::new(
+            agent_id.to_string(),
+            1.0,
+            now,
+            crate::evidence::Claim {
+                subject: goal.chars().take(120).collect(),
+                predicate: "mission_result".to_string(),
+                value: result.chars().take(240).collect(),
+            },
+            EvidenceSource::AgentObservation {
+                observation: result.chars().take(500).collect(),
+                reasoning_trace: result.to_string(),
+            },
+            0.9,
+        )
+    }
+
     /// Primary entrypoint for the Verification Pipeline:
     /// Takes a structured EvidenceRecord from a capability/agent and verifies
     /// its cryptographic signature and grounding against the physical workspace.
-    pub fn verify_evidence(
-        record: &crate::evidence::EvidenceRecord,
-        workspace: &Path,
-    ) -> EaiResult<()> {
+    pub fn verify_evidence(record: &EvidenceRecord, workspace: &Path) -> EaiResult<()> {
         if !record.verify_reality(workspace) {
             let error_msg = format!(
                 "TRUTH_VIOLATION: Evidence record from agent '{}' failed reality check against workspace.\nCLAIM: {} {} {}",
@@ -98,11 +129,62 @@ impl TruthTransformer {
         Ok(())
     }
 
+    /// Sync bridge for swarm/DAG callers into async [`cross_examine`], using the
+    /// process-wide CapabilityRegistry populated by zero-config discovery.
+    pub fn cross_examine_sync(record: &EvidenceRecord, workspace: &Path) -> EaiResult<()> {
+        Self::cross_examine_blocking(record, CapabilityRegistry::global(), workspace)
+    }
+
+    fn verifier_runtime() -> Option<&'static tokio::runtime::Runtime> {
+        static RT: OnceLock<std::io::Result<tokio::runtime::Runtime>> = OnceLock::new();
+        RT.get_or_init(tokio::runtime::Runtime::new).as_ref().ok()
+    }
+
+    pub fn cross_examine_blocking(
+        record: &EvidenceRecord,
+        registry: &CapabilityRegistry,
+        workspace: &Path,
+    ) -> EaiResult<()> {
+        let Some(runtime) = Self::verifier_runtime() else {
+            // No runtime available: keep physical check only.
+            return Self::verify_evidence(record, workspace);
+        };
+        runtime.block_on(Self::cross_examine(record, registry, workspace))
+    }
+
+    fn select_verifier_provider(
+        registry: &CapabilityRegistry,
+    ) -> Option<std::sync::Arc<dyn crate::provider::Provider>> {
+        let mut names: Vec<String> = registry
+            .list_providers()
+            .into_iter()
+            // Candle delegates into GemiEngine and would recurse under swarm load.
+            .filter(|n| n != "Candle (Local)")
+            .collect();
+        if names.is_empty() {
+            return None;
+        }
+        names.sort_by_key(|n| {
+            let lower = n.to_ascii_lowercase();
+            let rank = if lower.contains("sglang") {
+                0u8
+            } else if lower.contains("vllm") {
+                1
+            } else if lower.contains("ollama") {
+                2
+            } else {
+                10
+            };
+            (rank, n.clone())
+        });
+        names.into_iter().find_map(|n| registry.get_provider(&n))
+    }
+
     /// Ultimate Epistemic Validator: Universal Hallucination Detector
     /// Dispatches to deterministic rule-engines for physical claims, and calls
     /// a 'verifier' Model Provider via the CapabilityRegistry for semantic claims.
     pub async fn cross_examine(
-        record: &crate::evidence::EvidenceRecord,
+        record: &EvidenceRecord,
         registry: &CapabilityRegistry,
         workspace: &Path,
     ) -> EaiResult<()> {
@@ -121,30 +203,9 @@ impl TruthTransformer {
             reasoning_trace,
         } = &record.source
         {
-            // Find an external provider to critique the agent's logic
-            // Prefers "sglang" or "vllm" if they exist as they are fast structured verifiers, else uses whatever is registered
-            let mut verifier_provider = None;
-            for name in registry.list_providers() {
-                if name.contains("sglang") || name.contains("vllm") || name.contains("ollama") {
-                    verifier_provider = registry.get_provider(&name);
-                    break;
-                }
-            }
-
-            // Fallback to the first available provider
-            let verifier_provider = match verifier_provider {
-                Some(p) => p,
-                None => {
-                    let providers = registry.list_providers();
-                    if providers.is_empty() {
-                        // Can't run semantic checks without a provider, pass by default
-                        return Ok(());
-                    }
-                    match registry.get_provider(&providers[0]) {
-                        Some(p) => p,
-                        None => return Ok(()), // raced out of registry; skip semantic check
-                    }
-                }
+            let Some(verifier_provider) = Self::select_verifier_provider(registry) else {
+                // Can't run semantic checks without a provider, pass by default
+                return Ok(());
             };
 
             let prompt = format!(
@@ -335,5 +396,70 @@ mod tests {
             .contains("TRUTH_VIOLATION [SEMANTIC]"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_verify_mission_with_cross_examine_passes_without_providers() {
+        let tmp = std::env::temp_dir().join("susi_test_dual_pipeline_no_provider");
+        let _ = std::fs::create_dir_all(&tmp);
+        let out = TruthTransformer::verify_mission_with_cross_examine(
+            "list files",
+            "SUSI_SOLVE",
+            "Here is a safe plan to list files.",
+            &tmp,
+        )
+        .unwrap();
+        assert!(out.contains("list files"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_cross_examine_blocking_flags_hallucination() {
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(MockTruthProvider {
+            detect_hallucination: true,
+        });
+        let tmp = std::env::temp_dir().join("susi_test_cross_examine_blocking");
+        let _ = std::fs::create_dir_all(&tmp);
+        let record = TruthTransformer::mission_evidence_record(
+            "prove P=NP",
+            "rogue",
+            "I invented a polynomial-time algorithm for SAT in my head.",
+        );
+        let err = TruthTransformer::cross_examine_blocking(&record, &registry, &tmp).unwrap_err();
+        assert!(err.to_string().contains("TRUTH_VIOLATION [SEMANTIC]"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_select_verifier_skips_candle() {
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(MockTruthProvider {
+            detect_hallucination: false,
+        });
+        // Re-register under Candle name via a thin wrapper isn't needed —
+        // empty non-candle set with only Candle should yield None.
+        let candle_only = CapabilityRegistry::new();
+        struct CandleNamed;
+        impl Provider for CandleNamed {
+            fn name(&self) -> &str {
+                "Candle (Local)"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(true) })
+            }
+            fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
+                Box::pin(async { Ok("VERIFIED".into()) })
+            }
+            fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+        candle_only.register_provider(CandleNamed);
+        assert!(TruthTransformer::select_verifier_provider(&candle_only).is_none());
+        assert!(TruthTransformer::select_verifier_provider(&registry).is_some());
     }
 }

@@ -131,14 +131,45 @@ impl MissionDag {
                             value: output.chars().take(120).collect(),
                         },
                         super::evidence::EvidenceSource::AgentObservation {
-                            observation: output.clone(),
-                            reasoning_trace: "DAG Work-Stealing Parallel Loop".to_string(),
+                            observation: output.chars().take(500).collect(),
+                            reasoning_trace: format!(
+                                "Task '{}': {}\n\nOutput:\n{}",
+                                self.nodes[idx].title, self.nodes[idx].goal, output
+                            ),
                         },
                         0.92,
                     );
 
-                    bb.insert(format!("TaskNode_{}", idx), output);
-                    all_evidence.push(record);
+                    // Dual-pipeline truth: physical signature + semantic
+                    // cross-examine via discovered CapabilityRegistry providers.
+                    match super::truth::TruthTransformer::cross_examine_sync(&record, workspace) {
+                        Ok(()) => {
+                            bb.insert(format!("TaskNode_{}", idx), output);
+                            all_evidence.push(record);
+                        }
+                        Err(e) => {
+                            let msg = format!("[TRUTH_VIOLATION] {}", e);
+                            bb.insert(format!("TaskNode_{}", idx), msg.clone());
+                            all_evidence.push(EvidenceRecord::new(
+                                self.nodes[idx].title.clone(),
+                                0.95,
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_secs(),
+                                super::evidence::Claim {
+                                    subject: self.nodes[idx].title.clone(),
+                                    predicate: "achieved_goal".to_string(),
+                                    value: msg.chars().take(120).collect(),
+                                },
+                                super::evidence::EvidenceSource::AgentObservation {
+                                    observation: msg.chars().take(500).collect(),
+                                    reasoning_trace: msg,
+                                },
+                                0.1,
+                            ));
+                        }
+                    }
                 }
             }
         }
