@@ -447,6 +447,16 @@ impl GemiEngine {
             }
         }
 
+        // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
+        // before the native GGUF path. Skips Candle (Local) — that provider
+        // delegates back into this function and would recurse.
+        if let Some(text) = Self::try_discovered_providers(prompt, requested_model, callback) {
+            return match Self::verify_axiomatic_alignment(&text, workspace) {
+                Ok(v) => v,
+                Err(_) => text,
+            };
+        }
+
         // Primary Federated vs Native Inference Routing Edge
         let global_config = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier = crate::models::ModelManager::get_selected_engine()
@@ -526,6 +536,87 @@ impl GemiEngine {
         let final_msg = "[FAIL] SUSI-Tier2-Inference: Local model inference and power reasoning fallback both failed.".to_string();
         callback(final_msg.clone());
         final_msg
+    }
+
+    /// Shared runtime for bridging sync swarm callers into async `Provider` APIs.
+    fn provider_runtime() -> Option<&'static tokio::runtime::Runtime> {
+        static RT: OnceLock<std::io::Result<tokio::runtime::Runtime>> = OnceLock::new();
+        RT.get_or_init(tokio::runtime::Runtime::new).as_ref().ok()
+    }
+
+    /// Rank discovered provider names: fast structured engines first, then
+    /// other HTTP backends. Candle is excluded (see caller).
+    fn rank_provider_name(name: &str) -> u8 {
+        let lower = name.to_ascii_lowercase();
+        if lower.contains("sglang") {
+            0
+        } else if lower.contains("vllm") {
+            1
+        } else if lower.contains("ollama") {
+            2
+        } else if lower.contains("llama.cpp") || lower.contains("llamacpp") {
+            3
+        } else if lower.contains("lmstudio") {
+            4
+        } else {
+            10
+        }
+    }
+
+    /// Try CapabilityRegistry providers registered by zero-config discovery.
+    fn try_discovered_providers(
+        prompt: &str,
+        requested_model: Option<&str>,
+        callback: &dyn Fn(String),
+    ) -> Option<String> {
+        Self::try_providers(
+            susi_core::registry::CapabilityRegistry::global(),
+            prompt,
+            requested_model,
+            callback,
+        )
+    }
+
+    fn try_providers(
+        registry: &susi_core::registry::CapabilityRegistry,
+        prompt: &str,
+        requested_model: Option<&str>,
+        callback: &dyn Fn(String),
+    ) -> Option<String> {
+        let mut names: Vec<String> = registry
+            .list_providers()
+            .into_iter()
+            .filter(|n| n != "Candle (Local)")
+            .collect();
+        if names.is_empty() {
+            return None;
+        }
+
+        if let Some(model) = requested_model {
+            let model_l = model.to_ascii_lowercase();
+            names.sort_by_key(|n| {
+                let hit = n.to_ascii_lowercase().contains(&model_l);
+                (!hit, Self::rank_provider_name(n), n.clone())
+            });
+        } else {
+            names.sort_by_key(|n| (Self::rank_provider_name(n), n.clone()));
+        }
+
+        let runtime = Self::provider_runtime()?;
+        for name in names {
+            let Some(provider) = registry.get_provider(&name) else {
+                continue;
+            };
+            match runtime.block_on(provider.generate(prompt)) {
+                Ok(text) if !text.trim().is_empty() => {
+                    callback(text.clone());
+                    return Some(text);
+                }
+                Ok(_) => continue,
+                Err(_) => continue,
+            }
+        }
+        None
     }
 
     fn has_usable_local_model(workspace: &Path) -> bool {
@@ -1261,6 +1352,72 @@ mod tests {
         });
         let winner = rx.recv().unwrap();
         assert_eq!(winner, "FastPath");
+    }
+
+    struct MockRouteProvider {
+        name: &'static str,
+        reply: &'static str,
+    }
+
+    impl susi_core::provider::Provider for MockRouteProvider {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn is_healthy(&self) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn generate(
+            &self,
+            _prompt: &str,
+        ) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<String>> {
+            let reply = self.reply.to_string();
+            Box::pin(async move { Ok(reply) })
+        }
+        fn embed(
+            &self,
+            _text: &str,
+        ) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<Vec<f32>>> {
+            Box::pin(async { Ok(vec![]) })
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[test]
+    fn test_try_providers_prefers_ollama_over_generic_and_skips_candle() {
+        let registry = susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "Candle (Local)",
+            reply: "from-candle",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "generic-remote",
+            reply: "from-generic",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-llama3",
+            reply: "from-ollama",
+        });
+
+        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {});
+        assert_eq!(out.as_deref(), Some("from-ollama"));
+    }
+
+    #[test]
+    fn test_try_providers_honors_requested_model_name_match() {
+        let registry = susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "ollama-llama3",
+            reply: "llama3",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "vllm-mixtral",
+            reply: "mixtral",
+        });
+
+        let out = GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {});
+        assert_eq!(out.as_deref(), Some("mixtral"));
     }
 
     #[test]
