@@ -1,4 +1,4 @@
-//! susi-engine: a local-first Rust engine for running and orchestrating AI
+//! susi: a local-first Rust engine for running and orchestrating AI
 //! models. Loads model weights directly (.safetensors, GGUF, ONNX via
 //! Candle), queues work through a lock-free async intent pipeline, and can
 //! fan work out across multiple agents running in parallel. Exposes tools
@@ -35,5 +35,5 @@ pub mod sandbox {
     }
 }
 
-/// Current version of susi-engine
+/// Current version of susi
 pub const SUSI_VERSION: &str = env!("CARGO_PKG_VERSION");

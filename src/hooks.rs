@@ -1,11 +1,11 @@
-//! Engine hooks implementation for extending susi-engine functionality
+//! Engine hooks implementation for extending susi functionality
 
 use std::path::Path;
 use susi_error::EaiResult;
 use susi_gemi::hardware::HardwareProfiler;
 use susi_gmcp::tools::{bootstrap_registry, ToolRegistry};
 
-/// Main hooks implementation for the susi-engine
+/// Main hooks implementation for the susi
 pub struct SusiEngineHooks;
 
 impl susi_tools::EngineHooks for SusiEngineHooks {

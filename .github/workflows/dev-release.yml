@@ -41,20 +41,20 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux-x86_64
-            artifact: susi-engine-linux-x86_64
-            src: target/release/susi-engine
+            artifact: susi-linux-x86_64
+            src: target/release/susi
           - os: ubuntu-24.04-arm
             name: linux-aarch64
-            artifact: susi-engine-linux-aarch64
-            src: target/release/susi-engine
+            artifact: susi-linux-aarch64
+            src: target/release/susi
           - os: macos-13
             name: macos-x86_64
-            artifact: susi-engine-macos-x86_64
-            src: target/release/susi-engine
+            artifact: susi-macos-x86_64
+            src: target/release/susi
           - os: macos-14
             name: macos-aarch64
-            artifact: susi-engine-macos-aarch64
-            src: target/release/susi-engine
+            artifact: susi-macos-aarch64
+            src: target/release/susi
     # Windows builds are not published here: the cfg(windows) build of
     # wasmer used on that target pulls in wasmer-compiler-singlepass,
     # which is BUSL-1.1 licensed and requires a paid Wasmer sponsorship
@@ -141,23 +141,23 @@ jobs:
                 collect_cuda_libs "lib/$name"
               done
           }
-          collect_cuda_libs target/release/susi-engine
-          patchelf --set-rpath '$ORIGIN/lib' target/release/susi-engine
-          if ldd target/release/susi-engine | grep -q "not found"; then
+          collect_cuda_libs target/release/susi
+          patchelf --set-rpath '$ORIGIN/lib' target/release/susi
+          if ldd target/release/susi | grep -q "not found"; then
             echo "Error: binary still has unresolved shared library dependencies after bundling:" >&2
-            ldd target/release/susi-engine | grep "not found" >&2
+            ldd target/release/susi | grep "not found" >&2
             exit 1
           fi
 
       - name: Package Binary + Bundled Libraries
         run: |
           mkdir -p dist/lib
-          mv target/release/susi-engine dist/susi-engine-linux-x86_64-cuda
+          mv target/release/susi dist/susi-linux-x86_64-cuda
           mv lib/* dist/lib/
-          tar -czf susi-engine-linux-x86_64-cuda.tar.gz -C dist susi-engine-linux-x86_64-cuda lib
+          tar -czf susi-linux-x86_64-cuda.tar.gz -C dist susi-linux-x86_64-cuda lib
 
       - name: Generate Checksum
-        run: shasum -a 256 susi-engine-linux-x86_64-cuda.tar.gz > susi-engine-linux-x86_64-cuda.tar.gz.sha256
+        run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Publish Dev Release
         uses: softprops/action-gh-release@v2
@@ -168,5 +168,5 @@ jobs:
           prerelease: true
           make_latest: false
           files: |
-            susi-engine-linux-x86_64-cuda.tar.gz
-            susi-engine-linux-x86_64-cuda.tar.gz.sha256
+            susi-linux-x86_64-cuda.tar.gz
+            susi-linux-x86_64-cuda.tar.gz.sha256

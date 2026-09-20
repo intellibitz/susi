@@ -114,9 +114,9 @@ fn main() {
         let profile_dir = if release { "release" } else { "debug" };
 
         let bin_name = if cfg!(target_os = "windows") {
-            "susi-engine.exe"
+            "susi.exe"
         } else {
-            "susi-engine"
+            "susi"
         };
         let built_bin = target_dir.join(profile_dir).join(bin_name);
 

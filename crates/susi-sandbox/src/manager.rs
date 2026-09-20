@@ -1495,7 +1495,7 @@ impl IntentBundleManager {
 
 pub struct SusiMemory;
 impl SusiMemory {
-    /// `engine_version` is the caller's `SUSI_VERSION` (the root `susi-engine`
+    /// `engine_version` is the caller's `SUSI_VERSION` (the root `susi`
     /// package version) - `susi-sandbox` doesn't know it at compile time
     /// (its own crate version is unrelated), so callers pass it explicitly,
     /// same as the rest of the codebase already threads it through

@@ -21,7 +21,7 @@ pub struct HardwareSnapshot {
 }
 
 pub trait EngineHooks: Send + Sync {
-    /// The root `susi-engine` package version (`crate::SUSI_VERSION` at the
+    /// The root `susi` package version (`crate::SUSI_VERSION` at the
     /// call site before this crate existed) - not this crate's own version.
     fn engine_version(&self) -> &'static str;
     fn hardware_snapshot(&self) -> HardwareSnapshot;

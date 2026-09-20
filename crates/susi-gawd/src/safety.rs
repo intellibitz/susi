@@ -18,20 +18,8 @@ impl SafetyDetector {
         // C4 Security Patch: Command Allowlist
         if tool_name == "exec_command" {
             let allowed_bins = [
-                "cargo",
-                "git",
-                "rustc",
-                "susi",
-                "susi-engine",
-                "sed",
-                "grep",
-                "rg",
-                "cat",
-                "ls",
-                "find",
-                "fd",
-                "echo",
-                "pwd",
+                "cargo", "git", "rustc", "susi", "susi", "sed", "grep", "rg", "cat", "ls", "find",
+                "fd", "echo", "pwd",
             ];
             let cmd_bin = lower_arg.split_whitespace().next().unwrap_or("");
             if !allowed_bins.contains(&cmd_bin) {

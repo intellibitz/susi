@@ -12,7 +12,7 @@ fn test_empirical_reflex_classification() {
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
-    let res = ama.solve_clean("identity", &ws, susi_engine::SUSI_VERSION);
+    let res = ama.solve_clean("identity", &ws, susi::SUSI_VERSION);
     let duration = start.elapsed();
 
     assert!(res.contains("SUSI"));
@@ -27,7 +27,7 @@ fn test_empirical_epistemic_integrity_fictitious() {
     let res = ama.solve_clean(
         "inspect the status of cargo module non_existent_quantum_crank",
         &ws,
-        susi_engine::SUSI_VERSION,
+        susi::SUSI_VERSION,
     );
     assert!(!res.contains("quantum_crank version 1.0.0 successfully deployed"));
 }
@@ -52,7 +52,7 @@ fn test_empirical_credential_masking() {
 
 #[test]
 fn test_empirical_gmcp_agent_verification() {
-    susi_tools::hooks::init(Box::new(susi_engine::hooks::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
     let ws = std::env::current_dir().unwrap();
     let blackboard: susi_gawd::agents::MissionBlackboard =
         std::sync::Arc::new(susi_gawd::agents::HighDensityContextStore::new(10));

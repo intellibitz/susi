@@ -60,7 +60,7 @@ allow = [
 [[licenses.exceptions]]
 # auto_generate_cdp is a BUILD-only dependency of headless_chrome (used to
 # generate Chrome DevTools Protocol bindings at compile time) - its code
-# never ships in the distributed susi-engine binary, only its generated
+# never ships in the distributed susi binary, only its generated
 # output does. Scoped to this one crate rather than allow-listing GPL
 # project-wide; revisit if headless_chrome's dependency on it changes.
 name = "auto_generate_cdp"

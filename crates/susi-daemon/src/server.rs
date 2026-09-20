@@ -257,7 +257,7 @@ impl SusiDaemon {
     /// never substitutes a cheaper, differently-shaped signature.
     /// Same digest as `calculate_binary_hash`, but skips re-reading and
     /// re-hashing the binary (measured ~130ms for this project's real
-    /// ~120MB `susi-engine` release binary) when its mtime+size match a
+    /// ~120MB `susi` release binary) when its mtime+size match a
     /// small sidecar cache from the last time this exact path was hashed —
     /// entirely defeating Mandate 4's sub-2ms client reflex on every single
     /// CLI invocation otherwise, since `ensure_daemon_running` calls this on
@@ -307,9 +307,9 @@ impl SusiDaemon {
             }
         }
         let bin_name = if cfg!(target_os = "windows") {
-            "bin/susi-engine.exe"
+            "bin/susi.exe"
         } else {
-            "bin/susi-engine"
+            "bin/susi"
         };
         let global_bin = global_dir.join(bin_name);
 
@@ -712,7 +712,7 @@ impl SusiDaemon {
     /// SIGKILL it. `/proc/{pid}/comm` is deliberately NOT used as identity
     /// evidence: it is the process's self-reported name (settable via
     /// `prctl`/`argv[0]`), so any unprivileged process could claim to be
-    /// "susi-engine" and either get needlessly evicted or, worse, masquerade
+    /// "susi" and either get needlessly evicted or, worse, masquerade
     /// as trusted. `/proc/{pid}/exe` is the kernel's own record of which file
     /// was actually exec'd and cannot be altered by the running process, so
     /// its SHA-256 is compared against this host's trusted `binary.hash`
@@ -728,7 +728,7 @@ impl SusiDaemon {
         let name_ok = exe_path
             .file_name()
             .and_then(|n| n.to_str())
-            .map(|n| n == "susi" || n == "susi-engine")
+            .map(|n| n == "susi")
             .unwrap_or(false);
         if !name_ok {
             return false;
@@ -977,7 +977,7 @@ mod tests {
             std::env::temp_dir().join(format!("susi_trust_test_nohash_{}", std::process::id()));
         std::fs::create_dir_all(&global_dir).unwrap();
 
-        // Own PID's exe is the test binary, not literally named "susi"/"susi-engine",
+        // Own PID's exe is the test binary, not literally named "susi"/"susi",
         // so this exercises the name-mismatch branch regardless of hash state.
         let own_pid = std::process::id() as i32;
         assert!(!SusiDaemon::is_trusted_susi_process(own_pid, &global_dir));
@@ -993,9 +993,9 @@ mod tests {
         let global_dir = base.join("global");
         std::fs::create_dir_all(&global_dir).unwrap();
 
-        // A real file literally named "susi-engine" standing in for the trusted
+        // A real file literally named "susi" standing in for the trusted
         // binary, so /proc/{pid}/exe's basename check has something to match.
-        let fake_bin = base.join("susi-engine");
+        let fake_bin = base.join("susi");
         std::fs::copy("/bin/sleep", &fake_bin).unwrap();
         #[cfg(unix)]
         {

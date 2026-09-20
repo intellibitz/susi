@@ -1,12 +1,12 @@
 //! SUSI Engine CLI
 //!
-//! Command-line interface for the susi-engine local-first AI orchestration system.
+//! Command-line interface for the susi local-first AI orchestration system.
 
 #![allow(unexpected_cfgs)]
 #![allow(missing_docs)]
 
+use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
-use susi_engine::SUSI_VERSION;
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gmcp::server::GmcpServer;
 use susi_server::GemiServer;
@@ -241,7 +241,7 @@ fn main() {
     // panics on first use if this hasn't happened yet) - see
     // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
     // indirection exists instead of a direct dependency.
-    susi_tools::hooks::init(Box::new(susi_engine::hooks::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
 
     susi_sandbox::auto_install::push_to_hardware_if_dev_build();
     #[cfg(tokio_unstable)]
@@ -256,7 +256,7 @@ fn main() {
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi_engine=debug"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi=debug"));
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

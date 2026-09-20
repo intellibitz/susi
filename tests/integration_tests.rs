@@ -12,15 +12,14 @@ fn test_substrate_bootstrap_and_config() {
     let _ = fs::create_dir_all(&test_dir);
 
     // Verify Sandbox Initialization
-    let res = susi_engine::sandbox::SandboxManager::ensure_global_sandbox(&test_dir);
+    let res = susi::sandbox::SandboxManager::ensure_global_sandbox(&test_dir);
     assert!(res.is_ok());
 
     let config_path = test_dir.join("config.json");
     assert!(config_path.exists());
 
     // Verify Config Load
-    let cfg =
-        susi_engine::sandbox::manager::SusiConfig::load(&test_dir).expect("Config load failed");
+    let cfg = susi::sandbox::manager::SusiConfig::load(&test_dir).expect("Config load failed");
     assert_eq!(cfg.gmcp_port(), 9090);
 
     let _ = fs::remove_dir_all(&test_dir);
@@ -28,7 +27,7 @@ fn test_substrate_bootstrap_and_config() {
 
 #[test]
 fn test_tool_registry_and_execution() {
-    susi_tools::hooks::init(Box::new(susi_engine::hooks::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
     let ws = std::env::current_dir().unwrap();
 
     // Test Status Tool
@@ -62,7 +61,7 @@ fn test_backup_logic() {
 
     fs::write(test_ws.join("data.txt"), "substrate native context stream").unwrap();
 
-    let res = susi_engine::sandbox::manager::SusiBackupManager::backup_work(&test_ws);
+    let res = susi::sandbox::manager::SusiBackupManager::backup_work(&test_ws);
     assert!(res.is_ok());
 
     let backups_dir = test_ws.join(".susi/backups");
