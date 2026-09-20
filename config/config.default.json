@@ -13,15 +13,15 @@
   "discoverable_assets": [
     {
       "name": "SusiReflexCloud-v2",
-      "provider": "SUSI Hub",
+      "provider": "SUSI",
       "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "url": "https://susi.ai/reflex/v2"
+      "url": "https://github.com/intellibitz/susi"
     },
     {
       "name": "DistilledRouter-1B",
-      "provider": "HuggingFace",
+      "provider": "SUSI",
       "tier": "Tier 0: SUSI-Alpha (Reflex)",
-      "url": "https://huggingface.co/susi/distilled-router"
+      "url": "https://github.com/intellibitz/susi"
     }
   ],
   "governance": {
