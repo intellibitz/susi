@@ -455,9 +455,14 @@ fn main() {
                     }
                 }
                 AdminCommands::Audit => {
-                    let answer =
-                        ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
-                    println!("{}", answer);
+                    // Use fast static compliance audit instead of LLM agent swarm
+                    match susi_gawd::admin::SusiAdmin::audit_compliance(&cwd, Some("push")) {
+                        Ok(report) => println!("{}", report),
+                        Err(e) => {
+                            eprintln!("Compliance audit failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
                 AdminCommands::Verify => {
                     let answer =
