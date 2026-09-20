@@ -19,6 +19,10 @@ pub async fn bootstrap_zero_config_substrate() {
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
     susi_gemi::http_provider::auto_discover_local_engines(registry).await;
 
+    // 1b. Register configured cloud vendors (OpenAI / Anthropic / Gemini) when
+    // their API keys are present — same CapabilityRegistry path as local discovery.
+    susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
+
     // 2. Discover and Provision MCP Tools
     susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
 

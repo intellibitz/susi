@@ -697,6 +697,12 @@ pub struct InferenceEndpointItem {
     pub api_base: String,
     #[serde(default)]
     pub protocol_type: String,
+    /// Default model id for this endpoint (e.g. `gpt-4o-mini`, `claude-3-5-haiku-…`).
+    #[serde(default)]
+    pub model: String,
+    /// Env var holding the API key (e.g. `OPENAI_API_KEY`). Empty = no auth.
+    #[serde(default)]
+    pub api_key_env: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

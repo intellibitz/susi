@@ -245,12 +245,16 @@
       {
         "api_base": "https://api.openai.com/v1",
         "name": "OpenAI",
-        "protocol_type": "chat"
+        "protocol_type": "chat",
+        "model": "gpt-4o-mini",
+        "api_key_env": "OPENAI_API_KEY"
       },
       {
         "api_base": "https://api.anthropic.com/v1",
         "name": "Anthropic",
-        "protocol_type": "anthropic"
+        "protocol_type": "anthropic",
+        "model": "claude-3-5-haiku-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
       },
       {
         "api_base": "http://localhost:11434/v1",
@@ -260,7 +264,9 @@
       {
         "api_base": "https://generativelanguage.googleapis.com/v1beta",
         "name": "GoogleGemini",
-        "protocol_type": "gemini"
+        "protocol_type": "gemini",
+        "model": "gemini-2.0-flash",
+        "api_key_env": "GEMINI_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

@@ -558,6 +558,12 @@ impl GemiEngine {
             3
         } else if lower.contains("lmstudio") {
             4
+        } else if lower.contains("openai") {
+            5
+        } else if lower.contains("anthropic") {
+            6
+        } else if lower.contains("gemini") || lower.contains("google") {
+            7
         } else {
             10
         }
@@ -1121,52 +1127,75 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         callback: &dyn Fn(String),
         _selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        let endpoints = cfg.inference_endpoints();
-
         println!("[SUSI Federated Router] Requesting remote consensus quorum...");
         let _ = std::io::stdout().flush();
-        let endpoint = endpoints.endpoints.first().ok_or_else(|| {
-            susi_error::EaiError::inference(
-                "No active federated endpoints provisioned in config.default.json.",
-            )
-        })?;
 
-        println!("[SUSI Federated Router] Edge Delegation Active. Distributing evaluation payload to remote cluster: {} ({})", endpoint.name, endpoint.api_base);
+        // Prefer CapabilityRegistry cloud/local HTTP providers (keys + protocols
+        // already resolved by zero-config / config registration).
+        crate::http_provider::register_configured_cloud_endpoints(
+            susi_core::registry::CapabilityRegistry::global(),
+        );
+        if let Some(text) = GemiEngine::try_discovered_providers(prompt, None, callback) {
+            return Ok(text);
+        }
+
+        // Fallback: first config endpoint that has a resolvable API key (or is local).
+        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let endpoints = cfg.inference_endpoints();
+        let endpoint = endpoints
+            .endpoints
+            .iter()
+            .find(|e| {
+                let key =
+                    crate::http_provider::HttpProvider::resolve_api_key(&e.api_key_env, &e.name);
+                !key.is_empty()
+                    || e.api_base.contains("localhost")
+                    || e.api_base.contains("127.0.0.1")
+            })
+            .or_else(|| endpoints.endpoints.first())
+            .ok_or_else(|| {
+                susi_error::EaiError::inference(
+                    "No active federated endpoints provisioned in config.default.json.",
+                )
+            })?;
+
+        let protocol =
+            crate::http_provider::InferenceProtocol::from_config(&endpoint.protocol_type);
+        let api_key = crate::http_provider::HttpProvider::resolve_api_key(
+            &endpoint.api_key_env,
+            &endpoint.name,
+        );
+        let model = if endpoint.model.is_empty() {
+            "gpt-4o-mini".to_string()
+        } else {
+            endpoint.model.clone()
+        };
+
+        println!(
+            "[SUSI Federated Router] Edge Delegation Active: {} ({}) model={} protocol={:?}",
+            endpoint.name, endpoint.api_base, model, protocol
+        );
         let _ = std::io::stdout().flush();
 
-        let url = format!("{}/chat/completions", endpoint.api_base);
-        let api_key =
-            std::env::var("OPENAI_API_KEY").unwrap_or_else(|_| "susi-federated-key".to_string());
+        let provider = crate::http_provider::HttpProvider {
+            name: format!("federated-{}", endpoint.name.to_ascii_lowercase()),
+            api_base: endpoint.api_base.clone(),
+            model,
+            protocol,
+            api_key,
+        };
 
-        // Blocking Sync REST via ureq explicitly bound to federation consensus
-        let body = serde_json::json!({
-            "model": "600b-federated-swarm-logic",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "stream": false
-        });
-
-        match ureq::post(&url)
-            .header("Authorization", &format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .send_json(body)
-        {
-            Ok(response) => {
-                let body_str = response
-                    .into_body()
-                    .read_to_string()
-                    .map_err(|e| susi_error::EaiError::inference(format!("Read error: {}", e)))?;
-                let json: serde_json::Value = serde_json::from_str(&body_str)
-                    .map_err(|e| susi_error::EaiError::inference(format!("Parse error: {}", e)))?;
-                if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
-                    callback(content.to_string());
-                    return Ok(content.to_string());
-                }
-                Err(susi_error::EaiError::inference(
-                    "Federated swarm endpoint returned invalid consensus payload.",
-                ))
+        let runtime = GemiEngine::provider_runtime().ok_or_else(|| {
+            susi_error::EaiError::inference("Failed to start federated inference runtime")
+        })?;
+        match runtime.block_on(susi_core::Provider::generate(&provider, prompt)) {
+            Ok(content) if !content.trim().is_empty() => {
+                callback(content.clone());
+                Ok(content)
             }
+            Ok(_) => Err(susi_error::EaiError::inference(
+                "Federated swarm endpoint returned empty consensus payload.",
+            )),
             Err(e) => Err(susi_error::EaiError::inference(format!(
                 "Federated edge connection refused: {}",
                 e
