@@ -63,6 +63,70 @@ impl InferenceRouter {
         }
     }
 
+    /// Set sticky preferred cloud vendor (e.g. paid `openai` over free tiers).
+    /// Accepts a vendor alias (`deepseek`) or full provider id; stored as a
+    /// lowercase substring used when ranking / escalating.
+    pub fn set_preferred_cloud(vendor: &str) -> Result<String, String> {
+        let vendor = vendor.trim();
+        if vendor.is_empty() {
+            return Err("vendor must not be empty".into());
+        }
+        let normalized = vendor.to_ascii_lowercase().replace(' ', "-");
+        let mut pref = Self::load_preference();
+        pref.preferred_cloud = Some(normalized.clone());
+        // Preferring a cloud implies we're willing to use cloud when needed.
+        if pref.policy_override.as_deref() == Some("local_only") {
+            pref.policy_override = Some("auto".to_string());
+        }
+        Self::save_preference(&pref);
+        Ok(format!(
+            "Preferred cloud set to `{}` (saved in {}).\n\
+             When multiple clouds are available, susi will try this first.\n\
+             Clear with: susi key prefer --clear",
+            normalized,
+            Self::preference_path().display()
+        ))
+    }
+
+    pub fn clear_preferred_cloud() -> Result<String, String> {
+        let mut pref = Self::load_preference();
+        pref.preferred_cloud = None;
+        Self::save_preference(&pref);
+        Ok(format!(
+            "Cleared preferred cloud ({})",
+            Self::preference_path().display()
+        ))
+    }
+
+    /// Human-readable routing preference summary.
+    pub fn preference_status() -> String {
+        let pref = Self::load_preference();
+        let policy = pref
+            .policy_override
+            .clone()
+            .unwrap_or_else(|| "auto (from config)".to_string());
+        let preferred = pref
+            .preferred_cloud
+            .clone()
+            .unwrap_or_else(|| "(none — rank / ask)".to_string());
+        format!(
+            "Cloud routing preference\n  policy:    {}\n  preferred: {}\n  file:      {}",
+            policy,
+            preferred,
+            Self::preference_path().display()
+        )
+    }
+
+    /// Whether `name` matches the sticky preferred cloud (substring either way).
+    pub fn matches_preferred_cloud(name: &str) -> bool {
+        let Some(preferred) = Self::load_preference().preferred_cloud else {
+            return false;
+        };
+        let pref_l = preferred.to_ascii_lowercase();
+        let name_l = name.to_ascii_lowercase();
+        name_l.contains(&pref_l) || pref_l.contains(&name_l)
+    }
+
     pub fn load_stats() -> LocalInferenceStats {
         let path = Self::stats_path();
         std::fs::read_to_string(&path)
@@ -449,5 +513,20 @@ mod tests {
         assert!(!InferenceRouter::local_is_slow(&cfg, &fast));
         let cold = LocalInferenceStats::default();
         assert!(!InferenceRouter::local_is_slow(&cfg, &cold));
+    }
+
+    #[test]
+    fn preferred_cloud_substring_match() {
+        let prev = InferenceRouter::load_preference();
+        let mut pref = RoutingPreference::default();
+        pref.preferred_cloud = Some("deepseek".into());
+        InferenceRouter::save_preference(&pref);
+        assert!(InferenceRouter::matches_preferred_cloud(
+            "deepseek-deepseek-chat"
+        ));
+        assert!(!InferenceRouter::matches_preferred_cloud(
+            "openai-gpt-4o-mini"
+        ));
+        InferenceRouter::save_preference(&prev);
     }
 }

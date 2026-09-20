@@ -639,10 +639,14 @@ impl GemiEngine {
             let model_l = model.to_ascii_lowercase();
             names.sort_by_key(|n| {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
-                (!hit, Self::rank_provider_name(n), n.clone())
+                let preferred = crate::routing::InferenceRouter::matches_preferred_cloud(n);
+                (!hit, !preferred, Self::rank_provider_name(n), n.clone())
             });
         } else {
-            names.sort_by_key(|n| (Self::rank_provider_name(n), n.clone()));
+            names.sort_by_key(|n| {
+                let preferred = crate::routing::InferenceRouter::matches_preferred_cloud(n);
+                (!preferred, Self::rank_provider_name(n), n.clone())
+            });
         }
 
         let runtime = Self::provider_runtime()?;

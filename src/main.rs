@@ -118,6 +118,14 @@ enum KeyCommands {
     },
     /// Show which known vendors have a key configured (never prints secrets)
     List,
+    /// Prefer a cloud vendor when several keys are registered (e.g. paid over free)
+    Prefer {
+        /// Vendor to prefer (openai, deepseek, …). Omit to show current preference.
+        vendor: Option<String>,
+        /// Clear the sticky preferred cloud
+        #[arg(long)]
+        clear: bool,
+    },
     /// Remove a vendor API key from ~/.susi/cloud.env
     Remove { vendor: String },
 }
@@ -587,9 +595,37 @@ fn main() {
                         );
                     }
                     println!(
-                        "\nRegister: susi key set <vendor>   File: {}",
+                        "\n{}",
+                        susi_gemi::routing::InferenceRouter::preference_status()
+                    );
+                    println!(
+                        "\nRegister: susi key set <vendor>\nPrefer:   susi key prefer <vendor>\nFile:     {}",
                         susi_gemi::http_provider::cloud_env_path().display()
                     );
+                }
+                KeyCommands::Prefer { vendor, clear } => {
+                    if clear {
+                        match susi_gemi::routing::InferenceRouter::clear_preferred_cloud() {
+                            Ok(msg) => println!("{}", msg),
+                            Err(e) => {
+                                eprintln!("{}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else if let Some(v) = vendor {
+                        match susi_gemi::routing::InferenceRouter::set_preferred_cloud(&v) {
+                            Ok(msg) => println!("{}", msg),
+                            Err(e) => {
+                                eprintln!("{}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        println!(
+                            "{}",
+                            susi_gemi::routing::InferenceRouter::preference_status()
+                        );
+                    }
                 }
                 KeyCommands::Remove { vendor } => {
                     match susi_gemi::http_provider::remove_api_key(&vendor) {
