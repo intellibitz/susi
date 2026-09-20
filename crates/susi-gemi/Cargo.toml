@@ -33,6 +33,9 @@ image = "0.25"
 hex = { workspace = true }
 libc = "0.2"
 sysinfo = "0.39.6"
+agent-client-protocol = "2.0"
+agent-client-protocol-http = { version = "2.0", features = ["server"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }
