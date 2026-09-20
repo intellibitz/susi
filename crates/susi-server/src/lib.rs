@@ -182,7 +182,7 @@ async fn handle_gemi_request(
             });
             Ok(json_response(StatusCode::OK, &api_status))
         }
-        (&Method::GET, p) if matches!(p, "/v1/models" | "/models") => {
+        (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
             let payload = tokio::task::spawn_blocking(move || {
                 let models = ModelManager::list_models(&ws);
@@ -407,13 +407,13 @@ fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::
 }
 
 fn stream_chunk(
-    id: &str,
-    created: u64,
+    identity: (&str, u64),
     model: &str,
     legacy: bool,
     delta: serde_json::Value,
     finished: bool,
 ) -> String {
+    let (id, created) = identity;
     let reason = if finished {
         json!("stop")
     } else {
@@ -446,8 +446,7 @@ fn completion_stream(
         let created = now_secs();
         if tx
             .blocking_send(stream_chunk(
-                &id,
-                created,
+                (&id, created),
                 &model,
                 legacy,
                 json!({"role": "assistant"}),
@@ -472,8 +471,7 @@ fn completion_stream(
                 let (chunk, rest) = remaining.split_at(end);
                 if tx
                     .blocking_send(stream_chunk(
-                        &id,
-                        created,
+                        (&id, created),
                         &model,
                         legacy,
                         json!({"content": chunk}),
@@ -492,7 +490,13 @@ fn completion_stream(
             callback(result);
         }
         if tx
-            .blocking_send(stream_chunk(&id, created, &model, legacy, json!({}), true))
+            .blocking_send(stream_chunk(
+                (&id, created),
+                &model,
+                legacy,
+                json!({}),
+                true,
+            ))
             .is_ok()
         {
             let _ = tx.blocking_send("data: [DONE]\n\n".to_owned());
