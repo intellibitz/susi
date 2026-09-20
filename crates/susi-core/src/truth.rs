@@ -5,7 +5,7 @@
 use crate::evidence::EvidenceSource;
 use crate::registry::CapabilityRegistry;
 use std::path::Path;
-use std::sync::Arc;
+
 use susi_error::{EaiError, EaiResult};
 
 pub struct SusiTruthAgent;
@@ -117,7 +117,7 @@ impl TruthTransformer {
 
         // 2. Semantic Cross-Examination for abstract or complex agent observations
         if let EvidenceSource::AgentObservation {
-            observation,
+            observation: _,
             reasoning_trace,
         } = &record.source
         {
