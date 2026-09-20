@@ -7,6 +7,7 @@ pub mod amas;
 pub mod axiom;
 pub mod bloat_audit;
 pub mod brain;
+pub mod compliance;
 pub mod dag;
 pub mod evolution;
 pub mod genome_distiller;
