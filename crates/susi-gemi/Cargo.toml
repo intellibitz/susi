@@ -1,6 +1,6 @@
 [package]
 name = "susi-gemi"
-version = "0.1.2023081"
+version = "0.2.0"
 license = "Apache-2.0"
 edition = "2021"
 
