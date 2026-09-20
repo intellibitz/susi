@@ -652,18 +652,40 @@ impl GemiEngine {
         }
 
         let runtime = Self::provider_runtime()?;
+        let mut errors: Vec<String> = Vec::new();
         for name in names {
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
             match runtime.block_on(provider.generate(prompt)) {
                 Ok(text) if !text.trim().is_empty() => {
+                    if !errors.is_empty() {
+                        eprintln!(
+                            "[INFERENCE FAILOVER] Succeeded via {} after {} prior failure(s)",
+                            name,
+                            errors.len()
+                        );
+                    }
                     callback(text.clone());
                     return Some(text);
                 }
-                Ok(_) => continue,
-                Err(_) => continue,
+                Ok(_) => {
+                    let detail = format!("{name}: empty response");
+                    eprintln!("[INFERENCE FAILOVER] {detail}");
+                    errors.push(detail);
+                }
+                Err(e) => {
+                    let detail = format!("{name}: {e}");
+                    eprintln!("[INFERENCE FAILOVER] {detail}");
+                    errors.push(detail);
+                }
             }
+        }
+        if !errors.is_empty() {
+            eprintln!(
+                "[INFERENCE FAILOVER] Exhausted {} provider(s); no usable response",
+                errors.len()
+            );
         }
         None
     }
@@ -1443,7 +1465,12 @@ mod tests {
             _prompt: &str,
         ) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<String>> {
             let reply = self.reply.to_string();
-            Box::pin(async move { Ok(reply) })
+            Box::pin(async move {
+                if reply.starts_with("ERR:") {
+                    return Err(susi_error::EaiError::process(reply));
+                }
+                Ok(reply)
+            })
         }
         fn embed(
             &self,
@@ -1454,6 +1481,22 @@ mod tests {
         fn as_any(&self) -> &dyn std::any::Any {
             self
         }
+    }
+
+    #[test]
+    fn test_try_providers_fails_over_after_provider_error() {
+        let registry = susi_core::registry::CapabilityRegistry::new();
+        registry.register_provider(MockRouteProvider {
+            name: "openai-primary",
+            reply: "ERR:402 billing",
+        });
+        registry.register_provider(MockRouteProvider {
+            name: "deepseek-backup",
+            reply: "recovered",
+        });
+
+        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {});
+        assert_eq!(out.as_deref(), Some("recovered"));
     }
 
     #[test]

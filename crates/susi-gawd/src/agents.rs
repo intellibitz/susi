@@ -1659,13 +1659,10 @@ impl GawdAgentFleet {
 mod tests {
     use super::*;
 
-    /// dispatch_explosive_swarm previously had zero test coverage. Proves
-    /// the MissionDag wiring added alongside the specialist-agent fanout
-    /// actually runs end-to-end: a "MissionDag" result is present, and its
-    /// EvidenceRecord landed on the blackboard under the expected key -
-    /// not just "the code compiles and doesn't panic".
+    /// The DAG must report verification failure without publishing accepted
+    /// evidence when the test substrate has no independent verifier.
     #[test]
-    fn test_dispatch_explosive_swarm_runs_mission_dag_and_populates_blackboard() {
+    fn test_dispatch_explosive_swarm_reports_unverified_dag() {
         struct DummyHooks;
         impl susi_tools::EngineHooks for DummyHooks {
             fn engine_version(&self) -> &'static str {
@@ -1706,12 +1703,13 @@ mod tests {
             "expected a MissionDag entry in the swarm results, got: {:?}",
             results.iter().map(|(n, _)| n).collect::<Vec<_>>()
         );
-        assert!(
-            blackboard
-                .iter()
-                .any(|entry| entry.key().starts_with("EvidenceRecord::")),
-            "expected at least one EvidenceRecord::* key on the blackboard"
-        );
+        assert!(results.iter().any(
+            |(name, output)| name == "MissionDag" && output.contains("[DAG_EXECUTION_FAILED]")
+        ));
+        assert!(!blackboard
+            .iter()
+            .any(|entry| entry.key().starts_with("EvidenceRecord::")));
+        std::env::remove_var("SUSI_TEST_MOCK_INFERENCE");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

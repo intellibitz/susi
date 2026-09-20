@@ -319,7 +319,7 @@ fn run_shell(workspace: &Path) {
     }
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
     // Must run before anything can touch susi_tools::ToolRegistry (which
     // panics on first use if this hasn't happened yet) - see
     // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
@@ -378,6 +378,7 @@ fn main() {
     );
 
     let cli = Cli::parse();
+    let mut exit_code = std::process::ExitCode::SUCCESS;
 
     let needs_daemon = match &cli.command {
         Some(cmd) => command_requires_daemon(cmd),
@@ -408,7 +409,9 @@ fn main() {
                 println!("- This pulse runs in the background. Check progress with 'susi status'.");
 
                 println!("\n[SOVEREIGN HANDSHAKE]");
-                let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &glass_box_callback);
+                exit_code = ama
+                    .solve_stream_report("identity", &cwd, SUSI_VERSION, &glass_box_callback)
+                    .exit_code();
             }
             Commands::Uninstall => {
                 // Deterministic teardown — an agent pulse cannot guarantee
@@ -804,23 +807,25 @@ fn main() {
         match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &goal) {
             Ok(msg) => {
                 info!("Natural intent ingested successfully: {}", msg);
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &glass_box_callback);
-                let _ = io::stdout().flush();
             }
             Err(e) => {
                 warn!(
                     "Natural intent ingestion failed: {}. Falling back to direct swarm solving.",
                     e
                 );
-                let _ = ama.solve_stream(&goal, &cwd, SUSI_VERSION, &glass_box_callback);
-                let _ = io::stdout().flush();
             }
         }
+        exit_code = ama
+            .solve_stream_report(&goal, &cwd, SUSI_VERSION, &glass_box_callback)
+            .exit_code();
+        let _ = io::stdout().flush();
     } else if !io::stdin().is_terminal() {
         match read_stdin_bounded() {
             Ok(Some(input)) => {
                 let ama = SusiMasterAgent::new();
-                let _ = ama.solve_stream(&input, &cwd, SUSI_VERSION, &glass_box_callback);
+                exit_code = ama
+                    .solve_stream_report(&input, &cwd, SUSI_VERSION, &glass_box_callback)
+                    .exit_code();
                 let _ = io::stdout().flush();
             }
             Ok(None) => (),
@@ -833,6 +838,7 @@ fn main() {
         // No command and no intent provided -> Launch persistent SUSI Pulse Shell
         run_shell(&cwd);
     }
+    exit_code
 }
 
 fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {

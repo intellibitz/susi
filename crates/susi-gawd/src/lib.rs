@@ -7,6 +7,7 @@ pub mod amas;
 pub mod axiom;
 pub mod bloat_audit;
 pub mod brain;
+mod cloud_recovery;
 pub mod compliance;
 pub mod dag;
 pub mod evolution;

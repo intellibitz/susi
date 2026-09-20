@@ -43,16 +43,25 @@ pub async fn bootstrap_zero_config_substrate() {
 }
 
 async fn prune_unhealthy_providers(registry: &CapabilityRegistry) {
-    let names = registry.list_providers();
-    for name in names {
+    // Probe concurrently with a deadline so an unresponsive capability cannot
+    // prevent automatic discovery and recovery of the rest of the substrate.
+    let mut probes = tokio::task::JoinSet::new();
+    for name in registry.list_providers() {
         if name == "Candle (Local)" {
             continue;
         }
         let Some(provider) = registry.get_provider(&name) else {
             continue;
         };
-        let healthy = provider.is_healthy().await.unwrap_or(false);
-        if !healthy {
+        probes.spawn(async move {
+            let healthy = tokio::time::timeout(Duration::from_secs(5), provider.is_healthy())
+                .await
+                .is_ok_and(|result| result.unwrap_or(false));
+            (name, healthy)
+        });
+    }
+    while let Some(result) = probes.join_next().await {
+        if let Ok((name, false)) = result {
             registry.unregister_provider(&name);
             if std::env::var("SUSI_VERBOSE").is_ok() {
                 eprintln!("[BOOTSTRAP] Pruned unhealthy provider: {}", name);
@@ -102,13 +111,24 @@ mod tests {
         use susi_core::provider::{BoxFuture, Provider};
         use susi_error::EaiResult;
 
-        struct Unhealthy;
+        struct Unhealthy {
+            hang: bool,
+        }
         impl Provider for Unhealthy {
             fn name(&self) -> &str {
-                "ollama-dead"
+                if self.hang {
+                    "ollama-hung"
+                } else {
+                    "ollama-dead"
+                }
             }
             fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
-                Box::pin(async { Ok(false) })
+                Box::pin(async move {
+                    if self.hang {
+                        std::future::pending::<()>().await;
+                    }
+                    Ok(false)
+                })
             }
             fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
                 Box::pin(async { Ok(String::new()) })
@@ -122,10 +142,14 @@ mod tests {
         }
 
         let registry = CapabilityRegistry::new();
-        registry.register_provider(Unhealthy);
+        registry.register_provider(Unhealthy { hang: false });
+        registry.register_provider(Unhealthy { hang: true });
         registry.register_provider(susi_gemi::candle_provider::CandleProvider);
-        prune_unhealthy_providers(&registry).await;
+        tokio::time::timeout(Duration::from_secs(7), prune_unhealthy_providers(&registry))
+            .await
+            .expect("discovery must recover from a hanging provider");
         assert!(registry.get_provider("ollama-dead").is_none());
+        assert!(registry.get_provider("ollama-hung").is_none());
         assert!(registry.get_provider("Candle (Local)").is_some());
     }
 }

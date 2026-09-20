@@ -23,6 +23,29 @@ pub struct SusiMissionReport {
 pub type SusiSwarmReport = SusiMissionReport;
 
 impl SusiMissionReport {
+    /// Only an explicitly successful mission may produce a success exit code.
+    pub fn is_success(&self) -> bool {
+        matches!(self.status.as_str(), "SUCCESS" | "COMPLETE")
+    }
+
+    /// CLI outcome derived from the report, never from generated prose.
+    pub fn exit_code(&self) -> std::process::ExitCode {
+        if self.is_success() {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        }
+    }
+
+    /// Human-readable completion marker using the same outcome as the protocol.
+    pub fn completion_message(&self) -> String {
+        if self.is_success() {
+            format!("[MISSION COMPLETE] Status: {}", self.status)
+        } else {
+            format!("[MISSION FAILED] Status: {}", self.status)
+        }
+    }
+
     pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
         let mut full_thinking_trace = String::new();
         full_thinking_trace.push_str(&format!(
@@ -129,6 +152,18 @@ impl SusiMasterAgent {
         version: &str,
         _callback: &dyn Fn(String),
     ) -> String {
+        self.solve_stream_report(goal, workspace, version, _callback)
+            .final_answer
+    }
+
+    /// Run a streaming mission while preserving its structured outcome for callers.
+    pub fn solve_stream_report(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        _callback: &dyn Fn(String),
+    ) -> SusiMissionReport {
         let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
             susi_gemi::models::ModelManager::get_active_engine_and_model(Some(
@@ -250,9 +285,10 @@ impl SusiMasterAgent {
                     interactions: Vec::new(),
                     final_answer: format!("[GOVERNANCE_BLOCK] {}", e),
                 };
+                eprintln!("{}", report.completion_message());
                 drop(_guard);
                 eprintln!("{}", report.to_protocol_format(true));
-                return report.final_answer;
+                return report;
             }
 
             eprintln!("\n[DETAILED SWARM SYNTHESIS LOGS]");
@@ -343,6 +379,7 @@ impl SusiMasterAgent {
             eprintln!();
 
             eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
+            let mut verification_failed = false;
             let final_answer = match susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(
                 &final_answer,
                 workspace,
@@ -354,6 +391,7 @@ impl SusiMasterAgent {
                     v
                 }
                 Err(e) => {
+                    verification_failed = true;
                     eprintln!(
                         "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
                         e
@@ -375,6 +413,7 @@ impl SusiMasterAgent {
                         v
                     }
                     Err(e) => {
+                        verification_failed = true;
                         eprintln!(
                             "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
                             e
@@ -383,17 +422,24 @@ impl SusiMasterAgent {
                     }
                 };
 
-            eprintln!("\n[FAST-PATH COMPLETE]");
-            let report = SusiMissionReport {
+            let mut report = SusiMissionReport {
                 goal: goal.to_string(),
-                status: "SUCCESS".to_string(),
+                status:
+                    if !verification_failed && crate::accountability::is_usable(&final_answer) {
+                        "SUCCESS"
+                    } else {
+                        "FAILED"
+                    }
+                    .to_string(),
                 agents: Vec::new(),
                 interactions: Vec::new(),
                 final_answer,
             };
+            crate::cloud_recovery::recover(&mut report, workspace);
+            eprintln!("{}", report.completion_message());
             drop(_guard);
             eprintln!("{}", report.to_protocol_format(true));
-            return report.final_answer;
+            return report;
         }
 
         let start = std::time::Instant::now();
@@ -415,24 +461,27 @@ impl SusiMasterAgent {
         }
 
         match res {
-            Ok(report) => {
-                eprintln!("[MISSION COMPLETE] Consensus reached.");
+            Ok(mut report) => {
+                crate::cloud_recovery::recover(&mut report, workspace);
+                eprintln!("{}", report.completion_message());
                 drop(_guard);
                 eprintln!("{}", report.to_protocol_format(true));
-                report.final_answer
+                report
             }
             Err(e) => {
                 eprintln!("[MISSION FAILED] {}", e);
-                drop(_guard);
-                let err_report = SusiMissionReport {
+                let mut err_report = SusiMissionReport {
                     goal: goal.to_string(),
                     status: "FAILED".to_string(),
                     agents: Vec::new(),
                     interactions: Vec::new(),
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
+                crate::cloud_recovery::recover(&mut err_report, workspace);
+                eprintln!("{}", err_report.completion_message());
+                drop(_guard);
                 eprintln!("{}", err_report.to_protocol_format(true));
-                err_report.final_answer
+                err_report
             }
         }
     }
@@ -495,6 +544,7 @@ impl SusiMasterAgent {
         };
 
         eprintln!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
+        let mut verification_failed = false;
         let verified = match susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(
             &final_answer,
             workspace,
@@ -504,6 +554,7 @@ impl SusiMasterAgent {
                 v
             }
             Err(e) => {
+                verification_failed = true;
                 eprintln!(
                     "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
                     e
@@ -525,6 +576,7 @@ impl SusiMasterAgent {
                 v
             }
             Err(e) => {
+                verification_failed = true;
                 eprintln!(
                     "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
                     e
@@ -535,7 +587,12 @@ impl SusiMasterAgent {
 
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: "COMPLETE".to_string(),
+            status: if !verification_failed && crate::accountability::is_usable(&verified_final) {
+                "COMPLETE"
+            } else {
+                "FAILED"
+            }
+            .to_string(),
             agents,
             interactions,
             final_answer: verified_final,
@@ -548,7 +605,9 @@ impl SusiMasterAgent {
         workspace: &Path,
         version: &str,
     ) -> EaiResult<SusiMissionReport> {
-        self.solve_internal(goal, workspace, version, 0)
+        let mut report = self.solve_internal(goal, workspace, version, 0)?;
+        crate::cloud_recovery::recover(&mut report, workspace);
+        Ok(report)
     }
 
     fn solve_internal(
@@ -1187,6 +1246,49 @@ impl SusiHybridAgent {
 #[cfg(test)]
 mod report_tests {
     use super::*;
+    #[test]
+    fn failure_evidence_controls_banner_and_exit_even_with_optimistic_prose() {
+        for status in ["FAILED", "BLOCKED", "ABORTED", "UNVERIFIED", ""] {
+            let report = SusiMissionReport {
+                goal: "weather".into(),
+                status: status.into(),
+                agents: vec![],
+                interactions: vec![],
+                final_answer: "Mission complete. Everything worked.".into(),
+            };
+            assert!(!report.is_success());
+            assert_eq!(report.exit_code(), std::process::ExitCode::FAILURE);
+            assert!(report.completion_message().starts_with("[MISSION FAILED]"));
+            assert!(!report.completion_message().contains("MISSION COMPLETE"));
+            // The protocol emits its JSON envelope followed by the answer text.
+            let rendered = report.to_protocol_format(false);
+            let protocol = serde_json::Deserializer::from_str(&rendered)
+                .into_iter::<serde_json::Value>()
+                .next()
+                .unwrap()
+                .unwrap();
+            assert_eq!(protocol["observation"], format!("Mission status: {status}"));
+        }
+    }
+
+    #[test]
+    fn explicit_success_reports_have_success_banner_and_exit() {
+        for status in ["SUCCESS", "COMPLETE"] {
+            let report = SusiMissionReport {
+                goal: "inspect".into(),
+                status: status.into(),
+                agents: vec![],
+                interactions: vec![],
+                final_answer: "Observed the requested file.".into(),
+            };
+            assert!(report.is_success());
+            assert_eq!(report.exit_code(), std::process::ExitCode::SUCCESS);
+            assert!(report
+                .completion_message()
+                .starts_with("[MISSION COMPLETE]"));
+        }
+    }
+
     #[test]
     fn protocol_preserves_failed_and_blocked_outcomes() {
         for status in ["FAILED", "BLOCKED", "ABORTED", "COMPLETE"] {

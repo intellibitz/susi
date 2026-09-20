@@ -1,0 +1,406 @@
+//! Bounded recovery of failed missions using discovered cloud providers.
+
+use crate::ama::SusiMissionReport;
+use crate::amas::A2AMessage;
+use crate::security::SecurityDetector;
+use serde::Deserialize;
+use std::collections::HashSet;
+use std::path::Path;
+use std::time::Duration;
+use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
+use susi_core::registry::CapabilityRegistry;
+use susi_core::truth::TruthTransformer;
+use susi_error::{EaiError, EaiResult};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum CompletionStatus {
+    Complete,
+    Failed,
+}
+
+#[derive(Deserialize)]
+struct CloudAnswer {
+    status: CompletionStatus,
+    answer: String,
+}
+
+fn eligible(report: &SusiMissionReport) -> bool {
+    report.status == "FAILED"
+        && !report.final_answer.contains("[GOVERNANCE_BLOCK]")
+        && !report.interactions.iter().any(|entry| {
+            entry.action == "GOVERNANCE_BLOCK" || entry.payload.contains("[GOVERNANCE_BLOCK]")
+        })
+}
+
+/// Recover using existing evidence. Previously executed tools are not replayed.
+pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
+    if !eligible(report) {
+        return;
+    }
+    if crate::safety::SafetyDetector::audit_action("SUSI_SOLVE", &report.goal, workspace)
+        .and_then(|_| SecurityDetector::audit_action("SUSI_SOLVE", &report.goal, workspace))
+        .is_err()
+    {
+        return;
+    }
+    let registry = CapabilityRegistry::global();
+    susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
+    let providers = susi_gemi::routing::InferenceRouter::cloud_failover_order(registry);
+    if providers.is_empty() {
+        return;
+    }
+    // A dedicated thread also supports synchronous callers inside Tokio runtimes.
+    let outcome = std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> EaiResult<()> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| EaiError::internal(e.to_string()))?;
+                runtime.block_on(recover_with_providers(
+                    report,
+                    registry,
+                    providers,
+                    workspace,
+                    Duration::from_secs(60),
+                ));
+                Ok(())
+            })
+            .join()
+    });
+    if !matches!(outcome, Ok(Ok(()))) {
+        report.status = "FAILED".into();
+        report
+            .final_answer
+            .push_str("\nCloud recovery could not finish; mission remains failed.");
+    }
+}
+
+fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, detail: String) {
+    let detail = SecurityDetector::redact(&detail);
+    eprintln!("[CLOUD FAILOVER] {provider}: {action} — {detail}");
+    report.interactions.push(A2AMessage {
+        sender: provider.to_string(),
+        recipient: "SUSI-Master".to_string(),
+        action: action.to_string(),
+        payload: detail,
+    });
+}
+
+async fn recover_with_providers(
+    report: &mut SusiMissionReport,
+    registry: &CapabilityRegistry,
+    providers: Vec<String>,
+    workspace: &Path,
+    timeout: Duration,
+) {
+    if !eligible(report) {
+        return;
+    }
+    let context = SecurityDetector::redact(&serde_json::to_string(report).unwrap_or_default());
+    let context: String = context.chars().take(24_000).collect();
+    let mut attempted = HashSet::new();
+    for name in providers {
+        if !attempted.insert(name.clone()) {
+            continue;
+        }
+        eprintln!("[CLOUD FAILOVER] Trying {name}");
+        let prompt = format!(
+            "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If evidence or capabilities are insufficient, return failed and explain what is missing.",
+            report.goal, context
+        );
+        let result = tokio::time::timeout(timeout, async {
+            let provider = registry
+                .get_provider(&name)
+                .ok_or_else(|| EaiError::inference("Provider no longer available"))?;
+            let raw = provider.generate(&prompt).await?;
+            let raw = raw.trim();
+            let json = raw
+                .strip_prefix("```json")
+                .or_else(|| raw.strip_prefix("```"))
+                .and_then(|body| body.strip_suffix("```"))
+                .unwrap_or(raw)
+                .trim();
+            let answer: CloudAnswer = serde_json::from_str(json).map_err(|_| {
+                EaiError::protocol("Provider did not return a structured mission outcome")
+            })?;
+            if !matches!(answer.status, CompletionStatus::Complete) {
+                return Err(EaiError::inference(answer.answer));
+            }
+            if !crate::accountability::is_usable(&answer.answer) {
+                return Err(EaiError::inference(
+                    "Provider returned empty or failed mission output",
+                ));
+            }
+            susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer.answer, workspace)?;
+            TruthTransformer::verify_mission_reality(
+                &report.goal,
+                &name,
+                &answer.answer,
+                workspace,
+            )?;
+            let evidence = EvidenceRecord::new(
+                name.clone(),
+                1.0,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs(),
+                Claim {
+                    subject: report.goal.clone(),
+                    predicate: "mission_completed".into(),
+                    value: answer.answer.clone(),
+                },
+                EvidenceSource::AgentObservation {
+                    observation: answer.answer.clone(),
+                    reasoning_trace: format!(
+                        "Existing mission evidence:\n{context}\nCandidate answer:\n{}",
+                        answer.answer
+                    ),
+                },
+                0.0, // No empirical confidence estimate is available.
+            );
+            TruthTransformer::cross_examine(&evidence, registry, workspace).await?;
+            Ok::<_, EaiError>((answer.answer, evidence))
+        })
+        .await;
+        match result {
+            Ok(Ok((answer, evidence))) => {
+                record_attempt(
+                    report,
+                    &name,
+                    "CLOUD_ATTEMPT_VERIFIED",
+                    evidence.render_for_gemi(),
+                );
+                report.status = "COMPLETE".into();
+                report.final_answer = answer;
+                return;
+            }
+            Ok(Err(error)) => {
+                record_attempt(report, &name, "CLOUD_ATTEMPT_FAILED", error.to_string())
+            }
+            Err(_) => record_attempt(
+                report,
+                &name,
+                "CLOUD_ATTEMPT_FAILED",
+                "Provider attempt timed out".into(),
+            ),
+        }
+    }
+    report.final_answer.push_str(&format!(
+        "\nCloud failover exhausted {} provider(s); mission remains failed. See attempt details in the mission trace.", attempted.len()
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use susi_core::provider::{BoxFuture, Provider};
+
+    #[derive(Clone, Copy)]
+    enum Reply {
+        Error,
+        Text(&'static str),
+        Hang,
+    }
+    struct MockProvider {
+        name: &'static str,
+        reply: Reply,
+        calls: Arc<Mutex<Vec<String>>>,
+    }
+    impl Provider for MockProvider {
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+            let verification = prompt.starts_with("You are the SUSI Truth Transformer");
+            let prompt = prompt.to_string();
+            Box::pin(async move {
+                if matches!(self.reply, Reply::Error) {
+                    if !verification {
+                        self.calls.lock().unwrap().push(self.name.into());
+                    }
+                    return Err(EaiError::process("HTTP 402 Payment Required"));
+                }
+                if verification {
+                    return Ok(if prompt.contains("Candidate answer:\nungrounded answer") {
+                        "HALLUCINATION"
+                    } else {
+                        "VERIFIED"
+                    }
+                    .into());
+                }
+                self.calls.lock().unwrap().push(self.name.into());
+                match self.reply {
+                    Reply::Text(text) => Ok(text.into()),
+                    Reply::Hang => std::future::pending().await,
+                    Reply::Error => unreachable!(),
+                }
+            })
+        }
+        fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+            Box::pin(async { Ok(vec![]) })
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+    fn report() -> SusiMissionReport {
+        SusiMissionReport {
+            goal: "Explain the observed result".into(),
+            status: "FAILED".into(),
+            agents: vec![],
+            interactions: vec![],
+            final_answer: "Original provider unavailable".into(),
+        }
+    }
+    fn providers(
+        entries: &[(&'static str, Reply)],
+    ) -> (CapabilityRegistry, Arc<Mutex<Vec<String>>>) {
+        let registry = CapabilityRegistry::new();
+        let calls = Arc::new(Mutex::new(vec![]));
+        for &(name, reply) in entries {
+            registry.register_provider(MockProvider {
+                name,
+                reply,
+                calls: Arc::clone(&calls),
+            });
+        }
+        (registry, calls)
+    }
+    const COMPLETE: &str = r#"{"status":"complete","answer":"The observed result is available."}"#;
+
+    #[tokio::test]
+    async fn recovers_after_billing_failure_and_stops_at_verified_success() {
+        let (registry, calls) = providers(&[
+            ("a-down", Reply::Error),
+            ("b-working", Reply::Text(COMPLETE)),
+            ("c-unused", Reply::Text(COMPLETE)),
+        ]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-down".into(), "b-working".into(), "c-unused".into()],
+            Path::new("."),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(report.is_success());
+        assert_eq!(*calls.lock().unwrap(), ["a-down", "b-working"]);
+        assert!(report
+            .interactions
+            .iter()
+            .any(|entry| entry.action == "CLOUD_ATTEMPT_FAILED" && entry.payload.contains("402")));
+        assert!(report
+            .interactions
+            .iter()
+            .any(|entry| entry.action == "CLOUD_ATTEMPT_VERIFIED"));
+        assert_eq!(report.final_answer, "The observed result is available.");
+    }
+
+    #[tokio::test]
+    async fn failed_malformed_and_ungrounded_answers_advance_to_next_provider() {
+        let (registry, calls) = providers(&[
+            (
+                "a-missing",
+                Reply::Text(r#"{"status":"failed","answer":"No live weather evidence"}"#),
+            ),
+            ("b-malformed", Reply::Text("MISSION COMPLETE")),
+            (
+                "c-ungrounded",
+                Reply::Text(r#"{"status":"complete","answer":"ungrounded answer"}"#),
+            ),
+            ("d-good", Reply::Text(COMPLETE)),
+        ]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec![
+                "a-missing".into(),
+                "b-malformed".into(),
+                "c-ungrounded".into(),
+                "d-good".into(),
+            ],
+            Path::new("."),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(report.is_success());
+        assert_eq!(calls.lock().unwrap().len(), 4);
+        assert!(report.interactions.iter().any(
+            |entry| entry.sender == "c-ungrounded" && entry.payload.contains("TRUTH_VIOLATION")
+        ));
+    }
+
+    #[tokio::test]
+    async fn exhausted_providers_remain_failed_and_duplicates_are_not_retried() {
+        let (registry, calls) = providers(&[("down", Reply::Error)]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["down".into(), "down".into()],
+            Path::new("."),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(!report.is_success());
+        assert_eq!(*calls.lock().unwrap(), ["down"]);
+        assert!(report.final_answer.contains("exhausted 1 provider"));
+        assert_eq!(report.exit_code(), std::process::ExitCode::FAILURE);
+    }
+
+    #[tokio::test]
+    async fn timed_out_attempt_advances_to_working_provider() {
+        let (registry, calls) =
+            providers(&[("a-hung", Reply::Hang), ("b-good", Reply::Text(COMPLETE))]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-hung".into(), "b-good".into()],
+            Path::new("."),
+            Duration::from_millis(20),
+        )
+        .await;
+        assert!(report.is_success());
+        assert_eq!(*calls.lock().unwrap(), ["a-hung", "b-good"]);
+        assert!(report.interactions[0].payload.contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn successful_and_governance_blocked_missions_are_not_retried() {
+        let (registry, calls) = providers(&[("unused", Reply::Text(COMPLETE))]);
+        for status in ["COMPLETE", "BLOCKED", "ABORTED"] {
+            let mut report = report();
+            report.status = status.into();
+            recover_with_providers(
+                &mut report,
+                &registry,
+                vec!["unused".into()],
+                Path::new("."),
+                Duration::from_secs(1),
+            )
+            .await;
+            assert_eq!(report.status, status);
+        }
+        let mut report = report();
+        report.final_answer = "[GOVERNANCE_BLOCK] Forbidden action".into();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["unused".into()],
+            Path::new("."),
+            Duration::from_secs(1),
+        )
+        .await;
+        assert!(calls.lock().unwrap().is_empty());
+    }
+}

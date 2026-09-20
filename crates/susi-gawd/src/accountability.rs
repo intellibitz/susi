@@ -13,6 +13,9 @@ pub(crate) fn is_failure(output: &str) -> bool {
         "[DAG_EXECUTION_FAILED]",
         "AGENT EXECUTION FAILED",
         "TRUTH_VIOLATION",
+        "TRUTH_UNVERIFIED",
+        "REALITY VIOLATION",
+        "AXIOMATIC VIOLATION",
         "UNGROUNDED CLAIMS DETECTED",
     ]
     .iter()
@@ -36,6 +39,7 @@ mod tests {
             "failure: timeout",
             "[DAG_EXECUTION_FAILED] error",
             "TRUTH_VIOLATION: nonexistent file",
+            "TRUTH_UNVERIFIED: no verifier",
         ] {
             assert!(is_failure(output), "{output}");
             assert!(!is_usable(output));

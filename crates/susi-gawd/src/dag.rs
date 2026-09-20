@@ -5,7 +5,7 @@ use super::agents::MissionBlackboard;
 use super::evidence::EvidenceRecord;
 use std::path::Path;
 use std::sync::Arc;
-use susi_error::EaiResult;
+use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {
@@ -65,7 +65,7 @@ impl MissionDag {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
 
-        let mut executed_count = 0;
+        let mut executed_count = self.nodes.iter().filter(|node| node.completed).count();
         let total_nodes = self.nodes.len();
 
         while executed_count < total_nodes {
@@ -78,13 +78,15 @@ impl MissionDag {
                         && node
                             .dependencies
                             .iter()
-                            .all(|&dep| self.nodes[dep].completed)
+                            .all(|&dep| self.nodes.get(dep).is_some_and(|node| node.completed))
                 })
                 .map(|(idx, _)| idx)
                 .collect();
 
             if ready_indices.is_empty() {
-                break;
+                return Err(EaiError::governance(
+                    "DAG_EXECUTION_FAILED: unresolved dependencies (cycle or missing task)",
+                ));
             }
 
             let ws = workspace.to_path_buf();
@@ -104,20 +106,12 @@ impl MissionDag {
                     let res = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    let _ = tx.send(super::bus::SwarmEventType::AgentCompleted {
-                        agent_name: node.title.clone(),
-                        elapsed_ms: elapsed,
-                    });
-
                     (idx, Ok(res), elapsed)
                 })
                 .collect();
 
-            for (idx, res, _elapsed) in batch_results {
+            for (idx, res, elapsed) in batch_results {
                 if let Ok(output) = res {
-                    self.nodes[idx].completed = true;
-                    executed_count += 1;
-
                     let record = EvidenceRecord::new(
                         self.nodes[idx].title.clone(),
                         0.95,
@@ -127,7 +121,7 @@ impl MissionDag {
                             .as_secs(),
                         super::evidence::Claim {
                             subject: self.nodes[idx].title.clone(),
-                            predicate: "achieved_goal".to_string(),
+                            predicate: "reported_result".to_string(),
                             value: output.chars().take(120).collect(),
                         },
                         super::evidence::EvidenceSource::AgentObservation {
@@ -142,32 +136,30 @@ impl MissionDag {
 
                     // Dual-pipeline truth: physical signature + semantic
                     // cross-examine via discovered CapabilityRegistry providers.
-                    match super::truth::TruthTransformer::cross_examine_sync(&record, workspace) {
+                    let verification = super::truth::TruthTransformer::verify_mission_reality(
+                        &self.nodes[idx].goal,
+                        &self.nodes[idx].title,
+                        &output,
+                        workspace,
+                    )
+                    .and_then(|_| {
+                        super::truth::TruthTransformer::cross_examine_sync(&record, workspace)
+                    });
+                    match verification {
                         Ok(()) => {
+                            let _ = event_sender.send(super::bus::SwarmEventType::AgentCompleted {
+                                agent_name: self.nodes[idx].title.clone(),
+                                elapsed_ms: elapsed,
+                            });
+                            self.nodes[idx].completed = true;
+                            executed_count += 1;
                             bb.insert(format!("TaskNode_{}", idx), output);
                             all_evidence.push(record);
                         }
                         Err(e) => {
                             let msg = format!("[TRUTH_VIOLATION] {}", e);
-                            bb.insert(format!("TaskNode_{}", idx), msg.clone());
-                            all_evidence.push(EvidenceRecord::new(
-                                self.nodes[idx].title.clone(),
-                                0.95,
-                                std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs(),
-                                super::evidence::Claim {
-                                    subject: self.nodes[idx].title.clone(),
-                                    predicate: "achieved_goal".to_string(),
-                                    value: msg.chars().take(120).collect(),
-                                },
-                                super::evidence::EvidenceSource::AgentObservation {
-                                    observation: msg.chars().take(500).collect(),
-                                    reasoning_trace: msg,
-                                },
-                                0.1,
-                            ));
+                            bb.insert(format!("TaskNode_{}", idx), msg);
+                            return Err(e);
                         }
                     }
                 }
@@ -175,5 +167,38 @@ impl MissionDag {
         }
 
         Ok(all_evidence)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agents::HighDensityContextStore;
+
+    #[test]
+    fn invalid_dependencies_fail_without_completing_tasks() {
+        for dependency in [0, 99] {
+            let mut dag = MissionDag::new("inspect");
+            dag.nodes[0].dependencies = vec![dependency];
+            let board = Arc::new(HighDensityContextStore::new(1024));
+            let (tx, rx) = crate::bus::create_swarm_bus();
+            assert!(dag.execute_dag(Path::new("."), &board, &tx).is_err());
+            assert!(!dag.nodes[0].completed);
+            assert!(board.is_empty());
+            assert!(rx.is_empty());
+        }
+    }
+
+    #[test]
+    fn completed_graph_is_not_executed_again() {
+        let mut dag = MissionDag::new("inspect");
+        dag.nodes[0].completed = true;
+        let board = Arc::new(HighDensityContextStore::new(1024));
+        let (tx, rx) = crate::bus::create_swarm_bus();
+        assert!(dag
+            .execute_dag(Path::new("."), &board, &tx)
+            .unwrap()
+            .is_empty());
+        assert!(rx.is_empty());
     }
 }

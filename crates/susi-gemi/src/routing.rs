@@ -236,6 +236,27 @@ impl InferenceRouter {
         clouds
     }
 
+    /// One deterministic recovery pass, honoring local-only policy and the
+    /// preferred vendor without changing process-wide routing preferences.
+    pub fn cloud_failover_order(registry: &susi_core::registry::CapabilityRegistry) -> Vec<String> {
+        let cfg = SusiConfig::load_global()
+            .unwrap_or_default()
+            .inference_routing();
+        let pref = Self::load_preference();
+        if Self::effective_policy(&cfg, &pref) == "local_only" {
+            return Vec::new();
+        }
+        let mut providers = Self::list_cloud_providers_from_registry(registry);
+        providers.sort_by_key(|name| {
+            let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
+                name.to_ascii_lowercase()
+                    .contains(&preferred.to_ascii_lowercase())
+            });
+            (!preferred, Self::cloud_rank(name), name.clone())
+        });
+        providers
+    }
+
     pub fn list_cloud_providers(names: &[String]) -> Vec<String> {
         let mut clouds: Vec<String> = names
             .iter()
@@ -543,5 +564,46 @@ mod tests {
             "openai-gpt-4o-mini"
         ));
         InferenceRouter::save_preference(&prev);
+    }
+
+    #[test]
+    fn cloud_failover_order_prefers_sticky_vendor_once() {
+        use susi_core::registry::CapabilityRegistry;
+
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(crate::http_provider::HttpProvider {
+            name: "openai-gpt-4o-mini".into(),
+            api_base: "https://api.openai.com/v1".into(),
+            model: "gpt-4o-mini".into(),
+            protocol: crate::http_provider::InferenceProtocol::OpenAiChat,
+            api_key: String::new(),
+        });
+        registry.register_provider(crate::http_provider::HttpProvider {
+            name: "deepseek-deepseek-chat".into(),
+            api_base: "https://api.deepseek.com/v1".into(),
+            model: "deepseek-chat".into(),
+            protocol: crate::http_provider::InferenceProtocol::OpenAiChat,
+            api_key: String::new(),
+        });
+        registry.register_provider(crate::http_provider::HttpProvider::openai_local(
+            "ollama-llama3",
+            "http://127.0.0.1:11434/v1",
+            "llama3",
+        ));
+
+        let prev = InferenceRouter::load_preference();
+        InferenceRouter::save_preference(&RoutingPreference {
+            preferred_cloud: Some("deepseek".into()),
+            ..Default::default()
+        });
+        let order = InferenceRouter::cloud_failover_order(&registry);
+        InferenceRouter::save_preference(&prev);
+
+        assert_eq!(
+            order.first().map(String::as_str),
+            Some("deepseek-deepseek-chat")
+        );
+        assert!(order.iter().any(|n| n.contains("openai")));
+        assert!(!order.iter().any(|n| n.contains("ollama")));
     }
 }
