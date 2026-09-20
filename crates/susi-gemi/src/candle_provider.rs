@@ -1,7 +1,6 @@
 use crate::engine::GemiEngine;
 use std::any::Any;
-use std::future::Future;
-use std::pin::Pin;
+
 use susi_core::provider::{BoxFuture, Provider};
 use susi_error::EaiResult;
 
