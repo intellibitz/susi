@@ -93,6 +93,11 @@ enum Commands {
         #[command(subcommand)]
         subcommand: AdminCommands,
     },
+    /// Register / list / remove cloud API keys (writes ~/.susi/cloud.env)
+    Key {
+        #[command(subcommand)]
+        action: KeyCommands,
+    },
     /// Clean workspace build artifacts
     Clean,
     /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
@@ -100,6 +105,21 @@ enum Commands {
         #[arg(long, default_value_t = String::new())]
         workspace: String,
     },
+}
+
+#[derive(Subcommand)]
+enum KeyCommands {
+    /// Save a vendor API key and register the cloud provider
+    Set {
+        /// Vendor: openai, anthropic, gemini, deepseek, kimi, minimax, openrouter, …
+        vendor: String,
+        /// API key (omit to be prompted, or pipe via stdin)
+        api_key: Option<String>,
+    },
+    /// Show which known vendors have a key configured (never prints secrets)
+    List,
+    /// Remove a vendor API key from ~/.susi/cloud.env
+    Remove { vendor: String },
 }
 
 #[derive(Subcommand)]
@@ -145,6 +165,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::OsClean
         | Commands::Uninstall
         | Commands::Pulse { .. }
+        | Commands::Key { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
             matches!(
@@ -154,6 +175,36 @@ fn command_requires_daemon(command: &Commands) -> bool {
         }
         _ => true,
     }
+}
+
+fn prompt_api_key(vendor: &str) -> io::Result<String> {
+    let env_hint = susi_gemi::http_provider::resolve_vendor_env_name(vendor)
+        .unwrap_or_else(|| "API_KEY".to_string());
+    if !io::stdin().is_terminal() {
+        // Piped: `printf '%s' 'sk-…' | susi key set deepseek`
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        let key = buf.trim().to_string();
+        if key.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "empty API key on stdin",
+            ));
+        }
+        return Ok(key);
+    }
+    eprint!("Enter API key for {} ({}): ", vendor, env_hint);
+    io::stderr().flush()?;
+    let mut line = String::new();
+    io::stdin().read_line(&mut line)?;
+    let key = line.trim().to_string();
+    if key.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "API key must not be empty",
+        ));
+    }
+    Ok(key)
 }
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
@@ -505,6 +556,51 @@ fn main() {
                 let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
+            Commands::Key { action } => match action {
+                KeyCommands::Set { vendor, api_key } => {
+                    let key = match api_key {
+                        Some(k) if !k.trim().is_empty() => k,
+                        _ => match prompt_api_key(&vendor) {
+                            Ok(k) => k,
+                            Err(e) => {
+                                eprintln!("Failed to read API key: {}", e);
+                                std::process::exit(1);
+                            }
+                        },
+                    };
+                    match susi_gemi::http_provider::register_api_key(&vendor, &key) {
+                        Ok(msg) => println!("{}", msg),
+                        Err(e) => {
+                            eprintln!("Key registration failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                KeyCommands::List => {
+                    println!("Cloud API key status (values never shown):");
+                    for (vendor, env, present) in susi_gemi::http_provider::list_api_key_status() {
+                        println!(
+                            "  {:<12} {:<22} {}",
+                            vendor,
+                            env,
+                            if present { "set" } else { "missing" }
+                        );
+                    }
+                    println!(
+                        "\nRegister: susi key set <vendor>   File: {}",
+                        susi_gemi::http_provider::cloud_env_path().display()
+                    );
+                }
+                KeyCommands::Remove { vendor } => {
+                    match susi_gemi::http_provider::remove_api_key(&vendor) {
+                        Ok(msg) => println!("{}", msg),
+                        Err(e) => {
+                            eprintln!("Key removal failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            },
             Commands::Admin { subcommand } => match subcommand {
                 AdminCommands::Sync => {
                     match susi_gawd::admin::SusiAdmin::enforce_version_consistency(&cwd) {

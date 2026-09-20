@@ -500,12 +500,215 @@ pub fn apply_cloud_env_file() {
     }
 }
 
+/// Map a user-facing vendor name (or raw `FOO_API_KEY`) to the env var name.
+pub fn resolve_vendor_env_name(vendor: &str) -> Option<String> {
+    let trimmed = vendor.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let upper = trimmed.to_ascii_uppercase().replace('-', "_");
+    if upper.ends_with("_API_KEY") || upper.ends_with("_KEY") {
+        return Some(upper);
+    }
+    let env = match trimmed.to_ascii_lowercase().as_str() {
+        "openai" => "OPENAI_API_KEY",
+        "anthropic" | "claude" => "ANTHROPIC_API_KEY",
+        "gemini" | "google" | "googlegemini" => "GEMINI_API_KEY",
+        "deepseek" => "DEEPSEEK_API_KEY",
+        "kimi" | "moonshot" => "MOONSHOT_API_KEY",
+        "minimax" => "MINIMAX_API_KEY",
+        "openrouter" => "OPENROUTER_API_KEY",
+        "mistral" => "MISTRAL_API_KEY",
+        "groq" => "GROQ_API_KEY",
+        "together" => "TOGETHER_API_KEY",
+        "fireworks" => "FIREWORKS_API_KEY",
+        other => {
+            // Unknown vendor → `{VENDOR}_API_KEY` so custom OpenAI-compat still works
+            // once they also have an endpoint (or use OpenRouter).
+            return Some(format!(
+                "{}_API_KEY",
+                other
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() {
+                            c.to_ascii_uppercase()
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect::<String>()
+                    .trim_matches('_')
+                    .replace("__", "_")
+            ));
+        }
+    };
+    Some(env.to_string())
+}
+
+/// Known vendors the CLI can suggest (name → env var).
+pub fn known_cloud_vendors() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("openai", "OPENAI_API_KEY"),
+        ("anthropic", "ANTHROPIC_API_KEY"),
+        ("gemini", "GEMINI_API_KEY"),
+        ("deepseek", "DEEPSEEK_API_KEY"),
+        ("kimi", "MOONSHOT_API_KEY"),
+        ("minimax", "MINIMAX_API_KEY"),
+        ("openrouter", "OPENROUTER_API_KEY"),
+        ("mistral", "MISTRAL_API_KEY"),
+        ("groq", "GROQ_API_KEY"),
+        ("together", "TOGETHER_API_KEY"),
+        ("fireworks", "FIREWORKS_API_KEY"),
+    ]
+}
+
+/// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix) and apply
+/// into the current process, then register matching cloud providers.
+pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
+    let key = api_key.trim();
+    if key.is_empty() {
+        return Err("API key must not be empty".into());
+    }
+    let env_name = resolve_vendor_env_name(vendor)
+        .ok_or_else(|| "vendor name must not be empty".to_string())?;
+    let path = upsert_cloud_env_key(&env_name, key)?;
+    // Force into this process even if a stale empty value existed.
+    unsafe {
+        std::env::set_var(&env_name, key);
+    }
+    apply_cloud_env_file();
+    register_configured_cloud_endpoints(susi_core::registry::CapabilityRegistry::global());
+    let registered: Vec<String> = susi_core::registry::CapabilityRegistry::global()
+        .list_providers()
+        .into_iter()
+        .filter(|n| {
+            let vendor_l = vendor.to_ascii_lowercase();
+            let n_l = n.to_ascii_lowercase();
+            n_l.contains(&vendor_l)
+                || n_l.contains(&env_name.to_ascii_lowercase().replace("_api_key", ""))
+        })
+        .collect();
+    let provider_note = if registered.is_empty() {
+        "Key saved. Provider will activate on next inference if a matching endpoint preset exists."
+            .to_string()
+    } else {
+        format!("Registered provider(s): {}", registered.join(", "))
+    };
+    Ok(format!(
+        "Saved {} to {} (mode 600).\n{}",
+        env_name,
+        path.display(),
+        provider_note
+    ))
+}
+
+/// Remove a vendor key from `~/.susi/cloud.env` and the current process env.
+pub fn remove_api_key(vendor: &str) -> Result<String, String> {
+    let env_name = resolve_vendor_env_name(vendor)
+        .ok_or_else(|| "vendor name must not be empty".to_string())?;
+    let path = cloud_env_path();
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut kept = Vec::new();
+    let mut removed = false;
+    for raw in content.lines() {
+        let trimmed = raw.trim();
+        let check = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+        if let Some((k, _)) = check.split_once('=') {
+            if k.trim().eq_ignore_ascii_case(&env_name) {
+                removed = true;
+                continue;
+            }
+        }
+        kept.push(raw.to_string());
+    }
+    if !removed
+        && std::env::var(&env_name)
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_none()
+    {
+        return Err(format!("{} was not registered", env_name));
+    }
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let body = if kept.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", kept.join("\n"))
+    };
+    std::fs::write(&path, body).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+    unsafe {
+        std::env::remove_var(&env_name);
+    }
+    Ok(format!("Removed {} from {}", env_name, path.display()))
+}
+
+/// Status of registered cloud keys (env var names only — never values).
+pub fn list_api_key_status() -> Vec<(String, String, bool)> {
+    let file_keys: std::collections::HashSet<String> = std::fs::read_to_string(cloud_env_path())
+        .ok()
+        .map(|c| parse_env_file(&c).into_iter().map(|(k, _)| k).collect())
+        .unwrap_or_default();
+    known_cloud_vendors()
+        .iter()
+        .map(|(vendor, env)| {
+            let present = file_keys.contains(*env)
+                || std::env::var(env).ok().filter(|v| !v.is_empty()).is_some();
+            ((*vendor).to_string(), (*env).to_string(), present)
+        })
+        .collect()
+}
+
+fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<std::path::PathBuf, String> {
+    let path = cloud_env_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for raw in existing.lines() {
+        let trimmed = raw.trim();
+        let check = trimmed.strip_prefix("export ").unwrap_or(trimmed);
+        if let Some((k, _)) = check.split_once('=') {
+            if k.trim().eq_ignore_ascii_case(env_name) {
+                lines.push(format!("{}={}", env_name, value));
+                replaced = true;
+                continue;
+            }
+        }
+        lines.push(raw.to_string());
+    }
+    if !replaced {
+        if !lines.is_empty() && !lines.last().map(|l| l.is_empty()).unwrap_or(true) {
+            // keep file tidy
+        }
+        lines.push(format!("{}={}", env_name, value));
+    }
+    let body = format!("{}\n", lines.join("\n"));
+    std::fs::write(&path, body).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
 /// Register configured cloud / remote endpoints that have API keys available —
 /// the config-driven counterpart to localhost auto-discovery.
 ///
-/// Zero-config contract: user only sets vendor API keys (shell env or
-/// `~/.susi/cloud.env`). Bundled OpenAI-compatible presets register themselves
-/// when the matching key is present — no config.json edits required.
+/// Zero-config contract: user only sets vendor API keys (shell env,
+/// `~/.susi/cloud.env`, or `susi key set <vendor>`). Bundled OpenAI-compatible
+/// presets register themselves when the matching key is present — no
+/// config.json edits required.
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
     for endpoint in effective_inference_endpoints() {
@@ -727,6 +930,67 @@ OPENAI_API_KEY=sk-oai
     }
 
     #[test]
+    fn resolve_vendor_env_name_maps_aliases() {
+        assert_eq!(
+            resolve_vendor_env_name("deepseek").as_deref(),
+            Some("DEEPSEEK_API_KEY")
+        );
+        assert_eq!(
+            resolve_vendor_env_name("kimi").as_deref(),
+            Some("MOONSHOT_API_KEY")
+        );
+        assert_eq!(
+            resolve_vendor_env_name("gemini").as_deref(),
+            Some("GEMINI_API_KEY")
+        );
+        assert_eq!(
+            resolve_vendor_env_name("OPENAI_API_KEY").as_deref(),
+            Some("OPENAI_API_KEY")
+        );
+    }
+
+    #[test]
+    fn upsert_and_register_roundtrip_in_temp_cloud_env() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!("susi_key_reg_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // SAFETY: test isolates HOME so cloud.env lands in the temp dir.
+        let prev_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::remove_var("DEEPSEEK_API_KEY");
+        }
+
+        let msg = register_api_key("deepseek", "sk-test-deepseek").unwrap();
+        assert!(msg.contains("DEEPSEEK_API_KEY"));
+        let path = cloud_env_path();
+        assert!(path.exists());
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("DEEPSEEK_API_KEY=sk-test-deepseek"));
+        assert_eq!(
+            std::env::var("DEEPSEEK_API_KEY").unwrap(),
+            "sk-test-deepseek"
+        );
+
+        remove_api_key("deepseek").unwrap();
+        let body = std::fs::read_to_string(cloud_env_path()).unwrap_or_default();
+        assert!(!body.contains("DEEPSEEK_API_KEY"));
+
+        unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+            std::env::remove_var("DEEPSEEK_API_KEY");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn resolve_api_key_reads_env() {
         // SAFETY: test-only env mutation in a single-threaded unit test.
         unsafe {
@@ -752,8 +1016,12 @@ OPENAI_API_KEY=sk-oai
         static ENV_LOCK: Mutex<()> = Mutex::new(());
         let _guard = ENV_LOCK.lock().unwrap();
 
-        let registry = CapabilityRegistry::new();
+        let dir = std::env::temp_dir().join(format!("susi_key_cfg_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let prev_home = std::env::var_os("HOME");
         unsafe {
+            std::env::set_var("HOME", &dir);
             std::env::remove_var("OPENAI_API_KEY");
             std::env::remove_var("ANTHROPIC_API_KEY");
             std::env::remove_var("GEMINI_API_KEY");
@@ -764,6 +1032,8 @@ OPENAI_API_KEY=sk-oai
             std::env::remove_var("MINIMAX_API_KEY");
             std::env::remove_var("OPENROUTER_API_KEY");
         }
+
+        let registry = CapabilityRegistry::new();
         register_configured_cloud_endpoints(&registry);
         let cloudish: Vec<_> = registry
             .list_providers()
@@ -799,9 +1069,14 @@ OPENAI_API_KEY=sk-oai
         assert_eq!(http.api_key, "sk-unit-test");
         assert!(!http.model.is_empty());
         unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
             std::env::remove_var("OPENAI_API_KEY");
             std::env::remove_var("DEEPSEEK_API_KEY");
         }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn is_bundled_cloud_prefix(n: &str) -> bool {
