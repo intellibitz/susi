@@ -92,10 +92,9 @@ impl SusiRuntimeAdmin {
         if let (Ok(ws), Ok(home)) = (
             workspace.canonicalize(),
             susi_paths::SusiDirs::substrate_home().canonicalize(),
-        ) {
-            if ws == home {
-                return Self::perform_host_readiness(workspace);
-            }
+        ) && ws == home
+        {
+            return Self::perform_host_readiness(workspace);
         }
 
         let ama = susi_gawd::ama::SusiMasterAgent::new();
