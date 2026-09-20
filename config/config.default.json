@@ -265,7 +265,7 @@
         "api_base": "https://generativelanguage.googleapis.com/v1beta",
         "name": "GoogleGemini",
         "protocol_type": "gemini",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-3.6-flash",
         "api_key_env": "GEMINI_API_KEY"
       },
       {
@@ -295,6 +295,20 @@
         "protocol_type": "chat",
         "model": "openrouter/auto",
         "api_key_env": "OPENROUTER_API_KEY"
+      },
+      {
+        "api_base": "https://api.mistral.ai/v1",
+        "name": "Mistral",
+        "protocol_type": "chat",
+        "model": "mistral-small-latest",
+        "api_key_env": "MISTRAL_API_KEY"
+      },
+      {
+        "api_base": "https://api.groq.com/openai/v1",
+        "name": "Groq",
+        "protocol_type": "chat",
+        "model": "llama-3.3-70b-versatile",
+        "api_key_env": "GROQ_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

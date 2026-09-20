@@ -14,7 +14,7 @@ use susi_sandbox::manager::{InferenceRoutingConfig, SusiConfig};
 pub struct RoutingPreference {
     /// Optional override: `local_only` | `cloud_first` | `auto` | `ask`
     pub policy_override: Option<String>,
-    /// Provider name (or substring) to prefer, e.g. `googlegemini-gemini-2.0-flash`
+    /// Provider name (or substring) to prefer, e.g. `googlegemini-gemini-3.6-flash`
     pub preferred_cloud: Option<String>,
     /// When set in the future, force local until then (escape hatch).
     pub force_local_until_unix: Option<u64>,
@@ -486,7 +486,7 @@ mod tests {
     #[test]
     fn cloud_name_detection() {
         assert!(InferenceRouter::is_cloud_provider_name(
-            "googlegemini-gemini-2.0-flash"
+            "googlegemini-gemini-3.6-flash"
         ));
         assert!(InferenceRouter::is_cloud_provider_name(
             "openai-gpt-4o-mini"
@@ -516,7 +516,7 @@ mod tests {
             "ollama-llama3".into(),
             "openai-gpt-4o-mini".into(),
             "deepseek-deepseek-chat".into(),
-            "googlegemini-gemini-2.0-flash".into(),
+            "googlegemini-gemini-3.6-flash".into(),
         ];
         let clouds = InferenceRouter::list_cloud_providers(&names);
         assert_eq!(clouds.len(), 3);

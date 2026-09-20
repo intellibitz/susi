@@ -742,7 +742,7 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
         let model = if endpoint.model.is_empty() {
             match protocol {
                 InferenceProtocol::Anthropic => "claude-3-5-haiku-20241022".to_string(),
-                InferenceProtocol::Gemini => "gemini-2.0-flash".to_string(),
+                InferenceProtocol::Gemini => "gemini-3.6-flash".to_string(),
                 _ => "gpt-4o-mini".to_string(),
             }
         } else {
