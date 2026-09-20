@@ -176,7 +176,7 @@ async fn handle_gemi_request(
             });
             Ok(json_response(StatusCode::OK, &api_status))
         }
-        (&Method::GET, p) if p.starts_with("/v1/models") || p.starts_with("/models") => {
+        (&Method::GET, p) if matches!(p, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
             let payload = tokio::task::spawn_blocking(move || {
                 let models = ModelManager::list_models(&ws);
@@ -214,28 +214,33 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, p)
-            if p.starts_with("/v1/chat/completions")
-                || p.starts_with("/chat/completions")
-                || p.starts_with("/v1/completions")
-                || p == "/"
+            if matches!(
+                p,
+                "/v1/chat/completions" | "/chat/completions" | "/v1/completions"
+            ) || p == "/"
                 || p == "/v1"
                 || p == "/v1/" =>
         {
             // H9: Limit request body to 10MB to prevent OOM DOS
             use http_body_util::BodyExt;
             let limited_body = http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024);
-            let body_bytes = limited_body
-                .collect()
-                .await
-                .map(|c| c.to_bytes())
-                .unwrap_or_default();
-            let body_str = String::from_utf8_lossy(&body_bytes).to_string();
-
-            let is_streaming =
-                body_str.contains("\"stream\":true") || body_str.contains("\"stream\": true");
-
-            let pulse_intent = extract_prompt_from_json(&body_str)
-                .unwrap_or_else(|| "list workspace health".to_string());
+            let body_bytes = match limited_body.collect().await {
+                Ok(body) => body.to_bytes(),
+                Err(error) => {
+                    let status = if error.is::<http_body_util::LengthLimitError>() {
+                        StatusCode::PAYLOAD_TOO_LARGE
+                    } else {
+                        StatusCode::BAD_REQUEST
+                    };
+                    return Ok(api_error(status, "Unable to read request body"));
+                }
+            };
+            let completion = match parse_completion(&body_bytes, path == "/v1/completions") {
+                Ok(completion) => completion,
+                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
+            };
+            let is_streaming = completion.stream;
+            let pulse_intent = completion.prompt;
             let active_model = ModelManager::get_selected_model(Some(
                 susi_gemi::intent::IntentClassifier::classify(&pulse_intent),
             ))
@@ -274,7 +279,7 @@ async fn handle_gemi_request(
                 let payload = json!({
                     "id": format!("chatcmpl-susi-{}", now_secs()),
                     "object": "chat.completion",
-                    "created": 1700000000,
+                    "created": now_secs(),
                     "model": active_model,
                     "choices": [{
                         "index": 0,
@@ -380,21 +385,125 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn extract_prompt_from_json(body: &str) -> Option<String> {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(body)
-        && let Some(messages) = v.get("messages").and_then(|m| m.as_array())
-        && let Some(last) = messages.last()
-        && let Some(c) = last.get("content")
-    {
-        if let Some(s) = c.as_str() {
-            return Some(s.to_string());
-        } else if let Some(arr) = c.as_array() {
-            for item in arr {
-                if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
-                    return Some(text.to_string());
+fn api_error(status: StatusCode, message: &str) -> Response<BoxBody> {
+    json_response(
+        status,
+        &json!({"error": {
+            "message": message, "type": "invalid_request_error", "param": null, "code": null
+        }}),
+    )
+}
+
+struct CompletionInput {
+    prompt: String,
+    stream: bool,
+}
+
+fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let object = value.as_object().ok_or("Request must be a JSON object")?;
+    let stream = match object.get("stream") {
+        None => false,
+        Some(value) => value.as_bool().ok_or("stream must be a boolean")?,
+    };
+    let prompt = if legacy {
+        object
+            .get("prompt")
+            .and_then(|p| p.as_str())
+            .ok_or("prompt must be a non-empty string")?
+            .to_owned()
+    } else {
+        let messages = object
+            .get("messages")
+            .and_then(|m| m.as_array())
+            .filter(|m| !m.is_empty())
+            .ok_or("messages must be a non-empty array")?;
+        let mut turns = Vec::with_capacity(messages.len());
+        for message in messages {
+            let role = message
+                .get("role")
+                .and_then(|r| r.as_str())
+                .filter(|r| matches!(*r, "system" | "developer" | "user" | "assistant"))
+                .ok_or(
+                    "Each message must have a supported role: system, developer, user, assistant",
+                )?;
+            let content = match message.get("content") {
+                Some(serde_json::Value::String(text)) => text.clone(),
+                Some(serde_json::Value::Array(parts)) if !parts.is_empty() => {
+                    let mut text = String::new();
+                    for part in parts {
+                        if part.get("type").and_then(|t| t.as_str()) != Some("text") {
+                            return Err("Only text content parts are supported".into());
+                        }
+                        text.push_str(
+                            part.get("text")
+                                .and_then(|t| t.as_str())
+                                .ok_or("Text content parts require a text string")?,
+                        );
+                    }
+                    text
                 }
+                _ => return Err("Each message requires string or text-part content".into()),
+            };
+            if content.trim().is_empty() {
+                return Err("Message content must not be empty".into());
             }
+            turns.push((role, content));
         }
+        // Preserve the direct single-user task path; carry all roles and history
+        // for conversations through the existing text-based agent interface.
+        if turns.len() == 1 && turns[0].0 == "user" {
+            turns.remove(0).1
+        } else {
+            turns
+                .into_iter()
+                .map(|(role, content)| format!("{role}: {content}"))
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        }
+    };
+    if prompt.trim().is_empty() {
+        return Err("Prompt must not be empty".into());
     }
-    None
+    Ok(CompletionInput { prompt, stream })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_conversation_and_all_text_parts() {
+        let input = parse_completion(br#"{"messages":[{"role":"system","content":"Be brief"},{"role":"user","content":"Remember 42"},{"role":"assistant","content":"OK"},{"role":"user","content":[{"type":"text","text":"What "},{"type":"text","text":"number?"}]}],"stream": true}"#, false).unwrap();
+        assert_eq!(
+            input.prompt,
+            "system: Be brief\n\nuser: Remember 42\n\nassistant: OK\n\nuser: What number?"
+        );
+        assert!(input.stream);
+    }
+
+    #[test]
+    fn parses_stream_as_json_boolean() {
+        let input = parse_completion(b"{\"prompt\":\"hello\",\"stream\":\ntrue}", true).unwrap();
+        assert!(input.stream);
+        assert_eq!(input.prompt, "hello");
+        assert!(parse_completion(br#"{"prompt":"hello","stream":"true"}"#, true).is_err());
+    }
+
+    #[test]
+    fn invalid_requests_never_become_default_tasks() {
+        for body in [
+            "",
+            "not json",
+            "null",
+            "{}",
+            "{\"messages\":[]}",
+            r#"{"messages":[{"role":"user","content":" "}]}"#,
+            r#"{"messages":[{"role":"user","content":[{"type":"image_url","image_url":"x"}]}]}"#,
+        ] {
+            assert!(parse_completion(body.as_bytes(), false).is_err(), "{body}");
+        }
+        assert!(parse_completion(br#"{"prompt":" "}"#, true).is_err());
+    }
 }
