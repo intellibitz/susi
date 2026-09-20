@@ -424,6 +424,8 @@ impl SusiDaemon {
         // project-cwd passed via --workspace for backwards compatibility.
         let workspace = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&workspace);
+        // Zero-config cloud keys for always-on / systemd spawns (no shell env).
+        susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)

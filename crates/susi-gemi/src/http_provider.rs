@@ -443,9 +443,71 @@ async fn generate_triton(
         .to_string())
 }
 
+/// Zero-config cloud secrets: `~/.susi/cloud.env` (KEY=value lines).
+/// Shell / process env always wins; this file only fills missing keys so an
+/// always-on systemd daemon still sees API keys without editing config.json.
+pub fn cloud_env_path() -> std::path::PathBuf {
+    susi_paths::SusiDirs::config_dir().join("cloud.env")
+}
+
+/// Parse a dotenv-style file into key/value pairs (no side effects).
+pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for raw in content.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line).trim();
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if key.is_empty() || key.contains(char::is_whitespace) {
+            continue;
+        }
+        let mut value = value.trim().to_string();
+        if (value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\''))
+        {
+            value = value[1..value.len().saturating_sub(1)].to_string();
+        }
+        if value.is_empty() {
+            continue;
+        }
+        out.push((key.to_string(), value));
+    }
+    out
+}
+
+/// Load `~/.susi/cloud.env` into the process environment for any key not
+/// already set. Idempotent; safe to call from CLI and daemon boot.
+pub fn apply_cloud_env_file() {
+    let path = cloud_env_path();
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    for (key, value) in parse_env_file(&content) {
+        match std::env::var(&key) {
+            Ok(existing) if !existing.is_empty() => continue,
+            _ => {
+                // SAFETY: susi owns these vendor key names; we only set when unset.
+                unsafe {
+                    std::env::set_var(&key, &value);
+                }
+            }
+        }
+    }
+}
+
 /// Register configured cloud / remote endpoints that have API keys available —
 /// the config-driven counterpart to localhost auto-discovery.
+///
+/// Zero-config contract: user only sets vendor API keys (shell env or
+/// `~/.susi/cloud.env`). Bundled OpenAI-compatible presets register themselves
+/// when the matching key is present — no config.json edits required.
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
+    apply_cloud_env_file();
     for endpoint in effective_inference_endpoints() {
         let api_base = endpoint.api_base.trim().to_string();
         if api_base.is_empty() {
@@ -637,6 +699,30 @@ mod tests {
         assert_eq!(
             InferenceProtocol::from_config("completions"),
             InferenceProtocol::OpenAiCompletions
+        );
+    }
+
+    #[test]
+    fn parse_env_file_supports_export_and_comments() {
+        let parsed = parse_env_file(
+            r#"
+# comment
+export DEEPSEEK_API_KEY=sk-deep
+MOONSHOT_API_KEY="sk-kimi"
+MINIMAX_API_KEY='sk-mm'
+EMPTY=
+INVALID LINE
+OPENAI_API_KEY=sk-oai
+"#,
+        );
+        assert_eq!(
+            parsed,
+            vec![
+                ("DEEPSEEK_API_KEY".into(), "sk-deep".into()),
+                ("MOONSHOT_API_KEY".into(), "sk-kimi".into()),
+                ("MINIMAX_API_KEY".into(), "sk-mm".into()),
+                ("OPENAI_API_KEY".into(), "sk-oai".into()),
+            ]
         );
     }
 

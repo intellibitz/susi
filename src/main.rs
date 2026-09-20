@@ -247,6 +247,9 @@ fn main() {
     susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
 
     susi_sandbox::auto_install::push_to_hardware_if_dev_build();
+    // Zero-config: load ~/.susi/cloud.env before any inference/routing so
+    // vendor keys work without editing config.json (and without a login shell).
+    susi_gemi::http_provider::apply_cloud_env_file();
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 
