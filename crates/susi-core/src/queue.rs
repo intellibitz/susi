@@ -75,6 +75,12 @@ impl SubstratePulseQueue {
         Ok(())
     }
 
+    /// Workspace a consumer must pass to swarm solve — always the ingest
+    /// caller's path, never a daemon boot workspace substitute.
+    pub fn execution_workspace(pulse: &PulseEntry) -> &Path {
+        &pulse.workspace
+    }
+
     pub fn pop(&self) -> Option<PulseEntry> {
         if let Some(entry) = self.priority_queue.pop() {
             Some(entry)
@@ -111,5 +117,25 @@ impl SubstratePulseQueue {
         if pending || !self.is_empty() {
             std::thread::current().unpark();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pulse_preserves_ingesting_workspace_not_a_substitute() {
+        let queue = SubstratePulseQueue::new();
+        let folder_b = PathBuf::from("/tmp/susi_workspace_b");
+        queue.ingest("refactor this", &folder_b, "0.3.0").unwrap();
+        let pulse = queue.pop().expect("pulse must be queued");
+        assert_eq!(pulse.workspace, folder_b);
+        assert_eq!(
+            SubstratePulseQueue::execution_workspace(&pulse),
+            folder_b.as_path(),
+            "daemon consumers must execute against the ingest cwd"
+        );
+        assert_eq!(pulse.version, "0.3.0");
     }
 }

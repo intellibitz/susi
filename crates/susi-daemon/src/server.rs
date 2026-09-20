@@ -598,7 +598,10 @@ impl SusiDaemon {
         });
 
         // Continuous Interaction Substrate Worker
-        let workspace_pulse = workspace.clone();
+        // Each pulse carries the ingesting caller's cwd (`pulse.workspace`).
+        // Never substitute the daemon's boot workspace — that made "susi" in
+        // folder B silently operate on folder A whenever the daemon had been
+        // started from A (same bug class as the cross-workspace binary restart).
         thread::spawn(move || {
             let queue = SubstratePulseQueue::global();
             let ama = SusiMasterAgent::new();
@@ -606,11 +609,15 @@ impl SusiDaemon {
             loop {
                 if let Some(pulse) = queue.pop() {
                     // Serialized Execution
-                    info!("[SubstratePulseQueue] Processing Pulse: {}", pulse.intent);
+                    info!(
+                        "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
+                        pulse.intent,
+                        pulse.workspace.display()
+                    );
                     let _ = ama.solve_stream(
                         &pulse.intent,
-                        &workspace_pulse,
-                        env!("CARGO_PKG_VERSION"),
+                        SubstratePulseQueue::execution_workspace(&pulse),
+                        &pulse.version,
                         &|_| {},
                     );
                 }
