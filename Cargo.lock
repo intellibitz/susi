@@ -7203,7 +7203,7 @@ dependencies = [
 
 [[package]]
 name = "susi-daemon"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "ciborium",
  "hex",
@@ -7225,7 +7225,7 @@ dependencies = [
 
 [[package]]
 name = "susi-engine"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7306,7 +7306,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -7336,7 +7336,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-http",
@@ -7376,7 +7376,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -7444,7 +7444,7 @@ dependencies = [
 
 [[package]]
 name = "susi-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "http-body-util",
