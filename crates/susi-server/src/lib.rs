@@ -22,7 +22,7 @@ use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gemi::models::ModelManager;
@@ -257,14 +257,15 @@ async fn handle_gemi_request(
                     trimmed_prompt,
                     active_model,
                     Arc::clone(&workspace),
+                    path == "/v1/completions",
                 ))
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
-                let content = tokio::task::spawn_blocking(move || {
+                let content = match tokio::task::spawn_blocking(move || {
                     let ama = SusiMasterAgent::new();
                     let final_resp =
-                        ama.solve_clean(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
+                        ama.solve_stream(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"), &|_| {});
                     susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
@@ -274,19 +275,19 @@ async fn handle_gemi_request(
                     final_resp
                 })
                 .await
-                .unwrap_or_else(|e| format!("SUSI Engine Error: task join failed: {}", e));
+                {
+                    Ok(content) => content,
+                    Err(error) => {
+                        tracing::error!(%error, "GEMI inference task failed");
+                        return Ok(json_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &json!({"error": {"message": "Inference task failed", "type": "server_error"}}),
+                        ));
+                    }
+                };
 
-                let payload = json!({
-                    "id": format!("chatcmpl-susi-{}", now_secs()),
-                    "object": "chat.completion",
-                    "created": now_secs(),
-                    "model": active_model,
-                    "choices": [{
-                        "index": 0,
-                        "message": { "role": "assistant", "content": content },
-                        "finish_reason": "stop"
-                    }]
-                });
+                let payload =
+                    completion_response(&active_model, &content, path == "/v1/completions");
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
@@ -329,41 +330,25 @@ fn build_streaming_response(
     prompt: String,
     model_name: String,
     workspace: Arc<PathBuf>,
+    legacy: bool,
 ) -> Response<BoxBody> {
-    let now = now_secs();
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-
-    // SusiMasterAgent::solve_stream is synchronous, CPU-bound swarm execution;
-    // it must run on the blocking pool, not a tokio worker thread. Its
-    // per-token callback feeds the unbounded channel, which is a non-blocking
-    // send safe to call from that synchronous context.
-    let m_name = model_name.clone();
-    tokio::task::spawn_blocking(move || {
-        let _ = tx.send(format!(
-            "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"role\":\"assistant\"}},\"finish_reason\":null}}]}}\n\n"
-        ));
-
-        let ama = SusiMasterAgent::new();
-        let _ = ama.solve_stream(&prompt, &workspace, env!("CARGO_PKG_VERSION"), &|piece| {
-            let json_piece = serde_json::to_string(&piece).unwrap_or_default();
-            let _ = tx.send(format!(
-                "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":{json_piece}}},\"finish_reason\":null}}]}}\n\n"
-            ));
-        });
-
-        let _ = tx.send(format!(
-            "data: {{\"id\":\"chatcmpl-susi-{now}\",\"object\":\"chat.completion.chunk\",\"created\":{now},\"model\":\"{m_name}\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\n"
-        ));
-        let _ = tx.send("data: [DONE]\n\n".to_string());
+    let rx = completion_stream(model_name, legacy, move |callback| {
+        SusiMasterAgent::new().solve_stream(
+            &prompt,
+            &workspace,
+            env!("CARGO_PKG_VERSION"),
+            callback,
+        )
     });
-
-    let stream = UnboundedReceiverStream::new(rx)
-        .map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
+    let stream =
+        ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
     let body = StreamBody::new(stream).boxed();
 
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
+        .header("Cache-Control", "no-cache")
+        .header("X-Accel-Buffering", "no")
         .header(
             "Access-Control-Allow-Origin",
             HeaderValue::from_str(
@@ -376,6 +361,135 @@ fn build_streaming_response(
         )
         .body(body)
         .unwrap()
+}
+
+fn completion_id() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    format!(
+        "susi-{}-{}-{}",
+        std::process::id(),
+        now_secs(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    )
+}
+
+fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::Value {
+    let choice = if legacy {
+        json!({"index": 0, "text": content, "finish_reason": "stop", "logprobs": null})
+    } else {
+        json!({"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"})
+    };
+    json!({"id": completion_id(), "object": if legacy { "text_completion" } else { "chat.completion" },
+        "created": now_secs(), "model": model, "choices": [choice]})
+}
+
+fn stream_chunk(
+    id: &str,
+    created: u64,
+    model: &str,
+    legacy: bool,
+    delta: serde_json::Value,
+    finished: bool,
+) -> String {
+    let reason = if finished {
+        json!("stop")
+    } else {
+        serde_json::Value::Null
+    };
+    let choice = if legacy {
+        json!({"index": 0, "text": delta.get("content").and_then(|v| v.as_str()).unwrap_or(""),
+            "finish_reason": reason, "logprobs": null})
+    } else {
+        json!({"index": 0, "delta": delta, "finish_reason": reason})
+    };
+    format!(
+        "data: {}\n\n",
+        json!({"id": id, "created": created, "model": model,
+        "object": if legacy { "text_completion" } else { "chat.completion.chunk" }, "choices": [choice]})
+    )
+}
+
+fn completion_stream(
+    model: String,
+    legacy: bool,
+    solve: impl FnOnce(&dyn Fn(String)) -> String + Send + 'static,
+) -> tokio::sync::mpsc::Receiver<String> {
+    // Bound queued frames and split large solver outputs so a slow client cannot
+    // retain an unbounded response queue. Blocking sends run only on the blocking pool.
+    let (tx, rx) = tokio::sync::mpsc::channel(16);
+    let error_tx = tx.clone();
+    let task = tokio::task::spawn_blocking(move || {
+        let id = completion_id();
+        let created = now_secs();
+        if tx
+            .blocking_send(stream_chunk(
+                &id,
+                created,
+                &model,
+                legacy,
+                json!({"role": "assistant"}),
+                false,
+            ))
+            .is_err()
+        {
+            return;
+        }
+        let emitted = std::cell::Cell::new(false);
+        let callback = |piece: String| {
+            if piece.is_empty() {
+                return;
+            }
+            emitted.set(true);
+            let mut remaining = piece.as_str();
+            while !remaining.is_empty() {
+                let mut end = remaining.len().min(4096);
+                while !remaining.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let (chunk, rest) = remaining.split_at(end);
+                if tx
+                    .blocking_send(stream_chunk(
+                        &id,
+                        created,
+                        &model,
+                        legacy,
+                        json!({"content": chunk}),
+                        false,
+                    ))
+                    .is_err()
+                {
+                    return;
+                }
+                remaining = rest;
+            }
+        };
+        let result = solve(&callback);
+        // Some solver paths return a complete answer without invoking callbacks.
+        if !emitted.get() {
+            callback(result);
+        }
+        if tx
+            .blocking_send(stream_chunk(&id, created, &model, legacy, json!({}), true))
+            .is_ok()
+        {
+            let _ = tx.blocking_send("data: [DONE]\n\n".to_owned());
+        }
+    });
+    tokio::spawn(async move {
+        if let Err(error) = task.await {
+            tracing::error!(%error, "GEMI streaming task failed");
+            let _ = error_tx
+                .send(format!(
+                    "data: {}\n\n",
+                    json!({"error": {
+                        "message": "Inference task failed", "type": "server_error"
+                    }})
+                ))
+                .await;
+            let _ = error_tx.send("data: [DONE]\n\n".to_owned()).await;
+        }
+    });
+    rx
 }
 
 fn now_secs() -> u64 {
@@ -505,5 +619,57 @@ mod tests {
             assert!(parse_completion(body.as_bytes(), false).is_err(), "{body}");
         }
         assert!(parse_completion(br#"{"prompt":" "}"#, true).is_err());
+    }
+    #[tokio::test]
+    async fn streaming_delivers_returned_answer_and_escapes_model_names() {
+        let mut rx = completion_stream("quoted\"model".into(), false, |_| "Hello 🦀".into());
+        let mut content = String::new();
+        let mut stopped = false;
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                assert!(stopped);
+                break;
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(frame.strip_prefix("data: ").unwrap().trim()).unwrap();
+            assert_eq!(value["model"], "quoted\"model");
+            if let Some(piece) = value["choices"][0]["delta"]["content"].as_str() {
+                content.push_str(piece);
+            }
+            stopped |= value["choices"][0]["finish_reason"] == "stop";
+        }
+        assert_eq!(content, "Hello 🦀");
+        assert!(stopped);
+    }
+
+    #[tokio::test]
+    async fn streaming_does_not_duplicate_callback_output_and_chunks_unicode() {
+        let answer = "🦀".repeat(3000);
+        let expected = answer.clone();
+        let mut rx = completion_stream("model".into(), true, move |callback| {
+            callback(answer.clone());
+            answer
+        });
+        let mut content = String::new();
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                break;
+            }
+            assert!(frame.len() < 5000);
+            let value: serde_json::Value = serde_json::from_str(frame[6..].trim()).unwrap();
+            assert_eq!(value["object"], "text_completion");
+            content.push_str(value["choices"][0]["text"].as_str().unwrap());
+        }
+        assert_eq!(content, expected);
+    }
+
+    #[test]
+    fn completion_metadata_is_current_unique_and_route_specific() {
+        let first = completion_response("m", "answer", true);
+        let second = completion_response("m", "answer", false);
+        assert_ne!(first["id"], second["id"]);
+        assert!(first["created"].as_u64().unwrap().abs_diff(now_secs()) <= 1);
+        assert_eq!(first["choices"][0]["text"], "answer");
+        assert_eq!(second["choices"][0]["message"]["content"], "answer");
     }
 }
