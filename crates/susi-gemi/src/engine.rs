@@ -601,6 +601,8 @@ impl GemiEngine {
             6
         } else if lower.contains("gemini") || lower.contains("google") {
             7
+        } else if lower.starts_with("mcp-") {
+            8
         } else {
             10
         }

@@ -186,6 +186,10 @@ impl InferenceRouter {
             return false;
         }
         let lower = name.to_ascii_lowercase();
+        // MCP-bridged LLM tools (mcp-{server}-{tool})
+        if lower.starts_with("mcp-") {
+            return true;
+        }
         // Common vendors + any non-local registered `vendor-model` style name.
         lower.contains("openai")
             || lower.contains("anthropic")
@@ -204,8 +208,9 @@ impl InferenceRouter {
             || lower.contains('-')
     }
 
-    /// Cloud providers = registered `HttpProvider`s whose `api_base` is remote HTTPS.
-    /// This is the source of truth for OpenAI-compatible vendors (DeepSeek, Kimi, …).
+    /// Cloud providers = registered remote HTTPS `HttpProvider`s plus MCP-bridged
+    /// LLM tools (`mcp-*`). This is the source of truth for OpenAI-compatible
+    /// vendors and MCP-exposed cloud models.
     pub fn list_cloud_providers_from_registry(
         registry: &susi_core::registry::CapabilityRegistry,
     ) -> Vec<String> {
@@ -214,13 +219,16 @@ impl InferenceRouter {
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
-            let Some(http) = provider
+            if let Some(http) = provider
                 .as_any()
                 .downcast_ref::<crate::http_provider::HttpProvider>()
-            else {
-                continue;
-            };
-            if crate::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
+            {
+                if crate::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
+                    clouds.push(name);
+                    continue;
+                }
+            }
+            if name.to_ascii_lowercase().starts_with("mcp-") {
                 clouds.push(name);
             }
         }
@@ -385,6 +393,8 @@ impl InferenceRouter {
             5
         } else if lower.contains("openrouter") {
             6
+        } else if lower.starts_with("mcp-") {
+            7
         } else {
             9
         }
@@ -471,6 +481,9 @@ mod tests {
         ));
         assert!(InferenceRouter::is_cloud_provider_name(
             "minimax-MiniMax-Text-01"
+        ));
+        assert!(InferenceRouter::is_cloud_provider_name(
+            "mcp-openai-bridge-chat"
         ));
         assert!(!InferenceRouter::is_cloud_provider_name("ollama-llama3"));
         assert!(!InferenceRouter::is_cloud_provider_name("vllm-mistral"));

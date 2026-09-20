@@ -26,6 +26,10 @@ pub async fn bootstrap_zero_config_substrate() {
     // 2. Discover and Provision MCP Tools
     susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
 
+    // 2b. MCP servers that expose chat/LLM tools → inference Providers so they
+    // join cloud prefer / slow-local escalation (not tools-only).
+    susi_gemi::mcp_provider::register_mcp_inference_providers(registry);
+
     // 3. Fallback: Ensure Candle (Local Edge) is always provisioned
     if registry.get_provider("Candle (Local)").is_none() {
         registry.register_provider(susi_gemi::candle_provider::CandleProvider);

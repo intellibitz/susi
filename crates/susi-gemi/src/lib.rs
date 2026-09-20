@@ -7,6 +7,7 @@ pub mod engine;
 pub mod hardware;
 pub mod hf_discovery;
 pub mod http_provider;
+pub mod mcp_provider;
 mod model_cache;
 pub mod models;
 pub mod pulse;
