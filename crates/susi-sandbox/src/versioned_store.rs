@@ -93,6 +93,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
 
     /// Modifies the JSON configuration in-place, synchronizing the change to disk.
     /// Uses an exclusive lock to prevent process-local race conditions.
+    #[allow(clippy::too_many_arguments)]
     pub fn modify<F, H, M>(
         &self,
         path: &Path,
