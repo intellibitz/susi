@@ -3,8 +3,6 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
-    warn_if_gpu_available_but_unused();
-
     let out_dir = env::var_os("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
 
@@ -357,49 +355,6 @@ fn main() {
     println!("cargo:rerun-if-changed=.agents/IDENTITY.md");
     println!("cargo:rerun-if-changed=.agents/ROADMAP.md");
     println!("cargo:rerun-if-changed=.agents/EVIDENCE.md");
-}
-
-/// A bare `cargo build`/`cargo build --release` silently produces a
-/// CPU-only binary even on a host with a real GPU — `cuda`/`metal` are
-/// opt-in Cargo features Cargo has no way to auto-enable from host
-/// detection, and this build script's own crate has no mechanism to force
-/// them on for the invoking build. What it *can* do is make the omission
-/// loud instead of silent: a live benchmark measured a 17x tokens/sec
-/// difference between the two on identical hardware (EV-2022920-035,
-/// .agents/EVIDENCE.md) — that gap is worth a warning every time it's
-/// about to happen unnoticed.
-fn warn_if_gpu_available_but_unused() {
-    if env::var_os("CARGO_FEATURE_CUDA").is_some() || env::var_os("CARGO_FEATURE_METAL").is_some() {
-        return; // already building with a GPU backend
-    }
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        // Metal, not CUDA, is the right accelerator here; only warn for the
-        // backend this host can actually use (nvidia-smi below is Linux/
-        // Windows-only anyway).
-        return;
-    }
-
-    // nvidia-smi is driver-level (no CUDA toolkit install required) — the
-    // accurate signal for "a GPU exists that a --features cuda build could
-    // use," independent of whether the full CUDA toolkit needed to actually
-    // compile that feature is present (mirrors HardwareProfiler's own
-    // nvidia-smi fallback in src/gemi/hardware.rs).
-    let has_nvidia_gpu = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=name", "--format=csv,noheader"])
-        .output()
-        .map(|o| o.status.success() && !o.stdout.is_empty())
-        .unwrap_or(false);
-
-    if has_nvidia_gpu {
-        println!(
-            "cargo:warning=NVIDIA GPU detected but this build does not enable the `cuda` \
-             feature — local inference will run CPU-only. A live benchmark on comparable \
-             hardware measured a 17x tokens/sec difference (EV-2022920-035, .agents/EVIDENCE.md). \
-             Use `./build-gpu.sh` instead of `cargo build` directly — it detects the GPU and \
-             applies the CUDA-toolkit-version workaround `--features cuda` alone needs on newer \
-             CUDA releases."
-        );
-    }
 }
 
 fn parse_list_item(line: &str) -> Option<(usize, String, String)> {
