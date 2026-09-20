@@ -125,7 +125,7 @@ impl SusiAdmin {
 
         // Regenerate Cargo.lock after version bump to ensure --locked builds work
         eprintln!("[Release Gatekeeper]    -> Regenerating Cargo.lock for workspace...");
-        let update = Command::new("cargo")
+        let mut update = Command::new("cargo")
             .args(["update", "--workspace", "--offline"])
             .current_dir(workspace)
             .stdout(std::process::Stdio::inherit())
