@@ -241,6 +241,8 @@ pub struct ModelBenchmarkResult {
     pub latency_ms: u128,
     pub tokens_per_sec: f32,
     pub status: String,
+    pub memory_used_mb: f32,
+    pub peak_memory_mb: f32,
 }
 
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan

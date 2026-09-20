@@ -15,6 +15,7 @@ use crate::models::ModelBenchmarkResult;
 use std::path::Path;
 use std::time::Instant;
 use susi_error::{EaiError, EaiResult};
+use sysinfo::System;
 
 /// Small, fixed prompt set so repeated runs are comparable to each other.
 /// Deliberately short — this benchmarks latency/throughput characteristics,
@@ -42,9 +43,20 @@ impl BenchmarkRunner {
         ))
         .ok_or_else(|| EaiError::inference("No local reasoning model selected."))?;
 
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let pid = sysinfo::get_current_pid()
+            .map_err(|e| EaiError::inference(format!("Could not get PID: {}", e)))?;
+        let mem_before = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+
         let start = Instant::now();
         let output = crate::engine::GemiEngine::generate_reasoning_deep(prompt, workspace);
         let elapsed = start.elapsed();
+
+        sys.refresh_all();
+        let mem_after = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let peak_memory_mb = (mem_after as f32) / (1024.0 * 1024.0);
+        let memory_used_mb = ((mem_after.saturating_sub(mem_before)) as f32) / (1024.0 * 1024.0);
 
         let token_count = crate::models::ModelManager::get_tokenizer_path(&model_id)
             .and_then(|p| tokenizers::Tokenizer::from_file(p).ok())
@@ -63,6 +75,8 @@ impl BenchmarkRunner {
             } else {
                 "OK".to_string()
             },
+            memory_used_mb,
+            peak_memory_mb,
         })
     }
 
@@ -98,6 +112,12 @@ impl BenchmarkRunner {
             "max_tokens": 1024
         });
 
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        let pid = sysinfo::get_current_pid()
+            .map_err(|e| EaiError::inference(format!("Could not get PID: {}", e)))?;
+        let mem_before = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+
         let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
         let start = Instant::now();
         let mut req = susi_sandbox::manager::http_agent()
@@ -113,6 +133,11 @@ impl BenchmarkRunner {
             ))
         })?;
         let elapsed = start.elapsed();
+
+        sys.refresh_all();
+        let mem_after = sys.process(pid).map(|p| p.memory()).unwrap_or(0);
+        let peak_memory_mb = (mem_after as f32) / (1024.0 * 1024.0);
+        let memory_used_mb = ((mem_after.saturating_sub(mem_before)) as f32) / (1024.0 * 1024.0);
 
         let body: serde_json::Value = resp
             .into_body()
@@ -139,6 +164,8 @@ impl BenchmarkRunner {
             latency_ms: elapsed.as_millis(),
             tokens_per_sec: Self::tokens_per_sec(token_count, elapsed),
             status,
+            memory_used_mb,
+            peak_memory_mb,
         }))
     }
 
@@ -161,8 +188,8 @@ impl BenchmarkRunner {
             match Self::benchmark_local(prompt, workspace) {
                 Ok(r) => {
                     out.push_str(&format!(
-                        "- [LOCAL] model={} latency={}ms tokens/sec={:.2} status={}\n",
-                        r.model_id, r.latency_ms, r.tokens_per_sec, r.status
+                        "- [LOCAL] model={} latency={}ms tokens/sec={:.2} mem_peak={:.2}MB mem_used={:.2}MB status={}\n",
+                        r.model_id, r.latency_ms, r.tokens_per_sec, r.peak_memory_mb, r.memory_used_mb, r.status
                     ));
                     local_results.push(r);
                 }
@@ -172,8 +199,8 @@ impl BenchmarkRunner {
             match Self::benchmark_cloud(prompt) {
                 Ok(Some(r)) => {
                     out.push_str(&format!(
-                        "- [CLOUD] model={} latency={}ms tokens/sec={:.2} status={}\n",
-                        r.model_id, r.latency_ms, r.tokens_per_sec, r.status
+                        "- [CLOUD] model={} latency={}ms tokens/sec={:.2} mem_peak={:.2}MB mem_used={:.2}MB status={}\n",
+                        r.model_id, r.latency_ms, r.tokens_per_sec, r.peak_memory_mb, r.memory_used_mb, r.status
                     ));
                     cloud_results.push(r);
                 }
@@ -190,11 +217,13 @@ impl BenchmarkRunner {
             out.push_str("No successful local runs — no local average to report.\n");
         } else {
             out.push_str(&format!(
-                "Local avg: {:.2} tokens/sec, {}ms latency (n={})\n",
+                "Local avg: {:.2} tokens/sec, {}ms latency, {:.2}MB peak memory (n={})\n",
                 local_results.iter().map(|r| r.tokens_per_sec).sum::<f32>()
                     / local_results.len() as f32,
                 local_results.iter().map(|r| r.latency_ms).sum::<u128>()
                     / local_results.len() as u128,
+                local_results.iter().map(|r| r.peak_memory_mb).sum::<f32>()
+                    / local_results.len() as f32,
                 local_results.len()
             ));
         }
@@ -204,11 +233,13 @@ impl BenchmarkRunner {
             );
         } else {
             out.push_str(&format!(
-                "Cloud avg: {:.2} tokens/sec, {}ms latency (n={})\n",
+                "Cloud avg: {:.2} tokens/sec, {}ms latency, {:.2}MB peak memory (n={})\n",
                 cloud_results.iter().map(|r| r.tokens_per_sec).sum::<f32>()
                     / cloud_results.len() as f32,
                 cloud_results.iter().map(|r| r.latency_ms).sum::<u128>()
                     / cloud_results.len() as u128,
+                cloud_results.iter().map(|r| r.peak_memory_mb).sum::<f32>()
+                    / cloud_results.len() as f32,
                 cloud_results.len()
             ));
         }
@@ -236,8 +267,6 @@ mod tests {
 
     #[test]
     fn test_benchmark_cloud_skips_when_unconfigured() {
-        // SAFETY: single-threaded test process for this env var; no other
-        // test in this crate reads/writes SUSI_BENCH_CLOUD_API_BASE.
         unsafe {
             std::env::remove_var("SUSI_BENCH_CLOUD_API_BASE");
         }

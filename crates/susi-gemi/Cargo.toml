@@ -32,6 +32,7 @@ url = { workspace = true }
 image = "0.25"
 hex = { workspace = true }
 libc = "0.2"
+sysinfo = "0.39.6"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }

@@ -1,3 +1,4 @@
+#![warn(missing_docs)]
 pub mod hooks;
 // susi-engine: a local-first Rust engine for running and orchestrating AI
 // models. Loads model weights directly (.safetensors, GGUF, ONNX via

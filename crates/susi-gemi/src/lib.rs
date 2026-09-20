@@ -16,4 +16,5 @@ pub mod unified;
 pub mod vision;
 pub mod vllm;
 
+pub mod eval;
 pub mod intent;

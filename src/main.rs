@@ -62,6 +62,8 @@ enum Commands {
     /// Measure real local inference latency/tokens-per-sec, and compare
     /// against a cloud endpoint if SUSI_BENCH_CLOUD_API_BASE is set
     Benchmark,
+    /// Native LLM reasoning accuracy evaluations (MMLU-lite)
+    Eval,
     /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
@@ -554,6 +556,10 @@ fn main() {
                 );
                 let res = susi_gemi::models::ModelManager::install_model(&url);
                 println!("{}", res);
+            }
+            Commands::Eval => {
+                let report = susi_gemi::eval::EvalRunner::run_evaluations(&cwd);
+                println!("{}", report);
             }
             Commands::Benchmark => {
                 let report = susi_gemi::benchmark::BenchmarkRunner::run_and_render(&cwd);

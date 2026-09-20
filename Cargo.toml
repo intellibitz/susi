@@ -31,6 +31,12 @@ rust-version = "1.98"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "warn"
+missing_docs = "warn"
+[workspace.lints.clippy]
+
+unwrap_used = "warn"
+too_many_arguments = "warn"
+complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
 susi-error = { path = "crates/susi-error" }
@@ -151,9 +157,9 @@ otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otl
 
 [profile.release]
 opt-level = 3 # High performance
-lto = "thin" # Thin LTO: 10x faster compilation, low RAM overhead, eliminates link-time hangs
-codegen-units = 16 # Hardware-saturated parallel codegen
-incremental = true # Speed up iterative builds
+lto = "fat" # Thin LTO: 10x faster compilation, low RAM overhead, eliminates link-time hangs
+codegen-units = 1 # Hardware-saturated parallel codegen
+incremental = false # Speed up iterative builds
 panic = "abort"
 strip = true
 
