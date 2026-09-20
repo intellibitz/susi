@@ -575,6 +575,15 @@ mod tests {
     fn cloud_failover_order_prefers_sticky_vendor_once() {
         use susi_core::registry::CapabilityRegistry;
 
+        let tmp = std::env::temp_dir().join(format!("susi_failover_pref_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        // Isolate from the developer's ~/.susi/routing_preference.json.
+        // SAFETY: test-only HOME override; restored below.
+        let prev_home = std::env::var_os("HOME");
+        unsafe {
+            std::env::set_var("HOME", &tmp);
+        }
+
         let registry = CapabilityRegistry::new();
         registry.register_provider(crate::http_provider::HttpProvider {
             name: "openai-gpt-4o-mini".into(),
@@ -596,13 +605,19 @@ mod tests {
             "llama3",
         ));
 
-        let prev = InferenceRouter::load_preference();
         InferenceRouter::save_preference(&RoutingPreference {
             preferred_cloud: Some("deepseek".into()),
             ..Default::default()
         });
         let order = InferenceRouter::cloud_failover_order(&registry);
-        InferenceRouter::save_preference(&prev);
+
+        unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
 
         assert_eq!(
             order.first().map(String::as_str),
