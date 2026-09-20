@@ -142,9 +142,18 @@ fn main() {
             dest.display()
         );
 
-        let _ = fs::remove_file(&dest);
+        // Copy to a sibling temp file, then rename over the destination.
+        // Writing in place fails with ETXTBSY when the installed daemon is
+        // currently running; rename swaps the path atomically and the running
+        // process keeps its old inode.
+        let tmp_dest = bin_dir.join(format!("{}.new", bin_name));
+        let copy_result =
+            fs::copy(&built_bin, &tmp_dest).and_then(|_| fs::rename(&tmp_dest, &dest));
+        if copy_result.is_err() {
+            let _ = fs::remove_file(&tmp_dest);
+        }
 
-        match fs::copy(&built_bin, &dest) {
+        match copy_result {
             Ok(_) => {
                 let susi_name = if cfg!(target_os = "windows") {
                     "susi.exe"
@@ -152,16 +161,24 @@ fn main() {
                     "susi"
                 };
                 let susi_dest = bin_dir.join(susi_name);
-                let _ = fs::remove_file(&susi_dest);
 
-                #[cfg(windows)]
-                {
-                    let _ = fs::copy(&dest, &susi_dest);
-                }
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::symlink;
-                    let _ = symlink(bin_name, &susi_dest);
+                // The engine binary is already named `susi`, so the alias
+                // target and destination are the same path - removing it
+                // here would delete the binary we just installed and leave a
+                // self-referencing symlink behind. Only create the alias when
+                // the names genuinely differ.
+                if susi_dest != dest {
+                    let _ = fs::remove_file(&susi_dest);
+
+                    #[cfg(windows)]
+                    {
+                        let _ = fs::copy(&dest, &susi_dest);
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        let _ = symlink(bin_name, &susi_dest);
+                    }
                 }
 
                 println!("xtask: Successfully installed latest susi to your local system.");
