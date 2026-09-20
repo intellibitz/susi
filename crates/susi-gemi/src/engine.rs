@@ -911,6 +911,8 @@ impl NativeInferenceEngine for SusiGgufEngine {
         );
         let _ = std::io::stdout().flush();
 
+        let mut text_stream = crate::token_stream::TokenStream::new(&tokenizer);
+
         // Universal Generative Loop: Fluid Context Expansion
         for i in 0..max_tokens {
             task_handle.check_pause();
@@ -997,9 +999,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
             }
 
             // Stream token immediately (Mandate 28)
-            if let Ok(piece) = tokenizer.decode(&[next_token], true) {
-                callback(piece);
-            }
+            text_stream.push(next_token, callback)?;
 
             tokens_to_process = vec![next_token];
         }
@@ -1007,6 +1007,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let output = tokenizer
             .decode(&all_tokens, true)
             .map_err(|e| EaiError::inference(format!("Decoding Error: {}", e)))?;
+        text_stream.finish(&output, callback);
         task_handle.mark_completed(&output);
         Ok(output)
     }

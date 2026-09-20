@@ -12,6 +12,7 @@ pub mod qwen2_split;
 pub mod reasoning;
 pub mod reflex;
 pub mod speculative;
+mod token_stream;
 pub mod unified;
 pub mod vision;
 pub mod vllm;

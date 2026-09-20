@@ -288,6 +288,7 @@ impl SpeculativeDecoder {
         task_handle: &Arc<TaskHandle>,
         callback: &dyn Fn(String),
     ) -> EaiResult<String> {
+        let mut text_stream = crate::token_stream::TokenStream::new(tokenizer);
         let mut all_tokens: Vec<u32> = Vec::new();
         let mut pos = prompt_tokens.len();
 
@@ -412,16 +413,17 @@ impl SpeculativeDecoder {
                         &mut all_tokens,
                         max_tokens,
                         eos_token_ids,
-                        tokenizer,
+                        &mut text_stream,
                         task_handle,
                         callback,
-                    );
+                    )?;
                     if all_tokens.len() >= max_tokens || eos_token_ids.contains(&corrective) {
                         // truncate_kv_cache already fixed the target; draft
                         // cache correctness no longer matters, we're done.
                         let output = tokenizer
                             .decode(&all_tokens, true)
                             .map_err(|e| EaiError::inference(format!("Decoding Error: {e}")))?;
+                        text_stream.finish(&output, callback);
                         task_handle.mark_completed(&output);
                         return Ok(output);
                     }
@@ -475,10 +477,10 @@ impl SpeculativeDecoder {
                 &mut all_tokens,
                 max_tokens,
                 eos_token_ids,
-                tokenizer,
+                &mut text_stream,
                 task_handle,
                 callback,
-            );
+            )?;
             // Mandate 42: safe - `spec_chunk` is initialized as
             // `vec![anchor_token]` (never `vec![]`) and only ever grows via
             // `.push` afterward, so it's non-empty for the rest of this
@@ -488,6 +490,7 @@ impl SpeculativeDecoder {
                 let output = tokenizer
                     .decode(&all_tokens, true)
                     .map_err(|e| EaiError::inference(format!("Decoding Error: {e}")))?;
+                text_stream.finish(&output, callback);
                 task_handle.mark_completed(&output);
                 return Ok(output);
             }
@@ -510,6 +513,7 @@ impl SpeculativeDecoder {
         let output = tokenizer
             .decode(&all_tokens, true)
             .map_err(|e| EaiError::inference(format!("Decoding Error: {e}")))?;
+        text_stream.finish(&output, callback);
         task_handle.mark_completed(&output);
         Ok(output)
     }
@@ -520,23 +524,22 @@ impl SpeculativeDecoder {
         all_tokens: &mut Vec<u32>,
         max_tokens: usize,
         eos_token_ids: &[u32],
-        tokenizer: &Tokenizer,
+        text_stream: &mut crate::token_stream::TokenStream<'_>,
         task_handle: &Arc<TaskHandle>,
         callback: &dyn Fn(String),
-    ) {
+    ) -> EaiResult<()> {
         for &t in tokens {
             if all_tokens.len() >= max_tokens {
-                return;
+                return Ok(());
             }
             all_tokens.push(t);
             task_handle.report_progress();
-            if let Ok(piece) = tokenizer.decode(&[t], true) {
-                callback(piece);
-            }
             if eos_token_ids.contains(&t) {
-                return;
+                return Ok(());
             }
+            text_stream.push(t, callback)?;
         }
+        Ok(())
     }
 }
 
@@ -605,6 +608,7 @@ mod tests {
         // Speculative path.
         let mut target = load(&target_path);
         let mut draft = load(&draft_path);
+        let streamed = std::cell::RefCell::new(String::new());
         let spec_output = SpeculativeDecoder::run(
             &mut target,
             &mut draft,
@@ -616,9 +620,10 @@ mod tests {
             repeat_last_n,
             4,
             &task_handle,
-            &|_| {},
+            &|piece| streamed.borrow_mut().push_str(&piece),
         )
         .expect("speculative run must succeed");
+        assert_eq!(*streamed.borrow(), spec_output);
 
         // Reference: plain greedy decoding, one token at a time, on a
         // fresh instance of the same target model.
