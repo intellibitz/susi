@@ -16,7 +16,7 @@ members = [
 
 [package]
 name = "susi"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: The Zero-Trust AI Operating System. Orchestrate any model, agent, or MCP tool into a verified, cryptographically audited swarm."
