@@ -7285,6 +7285,7 @@ dependencies = [
  "nix",
  "serde_json",
  "signal-hook 0.3.18",
+ "susi-core",
  "susi-error",
  "susi-gawd",
  "susi-gemi",

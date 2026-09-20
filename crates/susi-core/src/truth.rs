@@ -140,7 +140,10 @@ impl TruthTransformer {
                         // Can't run semantic checks without a provider, pass by default
                         return Ok(());
                     }
-                    registry.get_provider(&providers[0]).unwrap()
+                    match registry.get_provider(&providers[0]) {
+                        Some(p) => p,
+                        None => return Ok(()), // raced out of registry; skip semantic check
+                    }
                 }
             };
 

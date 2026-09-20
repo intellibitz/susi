@@ -1,3 +1,4 @@
+pub mod auto_discovery;
 pub mod runtime_admin;
 pub mod server;
 

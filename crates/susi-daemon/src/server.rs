@@ -498,6 +498,21 @@ impl SusiDaemon {
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
 
+        // Pillar 8: Zero-config discovery of local inference engines + MCP tools
+        // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
+        // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.
+        match tokio::runtime::Runtime::new() {
+            Ok(runtime) => {
+                runtime.block_on(crate::auto_discovery::bootstrap_zero_config_substrate());
+            }
+            Err(e) => {
+                eprintln!(
+                    "[SusiDaemon] Zero-config substrate bootstrap skipped: {}",
+                    e
+                );
+            }
+        }
+
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 

@@ -1,6 +1,6 @@
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 type Service = Arc<dyn Any + Send + Sync>;
 type ServiceFactory = Arc<dyn Fn() -> Service + Send + Sync>;
@@ -83,6 +83,12 @@ impl CapabilityRegistry {
             providers: Arc::new(DashMap::new()),
             tools: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Process-wide capability registry used by zero-config substrate discovery.
+    pub fn global() -> &'static Self {
+        static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
+        INSTANCE.get_or_init(Self::new)
     }
 
     /// Registers a model provider with the capability registry.

@@ -48,3 +48,9 @@ pub fn register_mcp_servers(registry: &CapabilityRegistry) {
         }
     }
 }
+
+/// Pillar 8 entrypoint: discover configured MCP servers and hot-plug them
+/// into the capability registry. Alias of [`register_mcp_servers`].
+pub fn auto_discover_mcp(registry: &CapabilityRegistry) {
+    register_mcp_servers(registry);
+}
