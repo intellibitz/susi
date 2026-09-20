@@ -578,6 +578,12 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     }
     apply_cloud_env_file();
     register_configured_cloud_endpoints(susi_core::registry::CapabilityRegistry::global());
+    // Zero-config sticky pick: first registered vendor becomes preferred unless
+    // the user already chose one (so a single `keys set` / env key is enough).
+    let pref = crate::routing::InferenceRouter::load_preference();
+    if pref.preferred_cloud.is_none() {
+        let _ = crate::routing::InferenceRouter::set_preferred_cloud(vendor);
+    }
     let registered: Vec<String> = susi_core::registry::CapabilityRegistry::global()
         .list_providers()
         .into_iter()
@@ -594,11 +600,16 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     } else {
         format!("Registered provider(s): {}", registered.join(", "))
     };
+    let prefer_note = match crate::routing::InferenceRouter::load_preference().preferred_cloud {
+        Some(p) => format!("\nPreferred cloud: {p}"),
+        None => String::new(),
+    };
     Ok(format!(
-        "Saved {} to {} (mode 600).\n{}",
+        "Saved {} to {} (mode 600).\n{}{}",
         env_name,
         path.display(),
-        provider_note
+        provider_note,
+        prefer_note
     ))
 }
 
@@ -771,6 +782,17 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
                 name, protocol
             );
         }
+    }
+
+    // Zero-config: an OpenRouter key alone is enough — prefer the mesh when
+    // the user has not already pinned a vendor.
+    let openrouter_key = HttpProvider::resolve_api_key("OPENROUTER_API_KEY", "openrouter");
+    if !openrouter_key.is_empty()
+        && crate::routing::InferenceRouter::load_preference()
+            .preferred_cloud
+            .is_none()
+    {
+        let _ = crate::routing::InferenceRouter::set_preferred_cloud("openrouter");
     }
 }
 

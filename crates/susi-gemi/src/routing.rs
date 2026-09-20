@@ -400,24 +400,29 @@ impl InferenceRouter {
 
     fn cloud_rank(name: &str) -> u8 {
         let lower = name.to_ascii_lowercase();
-        if lower.contains("openai") {
+        // OpenRouter is the zero-config mesh: one key unlocks many upstreams.
+        if lower.contains("openrouter") {
             0
-        } else if lower.contains("anthropic") {
+        } else if lower.contains("openai") {
             1
-        } else if lower.contains("gemini") || lower.contains("google") {
+        } else if lower.contains("anthropic") {
             2
-        } else if lower.contains("deepseek") {
+        } else if lower.contains("gemini") || lower.contains("google") {
             3
-        } else if lower.contains("kimi") || lower.contains("moonshot") {
+        } else if lower.contains("deepseek") {
             4
-        } else if lower.contains("minimax") {
+        } else if lower.contains("kimi") || lower.contains("moonshot") {
             5
-        } else if lower.contains("openrouter") {
+        } else if lower.contains("minimax") {
             6
-        } else if lower.starts_with("mcp-") {
+        } else if lower.contains("mistral") {
             7
-        } else {
+        } else if lower.contains("groq") {
+            8
+        } else if lower.starts_with("mcp-") {
             9
+        } else {
+            10
         }
     }
 
