@@ -26,7 +26,7 @@ PUSHED_RUST_FILES=$(git diff --name-only origin/main..HEAD -- '*.rs' 'Cargo.toml
 
 if [ -n "$PUSHED_RUST_FILES" ]; then
     echo "- Checking Clippy lints..."
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --workspace --all-targets --locked -- -D warnings
     if [ $? -ne 0 ]; then
         echo "❌ Compliance Violation: Clippy found warnings/errors."
         echo "👉 Fix the clippy issues before pushing."

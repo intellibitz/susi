@@ -107,14 +107,81 @@ impl SusiAdmin {
     /// Bumps every engine-version Cargo.toml to `new_version` together, so
     /// they can never drift out of sync with each other the way the root
     /// version alone used to drift from the (nonexistent) release tag.
-    fn cut_version(workspace: &Path, new_version: &str) -> EaiResult<()> {
+    /// Also regenerates Cargo.lock to ensure the workspace builds with --locked.
+    /// Returns the original versions for rollback in case of failure.
+    fn cut_version(workspace: &Path, new_version: &str) -> EaiResult<Vec<(String, String)>> {
+        let mut original_versions = Vec::new();
+
         for rel in Self::ENGINE_VERSION_MANIFESTS {
             let path = workspace.join(rel);
             if path.exists() {
+                // Save original version for potential rollback
+                if let Ok(orig) = Self::get_cargo_version_from_file(&path) {
+                    original_versions.push((rel.to_string(), orig));
+                }
                 Self::set_cargo_version(&path, new_version)?;
             }
         }
+
+        // Regenerate Cargo.lock after version bump to ensure --locked builds work
+        eprintln!("[Release Gatekeeper]    -> Regenerating Cargo.lock for workspace...");
+        let update = Command::new("cargo")
+            .args(["update", "--workspace", "--offline"])
+            .current_dir(workspace)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        let status = update.wait()?;
+        if !status.success() {
+            return Err(EaiError::process(
+                "Release aborted: cargo update failed to regenerate Cargo.lock.".to_string(),
+            ));
+        }
+
+        Ok(original_versions)
+    }
+
+    /// Rolls back version changes to the original state if the release fails
+    fn rollback_version_cut(
+        workspace: &Path,
+        original_versions: &[(String, String)],
+    ) -> EaiResult<()> {
+        eprintln!("[Release Gatekeeper] Rolling back version cut due to failure...");
+        for (rel, orig_version) in original_versions {
+            let path = workspace.join(rel);
+            if path.exists() {
+                if let Err(e) = Self::set_cargo_version(&path, orig_version) {
+                    eprintln!("Warning: failed to rollback {}: {}", rel, e);
+                }
+            }
+        }
+        // Revert Cargo.lock to original state
+        let _ = Command::new("git")
+            .args(["checkout", "--", "Cargo.lock"])
+            .current_dir(workspace)
+            .output();
         Ok(())
+    }
+
+    /// Gets version from a specific Cargo.toml file
+    fn get_cargo_version_from_file(path: &Path) -> EaiResult<String> {
+        let content = fs::read_to_string(path)?;
+        let mut in_package = false;
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed == "[package]" {
+                in_package = true;
+            } else if trimmed.starts_with("[") {
+                in_package = false;
+            } else if in_package && trimmed.starts_with("version = \"") {
+                if let Some(v) = trimmed.split('"').nth(1) {
+                    return Ok(v.to_string());
+                }
+            }
+        }
+        Err(EaiError::config(
+            "Could not find version in Cargo.toml".to_string(),
+        ))
     }
     /// Mirrors install.sh's `CUDARC_CUDA_VERSION` clamp: cudarc (candle's CUDA
     /// backend) pins an exact allowlist of CUDA toolkit versions and panics on
@@ -557,14 +624,36 @@ impl SusiAdmin {
 
         let new_version = match cut {
             Some(level) => {
+                // Check for clean working tree before starting version cut
+                eprintln!("[Release Gatekeeper] 6. Checking for clean working tree...");
+                let status = Command::new("git")
+                    .args(["status", "--porcelain"])
+                    .current_dir(workspace)
+                    .output()?;
+                if !status.stdout.is_empty() {
+                    return Err(EaiError::process(
+                        "Release aborted: working tree is not clean. Commit or stash changes before running --cut.".to_string(),
+                    ));
+                }
+
                 let current = Self::get_cargo_version(workspace)?;
                 let bumped = Self::bump_version_string(&current, level)?;
                 eprintln!(
                     "[Release Gatekeeper] 6. Cutting Release: v{} -> v{}...",
                     current, bumped
                 );
-                Self::cut_version(workspace, &bumped)?;
-                Some(bumped)
+
+                // Perform version cut with rollback capability
+                let original_versions = Self::cut_version(workspace, &bumped)?;
+
+                // If enforce_version_consistency fails, rollback the version changes
+                let version_result = Self::enforce_version_consistency(workspace);
+                if version_result.is_err() {
+                    let _ = Self::rollback_version_cut(workspace, &original_versions);
+                    return version_result;
+                }
+
+                Some((bumped, original_versions))
             }
             None => {
                 eprintln!(
@@ -573,25 +662,61 @@ impl SusiAdmin {
                 None
             }
         };
-        Self::enforce_version_consistency(workspace)?;
 
-        if let Some(ref version) = new_version {
+        // Run enforce_version_consistency for non-cut case
+        if cut.is_none() {
+            Self::enforce_version_consistency(workspace)?;
+        }
+
+        if let Some((ref version, ref original_versions)) = new_version {
             let commit_msg = format!("chore: release v{}", version);
-            let add = Command::new("git")
-                .args(["add", "-A"])
-                .current_dir(workspace)
-                .output()?;
-            if !add.status.success() {
-                return Err(EaiError::process(format!(
-                    "Release aborted: could not stage version-cut changes:\n{}",
-                    String::from_utf8_lossy(&add.stderr)
-                )));
+
+            // Stage only the version-related files, not arbitrary work-in-progress
+            let mut files_to_add = Self::ENGINE_VERSION_MANIFESTS.to_vec();
+            files_to_add.push("Cargo.lock"); // Include the regenerated lockfile
+
+            for rel in &files_to_add {
+                let path = workspace.join(rel);
+                if path.exists() {
+                    let add = Command::new("git")
+                        .args(["add", rel])
+                        .current_dir(workspace)
+                        .output()?;
+                    if !add.status.success() {
+                        let _ = Self::rollback_version_cut(workspace, original_versions);
+                        return Err(EaiError::process(format!(
+                            "Release aborted: could not stage {}:\n{}",
+                            rel,
+                            String::from_utf8_lossy(&add.stderr)
+                        )));
+                    }
+                }
+            }
+
+            // Also stage docs that enforce_version_consistency touches
+            let doc_files = [
+                "README.md",
+                ".agents/IDENTITY.md",
+                ".agents/ROADMAP.md",
+                ".agents/EVIDENCE.md",
+            ];
+            for doc in &doc_files {
+                let path = workspace.join(doc);
+                if path.exists() {
+                    let add = Command::new("git")
+                        .args(["add", doc])
+                        .current_dir(workspace)
+                        .output()?;
+                    // Don't fail if doc staging fails - they might not exist or be unchanged
+                    let _ = add.status.success();
+                }
             }
             let commit = Command::new("git")
                 .args(["commit", "-m", &commit_msg])
                 .current_dir(workspace)
                 .output()?;
             if !commit.status.success() {
+                let _ = Self::rollback_version_cut(workspace, original_versions);
                 return Err(EaiError::process(format!(
                     "Release aborted: could not commit version cut:\n{}",
                     String::from_utf8_lossy(&commit.stderr)
@@ -629,7 +754,7 @@ impl SusiAdmin {
             "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
         );
 
-        if let Some(version) = new_version {
+        if let Some((version, _)) = new_version {
             eprintln!("[Release Gatekeeper] 8. Tagging Release (v{})...", version);
             let tag_name = format!("v{}", version);
             let tag = Command::new("git")
