@@ -108,21 +108,36 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH$GPU_SUFFIX"
     BASE_URL="https://github.com/$SUSI_REPO/releases/latest/download"
 
+    # The CUDA build bundles its own cuBLAS/cuDART shared libraries next to
+    # the binary (their SONAME is tied to the exact CUDA major version the
+    # release was built with - a machine with a *different* major version
+    # installed, even a newer one, won't have that exact file and the
+    # binary fails to even start) - published as a tarball containing the
+    # binary plus its lib/ dir, instead of a raw executable. Every other
+    # asset is still a raw binary + .sha256.
+    ASSET_IS_ARCHIVE=0
+    DOWNLOAD_NAME="$ENGINE_BINARY"
+    if [ "$GPU_SUFFIX" = "-cuda" ]; then
+        ASSET_IS_ARCHIVE=1
+        DOWNLOAD_NAME="$ENGINE_BINARY.tar.gz"
+    fi
+
     echo "Attempting to download pre-compiled engine binary from $SUSI_REPO..."
 
     DEPLOYED=0
     ENGINE_TMP="$GLOBAL_BIN_DIR/susi-engine-new"
-    CHECKSUM_TMP="$ENGINE_TMP.sha256"
+    DOWNLOAD_TMP="$GLOBAL_BIN_DIR/$DOWNLOAD_NAME"
+    CHECKSUM_TMP="$DOWNLOAD_TMP.sha256"
     if command -v curl >/dev/null 2>&1; then
-        echo "  Downloading engine: $ENGINE_BINARY..."
-        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$ENGINE_BINARY" -o "$ENGINE_TMP" \
-            && curl -sSfL --connect-timeout 15 "$BASE_URL/$ENGINE_BINARY.sha256" -o "$CHECKSUM_TMP"; then
+        echo "  Downloading engine: $DOWNLOAD_NAME..."
+        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$DOWNLOAD_NAME" -o "$DOWNLOAD_TMP" \
+            && curl -sSfL --connect-timeout 15 "$BASE_URL/$DOWNLOAD_NAME.sha256" -o "$CHECKSUM_TMP"; then
             DEPLOYED=1
         fi
     elif command -v wget >/dev/null 2>&1; then
-        echo "  Downloading engine: $ENGINE_BINARY..."
-        if wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY" -O "$ENGINE_TMP" \
-            && wget -q --timeout=30 --tries=2 "$BASE_URL/$ENGINE_BINARY.sha256" -O "$CHECKSUM_TMP"; then
+        echo "  Downloading engine: $DOWNLOAD_NAME..."
+        if wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME" -O "$DOWNLOAD_TMP" \
+            && wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME.sha256" -O "$CHECKSUM_TMP"; then
             DEPLOYED=1
         fi
     fi
@@ -132,11 +147,27 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     # to a source build rather than executing an unverified binary.
     if [ "$DEPLOYED" = "1" ]; then
         EXPECTED_SHA=$(awk '{print $1}' "$CHECKSUM_TMP" 2>/dev/null || true)
-        if ! sha256_verify "$ENGINE_TMP" "$EXPECTED_SHA"; then
-            echo "  Checksum verification failed for $ENGINE_BINARY; discarding download and falling back to source build."
+        if ! sha256_verify "$DOWNLOAD_TMP" "$EXPECTED_SHA"; then
+            echo "  Checksum verification failed for $DOWNLOAD_NAME; discarding download and falling back to source build."
             DEPLOYED=0
         fi
         rm -f "$CHECKSUM_TMP"
+    fi
+
+    EXTRACTED_LIB_DIR=""
+    EXTRACT_DIR=""
+    if [ "$DEPLOYED" = "1" ] && [ "$ASSET_IS_ARCHIVE" = "1" ]; then
+        EXTRACT_DIR=$(mktemp -d)
+        if tar -xzf "$DOWNLOAD_TMP" -C "$EXTRACT_DIR" && [ -f "$EXTRACT_DIR/$ENGINE_BINARY" ]; then
+            mv "$EXTRACT_DIR/$ENGINE_BINARY" "$ENGINE_TMP"
+            [ -d "$EXTRACT_DIR/lib" ] && EXTRACTED_LIB_DIR="$EXTRACT_DIR/lib"
+        else
+            echo "  Archive extraction failed for $DOWNLOAD_NAME; discarding and falling back to build."
+            DEPLOYED=0
+        fi
+        rm -f "$DOWNLOAD_TMP"
+    elif [ "$DEPLOYED" = "1" ]; then
+        mv "$DOWNLOAD_TMP" "$ENGINE_TMP"
     fi
 
     # Check executable before swapping
@@ -156,14 +187,19 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
 
         # Transactional deployment
         rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
+        rm -rf "$GLOBAL_BIN_DIR/lib" 2>/dev/null || true
         mv "$ENGINE_TMP" "$GLOBAL_BIN_DIR/susi-engine"
+        if [ -n "$EXTRACTED_LIB_DIR" ]; then
+            mv "$EXTRACTED_LIB_DIR" "$GLOBAL_BIN_DIR/lib"
+        fi
         ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
         INSTALLED=1
         echo "Successfully deployed the engine binary from GitHub ($SUSI_REPO)."
     else
         echo "Binary download unavailable or failed. Falling back to build."
-        rm -f "$ENGINE_TMP" 2>/dev/null || true
+        rm -f "$ENGINE_TMP" "$DOWNLOAD_TMP" 2>/dev/null || true
     fi
+    [ -n "$EXTRACT_DIR" ] && rm -rf "$EXTRACT_DIR" 2>/dev/null || true
 else
     if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
         echo "Local source repository detected. Skipping remote binary download and building from source."

@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # 🛡️ SUSI Pre-Commit Compliance Hook
 
+# Fast path: only check if relevant files are staged
+STAGED_RUST_FILES=$(git diff --cached --name-only | grep -E '\.rs$|^Cargo\.toml$|^Cargo\.lock$')
+
+if [ -z "$STAGED_RUST_FILES" ]; then
+    echo "⏭️ No Rust/Cargo files staged, skipping format check."
+    exit 0
+fi
+
 echo "🛡️ Running SUSI Code Compliance Checks..."
 
 echo "- Checking Rustfmt..."
@@ -11,20 +19,6 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-echo "- Checking Clippy lints..."
-cargo clippy --workspace --all-targets -- -D warnings
-if [ $? -ne 0 ]; then
-    echo "❌ Compliance Violation: Clippy found warnings/errors."
-    echo "👉 Fix the clippy issues before committing."
-    exit 1
-fi
-
-echo "- Running SUSI Mandate Compliance Auditor..."
-cargo run -- admin audit
-if [ $? -ne 0 ]; then
-    echo "❌ Compliance Violation: SUSI Bloat/Security Audit failed."
-    exit 1
-fi
-
 echo "✅ SUSI Compliance Pre-Commit Check Passed."
+echo "ℹ️ Note: Clippy and Audit checks have been deferred to pre-push."
 exit 0

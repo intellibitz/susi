@@ -122,11 +122,42 @@ jobs:
         # See release.yml for why CUDA_COMPUTE_CAP is hardcoded here.
         run: CUDA_COMPUTE_CAP=75 cargo build --release --features cuda
 
-      - name: Rename Binary
-        run: mv target/release/susi-engine susi-engine-linux-x86_64-cuda
+      - name: Bundle CUDA Runtime Libraries
+        # See release.yml for why this is needed: cuBLAS/cuDART's SONAME is
+        # tied to this specific CUDA major version, so a target machine with
+        # a different (even newer) major version installed can't run the
+        # binary at all without these bundled alongside it.
+        run: |
+          set -e
+          sudo apt-get install -y patchelf
+          mkdir -p lib
+          CUDA_LIB_RE='lib(cublas|cudart|cusparse|cusolver|cufft|curand|cudnn|nvrtc|nvJitLink|nvToolsExt)'
+          collect_cuda_libs() {
+            ldd "$1" 2>/dev/null | grep -E "$CUDA_LIB_RE" | awk '{print $1, $3}' | \
+              while read -r name path; do
+                [ -f "lib/$name" ] && continue
+                [ -n "$path" ] && [ -f "$path" ] || continue
+                cp -L "$path" "lib/$name"
+                collect_cuda_libs "lib/$name"
+              done
+          }
+          collect_cuda_libs target/release/susi-engine
+          patchelf --set-rpath '$ORIGIN/lib' target/release/susi-engine
+          if ldd target/release/susi-engine | grep -q "not found"; then
+            echo "Error: binary still has unresolved shared library dependencies after bundling:" >&2
+            ldd target/release/susi-engine | grep "not found" >&2
+            exit 1
+          fi
+
+      - name: Package Binary + Bundled Libraries
+        run: |
+          mkdir -p dist/lib
+          mv target/release/susi-engine dist/susi-engine-linux-x86_64-cuda
+          mv lib/* dist/lib/
+          tar -czf susi-engine-linux-x86_64-cuda.tar.gz -C dist susi-engine-linux-x86_64-cuda lib
 
       - name: Generate Checksum
-        run: shasum -a 256 susi-engine-linux-x86_64-cuda > susi-engine-linux-x86_64-cuda.sha256
+        run: shasum -a 256 susi-engine-linux-x86_64-cuda.tar.gz > susi-engine-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Publish Dev Release
         uses: softprops/action-gh-release@v2
@@ -137,5 +168,5 @@ jobs:
           prerelease: true
           make_latest: false
           files: |
-            susi-engine-linux-x86_64-cuda
-            susi-engine-linux-x86_64-cuda.sha256
+            susi-engine-linux-x86_64-cuda.tar.gz
+            susi-engine-linux-x86_64-cuda.tar.gz.sha256

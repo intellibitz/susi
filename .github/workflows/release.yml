@@ -94,15 +94,53 @@ jobs:
         # should use ./build-gpu.sh instead, which auto-detects it.
         run: CUDA_COMPUTE_CAP=75 cargo build --release --features cuda
 
-      - name: Rename Binary
-        run: mv target/release/susi-engine susi-engine-linux-x86_64-cuda
+      - name: Bundle CUDA Runtime Libraries
+        # cuBLAS/cuDART's SONAME is tied to this specific CUDA major version
+        # (e.g. libcublas.so.12) - a machine with a *different* major CUDA
+        # version installed (even a newer, fully working one) doesn't have
+        # that exact file, and the binary fails to even start ("error while
+        # loading shared libraries"), verified live against a real CUDA 13.4
+        # host. Bundle the runtime libs this binary actually links against
+        # (recursively - libcublas itself depends on libcublasLt) next to
+        # it and rpath to them, so the target machine's own CUDA runtime
+        # version never matters. libcuda.so (the driver, forward/backward
+        # compatible by NVIDIA's own guarantee) is deliberately left as a
+        # normal system dependency, not bundled.
+        run: |
+          set -e
+          sudo apt-get install -y patchelf
+          mkdir -p lib
+          CUDA_LIB_RE='lib(cublas|cudart|cusparse|cusolver|cufft|curand|cudnn|nvrtc|nvJitLink|nvToolsExt)'
+          collect_cuda_libs() {
+            ldd "$1" 2>/dev/null | grep -E "$CUDA_LIB_RE" | awk '{print $1, $3}' | \
+              while read -r name path; do
+                [ -f "lib/$name" ] && continue
+                [ -n "$path" ] && [ -f "$path" ] || continue
+                cp -L "$path" "lib/$name"
+                collect_cuda_libs "lib/$name"
+              done
+          }
+          collect_cuda_libs target/release/susi-engine
+          patchelf --set-rpath '$ORIGIN/lib' target/release/susi-engine
+          if ldd target/release/susi-engine | grep -q "not found"; then
+            echo "Error: binary still has unresolved shared library dependencies after bundling:" >&2
+            ldd target/release/susi-engine | grep "not found" >&2
+            exit 1
+          fi
+
+      - name: Package Binary + Bundled Libraries
+        run: |
+          mkdir -p dist/lib
+          mv target/release/susi-engine dist/susi-engine-linux-x86_64-cuda
+          mv lib/* dist/lib/
+          tar -czf susi-engine-linux-x86_64-cuda.tar.gz -C dist susi-engine-linux-x86_64-cuda lib
 
       - name: Generate Checksum
-        run: shasum -a 256 susi-engine-linux-x86_64-cuda > susi-engine-linux-x86_64-cuda.sha256
+        run: shasum -a 256 susi-engine-linux-x86_64-cuda.tar.gz > susi-engine-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            susi-engine-linux-x86_64-cuda
-            susi-engine-linux-x86_64-cuda.sha256
+            susi-engine-linux-x86_64-cuda.tar.gz
+            susi-engine-linux-x86_64-cuda.tar.gz.sha256
