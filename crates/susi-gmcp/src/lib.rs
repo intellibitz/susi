@@ -1,5 +1,8 @@
+pub mod catalog;
+pub mod protocol;
 pub mod reflexes;
 pub mod server;
+mod stdio;
 pub mod tools;
 
 use std::path::Path;
@@ -25,3 +28,6 @@ pub trait ProtocolDispatcher: Send + Sync {
 pub trait CapabilityResolver: Send + Sync {
     fn resolve(&self, name: &str) -> Option<String>;
 }
+
+#[cfg(test)]
+mod protocol_tests;

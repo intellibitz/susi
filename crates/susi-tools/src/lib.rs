@@ -1,5 +1,6 @@
 pub mod client;
 pub mod config;
+pub mod connection;
 pub mod hooks;
 pub mod registry;
 pub mod types;
