@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 /// Streaming handler for ACP session/update notifications
 pub struct StreamingHandler {
+    #[allow(dead_code)]
     session_manager: SessionManager,
     workspace: PathBuf,
 }

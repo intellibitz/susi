@@ -16,6 +16,7 @@ use super::streaming::StreamingHandler;
 
 /// susi-gemi ACP agent implementation
 pub struct GemiAgent {
+    #[allow(dead_code)]
     workspace: PathBuf,
     session_manager: SessionManager,
     capabilities: GemiCapabilities,
