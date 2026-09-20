@@ -390,6 +390,16 @@ impl GmcpClient {
 
         // Execution Scope (Lock process stdio exclusively)
         let mut locked_child = child_arc.lock();
+        if let Ok(Some(_)) = locked_child.try_wait() {
+            drop(locked_child);
+            let srv_key = format!("{} {:?}", srv.command, srv.args);
+            get_process_pool().write().remove(&srv_key);
+            eprintln!(
+                "[MCP] Zombie tool server detected ({}). Evicting and restarting...",
+                srv.command
+            );
+            return Self::proxy_call(srv, tool_name, args_json);
+        }
 
         let mut context_aware_args = args_json.to_string();
         if tool_name == "reason" {
@@ -415,7 +425,14 @@ impl GmcpClient {
         .to_string();
 
         if let Some(stdin) = locked_child.stdin.as_mut() {
-            let _ = write_mcp_message(stdin, &call_req);
+            if write_mcp_message(stdin, &call_req).is_err() {
+                let _ = locked_child.kill();
+                let _ = locked_child.wait();
+                drop(locked_child);
+                let srv_key = format!("{} {:?}", srv.command, srv.args);
+                get_process_pool().write().remove(&srv_key);
+                return format!("[FAIL] MCP Error: Pipe Broken (Server crashed or hung). Restarting MCP Server next call.");
+            }
         }
 
         let lease_timeout = std::time::Duration::from_secs(
