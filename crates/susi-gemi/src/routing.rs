@@ -82,7 +82,7 @@ impl InferenceRouter {
         Ok(format!(
             "Preferred cloud set to `{}` (saved in {}).\n\
              When multiple clouds are available, susi will try this first.\n\
-             Clear with: susi key prefer --clear",
+             Clear with: susi keys prefer --clear",
             normalized,
             Self::preference_path().display()
         ))

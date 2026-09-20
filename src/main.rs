@@ -55,6 +55,12 @@ enum Commands {
     BloatAudit,
     /// List available models
     Models,
+    /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
+    #[command(name = "keys", visible_alias = "key")]
+    Keys {
+        #[command(subcommand)]
+        action: Option<KeyCommands>,
+    },
     /// Select or override active model
     SelectModel { model: String },
     /// Parallel deep scan of substrate home for local models
@@ -92,11 +98,6 @@ enum Commands {
     Admin {
         #[command(subcommand)]
         subcommand: AdminCommands,
-    },
-    /// Register / list / remove cloud API keys (writes ~/.susi/cloud.env)
-    Key {
-        #[command(subcommand)]
-        action: KeyCommands,
     },
     /// Clean workspace build artifacts
     Clean,
@@ -173,7 +174,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::OsClean
         | Commands::Uninstall
         | Commands::Pulse { .. }
-        | Commands::Key { .. }
+        | Commands::Keys { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
             matches!(
@@ -185,11 +186,31 @@ fn command_requires_daemon(command: &Commands) -> bool {
     }
 }
 
+fn print_keys_status() {
+    println!("Cloud API key status (values never shown):");
+    for (vendor, env, present) in susi_gemi::http_provider::list_api_key_status() {
+        println!(
+            "  {:<12} {:<22} {}",
+            vendor,
+            env,
+            if present { "set" } else { "missing" }
+        );
+    }
+    println!(
+        "\n{}",
+        susi_gemi::routing::InferenceRouter::preference_status()
+    );
+    println!(
+        "\nSet:    susi keys set <vendor>\nPrefer: susi keys prefer <vendor>\nFile:   {}",
+        susi_gemi::http_provider::cloud_env_path().display()
+    );
+}
+
 fn prompt_api_key(vendor: &str) -> io::Result<String> {
     let env_hint = susi_gemi::http_provider::resolve_vendor_env_name(vendor)
         .unwrap_or_else(|| "API_KEY".to_string());
     if !io::stdin().is_terminal() {
-        // Piped: `printf '%s' 'sk-…' | susi key set deepseek`
+        // Piped: `printf '%s' 'sk-…' | susi keys set deepseek`
         let mut buf = String::new();
         io::stdin().read_to_string(&mut buf)?;
         let key = buf.trim().to_string();
@@ -564,8 +585,9 @@ fn main() {
                 let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
-            Commands::Key { action } => match action {
-                KeyCommands::Set { vendor, api_key } => {
+            Commands::Keys { action } => match action {
+                None | Some(KeyCommands::List) => print_keys_status(),
+                Some(KeyCommands::Set { vendor, api_key }) => {
                     let key = match api_key {
                         Some(k) if !k.trim().is_empty() => k,
                         _ => match prompt_api_key(&vendor) {
@@ -584,26 +606,7 @@ fn main() {
                         }
                     }
                 }
-                KeyCommands::List => {
-                    println!("Cloud API key status (values never shown):");
-                    for (vendor, env, present) in susi_gemi::http_provider::list_api_key_status() {
-                        println!(
-                            "  {:<12} {:<22} {}",
-                            vendor,
-                            env,
-                            if present { "set" } else { "missing" }
-                        );
-                    }
-                    println!(
-                        "\n{}",
-                        susi_gemi::routing::InferenceRouter::preference_status()
-                    );
-                    println!(
-                        "\nRegister: susi key set <vendor>\nPrefer:   susi key prefer <vendor>\nFile:     {}",
-                        susi_gemi::http_provider::cloud_env_path().display()
-                    );
-                }
-                KeyCommands::Prefer { vendor, clear } => {
+                Some(KeyCommands::Prefer { vendor, clear }) => {
                     if clear {
                         match susi_gemi::routing::InferenceRouter::clear_preferred_cloud() {
                             Ok(msg) => println!("{}", msg),
@@ -627,7 +630,7 @@ fn main() {
                         );
                     }
                 }
-                KeyCommands::Remove { vendor } => {
+                Some(KeyCommands::Remove { vendor }) => {
                     match susi_gemi::http_provider::remove_api_key(&vendor) {
                         Ok(msg) => println!("{}", msg),
                         Err(e) => {
