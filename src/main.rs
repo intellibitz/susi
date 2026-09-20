@@ -13,8 +13,10 @@ use susi_server::GemiServer;
 
 use clap::{Parser, Subcommand};
 use std::env;
+use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use tracing::{error, info, warn};
 
 #[derive(Parser)]
@@ -141,6 +143,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Accept
         | Commands::Undo
         | Commands::OsClean
+        | Commands::Uninstall
         | Commands::Pulse { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
@@ -325,9 +328,74 @@ fn main() {
                 let _ = ama.solve_stream("identity", &cwd, SUSI_VERSION, &glass_box_callback);
             }
             Commands::Uninstall => {
-                let answer =
-                    ama.solve_clean(&cfg.admin_pulses().uninstall_pulse, &cwd, SUSI_VERSION);
-                println!("{}", answer);
+                // Deterministic teardown — an agent pulse cannot guarantee
+                // the binary/service/state are actually gone, and reinstall
+                // must work after every uninstall.
+                let bin_dir = global_dir.join("bin");
+                let mut steps: Vec<String> = Vec::new();
+
+                let daemons_stopped = SusiDaemon::stop_all_daemons(&global_dir);
+                if daemons_stopped > 0 {
+                    steps.push(format!("stopped {} daemon process(es)", daemons_stopped));
+                }
+
+                // Boot-persistent service registrations (SUSI_ALWAYS_ON path).
+                #[cfg(target_os = "linux")]
+                {
+                    let unit = env::var("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_default()
+                        .join(".config/systemd/user/susi.service");
+                    if unit.exists() {
+                        let _ = Command::new("systemctl")
+                            .args(["--user", "disable", "--now", "susi.service"])
+                            .status();
+                        let _ = fs::remove_file(&unit);
+                        let _ = Command::new("systemctl")
+                            .args(["--user", "daemon-reload"])
+                            .status();
+                        steps.push("removed systemd user service".to_string());
+                    }
+                }
+                #[cfg(target_os = "macos")]
+                {
+                    let plist = env::var("HOME")
+                        .map(PathBuf::from)
+                        .unwrap_or_default()
+                        .join("Library/LaunchAgents/com.susi.daemon.plist");
+                    if plist.exists() {
+                        let _ = Command::new("launchctl").arg("unload").arg(&plist).status();
+                        let _ = fs::remove_file(&plist);
+                        steps.push("removed launchd agent".to_string());
+                    }
+                }
+
+                // The binary itself plus runtime state that would make a
+                // reinstall see a ghost install.
+                for stale in ["substrate.lock", "binary.hash", "binary.hash.cache"] {
+                    let _ = fs::remove_file(global_dir.join(stale));
+                }
+                if bin_dir.exists() {
+                    match fs::remove_dir_all(&bin_dir) {
+                        Ok(()) => steps.push(format!("removed {}", bin_dir.display())),
+                        Err(e) => {
+                            steps.push(format!("could not remove {}: {}", bin_dir.display(), e))
+                        }
+                    }
+                }
+
+                if steps.is_empty() {
+                    println!("susi is not installed (nothing to remove).");
+                } else {
+                    println!("susi uninstalled:");
+                    for s in &steps {
+                        println!("  - {}", s);
+                    }
+                    println!(
+                        "Preserved user data in {} (config, models, logs) — delete it manually for a full purge.",
+                        global_dir.display()
+                    );
+                }
             }
             Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
             Commands::Gemi => {

@@ -820,6 +820,61 @@ impl SusiDaemon {
             false
         }
     }
+
+    /// Stops every susi daemon for this user, including orphans whose lock
+    /// file is already gone (e.g. a prior uninstall removed substrate.lock
+    /// but left the daemon running). Used by `susi uninstall`, which must
+    /// leave zero running daemons behind so a later reinstall starts clean.
+    /// Returns how many daemon processes were signalled.
+    pub fn stop_all_daemons(global_dir: &Path) -> usize {
+        let mut killed = 0usize;
+
+        // 1. The systemd transient unit spawned by ensure_daemon_running's
+        // systemd-run path (Linux only; no-op everywhere else).
+        #[cfg(target_os = "linux")]
+        {
+            let _ = Command::new("systemctl")
+                .args(["--user", "stop", "susi-daemon.service"])
+                .status();
+        }
+
+        // 2. Lock-file path — the common case.
+        if Self::stop_daemon(global_dir, global_dir) {
+            killed += 1;
+        }
+
+        // 3. Orphan sweep: any surviving `daemon-start` process for this
+        // user, lock file or not. Scan /proc on Linux; on other platforms
+        // the lock file is the only handle we have.
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(entries) = fs::read_dir("/proc") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name();
+                    let Some(name) = name.to_str() else { continue };
+                    let Ok(pid) = name.parse::<i32>() else {
+                        continue;
+                    };
+                    if pid == std::process::id() as i32 {
+                        continue;
+                    }
+                    let Ok(cmdline) = fs::read(entry.path().join("cmdline")) else {
+                        continue;
+                    };
+                    // cmdline is NUL-separated argv.
+                    let is_daemon = cmdline.split(|b| *b == 0).any(|arg| arg == b"daemon-start");
+                    if is_daemon {
+                        unsafe {
+                            libc::kill(pid, libc::SIGTERM);
+                        }
+                        killed += 1;
+                    }
+                }
+            }
+        }
+
+        killed
+    }
 }
 
 #[cfg(test)]
