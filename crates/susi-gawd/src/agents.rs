@@ -154,6 +154,12 @@ impl GawdAgent for DevOpsAgent {
             return Ok(rendered);
         }
 
+        // System/host goals: use GMCP exec_command — never LLM-fake "no shell access".
+        if let Some(report) = crate::system_observe::observe_system(goal, workspace) {
+            blackboard.insert(self.name(), report.clone());
+            return Ok(report);
+        }
+
         // Single source of truth for the description text (Mandate 35): read
         // it from the same registry entry agents.default.json provisions,
         // rather than duplicating the literal here.
@@ -195,6 +201,15 @@ impl GawdAgent for SearchAgent {
         // Meta/admin pulses must not trigger outbound HTTP.
         if GawdAgentFleet::is_meta_command(goal) {
             let res = format!("[{}]: Observation integrated into blackboard.", self.name());
+            blackboard.insert(self.name(), res.clone());
+            return Ok(res);
+        }
+        // Host/filesystem goals belong to DevOps/Hardware — do not spam weather/search misses.
+        if crate::system_observe::looks_like_system_observe_goal(goal) {
+            let res = format!(
+                "[{}]: System/host observation goal — deferring to DevOpsAgent/HardwareAgent (exec_command).",
+                self.name()
+            );
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
         }
@@ -267,12 +282,12 @@ impl GawdAgent for HardwareAgent {
     }
     fn execute(
         &self,
-        _goal: &str,
-        _workspace: &Path,
+        goal: &str,
+        workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
-        let report = format!(
+        let mut report = format!(
             "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
             profile.cpus,
             profile.cpu_brand,
@@ -280,6 +295,10 @@ impl GawdAgent for HardwareAgent {
             profile.gpu_info,
             profile.native_acceleration
         );
+        if let Some(disk) = crate::system_observe::observe_system(goal, workspace) {
+            report.push_str("\n\n");
+            report.push_str(&disk);
+        }
 
         blackboard.insert(self.name(), report.clone());
         Ok(report)
@@ -2262,6 +2281,32 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_devops_agent_observes_disk_via_exec() {
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        let agent = DevOpsAgent;
+        let res = agent
+            .execute(
+                "Find the total disk usage on this system.",
+                Path::new("."),
+                &blackboard,
+            )
+            .unwrap();
+        assert!(
+            res.contains("Live system observation"),
+            "DevOpsAgent must exec df, got: {res}"
+        );
+        assert!(!res.contains("C4 BLOCK"), "df must be allowlisted: {res}");
+        assert!(
+            res.contains("Filesystem")
+                || res.contains("Size")
+                || res.contains("Used")
+                || res.contains("1K-blocks"),
+            "expected df output: {res}"
+        );
+        assert_eq!(blackboard.get("DevOpsAgent").as_deref(), Some(res.as_str()));
     }
 
     #[test]

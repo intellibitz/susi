@@ -1,9 +1,9 @@
 [
   {
     "name": "DevOpsAgent",
-    "description": "Software engineering, systems architecture, and repository management.",
-    "categories": ["code", "rust", "git", "system"],
-    "semantic_anchors": ["build", "test", "deploy", "compile", "review", "bloat", "lint"],
+    "description": "Software engineering, systems architecture, repository management, and host/system observation (disk, df, storage).",
+    "categories": ["code", "rust", "git", "system", "disk", "storage"],
+    "semantic_anchors": ["build", "test", "deploy", "compile", "review", "bloat", "lint", "disk", "df", "filesystem", "storage"],
     "base_rank": 0.9,
     "is_core": false
   },

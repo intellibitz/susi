@@ -328,13 +328,21 @@
       "install",
       "uninstall"
     ],
+    "DevOpsAgent": [
+      "disk",
+      "df",
+      "du",
+      "filesystem",
+      "storage",
+      "lsblk",
+      "free space",
+      "disk usage"
+    ],
     "SearchAgent": [
       "search",
       "lyrics",
       "lookup",
-      "find",
       "who is",
-      "what is",
       "weather"
     ],
     "TranslationAgent": [

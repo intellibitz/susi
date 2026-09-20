@@ -323,9 +323,19 @@ impl SusiMasterAgent {
                 };
                 susi_tools::ToolRegistry::execute_tool(
                     "exec_command",
-                    &serde_json::json!(cmd),
+                    &serde_json::Value::String(cmd.to_string()),
                     workspace,
                 )
+            } else if crate::system_observe::looks_like_system_observe_goal(goal) {
+                crate::system_observe::observe_system(goal, workspace).unwrap_or_else(|| {
+                    susi_tools::ToolRegistry::execute_tool(
+                        "exec_command",
+                        &serde_json::Value::String(
+                            "df -h -x tmpfs -x devtmpfs -x squashfs --total".into(),
+                        ),
+                        workspace,
+                    )
+                })
             } else if lower_goal.trim() == "dashboard"
                 || lower_goal == "susi dashboard"
                 || lower_goal == "show dashboard"

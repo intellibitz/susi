@@ -18,8 +18,9 @@ impl SafetyDetector {
         // C4 Security Patch: Command Allowlist
         if tool_name == "exec_command" {
             let allowed_bins = [
-                "cargo", "git", "rustc", "susi", "susi", "sed", "grep", "rg", "cat", "ls", "find",
-                "fd", "echo", "pwd",
+                "cargo", "git", "rustc", "susi", "sed", "grep", "rg", "cat", "ls", "find", "fd",
+                "echo", "pwd", "df", "du", "lsblk", "free", "uptime", "uname", "hostname",
+                "whoami", "head", "tail", "wc", "stat", "file", "which", "env", "id",
             ];
             let cmd_bin = lower_arg.split_whitespace().next().unwrap_or("");
             if !allowed_bins.contains(&cmd_bin) {
@@ -64,6 +65,8 @@ mod tests {
     fn test_safety_audit_safe_commands() {
         let ws = Path::new(".");
         assert!(SafetyDetector::audit_action("exec_command", "cargo check", ws).is_ok());
+        assert!(SafetyDetector::audit_action("exec_command", "df -h /", ws).is_ok());
+        assert!(SafetyDetector::audit_action("exec_command", "du -sh .", ws).is_ok());
     }
 
     #[test]

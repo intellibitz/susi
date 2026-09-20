@@ -137,6 +137,29 @@ fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
     Ok(parsed)
 }
 
+fn tool_string_arg(arg: &serde_json::Value, keys: &[&str]) -> EaiResult<String> {
+    if let Some(s) = arg.as_str() {
+        let s = s.trim();
+        if !s.is_empty() {
+            return Ok(s.to_string());
+        }
+    }
+    if let Some(obj) = arg.as_object() {
+        for key in keys {
+            if let Some(s) = obj.get(*key).and_then(|v| v.as_str()) {
+                let s = s.trim();
+                if !s.is_empty() {
+                    return Ok(s.to_string());
+                }
+            }
+        }
+    }
+    Err(EaiError::protocol(format!(
+        "Invalid argument type (expected string or object with one of: {})",
+        keys.join(", ")
+    )))
+}
+
 pub struct CoreTools;
 
 impl CoreTools {
@@ -384,10 +407,8 @@ impl CoreTools {
 
     #[tool(name = "read_file", description = "Read file content in workspace")]
     pub fn read_file(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let arg_s = arg
-            .as_str()
-            .ok_or_else(|| EaiError::protocol("Invalid argument type"))?;
-        let path = secure_path(workspace, arg_s)?;
+        let arg_s = tool_string_arg(arg, &["path", "file", "filename"])?;
+        let path = secure_path(workspace, &arg_s)?;
         let content = fs::read_to_string(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
         Ok(content)
     }
@@ -413,9 +434,7 @@ impl CoreTools {
 
     #[tool(name = "exec_command", description = "Execute command in workspace")]
     pub fn exec_command(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let arg_s = arg
-            .as_str()
-            .ok_or_else(|| EaiError::protocol("Invalid argument type"))?;
+        let arg_s = tool_string_arg(arg, &["command", "cmd", "input"])?;
         let clean = arg_s.trim();
         if clean.is_empty() {
             return Err(EaiError::protocol("Usage: exec_command <cmd>"));
