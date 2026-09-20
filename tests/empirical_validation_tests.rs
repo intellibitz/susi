@@ -1,5 +1,7 @@
-// SUSI Empirical Validation Test Suite
-// Implements automated checks based on the architectural test plan
+//! SUSI Empirical Validation Test Suite
+//! Implements automated checks based on the architectural test plan
+
+#![allow(missing_docs)]
 
 use std::path::Path;
 use susi_gawd::agents::GawdAgent;

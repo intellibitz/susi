@@ -1,4 +1,10 @@
+//! SUSI Engine CLI
+//!
+//! Command-line interface for the susi-engine local-first AI orchestration system.
+
 #![allow(unexpected_cfgs)]
+#![allow(missing_docs)]
+
 use susi_daemon::SusiDaemon;
 use susi_engine::SUSI_VERSION;
 use susi_gawd::ama::SusiMasterAgent;

@@ -1,5 +1,7 @@
-// SUSI Substrate Integration Tests
-// 100% Rust-Native Validation of GAWD, GEMI & GMCP Pillars
+//! SUSI Substrate Integration Tests
+//! 100% Rust-Native Validation of GAWD, GEMI & GMCP Pillars
+
+#![allow(missing_docs)]
 
 use std::fs;
 
