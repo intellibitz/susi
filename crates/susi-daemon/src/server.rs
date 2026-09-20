@@ -1,5 +1,12 @@
-// Always-On SUSI Substrate Daemon Process Manager
-// 100% Rust implementation managing GMCP (Port 9090), GEMI (Port 9091) & A2A Cluster UDP (Port 9092)
+//! Always-On SUSI Substrate Daemon Process Manager
+//!
+//! External clients may hard-code these ports — the daemon must never drift them:
+//! - **9090** GMCP / MCP HTTP
+//! - **9091** GEMI HTTP
+//! - **9092** A2A UDP discovery
+//! - **9093** GMCP HTTP (streamable / SSE alias)
+
+use susi_paths::ports;
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -472,11 +479,15 @@ impl SusiDaemon {
                 return;
             }
         };
+        // Mandate: config may have been polluted by older "port randomization"
+        // self-healing — always restore the public port contract before bind.
+        Self::force_canonical_ports(&mut cfg);
+        let _ = cfg.save(&global_dir);
+
         let bind_address = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .get("bind_address")
             .unwrap_or_else(|| "0.0.0.0".to_string());
-        let mut config_changed = false;
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
@@ -500,59 +511,40 @@ impl SusiDaemon {
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
-        // 1. Bind GEMI HTTP Server (Port 9091 / Dynamic)
-        let (gemi_server, gemi_port) = Self::bind_http_with_fallback(
-            cfg.gemi_port(),
-            "GEMI",
-            &workspace,
+        // Canonical public ports — never fall back to ephemeral ports.
+        let gemi_server =
+            Self::bind_tcp_canonical(ports::GEMI, "GEMI HTTP", &global_dir, &bind_address);
+        let gmcp_primary =
+            Self::bind_tcp_canonical(ports::GMCP, "GMCP/MCP HTTP", &global_dir, &bind_address);
+        let gmcp_alias = Self::bind_tcp_canonical(
+            ports::GMCP_HTTP,
+            "GMCP HTTP alias",
             &global_dir,
             &bind_address,
         );
-        if gemi_port != cfg.gemi_port() {
-            cfg.settings
-                .insert("gemi_port".to_string(), serde_json::json!(gemi_port));
-            config_changed = true;
-        }
-
-        // 2. Bind GMCP HTTP/SSE Server (Port 9093 / Dynamic)
-        let (gmcp_http_server, gmcp_http_port) = Self::bind_http_with_fallback(
-            cfg.gmcp_http_port(),
-            "GMCP HTTP",
-            &workspace,
+        let udp_socket = Self::bind_udp_canonical(
+            ports::UDP_DISCOVERY,
+            "A2A UDP discovery",
             &global_dir,
             &bind_address,
         );
-        if gmcp_http_port != cfg.gmcp_http_port() {
-            cfg.settings.insert(
-                "gmcp_http_port".to_string(),
-                serde_json::json!(gmcp_http_port),
-            );
-            config_changed = true;
-        }
 
-        // 3. Bind A2A Cluster UDP Discovery Socket (Port 9092 / Dynamic)
-        let (udp_socket, udp_port) = Self::bind_udp_with_fallback(
-            cfg.udp_discovery_port(),
-            &workspace,
-            &global_dir,
-            &bind_address,
+        eprintln!(
+            "[SusiDaemon] Public endpoints ready:\n\
+             - GMCP/MCP  http://{}:{}/mcp\n\
+             - GEMI      http://{}:{}/\n\
+             - UDP disco {}:{}\n\
+             - GMCP alias http://{}:{}/mcp",
+            bind_address,
+            ports::GMCP,
+            bind_address,
+            ports::GEMI,
+            bind_address,
+            ports::UDP_DISCOVERY,
+            bind_address,
+            ports::GMCP_HTTP
         );
-        if udp_port != cfg.udp_discovery_port() {
-            cfg.settings.insert(
-                "udp_discovery_port".to_string(),
-                serde_json::json!(udp_port),
-            );
-            config_changed = true;
-        }
 
-        if config_changed {
-            let _ = cfg.save(&global_dir);
-            eprintln!(
-                "[SusiDaemon] Port collisions detected. Updated configuration with active ports."
-            );
-        }
-
-        // Spawn services with panic handling
         let workspace_gemi = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -562,19 +554,27 @@ impl SusiDaemon {
             }
         });
 
-        let workspace_gmcp_http = workspace.clone();
+        let workspace_gmcp = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(workspace_gmcp_http, gmcp_http_server);
+                GmcpServer::start_http_server(workspace_gmcp, gmcp_primary);
             })) {
-                eprintln!("[GMCP HTTP] Thread panicked: {:?}", e);
+                eprintln!("[GMCP] Thread panicked: {:?}", e);
             }
         });
 
-        let gmcp_actual_port = cfg.gmcp_port();
+        let workspace_gmcp_alias = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                Self::start_udp_discovery_server(udp_socket, gmcp_actual_port);
+                GmcpServer::start_http_server(workspace_gmcp_alias, gmcp_alias);
+            })) {
+                eprintln!("[GMCP alias] Thread panicked: {:?}", e);
+            }
+        });
+
+        thread::spawn(move || {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Self::start_udp_discovery_server(udp_socket, ports::GMCP);
             })) {
                 eprintln!("[UDP] Thread panicked: {:?}", e);
             }
@@ -591,7 +591,6 @@ impl SusiDaemon {
 
             loop {
                 if let Some(pulse) = queue.pop() {
-                    // Serialized Execution
                     info!(
                         "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
                         pulse.intent,
@@ -608,7 +607,6 @@ impl SusiDaemon {
             }
         });
 
-        // Keep main daemon thread alive with graceful shutdown check
         while !ctx.is_shutdown_requested() {
             thread::sleep(Duration::from_secs(5));
         }
@@ -616,134 +614,142 @@ impl SusiDaemon {
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
     }
 
-    fn bind_http_with_fallback(
-        port: u16,
-        name: &str,
-        workspace: &Path,
-        global_dir: &Path,
-        bind_address: &str,
-    ) -> (std::net::TcpListener, u16) {
-        let addr = format!("{}:{}", bind_address, port);
-        match std::net::TcpListener::bind(&addr) {
-            Ok(listener) => (listener, port),
-            Err(_) => {
-                // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port, global_dir)
-                    && let Ok(listener) = std::net::TcpListener::bind(&addr)
-                {
-                    return (listener, port);
-                }
-
-                // Last resort: if even a random ephemeral port on the
-                // requested bind address fails, try loopback specifically.
-                // This runs on the daemon's main thread before any subsystem
-                // thread is spawned, so there is genuinely no further
-                // fallback left — but exit cleanly with a clear diagnostic
-                // rather than an opaque panic trace.
-                let listener = std::net::TcpListener::bind(format!("{}:0", bind_address))
-                    .unwrap_or_else(|_| {
-                        std::net::TcpListener::bind("127.0.0.1:0").unwrap_or_else(|e| {
-                            eprintln!(
-                                "[SusiDaemon] Fatal: could not bind any TCP port for {}, including the 127.0.0.1:0 last resort: {}",
-                                name, e
-                            );
-                            std::process::exit(1);
-                        })
-                    });
-                let new_port = listener.local_addr().map(|a| a.port()).unwrap_or(0);
-                susi_sandbox::manager::SusiAuditLogger::log(
-                    workspace,
-                    susi_sandbox::manager::LogLevel::Warning,
-                    "SELF_HEALING_RANDOMIZATION",
-                    &format!(
-                        "{} default port {} occupied. Reclaim failed. Randomized to {}",
-                        name, port, new_port
-                    ),
-                );
-                eprintln!(
-                    "[SusiDaemon] {} port collision! Randomized to {}",
-                    name, new_port
-                );
-                (listener, new_port)
-            }
-        }
+    fn force_canonical_ports(cfg: &mut SusiConfig) {
+        cfg.settings
+            .insert("gmcp_port".to_string(), serde_json::json!(ports::GMCP));
+        cfg.settings
+            .insert("gemi_port".to_string(), serde_json::json!(ports::GEMI));
+        cfg.settings.insert(
+            "udp_discovery_port".to_string(),
+            serde_json::json!(ports::UDP_DISCOVERY),
+        );
+        cfg.settings.insert(
+            "gmcp_http_port".to_string(),
+            serde_json::json!(ports::GMCP_HTTP),
+        );
     }
 
-    fn bind_udp_with_fallback(
+    /// Bind a TCP port that external clients hard-code. Reclaims stale susi
+    /// holders; never randomizes — exit if a foreign process owns the port.
+    fn bind_tcp_canonical(
         port: u16,
-        workspace: &Path,
+        name: &str,
         global_dir: &Path,
         bind_address: &str,
-    ) -> (std::net::UdpSocket, u16) {
+    ) -> std::net::TcpListener {
         let addr = format!("{}:{}", bind_address, port);
-        match std::net::UdpSocket::bind(&addr) {
-            Ok(socket) => (socket, port),
-            Err(_) => {
-                // AGGRESSIVE SELF-HEALING REFLEX: Attempt to reclaim constitutional port
-                if Self::attempt_port_reclaim(port, global_dir)
-                    && let Ok(socket) = std::net::UdpSocket::bind(&addr)
-                {
-                    return (socket, port);
+        for attempt in 1..=5 {
+            match std::net::TcpListener::bind(&addr) {
+                Ok(listener) => return listener,
+                Err(e) => {
+                    eprintln!(
+                        "[SusiDaemon] {} cannot bind {} (attempt {}/5): {}",
+                        name, addr, attempt, e
+                    );
+                    if Self::attempt_port_reclaim(port, global_dir) {
+                        thread::sleep(Duration::from_millis(200 * attempt as u64));
+                        continue;
+                    }
+                    thread::sleep(Duration::from_millis(150 * attempt as u64));
                 }
-
-                // Last resort, same reasoning as bind_http_with_fallback above.
-                let socket = std::net::UdpSocket::bind(format!("{}:0", bind_address))
-                    .unwrap_or_else(|_| {
-                        std::net::UdpSocket::bind("127.0.0.1:0").unwrap_or_else(|e| {
-                            eprintln!(
-                                "[SusiDaemon] Fatal: could not bind any UDP port for discovery, including the 127.0.0.1:0 last resort: {}",
-                                e
-                            );
-                            std::process::exit(1);
-                        })
-                    });
-                let new_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
-                susi_sandbox::manager::SusiAuditLogger::log(
-                    workspace,
-                    susi_sandbox::manager::LogLevel::Warning,
-                    "SELF_HEALING_RANDOMIZATION",
-                    &format!(
-                        "UDP Discovery port {} occupied. Reclaim failed. Randomized to {}",
-                        port, new_port
-                    ),
-                );
-                eprintln!(
-                    "[SusiDaemon] UDP port collision! Randomized to {}",
-                    new_port
-                );
-                (socket, new_port)
             }
         }
+        eprintln!(
+            "[SusiDaemon] Fatal: canonical port {} ({}) is unavailable.\n\
+             External clients trust {}:{} — free the port (or stop the foreign process) and restart susi.\n\
+             Port randomization is disabled by contract.",
+            port, name, bind_address, port
+        );
+        std::process::exit(1);
+    }
+
+    fn bind_udp_canonical(
+        port: u16,
+        name: &str,
+        global_dir: &Path,
+        bind_address: &str,
+    ) -> std::net::UdpSocket {
+        let addr = format!("{}:{}", bind_address, port);
+        for attempt in 1..=5 {
+            match std::net::UdpSocket::bind(&addr) {
+                Ok(socket) => return socket,
+                Err(e) => {
+                    eprintln!(
+                        "[SusiDaemon] {} cannot bind {} (attempt {}/5): {}",
+                        name, addr, attempt, e
+                    );
+                    if Self::attempt_port_reclaim(port, global_dir) {
+                        thread::sleep(Duration::from_millis(200 * attempt as u64));
+                        continue;
+                    }
+                    thread::sleep(Duration::from_millis(150 * attempt as u64));
+                }
+            }
+        }
+        eprintln!(
+            "[SusiDaemon] Fatal: canonical UDP port {} ({}) is unavailable.\n\
+             External clients trust {}:{} — free the port and restart susi.",
+            port, name, bind_address, port
+        );
+        std::process::exit(1);
     }
 
     /// Aggressive Port Reclaim: Interrogates the process holding a port and evicts it if it's a susi instance.
     fn attempt_port_reclaim(port: u16, global_dir: &Path) -> bool {
         #[cfg(unix)]
         {
-            // Use fuser or lsof to find the PID
-            let output = Command::new("sh")
-                .arg("-c")
-                .arg(format!("fuser {}/tcp 2>/dev/null", port))
-                .output();
-
-            if let Ok(out) = output {
-                let pid_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if let Ok(pid) = pid_str.parse::<i32>()
-                    && Self::is_trusted_susi_process(pid, global_dir)
-                {
-                    eprintln!(
-                        "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
-                        pid, port
-                    );
-                    unsafe {
-                        libc::kill(pid, libc::SIGKILL);
+            let mut reclaimed = false;
+            let scripts = [
+                format!("fuser {}/tcp 2>/dev/null", port),
+                format!("fuser {}/udp 2>/dev/null", port),
+                format!(
+                    "ss -lptn 'sport = :{}' 2>/dev/null | sed -n 's/.*pid=\\([0-9]\\+\\).*/\\1/p'",
+                    port
+                ),
+            ];
+            for script in scripts {
+                let output = Command::new("sh").arg("-c").arg(&script).output();
+                let Ok(out) = output else {
+                    continue;
+                };
+                let pid_str = String::from_utf8_lossy(&out.stdout);
+                for token in pid_str.split(|c: char| !c.is_ascii_digit()) {
+                    if token.is_empty() {
+                        continue;
                     }
-                    thread::sleep(Duration::from_millis(100)); // Allow OS to release socket
-                    return true;
+                    let Ok(pid) = token.parse::<i32>() else {
+                        continue;
+                    };
+                    if pid <= 1 {
+                        continue;
+                    }
+                    if Self::is_trusted_susi_process(pid, global_dir) {
+                        eprintln!(
+                            "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
+                            pid, port
+                        );
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
+                        }
+                        reclaimed = true;
+                    } else {
+                        eprintln!(
+                            "[SusiDaemon] Port {} held by non-susi PID {} — will not evict",
+                            port, pid
+                        );
+                    }
                 }
             }
+            if reclaimed {
+                thread::sleep(Duration::from_millis(250));
+            }
+            reclaimed
         }
-        false
+        #[cfg(not(unix))]
+        {
+            let _ = (port, global_dir);
+            false
+        }
     }
 
     /// Confirms `pid` is genuinely running a trusted susi binary before the
@@ -892,6 +898,19 @@ mod tests {
         let tmp_dir = std::env::temp_dir();
         let path = SusiDaemon::get_lock_file(&tmp_dir);
         assert_eq!(path, tmp_dir.join("substrate.lock"));
+    }
+
+    #[test]
+    fn canonical_ports_match_public_contract() {
+        assert_eq!(ports::GMCP, 9090);
+        assert_eq!(ports::GEMI, 9091);
+        assert_eq!(ports::UDP_DISCOVERY, 9092);
+        assert_eq!(ports::GMCP_HTTP, 9093);
+        let cfg = SusiConfig::default();
+        assert_eq!(cfg.gmcp_port(), ports::GMCP);
+        assert_eq!(cfg.gemi_port(), ports::GEMI);
+        assert_eq!(cfg.udp_discovery_port(), ports::UDP_DISCOVERY);
+        assert_eq!(cfg.gmcp_http_port(), ports::GMCP_HTTP);
     }
 
     #[test]

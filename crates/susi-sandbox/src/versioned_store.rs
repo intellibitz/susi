@@ -275,8 +275,22 @@ mod tests {
             .unwrap()
             .set_times(std::fs::FileTimes::new().set_modified(modified))
             .unwrap();
-        assert_eq!(SusiConfig::reload(&nested).unwrap().gmcp_port(), 12345);
-        assert_eq!(SusiConfig::load(&nested).unwrap().gmcp_port(), 12345);
+        // Public ports ignore polluted values; custom keys still round-trip.
+        assert_eq!(
+            SusiConfig::reload(&nested).unwrap().gmcp_port(),
+            susi_paths::ports::GMCP
+        );
+        assert_eq!(
+            SusiConfig::load(&nested).unwrap().gmcp_port(),
+            susi_paths::ports::GMCP
+        );
+        assert_eq!(
+            SusiConfig::load(&nested)
+                .unwrap()
+                .get::<serde_json::Value>("custom_setting")
+                .unwrap()["enabled"],
+            true
+        );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
         assert_eq!(
             std::fs::metadata(&path).unwrap().modified().unwrap(),

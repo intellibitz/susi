@@ -59,18 +59,40 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        let global_dir = susi_paths::SusiDirs::config_dir();
-        let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+        use std::net::{TcpStream, UdpSocket};
+        use std::time::Duration;
+        use susi_paths::ports;
 
-        let gmcp_addr = format!("127.0.0.1:{}", cfg.gmcp_port());
-        let gemi_addr = format!("127.0.0.1:{}", cfg.gemi_port());
+        let checks: &[(&str, u16, bool)] = &[
+            ("GMCP/MCP HTTP", ports::GMCP, true),
+            ("GEMI HTTP", ports::GEMI, true),
+            ("A2A UDP discovery", ports::UDP_DISCOVERY, false),
+            ("GMCP HTTP alias", ports::GMCP_HTTP, true),
+        ];
 
-        println!("    - GMCP Protocol Endpoint ({}) ... OK", gmcp_addr);
-        println!("    - GEMI Inference Endpoint ({}) ... OK", gemi_addr);
-        println!(
-            "    - UDP Discovery Endpoint (Port {}) ... OK",
-            cfg.udp_discovery_port()
-        );
+        for (name, port, tcp) in checks {
+            let ok = if *tcp {
+                TcpStream::connect_timeout(
+                    &format!("127.0.0.1:{}", port).parse().unwrap(),
+                    Duration::from_millis(400),
+                )
+                .is_ok()
+            } else {
+                UdpSocket::bind("127.0.0.1:0")
+                    .and_then(|s| {
+                        s.set_write_timeout(Some(Duration::from_millis(200)))?;
+                        s.send_to(b"SUSI_LAN_PING", format!("127.0.0.1:{}", port))?;
+                        Ok(())
+                    })
+                    .is_ok()
+            };
+            println!(
+                "    - {} (127.0.0.1:{}) ... {}",
+                name,
+                port,
+                if ok { "OK" } else { "WAITING" }
+            );
+        }
         let _ = std::io::stdout().flush();
         Ok(())
     }

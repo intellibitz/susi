@@ -960,18 +960,24 @@ impl SusiConfig {
             .unwrap_or_else(|| Self::bundled_defaults().get(key).unwrap_or_default())
     }
 
-    // Backward compat accessors and helpers
+    // Public substrate ports are a hard contract with external clients.
+    // Accessors ignore any polluted ~/.susi/config.json values (legacy
+    // randomization) and always return the canonical ports.
     pub fn gmcp_port(&self) -> u16 {
-        self.get_or_bundled_default("gmcp_port")
+        let _ = self; // keep method signature; value is not user-overridable
+        susi_paths::ports::GMCP
     }
     pub fn gmcp_http_port(&self) -> u16 {
-        self.get_or_bundled_default("gmcp_http_port")
+        let _ = self;
+        susi_paths::ports::GMCP_HTTP
     }
     pub fn gemi_port(&self) -> u16 {
-        self.get_or_bundled_default("gemi_port")
+        let _ = self;
+        susi_paths::ports::GEMI
     }
     pub fn udp_discovery_port(&self) -> u16 {
-        self.get_or_bundled_default("udp_discovery_port")
+        let _ = self;
+        susi_paths::ports::UDP_DISCOVERY
     }
     pub fn execution_lease_secs(&self) -> u64 {
         self.get_or_bundled_default("execution_lease_secs")
@@ -1647,17 +1653,24 @@ mod tests {
             default.gmcp_port(),
             raw["gmcp_port"].as_u64().unwrap() as u16
         );
+        assert_eq!(default.gmcp_port(), susi_paths::ports::GMCP);
         assert_eq!(
             default.gmcp_http_port(),
             raw["gmcp_http_port"].as_u64().unwrap() as u16
         );
+        assert_eq!(default.gmcp_http_port(), susi_paths::ports::GMCP_HTTP);
         assert_eq!(
             default.gemi_port(),
             raw["gemi_port"].as_u64().unwrap() as u16
         );
+        assert_eq!(default.gemi_port(), susi_paths::ports::GEMI);
         assert_eq!(
             default.udp_discovery_port(),
             raw["udp_discovery_port"].as_u64().unwrap() as u16
+        );
+        assert_eq!(
+            default.udp_discovery_port(),
+            susi_paths::ports::UDP_DISCOVERY
         );
         assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());
         assert_eq!(
@@ -1808,6 +1821,7 @@ mod tests {
         // (tokenizer_repo) added to one ladder step in config.default.json,
         // and that has customized an unrelated existing value.
         let stale = serde_json::json!({
+            "trust_level": "paranoid",
             "gmcp_port": 12345,
             "model_ladder": [
                 {
@@ -1827,8 +1841,10 @@ mod tests {
 
         let cfg = SusiConfig::load(dir).expect("Failed to load stale config");
 
-        // User's customized scalar value survives the merge untouched.
-        assert_eq!(cfg.gmcp_port(), 12345);
+        // Public ports are a hard contract — polluted values cannot override them.
+        assert_eq!(cfg.gmcp_port(), susi_paths::ports::GMCP);
+        // User's customized non-port scalar survives the merge untouched.
+        assert_eq!(cfg.trust_level(), "paranoid");
 
         // An explicit user ladder is preserved; the default is now dynamic.
         let custom_ladder = cfg.model_ladder();

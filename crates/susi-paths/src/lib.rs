@@ -72,3 +72,12 @@ impl SusiDirs {
         Self::data_dir()
     }
 }
+
+/// Canonical public substrate ports. External clients may hard-code these;
+/// the daemon must never silently drift to ephemeral ports.
+pub mod ports {
+    pub const GMCP: u16 = 9090;
+    pub const GEMI: u16 = 9091;
+    pub const UDP_DISCOVERY: u16 = 9092;
+    pub const GMCP_HTTP: u16 = 9093;
+}

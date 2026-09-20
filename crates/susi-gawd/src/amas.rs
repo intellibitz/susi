@@ -145,9 +145,7 @@ pub struct SusiSupervisor;
 
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
-        susi_sandbox::manager::SusiConfig::load_global()
-            .map(|c| c.udp_discovery_port())
-            .unwrap_or(9092)
+        susi_paths::ports::UDP_DISCOVERY
     }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
@@ -155,7 +153,7 @@ impl SusiSupervisor {
         let peers_lock = DISCOVERED_PEERS.get_or_init(|| {
             let initial = vec![ClusterPeerNode {
                 node_id: "susi-local-master".to_string(),
-                address: "127.0.0.1:9090".to_string(),
+                address: format!("127.0.0.1:{}", susi_paths::ports::GMCP),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
                 capabilities: vec![
@@ -239,7 +237,8 @@ impl SusiSupervisor {
                                 };
 
                                 let mut peers = t_shared.write();
-                                let addr_str = format!("{}:9093", src.ip());
+                                let addr_str =
+                                    format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
                                 if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
                                     p.trust_score = (p.trust_score + 0.05).min(1.0);
                                     p.is_active = true;
@@ -729,7 +728,7 @@ impl SusiSupervisor {
             }
         }
         if active_peers.is_empty() {
-            active_peers.push("127.0.0.1:9090 (local)".to_string());
+            active_peers.push(format!("127.0.0.1:{} (local)", susi_paths::ports::GMCP));
         }
         active_peers
     }
