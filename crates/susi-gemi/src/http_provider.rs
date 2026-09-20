@@ -111,6 +111,56 @@ impl Provider for HttpProvider {
     }
 }
 
+/// Zero-Config Autonomous Engine Discovery
+/// Probes standard ports for active local inference engines and automatically
+/// registers them with the capability registry.
+pub async fn auto_discover_local_engines(registry: &susi_core::registry::CapabilityRegistry) {
+    let endpoints = vec![
+        ("Ollama", "http://localhost:11434/v1"),
+        ("vLLM", "http://localhost:8000/v1"),
+        ("llama.cpp", "http://localhost:8080/v1"),
+        ("sglang", "http://localhost:30000/v1"),
+        ("LMStudio", "http://localhost:1234/v1"),
+    ];
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(500))
+        .build()
+        .unwrap_or_default();
+
+    for (engine_type, api_base) in endpoints {
+        let url = format!("{}/models", api_base);
+        if let Ok(res) = client.get(&url).send().await {
+            if res.status().is_success() {
+                if let Ok(json) = res.json::<serde_json::Value>().await {
+                    if let Some(models) = json.get("data").and_then(|d| d.as_array()) {
+                        for model in models {
+                            if let Some(model_id) = model.get("id").and_then(|id| id.as_str()) {
+                                let name = format!("{}-{}", engine_type.to_lowercase(), model_id);
+
+                                // Only register if not already registered to prevent spam
+                                if registry.get_provider(&name).is_none() {
+                                    registry.register_provider(HttpProvider {
+                                        name: name.clone(),
+                                        api_base: api_base.to_string(),
+                                        model: model_id.to_string(),
+                                    });
+                                    if std::env::var("SUSI_VERBOSE").is_ok() {
+                                        eprintln!(
+                                            "[AUTODISCOVER] Found & Registered Model: {} via {}",
+                                            model_id, engine_type
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
