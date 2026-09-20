@@ -63,11 +63,20 @@ impl HttpProvider {
                 }
             }
         }
-        // Convention fallbacks by vendor name
-        let candidates: &[&str] = match endpoint_name.to_ascii_lowercase().as_str() {
+        // Convention fallbacks by vendor name (OpenAI-compat + native APIs)
+        let lower = endpoint_name.to_ascii_lowercase();
+        let candidates: &[&str] = match lower.as_str() {
             "openai" => &["OPENAI_API_KEY"],
             "anthropic" => &["ANTHROPIC_API_KEY"],
             "googlegemini" | "gemini" | "google" => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "deepseek" => &["DEEPSEEK_API_KEY"],
+            "minimax" => &["MINIMAX_API_KEY"],
+            "kimi" | "moonshot" => &["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+            "openrouter" => &["OPENROUTER_API_KEY"],
+            "mistral" => &["MISTRAL_API_KEY"],
+            "groq" => &["GROQ_API_KEY"],
+            "together" => &["TOGETHER_API_KEY"],
+            "fireworks" => &["FIREWORKS_API_KEY"],
             _ => &[],
         };
         for env in candidates {
@@ -77,10 +86,33 @@ impl HttpProvider {
                 }
             }
         }
+        // Any named endpoint: try `{NAME}_API_KEY` (e.g. DeepSeek → DEEPSEEK_API_KEY).
+        let generic = format!(
+            "{}_API_KEY",
+            endpoint_name
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() {
+                    c.to_ascii_uppercase()
+                } else {
+                    '_'
+                })
+                .collect::<String>()
+                .trim_matches('_')
+                .replace("__", "_")
+        );
+        if !generic.is_empty() {
+            if let Ok(v) = std::env::var(&generic) {
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
         String::new()
     }
 
-    fn is_remote_cloud(api_base: &str) -> bool {
+    /// True for HTTPS remote bases (not localhost). Used to treat any
+    /// OpenAI-compatible cloud vendor as a cloud provider for routing.
+    pub fn is_remote_cloud(api_base: &str) -> bool {
         let lower = api_base.to_ascii_lowercase();
         lower.starts_with("https://")
             && !lower.contains("localhost")
@@ -414,8 +446,7 @@ async fn generate_triton(
 /// Register configured cloud / remote endpoints that have API keys available —
 /// the config-driven counterpart to localhost auto-discovery.
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-    for endpoint in cfg.inference_endpoints().endpoints {
+    for endpoint in effective_inference_endpoints() {
         let api_base = endpoint.api_base.trim().to_string();
         if api_base.is_empty() {
             continue;
@@ -476,6 +507,29 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
             );
         }
     }
+}
+
+/// Bundled defaults ∪ user `inference_endpoints` by name (user wins).
+/// Ensures new OpenAI-compat presets (DeepSeek, Kimi, …) appear even when
+/// `~/.susi/config.json` still has an older endpoints array.
+fn effective_inference_endpoints() -> Vec<susi_sandbox::manager::InferenceEndpointItem> {
+    use std::collections::BTreeMap;
+    let bundled = susi_sandbox::manager::SusiConfig::default()
+        .inference_endpoints()
+        .endpoints;
+    let user = susi_sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .inference_endpoints()
+        .endpoints;
+    let mut by_name: BTreeMap<String, susi_sandbox::manager::InferenceEndpointItem> =
+        BTreeMap::new();
+    for endpoint in bundled {
+        by_name.insert(endpoint.name.to_ascii_lowercase(), endpoint);
+    }
+    for endpoint in user {
+        by_name.insert(endpoint.name.to_ascii_lowercase(), endpoint);
+    }
+    by_name.into_values().collect()
 }
 
 /// Zero-Config Autonomous Engine Discovery
@@ -618,16 +672,17 @@ mod tests {
             std::env::remove_var("ANTHROPIC_API_KEY");
             std::env::remove_var("GEMINI_API_KEY");
             std::env::remove_var("GOOGLE_API_KEY");
+            std::env::remove_var("DEEPSEEK_API_KEY");
+            std::env::remove_var("MOONSHOT_API_KEY");
+            std::env::remove_var("KIMI_API_KEY");
+            std::env::remove_var("MINIMAX_API_KEY");
+            std::env::remove_var("OPENROUTER_API_KEY");
         }
         register_configured_cloud_endpoints(&registry);
         let cloudish: Vec<_> = registry
             .list_providers()
             .into_iter()
-            .filter(|n| {
-                n.starts_with("openai-")
-                    || n.starts_with("anthropic-")
-                    || n.starts_with("googlegemini-")
-            })
+            .filter(|n| is_bundled_cloud_prefix(n))
             .collect();
         assert!(
             cloudish.is_empty(),
@@ -637,12 +692,18 @@ mod tests {
 
         unsafe {
             std::env::set_var("OPENAI_API_KEY", "sk-unit-test");
+            std::env::set_var("DEEPSEEK_API_KEY", "sk-deepseek-test");
         }
         register_configured_cloud_endpoints(&registry);
         let providers = registry.list_providers();
         assert!(
             providers.iter().any(|n| n.starts_with("openai-")),
             "expected openai-* provider, got {:?}",
+            providers
+        );
+        assert!(
+            providers.iter().any(|n| n.starts_with("deepseek-")),
+            "expected deepseek-* OpenAI-compat provider, got {:?}",
             providers
         );
         let openai = providers.iter().find(|n| n.starts_with("openai-")).unwrap();
@@ -653,6 +714,17 @@ mod tests {
         assert!(!http.model.is_empty());
         unsafe {
             std::env::remove_var("OPENAI_API_KEY");
+            std::env::remove_var("DEEPSEEK_API_KEY");
         }
+    }
+
+    fn is_bundled_cloud_prefix(n: &str) -> bool {
+        n.starts_with("openai-")
+            || n.starts_with("anthropic-")
+            || n.starts_with("googlegemini-")
+            || n.starts_with("deepseek-")
+            || n.starts_with("kimi-")
+            || n.starts_with("minimax-")
+            || n.starts_with("openrouter-")
     }
 }

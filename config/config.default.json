@@ -267,6 +267,34 @@
         "protocol_type": "gemini",
         "model": "gemini-2.0-flash",
         "api_key_env": "GEMINI_API_KEY"
+      },
+      {
+        "api_base": "https://api.deepseek.com/v1",
+        "name": "DeepSeek",
+        "protocol_type": "chat",
+        "model": "deepseek-chat",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      },
+      {
+        "api_base": "https://api.moonshot.cn/v1",
+        "name": "Kimi",
+        "protocol_type": "chat",
+        "model": "moonshot-v1-8k",
+        "api_key_env": "MOONSHOT_API_KEY"
+      },
+      {
+        "api_base": "https://api.minimax.chat/v1",
+        "name": "MiniMax",
+        "protocol_type": "chat",
+        "model": "MiniMax-Text-01",
+        "api_key_env": "MINIMAX_API_KEY"
+      },
+      {
+        "api_base": "https://openrouter.ai/api/v1",
+        "name": "OpenRouter",
+        "protocol_type": "chat",
+        "model": "openrouter/auto",
+        "api_key_env": "OPENROUTER_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

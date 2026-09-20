@@ -101,13 +101,67 @@ impl InferenceRouter {
         io::stdin().is_terminal() && io::stdout().is_terminal()
     }
 
-    pub fn is_cloud_provider_name(name: &str) -> bool {
+    /// Name heuristic for local OpenAI-compat engines (never escalate-as-cloud).
+    fn is_local_engine_name(name: &str) -> bool {
         let lower = name.to_ascii_lowercase();
+        lower.contains("ollama")
+            || lower.contains("vllm")
+            || lower.contains("sglang")
+            || lower.contains("llama.cpp")
+            || lower.contains("llamacpp")
+            || lower.contains("lmstudio")
+            || lower.contains("lmdeploy")
+            || lower.contains("triton")
+            || lower.contains("candle")
+    }
+
+    /// True when `name` looks like a cloud / remote vendor (not a local engine).
+    /// Prefer [`list_cloud_providers_from_registry`] when a registry is available.
+    pub fn is_cloud_provider_name(name: &str) -> bool {
+        if Self::is_local_engine_name(name) {
+            return false;
+        }
+        let lower = name.to_ascii_lowercase();
+        // Common vendors + any non-local registered `vendor-model` style name.
         lower.contains("openai")
             || lower.contains("anthropic")
             || lower.contains("gemini")
-            || lower.contains("googlegemini")
-            || (lower.contains("google") && lower.contains("gemini"))
+            || lower.contains("google")
+            || lower.contains("deepseek")
+            || lower.contains("minimax")
+            || lower.contains("kimi")
+            || lower.contains("moonshot")
+            || lower.contains("openrouter")
+            || lower.contains("mistral")
+            || lower.contains("groq")
+            || lower.contains("together")
+            || lower.contains("fireworks")
+            // Config-registered remotes are named `{endpoint}-{model}`.
+            || lower.contains('-')
+    }
+
+    /// Cloud providers = registered `HttpProvider`s whose `api_base` is remote HTTPS.
+    /// This is the source of truth for OpenAI-compatible vendors (DeepSeek, Kimi, …).
+    pub fn list_cloud_providers_from_registry(
+        registry: &susi_core::registry::CapabilityRegistry,
+    ) -> Vec<String> {
+        let mut clouds = Vec::new();
+        for name in registry.list_providers() {
+            let Some(provider) = registry.get_provider(&name) else {
+                continue;
+            };
+            let Some(http) = provider
+                .as_any()
+                .downcast_ref::<crate::http_provider::HttpProvider>()
+            else {
+                continue;
+            };
+            if crate::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
+                clouds.push(name);
+            }
+        }
+        clouds.sort();
+        clouds
     }
 
     pub fn list_cloud_providers(names: &[String]) -> Vec<String> {
@@ -159,7 +213,14 @@ impl InferenceRouter {
             .inference_routing();
         let pref = Self::load_preference();
         let policy = Self::effective_policy(&cfg, &pref);
-        let clouds = Self::list_cloud_providers(available_providers);
+        // Prefer registry HTTPS remotes (any OpenAI-compat vendor); fall back
+        // to name heuristics when only bare names are supplied (tests).
+        let mut clouds = Self::list_cloud_providers_from_registry(
+            susi_core::registry::CapabilityRegistry::global(),
+        );
+        if clouds.is_empty() {
+            clouds = Self::list_cloud_providers(available_providers);
+        }
 
         if clouds.is_empty() {
             return None;
@@ -252,6 +313,14 @@ impl InferenceRouter {
             1
         } else if lower.contains("gemini") || lower.contains("google") {
             2
+        } else if lower.contains("deepseek") {
+            3
+        } else if lower.contains("kimi") || lower.contains("moonshot") {
+            4
+        } else if lower.contains("minimax") {
+            5
+        } else if lower.contains("openrouter") {
+            6
         } else {
             9
         }
@@ -330,6 +399,15 @@ mod tests {
         assert!(InferenceRouter::is_cloud_provider_name(
             "anthropic-claude-3-5-haiku-20241022"
         ));
+        assert!(InferenceRouter::is_cloud_provider_name(
+            "deepseek-deepseek-chat"
+        ));
+        assert!(InferenceRouter::is_cloud_provider_name(
+            "kimi-moonshot-v1-8k"
+        ));
+        assert!(InferenceRouter::is_cloud_provider_name(
+            "minimax-MiniMax-Text-01"
+        ));
         assert!(!InferenceRouter::is_cloud_provider_name("ollama-llama3"));
         assert!(!InferenceRouter::is_cloud_provider_name("vllm-mistral"));
     }
@@ -339,13 +417,15 @@ mod tests {
         let names = vec![
             "ollama-llama3".into(),
             "openai-gpt-4o-mini".into(),
+            "deepseek-deepseek-chat".into(),
             "googlegemini-gemini-2.0-flash".into(),
         ];
         let clouds = InferenceRouter::list_cloud_providers(&names);
-        assert_eq!(clouds.len(), 2);
+        assert_eq!(clouds.len(), 3);
         assert!(clouds
             .iter()
             .all(|c| InferenceRouter::is_cloud_provider_name(c)));
+        assert!(!clouds.iter().any(|c| c.contains("ollama")));
     }
 
     #[test]
