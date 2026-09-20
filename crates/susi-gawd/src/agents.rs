@@ -175,6 +175,36 @@ impl GawdAgent for DevOpsAgent {
     }
 }
 
+/// Live web / weather evidence agent. Fetches real HTTP evidence (Open-Meteo,
+/// linked MCP search tools, DuckDuckGo) instead of LLM-narrating a fake search.
+pub struct SearchAgent;
+
+impl GawdAgent for SearchAgent {
+    fn name(&self) -> String {
+        "SearchAgent".into()
+    }
+    fn rank(&self) -> f32 {
+        0.9
+    }
+    fn execute(
+        &self,
+        goal: &str,
+        _workspace: &Path,
+        blackboard: &MissionBlackboard,
+    ) -> EaiResult<String> {
+        // Meta/admin pulses must not trigger outbound HTTP.
+        if GawdAgentFleet::is_meta_command(goal) {
+            let res = format!("[{}]: Observation integrated into blackboard.", self.name());
+            blackboard.insert(self.name(), res.clone());
+            return Ok(res);
+        }
+
+        let report = crate::live_search::gather_live_evidence(goal);
+        blackboard.insert(self.name(), report.clone());
+        Ok(report)
+    }
+}
+
 /// Ensures a usable model is available (installs the default if none is
 /// found) and links essential MCP servers.
 pub struct SusiRuntimeAgent;
@@ -1107,6 +1137,9 @@ pub fn agent_registry() -> &'static DynamicServiceRegistry {
         let registry = DynamicServiceRegistry::new();
         registry.register_factory("DevOpsAgent", || {
             Arc::new(Arc::new(DevOpsAgent) as Arc<dyn GawdAgent>)
+        });
+        registry.register_factory("SearchAgent", || {
+            Arc::new(Arc::new(SearchAgent) as Arc<dyn GawdAgent>)
         });
         registry.register_factory("SusiRuntimeAgent", || {
             Arc::new(Arc::new(SusiRuntimeAgent) as Arc<dyn GawdAgent>)
@@ -2229,5 +2262,32 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_search_agent_is_native_and_fetches_live_weather() {
+        let agent = instantiate_native_agent("SearchAgent")
+            .expect("SearchAgent must have a real native implementation");
+        assert_eq!(agent.name(), "SearchAgent");
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        let res = agent
+            .execute(
+                "What is the current weather in Chennai, India?",
+                Path::new("."),
+                &blackboard,
+            )
+            .unwrap();
+        // Prefer live observation; if offline, still must not invent conditions.
+        assert!(
+            res.contains("Live weather observation")
+                || res.contains("Live search/weather data unavailable"),
+            "unexpected SearchAgent output: {res}"
+        );
+        if res.contains("Live weather observation") {
+            assert!(res.contains("Open-Meteo"));
+            assert!(res.contains("Observation time:"));
+            assert!(res.contains("Temperature:"));
+        }
+        assert_eq!(blackboard.get("SearchAgent").as_deref(), Some(res.as_str()));
     }
 }

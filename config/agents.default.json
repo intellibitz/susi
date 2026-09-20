@@ -9,9 +9,9 @@
   },
   {
     "name": "SearchAgent",
-    "description": "Deep web searching, knowledge retrieval, and data scouting.",
-    "categories": ["search", "find", "lyrics", "look"],
-    "semantic_anchors": ["google", "brave", "web", "query"],
+    "description": "Deep web searching, live weather/evidence fetch, and data scouting.",
+    "categories": ["search", "find", "lyrics", "look", "weather", "forecast"],
+    "semantic_anchors": ["google", "brave", "web", "query", "weather", "temperature", "forecast"],
     "base_rank": 0.9,
     "is_core": false
   },

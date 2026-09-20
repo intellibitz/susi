@@ -13,6 +13,7 @@ pub mod dag;
 pub mod evolution;
 pub mod genome_distiller;
 pub mod kernel_loader;
+mod live_search;
 pub mod pkb;
 pub mod reason_trainer;
 pub mod reflex_synth;

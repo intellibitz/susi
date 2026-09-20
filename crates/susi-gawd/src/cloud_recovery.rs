@@ -140,14 +140,60 @@ async fn verify_recovery_answer(
 
 fn parse_recovery_answer(raw: &str) -> EaiResult<CloudAnswer> {
     let raw = raw.trim();
-    let json = raw
-        .strip_prefix("```json")
-        .or_else(|| raw.strip_prefix("```"))
-        .and_then(|body| body.strip_suffix("```"))
-        .unwrap_or(raw)
-        .trim();
-    serde_json::from_str(json)
-        .map_err(|_| EaiError::protocol("Provider did not return a structured mission outcome"))
+    let candidates = [
+        raw,
+        raw.strip_prefix("```json")
+            .or_else(|| raw.strip_prefix("```"))
+            .and_then(|body| body.strip_suffix("```"))
+            .unwrap_or(raw)
+            .trim(),
+    ];
+    for candidate in candidates {
+        if let Ok(answer) = serde_json::from_str::<CloudAnswer>(candidate) {
+            return Ok(answer);
+        }
+    }
+    // Models often wrap JSON in prose — extract the first object brace span.
+    if let Some(extracted) = extract_json_object(raw) {
+        if let Ok(answer) = serde_json::from_str::<CloudAnswer>(extracted) {
+            return Ok(answer);
+        }
+    }
+    Err(EaiError::protocol(
+        "Provider did not return a structured mission outcome",
+    ))
+}
+
+fn extract_json_object(raw: &str) -> Option<&str> {
+    let start = raw.find('{')?;
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, ch) in raw[start..].char_indices() {
+        let c = ch;
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&raw[start..start + i + 1]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -481,5 +527,21 @@ mod tests {
         )
         .await;
         assert!(calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_recovery_answer_extracts_json_from_prose() {
+        let raw = "Sure — here you go:\n{\"status\":\"failed\",\"answer\":\"No live weather evidence\"}\nHope that helps.";
+        let parsed = parse_recovery_answer(raw).expect("should extract JSON object");
+        assert!(matches!(parsed.status, CompletionStatus::Failed));
+        assert!(parsed.answer.contains("No live weather"));
+    }
+
+    #[test]
+    fn parse_recovery_answer_accepts_fenced_json() {
+        let raw = "```json\n{\"status\":\"complete\",\"answer\":\"ok\"}\n```";
+        let parsed = parse_recovery_answer(raw).unwrap();
+        assert!(matches!(parsed.status, CompletionStatus::Complete));
+        assert_eq!(parsed.answer, "ok");
     }
 }
