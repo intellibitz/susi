@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use susi_core::registry::CapabilityRegistry;
 
 /// Universal Autonomous Substrate Bootstrapper
@@ -9,6 +11,10 @@ pub async fn bootstrap_zero_config_substrate() {
     if std::env::var("SUSI_VERBOSE").is_ok() {
         eprintln!("[BOOTSTRAP] Initiating Zero-Config Substrate Discovery...");
     }
+
+    // Drop HTTP providers that went unhealthy since the last pass so a killed
+    // Ollama/vLLM does not keep winning routing. Candle is permanent fallback.
+    prune_unhealthy_providers(registry).await;
 
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
     susi_gemi::http_provider::auto_discover_local_engines(registry).await;
@@ -25,5 +31,93 @@ pub async fn bootstrap_zero_config_substrate() {
         eprintln!("[BOOTSTRAP] Capability Registry Loaded:");
         eprintln!(" - Providers: {:?}", registry.list_providers());
         eprintln!(" - Tools: {:?}", registry.list_tools());
+    }
+}
+
+async fn prune_unhealthy_providers(registry: &CapabilityRegistry) {
+    let names = registry.list_providers();
+    for name in names {
+        if name == "Candle (Local)" {
+            continue;
+        }
+        let Some(provider) = registry.get_provider(&name) else {
+            continue;
+        };
+        let healthy = provider.is_healthy().await.unwrap_or(false);
+        if !healthy {
+            registry.unregister_provider(&name);
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[BOOTSTRAP] Pruned unhealthy provider: {}", name);
+            }
+        }
+    }
+}
+
+/// Spawn a background loop that re-runs zero-config discovery so engines/tools
+/// that appear after daemon start are hot-plugged without restart.
+/// `interval_secs == 0` disables the loop (initial bootstrap still runs).
+pub fn spawn_periodic_rediscovery(interval_secs: u64) {
+    if interval_secs == 0 {
+        return;
+    }
+    std::thread::Builder::new()
+        .name("susi-capability-rediscovery".into())
+        .spawn(move || {
+            let runtime = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    eprintln!("[SusiDaemon] Capability rediscovery loop aborted: {}", e);
+                    return;
+                }
+            };
+            let interval = Duration::from_secs(interval_secs);
+            loop {
+                std::thread::sleep(interval);
+                runtime.block_on(bootstrap_zero_config_substrate());
+            }
+        })
+        .ok();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rediscovery_disabled_when_interval_zero() {
+        // Must not spawn / hang — just verify the early-return path.
+        spawn_periodic_rediscovery(0);
+    }
+
+    #[tokio::test]
+    async fn prune_removes_unhealthy_non_candle_providers() {
+        use susi_core::provider::{BoxFuture, Provider};
+        use susi_error::EaiResult;
+
+        struct Unhealthy;
+        impl Provider for Unhealthy {
+            fn name(&self) -> &str {
+                "ollama-dead"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(false) })
+            }
+            fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
+                Box::pin(async { Ok(String::new()) })
+            }
+            fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(Unhealthy);
+        registry.register_provider(susi_gemi::candle_provider::CandleProvider);
+        prune_unhealthy_providers(&registry).await;
+        assert!(registry.get_provider("ollama-dead").is_none());
+        assert!(registry.get_provider("Candle (Local)").is_some());
     }
 }

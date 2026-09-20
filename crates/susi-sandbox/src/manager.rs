@@ -1031,6 +1031,11 @@ impl SusiConfig {
     pub fn model_provisioning_wait_secs(&self) -> u64 {
         self.get_or_bundled_default("model_provisioning_wait_secs")
     }
+    /// Interval for re-probing local inference engines and MCP tools after
+    /// daemon start. `0` disables the background rediscovery loop.
+    pub fn capability_rediscovery_secs(&self) -> u64 {
+        self.get_or_bundled_default("capability_rediscovery_secs")
+    }
     pub fn reflex_training_threshold(&self) -> usize {
         self.get_or_bundled_default("reflex_training_threshold")
     }

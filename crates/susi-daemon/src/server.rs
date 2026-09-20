@@ -512,6 +512,7 @@ impl SusiDaemon {
                 );
             }
         }
+        crate::auto_discovery::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);

@@ -107,6 +107,11 @@ impl CapabilityRegistry {
         self.providers.iter().map(|kv| kv.key().clone()).collect()
     }
 
+    /// Removes a provider by name. Returns true if it was present.
+    pub fn unregister_provider(&self, name: &str) -> bool {
+        self.providers.remove(name).is_some()
+    }
+
     /// Registers an abstract Tool with the capability registry.
     pub fn register_tool<T: Tool + 'static>(&self, tool: T) {
         let name = tool.name().to_string();
@@ -116,6 +121,11 @@ impl CapabilityRegistry {
     /// Retrieves a tool by name.
     pub fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).map(|v| v.clone())
+    }
+
+    /// Removes a tool by name. Returns true if it was present.
+    pub fn unregister_tool(&self, name: &str) -> bool {
+        self.tools.remove(name).is_some()
     }
 
     /// Retrieves a list of all registered tool names.

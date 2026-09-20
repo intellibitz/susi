@@ -8,6 +8,7 @@
   "max_concurrent_agents": 32,
   "cloud_scout_timeout_secs": 8,
   "model_provisioning_wait_secs": 1800,
+  "capability_rediscovery_secs": 60,
   "auto_download_models": true,
   "default_model": "susi-alpha",
   "discoverable_assets": [
