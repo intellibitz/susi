@@ -408,5 +408,12 @@
     "ckpt"
   ],
   "model_file_min_bytes": 1000000,
-  "susi_alpha_default": "susi-alpha"
+  "susi_alpha_default": "susi-alpha",
+  "inference_routing": {
+    "policy": "auto",
+    "local_min_tokens_per_sec": 8.0,
+    "local_max_latency_ms": 15000,
+    "prefer_cloud_when_cpu_only": true,
+    "ask_when_multiple_clouds": true
+  }
 }

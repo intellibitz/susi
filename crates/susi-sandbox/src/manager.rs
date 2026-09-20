@@ -830,6 +830,30 @@ pub struct ModelLifecycleConfig {
     pub failure_cooldown_secs: u64,
 }
 
+/// When local inference is too slow, escalate to cloud providers.
+/// `policy`: `auto` | `local_only` | `cloud_first` | `ask`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InferenceRoutingConfig {
+    pub policy: String,
+    pub local_min_tokens_per_sec: f32,
+    pub local_max_latency_ms: u64,
+    pub prefer_cloud_when_cpu_only: bool,
+    pub ask_when_multiple_clouds: bool,
+}
+
+impl Default for InferenceRoutingConfig {
+    fn default() -> Self {
+        Self {
+            policy: "auto".to_string(),
+            local_min_tokens_per_sec: 8.0,
+            local_max_latency_ms: 15_000,
+            prefer_cloud_when_cpu_only: true,
+            ask_when_multiple_clouds: true,
+        }
+    }
+}
+
 // === 100% DYNAMIC SUSI CONFIG - THE ROOT ===
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiConfig {
@@ -1047,6 +1071,9 @@ impl SusiConfig {
     }
     pub fn model_lifecycle(&self) -> ModelLifecycleConfig {
         self.get_or_bundled_default("model_lifecycle")
+    }
+    pub fn inference_routing(&self) -> InferenceRoutingConfig {
+        self.get_or_bundled_default("inference_routing")
     }
 
     /// The explicitly configured ladder, or empty if none is set. This is a

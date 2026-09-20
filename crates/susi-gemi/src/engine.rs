@@ -447,6 +447,35 @@ impl GemiEngine {
             }
         }
 
+        // Ensure configured cloud endpoints are registered before routing.
+        crate::http_provider::register_configured_cloud_endpoints(
+            susi_core::registry::CapabilityRegistry::global(),
+        );
+
+        // Latency / CPU-only gate: escalate to cloud when local is known-slow
+        // (or host has no GPU). Sticky preference + optional interactive pick.
+        let explicit_local_request = requested_model
+            .map(|m| !crate::routing::InferenceRouter::is_cloud_provider_name(m))
+            .unwrap_or(false);
+        if !explicit_local_request {
+            let names = susi_core::registry::CapabilityRegistry::global().list_providers();
+            if let Some(esc) = crate::routing::InferenceRouter::maybe_escalate_to_cloud(&names) {
+                crate::routing::InferenceRouter::announce(&esc);
+                callback(format!(
+                    "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
+                    esc.provider, esc.reason
+                ));
+                if let Some(text) =
+                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback)
+                {
+                    return match Self::verify_axiomatic_alignment(&text, workspace) {
+                        Ok(v) => v,
+                        Err(_) => text,
+                    };
+                }
+            }
+        }
+
         // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
         // before the native GGUF path. Skips Candle (Local) — that provider
         // delegates back into this function and would recurse.
@@ -486,6 +515,7 @@ impl GemiEngine {
                 min_complexity,
             )
         });
+        let local_started = std::time::Instant::now();
         let result = engine.run_inference_stream(prompt, callback, selected_model.as_deref());
         if let Some(model) = selected_model.as_deref() {
             if active_engine_identifier != "susi-federated" && active_engine_identifier != "cloud"
@@ -499,6 +529,13 @@ impl GemiEngine {
         }
         if let Ok(res) = result {
             if !res.trim().is_empty() {
+                // Feed the latency gate so the next request can escalate if slow.
+                if engine_key == "llamacpp" {
+                    crate::routing::InferenceRouter::record_local_sample(
+                        local_started.elapsed(),
+                        res.len(),
+                    );
+                }
                 return match Self::verify_axiomatic_alignment(&res, workspace) {
                     Ok(v) => v,
                     Err(_) => res,
@@ -546,7 +583,7 @@ impl GemiEngine {
 
     /// Rank discovered provider names: fast structured engines first, then
     /// other HTTP backends. Candle is excluded (see caller).
-    fn rank_provider_name(name: &str) -> u8 {
+    pub(crate) fn rank_provider_name(name: &str) -> u8 {
         let lower = name.to_ascii_lowercase();
         if lower.contains("sglang") {
             0
