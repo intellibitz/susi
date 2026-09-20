@@ -706,7 +706,7 @@ fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<std::path::PathBu
 /// the config-driven counterpart to localhost auto-discovery.
 ///
 /// Zero-config contract: user only sets vendor API keys (shell env,
-/// `~/.susi/cloud.env`, or `susi key set <vendor>`). Bundled OpenAI-compatible
+/// `~/.susi/cloud.env`, or `susi keys set <vendor>`). Bundled OpenAI-compatible
 /// presets register themselves when the matching key is present — no
 /// config.json edits required.
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
