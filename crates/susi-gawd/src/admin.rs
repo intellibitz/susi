@@ -513,13 +513,17 @@ impl SusiAdmin {
         // `cuda`, `mkl`, and `metal` are mutually exclusive hardware backends
         // (e.g. metal pulls in macOS-only objc2 bindings) and cannot all build
         // together on any single host, so `--all-features` is never used here.
-        // Instead, check default features plus the one GPU backend feature
-        // that can actually compile on the host OS, mirroring install.sh's own
-        // platform selection. `mkl` is intentionally excluded: it links against
-        // the closed-source Intel MKL runtime, which this pipeline cannot
-        // assume is installed, so it is left to be validated by whoever builds
-        // with it explicitly.
-        let host_gpu_feature: Option<&str> = if cfg!(target_os = "macos") {
+        // The GPU backend feature check compiles a nearly-disjoint dependency
+        // tree (cudarc, cudaforge, candle-kernels) — roughly a full second
+        // workspace build per phase — so it is opt-in via
+        // SUSI_RELEASE_CHECK_GPU=1. CI's own GPU lane covers that validation;
+        // locally, default features are checked unconditionally. `mkl` stays
+        // excluded: it links the closed-source Intel MKL runtime this pipeline
+        // cannot assume is installed.
+        let check_gpu = env::var("SUSI_RELEASE_CHECK_GPU").ok().as_deref() == Some("1");
+        let host_gpu_feature: Option<&str> = if !check_gpu {
+            None
+        } else if cfg!(target_os = "macos") {
             Some("metal")
         } else {
             Some("cuda")
@@ -527,6 +531,11 @@ impl SusiAdmin {
         let feature_sets: Vec<Option<&str>> = std::iter::once(None)
             .chain(host_gpu_feature.into_iter().map(Some))
             .collect();
+        if check_gpu {
+            eprintln!(
+                "[Release Gatekeeper] GPU feature-set checks enabled (SUSI_RELEASE_CHECK_GPU=1)."
+            );
+        }
 
         eprintln!("[Release Gatekeeper] 1. Executing Static Type Check (cargo check)...");
         for features in &feature_sets {
@@ -605,10 +614,28 @@ impl SusiAdmin {
         }
 
         eprintln!("[Release Gatekeeper] 5. Verifying Ephemeral Mission Protocols...");
+        // Build once, then invoke the binary directly for each mission —
+        // 3x `cargo run` re-resolves/relinks per invocation for no benefit.
+        eprintln!("[Release Gatekeeper]    -> cargo build (once for all smoke missions)");
+        let mut build = Command::new("cargo")
+            .args(["build", "--quiet"])
+            .current_dir(workspace)
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()?;
+        if !build.wait()?.success() {
+            return Err(EaiError::process(
+                "Release aborted: smoke-test build failed.".to_string(),
+            ));
+        }
+        let susi_bin = workspace
+            .join("target")
+            .join("debug")
+            .join(if cfg!(windows) { "susi.exe" } else { "susi" });
         let missions = ["identity", "status", "models"];
         for mission in missions {
-            let mut mission_out = Command::new("cargo")
-                .args(["run", "--quiet", "--", mission])
+            let mut mission_out = Command::new(&susi_bin)
+                .arg(mission)
                 .current_dir(workspace)
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
