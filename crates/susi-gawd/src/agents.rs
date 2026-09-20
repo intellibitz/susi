@@ -1357,6 +1357,23 @@ impl GawdAgentFleet {
             .any(|w| lower_goal.starts_with(w))
     }
 
+    /// Process a request through the agent fleet
+    /// Synthesizes appropriate agents and delegates the request
+    pub async fn process_request(&self, request: &str) -> Result<String, String> {
+        let workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+
+        // Synthesize agents for this request
+        let agents = Self::synthesize_fleet(request, &workspace);
+
+        if agents.is_empty() {
+            return Err("No suitable agents found for request".to_string());
+        }
+
+        // For now, return a simple acknowledgment
+        // In a full implementation, this would coordinate the agents to process the request
+        Ok(format!("Processed request with {} agents", agents.len()))
+    }
+
     /// Neural Fleet Synthesizer: Dynamically decides which agents are required for a mission.
     /// Uses semantic centroids to match agents.
     pub fn synthesize_fleet(goal: &str, workspace: &Path) -> Vec<Arc<dyn GawdAgent>> {

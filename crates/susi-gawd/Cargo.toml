@@ -26,3 +26,6 @@ rayon = "1.10"
 log = "0.4"
 tokio = { workspace = true }
 once_cell = { workspace = true }
+ra2a = { version = "0.10.1", features = ["server", "client"] }
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"

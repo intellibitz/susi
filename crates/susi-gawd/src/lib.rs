@@ -1,3 +1,4 @@
+pub mod a2a;
 mod accountability;
 pub mod admin;
 pub mod agents;

@@ -4498,6 +4498,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
+
+[[package]]
 name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5842,6 +5852,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "ra2a"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dee2641520f47153feca6555d4b7d0bfc5b2b74e07a948a193905e433c1b6808"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "rancor"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6226,6 +6255,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -7278,6 +7308,7 @@ dependencies = [
 name = "susi-gawd"
 version = "0.2.0"
 dependencies = [
+ "async-trait",
  "base64 0.23.1",
  "dashmap",
  "flume",
@@ -7285,6 +7316,7 @@ dependencies = [
  "md5 0.7.0",
  "once_cell",
  "parking_lot",
+ "ra2a",
  "rayon",
  "reqwest 0.13.5",
  "serde",
@@ -7299,6 +7331,7 @@ dependencies = [
  "susi-tools",
  "syn 3.0.6",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
