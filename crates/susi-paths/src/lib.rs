@@ -62,4 +62,13 @@ impl SusiDirs {
         }
         Self::legacy_base()
     }
+
+    /// Host substrate root the background daemon is always bound to
+    /// (`~/.susi` or the XDG data dir). This is **not** a project workspace —
+    /// CLI intents use the caller's cwd; the daemon only owns host-global
+    /// state (models, ports, lock, rediscovery).
+    #[must_use]
+    pub fn substrate_home() -> PathBuf {
+        Self::data_dir()
+    }
 }

@@ -95,9 +95,9 @@ enum Commands {
     },
     /// Clean workspace build artifacts
     Clean,
-    /// Internal daemon start (Called by ensure_daemon_running)
+    /// Internal daemon start (always binds to substrate home; --workspace kept for compat)
     DaemonStart {
-        #[arg(long)]
+        #[arg(long, default_value_t = String::new())]
         workspace: String,
     },
 }
@@ -654,9 +654,9 @@ fn main() {
                     std::process::exit(1);
                 }
             },
-            Commands::DaemonStart { workspace } => {
-                let ws = PathBuf::from(workspace);
-                SusiDaemon::run_daemon_loop(ws, global_dir);
+            Commands::DaemonStart { workspace: _ } => {
+                // Always host-scoped; ignore any project cwd passed for compat.
+                SusiDaemon::run_daemon_loop(susi_paths::SusiDirs::substrate_home(), global_dir);
             }
         }
     } else if !cli.intent.is_empty() {

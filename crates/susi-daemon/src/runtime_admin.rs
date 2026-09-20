@@ -13,23 +13,24 @@ pub struct SusiRuntimeAdmin;
 
 impl SusiRuntimeAdmin {
     /// Bootstraps the administrative substrate background cycle.
-    pub fn start_administration_cycle(workspace: &Path) {
-        let ws = workspace.to_path_buf();
+    /// `substrate_home` is the host substrate root (`~/.susi`), never a project cwd.
+    pub fn start_administration_cycle(substrate_home: &Path) {
+        let home = substrate_home.to_path_buf();
         std::thread::spawn(move || {
             // Mandate: Perform immediate Readiness Pulse on substrate boot
-            let _ = Self::perform_substrate_audit(&ws);
-            let _ = Self::perform_proactive_workspace_pulse(&ws, false);
+            let _ = Self::perform_substrate_audit(&home);
+            let _ = Self::perform_host_readiness(&home);
 
             let mut last_pulse = std::time::Instant::now();
             loop {
                 // 1. Hardware Load Watchdog (High-Resolution)
                 Self::perform_hardware_watchdog_audit();
 
-                // 2. Periodic Proactive Pulse (Every 5 minutes)
+                // 2. Periodic host readiness (Every 5 minutes) — not project work
                 if last_pulse.elapsed() > Duration::from_secs(300) {
-                    let _ = Self::perform_substrate_audit(&ws);
-                    let _ = Self::perform_proactive_workspace_pulse(&ws, false);
-                    let _ = Self::consolidate_sovereign_memory(&ws);
+                    let _ = Self::perform_substrate_audit(&home);
+                    let _ = Self::perform_host_readiness(&home);
+                    let _ = Self::consolidate_sovereign_memory(&home);
                     last_pulse = std::time::Instant::now();
                 }
 
@@ -62,10 +63,41 @@ impl SusiRuntimeAdmin {
         Ok(())
     }
 
+    /// Host-only readiness (models, substrate safety). Never treats
+    /// `substrate_home` as a coding project — project work is always cwd.
+    pub fn perform_host_readiness(substrate_home: &Path) -> EaiResult<()> {
+        let ama = susi_gawd::ama::SusiMasterAgent::new();
+
+        info!("[Readiness] Auditing model substrate optimal state...");
+        let _ = ModelManager::ensure_hardware_optimal_models(substrate_home);
+
+        info!("[Readiness] Scanning substrate for exfiltration vectors...");
+        let sec_res = ama.solve_clean(
+            "admin pulse: scan workspace for high-risk exfiltration vectors and security leaks. Mask if found.",
+            substrate_home,
+            env!("CARGO_PKG_VERSION"),
+        );
+        if sec_res.contains("VIOLATION") || sec_res.contains("MASKED") {
+            println!("\n[READINESS: SECURITY PROTOCOLS ENGAGED]");
+            println!("{}\n", sec_res);
+        }
+        Ok(())
+    }
+
     /// Proactive Workspace Pulse (Mandate: User does nothing, SUSI does everything)
-    /// Autonomously monitors and fixes pathologies in the user's workspace.
+    /// Autonomously monitors and fixes pathologies in the user's **project** cwd.
     /// All actions are performed with 100% Transparency and Accountability.
     pub fn perform_proactive_workspace_pulse(workspace: &Path, interactive: bool) -> EaiResult<()> {
+        // Refuse to treat the host substrate root as a project workspace.
+        if let (Ok(ws), Ok(home)) = (
+            workspace.canonicalize(),
+            susi_paths::SusiDirs::substrate_home().canonicalize(),
+        ) {
+            if ws == home {
+                return Self::perform_host_readiness(workspace);
+            }
+        }
+
         let ama = susi_gawd::ama::SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 

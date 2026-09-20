@@ -67,14 +67,12 @@ impl DaemonContext {
     }
 }
 
-/// A daemon process found running, plus the workspace it was actually
-/// started for and whether that was discovered via this caller's own
-/// workspace-scoped lock (`same_workspace: true`) or only via the global
-/// cross-workspace fallback lock (`false`). See `find_running_daemon`.
+/// A running host daemon. Always bound to [`susi_paths::SusiDirs::substrate_home`];
+/// project context is per-request cwd, never the daemon's boot path.
 pub struct RunningDaemon {
     pub pid: u32,
-    pub workspace: PathBuf,
-    pub same_workspace: bool,
+    /// Substrate home recorded in the lock (diagnostic / identity only).
+    pub substrate_home: PathBuf,
 }
 
 pub struct DaemonLock {
@@ -126,21 +124,20 @@ impl DaemonLock {
         Ok(Self { file })
     }
 
-    /// Writes `pid\nworkspace`. The second line lets a *different*
-    /// invocation that later finds this daemon only via the global lock's
-    /// cross-workspace fallback (see `find_running_daemon`) recover which
-    /// workspace it was actually started for, instead of assuming its own —
-    /// assuming wrong previously caused a binary-change-triggered restart
-    /// to tear down a daemon for workspace A and respawn it scoped to
-    /// unrelated workspace B, just because a CLI invocation from B happened
-    /// to be the one that noticed the binary had changed.
-    fn write_pid_for_workspace(&mut self, workspace: &Path) -> Result<(), String> {
+    /// Writes `pid\nsubstrate_home`. Second line is host identity only —
+    /// never a project cwd.
+    fn write_pid(&mut self, substrate_home: &Path) -> Result<(), String> {
         self.file.set_len(0).map_err(|e| e.to_string())?;
         self.file
             .seek(SeekFrom::Start(0))
             .map_err(|e| e.to_string())?;
-        write!(self.file, "{}\n{}", std::process::id(), workspace.display())
-            .map_err(|e| e.to_string())?;
+        write!(
+            self.file,
+            "{}\n{}",
+            std::process::id(),
+            substrate_home.display()
+        )
+        .map_err(|e| e.to_string())?;
         self.file.flush().map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -156,35 +153,20 @@ impl SusiDaemon {
         Self::check_status_path(&global_lock)
     }
 
-    /// Like `check_status`, but also reports which workspace the running
-    /// daemon was actually started for and whether it was found via this
-    /// caller's own workspace-scoped lock or only via the global
-    /// cross-workspace fallback — the information `ensure_daemon_running`
-    /// needs to never again restart the wrong workspace's daemon just
-    /// because a different workspace's CLI invocation was the one that
-    /// noticed a binary change.
-    pub fn find_running_daemon(workspace: &Path, global_dir: &Path) -> Option<RunningDaemon> {
+    /// Locate the single host daemon, if running.
+    pub fn find_running_daemon(global_dir: &Path) -> Option<RunningDaemon> {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock).map(|pid| {
-            let running_workspace = Self::read_recorded_workspace(&global_lock)
-                .unwrap_or_else(|| workspace.to_path_buf());
-            let same_workspace = Self::paths_identify_same_workspace(&running_workspace, workspace);
-
+            let substrate_home = Self::read_recorded_substrate_home(&global_lock)
+                .unwrap_or_else(susi_paths::SusiDirs::substrate_home);
             RunningDaemon {
                 pid,
-                workspace: running_workspace,
-                same_workspace,
+                substrate_home,
             }
         })
     }
 
-    fn paths_identify_same_workspace(left: &Path, right: &Path) -> bool {
-        let left = left.canonicalize().unwrap_or_else(|_| left.to_path_buf());
-        let right = right.canonicalize().unwrap_or_else(|_| right.to_path_buf());
-        left == right
-    }
-
-    fn read_recorded_workspace(lock_file_path: &Path) -> Option<PathBuf> {
+    fn read_recorded_substrate_home(lock_file_path: &Path) -> Option<PathBuf> {
         let content = fs::read_to_string(lock_file_path).ok()?;
         let mut lines = content.lines();
         lines.next()?; // PID line
@@ -268,37 +250,32 @@ impl SusiDaemon {
     /// contract with `susi admin sync` (see `verify_binary_integrity`'s doc
     /// comment) is untouched; a cache miss or parse failure always falls
     /// back to a real, fresh hash.
-    pub fn ensure_daemon_running(workspace: &Path, global_dir: &Path) {
+    /// Ensure the single host daemon is running, bound to
+    /// [`susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
+    /// irrelevant here — work context is attached per intent, not to the daemon.
+    pub fn ensure_daemon_running(_caller_cwd: &Path, global_dir: &Path) {
+        let substrate_home = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate_home);
+
         let current_exe = std::env::current_exe().ok();
         let msgs = susi_sandbox::manager::SusiMessages::load_global();
-        if let Some(running) = Self::find_running_daemon(workspace, global_dir) {
+        if let Some(running) = Self::find_running_daemon(global_dir) {
             if let Some(ref exe) = current_exe {
                 if let Ok(false) =
                     susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
                         exe, global_dir,
                     )
                 {
-                    if !running.same_workspace {
-                        // A daemon IS running (globally, for some other
-                        // workspace) with a stale binary - but restarting
-                        // it from here would use *our* workspace, tearing
-                        // down and replacing a daemon we don't own with one
-                        // scoped to somewhere unrelated. Measured live: this
-                        // exact mistake killed a real daemon and replaced it
-                        // with one for whatever directory a stray CLI
-                        // invocation happened to run from. Leave it running
-                        // stale rather than risk that; it self-heals the
-                        // next time a CLI invocation from ITS OWN workspace
-                        // notices the same mismatch.
-                        return;
-                    }
+                    // Daemon is always home-scoped, so any CLI may safely
+                    // restart a stale binary — there is no foreign workspace
+                    // ownership to protect.
                     let def_recompiled =
                         "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
                     let msg = msgs
                         .get("daemon", "binary_recompiled")
                         .unwrap_or(&def_recompiled);
                     info!("{}", msg.replace("{}", &running.pid.to_string()));
-                    Self::stop_daemon(workspace, global_dir);
+                    Self::stop_daemon(&substrate_home, global_dir);
                 } else {
                     return;
                 }
@@ -370,7 +347,7 @@ impl SusiDaemon {
                 .arg(&bin_to_run)
                 .arg("daemon-start")
                 .arg("--workspace")
-                .arg(workspace.to_str().unwrap_or("."))
+                .arg(substrate_home.to_str().unwrap_or("."))
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -389,7 +366,7 @@ impl SusiDaemon {
             let mut cmd = Command::new(&bin_to_run);
             cmd.arg("daemon-start")
                 .arg("--workspace")
-                .arg(workspace.to_str().unwrap_or("."))
+                .arg(substrate_home.to_str().unwrap_or("."))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
@@ -431,7 +408,7 @@ impl SusiDaemon {
             let mut cmd = Command::new(&bin_to_run);
             cmd.arg("daemon-start")
                 .arg("--workspace")
-                .arg(workspace.to_str().unwrap_or("."))
+                .arg(substrate_home.to_str().unwrap_or("."))
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
@@ -439,10 +416,14 @@ impl SusiDaemon {
         }
     }
 
-    pub fn run_daemon_loop(workspace: PathBuf, global_dir: PathBuf) {
+    pub fn run_daemon_loop(_legacy_workspace_arg: PathBuf, global_dir: PathBuf) {
         if cfg!(test) {
             return;
         }
+        // Daemon is always bound to substrate home — ignore any stale
+        // project-cwd passed via --workspace for backwards compatibility.
+        let workspace = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&workspace);
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
@@ -466,7 +447,7 @@ impl SusiDaemon {
             }
         };
 
-        if let Err(e) = lock.write_pid_for_workspace(&workspace) {
+        if let Err(e) = lock.write_pid(&workspace) {
             eprintln!("[SusiDaemon] Failed to write PID to lock file: {}", e);
             return;
         }
@@ -912,15 +893,7 @@ mod tests {
     }
 
     #[test]
-    fn test_global_lock_is_mutually_exclusive_across_different_workspace_paths() {
-        // Regression test for the bug this pass fixed: two `run_daemon_loop`
-        // calls for two *different* workspaces both bind the same global
-        // GEMI/GMCP/UDP ports, so the second one starting must refuse
-        // rather than race the first and get evicted by its self-healing
-        // "Sovereign Eviction" reflex. The actual mutual-exclusion
-        // primitive is the global lock's flock, independent of which
-        // workspace path is asking - this proves that property directly,
-        // without needing to spin up two real daemon processes.
+    fn test_global_lock_is_mutually_exclusive() {
         let global_dir =
             std::env::temp_dir().join(format!("susi_global_lock_test_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&global_dir);
@@ -930,13 +903,13 @@ mod tests {
         let first = DaemonLock::acquire(&global_lock_path);
         assert!(
             first.is_ok(),
-            "the first daemon (any workspace) must be able to acquire the global lock"
+            "the first daemon must be able to acquire the global lock"
         );
 
         let second = DaemonLock::acquire(&global_lock_path);
         assert!(
             second.is_err(),
-            "a second daemon for a DIFFERENT workspace must be refused the global lock while the first is still running, since they'd otherwise fight over the same shared network ports"
+            "a second daemon must be refused the global lock while the first is still running"
         );
 
         drop(first);
@@ -950,53 +923,23 @@ mod tests {
     }
 
     #[test]
-    fn test_find_running_daemon_recovers_the_real_workspace_via_global_fallback() {
-        // Regression test for the second bug this pass fixed: even after
-        // the global lock closed the cross-workspace race, restarting a
-        // daemon detected as "binary changed" via the global fallback used
-        // the CALLING invocation's own workspace - silently moving the
-        // daemon to wherever the caller happened to be, tearing down the
-        // real one. `find_running_daemon` must report the daemon's actual
-        // recorded workspace (workspace_a below), not the caller's
-        // (workspace_b), and must say `same_workspace: false` so
-        // `ensure_daemon_running` knows not to touch it.
+    fn test_find_running_daemon_reports_substrate_home() {
         let global_dir =
             std::env::temp_dir().join(format!("susi_find_running_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&global_dir);
         std::fs::create_dir_all(&global_dir).unwrap();
 
-        let workspace_a = global_dir.join("workspace_a");
-        let workspace_b = global_dir.join("workspace_b");
-        std::fs::create_dir_all(&workspace_a).unwrap();
-        std::fs::create_dir_all(&workspace_b).unwrap();
+        let substrate = global_dir.join("substrate_home");
+        std::fs::create_dir_all(&substrate).unwrap();
 
-        // Simulate workspace_a's daemon having started. The global lock
-        // records the workspace that owns the daemon.
         let global_lock_path = SusiDaemon::get_lock_file(&global_dir);
         let mut global_lock = DaemonLock::acquire(&global_lock_path).unwrap();
-        global_lock.write_pid_for_workspace(&workspace_a).unwrap();
+        global_lock.write_pid(&substrate).unwrap();
 
-        // A CLI invocation from workspace_b asks "is a daemon running?" -
-        // it has no lock of its own, so it must fall back to the global
-        // lock and correctly report workspace_a's daemon, not its own path.
-        let found = SusiDaemon::find_running_daemon(&workspace_b, &global_dir).expect(
-            "a daemon is running (workspace_a's) and must be found via the global fallback",
-        );
-        assert_eq!(
-            found.workspace, workspace_a,
-            "must recover the daemon's REAL recorded workspace, not the caller's own workspace_b"
-        );
-        assert!(
-            !found.same_workspace,
-            "found only via the global fallback, not workspace_b's own lock - must not be reported as same_workspace"
-        );
+        let found = SusiDaemon::find_running_daemon(&global_dir)
+            .expect("host daemon must be visible via the global lock");
+        assert_eq!(found.substrate_home, substrate);
         assert_eq!(found.pid, std::process::id());
-
-        // The same query from workspace_a's own perspective must report
-        // same_workspace: true (found via its own lock directly).
-        let found_own = SusiDaemon::find_running_daemon(&workspace_a, &global_dir).unwrap();
-        assert!(found_own.same_workspace);
-        assert_eq!(found_own.workspace, workspace_a);
 
         let _ = std::fs::remove_dir_all(&global_dir);
     }
