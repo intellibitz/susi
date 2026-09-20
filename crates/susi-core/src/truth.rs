@@ -261,10 +261,15 @@ impl TruthTransformer {
                 }
                 return Ok(());
             }
-            return Err(EaiError::governance(format!(
-                "TRUTH_UNVERIFIED: all verifier providers unavailable: {}",
+            // Remote verifiers are registered but unreachable (billing, rate
+            // limits, outages). Deterministic grounding already passed above —
+            // accept that rather than hard-failing the whole mission when the
+            // only remaining path is local inference.
+            eprintln!(
+                "[TRUTH] All verifier providers unavailable ({}); falling back to deterministic grounding only",
                 unavailable.join(", ")
-            )));
+            );
+            return Ok(());
         }
 
         Ok(())
@@ -465,6 +470,40 @@ mod tests {
             .contains("TRUTH_VIOLATION [SEMANTIC]"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn unavailable_verifiers_fall_back_to_deterministic_grounding() {
+        struct DownProvider;
+        impl Provider for DownProvider {
+            fn name(&self) -> &str {
+                "down-cloud"
+            }
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+                Box::pin(async { Ok(false) })
+            }
+            fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
+                Box::pin(async { Err(EaiError::process("HTTP 402")) })
+            }
+            fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+        }
+        let registry = CapabilityRegistry::new();
+        registry.register_provider(DownProvider);
+        let record = TruthTransformer::mission_evidence_record(
+            "summarize",
+            "agent",
+            "Live weather is unavailable; no observation was fetched.",
+        );
+        assert!(
+            TruthTransformer::cross_examine(&record, &registry, Path::new("."))
+                .await
+                .is_ok()
+        );
     }
 
     #[test]

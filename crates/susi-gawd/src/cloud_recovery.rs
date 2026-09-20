@@ -34,6 +34,7 @@ fn eligible(report: &SusiMissionReport) -> bool {
 }
 
 /// Recover using existing evidence. Previously executed tools are not replayed.
+/// Tries each cloud once, then falls back to local inference.
 pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
     if !eligible(report) {
         return;
@@ -47,9 +48,6 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
     let registry = CapabilityRegistry::global();
     susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
     let providers = susi_gemi::routing::InferenceRouter::cloud_failover_order(registry);
-    if providers.is_empty() {
-        return;
-    }
     // A dedicated thread also supports synchronous callers inside Tokio runtimes.
     let outcome = std::thread::scope(|scope| {
         scope
@@ -64,6 +62,7 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
                     providers,
                     workspace,
                     Duration::from_secs(60),
+                    true,
                 ));
                 Ok(())
             })
@@ -73,13 +72,13 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
         report.status = "FAILED".into();
         report
             .final_answer
-            .push_str("\nCloud recovery could not finish; mission remains failed.");
+            .push_str("\nRecovery could not finish; mission remains failed.");
     }
 }
 
 fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, detail: String) {
     let detail = SecurityDetector::redact(&detail);
-    eprintln!("[CLOUD FAILOVER] {provider}: {action} — {detail}");
+    eprintln!("[FAILOVER] {provider}: {action} — {detail}");
     report.interactions.push(A2AMessage {
         sender: provider.to_string(),
         recipient: "SUSI-Master".to_string(),
@@ -88,12 +87,77 @@ fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, 
     });
 }
 
+fn recovery_prompt(goal: &str, context: &str) -> String {
+    format!(
+        "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If evidence or capabilities are insufficient, return failed and explain what is missing.",
+        goal, context
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn verify_recovery_answer(
+    report: &SusiMissionReport,
+    provider: &str,
+    answer: CloudAnswer,
+    context: &str,
+    registry: &CapabilityRegistry,
+    workspace: &Path,
+) -> EaiResult<(String, EvidenceRecord)> {
+    if !matches!(answer.status, CompletionStatus::Complete) {
+        return Err(EaiError::inference(answer.answer));
+    }
+    if !crate::accountability::is_usable(&answer.answer) {
+        return Err(EaiError::inference(
+            "Provider returned empty or failed mission output",
+        ));
+    }
+    susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer.answer, workspace)?;
+    TruthTransformer::verify_mission_reality(&report.goal, provider, &answer.answer, workspace)?;
+    let evidence = EvidenceRecord::new(
+        provider.to_string(),
+        1.0,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        Claim {
+            subject: report.goal.clone(),
+            predicate: "mission_completed".into(),
+            value: answer.answer.clone(),
+        },
+        EvidenceSource::AgentObservation {
+            observation: answer.answer.clone(),
+            reasoning_trace: format!(
+                "Existing mission evidence:\n{context}\nCandidate answer:\n{}",
+                answer.answer
+            ),
+        },
+        0.0,
+    );
+    TruthTransformer::cross_examine(&evidence, registry, workspace).await?;
+    Ok((answer.answer, evidence))
+}
+
+fn parse_recovery_answer(raw: &str) -> EaiResult<CloudAnswer> {
+    let raw = raw.trim();
+    let json = raw
+        .strip_prefix("```json")
+        .or_else(|| raw.strip_prefix("```"))
+        .and_then(|body| body.strip_suffix("```"))
+        .unwrap_or(raw)
+        .trim();
+    serde_json::from_str(json)
+        .map_err(|_| EaiError::protocol("Provider did not return a structured mission outcome"))
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn recover_with_providers(
     report: &mut SusiMissionReport,
     registry: &CapabilityRegistry,
     providers: Vec<String>,
     workspace: &Path,
     timeout: Duration,
+    fallback_local: bool,
 ) {
     if !eligible(report) {
         return;
@@ -105,64 +169,15 @@ async fn recover_with_providers(
         if !attempted.insert(name.clone()) {
             continue;
         }
-        eprintln!("[CLOUD FAILOVER] Trying {name}");
-        let prompt = format!(
-            "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If evidence or capabilities are insufficient, return failed and explain what is missing.",
-            report.goal, context
-        );
+        eprintln!("[FAILOVER] Trying cloud {name}");
+        let prompt = recovery_prompt(&report.goal, &context);
         let result = tokio::time::timeout(timeout, async {
             let provider = registry
                 .get_provider(&name)
                 .ok_or_else(|| EaiError::inference("Provider no longer available"))?;
             let raw = provider.generate(&prompt).await?;
-            let raw = raw.trim();
-            let json = raw
-                .strip_prefix("```json")
-                .or_else(|| raw.strip_prefix("```"))
-                .and_then(|body| body.strip_suffix("```"))
-                .unwrap_or(raw)
-                .trim();
-            let answer: CloudAnswer = serde_json::from_str(json).map_err(|_| {
-                EaiError::protocol("Provider did not return a structured mission outcome")
-            })?;
-            if !matches!(answer.status, CompletionStatus::Complete) {
-                return Err(EaiError::inference(answer.answer));
-            }
-            if !crate::accountability::is_usable(&answer.answer) {
-                return Err(EaiError::inference(
-                    "Provider returned empty or failed mission output",
-                ));
-            }
-            susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer.answer, workspace)?;
-            TruthTransformer::verify_mission_reality(
-                &report.goal,
-                &name,
-                &answer.answer,
-                workspace,
-            )?;
-            let evidence = EvidenceRecord::new(
-                name.clone(),
-                1.0,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
-                Claim {
-                    subject: report.goal.clone(),
-                    predicate: "mission_completed".into(),
-                    value: answer.answer.clone(),
-                },
-                EvidenceSource::AgentObservation {
-                    observation: answer.answer.clone(),
-                    reasoning_trace: format!(
-                        "Existing mission evidence:\n{context}\nCandidate answer:\n{}",
-                        answer.answer
-                    ),
-                },
-                0.0, // No empirical confidence estimate is available.
-            );
-            TruthTransformer::cross_examine(&evidence, registry, workspace).await?;
-            Ok::<_, EaiError>((answer.answer, evidence))
+            let answer = parse_recovery_answer(&raw)?;
+            verify_recovery_answer(report, &name, answer, &context, registry, workspace).await
         })
         .await;
         match result {
@@ -188,8 +203,66 @@ async fn recover_with_providers(
             ),
         }
     }
+
+    // Last resort: local GGUF / llamacpp path (skips cloud escalation).
+    if !fallback_local {
+        report.final_answer.push_str(&format!(
+            "\nFailover exhausted {} cloud provider(s); mission remains failed. See attempt details in the mission trace.",
+            attempted.len()
+        ));
+        return;
+    }
+
+    eprintln!("[FAILOVER] Trying local inference");
+    let prompt = recovery_prompt(&report.goal, &context);
+    let workspace_owned = workspace.to_path_buf();
+    let local = tokio::time::timeout(timeout, async {
+        let raw = tokio::task::spawn_blocking(move || {
+            susi_gemi::engine::GemiEngine::generate_reasoning_deep_with_model(
+                &prompt,
+                &workspace_owned,
+                "local",
+            )
+        })
+        .await
+        .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
+        if raw.trim().is_empty() || raw.contains("[FAIL]") {
+            return Err(EaiError::inference(format!(
+                "Local inference produced no usable recovery answer: {}",
+                raw.chars().take(200).collect::<String>()
+            )));
+        }
+        let answer = parse_recovery_answer(&raw)?;
+        verify_recovery_answer(report, "local", answer, &context, registry, workspace).await
+    })
+    .await;
+
+    match local {
+        Ok(Ok((answer, evidence))) => {
+            record_attempt(
+                report,
+                "local",
+                "LOCAL_ATTEMPT_VERIFIED",
+                evidence.render_for_gemi(),
+            );
+            report.status = "COMPLETE".into();
+            report.final_answer = answer;
+            return;
+        }
+        Ok(Err(error)) => {
+            record_attempt(report, "local", "LOCAL_ATTEMPT_FAILED", error.to_string())
+        }
+        Err(_) => record_attempt(
+            report,
+            "local",
+            "LOCAL_ATTEMPT_FAILED",
+            "Local recovery attempt timed out".into(),
+        ),
+    }
+
     report.final_answer.push_str(&format!(
-        "\nCloud failover exhausted {} provider(s); mission remains failed. See attempt details in the mission trace.", attempted.len()
+        "\nFailover exhausted {} cloud provider(s) and local inference; mission remains failed. See attempt details in the mission trace.",
+        attempted.len()
     ));
 }
 
@@ -289,6 +362,7 @@ mod tests {
             vec!["a-down".into(), "b-working".into(), "c-unused".into()],
             Path::new("."),
             Duration::from_secs(1),
+            false,
         )
         .await;
         assert!(report.is_success());
@@ -330,6 +404,7 @@ mod tests {
             ],
             Path::new("."),
             Duration::from_secs(1),
+            false,
         )
         .await;
         assert!(report.is_success());
@@ -349,11 +424,12 @@ mod tests {
             vec!["down".into(), "down".into()],
             Path::new("."),
             Duration::from_secs(1),
+            false,
         )
         .await;
         assert!(!report.is_success());
         assert_eq!(*calls.lock().unwrap(), ["down"]);
-        assert!(report.final_answer.contains("exhausted 1 provider"));
+        assert!(report.final_answer.contains("exhausted 1 cloud provider"));
         assert_eq!(report.exit_code(), std::process::ExitCode::FAILURE);
     }
 
@@ -368,6 +444,7 @@ mod tests {
             vec!["a-hung".into(), "b-good".into()],
             Path::new("."),
             Duration::from_millis(20),
+            false,
         )
         .await;
         assert!(report.is_success());
@@ -387,6 +464,7 @@ mod tests {
                 vec!["unused".into()],
                 Path::new("."),
                 Duration::from_secs(1),
+                false,
             )
             .await;
             assert_eq!(report.status, status);
@@ -399,6 +477,7 @@ mod tests {
             vec!["unused".into()],
             Path::new("."),
             Duration::from_secs(1),
+            false,
         )
         .await;
         assert!(calls.lock().unwrap().is_empty());

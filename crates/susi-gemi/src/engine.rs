@@ -486,6 +486,9 @@ impl GemiEngine {
             };
         }
 
+        eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
+        callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
+
         // Primary Federated vs Native Inference Routing Edge
         let global_config = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier = crate::models::ModelManager::get_selected_engine()
