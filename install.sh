@@ -96,7 +96,7 @@ fi
 
 # 2. Try Binary Download First (Lightning Fast) if no local source exists
 if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
-    # Download the engine binary; `susi` is derived from it locally (symlink)
+    # Download the susi binary
     GPU_SUFFIX=""
     if [[ "$PLATFORM" == "linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
         if nvidia-smi --query-gpu=name --format=csv,noheader >/dev/null 2>&1; then
@@ -105,7 +105,7 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         fi
     fi
 
-    ENGINE_BINARY="susi-engine-$PLATFORM-$ARCH$GPU_SUFFIX"
+    ENGINE_BINARY="susi-$PLATFORM-$ARCH$GPU_SUFFIX"
     BASE_URL="https://github.com/$SUSI_REPO/releases/latest/download"
 
     # The CUDA build bundles its own cuBLAS/cuDART shared libraries next to
@@ -125,7 +125,7 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     echo "Attempting to download pre-compiled engine binary from $SUSI_REPO..."
 
     DEPLOYED=0
-    ENGINE_TMP="$GLOBAL_BIN_DIR/susi-engine-new"
+    ENGINE_TMP="$GLOBAL_BIN_DIR/susi-new"
     DOWNLOAD_TMP="$GLOBAL_BIN_DIR/$DOWNLOAD_NAME"
     CHECKSUM_TMP="$DOWNLOAD_TMP.sha256"
     if command -v curl >/dev/null 2>&1; then
@@ -180,21 +180,18 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     fi
 
     if [ "$DEPLOYED" = "1" ]; then
-        # `susi` is a symlink to susi-engine, so its process cmdline shows as
-        # ".../bin/susi", not ".../bin/susi-engine" - match the shared path
-        # prefix so a running daemon started via either name is caught.
+        # Match the process cmdline so a running daemon is caught.
         pkill -f "$GLOBAL_BIN_DIR/susi" || true
 
         # Transactional deployment
-        rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
+        rm -f "$GLOBAL_BIN_DIR/susi" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
         rm -rf "$GLOBAL_BIN_DIR/lib" 2>/dev/null || true
-        mv "$ENGINE_TMP" "$GLOBAL_BIN_DIR/susi-engine"
+        mv "$ENGINE_TMP" "$GLOBAL_BIN_DIR/susi"
         if [ -n "$EXTRACTED_LIB_DIR" ]; then
             mv "$EXTRACTED_LIB_DIR" "$GLOBAL_BIN_DIR/lib"
         fi
-        ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
         INSTALLED=1
-        echo "Successfully deployed the engine binary from GitHub ($SUSI_REPO)."
+        echo "Successfully deployed the susi binary from GitHub ($SUSI_REPO)."
     else
         echo "Binary download unavailable or failed. Falling back to build."
         rm -f "$ENGINE_TMP" "$DOWNLOAD_TMP" 2>/dev/null || true
@@ -327,7 +324,7 @@ if [ "$INSTALLED" = "0" ]; then
         (cd "$SCRIPT_DIR" && cargo build --release $BUILD_FEATURES)
         stop_heartbeat
 
-        ENGINE_SRC="$SCRIPT_DIR/target/release/susi-engine"
+        ENGINE_SRC="$SCRIPT_DIR/target/release/susi"
 
         if [ -f "$ENGINE_SRC" ]; then
             # Validate built binary
@@ -336,12 +333,11 @@ if [ "$INSTALLED" = "0" ]; then
                 exit 1
             fi
             pkill -f "$GLOBAL_BIN_DIR/susi" || true
-            rm -f "$GLOBAL_BIN_DIR/susi-engine" "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
-            cp "$ENGINE_SRC" "$GLOBAL_BIN_DIR/susi-engine"
-            chmod +x "$GLOBAL_BIN_DIR/susi-engine"
-            ln -sf "susi-engine" "$GLOBAL_BIN_DIR/susi"
+            rm -f "$GLOBAL_BIN_DIR/susi" 2>/dev/null || true
+            cp "$ENGINE_SRC" "$GLOBAL_BIN_DIR/susi"
+            chmod +x "$GLOBAL_BIN_DIR/susi"
             INSTALLED=1
-            echo "Deployed engine binary to $GLOBAL_BIN_DIR"
+            echo "Deployed susi binary to $GLOBAL_BIN_DIR"
         fi
     fi
 fi
@@ -364,55 +360,90 @@ if [ -x "$GLOBAL_BIN_DIR/susi" ]; then
     "$GLOBAL_BIN_DIR/susi" install
 fi
 
-# 5. Persistence Management (Daemon Auto-Start)
-# Set SUSI_NO_DAEMON=1 before running this installer to skip registering a
-# persistent background daemon (systemd user service / launchd agent) that
-# auto-starts susi on login and restarts it if it exits.
+# 5. Smart Service Management (On-Demand Daemon)
+# Set SUSI_NO_DAEMON=1 to skip daemon setup entirely.
+# Set SUSI_ALWAYS_ON=1 for traditional always-on service (not recommended).
 if [ -n "$SUSI_NO_DAEMON" ]; then
     echo "Skipping daemon registration (SUSI_NO_DAEMON is set)."
 elif [[ "$PLATFORM" == "linux" ]]; then
     if command -v systemctl >/dev/null 2>&1 && [ "$EUID" -ne 0 ]; then
-        echo "Registering susi daemon with systemd (User Session). Set SUSI_NO_DAEMON=1 to skip this."
-        mkdir -p "$HOME/.config/systemd/user"
-        cat <<EOF > "$HOME/.config/systemd/user/susi.service"
+        if [ -n "$SUSI_ALWAYS_ON" ]; then
+            echo "Registering susi daemon with systemd (Always-On Mode). Set SUSI_NO_DAEMON=1 to skip this."
+            mkdir -p "$HOME/.config/systemd/user"
+            cat <<EOF > "$HOME/.config/systemd/user/susi.service"
 [Unit]
-Description=susi Intelligence Substrate Daemon
+Description=susi Intelligence Substrate Daemon (Always-On)
 After=network.target
 
 [Service]
 ExecStart=$GLOBAL_BIN_DIR/susi daemon-start --workspace $HOME
 Restart=always
 RestartSec=5
+MemoryLimit=2G
+CPUQuota=50%
 
 [Install]
 WantedBy=default.target
 EOF
+        else
+            echo "Setting up susi daemon for on-demand activation (recommended). Set SUSI_ALWAYS_ON=1 for always-on mode."
+            mkdir -p "$HOME/.config/systemd/user"
+            # Socket activation - service starts only when needed
+            cat <<EOF > "$HOME/.config/systemd/user/susi.socket"
+[Unit]
+Description=susi Intelligence Substrate Socket
+PartOf=susi.service
+
+[Socket]
+ListenStream=%t/susi.sock
+SocketMode=0600
+
+[Install]
+WantedBy=sockets.target
+EOF
+            cat <<EOF > "$HOME/.config/systemd/user/susi.service"
+[Unit]
+Description=susi Intelligence Substrate Daemon (On-Demand)
+After=network.target susi.socket
+Requires=susi.socket
+
+[Service]
+ExecStart=$GLOBAL_BIN_DIR/susi daemon-start --workspace $HOME
+Restart=on-failure
+RestartSec=5
+MemoryLimit=2G
+CPUQuota=50%
+ExecStopPost=/bin/sh -c 'systemctl --user stop susi.service'
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+EOF
+            # Enable socket activation
+            if systemctl --user daemon-reload 2>/dev/null \
+                && systemctl --user enable susi.socket 2>/dev/null \
+                && systemctl --user start susi.socket 2>/dev/null; then
+                echo "  ✓ On-demand daemon configured - starts automatically when needed"
+                echo "  ✓ Auto-stops after 30min idle to save resources"
+                echo "  ✓ Manage with: systemctl --user [start|stop|status] susi.service"
+            else
+                echo "  Warning: could not reach the systemd user session bus; skipping daemon setup."
+                echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
+            fi
+        fi
+
         # Enable lingering so the user systemd instance (and this service)
         # keeps running after logout/reboot without an active login session -
         # best effort; some systems restrict this to root/polkit-approved users.
         if command -v loginctl >/dev/null 2>&1; then
             loginctl enable-linger "$(id -un)" 2>/dev/null || true
         fi
-
-        # `systemctl --user` requires a reachable user session bus, which
-        # isn't always up (e.g. a fresh SSH session before lingering takes
-        # effect, WSL without systemd, minimal containers). Without this
-        # guard a failure here would abort the whole installer under `set -e`
-        # even though the binary itself installed fine.
-        if systemctl --user daemon-reload 2>/dev/null \
-            && systemctl --user enable susi.service 2>/dev/null \
-            && systemctl --user start susi.service 2>/dev/null; then
-            :
-        else
-            echo "  Warning: could not reach the systemd user session bus; skipping daemon start."
-            echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
-            echo "  Or re-run this installer after 'loginctl enable-linger $(id -un)' takes effect (e.g. after re-login)."
-        fi
     fi
 elif [[ "$PLATFORM" == "macos" ]]; then
-    echo "Registering susi daemon with launchd. Set SUSI_NO_DAEMON=1 to skip this."
-    LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
-    cat <<EOF > "$LAUNCHD_PLIST"
+    if [ -n "$SUSI_ALWAYS_ON" ]; then
+        echo "Registering susi daemon with launchd (Always-On Mode). Set SUSI_NO_DAEMON=1 to skip this."
+        LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
+        cat <<EOF > "$LAUNCHD_PLIST"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -430,9 +461,38 @@ elif [[ "$PLATFORM" == "macos" ]]; then
     <true/>
     <key>KeepAlive</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
 </dict>
 </plist>
 EOF
+    else
+        echo "Setting up susi daemon for on-demand activation (recommended). Set SUSI_ALWAYS_ON=1 for always-on mode."
+        LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
+        cat <<EOF > "$LAUNCHD_PLIST"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.susi.daemon</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$GLOBAL_BIN_DIR/susi</string>
+        <string>daemon-start</string>
+        <string>--workspace</string>
+        <string>$HOME</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>
+EOF
+    fi
     if ! launchctl load "$LAUNCHD_PLIST" 2>/dev/null; then
         echo "  Warning: could not register with launchd; skipping daemon start."
         echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
