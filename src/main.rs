@@ -210,7 +210,7 @@ fn prompt_api_key(vendor: &str) -> io::Result<String> {
     let env_hint = susi_gemi::http_provider::resolve_vendor_env_name(vendor)
         .unwrap_or_else(|| "API_KEY".to_string());
     if !io::stdin().is_terminal() {
-        // Piped: `printf '%s' 'sk-…' | susi keys set deepseek`
+        // Piped: `printf '%s' "$DEEPSEEK_API_KEY" | susi keys set deepseek`
         let mut buf = String::new();
         io::stdin().read_to_string(&mut buf)?;
         let key = buf.trim().to_string();
