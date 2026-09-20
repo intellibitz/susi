@@ -347,6 +347,7 @@
     151643
   ],
   "max_generation_tokens": 256,
+  "gemi_max_concurrent_requests": 4,
   "repeat_penalty": 1.15,
   "repeat_last_n": 64,
   "speculative_decoding_enabled": false,

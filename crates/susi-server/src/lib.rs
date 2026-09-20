@@ -98,6 +98,9 @@ impl GemiServer {
                 }
             };
             let workspace = Arc::new(workspace);
+            let capacity = susi_sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default().gemi_max_concurrent_requests();
+            let admission = Arc::new(tokio::sync::Semaphore::new(capacity.min(tokio::sync::Semaphore::MAX_PERMITS)));
 
             loop {
                 let (stream, peer) = match listener.accept().await {
@@ -109,12 +112,14 @@ impl GemiServer {
                 };
                 let workspace = Arc::clone(&workspace);
                 let peer_ip = peer.ip();
+                let admission = Arc::clone(&admission);
 
                 tokio::spawn(async move {
                     let io = TokioIo::new(stream);
                     let service = service_fn(move |req| {
                         let workspace = Arc::clone(&workspace);
-                        async move { handle_gemi_request(req, workspace, peer_ip).await }
+                        let admission = Arc::clone(&admission);
+                        async move { handle_gemi_request(req, workspace, peer_ip, admission).await }
                     });
                     if let Err(e) = AutoBuilder::new(TokioExecutor::new())
                         .serve_connection(io, service)
@@ -132,6 +137,7 @@ async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
     peer_ip: std::net::IpAddr,
+    admission: Arc<tokio::sync::Semaphore>,
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -239,6 +245,19 @@ async fn handle_gemi_request(
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
+            let permit = match admission.try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    let mut response = json_response(
+                        StatusCode::TOO_MANY_REQUESTS,
+                        &json!({"error": {"message": "GEMI is at capacity; retry later", "type": "server_error", "code": "server_busy"}}),
+                    );
+                    response
+                        .headers_mut()
+                        .insert("Retry-After", HeaderValue::from_static("1"));
+                    return Ok(response);
+                }
+            };
             let is_streaming = completion.stream;
             let pulse_intent = completion.prompt;
             let active_model = ModelManager::get_selected_model(Some(
@@ -258,11 +277,13 @@ async fn handle_gemi_request(
                     active_model,
                     Arc::clone(&workspace),
                     path == "/v1/completions",
+                    permit,
                 ))
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
                 let content = match tokio::task::spawn_blocking(move || {
+                    let _permit = permit;
                     let ama = SusiMasterAgent::new();
                     let final_resp =
                         ama.solve_stream(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"), &|_| {});
@@ -331,8 +352,10 @@ fn build_streaming_response(
     model_name: String,
     workspace: Arc<PathBuf>,
     legacy: bool,
+    permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
     let rx = completion_stream(model_name, legacy, move |callback| {
+        let _permit = permit;
         SusiMasterAgent::new().solve_stream(
             &prompt,
             &workspace,
@@ -671,5 +694,45 @@ mod tests {
         assert!(first["created"].as_u64().unwrap().abs_diff(now_secs()) <= 1);
         assert_eq!(first["choices"][0]["text"], "answer");
         assert_eq!(second["choices"][0]["message"]["content"], "answer");
+    }
+    #[tokio::test]
+    async fn disconnected_stream_releases_admission() {
+        let admission = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = admission.clone().try_acquire_owned().unwrap();
+        let rx = completion_stream("m".into(), false, move |_| {
+            let _permit = permit;
+            "answer".into()
+        });
+        drop(rx);
+        let permit = tokio::time::timeout(std::time::Duration::from_secs(5), admission.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        drop(permit);
+        // If the worker raced with disconnect it may already have started;
+        // either way the permit must be released without a reader draining SSE.
+        assert_eq!(admission.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn slow_stream_retains_admission_until_work_finishes() {
+        let admission = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = admission.clone().try_acquire_owned().unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let rx = completion_stream("m".into(), false, move |callback| {
+            let _permit = permit;
+            let _ = started_tx.send(());
+            callback("x".repeat(4096 * 32));
+            "".into()
+        });
+        started_rx.await.unwrap();
+        assert!(admission.clone().try_acquire_owned().is_err());
+        drop(rx);
+        let permit = tokio::time::timeout(std::time::Duration::from_secs(5), admission.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        drop(permit);
+        assert_eq!(admission.available_permits(), 1);
     }
 }

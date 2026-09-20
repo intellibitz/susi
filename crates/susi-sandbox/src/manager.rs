@@ -1072,6 +1072,11 @@ impl SusiConfig {
     pub fn eos_token_ids(&self) -> Vec<u32> {
         self.get_or_bundled_default("eos_token_ids")
     }
+    /// Maximum simultaneous HTTP completion jobs; excess clients receive HTTP 429.
+    pub fn gemi_max_concurrent_requests(&self) -> usize {
+        self.get_or_bundled_default::<usize>("gemi_max_concurrent_requests")
+            .max(1)
+    }
     pub fn max_generation_tokens(&self) -> usize {
         self.get_or_bundled_default("max_generation_tokens")
     }
