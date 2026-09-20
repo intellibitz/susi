@@ -349,6 +349,39 @@ impl SusiDaemon {
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
         }
 
+        #[cfg(all(unix, target_os = "linux"))]
+        {
+            // Prefer systemd's transient-service path on Linux: the daemon
+            // lands in a real cgroup with MemoryMax/CPUQuota caps applied,
+            // instead of an unconstrained detached process. `systemd-run`
+            // exits non-zero when the user manager bus is unreachable (WSL,
+            // containers, pre-linger SSH), in which case we fall through to
+            // the portable double-fork path below.
+            let spawned_via_systemd = Command::new("systemd-run")
+                .args([
+                    "--user",
+                    "--collect",
+                    "--quiet",
+                    "--unit=susi-daemon",
+                    "--property=MemoryMax=2G",
+                    "--property=CPUQuota=50%",
+                    "--",
+                ])
+                .arg(&bin_to_run)
+                .arg("daemon-start")
+                .arg("--workspace")
+                .arg(workspace.to_str().unwrap_or("."))
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if spawned_via_systemd {
+                return;
+            }
+        }
+
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;

@@ -360,17 +360,27 @@ if [ -x "$GLOBAL_BIN_DIR/susi" ]; then
     "$GLOBAL_BIN_DIR/susi" install
 fi
 
-# 5. Smart Service Management (On-Demand Daemon)
-# Set SUSI_NO_DAEMON=1 to skip daemon setup entirely.
-# Set SUSI_ALWAYS_ON=1 for traditional always-on service (not recommended).
+# 5. Daemon Persistence
+# susi self-daemonizes on demand: every CLI invocation checks for a running
+# daemon and spawns one detached (scoped to the invoking directory) if absent.
+# No service registration is needed for that path - the daemon starts the
+# first time `susi` runs, which includes this installer's `susi install`
+# handshake below. On Linux, when a systemd user manager is reachable, the
+# spawn lands in a real cgroup (MemoryMax=2G, CPUQuota=50%) via systemd-run.
+#
+# SUSI_ALWAYS_ON=1 additionally registers a boot-persistent service
+# (systemd user unit / launchd agent) that starts the daemon at login and
+# restarts it on exit - opt-in because an always-on background process is a
+# resource/UX commitment the user should choose, not a silent default.
+# SUSI_NO_DAEMON=1 skips this section entirely (self-daemonization still
+# applies at runtime regardless).
 if [ -n "$SUSI_NO_DAEMON" ]; then
-    echo "Skipping daemon registration (SUSI_NO_DAEMON is set)."
-elif [[ "$PLATFORM" == "linux" ]]; then
+    echo "Skipping service registration (SUSI_NO_DAEMON is set)."
+elif [ -n "$SUSI_ALWAYS_ON" ] && [[ "$PLATFORM" == "linux" ]]; then
     if command -v systemctl >/dev/null 2>&1 && [ "$EUID" -ne 0 ]; then
-        if [ -n "$SUSI_ALWAYS_ON" ]; then
-            echo "Registering susi daemon with systemd (Always-On Mode). Set SUSI_NO_DAEMON=1 to skip this."
-            mkdir -p "$HOME/.config/systemd/user"
-            cat <<EOF > "$HOME/.config/systemd/user/susi.service"
+        echo "Registering susi daemon with systemd (Always-On Mode, SUSI_ALWAYS_ON=1)."
+        mkdir -p "$HOME/.config/systemd/user"
+        cat <<EOF > "$HOME/.config/systemd/user/susi.service"
 [Unit]
 Description=susi Intelligence Substrate Daemon (Always-On)
 After=network.target
@@ -379,71 +389,37 @@ After=network.target
 ExecStart=$GLOBAL_BIN_DIR/susi daemon-start --workspace $HOME
 Restart=always
 RestartSec=5
-MemoryLimit=2G
+MemoryMax=2G
 CPUQuota=50%
 
 [Install]
 WantedBy=default.target
 EOF
-        else
-            echo "Setting up susi daemon for on-demand activation (recommended). Set SUSI_ALWAYS_ON=1 for always-on mode."
-            mkdir -p "$HOME/.config/systemd/user"
-            # Socket activation - service starts only when needed
-            cat <<EOF > "$HOME/.config/systemd/user/susi.socket"
-[Unit]
-Description=susi Intelligence Substrate Socket
-PartOf=susi.service
-
-[Socket]
-ListenStream=%t/susi.sock
-SocketMode=0600
-
-[Install]
-WantedBy=sockets.target
-EOF
-            cat <<EOF > "$HOME/.config/systemd/user/susi.service"
-[Unit]
-Description=susi Intelligence Substrate Daemon (On-Demand)
-After=network.target susi.socket
-Requires=susi.socket
-
-[Service]
-ExecStart=$GLOBAL_BIN_DIR/susi daemon-start --workspace $HOME
-Restart=on-failure
-RestartSec=5
-MemoryLimit=2G
-CPUQuota=50%
-ExecStopPost=/bin/sh -c 'systemctl --user stop susi.service'
-TimeoutStopSec=30
-
-[Install]
-WantedBy=default.target
-EOF
-            # Enable socket activation
-            if systemctl --user daemon-reload 2>/dev/null \
-                && systemctl --user enable susi.socket 2>/dev/null \
-                && systemctl --user start susi.socket 2>/dev/null; then
-                echo "  ✓ On-demand daemon configured - starts automatically when needed"
-                echo "  ✓ Auto-stops after 30min idle to save resources"
-                echo "  ✓ Manage with: systemctl --user [start|stop|status] susi.service"
-            else
-                echo "  Warning: could not reach the systemd user session bus; skipping daemon setup."
-                echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
-            fi
-        fi
-
         # Enable lingering so the user systemd instance (and this service)
         # keeps running after logout/reboot without an active login session -
         # best effort; some systems restrict this to root/polkit-approved users.
         if command -v loginctl >/dev/null 2>&1; then
             loginctl enable-linger "$(id -un)" 2>/dev/null || true
         fi
+
+        # `systemctl --user` requires a reachable user session bus, which
+        # isn't always up (e.g. a fresh SSH session before lingering takes
+        # effect, WSL without systemd, minimal containers). Without this
+        # guard a failure here would abort the whole installer under `set -e`
+        # even though the binary itself installed fine.
+        if systemctl --user daemon-reload 2>/dev/null \
+            && systemctl --user enable susi.service 2>/dev/null \
+            && systemctl --user start susi.service 2>/dev/null; then
+            echo "  Always-on service registered. Manage: systemctl --user [start|stop|status] susi.service"
+        else
+            echo "  Warning: could not reach the systemd user session bus; skipping service start."
+            echo "  susi still self-daemonizes on first use - no action needed."
+        fi
     fi
-elif [[ "$PLATFORM" == "macos" ]]; then
-    if [ -n "$SUSI_ALWAYS_ON" ]; then
-        echo "Registering susi daemon with launchd (Always-On Mode). Set SUSI_NO_DAEMON=1 to skip this."
-        LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
-        cat <<EOF > "$LAUNCHD_PLIST"
+elif [ -n "$SUSI_ALWAYS_ON" ] && [[ "$PLATFORM" == "macos" ]]; then
+    echo "Registering susi daemon with launchd (Always-On Mode, SUSI_ALWAYS_ON=1)."
+    LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
+    cat <<EOF > "$LAUNCHD_PLIST"
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -466,37 +442,12 @@ elif [[ "$PLATFORM" == "macos" ]]; then
 </dict>
 </plist>
 EOF
-    else
-        echo "Setting up susi daemon for on-demand activation (recommended). Set SUSI_ALWAYS_ON=1 for always-on mode."
-        LAUNCHD_PLIST="$HOME/Library/LaunchAgents/com.susi.daemon.plist"
-        cat <<EOF > "$LAUNCHD_PLIST"
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.susi.daemon</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>$GLOBAL_BIN_DIR/susi</string>
-        <string>daemon-start</string>
-        <string>--workspace</string>
-        <string>$HOME</string>
-    </array>
-    <key>RunAtLoad</key>
-    <false/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>ThrottleInterval</key>
-    <integer>30</integer>
-</dict>
-</plist>
-EOF
-    fi
     if ! launchctl load "$LAUNCHD_PLIST" 2>/dev/null; then
-        echo "  Warning: could not register with launchd; skipping daemon start."
-        echo "  susi is installed - start it manually with: $GLOBAL_BIN_DIR/susi daemon-start --workspace \$HOME"
+        echo "  Warning: could not register with launchd; skipping service start."
+        echo "  susi still self-daemonizes on first use - no action needed."
     fi
+else
+    echo "No service registration needed: susi self-daemonizes on first use (SUSI_ALWAYS_ON=1 for boot persistence)."
 fi
 
 # 6. PATH Management
