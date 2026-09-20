@@ -109,19 +109,43 @@ pub(crate) fn call_blocking(config: McpServerConfig, name: String, arguments: Va
     }
 }
 
-async fn call(
+/// Probe a configured MCP server for its live tool catalog (name + description).
+pub(crate) fn list_tools_blocking(
     config: McpServerConfig,
-    name: String,
-    arguments: Value,
+) -> Result<Vec<(String, String)>, String> {
+    let runtime = match RUNTIME.get_or_init(tokio::runtime::Runtime::new) {
+        Ok(rt) => rt,
+        Err(e) => return Err(format!("MCP runtime: {e}")),
+    };
+    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let lease = Duration::from_secs(cfg.execution_lease_secs().min(30));
+    let handshake = Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10));
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    runtime.spawn(async move {
+        let result = tokio::time::timeout(lease, list_tools(config, handshake))
+            .await
+            .map_err(|_| "MCP tool discovery lease expired".to_string())
+            .and_then(|r| r);
+        let _ = send.send(result);
+    });
+    match receive.recv_timeout(lease + Duration::from_secs(1)) {
+        Ok(Ok(tools)) => Ok(tools),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+async fn acquire_pooled_connection(
+    config: &McpServerConfig,
     handshake: Duration,
-) -> Result<String, String> {
+) -> Result<(Connection, Slot), String> {
     // serde_json's ordered object representation includes env/cwd/auth in the
     // pool identity, so distinct security contexts never share a connection.
-    let key = serde_json::to_value(&config)
+    let key = serde_json::to_value(config)
         .map_err(|e| e.to_string())?
         .to_string();
     let pool = POOL.get_or_init(Default::default);
-    let slot = pool.lock().await.entry(key.clone()).or_default().clone();
+    let slot = pool.lock().await.entry(key).or_default().clone();
     let connection = {
         // Only this server's cold start is serialized; unrelated remotes remain concurrent.
         let mut slot = slot.lock().await;
@@ -131,7 +155,7 @@ async fn call(
         {
             connection.clone()
         } else {
-            let connection = tokio::time::timeout(handshake, connect(&config, ()))
+            let connection = tokio::time::timeout(handshake, connect(config, ()))
                 .await
                 .map_err(|_| "MCP handshake timed out".to_string())??;
             let connection = Arc::new(connection);
@@ -139,6 +163,50 @@ async fn call(
             connection
         }
     };
+    Ok((connection, slot))
+}
+
+async fn list_tools(
+    config: McpServerConfig,
+    handshake: Duration,
+) -> Result<Vec<(String, String)>, String> {
+    let (connection, slot) = acquire_pooled_connection(&config, handshake).await?;
+    let mut lease_guard = LeaseGuard {
+        connection: connection.clone(),
+        armed: true,
+    };
+    let result = connection.list_all_tools().await;
+    lease_guard.armed = false;
+    match result {
+        Ok(tools) => Ok(tools
+            .into_iter()
+            .map(|t| {
+                let desc = t
+                    .description
+                    .map(|d| d.into_owned())
+                    .unwrap_or_else(|| format!("MCP tool '{}'", t.name));
+                (t.name.into_owned(), desc)
+            })
+            .collect()),
+        Err(error) => {
+            if connection.is_transport_closed() {
+                let mut cached = slot.lock().await;
+                if cached.as_ref().is_some_and(|c| Arc::ptr_eq(c, &connection)) {
+                    *cached = None;
+                }
+            }
+            Err(error.to_string())
+        }
+    }
+}
+
+async fn call(
+    config: McpServerConfig,
+    name: String,
+    arguments: Value,
+    handshake: Duration,
+) -> Result<String, String> {
+    let (connection, slot) = acquire_pooled_connection(&config, handshake).await?;
     let arguments = arguments
         .as_object()
         .cloned()

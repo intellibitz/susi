@@ -37,6 +37,46 @@ impl GmcpClient {
         tools
     }
 
+    /// Live-probe each configured MCP server and return real tool names
+    /// (`server:tool`) with descriptions. Unreachable servers are skipped.
+    pub fn discover_live_tools() -> Vec<(String, McpTool)> {
+        let config_path = Self::get_config_path();
+        let content = match fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+        let config: McpConfig = match serde_json::from_str(&content) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut discovered = Vec::new();
+        for (server_name, srv) in config.mcp_servers {
+            match crate::connection::list_tools_blocking(srv) {
+                Ok(tools) => {
+                    for (tool_name, description) in tools {
+                        discovered.push((
+                            server_name.clone(),
+                            McpTool {
+                                name: format!("{}:{}", server_name, tool_name),
+                                description,
+                            },
+                        ));
+                    }
+                }
+                Err(e) => {
+                    if std::env::var("SUSI_VERBOSE").is_ok() {
+                        eprintln!(
+                            "[AUTODISCOVER] MCP server '{}' tool probe skipped: {}",
+                            server_name, e
+                        );
+                    }
+                }
+            }
+        }
+        discovered
+    }
+
     pub fn list_external_prompts() -> Vec<McpTool> {
         let mut prompts = Vec::new();
         let config_path = Self::get_config_path();

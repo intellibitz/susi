@@ -58,6 +58,17 @@ impl ToolRegistry {
 
         tools.extend(GmcpClient::list_external_tools());
 
+        // Pillar 8: surface live-discovered MCP tools from CapabilityRegistry
+        let caps = susi_core::registry::CapabilityRegistry::global();
+        for name in caps.list_tools() {
+            if let Some(tool) = caps.get_tool(&name) {
+                tools.push(McpTool {
+                    name,
+                    description: tool.description().to_string(),
+                });
+            }
+        }
+
         let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
         if let Ok(entries) = std::fs::read_dir(&reflex_dir) {
             for entry in entries.flatten() {
@@ -83,6 +94,12 @@ impl ToolRegistry {
         if registry.tools.contains_key(name) {
             return true;
         }
+        if susi_core::registry::CapabilityRegistry::global()
+            .get_tool(name)
+            .is_some()
+        {
+            return true;
+        }
         let lower_name = name.to_lowercase();
         if lower_name.contains(':')
             || lower_name.starts_with("ext_")
@@ -96,6 +113,15 @@ impl ToolRegistry {
     }
 
     pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
+        // Prefer CapabilityRegistry for discovered MCP tools so swarm dispatch
+        // uses the same hot-plugged catalog as zero-config bootstrap.
+        if let Some(tool) = susi_core::registry::CapabilityRegistry::global().get_tool(name) {
+            return match tool.execute(arg, workspace) {
+                Ok(res) => res,
+                Err(e) => format!("{}", e),
+            };
+        }
+
         if name.contains(':') && !name.starts_with("ext_") {
             let parts: Vec<&str> = name.splitn(2, ':').collect();
             let arg_str = if let Some(s) = arg.as_str() {
@@ -297,5 +323,33 @@ mod tests {
                 .count();
             assert_eq!(winners, 1);
         });
+    }
+
+    struct MockCapabilityTool;
+
+    impl susi_core::registry::Tool for MockCapabilityTool {
+        fn name(&self) -> &str {
+            "mock_mcp:echo"
+        }
+        fn description(&self) -> &str {
+            "test tool"
+        }
+        fn execute(&self, _args: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+            Ok("from-capability-registry".to_string())
+        }
+    }
+
+    #[test]
+    fn execute_tool_routes_discovered_mcp_via_capability_registry() {
+        susi_core::registry::CapabilityRegistry::global().register_tool(MockCapabilityTool);
+        assert!(ToolRegistry::exists("mock_mcp:echo"));
+        let out =
+            ToolRegistry::execute_tool("mock_mcp:echo", &serde_json::json!({}), Path::new("."));
+        assert_eq!(out, "from-capability-registry");
+        let listed = ToolRegistry::list_tools();
+        assert!(
+            listed.iter().any(|t| t.name == "mock_mcp:echo"),
+            "discovered tool must appear in list_tools"
+        );
     }
 }
