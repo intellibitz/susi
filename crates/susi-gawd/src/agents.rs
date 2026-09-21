@@ -1237,6 +1237,7 @@ pub fn agent_registry() -> &'static DynamicServiceRegistry {
         registry.register_factory("ContextAgent", || {
             Arc::new(Arc::new(ContextAgent) as Arc<dyn GawdAgent>)
         });
+        crate::external_peers::register_external_peer_factories(&registry);
         registry
     })
 }

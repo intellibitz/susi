@@ -842,6 +842,23 @@ pub struct InferenceRoutingConfig {
     pub ask_when_multiple_clouds: bool,
 }
 
+/// Config-driven external coding-agent peer (Claude Code, Cursor, Codex, …).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ExternalPeerAgentSpec {
+    pub name: String,
+    pub description: String,
+    /// Binaries probed in order (`which`-style) to select the live driver.
+    pub detect_bins: Vec<String>,
+    /// Explicit command; when empty, the first detected bin is used.
+    pub command: String,
+    /// Argv templates; `{goal}` and `{workspace}` are substituted.
+    pub args: Vec<String>,
+    pub timeout_secs: u64,
+    /// When set, the named env var must be present (e.g. Devin API key).
+    pub api_key_env: Option<String>,
+}
+
 impl Default for InferenceRoutingConfig {
     fn default() -> Self {
         Self {
@@ -1135,6 +1152,11 @@ impl SusiConfig {
     }
     pub fn inference_routing(&self) -> InferenceRoutingConfig {
         self.get_or_bundled_default("inference_routing")
+    }
+
+    /// Leading external coding agents mounted as pluggable swarm peers.
+    pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
+        self.get_or_bundled_default("external_peer_agents")
     }
 
     /// The explicitly configured ladder, or empty if none is set. This is a

@@ -11,6 +11,7 @@ mod cloud_recovery;
 pub mod compliance;
 pub mod dag;
 pub mod evolution;
+pub mod external_peers;
 pub mod genome_distiller;
 pub mod kernel_loader;
 mod live_search;

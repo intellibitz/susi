@@ -465,5 +465,78 @@
     "local_max_latency_ms": 15000,
     "prefer_cloud_when_cpu_only": true,
     "ask_when_multiple_clouds": true
-  }
+  },
+  "external_peer_agents": [
+    {
+      "name": "ClaudeCodeAgent",
+      "description": "Anthropic Claude Code peer \u2014 terminal coding agent (pluggable when `claude` is on PATH).",
+      "detect_bins": [
+        "claude"
+      ],
+      "command": "claude",
+      "args": [
+        "-p",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null
+    },
+    {
+      "name": "CursorAgent",
+      "description": "Cursor Agent peer \u2014 IDE-native coding agent (pluggable when `cursor-agent` or `agent` is on PATH).",
+      "detect_bins": [
+        "cursor-agent",
+        "agent"
+      ],
+      "command": "",
+      "args": [
+        "-p",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null
+    },
+    {
+      "name": "CodexAgent",
+      "description": "OpenAI Codex peer \u2014 CLI/cloud coding agent (pluggable when `codex` is on PATH).",
+      "detect_bins": [
+        "codex"
+      ],
+      "command": "codex",
+      "args": [
+        "exec",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null
+    },
+    {
+      "name": "DevinAgent",
+      "description": "Devin peer \u2014 delegated cloud worker (pluggable when DEVIN_API_KEY is set and optional `devin` CLI is present).",
+      "detect_bins": [
+        "devin"
+      ],
+      "command": "devin",
+      "args": [
+        "run",
+        "{goal}"
+      ],
+      "timeout_secs": 900,
+      "api_key_env": "DEVIN_API_KEY"
+    },
+    {
+      "name": "OpenHandsAgent",
+      "description": "OpenHands peer \u2014 self-hostable autonomous platform (pluggable when `openhands` is on PATH).",
+      "detect_bins": [
+        "openhands"
+      ],
+      "command": "openhands",
+      "args": [
+        "--task",
+        "{goal}"
+      ],
+      "timeout_secs": 900,
+      "api_key_env": null
+    }
+  ]
 }
