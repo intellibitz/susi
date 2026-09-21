@@ -36,7 +36,7 @@ Foundation claims — each must hold in source:
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`; leading MCP via `susi mcp enable`. Local Candle: llama/qwen2 GGUF only. Vendor opinions (env aliases, curated ranks) live in extension packs under `config/extensions/default/` (host override `~/.susi/extensions/<pack>/`); core stays protocol-generic.
+4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`; leading MCP via `susi mcp enable`. Local Candle: llama/qwen2 GGUF only. Vendor opinions (env aliases, curated ranks) live in extension packs — auto-seeded under `~/.susi/extensions/` (`susi extensions`); core stays protocol-generic.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
@@ -125,13 +125,15 @@ susi mcp
 
 ## Extension packs
 
-Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — cloud env aliases, curated catalog pointers, ranks — live in **extension packs**:
+Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opinions — cloud env aliases, curated catalog pointers, ranks — live in **extension packs**. Zero-config lifecycle:
 
-- Bundled default: `config/extensions/default/` (`manifest.json`, `cloud-vendors.json`, …)
-- Host override: `~/.susi/extensions/<pack-id>/` (set pack id with `SUSI_EXTENSION_PACK`; default `default`)
-- Adding a vendor is pack JSON only — no Rust edit required for env aliases
+- **Auto-seed** — first run creates `~/.susi/extensions/default/` from the bundled pack (never overwrites host edits)
+- **Auto-load** — packs with `manifest.json` under `~/.susi/extensions/<id>/` are discovered and marked loaded; `state.json` tracks active id
+- **CLI** — `susi extensions` / `susi ext` (`list`, `status`, `seed`, `create <id>`, `load <id>`, `unload <id>`)
+- Bundled source: `config/extensions/default/`
+- Force active pack: `SUSI_EXTENSION_PACK=<id>`
 
-Catalog loaders still embed bundled JSON via `include_str!` for offline/zero-config; host pack files win when present. Leading catalogs (`coding-models`, `execution-agents`, `agent-engines`, `leading-mcp`) resolve through the pack API.
+Catalog loaders still embed bundled JSON via `include_str!` for offline boot; host pack files win when present.
 
 ---
 

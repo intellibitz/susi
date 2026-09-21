@@ -12,6 +12,23 @@ pub async fn bootstrap_zero_config_substrate() {
         eprintln!("[BOOTSTRAP] Initiating Zero-Config Substrate Discovery...");
     }
 
+    // 0. Extension packs: seed ~/.susi/extensions/default, auto-discover packs,
+    //    honor SUSI_EXTENSION_PACK / state.json active id.
+    match susi_sandbox::extensions::ensure_extensions_substrate() {
+        Ok(pack) => {
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!(
+                    "[BOOTSTRAP] Extension pack `{}` ready at {}",
+                    pack.id,
+                    pack.root.display()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("[BOOTSTRAP] Extension pack seed skipped: {}", e);
+        }
+    }
+
     // Drop HTTP providers that went unhealthy since the last pass so a killed
     // Ollama/vLLM does not keep winning routing. Candle is permanent fallback.
     prune_unhealthy_providers(registry).await;

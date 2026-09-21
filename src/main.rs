@@ -6,6 +6,7 @@
 #![allow(missing_docs)]
 
 mod agent_cli;
+mod extensions_cli;
 mod framework_cli;
 mod mcp_cli;
 mod model_cli;
@@ -65,6 +66,12 @@ enum Commands {
     Mcp {
         #[command(subcommand)]
         action: Option<mcp_cli::McpCommands>,
+    },
+    /// Manage extension packs (auto-seeded vendor opinions under ~/.susi/extensions)
+    #[command(name = "extensions", visible_alias = "ext")]
+    Extensions {
+        #[command(subcommand)]
+        action: Option<extensions_cli::ExtensionCommands>,
     },
     /// Start GEMI REST server
     Gemi,
@@ -218,6 +225,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         {
             false
         }
+        Commands::Extensions { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,
@@ -380,6 +388,15 @@ fn run_shell(workspace: &Path) {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     // External executors/frameworks do not need model provisioning, daemon boot, or self-deployment.
+    if let Some(Commands::Extensions { action }) = cli.command {
+        return match extensions_cli::execute(action) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(Commands::Agents { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
@@ -454,6 +471,8 @@ fn main() -> std::process::ExitCode {
     susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
 
     susi_sandbox::auto_install::push_to_hardware_if_dev_build();
+    // Zero-config: seed/load extension packs before catalogs or vendor resolution.
+    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     // Zero-config: load ~/.susi/cloud.env before any inference/routing so
     // vendor keys work without editing config.json (and without a login shell).
     susi_gemi::http_provider::apply_cloud_env_file();
@@ -518,7 +537,7 @@ fn main() -> std::process::ExitCode {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Agents { .. } | Commands::Frameworks { .. } => {
+            Commands::Agents { .. } | Commands::Frameworks { .. } | Commands::Extensions { .. } => {
                 // Handled before substrate boot above.
             }
             Commands::Start => {
