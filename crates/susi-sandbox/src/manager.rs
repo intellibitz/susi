@@ -843,11 +843,20 @@ pub struct InferenceRoutingConfig {
 }
 
 /// Config-driven external coding-agent peer (Claude Code, Cursor, Codex, …).
+///
+/// Open admission: any name + protocol in `external_peer_agents` mounts as a
+/// GawdAgent. Protocols: `cli` (default), `openai_chat`, `http`, `a2a`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ExternalPeerAgentSpec {
     pub name: String,
     pub description: String,
+    /// Wire protocol: `cli` | `openai_chat` | `http` | `a2a` (default `cli`).
+    pub protocol: String,
+    /// Base URL for `openai_chat` / `http` / `a2a` peers (OpenAI-compat or A2A).
+    pub api_base: String,
+    /// Optional model id for `openai_chat` peers.
+    pub model: String,
     /// Binaries probed in order (`which`-style) to select the live driver.
     pub detect_bins: Vec<String>,
     /// Explicit command; when empty, the first detected bin is used.

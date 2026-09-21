@@ -1513,21 +1513,33 @@ impl GawdAgentFleet {
             }
         }
 
-        // 2. Inference endpoints mapping
+        // 2. Inference endpoints mapping — open admission: any configured
+        // OpenAI-compat / protocol endpoint mounts as a DynamicInferenceEndpointAgent
+        // when api_base is set (env override optional).
         for endpoint in &cfg.inference_endpoints().endpoints {
+            if endpoint.api_base.trim().is_empty() {
+                continue;
+            }
             let env_var_name = format!(
                 "{}_API_BASE",
                 endpoint.name.to_uppercase().replace('.', "_")
             );
-            if std::env::var(&env_var_name).is_ok() {
-                let base_url =
-                    std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
-                fleet.push(Arc::new(DynamicInferenceEndpointAgent::new(
-                    &endpoint.name,
-                    &base_url,
-                    &endpoint.protocol_type,
-                )));
+            let base_url =
+                std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
+            if base_url.trim().is_empty() {
+                continue;
             }
+            if fleet
+                .iter()
+                .any(|a| a.name() == format!("{}BridgeAgent", endpoint.name))
+            {
+                continue;
+            }
+            fleet.push(Arc::new(DynamicInferenceEndpointAgent::new(
+                &endpoint.name,
+                &base_url,
+                &endpoint.protocol_type,
+            )));
         }
 
         // 3. Semantic Meta-Registry Discovery

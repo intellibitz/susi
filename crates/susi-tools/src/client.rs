@@ -236,6 +236,44 @@ impl GmcpClient {
         "ERROR_FAILED".to_string()
     }
 
+    /// Open MCP admission: mount any stdio command or HTTP MCP URL into
+    /// `~/.susi/mcp_config.json` without requiring a scout preset.
+    ///
+    /// - `command_or_url` starting with `http://` or `https://` → streamable HTTP MCP
+    /// - otherwise → stdio MCP (`command` + optional `args`)
+    pub fn admit_mcp_server(name: &str, command_or_url: &str, args: &[String]) -> String {
+        let name = name.trim();
+        let command_or_url = command_or_url.trim();
+        if name.is_empty() || command_or_url.is_empty() {
+            return "ERROR_INVALID_ARGS".to_string();
+        }
+        let config_path = Self::get_config_path();
+        let mut config = if let Ok(content) = fs::read_to_string(&config_path) {
+            serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig {
+                mcp_servers: HashMap::new(),
+                extra: HashMap::new(),
+            })
+        } else {
+            McpConfig {
+                mcp_servers: HashMap::new(),
+                extra: HashMap::new(),
+            }
+        };
+        let new_srv = McpServerConfig {
+            command: command_or_url.to_string(),
+            args: args.to_vec(),
+            env: None,
+            extra: HashMap::new(),
+        };
+        config.mcp_servers.insert(name.to_string(), new_srv);
+        if let Ok(updated) = serde_json::to_string_pretty(&config) {
+            if fs::write(&config_path, updated).is_ok() {
+                return "SUCCESS_ADMITTED".to_string();
+            }
+        }
+        "ERROR_FAILED".to_string()
+    }
+
     /// Dynamically provisions an MCP tool package from the global registry
     pub fn provision_tool_package(name: &str) -> String {
         let registry = Self::fetch_global_registry();
@@ -366,5 +404,60 @@ impl GmcpClient {
         };
 
         (trust, latency)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn admit_mcp_server_writes_http_and_stdio() {
+        let _guard = HOME_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "susi_mcp_admit_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let prev_home = std::env::var_os("HOME");
+        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("HOME", &dir);
+            std::env::set_var("XDG_CONFIG_HOME", dir.join("config"));
+        }
+        let res = GmcpClient::admit_mcp_server("remote", "http://127.0.0.1:3100/mcp", &[]);
+        assert_eq!(res, "SUCCESS_ADMITTED");
+        let res2 = GmcpClient::admit_mcp_server(
+            "fs",
+            "npx",
+            &[
+                "-y".into(),
+                "@modelcontextprotocol/server-filesystem".into(),
+            ],
+        );
+        assert_eq!(res2, "SUCCESS_ADMITTED");
+        let tools = GmcpClient::list_external_tools();
+        let names: Vec<_> = tools.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.iter().any(|n| n.starts_with("remote:")), "{names:?}");
+        assert!(names.iter().any(|n| n.starts_with("fs:")), "{names:?}");
+        unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+            match prev_xdg {
+                Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

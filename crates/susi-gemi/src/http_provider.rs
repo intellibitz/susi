@@ -713,13 +713,14 @@ fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<std::path::PathBu
     Ok(path)
 }
 
-/// Register configured cloud / remote endpoints that have API keys available —
-/// the config-driven counterpart to localhost auto-discovery.
+/// Register every configured `inference_endpoints` entry that can be admitted:
+/// cloud vendors when their API key is present, and any local/non-cloud
+/// OpenAI-compat (or Anthropic/Gemini/Triton) base with an explicit model id.
+/// Bundled OpenAI-compatible presets register themselves when the matching key
+/// is present — no config.json edits required.
 ///
 /// Zero-config contract: user only sets vendor API keys (shell env,
-/// `~/.susi/cloud.env`, or `susi keys set <vendor>`). Bundled OpenAI-compatible
-/// presets register themselves when the matching key is present — no
-/// config.json edits required.
+/// `~/.susi/cloud.env`, or `susi keys set <vendor>`).
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
     for endpoint in effective_inference_endpoints() {
@@ -727,15 +728,12 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
         if api_base.is_empty() {
             continue;
         }
-        // Local OpenAI-compat engines are handled by auto_discover_local_engines.
-        if !HttpProvider::is_remote_cloud(&api_base) {
-            continue;
-        }
-
         let protocol = InferenceProtocol::from_config(&endpoint.protocol_type);
         let api_key = HttpProvider::resolve_api_key(&endpoint.api_key_env, &endpoint.name);
+        let is_cloud = HttpProvider::is_remote_cloud(&api_base);
+
         // Cloud vendors require a key; skip silently when unset so offline installs stay clean.
-        if api_key.is_empty() {
+        if is_cloud && api_key.is_empty() {
             if std::env::var("SUSI_VERBOSE").is_ok() {
                 eprintln!(
                     "[AUTODISCOVER] Skipping cloud endpoint '{}' — set {} to enable",
@@ -747,6 +745,12 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
                     }
                 );
             }
+            continue;
+        }
+
+        // Local OpenAI-compat engines without an explicit model are discovered
+        // live via `/models` in auto_discover_local_engines.
+        if !is_cloud && endpoint.model.is_empty() {
             continue;
         }
 
@@ -778,15 +782,14 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
         });
         if std::env::var("SUSI_VERBOSE").is_ok() {
             eprintln!(
-                "[AUTODISCOVER] Registered cloud provider: {} ({:?})",
-                name, protocol
+                "[AUTODISCOVER] Registered configured endpoint provider: {}",
+                name
             );
         }
     }
 
-    // Zero-config: an OpenRouter key alone is enough — prefer the mesh when
-    // the user has not already pinned a vendor.
-    let openrouter_key = HttpProvider::resolve_api_key("OPENROUTER_API_KEY", "openrouter");
+    // Prefer OpenRouter when its key is present and no cloud preference is set.
+    let openrouter_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
     if !openrouter_key.is_empty()
         && crate::routing::InferenceRouter::load_preference()
             .preferred_cloud
@@ -819,53 +822,128 @@ fn effective_inference_endpoints() -> Vec<susi_sandbox::manager::InferenceEndpoi
     by_name.into_values().collect()
 }
 
+/// Probe an OpenAI-compatible `/models` listing and register each model id.
+/// Returns how many new providers were registered.
+pub async fn register_openai_compat_models(
+    registry: &susi_core::registry::CapabilityRegistry,
+    engine_label: &str,
+    api_base: &str,
+    api_key: &str,
+    client: &reqwest::Client,
+) -> usize {
+    let base = api_base.trim_end_matches('/');
+    let url = format!("{base}/models");
+    let mut req = client.get(&url);
+    if !api_key.is_empty() {
+        req = req.bearer_auth(api_key);
+    }
+    let Ok(res) = req.send().await else {
+        return 0;
+    };
+    if !res.status().is_success() {
+        return 0;
+    }
+    let Ok(json) = res.json::<serde_json::Value>().await else {
+        return 0;
+    };
+    let Some(models) = json.get("data").and_then(|d| d.as_array()) else {
+        return 0;
+    };
+    let mut registered = 0usize;
+    for model in models {
+        let Some(model_id) = model.get("id").and_then(|id| id.as_str()) else {
+            continue;
+        };
+        let name = format!(
+            "{}-{}",
+            engine_label.to_ascii_lowercase().replace(' ', "-"),
+            model_id
+        );
+        if registry.get_provider(&name).is_some() {
+            continue;
+        }
+        registry.register_provider(HttpProvider {
+            name: name.clone(),
+            api_base: base.to_string(),
+            model: model_id.to_string(),
+            protocol: InferenceProtocol::OpenAiChat,
+            api_key: api_key.to_string(),
+        });
+        registered += 1;
+        if std::env::var("SUSI_VERBOSE").is_ok() {
+            eprintln!(
+                "[AUTODISCOVER] Found & Registered Model: {} via {}",
+                model_id, engine_label
+            );
+        }
+    }
+    registered
+}
+
 /// Zero-Config Autonomous Engine Discovery
-/// Probes standard ports for active local inference engines and automatically
-/// registers them with the capability registry.
+/// Probes well-known local OpenAI-compat ports **and** every configured
+/// `inference_endpoints` base URL — open admission, not a fixed vendor list.
 pub async fn auto_discover_local_engines(registry: &susi_core::registry::CapabilityRegistry) {
-    let endpoints = vec![
-        ("Ollama", "http://localhost:11434/v1"),
-        ("vLLM", "http://localhost:8000/v1"),
-        ("llama.cpp", "http://localhost:8080/v1"),
-        ("sglang", "http://localhost:30000/v1"),
-        ("LMStudio", "http://localhost:1234/v1"),
+    let mut endpoints: Vec<(String, String, String)> = vec![
+        (
+            "Ollama".into(),
+            "http://localhost:11434/v1".into(),
+            String::new(),
+        ),
+        (
+            "vLLM".into(),
+            "http://localhost:8000/v1".into(),
+            String::new(),
+        ),
+        (
+            "llama.cpp".into(),
+            "http://localhost:8080/v1".into(),
+            String::new(),
+        ),
+        (
+            "sglang".into(),
+            "http://localhost:30000/v1".into(),
+            String::new(),
+        ),
+        (
+            "LMStudio".into(),
+            "http://localhost:1234/v1".into(),
+            String::new(),
+        ),
     ];
+
+    // Open admission: any user/bundled inference_endpoints base joins discovery.
+    for ep in effective_inference_endpoints() {
+        let api_base = ep.api_base.trim().to_string();
+        if api_base.is_empty() {
+            continue;
+        }
+        let protocol = InferenceProtocol::from_config(&ep.protocol_type);
+        // Only OpenAI-compat listing applies here; Anthropic/Gemini use chat paths.
+        if !matches!(
+            protocol,
+            InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions
+        ) {
+            continue;
+        }
+        let already = endpoints
+            .iter()
+            .any(|(_, b, _)| b.trim_end_matches('/') == api_base.trim_end_matches('/'));
+        if already {
+            continue;
+        }
+        let key = HttpProvider::resolve_api_key(&ep.api_key_env, &ep.name);
+        endpoints.push((ep.name.clone(), api_base, key));
+    }
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_millis(500))
         .build()
         .unwrap_or_default();
 
-    for (engine_type, api_base) in endpoints {
-        let url = format!("{}/models", api_base);
-        if let Ok(res) = client.get(&url).send().await {
-            if res.status().is_success() {
-                if let Ok(json) = res.json::<serde_json::Value>().await {
-                    if let Some(models) = json.get("data").and_then(|d| d.as_array()) {
-                        for model in models {
-                            if let Some(model_id) = model.get("id").and_then(|id| id.as_str()) {
-                                let name = format!("{}-{}", engine_type.to_lowercase(), model_id);
-
-                                // Only register if not already registered to prevent spam
-                                if registry.get_provider(&name).is_none() {
-                                    registry.register_provider(HttpProvider::openai_local(
-                                        name.clone(),
-                                        api_base,
-                                        model_id,
-                                    ));
-                                    if std::env::var("SUSI_VERBOSE").is_ok() {
-                                        eprintln!(
-                                            "[AUTODISCOVER] Found & Registered Model: {} via {}",
-                                            model_id, engine_type
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    for (engine_type, api_base, api_key) in &endpoints {
+        let _ =
+            register_openai_compat_models(registry, engine_type, api_base, api_key, &client).await;
     }
 }
 

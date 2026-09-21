@@ -71,6 +71,17 @@ enum Commands {
     DeepScan,
     /// Autonomous web-scouting of open-source MCP servers
     McpScout,
+    /// Open-admit an MCP server (stdio command or HTTP URL) into ~/.susi/mcp_config.json
+    #[command(name = "mcp-add")]
+    McpAdd {
+        /// Registry name for the server
+        name: String,
+        /// Stdio command or streamable HTTP MCP URL (`http://…` / `https://…`)
+        command_or_url: String,
+        /// Extra argv for stdio MCP servers
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Verify model download agent, network status, and 32b/72b model provisioning
     #[command(name = "verify-download-agent")]
     VerifyDownloadAgent,
@@ -85,6 +96,11 @@ enum Commands {
     /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
     Pulse {
         #[arg(trailing_var_arg = true)]
+        intent: Vec<String>,
+    },
+    /// First-class automation: run an autonomous evidence-gated swarm mission
+    Automate {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         intent: Vec<String>,
     },
     /// Accept and merge all staged intent bundles in the current workspace
@@ -180,6 +196,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Stop
         | Commands::Restart
         | Commands::Pulse { .. }
+        | Commands::McpAdd { .. }
         | Commands::Keys { .. }
         | Commands::DaemonStart { .. } => false,
         Commands::Admin { subcommand } => {
@@ -564,6 +581,22 @@ fn main() -> std::process::ExitCode {
                     ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
+            Commands::McpAdd {
+                name,
+                command_or_url,
+                args,
+            } => {
+                let res = susi_tools::GmcpClient::admit_mcp_server(&name, &command_or_url, &args);
+                println!("{}", res);
+                if res.starts_with("SUCCESS") {
+                    // Hot-plug into the live capability registry when possible.
+                    let registry = susi_core::registry::CapabilityRegistry::global();
+                    susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
+                    susi_gemi::mcp_provider::register_mcp_inference_providers(registry);
+                } else {
+                    std::process::exit(1);
+                }
+            }
             Commands::Pulse { intent } => {
                 let intent_str = intent.join(" ");
                 match susi_gawd::admin::SusiAdmin::ingest_natural_intent(&cwd, &intent_str) {
@@ -573,6 +606,16 @@ fn main() -> std::process::ExitCode {
                         std::process::exit(1);
                     }
                 }
+            }
+            Commands::Automate { intent } => {
+                let intent_str = intent.join(" ");
+                if intent_str.trim().is_empty() {
+                    eprintln!("Usage: susi automate <intent…>");
+                    std::process::exit(1);
+                }
+                // First-class automation surface: evidence-gated swarm solve (not pulse ingest).
+                let answer = ama.solve_clean(&intent_str, &cwd, SUSI_VERSION);
+                println!("{}", answer);
             }
             Commands::Accept => {
                 match susi_sandbox::manager::IntentBundleManager::accept_all(&cwd) {

@@ -17,13 +17,13 @@ pub async fn bootstrap_zero_config_substrate() {
     prune_unhealthy_providers(registry).await;
 
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
+    //    plus any configured OpenAI-compat inference_endpoints bases (open admission).
     susi_gemi::http_provider::auto_discover_local_engines(registry).await;
 
-    // 1b. Register configured cloud vendors (OpenAI / Anthropic / Gemini) when
-    // their API keys are present — same CapabilityRegistry path as local discovery.
+    // 1b. Register configured cloud + local-with-model endpoints when keys/models present.
     susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
 
-    // 2. Discover and Provision MCP Tools
+    // 2. Discover and Provision MCP Tools (any entry in ~/.susi/mcp_config.json).
     susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
 
     // 2b. MCP servers that expose chat/LLM tools → inference Providers so they

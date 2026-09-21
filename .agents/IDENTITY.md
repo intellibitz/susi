@@ -43,7 +43,7 @@ These claims must hold in source; when README and this section disagree, source 
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents.
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails; no naked assertions.
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality.
-4. **Pluggable** — `CapabilityRegistry` mounts Candle / llama.cpp, vLLM / Ollama, OpenAI-compatible clouds, MCP tools, and leading external coding agents (Claude Code, Cursor, Codex, Devin, OpenHands) as peers when their drivers are present.
+4. **Pluggable** — `CapabilityRegistry` open-admits OpenAI-compatible engines/models (configured `inference_endpoints` URLs + well-known local ports), any MCP server via `mcp_config.json` / `susi mcp-add`, and protocol peers (`cli` / `openai_chat` / `http` / `a2a` in `external_peer_agents`) including leading coding agents when their drivers are present.
 5. **Audit** — agent actions signed into an immutable accountability chain (hash-linked HMAC).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.

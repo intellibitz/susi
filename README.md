@@ -6,7 +6,7 @@
 
 susi is an evidence-gated AI substrate that runs on your machine: a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`) — it does not replace your OS; it is the OS layer *for* agents.
 
-> Mount models, agents, and MCP tools as capabilities — including leading external coding agents (Claude Code, Cursor, Codex, Devin, OpenHands) when their CLIs are installed. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add`), including leading external coding agents (Claude Code, Cursor, Codex, Devin, OpenHands) when their CLIs are installed. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`.
 
 ---
 
@@ -36,7 +36,7 @@ Foundation claims — each must hold in source:
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — `CapabilityRegistry` mounts Candle / llama.cpp, vLLM / Ollama, OpenAI-compatible clouds, MCP tools, and leading external coding agents (Claude Code, Cursor, Codex, Devin, OpenHands) as peers when their drivers are on PATH / configured.
+4. **Pluggable** — `CapabilityRegistry` open-admits OpenAI-compatible engines/models (configured `inference_endpoints` URLs + well-known local ports), any MCP server via `~/.susi/mcp_config.json` / `susi mcp-add`, and protocol peers (`cli` / `openai_chat` / `http` / `a2a` in `external_peer_agents`) including the five leading coding agents when their drivers are present.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
@@ -84,6 +84,13 @@ susi status
 susi keys set openai          # prompts, or pipe the key on stdin
 susi keys list
 susi keys prefer deepseek
+
+# Automation (evidence-gated swarm mission)
+susi automate "refactor the auth module and verify with tests"
+
+# Open-admit any MCP server (stdio or HTTP URL)
+susi mcp-add filesystem npx -y @modelcontextprotocol/server-filesystem /tmp
+susi mcp-add remote-http http://127.0.0.1:3100/mcp
 
 # Point external MCP / HTTP clients at the host contract
 #   http://127.0.0.1:9090/mcp
