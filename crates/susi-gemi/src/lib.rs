@@ -2,6 +2,7 @@ pub mod alpha;
 pub mod audio;
 pub mod benchmark;
 pub mod candle_provider;
+pub mod coding_models;
 pub(crate) mod download;
 pub mod engine;
 pub mod hardware;

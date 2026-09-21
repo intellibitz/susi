@@ -307,6 +307,34 @@
         "protocol_type": "chat",
         "model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
         "api_key_env": "FIREWORKS_API_KEY"
+      },
+      {
+        "name": "Qwen",
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "protocol_type": "chat",
+        "model": "qwen-max",
+        "api_key_env": "DASHSCOPE_API_KEY"
+      },
+      {
+        "name": "MiniMax",
+        "api_base": "https://api.minimax.io/v1",
+        "protocol_type": "chat",
+        "model": "MiniMax-M2",
+        "api_key_env": "MINIMAX_API_KEY"
+      },
+      {
+        "name": "Kimi",
+        "api_base": "https://api.moonshot.ai/v1",
+        "protocol_type": "chat",
+        "model": "moonshot-v1-auto",
+        "api_key_env": "MOONSHOT_API_KEY"
+      },
+      {
+        "name": "Zhipu",
+        "api_base": "https://open.bigmodel.cn/api/paas/v4",
+        "protocol_type": "chat",
+        "model": "glm-4.6",
+        "api_key_env": "ZHIPU_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",

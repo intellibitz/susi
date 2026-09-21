@@ -72,6 +72,8 @@ impl HttpProvider {
             "deepseek" => &["DEEPSEEK_API_KEY"],
             "minimax" => &["MINIMAX_API_KEY"],
             "kimi" | "moonshot" => &["MOONSHOT_API_KEY", "KIMI_API_KEY"],
+            "qwen" | "dashscope" => &["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
+            "zhipu" | "glm" => &["ZHIPU_API_KEY", "BIGMODEL_API_KEY"],
             "openrouter" => &["OPENROUTER_API_KEY"],
             "mistral" => &["MISTRAL_API_KEY"],
             "groq" => &["GROQ_API_KEY"],
@@ -517,6 +519,8 @@ pub fn resolve_vendor_env_name(vendor: &str) -> Option<String> {
         "deepseek" => "DEEPSEEK_API_KEY",
         "kimi" | "moonshot" => "MOONSHOT_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
+        "qwen" | "dashscope" | "alibaba" => "DASHSCOPE_API_KEY",
+        "zhipu" | "glm" | "bigmodel" => "ZHIPU_API_KEY",
         "openrouter" => "OPENROUTER_API_KEY",
         "mistral" => "MISTRAL_API_KEY",
         "groq" => "GROQ_API_KEY",
@@ -554,6 +558,8 @@ pub fn known_cloud_vendors() -> &'static [(&'static str, &'static str)] {
         ("deepseek", "DEEPSEEK_API_KEY"),
         ("kimi", "MOONSHOT_API_KEY"),
         ("minimax", "MINIMAX_API_KEY"),
+        ("qwen", "DASHSCOPE_API_KEY"),
+        ("zhipu", "ZHIPU_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
         ("mistral", "MISTRAL_API_KEY"),
         ("groq", "GROQ_API_KEY"),
@@ -801,10 +807,10 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
     register_model_catalog(registry);
 }
 
-/// Register the curated models catalog (~50). Each entry mounts when its
-/// engine api_base is known and any required API key is present (local engines
-/// with empty api_key_env always admit). Live `/models` discovery remains
-/// unbounded on top of this ladder.
+/// Register the curated models catalog (~50) plus the top coding/agent models.
+/// Each entry mounts when its engine api_base is known and any required API key
+/// is present (local engines with empty api_key_env always admit). Live `/models`
+/// discovery remains unbounded on top of this ladder.
 pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
     let endpoints = effective_inference_endpoints();
@@ -813,10 +819,24 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
         .map(|e| (e.name.to_ascii_lowercase(), e))
         .collect();
 
-    for entry in susi_sandbox::manager::SusiConfig::load_global()
-        .unwrap_or_default()
-        .model_catalog()
-    {
+    let mut entries: Vec<susi_sandbox::manager::ModelCatalogEntry> = Vec::new();
+    if let Ok(coding) = crate::coding_models::CodingModelManager::catalog() {
+        for m in coding {
+            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                id: m.model,
+                engine: m.engine,
+                protocol_type: m.protocol_type,
+                api_key_env: m.api_key_env,
+            });
+        }
+    }
+    entries.extend(
+        susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .model_catalog(),
+    );
+
+    for entry in entries {
         if entry.id.trim().is_empty() || entry.engine.trim().is_empty() {
             continue;
         }
@@ -857,6 +877,13 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
             api_key,
         });
     }
+}
+
+/// Bundled defaults ∪ user `inference_endpoints` by name (user wins).
+/// Ensures new OpenAI-compat presets (DeepSeek, Kimi, …) appear even when
+/// `~/.susi/config.json` still has an older endpoints array.
+pub fn effective_inference_endpoints_pub() -> Vec<susi_sandbox::manager::InferenceEndpointItem> {
+    effective_inference_endpoints()
 }
 
 /// Bundled defaults ∪ user `inference_endpoints` by name (user wins).

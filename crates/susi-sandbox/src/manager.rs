@@ -2239,7 +2239,7 @@ mod tests {
         assert!(peers.len() >= 20, "agents {}", peers.len());
         let engines = SusiConfig::default().inference_endpoints().endpoints;
         assert!(
-            (12..=16).contains(&engines.len()),
+            (12..=24).contains(&engines.len()),
             "engines {}",
             engines.len()
         );

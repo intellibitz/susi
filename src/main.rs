@@ -7,6 +7,7 @@
 
 mod agent_cli;
 mod framework_cli;
+mod model_cli;
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -70,8 +71,11 @@ enum Commands {
     /// Recursively audit src/ (AST-based) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
     #[command(name = "bloat-audit")]
     BloatAudit,
-    /// List available models
-    Models,
+    /// Manage leading developer/agent models end to end
+    Models {
+        #[command(subcommand)]
+        action: Option<model_cli::ModelCommands>,
+    },
     /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
     #[command(name = "keys", visible_alias = "key")]
     Keys {
@@ -200,9 +204,17 @@ enum AdminCommands {
 /// binary integrity checks or daemon restart.
 fn command_requires_daemon(command: &Commands) -> bool {
     match command {
-        Commands::Agents { .. }
-        | Commands::Frameworks { .. }
-        | Commands::Clean
+        Commands::Agents { .. } | Commands::Frameworks { .. } | Commands::Models { .. }
+            if !matches!(
+                command,
+                Commands::Models {
+                    action: Some(model_cli::ModelCommands::Local)
+                }
+            ) =>
+        {
+            false
+        }
+        Commands::Clean
         | Commands::Review
         | Commands::Accept
         | Commands::Undo
@@ -378,6 +390,24 @@ fn main() -> std::process::ExitCode {
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| framework_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Models {
+        action: Some(model_cli::ModelCommands::Local),
+    }) = &cli.command
+    {
+        // Fall through to substrate boot + mission path below.
+    } else if let Some(Commands::Models { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| model_cli::execute(action, &cwd))
         {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
@@ -608,9 +638,14 @@ fn main() -> std::process::ExitCode {
                 let answer = ama.solve_clean("bloat_audit", &cwd, SUSI_VERSION);
                 println!("{}", answer);
             }
-            Commands::Models => {
+            Commands::Models {
+                action: Some(model_cli::ModelCommands::Local),
+            } => {
                 let answer = ama.solve_clean("models", &cwd, SUSI_VERSION);
                 println!("{}", answer);
+            }
+            Commands::Models { .. } => {
+                // Control-plane models commands handled before substrate boot.
             }
             Commands::SelectModel { model } => {
                 let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);

@@ -1,0 +1,102 @@
+[
+  {
+    "id": "claude-opus",
+    "name": "Claude Opus",
+    "rank": 1,
+    "documentation": "https://docs.anthropic.com/en/docs/about-claude/models",
+    "engine": "Anthropic",
+    "model": "claude-opus-4-6",
+    "protocol_type": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "claude-sonnet",
+    "name": "Claude Sonnet",
+    "rank": 2,
+    "documentation": "https://docs.anthropic.com/en/docs/about-claude/models",
+    "engine": "Anthropic",
+    "model": "claude-sonnet-4-6",
+    "protocol_type": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "gpt-5",
+    "name": "GPT-5",
+    "rank": 3,
+    "documentation": "https://platform.openai.com/docs/models",
+    "engine": "OpenAI",
+    "model": "gpt-5",
+    "protocol_type": "chat",
+    "api_key_env": "OPENAI_API_KEY"
+  },
+  {
+    "id": "qwen-max",
+    "name": "Qwen Max",
+    "rank": 4,
+    "documentation": "https://www.alibabacloud.com/help/en/model-studio/what-is-model-studio",
+    "engine": "Qwen",
+    "model": "qwen-max",
+    "protocol_type": "chat",
+    "api_key_env": "DASHSCOPE_API_KEY"
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "rank": 5,
+    "documentation": "https://api-docs.deepseek.com/",
+    "engine": "DeepSeek",
+    "model": "deepseek-chat",
+    "protocol_type": "chat",
+    "api_key_env": "DEEPSEEK_API_KEY"
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini",
+    "rank": 6,
+    "documentation": "https://ai.google.dev/gemini-api/docs/models",
+    "engine": "GoogleGemini",
+    "model": "gemini-2.5-pro",
+    "protocol_type": "gemini",
+    "api_key_env": "GEMINI_API_KEY"
+  },
+  {
+    "id": "minimax-m3",
+    "name": "MiniMax M3",
+    "rank": 7,
+    "documentation": "https://platform.minimax.io/docs/guides/text-generation",
+    "engine": "MiniMax",
+    "model": "MiniMax-M2",
+    "protocol_type": "chat",
+    "api_key_env": "MINIMAX_API_KEY"
+  },
+  {
+    "id": "kimi",
+    "name": "Kimi",
+    "rank": 8,
+    "documentation": "https://platform.moonshot.ai/docs/overview",
+    "engine": "Kimi",
+    "model": "moonshot-v1-auto",
+    "protocol_type": "chat",
+    "api_key_env": "MOONSHOT_API_KEY"
+  },
+  {
+    "id": "glm",
+    "name": "GLM",
+    "rank": 9,
+    "documentation": "https://docs.bigmodel.cn/cn/guide/start/model-overview",
+    "engine": "Zhipu",
+    "model": "glm-4.6",
+    "protocol_type": "chat",
+    "api_key_env": "ZHIPU_API_KEY"
+  },
+  {
+    "id": "llama-4",
+    "name": "Llama 4",
+    "rank": 10,
+    "documentation": "https://www.llama.com/models/llama-4/",
+    "engine": "OpenRouter",
+    "model": "meta-llama/llama-4-maverick",
+    "protocol_type": "chat",
+    "api_key_env": "OPENROUTER_API_KEY"
+  }
+]

@@ -662,6 +662,47 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "coding_models_list",
+        description = "List top developer/agent models and local setup readiness"
+    )]
+    pub fn coding_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        let manager = susi_gemi::coding_models::CodingModelManager::new()
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        let preferred = manager.preferred();
+        let rows: Vec<_> = susi_gemi::coding_models::CodingModelManager::catalog()
+            .map_err(|e| EaiError::config(e.to_string()))?
+            .into_iter()
+            .map(|m| {
+                let effective = manager.effective(&m.id).unwrap_or(m.clone());
+                let readiness = manager.preflight(&m.id);
+                serde_json::json!({
+                    "model": effective,
+                    "preferred": preferred.as_deref() == Some(m.id.as_str()),
+                    "prerequisites_present": readiness.is_ok(),
+                    "detail": match readiness { Ok(s) => s, Err(e) => e.to_string() }
+                })
+            })
+            .collect();
+        serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "coding_models_prefer",
+        description = "Prefer a coding/agent model id for subsequent routing"
+    )]
+    pub fn coding_models_prefer(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let model = arg
+            .get("model")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("model is required"))?;
+        susi_gemi::http_provider::apply_cloud_env_file();
+        susi_gemi::coding_models::CodingModelManager::new()
+            .and_then(|m| m.prefer(model))
+            .map_err(|e| EaiError::process(e.to_string()))
+    }
+
+    #[tool(
         name = "frameworks_list",
         description = "List managed agent frameworks/engines and local setup readiness"
     )]
@@ -1392,6 +1433,20 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         "Send message to cloud task_id",
         MetaCategory::IntelligenceBridge,
         CoreTools::agents_send,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "coding_models_list",
+        "List top coding/agent models and readiness",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::coding_models_list,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "coding_models_prefer",
+        "Prefer coding model id for routing",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::coding_models_prefer,
     );
     ToolRegistry::register_meta_tool(
         registry,
