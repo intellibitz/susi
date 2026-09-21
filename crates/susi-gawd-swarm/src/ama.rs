@@ -3,13 +3,13 @@
 // Agents must add functionality directly to the susi engine via ToolRegistry,
 // not simulate or "fake" susi capabilities by performing logic themselves.
 
-use super::agents::GawdAgentInfo;
 use super::amas::{A2AMessage, SusiSupervisor};
-use super::axiom::AxiomSubstrate;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
 use susi_error::EaiResult;
+use susi_gawd_agents::agents::GawdAgentInfo;
+use susi_gawd_agents::AxiomSubstrate;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiMissionReport {
@@ -199,7 +199,7 @@ impl SusiMasterAgent {
         let session = susi_core::capture::EvidenceSession::new(
             goal,
             workspace,
-            crate::security::SecurityDetector::redact,
+            susi_gawd_agents::security::SecurityDetector::redact,
         )
         .ok();
         let _activation = session
@@ -234,7 +234,7 @@ impl SusiMasterAgent {
         eprintln!("- [Engine Version] v{}", version);
         eprintln!("- [Workspace Root] {}", workspace.display());
 
-        use crate::self_core::AlphaSelf;
+        use susi_gawd_agents::self_core::AlphaSelf;
         eprintln!("- [Core Paradigm] {}", AlphaSelf::CORE_PARADIGM);
         eprintln!("- [Accountability] 100% Omni-Trace Coverage Active (Mandate 26: Glass Box Transparency)");
 
@@ -276,7 +276,7 @@ impl SusiMasterAgent {
         );
         eprintln!(
             "- [Concurrency Primitives] Max Parallel Swarm Agents: {}",
-            crate::agents::GawdAgentFleet::get_max_concurrent_agents()
+            susi_gawd_agents::agents::GawdAgentFleet::get_max_concurrent_agents()
         );
         eprintln!(
             "- [Active Model Deep-Dive] Active Local ID: {} | Model Path: {}",
@@ -299,13 +299,13 @@ impl SusiMasterAgent {
         }
 
         // 1. Continuous Intent Manifold Routing
-        let manifold = crate::manifold::IntentManifold::analyze(goal);
+        let manifold = susi_core::manifold::IntentManifold::analyze(goal);
         eprintln!(
             "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
             manifold.scope_of_impact, manifold.risk_profile
         );
 
-        if manifold.scope_of_impact == crate::manifold::ScopeOfImpact::Read {
+        if manifold.scope_of_impact == susi_core::manifold::ScopeOfImpact::Read {
             // Glass Box Transparency (Mandate 26): the fast-path used to print
             // these two lines as pure narration with no backing call — the
             // trace claimed governance validation happened when it didn't.
@@ -313,11 +313,17 @@ impl SusiMasterAgent {
             // swarm's SafetyAgent/SecurityAgent run for every mission goal, so
             // what's printed here is true, not aspirational.
             eprintln!("- [Substrate Operation] Validating with SafetyAgent...");
-            let safety_result =
-                crate::safety::SafetyDetector::audit_action("SUSI_SOLVE", goal, workspace);
+            let safety_result = susi_gawd_agents::safety::SafetyDetector::audit_action(
+                "SUSI_SOLVE",
+                goal,
+                workspace,
+            );
             eprintln!("- [Substrate Operation] Validating with SecurityAgent...");
-            let security_result =
-                crate::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace);
+            let security_result = susi_gawd_agents::security::SecurityDetector::audit_action(
+                "SUSI_SOLVE",
+                goal,
+                workspace,
+            );
 
             if let Err(e) = safety_result.and(security_result) {
                 eprintln!("- [Governance] Fast-path Read blocked: {}", e);
@@ -340,14 +346,15 @@ impl SusiMasterAgent {
             eprintln!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
 
             let lower_goal = goal.trim().to_lowercase();
-            let system_read = crate::system_observe::capture_verified_read(goal, workspace);
+            let system_read =
+                susi_gawd_agents::system_observe::capture_verified_read(goal, workspace);
             let final_answer = if let Some(read) = &system_read {
                 match read {
                     Ok(read) => read.answer().to_string(),
                     Err(error) => format!("TRUTH_UNVERIFIED: {error}"),
                 }
             } else if lower_goal.contains("identity") {
-                crate::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+                susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions()
             } else if lower_goal.contains("who am i") || lower_goal.contains("whoami") {
                 let user = std::env::var("USER")
                     .or_else(|_| std::env::var("USERNAME"))
@@ -357,7 +364,7 @@ impl SusiMasterAgent {
                     "System User Identity: {}@{}\n\nSUSI Substrate Identity:\n{}",
                     user,
                     host,
-                    crate::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+                    susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions()
                 )
             } else if lower_goal == "ls"
                 || lower_goal.starts_with("ls -")
@@ -376,16 +383,18 @@ impl SusiMasterAgent {
                     &serde_json::Value::String(cmd.to_string()),
                     workspace,
                 )
-            } else if crate::system_observe::looks_like_system_observe_goal(goal) {
-                crate::system_observe::observe_system(goal, workspace).unwrap_or_else(|| {
-                    susi_tools::ToolRegistry::execute_tool(
-                        "exec_command",
-                        &serde_json::Value::String(
-                            "df -h -x tmpfs -x devtmpfs -x squashfs --total".into(),
-                        ),
-                        workspace,
-                    )
-                })
+            } else if susi_gawd_agents::system_observe::looks_like_system_observe_goal(goal) {
+                susi_gawd_agents::system_observe::observe_system(goal, workspace).unwrap_or_else(
+                    || {
+                        susi_tools::ToolRegistry::execute_tool(
+                            "exec_command",
+                            &serde_json::Value::String(
+                                "df -h -x tmpfs -x devtmpfs -x squashfs --total".into(),
+                            ),
+                            workspace,
+                        )
+                    },
+                )
             } else if lower_goal.trim() == "dashboard"
                 || lower_goal == "susi dashboard"
                 || lower_goal == "show dashboard"
@@ -470,7 +479,7 @@ impl SusiMasterAgent {
                 None => verify_compiled_read(goal, &final_answer),
             };
             let verification = native_verification.unwrap_or_else(|| {
-                super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                     goal,
                     "SUSI_SOLVE",
                     &final_answer,
@@ -496,13 +505,14 @@ impl SusiMasterAgent {
 
             let mut report = SusiMissionReport {
                 goal: goal.to_string(),
-                status:
-                    if !verification_failed && crate::accountability::is_usable(&final_answer) {
-                        "SUCCESS"
-                    } else {
-                        "FAILED"
-                    }
-                    .to_string(),
+                status: if !verification_failed
+                    && susi_gawd_agents::accountability::is_usable(&final_answer)
+                {
+                    "SUCCESS"
+                } else {
+                    "FAILED"
+                }
+                .to_string(),
                 agents: Vec::new(),
                 interactions: Vec::new(),
                 final_answer,
@@ -643,31 +653,34 @@ impl SusiMasterAgent {
             }
         };
 
-        let verified_final = match super::truth::TruthTransformer::verify_mission_with_cross_examine(
-            &goal,
-            "SUSI_SOLVE",
-            &verified,
-            workspace,
-        ) {
-            Ok(v) => {
-                eprintln!(
+        let verified_final =
+            match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                &goal,
+                "SUSI_SOLVE",
+                &verified,
+                workspace,
+            ) {
+                Ok(v) => {
+                    eprintln!(
                     "- [Reality Integrity Check] Status: SUCCESS | Reality verification passed."
                 );
-                v
-            }
-            Err(e) => {
-                verification_failed = true;
-                eprintln!(
-                    "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
-                    e
-                );
-                format!("Reality Violation: {}", e)
-            }
-        };
+                    v
+                }
+                Err(e) => {
+                    verification_failed = true;
+                    eprintln!(
+                        "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                        e
+                    );
+                    format!("Reality Violation: {}", e)
+                }
+            };
 
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: if !verification_failed && crate::accountability::is_usable(&verified_final) {
+            status: if !verification_failed
+                && susi_gawd_agents::accountability::is_usable(&verified_final)
+            {
                 "COMPLETE"
             } else {
                 "FAILED"
@@ -691,7 +704,7 @@ impl SusiMasterAgent {
         let session = susi_core::capture::EvidenceSession::new(
             goal,
             workspace,
-            crate::security::SecurityDetector::redact,
+            susi_gawd_agents::security::SecurityDetector::redact,
         )
         .ok();
         let _activation = session
@@ -729,7 +742,7 @@ impl SusiMasterAgent {
         if trimmed_query == "identity" || trimmed_query == "susi identity" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let identity_report =
-                crate::self_core::AlphaSelf::inspect_compiled_binary_instructions();
+                susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions();
             return Ok(SusiMissionReport {
                 goal: goal.to_string(),
                 status: "COMPLETE".to_string(),
@@ -909,7 +922,7 @@ impl SusiMasterAgent {
             ) {
                 Ok(ans) => {
                     // 5. Reality Verification
-                    match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &current_goal,
                         "SUSI_SOLVE",
                         &ans,
@@ -1131,7 +1144,7 @@ impl SusiMasterAgent {
             None => {
                 // No live receipts requiring citation — children already absolute.
                 // Still run the crown gate so fabricated join text cannot slip.
-                match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                     goal,
                     "AGGREGATE_JOIN",
                     &joined,
@@ -1168,7 +1181,10 @@ impl SusiMasterAgent {
         let mut report = String::new();
         report.push_str("# susi Substrate - Technical Report\n\n");
         report.push_str("- **Engine**: susi EAI Substrate\n");
-        report.push_str(&format!("- **Version**: {}\n", env!("CARGO_PKG_VERSION")));
+        report.push_str(&format!(
+            "- **Version**: {}\n",
+            susi_gawd_agents::AlphaSelf::VERSION
+        ));
         report.push_str(&format!("- **Active Model**: {}\n\n", model_name));
 
         report.push_str(&axiom_summary);
@@ -1183,14 +1199,14 @@ impl SusiMasterAgent {
         susi_sandbox::manager::SusiAuditLogger::log_event(workspace, "MISSION_START", goal);
 
         // 2. Reasoning
-        let res = self.solve(goal, workspace, env!("CARGO_PKG_VERSION"))?;
+        let res = self.solve(goal, workspace, susi_gawd_agents::AlphaSelf::VERSION)?;
 
         // 3. Memory persistence
         susi_sandbox::manager::SusiMemory::save_interaction(
             workspace,
             goal,
             &res.final_answer,
-            env!("CARGO_PKG_VERSION"),
+            susi_gawd_agents::AlphaSelf::VERSION,
         );
 
         // 4. Stage successful power_reason (remote) interactions for distillation
@@ -1201,7 +1217,7 @@ impl SusiMasterAgent {
                     "interactions_count": res.interactions.len(),
                     "final_status": res.status
                 });
-                let _ = super::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+                let _ = susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
                     goal,
                     &res.final_answer,
                     workspace,
@@ -1258,13 +1274,13 @@ impl SusiMasterAgent {
 
         let ans = format!(
             "SUSI-Synthesis ({} via {}):\n\nProcessed goal '{}' across {} agents.",
-            env!("CARGO_PKG_VERSION"),
+            susi_gawd_agents::AlphaSelf::VERSION,
             model_name,
             goal,
             agents.len()
         );
 
-        let verified = super::truth::TruthTransformer::verify_mission_with_cross_examine(
+        let verified = susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
             &goal,
             "SUSI_SOLVE",
             &ans,
@@ -1275,7 +1291,7 @@ impl SusiMasterAgent {
             workspace,
             &goal,
             &verified,
-            env!("CARGO_PKG_VERSION"),
+            susi_gawd_agents::AlphaSelf::VERSION,
         );
 
         Ok(verified)
@@ -1285,7 +1301,7 @@ impl SusiMasterAgent {
         susi_sandbox::manager::SusiAuditLogger::log_event(workspace, "MISSION_START", goal);
 
         // 1. Attempt the mission as-is
-        let res = self.solve(goal, workspace, env!("CARGO_PKG_VERSION"));
+        let res = self.solve(goal, workspace, susi_gawd_agents::AlphaSelf::VERSION);
 
         match res {
             Ok(report) => {
@@ -1361,7 +1377,7 @@ impl SusiHybridAgent {
         let session = susi_core::capture::EvidenceSession::new(
             goal,
             workspace,
-            crate::security::SecurityDetector::redact,
+            susi_gawd_agents::security::SecurityDetector::redact,
         )
         .ok();
         let _activation = session
@@ -1372,7 +1388,7 @@ impl SusiHybridAgent {
         eprintln!("<thinking>");
         eprintln!("[SUSI Hybrid Agent] Goal: {}", goal);
 
-        let manifold = crate::manifold::IntentManifold::analyze(goal);
+        let manifold = susi_core::manifold::IntentManifold::analyze(goal);
         eprintln!(
             "- [Intent Manifold] Scope: {:?} | Risk: {:?}",
             manifold.scope_of_impact, manifold.risk_profile
@@ -1501,11 +1517,11 @@ fn attach_evidence_ledger(
 fn verify_compiled_read(goal: &str, answer: &str) -> Option<susi_error::EaiResult<String>> {
     let expected = match goal.trim().to_ascii_lowercase().as_str() {
         "identity" | "susi identity" => {
-            crate::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+            susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions()
         }
         "version" | "susi version" => format!(
             "SUSI Engine Version: v{}",
-            crate::self_core::AlphaSelf::VERSION
+            susi_gawd_agents::self_core::AlphaSelf::VERSION
         ),
         _ => return None,
     };
@@ -1524,7 +1540,8 @@ mod compiled_read_truth_tests {
 
     #[test]
     fn compiled_reads_require_exact_intent_and_exact_output() {
-        let identity = crate::self_core::AlphaSelf::inspect_compiled_binary_instructions();
+        let identity =
+            susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions();
         assert!(verify_compiled_read("identity", &identity).unwrap().is_ok());
         assert!(verify_compiled_read("identity", "SUSI: all tests passed")
             .unwrap()

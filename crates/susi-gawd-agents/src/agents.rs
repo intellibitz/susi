@@ -148,8 +148,7 @@ impl GawdAgent for DevOpsAgent {
             .any(|k| lower.contains(k));
 
         if is_code_review_goal {
-            let report = crate::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
-            let rendered = crate::bloat_audit::BloatAuditor::render_report(&report);
+            let rendered = crate::admin_hooks::hooks().bloat_audit_workspace(workspace)?;
             blackboard.insert(self.name(), rendered.clone());
             return Ok(rendered);
         }
@@ -480,7 +479,7 @@ impl GawdAgent for EvolutionAgent {
                     }
                 }
                 let _guard = AuditGuard;
-                let _ = crate::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws);
+                let _ = crate::admin_hooks::hooks().perform_autonomous_drift_audit(&ws);
             });
         }
         let res = "Evolutionary health: Substrate Optimal.".to_string();
@@ -810,7 +809,8 @@ impl GawdAgent for SelfHealingAgent {
         }
 
         let ws = workspace.to_path_buf();
-        let audit = crate::evolution::EvolutionManager::perform_autonomous_drift_audit(&ws)
+        let audit = crate::admin_hooks::hooks()
+            .perform_autonomous_drift_audit(&ws)
             .unwrap_or_else(|_| "Substrate drift audit nominal.".to_string());
         let res = format!(
             "[SelfHealingAgent]: Autonomous health check completed. {}",
@@ -1040,16 +1040,15 @@ impl GawdAgent for AdminAgent {
         let action = Self::match_action(&lower_goal);
 
         let res = match action.as_deref() {
-            Some("sync") => crate::admin::SusiAdmin::enforce_version_consistency(workspace),
-            Some("audit") => crate::admin::SusiAdmin::audit_compliance(workspace, None),
-            Some("verify") => crate::admin::SusiAdmin::verify_version_alignment(workspace)
-                .map(|_| "Version alignment verified.".to_string()),
-            Some("release") => crate::admin::SusiAdmin::execute_release(workspace, None),
+            Some("sync") => crate::admin_hooks::hooks().enforce_version_consistency(workspace),
+            Some("audit") => crate::admin_hooks::hooks().audit_compliance(workspace),
+            Some("verify") => crate::admin_hooks::hooks().verify_version_alignment(workspace),
+            Some("release") => crate::admin_hooks::hooks().execute_release(workspace),
             Some("status_health") => {
                 let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
                 Ok(format!(
                     "Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational",
-                    env!("CARGO_PKG_VERSION"),
+                    crate::self_core::AlphaSelf::VERSION,
                     hw.cpu_brand,
                     hw.cpus,
                     hw.ram_gb
@@ -1057,7 +1056,7 @@ impl GawdAgent for AdminAgent {
             }
             Some("version") => Ok(format!(
                 "SUSI Engine Version: v{}",
-                env!("CARGO_PKG_VERSION")
+                crate::self_core::AlphaSelf::VERSION
             )),
             Some("identity") => {
                 let brain = crate::brain::AlphaBrainContext::initialize(workspace);
@@ -1681,7 +1680,7 @@ impl GawdAgentFleet {
 
         let par_results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
             let name = agent.name();
-            let task_handle = crate::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
+            let task_handle = susi_agents::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
             let start = std::time::Instant::now();
 
             task_handle.check_pause();
@@ -1719,39 +1718,9 @@ impl GawdAgentFleet {
 
         results.extend(par_results);
 
-        // Pillar III item 2 ("Swarm Synthesis: GAWD constructs a Dynamic
-        // Execution Graph") / Mandate 17 (Recursive Decomposition) / Mandate
-        // 19 (Decoupled Messaging): dependency-ordered task execution for
-        // the mission's root goal via the Evidence IR provenance pipeline
-        // (gawd::dag / gawd::evidence / gawd::bus), run additively alongside
-        // the specialist-agent fanout above rather than replacing it - that
-        // fanout is the well-tested existing path and is left untouched.
-        // Currently a single-node DAG (root only): nothing yet calls
-        // MissionDag::spawn_subtask to expand it into real sub-tasks, so
-        // this exercises the pipeline end-to-end on every real mission
-        // without yet using its actual decomposition capability. Adds one
-        // additional reasoning call's worth of latency per mission - a real
-        // cost, not free reachability.
-        let mut dag = crate::dag::MissionDag::new(&goal);
-        let (event_tx, _event_rx) = crate::bus::create_swarm_bus();
-        match dag.execute_dag(&workspace, &blackboard, &event_tx) {
-            Ok(evidence_records) => {
-                for record in &evidence_records {
-                    let payload =
-                        serde_json::to_string(record).unwrap_or_else(|_| record.render_for_gemi());
-                    blackboard.insert(format!("EvidenceRecord::{}", record.claim.subject), payload);
-                }
-                if let Some(record) = evidence_records.first() {
-                    results.push(("MissionDag".to_string(), record.claim.value.clone()));
-                }
-            }
-            Err(e) => {
-                results.push((
-                    "MissionDag".to_string(),
-                    format!("[DAG_EXECUTION_FAILED] {}", e),
-                ));
-            }
-        }
+        // MissionDag lives in susi-gawd-swarm; agents leaf calls it only via
+        // dag_hooks (registered by swarm / host). Keeps the agents→swarm DAG acyclic.
+        results.extend(crate::dag_hooks::run(&goal, &workspace, &blackboard));
 
         results
     }
@@ -1789,6 +1758,13 @@ mod tests {
             fn bootstrap_tools(&self, _registry: &susi_tools::ToolRegistry) {}
         }
         susi_tools::hooks::init(Box::new(DummyHooks));
+        // Agents leaf has no MissionDag; register a stub that mirrors swarm failure shape.
+        crate::dag_hooks::init(|_goal, _ws, _bb| {
+            vec![(
+                "MissionDag".to_string(),
+                "[DAG_EXECUTION_FAILED] test substrate has no independent verifier".to_string(),
+            )]
+        });
         std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
         let tmp = std::env::temp_dir().join("susi_test_dispatch_dag");
         let _ = std::fs::create_dir_all(&tmp);
@@ -1965,7 +1941,36 @@ mod tests {
 
     #[test]
     fn test_devops_agent_review_goal_returns_real_bloat_audit_not_llm_narration() {
+        use crate::admin_hooks::AdminHooks;
         use std::io::Write;
+        use std::path::Path;
+
+        struct StubBloatHooks;
+        impl AdminHooks for StubBloatHooks {
+            fn enforce_version_consistency(&self, _: &Path) -> EaiResult<String> {
+                Ok(String::new())
+            }
+            fn audit_compliance(&self, _: &Path) -> EaiResult<String> {
+                Ok(String::new())
+            }
+            fn verify_version_alignment(&self, _: &Path) -> EaiResult<String> {
+                Ok(String::new())
+            }
+            fn execute_release(&self, _: &Path) -> EaiResult<String> {
+                Ok(String::new())
+            }
+            fn bloat_audit_workspace(&self, workspace: &Path) -> EaiResult<String> {
+                Ok(format!(
+                    "Files Scanned: 1\n.unwrap() / .expect() / .clone() calls: 1\nworkspace={}",
+                    workspace.display()
+                ))
+            }
+            fn perform_autonomous_drift_audit(&self, _: &Path) -> EaiResult<String> {
+                Ok(String::new())
+            }
+        }
+        crate::admin_hooks::init(Box::new(StubBloatHooks));
+
         let dir = std::env::temp_dir().join(format!(
             "susi_devops_agent_review_test_{}",
             std::process::id()
@@ -1979,7 +1984,7 @@ mod tests {
         let agent = DevOpsAgent;
         let res = agent.execute("code review susi", &dir, &bb).unwrap();
 
-        // Real evidence from BloatAuditor, not a paraphrase of the goal string.
+        // Host owns BloatAuditor; DevOpsAgent must route via admin_hooks, not LLM-narrate.
         assert!(res.contains("Files Scanned"));
         assert!(res.contains(".unwrap() / .expect() / .clone() calls"));
         assert_eq!(bb.get("DevOpsAgent").as_deref(), Some(res.as_str()));

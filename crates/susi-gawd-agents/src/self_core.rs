@@ -27,7 +27,9 @@ include!(concat!(env!("OUT_DIR"), "/generated_axioms.rs"));
 pub struct AlphaSelf;
 
 impl AlphaSelf {
-    pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+    /// Root `susi` / engine version from workspace `Cargo.toml` (build.rs),
+    /// not this leaf crate's `0.1.0`.
+    pub const VERSION: &'static str = GEN_ENGINE_VERSION;
     pub const CORE_PARADIGM: &'static str =
         "susi — evidence-gated intelligence reflex & execution substrate (GAWD / GEMI / GMCP)";
 
@@ -70,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_compiled_genome_accuracy() {
-        assert_eq!(AlphaSelf::VERSION, env!("CARGO_PKG_VERSION"));
+        assert_eq!(AlphaSelf::VERSION, GEN_ENGINE_VERSION);
         assert!(
             !AlphaSelf::RULES.is_empty(),
             "IDENTITY.md axioms must be compiled into binary"
@@ -85,7 +87,7 @@ mod tests {
         );
 
         let summary = AlphaSelf::inspect_compiled_binary_instructions();
-        assert!(summary.contains(env!("CARGO_PKG_VERSION")));
+        assert!(summary.contains(GEN_ENGINE_VERSION));
         assert!(summary.contains("Hardcoded Axiom Rules:"));
     }
 }

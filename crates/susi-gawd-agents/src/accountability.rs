@@ -1,7 +1,7 @@
 //! Classification of legacy text outcomes. Passing this filter is not proof
 //! that a claim is true; it only makes the output eligible for synthesis.
 
-pub(crate) fn is_failure(output: &str) -> bool {
+pub fn is_failure(output: &str) -> bool {
     let upper = output.to_uppercase();
     [
         "FAILURE",
@@ -22,7 +22,7 @@ pub(crate) fn is_failure(output: &str) -> bool {
     .any(|marker| upper.contains(marker))
 }
 
-pub(crate) fn is_usable(output: &str) -> bool {
+pub fn is_usable(output: &str) -> bool {
     !output.trim().is_empty() && !is_failure(output)
 }
 

@@ -1,11 +1,11 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
-use super::agents::MissionBlackboard;
-use super::evidence::EvidenceRecord;
 use std::path::Path;
 use std::sync::Arc;
+use susi_core::evidence::EvidenceRecord;
 use susi_error::{EaiError, EaiResult};
+use susi_gawd_agents::agents::MissionBlackboard;
 
 #[derive(Debug, Clone)]
 pub struct TaskNode {
@@ -60,7 +60,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<super::bus::SwarmEventType>,
+        event_sender: &flume::Sender<susi_core::bus::SwarmEventType>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
@@ -98,7 +98,7 @@ impl MissionDag {
                 .map(|idx| {
                     let node = &self.nodes[idx];
                     let start = std::time::Instant::now();
-                    let _ = tx.send(super::bus::SwarmEventType::AgentStarted {
+                    let _ = tx.send(susi_core::bus::SwarmEventType::AgentStarted {
                         agent_name: node.title.clone(),
                     });
 
@@ -114,17 +114,18 @@ impl MissionDag {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
-                    match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &self.nodes[idx].goal,
                         &self.nodes[idx].title,
                         &output,
                         workspace,
                     ) {
                         Ok(verified) => {
-                            let _ = event_sender.send(super::bus::SwarmEventType::AgentCompleted {
-                                agent_name: self.nodes[idx].title.clone(),
-                                elapsed_ms: elapsed,
-                            });
+                            let _ =
+                                event_sender.send(susi_core::bus::SwarmEventType::AgentCompleted {
+                                    agent_name: self.nodes[idx].title.clone(),
+                                    elapsed_ms: elapsed,
+                                });
                             self.nodes[idx].completed = true;
                             executed_count += 1;
                             bb.insert(format!("TaskNode_{}", idx), verified);
@@ -140,7 +141,7 @@ impl MissionDag {
                                     if let Ok(record) = session.bind_receipt(
                                         &receipt.id,
                                         &self.nodes[idx].title,
-                                        super::evidence::Claim {
+                                        susi_core::evidence::Claim {
                                             subject: self.nodes[idx].title.clone(),
                                             predicate: "observed".to_string(),
                                             value: receipt.output_hash.clone(),
@@ -167,10 +168,40 @@ impl MissionDag {
     }
 }
 
+/// Hook body registered into `susi_gawd_agents::dag_hooks` by [`crate::init`].
+pub fn dispatch_mission_dag(
+    goal: &str,
+    workspace: &Path,
+    blackboard: &MissionBlackboard,
+) -> Vec<(String, String)> {
+    let mut results = Vec::new();
+    let mut dag = MissionDag::new(goal);
+    let (event_tx, _event_rx) = susi_core::bus::create_swarm_bus();
+    match dag.execute_dag(workspace, blackboard, &event_tx) {
+        Ok(evidence_records) => {
+            for record in &evidence_records {
+                let payload =
+                    serde_json::to_string(record).unwrap_or_else(|_| record.render_for_gemi());
+                blackboard.insert(format!("EvidenceRecord::{}", record.claim.subject), payload);
+            }
+            if let Some(record) = evidence_records.first() {
+                results.push(("MissionDag".to_string(), record.claim.value.clone()));
+            }
+        }
+        Err(e) => {
+            results.push((
+                "MissionDag".to_string(),
+                format!("[DAG_EXECUTION_FAILED] {}", e),
+            ));
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agents::HighDensityContextStore;
+    use susi_gawd_agents::HighDensityContextStore;
 
     #[test]
     fn invalid_dependencies_fail_without_completing_tasks() {
@@ -178,7 +209,7 @@ mod tests {
             let mut dag = MissionDag::new("inspect");
             dag.nodes[0].dependencies = vec![dependency];
             let board = Arc::new(HighDensityContextStore::new(1024));
-            let (tx, rx) = crate::bus::create_swarm_bus();
+            let (tx, rx) = susi_core::bus::create_swarm_bus();
             assert!(dag.execute_dag(Path::new("."), &board, &tx).is_err());
             assert!(!dag.nodes[0].completed);
             assert!(board.is_empty());
@@ -191,7 +222,7 @@ mod tests {
         let mut dag = MissionDag::new("inspect");
         dag.nodes[0].completed = true;
         let board = Arc::new(HighDensityContextStore::new(1024));
-        let (tx, rx) = crate::bus::create_swarm_bus();
+        let (tx, rx) = susi_core::bus::create_swarm_bus();
         assert!(dag
             .execute_dag(Path::new("."), &board, &tx)
             .unwrap()

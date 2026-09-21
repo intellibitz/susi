@@ -12,6 +12,9 @@ members = [
     "crates/susi-gemi-models",
     "crates/susi-gemi",
     "crates/susi-gmcp",
+    "crates/susi-gawd-agents",
+    "crates/susi-gawd-swarm",
+    "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
 ]
 
@@ -47,6 +50,9 @@ susi-sandbox = { path = "crates/susi-sandbox" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }
 susi-gmcp = { path = "crates/susi-gmcp" }
+susi-gawd-agents = { path = "crates/susi-gawd-agents" }
+susi-gawd-swarm = { path = "crates/susi-gawd-swarm" }
+susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }

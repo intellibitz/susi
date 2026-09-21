@@ -1,7 +1,7 @@
 // Formats the compiled-in rules and components from `AlphaSelf` (plain Rust
 // consts, not a parsed config file) into summary strings.
 
-use super::self_core::AlphaSelf;
+use crate::self_core::AlphaSelf;
 use std::path::Path;
 
 pub struct AxiomSubstrate;

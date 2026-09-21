@@ -56,6 +56,12 @@ fn main() {
 
     let mut generated_code = String::new();
 
+    // Workspace engine version (root Cargo.toml), not this crate's 0.1.0.
+    generated_code.push_str(&format!(
+        "pub const GEN_ENGINE_VERSION: &str = {:?};\n\n",
+        version
+    ));
+
     // 1. IDENTITY.md (Constitutional Mandates) -> GEN_AGENT_RULES (1-49)
     generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
     let mut active_section = "";

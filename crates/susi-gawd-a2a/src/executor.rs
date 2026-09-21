@@ -4,12 +4,12 @@
 
 use super::capabilities::GawdCapabilities;
 use super::task_store::GawdTaskStore;
-use crate::agents::GawdAgentFleet;
 use ra2a::error::Result;
 use ra2a::server::{AgentExecutor, Event, EventQueue, RequestContext};
 use ra2a::types::{Message, Part, Task, TaskState, TaskStatus};
 use std::pin::Pin;
 use std::sync::Arc;
+use susi_gawd_agents::GawdAgentFleet;
 
 /// susi-gawd's A2A protocol executor
 pub struct GawdA2AExecutor {
@@ -35,7 +35,7 @@ impl GawdA2AExecutor {
         ra2a::types::AgentCard {
             name: "susi-gawd".to_string(),
             description: "SUSI GAWD: AI agent orchestrator and swarm supervisor".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
+            version: susi_gawd_agents::AlphaSelf::VERSION.to_string(),
             supported_interfaces: vec![
                 ra2a::types::AgentInterface {
                     url: "/rpc".to_string(),

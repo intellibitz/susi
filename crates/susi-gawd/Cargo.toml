@@ -5,6 +5,9 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-gawd-agents = { workspace = true }
+susi-gawd-swarm = { workspace = true }
+susi-gawd-a2a = { workspace = true }
 susi-paths = { path = "../susi-paths" }
 md5 = "0.7"
 syn = { version = "3.0.6", features = ["full", "visit"] }
@@ -26,6 +29,10 @@ rayon = "1.10"
 log = "0.4"
 tokio = { workspace = true }
 once_cell = { workspace = true }
-ra2a = { version = "0.10.1", features = ["server", "client"] }
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
+
+[features]
+default = []
+cuda = ["susi-gawd-agents/cuda", "susi-gawd-swarm/cuda", "susi-gawd-a2a/cuda", "susi-gemi/cuda"]
+metal = ["susi-gawd-agents/metal", "susi-gawd-swarm/metal", "susi-gawd-a2a/metal", "susi-gemi/metal"]

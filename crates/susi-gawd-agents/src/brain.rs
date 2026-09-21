@@ -1,7 +1,7 @@
 // Combines compiled-in version/rule counts, detected hardware, and loaded
 // config into one status snapshot.
 
-use super::self_core::AlphaSelf;
+use crate::self_core::AlphaSelf;
 use std::path::{Path, PathBuf};
 use susi_gemi::hardware::HardwareProfiler;
 use susi_sandbox::manager::SusiConfig;

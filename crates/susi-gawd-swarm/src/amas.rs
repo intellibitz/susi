@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
-use super::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 use susi_error::EaiResult;
+use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 use susi_gemi::hardware::HardwareProfiler;
 use susi_sandbox::manager::NeuralCheckpoint;
 
@@ -161,7 +161,7 @@ impl SusiSupervisor {
                     "INFERENCE".to_string(),
                     "TOOLING".to_string(),
                 ],
-                registry_checksum: 0, // crate::agents::AgentMetaRegistry::global().get_checksum(),
+                registry_checksum: 0, // susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum(),
                 latency_ms: 0,
                 uptime_secs: 0,
                 trust_score: 1.0,
@@ -184,11 +184,11 @@ impl SusiSupervisor {
                     let local_caps = HardwareProfiler::get_caps_string();
                     let mut local_bloom = CapabilityBloom::local_snapshot();
                     let mut last_registry_checksum =
-                        crate::agents::AgentMetaRegistry::global().get_checksum();
+                        susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
 
                     loop {
                         let registry_checksum =
-                            crate::agents::AgentMetaRegistry::global().get_checksum();
+                            susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
                         if registry_checksum != last_registry_checksum {
                             local_bloom = CapabilityBloom::local_snapshot();
                             last_registry_checksum = registry_checksum;
@@ -280,7 +280,7 @@ impl SusiSupervisor {
     /// Text alone cannot earn trust. Explicit execution failures may lower rank;
     /// positive rewards require independent evidence not supplied by this API.
     fn rank_delta_for_output(output: &str) -> (f32, &'static str) {
-        if crate::accountability::is_failure(output) {
+        if susi_gawd_agents::accountability::is_failure(output) {
             (-0.05, "MISSION_FAILURE")
         } else {
             (0.0, "UNVERIFIED_OUTPUT")
@@ -299,7 +299,7 @@ impl SusiSupervisor {
                 logs.iter()
                     .rev()
                     .find(|log| log.sender == **name && log.action == "MISSION_FLUX")
-                    .is_some_and(|log| crate::accountability::is_usable(&log.payload))
+                    .is_some_and(|log| susi_gawd_agents::accountability::is_usable(&log.payload))
             })
             .count();
         successes as f32 / names.len() as f32
@@ -351,7 +351,7 @@ impl SusiSupervisor {
         // 1. Initialize Mission Blackboard (High-Density Context Store with 1024 entry lease cap)
         // Optimized for Lock-Free Swarm Execution
         let blackboard: MissionBlackboard =
-            Arc::new(super::agents::HighDensityContextStore::new(1024));
+            Arc::new(susi_gawd_agents::agents::HighDensityContextStore::new(1024));
 
         // 2. Dynamic Fleet Synthesis
         eprintln!("- [Swarm Synthesis] Analyzing goal intent for recruitment...");
@@ -479,7 +479,7 @@ impl SusiSupervisor {
                 let output = r.value();
 
                 if let Some(info) = fleet_info.iter().find(|i| &i.name == agent_name) {
-                    if crate::accountability::is_usable(output) {
+                    if susi_gawd_agents::accountability::is_usable(output) {
                         weighted_wisdom.push_str(&format!(
                             "[AGENT: {} (Rank: {:.2})] {}\n",
                             agent_name, info.rank, output
@@ -489,7 +489,7 @@ impl SusiSupervisor {
                     // Empirical Expertise Ranking: reward success, penalize failure.
                     let (delta, source) = Self::rank_delta_for_output(output);
                     if delta != 0.0 {
-                        crate::agents::AgentMetaRegistry::global()
+                        susi_gawd_agents::agents::AgentMetaRegistry::global()
                             .update_rank(agent_name, delta, source);
                     }
                 }
@@ -503,7 +503,7 @@ impl SusiSupervisor {
                 .filter_map(|r| {
                     let agent_name = r.key().clone();
                     let output = r.value().trim().to_string();
-                    if crate::accountability::is_usable(&output) {
+                    if susi_gawd_agents::accountability::is_usable(&output) {
                         Some((agent_name, output))
                     } else {
                         None
@@ -573,7 +573,7 @@ impl SusiSupervisor {
                     }
                 }
                 let _guard = Guard;
-                let _ = super::reflex_trainer::ReflexTrainer::audit_distillation_state(&ws);
+                let _ = crate::host_hooks::hooks().audit_distillation_state(&ws);
             });
         }
 
@@ -596,7 +596,7 @@ impl SusiSupervisor {
         let mut wisdom = Vec::new();
 
         for msg in interactions {
-            if !crate::accountability::is_usable(&msg.payload) {
+            if !susi_gawd_agents::accountability::is_usable(&msg.payload) {
                 continue;
             }
             if msg.sender == "ConsensusMaster" {
@@ -882,7 +882,7 @@ impl SusiSupervisor {
             {
                 for sample in samples {
                     // Stage for local distillation
-                    crate::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+                    susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
                         &sample.intent,
                         &sample.successful_outcome,
                         workspace,
@@ -904,7 +904,9 @@ mod tests {
 
     #[test]
     fn test_aspiration_23_universal_swarm_operation() {
-        use crate::agents::{GawdAgent, HighDensityContextStore, SafetyAgent, SecurityAgent};
+        use susi_gawd_agents::agents::{
+            GawdAgent, HighDensityContextStore, SafetyAgent, SecurityAgent,
+        };
         let tmp_dir = std::env::temp_dir().join("susi_swarm_test_asp23");
         let _ = std::fs::create_dir_all(&tmp_dir);
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
@@ -998,7 +1000,7 @@ mod tests {
             .filter_map(|r| {
                 let agent_name = r.key().clone();
                 let output = r.value().trim().to_string();
-                if crate::accountability::is_usable(&output) {
+                if susi_gawd_agents::accountability::is_usable(&output) {
                     Some((agent_name, output))
                 } else {
                     None
@@ -1110,9 +1112,10 @@ mod tests {
     fn peer_scout_never_steals_host_contract_udp_port() {
         // While the host-contract discovery port is held (as the daemon would),
         // listing cluster nodes must still succeed — scouts bind ephemeral ports.
+        // If the live daemon already owns 9092, that is the same precondition.
         let _holder =
             std::net::UdpSocket::bind(format!("127.0.0.1:{}", susi_paths::ports::UDP_DISCOVERY))
-                .expect("test must hold the host-contract UDP port");
+                .ok();
         let nodes = SusiSupervisor::list_cluster_nodes();
         assert!(
             nodes.iter().any(|n| n.node_id == "susi-local-master"),

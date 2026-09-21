@@ -2,7 +2,6 @@
 
 use crate::ama::SusiMissionReport;
 use crate::amas::A2AMessage;
-use crate::security::SecurityDetector;
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -11,6 +10,7 @@ use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use susi_core::registry::CapabilityRegistry;
 use susi_core::truth::TruthTransformer;
 use susi_error::{EaiError, EaiResult};
+use susi_gawd_agents::security::SecurityDetector;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -48,7 +48,7 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
     if !eligible(report) {
         return;
     }
-    if crate::safety::SafetyDetector::audit_action("SUSI_SOLVE", &report.goal, workspace)
+    if susi_gawd_agents::safety::SafetyDetector::audit_action("SUSI_SOLVE", &report.goal, workspace)
         .and_then(|_| SecurityDetector::audit_action("SUSI_SOLVE", &report.goal, workspace))
         .is_err()
     {
@@ -122,7 +122,7 @@ async fn verify_recovery_answer(
         susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace)
     {
         let rendered = resolved?;
-        if !crate::accountability::is_usable(&rendered) {
+        if !susi_gawd_agents::accountability::is_usable(&rendered) {
             return Err(EaiError::inference(
                 "Provider cited receipts that resolve to unusable evidence",
             ));
@@ -151,7 +151,7 @@ async fn verify_recovery_answer(
         );
         return Ok((rendered, evidence));
     }
-    if !crate::accountability::is_usable(&answer_text) {
+    if !susi_gawd_agents::accountability::is_usable(&answer_text) {
         return Err(EaiError::inference(
             "Provider returned empty or failed mission output",
         ));

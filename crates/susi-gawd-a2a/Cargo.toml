@@ -1,0 +1,21 @@
+[package]
+name = "susi-gawd-a2a"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-gawd-agents = { workspace = true }
+susi-error = { workspace = true }
+ra2a = { version = "0.10.1", features = ["server", "client"] }
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[features]
+default = []
+cuda = ["susi-gawd-agents/cuda"]
+metal = ["susi-gawd-agents/metal"]

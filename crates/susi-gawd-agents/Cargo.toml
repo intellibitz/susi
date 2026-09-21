@@ -1,0 +1,31 @@
+[package]
+name = "susi-gawd-agents"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-paths = { path = "../susi-paths" }
+susi-error = { workspace = true }
+susi-core = { workspace = true }
+susi-sandbox = { workspace = true }
+susi-agents = { workspace = true }
+susi-tools = { workspace = true }
+susi-gemi = { workspace = true }
+susi-native = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+rayon = "1.10"
+log = "0.4"
+tokio = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+flume = { workspace = true }
+dashmap = { workspace = true }
+
+[features]
+default = []
+cuda = ["susi-gemi/cuda"]
+metal = ["susi-gemi/metal"]

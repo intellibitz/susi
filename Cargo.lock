@@ -7325,7 +7325,49 @@ dependencies = [
  "md5 0.7.0",
  "once_cell",
  "parking_lot",
+ "rayon",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "susi-agents",
+ "susi-core",
+ "susi-error",
+ "susi-gawd-a2a",
+ "susi-gawd-agents",
+ "susi-gawd-swarm",
+ "susi-gemi",
+ "susi-native",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-tools",
+ "syn 3.0.6",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "susi-gawd-a2a"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
  "ra2a",
+ "serde",
+ "serde_json",
+ "susi-error",
+ "susi-gawd-agents",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "susi-gawd-agents"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+ "flume",
+ "log",
+ "once_cell",
+ "parking_lot",
  "rayon",
  "reqwest 0.13.5",
  "serde",
@@ -7338,9 +7380,33 @@ dependencies = [
  "susi-paths",
  "susi-sandbox",
  "susi-tools",
- "syn 3.0.6",
  "tokio",
- "uuid",
+]
+
+[[package]]
+name = "susi-gawd-swarm"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "dashmap",
+ "flume",
+ "log",
+ "md5 0.7.0",
+ "once_cell",
+ "parking_lot",
+ "rayon",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "susi-agents",
+ "susi-core",
+ "susi-error",
+ "susi-gawd-agents",
+ "susi-gemi",
+ "susi-paths",
+ "susi-sandbox",
+ "susi-tools",
+ "tokio",
 ]
 
 [[package]]
