@@ -34,6 +34,7 @@ hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 url = { workspace = true }
 susi-agents = { workspace = true }
+libc = "0.2"
 [dev-dependencies]
 tokio = { workspace = true }
 anyhow = { workspace = true }

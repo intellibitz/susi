@@ -126,6 +126,21 @@ pub fn tokenize_goal(goal: &str) -> Vec<String> {
         .collect()
 }
 
+/// How a peer entered the cluster roster — controls whether the host bearer
+/// token may ever be presented on outbound calls to that address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PeerAdmission {
+    /// This process / loopback — same operator, same host.
+    Local,
+    /// Operator-configured allowlist (not yet plumbed via config; reserved).
+    Explicit,
+    /// Learned from unauthenticated UDP discovery. **Never** receive the host
+    /// bearer token — any LAN host that answers a ping would otherwise steal it.
+    #[default]
+    Discovered,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusterPeerNode {
     pub node_id: String,
@@ -139,6 +154,8 @@ pub struct ClusterPeerNode {
     pub trust_score: f32,
     #[serde(default)]
     pub capability_bloom: CapabilityBloom,
+    #[serde(default)]
+    pub admission: PeerAdmission,
 }
 
 pub struct SusiSupervisor;
@@ -166,6 +183,7 @@ impl SusiSupervisor {
                 uptime_secs: 0,
                 trust_score: 1.0,
                 capability_bloom: CapabilityBloom::local_snapshot(),
+                admission: PeerAdmission::Local,
             }];
 
             let shared = Arc::new(RwLock::new(initial));
@@ -256,6 +274,9 @@ impl SusiSupervisor {
                                         uptime_secs: 0,
                                         trust_score: 0.6,
                                         capability_bloom: peer_bloom,
+                                        // UDP answers are unauthenticated — never present
+                                        // the host bearer token to these addresses.
+                                        admission: PeerAdmission::Discovered,
                                     });
                                 }
                             }
@@ -722,6 +743,23 @@ impl SusiSupervisor {
         base + capability_match * 0.6
     }
 
+    /// Whether outbound calls to `addr` may attach this host's bearer token.
+    /// Discovered (UDP) peers never qualify — presenting the token over
+    /// cleartext HTTP to an unauthenticated LAN responder is token theft.
+    fn peer_allows_host_token(addr: &str) -> bool {
+        let addr = addr.trim();
+        if addr.starts_with("127.0.0.1:")
+            || addr.starts_with("[::1]:")
+            || addr.starts_with("localhost:")
+        {
+            return true;
+        }
+        Self::list_cluster_nodes().iter().any(|n| {
+            n.address == addr
+                && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
+        })
+    }
+
     pub fn dispatch_peer_task(addr: &str, tool_name: &str, arg: &str) -> String {
         let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
         let req_val = serde_json::json!({
@@ -743,19 +781,18 @@ impl SusiSupervisor {
                 .unwrap_or_else(|_| reqwest::blocking::Client::new())
         });
 
-        // Mandate 40: a peer's GMCP HTTP surface may require `api_auth_token`
-        // (opt-in, off by default). A fleet's nodes share one operator's
-        // config, so present this node's own configured token when calling a
-        // peer — without this, every federation call (swarm consensus
-        // broadcast, cluster sync, checkpoint replication, reflex learning
-        // broadcast) silently 401s the moment auth is turned on anywhere,
-        // even though the caller and callee are the same operator's nodes.
-        let token = susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .api_auth_token();
+        // Only Local / Explicit peers may receive the host bearer. UDP-
+        // discovered peers stay unauthenticated on purpose: a fleet that
+        // needs mutual auth must admit peers via an explicit allowlist
+        // (PeerAdmission::Explicit), not via an open LAN ping.
         let mut req = client.post(&url).json(&req_val);
-        if !token.is_empty() {
-            req = req.bearer_auth(token);
+        if Self::peer_allows_host_token(addr) {
+            let token = susi_sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .api_auth_token();
+            if !token.is_empty() {
+                req = req.bearer_auth(token);
+            }
         }
 
         if let Ok(resp) = req.send() {
@@ -1049,6 +1086,7 @@ mod tests {
             uptime_secs: 0,
             trust_score: 0.9,
             capability_bloom: CapabilityBloom::from_tokens(["status", "version"]),
+            admission: PeerAdmission::Discovered,
         };
 
         let capability_match = ClusterPeerNode {
@@ -1062,6 +1100,7 @@ mod tests {
             uptime_secs: 0,
             trust_score: 0.6,
             capability_bloom: CapabilityBloom::from_tokens(["bloat_audit"]),
+            admission: PeerAdmission::Discovered,
         };
 
         let a_score = SusiSupervisor::score_peer_for_goal(&generic_high_trust, &goal_tokens);
@@ -1072,6 +1111,16 @@ mod tests {
             b_score,
             a_score
         );
+    }
+
+    #[test]
+    fn discovered_peers_never_receive_host_bearer() {
+        assert!(SusiSupervisor::peer_allows_host_token("127.0.0.1:9090"));
+        assert!(SusiSupervisor::peer_allows_host_token("localhost:9093"));
+        // Any non-loopback address that is not Local/Explicit must be denied —
+        // including addresses that happen to match a Discovered roster entry.
+        assert!(!SusiSupervisor::peer_allows_host_token("10.0.0.99:9093"));
+        assert!(!SusiSupervisor::peer_allows_host_token("192.168.1.50:9090"));
     }
 
     #[test]

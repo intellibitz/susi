@@ -31,6 +31,8 @@ pub type ProviderType = String;
 /// Writes `value` as pretty JSON to `path` via a same-directory temp file +
 /// rename, so a concurrent reader — another process's CLI invocation, the
 /// daemon's own background cycle — never observes a torn/empty file.
+/// On Unix the temp file is created `0600` so secrets that land in config
+/// (or adjacent host JSON) are not world-readable under a permissive umask.
 pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResult<()> {
     let json = serde_json::to_string_pretty(value).map_err(|e| EaiError::config(e.to_string()))?;
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -47,11 +49,14 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
         ));
-        match fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp_path)
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
         {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&tmp_path) {
             Ok(file) => break (tmp_path, file),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(EaiError::filesystem(error.to_string())),
@@ -64,6 +69,11 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
     if result.is_err() {
         let _ = fs::remove_file(&tmp_path);
+    }
+    #[cfg(unix)]
+    if result.is_ok() {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
     result.map_err(|error| EaiError::filesystem(error.to_string()))
 }
@@ -948,7 +958,10 @@ impl SusiConfig {
                 merge_missing_registry_defaults(
                     &mut cfg.settings,
                     &Self::bundled_defaults().settings,
-                )
+                );
+                // Bearer lives only in ~/.susi/api_token (0600). Never heal or
+                // persist it into world-readable config.json.
+                cfg.settings.remove("api_auth_token");
             },
             true,
         )
@@ -962,7 +975,8 @@ impl SusiConfig {
                 merge_missing_registry_defaults(
                     &mut cfg.settings,
                     &Self::bundled_defaults().settings,
-                )
+                );
+                cfg.settings.remove("api_auth_token");
             },
             true,
         )
@@ -1043,59 +1057,69 @@ impl SusiConfig {
         self.get_or_bundled_default("allow_origin")
     }
     /// Bearer token required on world-facing HTTP surfaces (GMCP HTTP, GEMI
-    /// REST). Empty only before first daemon seed — [`Self::ensure_api_auth_token_seeded`]
-    /// writes a host token so zero-trust auth is always available.
+    /// REST). Prefer the dedicated `~/.susi/api_token` file (0600); fall back to
+    /// a legacy `settings.api_auth_token` value only for migration.
     pub fn api_auth_token(&self) -> String {
+        let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
+        if let Ok(from_file) = fs::read_to_string(&token_path) {
+            let trimmed = from_file.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
         self.get_or_bundled_default("api_auth_token")
     }
 
     /// Ensure `api_auth_token` is non-empty on the host substrate. Generates a
-    /// 32-byte hex secret on first run, persists it to `config.json` and
-    /// `~/.susi/api_token` (0600), and returns the active token.
+    /// 32-byte hex secret on first run, persists it **only** to
+    /// `~/.susi/api_token` (0600) — never into world-readable `config.json`.
     pub fn ensure_api_auth_token_seeded() -> String {
         let global_dir = susi_paths::SusiDirs::config_dir();
-        let mut cfg = Self::load_global().unwrap_or_default();
-        let existing = cfg.api_auth_token();
-        if !existing.is_empty() {
-            let token_path = global_dir.join("api_token");
-            if !token_path.exists() {
-                let _ = fs::write(&token_path, existing.trim());
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
-                }
-            }
-            return existing;
-        }
-        let mut raw = [0u8; 32];
-        if getrandom::fill(&mut raw).is_err() {
-            // Extremely unlikely; fall back to a process-unique but weaker seed.
-            let fallback = format!(
-                "{}:{}:{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0),
-                global_dir.display()
-            );
-            use sha2::{Digest, Sha256};
-            let digest = Sha256::digest(fallback.as_bytes());
-            raw.copy_from_slice(&digest[..32]);
-        }
-        let token = hex::encode(raw);
-        cfg.settings.insert(
-            "api_auth_token".to_string(),
-            serde_json::Value::String(token.clone()),
-        );
-        let _ = cfg.save(&global_dir);
         let token_path = global_dir.join("api_token");
+        if let Ok(existing) = fs::read_to_string(&token_path) {
+            let trimmed = existing.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+        // Migrate a legacy config.json copy into the private file, then strip it.
+        let mut cfg = Self::load_global().unwrap_or_default();
+        let legacy = cfg
+            .settings
+            .get("api_auth_token")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let token = if !legacy.is_empty() {
+            legacy
+        } else {
+            let mut raw = [0u8; 32];
+            if getrandom::fill(&mut raw).is_err() {
+                // Extremely unlikely; fall back to a process-unique but weaker seed.
+                let fallback = format!(
+                    "{}:{}:{}",
+                    std::process::id(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0),
+                    global_dir.display()
+                );
+                use sha2::{Digest, Sha256};
+                let digest = Sha256::digest(fallback.as_bytes());
+                raw.copy_from_slice(&digest[..32]);
+            }
+            hex::encode(raw)
+        };
         let _ = fs::write(&token_path, &token);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+        }
+        if cfg.settings.remove("api_auth_token").is_some() {
+            let _ = cfg.save(&global_dir);
         }
         eprintln!(
             "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP 9090/9091/9093)",

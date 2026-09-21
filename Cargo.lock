@@ -7228,6 +7228,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "jsonschema",
+ "libc",
  "once_cell",
  "parking_lot",
  "qdrant-client",

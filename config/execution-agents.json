@@ -82,10 +82,11 @@
     "name": "Devin",
     "peer_name": "DevinAgent",
     "rank": 6,
-    "documentation": "https://docs.devin.ai/api-reference/v1/sessions/create-a-new-devin-session",
+    "documentation": "https://docs.devin.ai/api-reference/v3/sessions/post-organizations-sessions",
     "adapter": {
       "kind": "devin",
-      "api_key_env": "DEVIN_API_KEY"
+      "api_key_env": "DEVIN_API_KEY",
+      "org_id_env": "DEVIN_ORG_ID"
     }
   },
   {

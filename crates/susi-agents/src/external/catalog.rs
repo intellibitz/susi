@@ -67,10 +67,17 @@ pub enum Adapter {
     },
     Devin {
         api_key_env: String,
+        /// Env var holding the Devin organization id (`org-…`). Defaults to `DEVIN_ORG_ID`.
+        #[serde(default = "default_devin_org_id_env")]
+        org_id_env: String,
     },
     Manus {
         api_key_env: String,
     },
+}
+
+fn default_devin_org_id_env() -> String {
+    "DEVIN_ORG_ID".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,15 +156,39 @@ impl Adapter {
                     );
                 }
             }
-            Self::Devin { api_key_env } | Self::Manus { api_key_env }
+            Self::Devin {
+                api_key_env,
+                org_id_env,
+            } => {
                 if api_key_env.is_empty()
                     || !api_key_env
                         .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
-            {
-                bail!("api_key_env must name an environment variable, not contain a credential");
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                {
+                    bail!(
+                        "api_key_env must name an environment variable, not contain a credential"
+                    );
+                }
+                if org_id_env.is_empty()
+                    || !org_id_env
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                {
+                    bail!("org_id_env must name an environment variable, not contain an org id");
+                }
             }
-            Self::Devin { .. } | Self::Manus { .. } | Self::Qwen { .. } => {}
+            Self::Manus { api_key_env } => {
+                if api_key_env.is_empty()
+                    || !api_key_env
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                {
+                    bail!(
+                        "api_key_env must name an environment variable, not contain a credential"
+                    );
+                }
+            }
+            Self::Qwen { .. } => {}
         }
         Ok(())
     }
@@ -210,7 +241,27 @@ impl Adapter {
                 }
                 Ok("Python package and entry config present; model credentials checked at execution".into())
             }
-            Self::Devin { api_key_env } | Self::Manus { api_key_env } => {
+            Self::Devin {
+                api_key_env,
+                org_id_env,
+            } => {
+                if std::env::var(api_key_env)
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+                {
+                    bail!("set {api_key_env} for cloud API access");
+                }
+                if std::env::var(org_id_env)
+                    .unwrap_or_default()
+                    .trim()
+                    .is_empty()
+                {
+                    bail!("set {org_id_env} (Devin org id, e.g. org-…) for API v3");
+                }
+                Ok("credential and org id present; API access checked at execution".into())
+            }
+            Self::Manus { api_key_env } => {
                 if std::env::var(api_key_env)
                     .unwrap_or_default()
                     .trim()

@@ -1,4 +1,4 @@
-//! Native Devin v1 session and Manus v2 task lifecycles.
+//! Native Devin v3 session and Manus v2 task lifecycles.
 use super::{Adapter, AgentManager, RunRecord, RunStatus};
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::{Client, RequestBuilder};
@@ -8,21 +8,53 @@ use std::time::Duration;
 
 struct Cloud {
     client: Client,
-    base: &'static str,
+    /// Full API root including version prefix, e.g. `https://api.devin.ai/v3`.
+    base: String,
     key: String,
     manus: bool,
+    /// Devin org id (`org-…`); empty for Manus.
+    org_id: String,
 }
+
 impl Cloud {
     fn new(adapter: &Adapter) -> Result<Self> {
-        let (base, env, manus) = match adapter {
-            Adapter::Devin { api_key_env } => ("https://api.devin.ai/v1", api_key_env, false),
-            Adapter::Manus { api_key_env } => ("https://api.manus.ai/v2", api_key_env, true),
+        let (base, env, manus, org_env) = match adapter {
+            Adapter::Devin {
+                api_key_env,
+                org_id_env,
+            } => (
+                "https://api.devin.ai/v3".to_string(),
+                api_key_env.as_str(),
+                false,
+                Some(org_id_env.as_str()),
+            ),
+            Adapter::Manus { api_key_env } => (
+                "https://api.manus.ai/v2".to_string(),
+                api_key_env.as_str(),
+                true,
+                None,
+            ),
             _ => bail!("not a cloud adapter"),
         };
         let key = std::env::var(env).with_context(|| format!("missing {env}"))?;
         if key.trim().is_empty() {
             bail!("missing {env}");
         }
+        let org_id = if let Some(org_env) = org_env {
+            let org = std::env::var(org_env).with_context(|| {
+                format!("missing {org_env} (Devin API v3 requires an organization id)")
+            })?;
+            let org = org.trim().to_string();
+            if org.is_empty() {
+                bail!("missing {org_env}");
+            }
+            if !org.starts_with("org-") {
+                bail!("{org_env} must look like org-… (got a non-org value)");
+            }
+            org
+        } else {
+            String::new()
+        };
         Ok(Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -31,8 +63,10 @@ impl Cloud {
             base,
             key,
             manus,
+            org_id,
         })
     }
+
     fn request(&self, method: reqwest::Method, path: &str) -> RequestBuilder {
         let req = self.client.request(method, format!("{}{path}", self.base));
         if self.manus {
@@ -41,12 +75,22 @@ impl Cloud {
             req.bearer_auth(&self.key)
         }
     }
+
     fn post(&self, path: &str, body: Value) -> Result<Value> {
         response(self.request(reqwest::Method::POST, path).json(&body))
     }
+
     fn remote_path(&self, run: &RunRecord) -> Result<String> {
         let id = remote_id(run)?;
-        Ok(format!("/sessions/{id}"))
+        if self.manus {
+            Ok(format!("/sessions/{id}"))
+        } else {
+            Ok(format!("/organizations/{}/sessions/{id}", self.org_id))
+        }
+    }
+
+    fn sessions_collection(&self) -> String {
+        format!("/organizations/{}/sessions", self.org_id)
     }
 }
 
@@ -73,6 +117,7 @@ fn response(req: RequestBuilder) -> Result<Value> {
     }
     Ok(value)
 }
+
 fn remote_id(run: &RunRecord) -> Result<&str> {
     let id = run
         .remote_id
@@ -93,7 +138,7 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
     let created = if cloud.manus {
         cloud.post("/task.create", json!({"message": {"content": run.prompt}}))?
     } else {
-        cloud.post("/sessions", json!({"prompt": run.prompt}))?
+        cloud.post(&cloud.sessions_collection(), json!({"prompt": run.prompt}))?
     };
     run.remote_id = Some(
         created
@@ -131,6 +176,7 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
 pub(super) fn refresh(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     refresh_with(&Cloud::new(&run.adapter)?, manager, run)
 }
+
 fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     let id = remote_id(run)?;
     let value = if cloud.manus {
@@ -145,7 +191,11 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
     let status = if cloud.manus {
         value.pointer("/task/status")
     } else {
-        value.get("status_enum")
+        // Prefer coarse `status`; fall back to `status_detail` for finer states.
+        value
+            .get("status")
+            .or_else(|| value.get("status_detail"))
+            .or_else(|| value.get("status_enum"))
     }
     .and_then(Value::as_str)
     .context("provider response missing recognized status field")?;
@@ -188,7 +238,13 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
         }
         super::atomic_json(&dir.join("stdout.log"), &pages)?;
     } else {
-        super::atomic_json(&dir.join("stdout.log"), &value)?;
+        // Snapshot messages when available; keep the session object as a fallback.
+        let messages_path = format!("{}/messages", cloud.remote_path(run)?);
+        if let Ok(messages) = response(cloud.request(reqwest::Method::GET, &messages_path)) {
+            super::atomic_json(&dir.join("stdout.log"), &messages)?;
+        } else {
+            super::atomic_json(&dir.join("stdout.log"), &value)?;
+        }
     }
     Ok(())
 }
@@ -205,13 +261,13 @@ fn map_status(manus: bool, status: &str) -> RunStatus {
             _ => RunStatus::Unknown,
         }
     } else {
+        // Devin v3 coarse status + status_detail values.
         match status {
-            "working" | "resumed" | "resume_requested" | "resume_requested_frontend" => {
-                RunStatus::Running
-            }
-            "blocked" | "suspend_requested" | "suspend_requested_frontend" => RunStatus::Waiting,
-            "finished" => RunStatus::Succeeded,
-            "expired" => RunStatus::Stopped,
+            "new" | "claimed" | "running" | "resuming" | "working" => RunStatus::Running,
+            "waiting_for_user" | "waiting_for_approval" | "blocked" => RunStatus::Waiting,
+            "exit" | "finished" => RunStatus::Succeeded,
+            "error" => RunStatus::Failed,
+            "suspended" | "expired" => RunStatus::Stopped,
             _ => RunStatus::Unknown,
         }
     }
@@ -222,7 +278,14 @@ pub(super) fn cancel(run: &RunRecord) -> Result<()> {
     if cloud.manus {
         cloud.post("/task.stop", json!({"task_id": remote_id(run)?}))?;
     } else {
-        response(cloud.request(reqwest::Method::DELETE, &cloud.remote_path(run)?))?;
+        // v3: prefer an explicit stop; fall back to DELETE if the stop route is absent.
+        let stop = format!("{}/stop", cloud.remote_path(run)?);
+        match cloud.post(&stop, json!({})) {
+            Ok(_) => {}
+            Err(_) => {
+                response(cloud.request(reqwest::Method::DELETE, &cloud.remote_path(run)?))?;
+            }
+        }
     }
     Ok(())
 }
@@ -252,7 +315,9 @@ mod tests {
         assert_eq!(map_status(true, "waiting"), RunStatus::Waiting);
         assert_eq!(map_status(true, "error"), RunStatus::Failed);
         assert_eq!(map_status(false, "finished"), RunStatus::Succeeded);
-        assert_eq!(map_status(false, "blocked"), RunStatus::Waiting);
+        assert_eq!(map_status(false, "exit"), RunStatus::Succeeded);
+        assert_eq!(map_status(false, "waiting_for_user"), RunStatus::Waiting);
+        assert_eq!(map_status(false, "running"), RunStatus::Running);
         assert_eq!(map_status(false, "invented"), RunStatus::Unknown);
     }
     #[test]

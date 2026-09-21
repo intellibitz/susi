@@ -85,13 +85,21 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
         return Err(EaiError::filesystem("Absolute paths not allowed"));
     }
 
+    for component in path.components() {
+        if let Component::ParentDir = component {
+            return Err(EaiError::filesystem(
+                "Parent directory traversal not allowed",
+            ));
+        }
+    }
+
     let canonical_workspace = workspace
         .canonicalize()
         .map_err(|e| EaiError::filesystem(format!("Workspace error: {}", e)))?;
 
     let full_path = workspace.join(&path);
 
-    // H4 Security Patch: Securely canonicalize parent to prevent symlink traversal escaping
+    // Canonicalize parent to block mid-path symlink escapes out of workspace.
     let parent = full_path.parent().unwrap_or(workspace);
     let canonical_parent = parent
         .canonicalize()
@@ -104,17 +112,35 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
         )));
     }
 
-    let canonical_path = canonical_parent.join(full_path.file_name().unwrap_or_default());
+    let leaf_name = full_path
+        .file_name()
+        .ok_or_else(|| EaiError::filesystem(format!("Path has no file name: {}", user_path)))?;
+    let candidate = canonical_parent.join(leaf_name);
 
-    for component in path.components() {
-        if let Component::ParentDir = component {
-            return Err(EaiError::filesystem(
-                "Parent directory traversal not allowed",
-            ));
+    // Reject a symlink *leaf* (parent canonicalize alone lets `link -> /etc/passwd`
+    // through). For existing paths, fully resolve and re-check the workspace root.
+    if candidate.exists() || candidate.symlink_metadata().is_ok() {
+        let meta = std::fs::symlink_metadata(&candidate)
+            .map_err(|e| EaiError::filesystem(format!("Cannot stat path {}: {}", user_path, e)))?;
+        if meta.file_type().is_symlink() {
+            return Err(EaiError::filesystem(format!(
+                "Symlink targets not allowed: {}",
+                user_path
+            )));
         }
+        let resolved = candidate.canonicalize().map_err(|e| {
+            EaiError::filesystem(format!("Cannot resolve path {}: {}", user_path, e))
+        })?;
+        if !resolved.starts_with(&canonical_workspace) {
+            return Err(EaiError::filesystem(format!(
+                "Path escape attempt: {}",
+                user_path
+            )));
+        }
+        return Ok(resolved);
     }
 
-    Ok(canonical_path)
+    Ok(candidate)
 }
 
 /// Blocks loopback, private, link-local (including the 169.254.169.254 cloud
@@ -490,7 +516,24 @@ impl CoreTools {
             if let Some(parent) = dest.parent() {
                 let _ = fs::create_dir_all(parent);
             }
-            fs::write(&dest, content).map_err(|e| EaiError::filesystem(e.to_string()))?;
+            // O_NOFOLLOW (Unix): refuse to open if a symlink raced in after secure_path.
+            #[cfg(unix)]
+            {
+                use std::io::Write;
+                use std::os::unix::fs::OpenOptionsExt;
+                let mut options = fs::OpenOptions::new();
+                options.write(true).create(true).truncate(true);
+                options.custom_flags(libc::O_NOFOLLOW);
+                let mut file = options
+                    .open(&dest)
+                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
+                file.write_all(content.as_bytes())
+                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
+            }
+            #[cfg(not(unix))]
+            {
+                fs::write(&dest, content).map_err(|e| EaiError::filesystem(e.to_string()))?;
+            }
             Ok(format!("Wrote to {}", p))
         } else {
             Err(EaiError::protocol(
@@ -1817,5 +1860,67 @@ mod reason_tool_governance_tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("exfiltration"), "{}", err);
+    }
+}
+
+#[cfg(test)]
+mod secure_path_tests {
+    use super::secure_path;
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn scratch_dir() -> std::path::PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir =
+            std::env::temp_dir().join(format!("susi-secure-path-{}-{}", std::process::id(), nanos));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn rejects_symlink_leaf_escape() {
+        let dir = scratch_dir();
+        let workspace = dir.join("ws");
+        fs::create_dir_all(&workspace).unwrap();
+        let outside = dir.join("secret.txt");
+        fs::write(&outside, "nope").unwrap();
+        let link = workspace.join("escape");
+        symlink(&outside, &link).unwrap();
+
+        let err = secure_path(&workspace, "escape").unwrap_err();
+        assert!(
+            err.to_string().contains("Symlink"),
+            "expected symlink rejection, got: {err}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn allows_regular_file_inside_workspace() {
+        let dir = scratch_dir();
+        let workspace = dir.join("ws");
+        fs::create_dir_all(&workspace).unwrap();
+        let file = workspace.join("ok.txt");
+        fs::write(&file, "yes").unwrap();
+
+        let got = secure_path(&workspace, "ok.txt").unwrap();
+        assert_eq!(got, file.canonicalize().unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn allows_new_path_under_workspace() {
+        let dir = scratch_dir();
+        let workspace = dir.join("ws");
+        fs::create_dir_all(&workspace).unwrap();
+
+        let got = secure_path(&workspace, "new.txt").unwrap();
+        assert_eq!(got, workspace.canonicalize().unwrap().join("new.txt"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
