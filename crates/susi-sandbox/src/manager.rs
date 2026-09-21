@@ -2236,7 +2236,7 @@ mod tests {
     #[test]
     fn leading_catalogs_meet_trustworthy_floors() {
         let peers = SusiConfig::default().external_peer_agents();
-        assert!(peers.len() >= 10, "agents {}", peers.len());
+        assert!(peers.len() >= 20, "agents {}", peers.len());
         let engines = SusiConfig::default().inference_endpoints().endpoints;
         assert!(
             (12..=16).contains(&engines.len()),

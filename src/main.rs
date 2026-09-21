@@ -6,6 +6,7 @@
 #![allow(missing_docs)]
 
 mod agent_cli;
+mod framework_cli;
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -40,6 +41,11 @@ enum Commands {
     Agents {
         #[command(subcommand)]
         action: agent_cli::AgentCommands,
+    },
+    /// Manage agent frameworks/engines end to end (LangGraph, CrewAI, …)
+    Frameworks {
+        #[command(subcommand)]
+        action: framework_cli::FrameworkCommands,
     },
     /// Ensure the global susi daemon is running and report host-contract endpoints
     Start,
@@ -195,6 +201,7 @@ enum AdminCommands {
 fn command_requires_daemon(command: &Commands) -> bool {
     match command {
         Commands::Agents { .. }
+        | Commands::Frameworks { .. }
         | Commands::Clean
         | Commands::Review
         | Commands::Accept
@@ -352,12 +359,25 @@ fn run_shell(workspace: &Path) {
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    // External executors do not need model provisioning, daemon boot, or self-deployment.
+    // External executors/frameworks do not need model provisioning, daemon boot, or self-deployment.
     if let Some(Commands::Agents { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| agent_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Frameworks { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| framework_cli::execute(action, &cwd))
         {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
@@ -438,7 +458,7 @@ fn main() -> std::process::ExitCode {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Agents { .. } => {
+            Commands::Agents { .. } | Commands::Frameworks { .. } => {
                 // Handled before substrate boot above.
             }
             Commands::Start => {

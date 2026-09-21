@@ -517,5 +517,85 @@
     ],
     "base_rank": 0.9,
     "is_core": false
+  },
+  {
+    "name": "LangGraphEngine",
+    "description": "LangGraph managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "langgraph"],
+    "semantic_anchors": ["langgraph", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "OpenAIAgentsEngine",
+    "description": "OpenAI Agents SDK managed framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "openai-agents"],
+    "semantic_anchors": ["openai-agents", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "AutoGenEngine",
+    "description": "AutoGen managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "autogen"],
+    "semantic_anchors": ["autogen", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "CrewAIEngine",
+    "description": "CrewAI managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "crewai"],
+    "semantic_anchors": ["crewai", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "QwenAgentEngine",
+    "description": "Qwen-Agent managed framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "qwen"],
+    "semantic_anchors": ["qwen-agent", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "SemanticKernelEngine",
+    "description": "Semantic Kernel managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "semantic-kernel"],
+    "semantic_anchors": ["semantic-kernel", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "OpenHandsRuntimeEngine",
+    "description": "OpenHands Runtime managed framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "openhands"],
+    "semantic_anchors": ["openhands-runtime", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "LangChainEngine",
+    "description": "LangChain managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "langchain"],
+    "semantic_anchors": ["langchain", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "PydanticAIEngine",
+    "description": "PydanticAI managed agent framework; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "pydantic-ai"],
+    "semantic_anchors": ["pydantic-ai", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "LlamaIndexEngine",
+    "description": "LlamaIndex Agent Framework managed engine; setup via `susi frameworks`.",
+    "categories": ["peer", "framework", "external", "llamaindex"],
+    "semantic_anchors": ["llamaindex", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
   }
 ]

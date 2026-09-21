@@ -516,6 +516,56 @@
       "protocol": "managed"
     },
     {
+      "name": "LangGraphEngine",
+      "description": "LangGraph managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "OpenAIAgentsEngine",
+      "description": "OpenAI Agents SDK managed framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "AutoGenEngine",
+      "description": "AutoGen managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "CrewAIEngine",
+      "description": "CrewAI managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "QwenAgentEngine",
+      "description": "Qwen-Agent managed framework; setup via susi frameworks (distinct from QwenAgent executor).",
+      "protocol": "managed"
+    },
+    {
+      "name": "SemanticKernelEngine",
+      "description": "Semantic Kernel managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "OpenHandsRuntimeEngine",
+      "description": "OpenHands Runtime managed framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "LangChainEngine",
+      "description": "LangChain managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "PydanticAIEngine",
+      "description": "PydanticAI managed agent framework; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
+      "name": "LlamaIndexEngine",
+      "description": "LlamaIndex Agent Framework managed engine; setup via susi frameworks.",
+      "protocol": "managed"
+    },
+    {
       "name": "AiderAgent",
       "description": "Aider pair-programming CLI (pluggable when driver on PATH / configured).",
       "detect_bins": [

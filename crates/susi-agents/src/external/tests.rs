@@ -6,10 +6,13 @@ struct Fixture {
 }
 impl Fixture {
     fn new() -> Self {
+        Self::for_kind(CatalogKind::Execution)
+    }
+    fn for_kind(kind: CatalogKind) -> Self {
         let root = std::env::temp_dir().join(format!("susi-agent-test-{}", unique_id().unwrap()));
         fs::create_dir_all(&root).unwrap();
         Self {
-            manager: AgentManager::with_config(&root, root.join("host-config")).unwrap(),
+            manager: AgentManager::with_config(&root, kind, root.join("host-config")).unwrap(),
             root,
         }
     }
@@ -29,27 +32,66 @@ impl Drop for Fixture {
 
 #[test]
 fn ten_unique_agents_with_native_adapters() {
-    let catalog = catalog().unwrap();
+    let catalog = catalog(CatalogKind::Execution).unwrap();
     assert_eq!(catalog.len(), 10);
     let mut ids = std::collections::HashSet::new();
     for (index, agent) in catalog.iter().enumerate() {
         assert!(ids.insert(&agent.id));
         assert_eq!(agent.rank as usize, index + 1);
         agent.adapter.validate().unwrap();
-        assert_eq!(definition(&agent.peer_name).unwrap().id, agent.id);
+        assert_eq!(
+            definition(CatalogKind::Execution, &agent.peer_name)
+                .unwrap()
+                .id,
+            agent.id
+        );
     }
     assert!(matches!(
-        definition("qwen-agent").unwrap().adapter,
+        definition(CatalogKind::Execution, "qwen-agent")
+            .unwrap()
+            .adapter,
         Adapter::Qwen { .. }
     ));
     assert!(matches!(
-        definition("devin").unwrap().adapter,
+        definition(CatalogKind::Execution, "devin").unwrap().adapter,
         Adapter::Devin { .. }
     ));
     assert!(matches!(
-        definition("manus").unwrap().adapter,
+        definition(CatalogKind::Execution, "manus").unwrap().adapter,
         Adapter::Manus { .. }
     ));
+}
+
+#[test]
+fn ten_unique_frameworks_with_python_adapters() {
+    let catalog = catalog(CatalogKind::Framework).unwrap();
+    assert_eq!(catalog.len(), 10);
+    let mut ids = std::collections::HashSet::new();
+    for (index, engine) in catalog.iter().enumerate() {
+        assert!(ids.insert(&engine.id));
+        assert_eq!(engine.rank as usize, index + 1);
+        engine.adapter.validate().unwrap();
+        assert!(matches!(engine.adapter, Adapter::Python { .. }));
+        assert_eq!(
+            definition(CatalogKind::Framework, &engine.peer_name)
+                .unwrap()
+                .id,
+            engine.id
+        );
+    }
+    // Distinct from the coding-executor Qwen peer.
+    assert_ne!(
+        definition(CatalogKind::Framework, "qwen-agent-engine")
+            .unwrap()
+            .peer_name,
+        "QwenAgent"
+    );
+    let (kind, def) = resolve_managed("LangGraphEngine").unwrap();
+    assert_eq!(kind, CatalogKind::Framework);
+    assert_eq!(def.id, "langgraph");
+    let (kind, def) = resolve_managed("ClaudeCodeAgent").unwrap();
+    assert_eq!(kind, CatalogKind::Execution);
+    assert_eq!(def.id, "claude-code");
 }
 
 #[test]
@@ -101,8 +143,12 @@ fn process_success_failure_and_literal_prompt_survive_manager_restart() {
             .unwrap();
         let finished = fixture.manager.execute(&run.id).unwrap();
         assert_eq!(finished.status, expected);
-        let reopened =
-            AgentManager::with_config(&fixture.root, fixture.root.join("host-config")).unwrap();
+        let reopened = AgentManager::with_config(
+            &fixture.root,
+            CatalogKind::Execution,
+            fixture.root.join("host-config"),
+        )
+        .unwrap();
         assert_eq!(reopened.status(&run.id).unwrap().status, expected);
         assert_eq!(reopened.logs(&run.id, false, 65536).unwrap(), prompt);
         assert!(fixture.manager.execute(&run.id).is_err());
@@ -167,4 +213,40 @@ fn queued_cancel_and_lost_worker_do_not_dispatch_or_claim_success() {
         fixture.manager.cancel(&run.id).unwrap().status,
         RunStatus::Unknown
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn python_framework_runner_invokes_absolute_script() {
+    let fixture = Fixture::for_kind(CatalogKind::Framework);
+    let script = fixture.root.join("entry.py");
+    fs::write(
+        &script,
+        "import os\nprint('FRAMEWORK:' + os.environ['SUSI_AGENT_PROMPT'])\n",
+    )
+    .unwrap();
+    let config = fixture.root.join("langgraph.json");
+    fs::write(
+        &config,
+        serde_json::json!({"script": script.to_string_lossy()}).to_string(),
+    )
+    .unwrap();
+    std::env::set_var("SUSI_LANGGRAPH_CONFIG", &config);
+    let adapter = Adapter::Python {
+        python: "python3".into(),
+        import_name: "json".into(),
+        config_env: "SUSI_LANGGRAPH_CONFIG".into(),
+    };
+    let run = fixture
+        .manager
+        .prepare_adapter("langgraph", "hello-engine", adapter)
+        .unwrap();
+    let finished = fixture.manager.execute(&run.id).unwrap();
+    assert_eq!(finished.status, RunStatus::Succeeded);
+    assert!(fixture
+        .manager
+        .logs(&run.id, false, 65536)
+        .unwrap()
+        .contains("FRAMEWORK:hello-engine"));
+    std::env::remove_var("SUSI_LANGGRAPH_CONFIG");
 }

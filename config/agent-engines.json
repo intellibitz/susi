@@ -1,0 +1,132 @@
+[
+  {
+    "id": "langgraph",
+    "name": "LangGraph",
+    "peer_name": "LangGraphEngine",
+    "rank": 1,
+    "documentation": "https://docs.langchain.com/oss/python/langgraph/overview",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "langgraph",
+      "config_env": "SUSI_LANGGRAPH_CONFIG"
+    }
+  },
+  {
+    "id": "openai-agents",
+    "name": "OpenAI Agents SDK",
+    "peer_name": "OpenAIAgentsEngine",
+    "rank": 2,
+    "documentation": "https://openai.github.io/openai-agents-python/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "agents",
+      "config_env": "SUSI_OPENAI_AGENTS_CONFIG"
+    }
+  },
+  {
+    "id": "autogen",
+    "name": "AutoGen",
+    "peer_name": "AutoGenEngine",
+    "rank": 3,
+    "documentation": "https://microsoft.github.io/autogen/stable/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "autogen_agentchat",
+      "config_env": "SUSI_AUTOGEN_CONFIG"
+    }
+  },
+  {
+    "id": "crewai",
+    "name": "CrewAI",
+    "peer_name": "CrewAIEngine",
+    "rank": 4,
+    "documentation": "https://docs.crewai.com/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "crewai",
+      "config_env": "SUSI_CREWAI_CONFIG"
+    }
+  },
+  {
+    "id": "qwen-agent-engine",
+    "name": "Qwen-Agent",
+    "peer_name": "QwenAgentEngine",
+    "rank": 5,
+    "documentation": "https://github.com/QwenLM/Qwen-Agent",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "qwen_agent",
+      "config_env": "SUSI_QWEN_ENGINE_CONFIG"
+    }
+  },
+  {
+    "id": "semantic-kernel",
+    "name": "Semantic Kernel",
+    "peer_name": "SemanticKernelEngine",
+    "rank": 6,
+    "documentation": "https://learn.microsoft.com/en-us/semantic-kernel/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "semantic_kernel",
+      "config_env": "SUSI_SEMANTIC_KERNEL_CONFIG"
+    }
+  },
+  {
+    "id": "openhands-runtime",
+    "name": "OpenHands Runtime",
+    "peer_name": "OpenHandsRuntimeEngine",
+    "rank": 7,
+    "documentation": "https://docs.openhands.dev/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "openhands",
+      "config_env": "SUSI_OPENHANDS_RUNTIME_CONFIG"
+    }
+  },
+  {
+    "id": "langchain",
+    "name": "LangChain",
+    "peer_name": "LangChainEngine",
+    "rank": 8,
+    "documentation": "https://python.langchain.com/docs/concepts/agents/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "langchain",
+      "config_env": "SUSI_LANGCHAIN_CONFIG"
+    }
+  },
+  {
+    "id": "pydantic-ai",
+    "name": "PydanticAI",
+    "peer_name": "PydanticAIEngine",
+    "rank": 9,
+    "documentation": "https://ai.pydantic.dev/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "pydantic_ai",
+      "config_env": "SUSI_PYDANTIC_AI_CONFIG"
+    }
+  },
+  {
+    "id": "llamaindex",
+    "name": "LlamaIndex Agent Framework",
+    "peer_name": "LlamaIndexEngine",
+    "rank": 10,
+    "documentation": "https://docs.llamaindex.ai/en/stable/understanding/agent/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "llama_index",
+      "config_env": "SUSI_LLAMAINDEX_CONFIG"
+    }
+  }
+]

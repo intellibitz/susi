@@ -19,6 +19,23 @@ use headless_chrome::Browser;
 use qdrant_client::Qdrant;
 use tantivy::{collector::TopDocs, query::QueryParser, schema::*, Index, TantivyDocument};
 
+fn manager_for_external_task(
+    workspace: &Path,
+    id: &str,
+) -> EaiResult<susi_agents::external::AgentManager> {
+    let execution = susi_agents::external::AgentManager::new(workspace)
+        .map_err(|e| EaiError::process(e.to_string()))?;
+    if execution.read(id).is_ok() {
+        return Ok(execution);
+    }
+    let frameworks = susi_agents::external::AgentManager::frameworks(workspace)
+        .map_err(|e| EaiError::process(e.to_string()))?;
+    if frameworks.read(id).is_ok() {
+        return Ok(frameworks);
+    }
+    Err(EaiError::protocol(format!("unknown task_id {id}")))
+}
+
 fn external_agent_control(
     arg: &serde_json::Value,
     workspace: &Path,
@@ -28,8 +45,7 @@ fn external_agent_control(
         .get("task_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| EaiError::protocol("task_id is required"))?;
-    let manager = susi_agents::external::AgentManager::new(workspace)
-        .map_err(|e| EaiError::process(e.to_string()))?;
+    let manager = manager_for_external_task(workspace, id)?;
     if action == "logs" {
         return manager
             .logs(
@@ -564,8 +580,8 @@ impl CoreTools {
     pub fn agents_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let manager = susi_agents::external::AgentManager::new(workspace)
             .map_err(|e| EaiError::process(e.to_string()))?;
-        let catalog =
-            susi_agents::external::catalog().map_err(|e| EaiError::config(e.to_string()))?;
+        let catalog = susi_agents::external::catalog(susi_agents::external::CatalogKind::Execution)
+            .map_err(|e| EaiError::config(e.to_string()))?;
         let agents: Vec<_> = catalog
             .into_iter()
             .map(|agent| {
@@ -643,6 +659,86 @@ impl CoreTools {
     )]
     pub fn agents_send(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         external_agent_control(arg, workspace, "send")
+    }
+
+    #[tool(
+        name = "frameworks_list",
+        description = "List managed agent frameworks/engines and local setup readiness"
+    )]
+    pub fn frameworks_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let manager = susi_agents::external::AgentManager::frameworks(workspace)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        let catalog = susi_agents::external::catalog(susi_agents::external::CatalogKind::Framework)
+            .map_err(|e| EaiError::config(e.to_string()))?;
+        let engines: Vec<_> = catalog
+            .into_iter()
+            .map(|engine| {
+                let readiness = manager.adapter(&engine.id).and_then(|a| a.preflight());
+                serde_json::json!({"engine": engine, "prerequisites_present": readiness.is_ok(),
+                "detail": readiness.unwrap_or_else(|e| e.to_string())})
+            })
+            .collect();
+        serde_json::to_string(&engines).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "frameworks_run",
+        description = "Launch an agent-framework task; returns a durable task ID"
+    )]
+    pub fn frameworks_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let engine = arg
+            .get("engine")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("engine is required"))?;
+        let prompt = arg
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("prompt is required"))?;
+        let manager = susi_agents::external::AgentManager::frameworks(workspace)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        let run = manager
+            .start(engine, prompt)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&run)
+            .map(|s| susi_agents::external::redact(&s))
+            .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "frameworks_tasks",
+        description = "List persisted agent-framework tasks for this workspace"
+    )]
+    pub fn frameworks_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let runs = susi_agents::external::AgentManager::frameworks(workspace)
+            .and_then(|m| m.list())
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&runs)
+            .map(|s| susi_agents::external::redact(&s))
+            .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "frameworks_status",
+        description = "Inspect an agent-framework task"
+    )]
+    pub fn frameworks_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "status")
+    }
+
+    #[tool(
+        name = "frameworks_cancel",
+        description = "Request cancellation of a managed agent-framework task"
+    )]
+    pub fn frameworks_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "cancel")
+    }
+
+    #[tool(
+        name = "frameworks_logs",
+        description = "Read the last 64 KiB of agent-framework output; stderr=true selects errors"
+    )]
+    pub fn frameworks_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "logs")
     }
 
     #[tool(
@@ -1296,6 +1392,48 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         "Send message to cloud task_id",
         MetaCategory::IntelligenceBridge,
         CoreTools::agents_send,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_list",
+        "List managed agent frameworks and setup readiness",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_list,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_run",
+        "Launch framework task with engine and prompt",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_run,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_tasks",
+        "List durable framework tasks",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_tasks,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_status",
+        "Inspect framework task_id",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_status,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_cancel",
+        "Cancel framework task_id",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_cancel,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "frameworks_logs",
+        "Read framework task_id output; optional stderr",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::frameworks_logs,
     );
     ToolRegistry::register_meta_tool(
         registry,

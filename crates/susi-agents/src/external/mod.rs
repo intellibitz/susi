@@ -5,7 +5,7 @@ mod cloud;
 mod process;
 
 use anyhow::{bail, Context, Result};
-pub use catalog::{catalog, definition, Adapter, AgentDefinition};
+pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -51,6 +51,7 @@ pub struct RunRecord {
 
 #[derive(Clone)]
 pub struct AgentManager {
+    kind: CatalogKind,
     workspace: PathBuf,
     root: PathBuf,
     config: PathBuf,
@@ -59,26 +60,40 @@ pub struct AgentManager {
 
 impl AgentManager {
     pub fn new(workspace: &Path) -> Result<Self> {
+        Self::for_kind(workspace, CatalogKind::Execution)
+    }
+
+    pub fn frameworks(workspace: &Path) -> Result<Self> {
+        Self::for_kind(workspace, CatalogKind::Framework)
+    }
+
+    pub fn for_kind(workspace: &Path, kind: CatalogKind) -> Result<Self> {
         Self::with_config(
             workspace,
-            susi_paths::SusiDirs::config_dir().join("execution-agents"),
+            kind,
+            susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
         )
     }
 
-    pub fn with_config(workspace: &Path, config: PathBuf) -> Result<Self> {
+    pub fn with_config(workspace: &Path, kind: CatalogKind, config: PathBuf) -> Result<Self> {
         let workspace = workspace
             .canonicalize()
             .context("agent workspace does not exist")?;
         if !workspace.is_dir() {
             bail!("agent workspace must be a directory");
         }
-        let root = workspace.join(".susi/execution-agents");
+        let root = workspace.join(".susi").join(kind.run_subdir());
         Ok(Self {
+            kind,
             workspace,
             root,
             config,
             shutdown: None,
         })
+    }
+
+    pub fn kind(&self) -> CatalogKind {
+        self.kind
     }
 
     pub fn with_shutdown(mut self, flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
@@ -87,7 +102,7 @@ impl AgentManager {
     }
 
     pub fn adapter(&self, id: &str) -> Result<Adapter> {
-        let def = definition(id)?;
+        let def = definition(self.kind, id)?;
         let path = self.config.join(format!("{}.json", def.id));
         let adapter = match fs::read(&path) {
             Ok(bytes) => {
@@ -102,14 +117,14 @@ impl AgentManager {
 
     /// Overrides are host configuration, never executable instructions auto-loaded from a repo.
     pub fn configure(&self, id: &str, adapter: &Adapter) -> Result<()> {
-        let def = definition(id)?;
+        let def = definition(self.kind, id)?;
         adapter.validate()?;
         private_dir(&self.config)?;
         atomic_json(&self.config.join(format!("{}.json", def.id)), adapter)
     }
 
     pub fn reset(&self, id: &str) -> Result<()> {
-        let def = definition(id)?;
+        let def = definition(self.kind, id)?;
         match fs::remove_file(self.config.join(format!("{}.json", def.id))) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -118,7 +133,7 @@ impl AgentManager {
     }
 
     pub fn prepare(&self, agent: &str, prompt: &str) -> Result<RunRecord> {
-        let def = definition(agent)?;
+        let def = definition(self.kind, agent)?;
         let adapter = self.adapter(&def.id)?;
         self.prepare_adapter(&def.id, prompt, adapter)
     }
@@ -129,7 +144,7 @@ impl AgentManager {
         prompt: &str,
         adapter: Adapter,
     ) -> Result<RunRecord> {
-        definition(agent)?;
+        definition(self.kind, agent)?;
         if prompt.trim().is_empty() {
             bail!("task prompt must not be empty");
         }

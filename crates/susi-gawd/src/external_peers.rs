@@ -287,12 +287,20 @@ impl GawdAgent for ExternalPeerAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         if peer_protocol(&self.spec) == "managed" {
-            let manager = susi_agents::external::AgentManager::new(workspace)
+            let (kind, def) =
+                susi_agents::external::resolve_managed(&self.spec.name).map_err(|e| {
+                    EaiError::governance(format!("[UNAVAILABLE] {}: {e}", self.spec.name))
+                })?;
+            let manager = susi_agents::external::AgentManager::for_kind(workspace, kind)
                 .map_err(|e| EaiError::process(e.to_string()))?;
-            if let Err(e) = manager.adapter(&self.spec.name).and_then(|a| a.preflight()) {
+            let setup = match kind {
+                susi_agents::external::CatalogKind::Execution => "susi agents setup",
+                susi_agents::external::CatalogKind::Framework => "susi frameworks setup",
+            };
+            if let Err(e) = manager.adapter(&def.id).and_then(|a| a.preflight()) {
                 let msg = format!(
-                    "[UNAVAILABLE] {}: {}. Install/configure via `susi agents setup {}`.",
-                    self.spec.name, e, self.spec.name
+                    "[UNAVAILABLE] {}: {}. Install/configure via `{setup} {}`.",
+                    self.spec.name, e, def.id
                 );
                 blackboard.insert(self.name(), msg.clone());
                 return Err(EaiError::governance(msg));
@@ -303,7 +311,7 @@ impl GawdAgent for ExternalPeerAgent {
                 workspace,
                 || {
                     let run = manager
-                        .prepare(&self.spec.name, goal)
+                        .prepare(&def.id, goal)
                         .and_then(|run| manager.execute(&run.id))
                         .map_err(|e| EaiError::process(e.to_string()))?;
                     let output = manager
@@ -544,6 +552,16 @@ mod tests {
             "ManusAgent",
             "QwenAgent",
             "GithubCopilotAgent",
+            "LangGraphEngine",
+            "OpenAIAgentsEngine",
+            "AutoGenEngine",
+            "CrewAIEngine",
+            "QwenAgentEngine",
+            "SemanticKernelEngine",
+            "OpenHandsRuntimeEngine",
+            "LangChainEngine",
+            "PydanticAIEngine",
+            "LlamaIndexEngine",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }

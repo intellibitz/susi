@@ -39,6 +39,10 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
             python.clone(),
             vec!["-u".into(), "-c".into(), include_str!("qwen.py").into()],
         ),
+        Adapter::Python { python, .. } => (
+            python.clone(),
+            vec!["-u".into(), "-c".into(), include_str!("runner.py").into()],
+        ),
         _ => anyhow::bail!("not a process adapter"),
     };
     let program = super::catalog::resolve_program(&program).context("agent executable missing")?;
@@ -57,6 +61,10 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         .stdout(output)
         .stderr(error)
         .env("SUSI_AGENT_PROMPT", &run.prompt);
+    if let Adapter::Python { config_env, .. } = &run.adapter {
+        let path = std::env::var(config_env).context("framework config env missing")?;
+        cmd.env("SUSI_FRAMEWORK_CONFIG", path);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
