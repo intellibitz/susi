@@ -269,9 +269,9 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let worker = std::thread::spawn(move || {
                 let (mut stream, _) = listener.accept().unwrap();
-                let mut request = Vec::new();
-                stream.take(4096).read_to_end(&mut request).unwrap();
-                assert!(!request.is_empty());
+                let mut request = [0u8; 4096];
+                let n = stream.read(&mut request).unwrap();
+                assert!(n > 0);
                 write!(
                     stream,
                     "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
