@@ -1,6 +1,6 @@
 ---
 schema = "susi/evidence/v1"
-version = "0.4.2"
+version = "0.5.0"
 id_scheme = "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table."
 last_verification = 2026-09-21T06:15:00Z
 epistemic_score = 1.0
