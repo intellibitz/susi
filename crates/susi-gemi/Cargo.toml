@@ -20,7 +20,7 @@ reqwest = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 tracing = { workspace = true }
 tokio = { workspace = true }
-rayon = "1.10"
+rayon = "1.12"
 parking_lot = { workspace = true }
 directories = "6.0.0"
 anyhow = { workspace = true }
@@ -34,8 +34,8 @@ image = "0.25"
 hex = { workspace = true }
 libc = "0.2"
 sysinfo = "0.39.6"
-agent-client-protocol = "2.0"
-agent-client-protocol-http = { version = "2.0", features = ["server"] }
+agent-client-protocol = "2.2"
+agent-client-protocol-http = { version = "2.2", features = ["server"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

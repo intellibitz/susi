@@ -6,13 +6,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
-wasmer-types = "7"
+wasmer-types = "7.4.2"
 susi-error = { workspace = true }
 
 [target.'cfg(not(windows))'.dependencies]
-wasmer = { version = "7", features = ["cranelift", "sys"] }
+wasmer = { version = "7.4.2", features = ["cranelift", "sys"] }
 wasmer-wasix = { version = "0.704.2", features = ["sys"] }
 
 [target.'cfg(windows)'.dependencies]
-wasmer = { version = "7", features = ["singlepass", "sys"] }
+wasmer = { version = "7.4.2", features = ["singlepass", "sys"] }
 wasmer-wasix = { version = "0.704.2", features = ["sys"] }

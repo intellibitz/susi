@@ -46,11 +46,29 @@ jobs:
 
       - name: Install Linux System Dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+
+      - name: Install mold (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          VER=2.40.4
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64|aarch64) ;;
+            *) echo "Skipping mold on $ARCH"; exit 0 ;;
+          esac
+          NAME="mold-${VER}-${ARCH}-linux"
+          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
+            | sudo tar -xz -C /usr/local --strip-components=1
+          mold --version
+          command -v ld.mold
+          command -v clang
 
       - name: Build Engine
         # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
         # installer uses [profile.release] (thin LTO) for fast source builds.
+        # Linux links via .cargo/fast-linker (mold when installed above).
         run: cargo build --profile dist
 
       - name: Rename Binary
@@ -79,7 +97,18 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install System Dependencies
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake clang
+
+      - name: Install mold
+        run: |
+          set -euo pipefail
+          VER=2.40.4
+          ARCH="$(uname -m)"
+          NAME="mold-${VER}-${ARCH}-linux"
+          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
+            | sudo tar -xz -C /usr/local --strip-components=1
+          mold --version
+          command -v ld.mold
 
       - name: Install CUDA Toolkit
         run: |

@@ -22,13 +22,13 @@ jsonschema = { version = "0.56", default-features = false }
 tokio = { workspace = true }
 
 anyhow = { workspace = true }
-headless_chrome = "1.0"
-tantivy = "0.26"
-qdrant-client = "1.11"
+headless_chrome = "1.0.22"
+tantivy = "0.26.2"
+qdrant-client = "1.19"
 shlex = "2.0"
 fastembed = "7.0.1"
 syn = { version = "3.0.6", features = ["full", "visit"] }
-bytes = "1.0"
+bytes = "1.12"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
@@ -37,13 +37,13 @@ susi-agents = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 anyhow = { workspace = true }
-headless_chrome = "1.0"
-tantivy = "0.26"
-qdrant-client = "1.11"
+headless_chrome = "1.0.22"
+tantivy = "0.26.2"
+qdrant-client = "1.19"
 shlex = "2.0"
 fastembed = "7.0.1"
 syn = { version = "3.0.6", features = ["full", "visit"] }
-bytes = "1.0"
+bytes = "1.12"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"

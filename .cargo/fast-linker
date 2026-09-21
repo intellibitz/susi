@@ -5,11 +5,28 @@
 # rustc on *-linux-gnu passes cc/gcc-style driver args (-Wl,…), not raw ld
 # args — so mold/lld must be selected via -fuse-ld on a C compiler driver,
 # not by exec'ing mold as if it were ld.
+#
+# Prefer clang + absolute ld.mold: gcc -fuse-ld=mold / mold -run are broken on
+# some distros (e.g. GCC 16 + libgcc_s_asneeded.so linker scripts).
 set -euo pipefail
 
+find_ld_mold() {
+    if command -v ld.mold >/dev/null 2>&1; then
+        command -v ld.mold
+        return 0
+    fi
+    # install.sh bootstraps a full prefix here (not just the mold binary).
+    local candidate="${HOME}/.susi/mold/bin/ld.mold"
+    if [ -x "$candidate" ]; then
+        printf '%s\n' "$candidate"
+        return 0
+    fi
+    return 1
+}
+
 if command -v clang >/dev/null 2>&1; then
-    if command -v mold >/dev/null 2>&1; then
-        exec clang -fuse-ld=mold "$@"
+    if LD_MOLD=$(find_ld_mold); then
+        exec clang -fuse-ld="$LD_MOLD" "$@"
     fi
     if command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
         exec clang -fuse-ld=lld "$@"
@@ -17,9 +34,7 @@ if command -v clang >/dev/null 2>&1; then
 fi
 
 if command -v gcc >/dev/null 2>&1; then
-    if command -v mold >/dev/null 2>&1; then
-        exec gcc -fuse-ld=mold "$@"
-    fi
+    # Skip mold via gcc — see header. Prefer lld when available.
     if command -v ld.lld >/dev/null 2>&1 || command -v lld >/dev/null 2>&1; then
         exec gcc -fuse-ld=lld "$@"
     fi

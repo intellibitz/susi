@@ -17,7 +17,7 @@ susi-gemi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
-rayon = "1.10"
+rayon = "1.12"
 log = "0.4"
 tokio = { workspace = true }
 once_cell = { workspace = true }
@@ -25,7 +25,7 @@ parking_lot = { workspace = true }
 flume = { workspace = true }
 dashmap = { workspace = true }
 base64 = "0.23"
-md5 = "0.7"
+md5 = "0.8.1"
 
 [features]
 default = []

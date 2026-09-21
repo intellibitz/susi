@@ -59,14 +59,14 @@ susi-tools = { path = "crates/susi-tools" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
-dashmap = "6.0"
+dashmap = "6.2"
 reqwest = { version = "0.13.5", features = ["json", "blocking", "query"] }
 hex = "0.4"
-once_cell = "1.19"
+once_cell = "1.21"
 tracing = "0.1"
 sha2 = "0.11.0"
-getrandom = "0.3"
-tokio = { version = "1.37", features = ["full", "tracing"] }
+getrandom = "0.4"
+tokio = { version = "1.53", features = ["full", "tracing"] }
 flume = "0.12.0"
 parking_lot = "0.12"
 url = "2.5"
@@ -88,14 +88,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokenizers = "0.23.2"
 anyhow = { workspace = true }
-clap = { version = "4.5", features = ["derive", "env"] }
+clap = { version = "4.6", features = ["derive", "env"] }
 dashmap = { workspace = true }
 indicatif = "0.18.6"
 reqwest = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 wasmer-wasix = { version = "0.704.2", features = ["sys"] }
-wasmer-types = "7"
-bytes = "1.0"
+wasmer-types = "7.4.2"
+bytes = "1.12"
 hex = { workspace = true }
 base64 = "0.23.1"
 once_cell = { workspace = true }
@@ -116,20 +116,23 @@ opentelemetry = { version = "0.32", optional = true }
 opentelemetry-otlp = { version = "0.32", optional = true }
 sha2 = { workspace = true }
 tokio = { workspace = true }
-console-subscriber = "0.5.0"
+# Optional: only needed for tokio-console / RUSTFLAGS='--cfg tokio_unstable'.
+# Keeping it off the default graph drops console-subscriber (+ its tonic path)
+# from cold release builds.
+console-subscriber = { version = "0.5.0", optional = true }
 flume = { workspace = true }
-rayon = "1.10"
+rayon = "1.12"
 parking_lot = { workspace = true }
 crossbeam = "0.8"
 rmcp = { version = "3.4.0", features = ["server", "client"] }
-qdrant-client = "1.11"
+qdrant-client = "1.19"
 fastembed = "7.0.1"
 syn = { version = "3.0.6", features = ["full", "visit"] }
 bollard = "0.21.1"
-tantivy = "0.26"
-headless_chrome = "1.0"
+tantivy = "0.26.2"
+headless_chrome = "1.0.22"
 url = { workspace = true }
-regex = "1.11"
+regex = "1.13"
 futures = "0.3"
 tokio-stream = "0.1"
 directories = "6.0.0"
@@ -149,14 +152,24 @@ candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 # (wasmer-compiler-cranelift 7.4.2 lib.rs); singlepass is used there instead
 # below. `wasmer::Engine::default()` (src/native/wasm.rs) picks whichever
 # backend feature was compiled in, so no source changes are needed.
-wasmer = { version = "7", features = ["cranelift", "sys"] }
+wasmer = { version = "7.4.2", features = ["cranelift", "sys"] }
 
 [target.'cfg(windows)'.dependencies]
-wasmer = { version = "7", features = ["singlepass", "sys"] }
+wasmer = { version = "7.4.2", features = ["singlepass", "sys"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
 [build-dependencies]
 serde_json = { workspace = true }
+
+# crates.io candle-core 0.11.0 still depends on tokenizers ^0.22, which pulls a
+# second copy alongside our / fastembed's 0.23.2. Patch to candle main (same
+# 0.11.0 package version) which already uses tokenizers 0.23.x — one graph.
+[patch.crates-io]
+candle-core = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
+candle-nn = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
+candle-transformers = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
+candle-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
+candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 
 [features]
 default = []
@@ -164,6 +177,8 @@ cuda = ["susi-gemi/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transfor
 mkl = ["susi-gemi/mkl", "candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["susi-gemi/metal", "candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp"]
+# Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
+tokio-console = ["dep:console-subscriber"]
 
 
 

@@ -312,15 +312,65 @@ if [ "$INSTALLED" = "0" ]; then
         fi
 
         # Prefer a fast linker when available — mold/lld cut release link time
-        # dramatically on the heavy final crate (susi → susi-daemon → …). Do not
-        # override an explicit user RUSTFLAGS; append only.
-        CARGO_WRAPPER=()
+        # dramatically on the heavy final crate (susi → susi-daemon → …).
+        # Do not override an explicit user RUSTFLAGS; append only.
+        #
+        # If mold is missing on Linux, bootstrap a user-local *prefix* into
+        # ~/.susi/mold (bin/ld.mold + lib/mold-wrapper.so). A lone mold binary
+        # is not enough for -fuse-ld / mold -run. Opt out: SUSI_SKIP_MOLD_BOOTSTRAP=1.
+        ensure_mold() {
+            if command -v ld.mold >/dev/null 2>&1 || [ -x "${HOME}/.susi/mold/bin/ld.mold" ]; then
+                export PATH="${HOME}/.susi/mold/bin:${PATH}"
+                return 0
+            fi
+            if [[ "$PLATFORM" != "linux" ]] || [ -n "${SUSI_SKIP_MOLD_BOOTSTRAP:-}" ]; then
+                return 0
+            fi
+            case "$ARCH" in
+                x86_64|aarch64) ;;
+                *) return 0 ;;
+            esac
+            # Pin for reproducible installs; override with SUSI_MOLD_VERSION.
+            local ver="${SUSI_MOLD_VERSION:-2.40.4}"
+            local name="mold-${ver}-${ARCH}-linux"
+            local url="https://github.com/rui314/mold/releases/download/v${ver}/${name}.tar.gz"
+            local prefix="$GLOBAL_SUSI_DIR/mold"
+            local tmp
+            echo "  Bootstrapping mold ${ver} into $prefix (faster release links)..."
+            tmp=$(mktemp -d)
+            mkdir -p "$prefix"
+            if command -v curl >/dev/null 2>&1 \
+                && curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$url" \
+                    | tar -xz -C "$tmp" \
+                && [ -x "$tmp/$name/bin/ld.mold" ]; then
+                # Replace prefix contents atomically-ish.
+                rm -rf "${prefix}.new"
+                mv "$tmp/$name" "${prefix}.new"
+                rm -rf "$prefix"
+                mv "${prefix}.new" "$prefix"
+                export PATH="$prefix/bin:$PATH"
+                # Drop a stale lone-binary install from older installer versions.
+                if [ -f "$GLOBAL_BIN_DIR/mold" ] && [ ! -d "$GLOBAL_BIN_DIR/mold" ]; then
+                    rm -f "$GLOBAL_BIN_DIR/mold"
+                fi
+                echo "  Installed mold -> $prefix/bin/mold"
+            else
+                echo "  Warning: could not bootstrap mold; continuing with system linker."
+            fi
+            rm -rf "$tmp"
+        }
+        ensure_mold
+
+        # Rely on .cargo/fast-linker (clang + ld.mold / lld) from the source
+        # tree when present. Avoid `mold -run` here: it wraps gcc and breaks on
+        # some distros (GCC 16 libgcc_s_asneeded). Fall back to RUSTFLAGS+lld
+        # only when the tree has no fast-linker wrapper.
         if [[ "$PLATFORM" == "linux" ]]; then
-            if command -v mold >/dev/null 2>&1; then
-                # mold -run intercepts the linker for the whole cargo tree —
-                # more reliable than guessing -fuse-ld / -B paths across distros.
-                CARGO_WRAPPER=(mold -run)
-                echo "  Using mold linker for faster linking."
+            if [ -x "$SCRIPT_DIR/.cargo/fast-linker" ]; then
+                echo "  Using .cargo/fast-linker (mold/lld when available)."
+            elif command -v clang >/dev/null 2>&1 && [ -x "${HOME}/.susi/mold/bin/ld.mold" ]; then
+                export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C linker=clang -C link-arg=-fuse-ld=${HOME}/.susi/mold/bin/ld.mold"
+                echo "  Using clang + mold (ld.mold) for faster linking."
             elif command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
                 export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-fuse-ld=lld"
                 echo "  Using lld linker for faster linking."
@@ -328,9 +378,12 @@ if [ "$INSTALLED" = "0" ]; then
         fi
 
         # Reuse compiler cache across installs when the user already has one.
+        # (We do not cargo-install sccache here — that would rival a cold build.)
         if command -v sccache >/dev/null 2>&1 && [ -z "${RUSTC_WRAPPER:-}" ]; then
             export RUSTC_WRAPPER=sccache
             echo "  Using sccache for faster recompiles."
+        elif [ -z "${RUSTC_WRAPPER:-}" ]; then
+            echo "  Tip: install sccache (https://github.com/mozilla/sccache) to speed repeat source builds."
         fi
 
         # wasm32-wasip1 is only needed at runtime for neural reflex synthesis,
@@ -409,7 +462,7 @@ if [ "$INSTALLED" = "0" ]; then
         fi
 
         # shellcheck disable=SC2086
-        (cd "$SCRIPT_DIR" && "${CARGO_WRAPPER[@]}" cargo build --release -p susi --bin susi $LOCKED_FLAG $BUILD_FEATURES)
+        (cd "$SCRIPT_DIR" && cargo build --release -p susi --bin susi $LOCKED_FLAG $BUILD_FEATURES)
         stop_heartbeat
         wait_wasm
 

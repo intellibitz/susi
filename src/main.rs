@@ -572,7 +572,7 @@ fn main() -> std::process::ExitCode {
     let substrate = susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
     susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-    #[cfg(tokio_unstable)]
+    #[cfg(all(feature = "tokio-console", tokio_unstable))]
     console_subscriber::init();
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
