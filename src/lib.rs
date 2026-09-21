@@ -1,8 +1,8 @@
-//! susi: a local-first Rust engine for running and orchestrating AI
-//! models. Loads model weights directly (.safetensors, GGUF, ONNX via
-//! Candle), queues work through a lock-free async intent pipeline, and can
-//! fan work out across multiple agents running in parallel. Exposes tools
-//! over the Model Context Protocol (MCP).
+//! susi: a local-first Rust substrate for orchestrating AI agents and models.
+//! Local Candle inference loads llama/qwen2 **GGUF** weights; remote models
+//! mount via OpenAI-compatible (and Anthropic/Gemini/Triton) engines. Work
+//! queues through a lock-free async intent pipeline and fans out across a
+//! multi-agent swarm. Tools expose over the Model Context Protocol (MCP).
 //!
 //! - [`daemon`]: background process management and lifecycle
 //! - [`gawd`]: agent orchestration and reflex synthesis
