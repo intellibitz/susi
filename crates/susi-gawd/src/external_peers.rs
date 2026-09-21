@@ -487,8 +487,13 @@ mod tests {
     }
 
     #[test]
-    fn bundled_peers_are_five_named_leaders() {
+    fn bundled_peers_are_twenty_leading_agents() {
         let specs = SusiConfig::default().external_peer_agents();
+        assert!(
+            specs.len() >= 20,
+            "expected ≥20 leading peer agents, got {}",
+            specs.len()
+        );
         let names: Vec<_> = specs.iter().map(|s| s.name.as_str()).collect();
         for expected in [
             "ClaudeCodeAgent",
@@ -496,6 +501,7 @@ mod tests {
             "CodexAgent",
             "DevinAgent",
             "OpenHandsAgent",
+            "AiderAgent",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }

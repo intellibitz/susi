@@ -1,0 +1,604 @@
+{
+  "models": [
+    {
+      "id": "openai/gpt-4o",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openai/gpt-4o-mini",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openai/gpt-4.1",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openai/o3-mini",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openai/o1-mini",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "anthropic/claude-3.5-sonnet",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "anthropic/claude-3.5-haiku",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "anthropic/claude-3-opus",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "anthropic/claude-sonnet-4",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "google/gemini-2.0-flash-001",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "google/gemini-2.5-pro",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "google/gemini-2.5-flash",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "meta-llama/llama-3.1-8b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "meta-llama/llama-3.1-70b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "meta-llama/llama-3.3-70b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "meta-llama/llama-4-maverick",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "meta-llama/llama-4-scout",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "qwen/qwen-2.5-7b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "qwen/qwen-2.5-72b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "qwen/qwen3-32b",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "qwen/qwq-32b",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "deepseek/deepseek-chat",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "deepseek/deepseek-r1",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "deepseek/deepseek-coder",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "mistralai/mistral-small",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "mistralai/mistral-large",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "mistralai/codestral",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "mistralai/mixtral-8x22b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "x-ai/grok-2",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "x-ai/grok-3-mini",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "x-ai/grok-3",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "cohere/command-r-plus",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "cohere/command-r",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-70b-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "microsoft/phi-4",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "microsoft/phi-3.5-mini-128k-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "01-ai/yi-large",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "databricks/dbrx-instruct",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "snowflake/arctic",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "perplexity/sonar",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "perplexity/sonar-pro",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-42",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-43",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-44",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-45",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-46",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-47",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-48",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-49",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-50",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-51",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-52",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-53",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-54",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-55",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-56",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-57",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-58",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-59",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-60",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-61",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-62",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-63",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-64",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-65",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-66",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-67",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-68",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-69",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "openrouter/catalog-model-70",
+      "engine": "OpenRouter",
+      "protocol_type": "chat",
+      "api_key_env": "OPENROUTER_API_KEY"
+    },
+    {
+      "id": "gpt-4o",
+      "engine": "OpenAI",
+      "protocol_type": "chat",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "engine": "OpenAI",
+      "protocol_type": "chat",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "id": "gpt-4.1",
+      "engine": "OpenAI",
+      "protocol_type": "chat",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "id": "o3-mini",
+      "engine": "OpenAI",
+      "protocol_type": "chat",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "id": "claude-3-5-haiku-20241022",
+      "engine": "Anthropic",
+      "protocol_type": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "claude-3-5-sonnet-20241022",
+      "engine": "Anthropic",
+      "protocol_type": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "claude-3-opus-20240229",
+      "engine": "Anthropic",
+      "protocol_type": "anthropic",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "gemini-2.0-flash",
+      "engine": "GoogleGemini",
+      "protocol_type": "chat",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "engine": "GoogleGemini",
+      "protocol_type": "chat",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    {
+      "id": "gemini-2.5-flash",
+      "engine": "GoogleGemini",
+      "protocol_type": "chat",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    {
+      "id": "deepseek-chat",
+      "engine": "DeepSeek",
+      "protocol_type": "chat",
+      "api_key_env": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "deepseek-reasoner",
+      "engine": "DeepSeek",
+      "protocol_type": "chat",
+      "api_key_env": "DEEPSEEK_API_KEY"
+    },
+    {
+      "id": "moonshot-v1-8k",
+      "engine": "Kimi",
+      "protocol_type": "chat",
+      "api_key_env": "MOONSHOT_API_KEY"
+    },
+    {
+      "id": "moonshot-v1-32k",
+      "engine": "Kimi",
+      "protocol_type": "chat",
+      "api_key_env": "MOONSHOT_API_KEY"
+    },
+    {
+      "id": "MiniMax-Text-01",
+      "engine": "MiniMax",
+      "protocol_type": "chat",
+      "api_key_env": "MINIMAX_API_KEY"
+    },
+    {
+      "id": "llama-3.1-8b-instant",
+      "engine": "Groq",
+      "protocol_type": "chat",
+      "api_key_env": "GROQ_API_KEY"
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "engine": "Groq",
+      "protocol_type": "chat",
+      "api_key_env": "GROQ_API_KEY"
+    },
+    {
+      "id": "mistral-small-latest",
+      "engine": "Mistral",
+      "protocol_type": "chat",
+      "api_key_env": "MISTRAL_API_KEY"
+    },
+    {
+      "id": "mistral-large-latest",
+      "engine": "Mistral",
+      "protocol_type": "chat",
+      "api_key_env": "MISTRAL_API_KEY"
+    },
+    {
+      "id": "codestral-latest",
+      "engine": "Mistral",
+      "protocol_type": "chat",
+      "api_key_env": "MISTRAL_API_KEY"
+    },
+    {
+      "id": "sonar",
+      "engine": "Perplexity",
+      "protocol_type": "chat",
+      "api_key_env": "PERPLEXITY_API_KEY"
+    },
+    {
+      "id": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+      "engine": "Fireworks",
+      "protocol_type": "chat",
+      "api_key_env": "FIREWORKS_API_KEY"
+    },
+    {
+      "id": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "engine": "Together",
+      "protocol_type": "chat",
+      "api_key_env": "TOGETHER_API_KEY"
+    },
+    {
+      "id": "llama3.2",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "llama3.1",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "qwen2.5",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "mistral",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "codellama",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "deepseek-r1",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "phi3",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    }
+  ]
+}

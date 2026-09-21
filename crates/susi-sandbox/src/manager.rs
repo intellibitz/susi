@@ -868,6 +868,25 @@ pub struct ExternalPeerAgentSpec {
     pub api_key_env: Option<String>,
 }
 
+/// One entry in the leading-models catalog (`config/models.catalog.default.json`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ModelCatalogEntry {
+    pub id: String,
+    /// Inference endpoint name from `inference_endpoints` (e.g. OpenRouter).
+    pub engine: String,
+    #[serde(default)]
+    pub protocol_type: String,
+    #[serde(default)]
+    pub api_key_env: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct ModelCatalogConfig {
+    pub models: Vec<ModelCatalogEntry>,
+}
+
 impl Default for InferenceRoutingConfig {
     fn default() -> Self {
         Self {
@@ -1166,6 +1185,31 @@ impl SusiConfig {
     /// Leading external coding agents mounted as pluggable swarm peers.
     pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
         self.get_or_bundled_default("external_peer_agents")
+    }
+
+    /// Leading models catalog (≥100): config key `model_catalog` or bundled
+    /// `config/models.catalog.default.json`.
+    pub fn model_catalog(&self) -> Vec<ModelCatalogEntry> {
+        if let Some(cfg) = self.get::<ModelCatalogConfig>("model_catalog") {
+            if !cfg.models.is_empty() {
+                return cfg.models;
+            }
+        }
+        static BUNDLED: std::sync::OnceLock<Vec<ModelCatalogEntry>> = std::sync::OnceLock::new();
+        BUNDLED
+            .get_or_init(|| {
+                let file: ModelCatalogConfig = serde_json::from_str(include_str!(
+                    "../../../config/models.catalog.default.json"
+                ))
+                .expect("bundled models.catalog.default.json must be valid");
+                file.models
+            })
+            .clone()
+    }
+
+    /// Bundled leading MCP scout registry (≥1000 entries) for provision-on-demand.
+    pub fn leading_mcp_registry_json() -> &'static str {
+        include_str!("../../../config/mcp.registry.default.json")
     }
 
     /// The explicitly configured ladder, or empty if none is set. This is a
@@ -2147,5 +2191,22 @@ mod tests {
 
         let deepseek_fmt = cfg.render("DeepSeek-R1-Distill", &vars);
         assert!(deepseek_fmt.contains("### Assistant:"));
+    }
+
+    #[test]
+    fn model_catalog_has_100() {
+        let models = SusiConfig::default().model_catalog();
+        assert!(models.len() >= 100, "got {}", models.len());
+    }
+
+    #[test]
+    fn leading_catalogs_meet_agent_engine_floors() {
+        let peers = SusiConfig::default().external_peer_agents();
+        assert!(peers.len() >= 20, "agents {}", peers.len());
+        let engines = SusiConfig::default().inference_endpoints().endpoints;
+        assert!(engines.len() >= 20, "engines {}", engines.len());
+        let mcp: Vec<serde_json::Value> =
+            serde_json::from_str(SusiConfig::leading_mcp_registry_json()).unwrap();
+        assert!(mcp.len() >= 1000, "mcp {}", mcp.len());
     }
 }

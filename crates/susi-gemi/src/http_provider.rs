@@ -797,6 +797,65 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
     {
         let _ = crate::routing::InferenceRouter::set_preferred_cloud("openrouter");
     }
+
+    register_model_catalog(registry);
+}
+
+/// Register the leading models catalog (≥100). Each entry mounts when its
+/// engine api_base is known and any required API key is present (local engines
+/// with empty api_key_env always admit).
+pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry) {
+    apply_cloud_env_file();
+    let endpoints = effective_inference_endpoints();
+    let by_name: std::collections::BTreeMap<String, _> = endpoints
+        .into_iter()
+        .map(|e| (e.name.to_ascii_lowercase(), e))
+        .collect();
+
+    for entry in susi_sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .model_catalog()
+    {
+        if entry.id.trim().is_empty() || entry.engine.trim().is_empty() {
+            continue;
+        }
+        let Some(endpoint) = by_name.get(&entry.engine.to_ascii_lowercase()) else {
+            continue;
+        };
+        let api_base = endpoint.api_base.trim();
+        if api_base.is_empty() {
+            continue;
+        }
+        let key_env = if entry.api_key_env.is_empty() {
+            endpoint.api_key_env.as_str()
+        } else {
+            entry.api_key_env.as_str()
+        };
+        let api_key = HttpProvider::resolve_api_key(key_env, &entry.engine);
+        if HttpProvider::is_remote_cloud(api_base) && api_key.is_empty() {
+            continue;
+        }
+        let protocol = InferenceProtocol::from_config(if entry.protocol_type.is_empty() {
+            &endpoint.protocol_type
+        } else {
+            &entry.protocol_type
+        });
+        let name = format!(
+            "catalog-{}-{}",
+            entry.engine.to_ascii_lowercase().replace(' ', "-"),
+            entry.id.replace('/', "-")
+        );
+        if registry.get_provider(&name).is_some() {
+            continue;
+        }
+        registry.register_provider(HttpProvider {
+            name,
+            api_base: api_base.to_string(),
+            model: entry.id.clone(),
+            protocol,
+            api_key,
+        });
+    }
 }
 
 /// Bundled defaults ∪ user `inference_endpoints` by name (user wins).

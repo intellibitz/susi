@@ -309,6 +309,58 @@
         "protocol_type": "chat",
         "model": "llama-3.3-70b-versatile",
         "api_key_env": "GROQ_API_KEY"
+      },
+      {
+        "name": "LMStudio",
+        "api_base": "http://localhost:1234/v1",
+        "protocol_type": "chat"
+      },
+      {
+        "name": "Fireworks",
+        "api_base": "https://api.fireworks.ai/inference/v1",
+        "protocol_type": "chat",
+        "model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        "api_key_env": "FIREWORKS_API_KEY"
+      },
+      {
+        "name": "Together",
+        "api_base": "https://api.together.xyz/v1",
+        "protocol_type": "chat",
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+        "api_key_env": "TOGETHER_API_KEY"
+      },
+      {
+        "name": "Perplexity",
+        "api_base": "https://api.perplexity.ai",
+        "protocol_type": "chat",
+        "model": "sonar",
+        "api_key_env": "PERPLEXITY_API_KEY"
+      },
+      {
+        "name": "HuggingFaceTGI",
+        "api_base": "http://localhost:8081/v1",
+        "protocol_type": "chat"
+      },
+      {
+        "name": "AzureOpenAI",
+        "api_base": "https://YOUR_RESOURCE.openai.azure.com/openai/deployments/gpt-4o-mini",
+        "protocol_type": "chat",
+        "model": "gpt-4o-mini",
+        "api_key_env": "AZURE_OPENAI_API_KEY"
+      },
+      {
+        "name": "CloudflareAI",
+        "api_base": "https://api.cloudflare.com/client/v4/accounts/ACCOUNT_ID/ai/v1",
+        "protocol_type": "chat",
+        "model": "@cf/meta/llama-3.1-8b-instruct",
+        "api_key_env": "CLOUDFLARE_API_TOKEN"
+      },
+      {
+        "name": "Nebius",
+        "api_base": "https://api.studio.nebius.ai/v1",
+        "protocol_type": "chat",
+        "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "api_key_env": "NEBIUS_API_KEY"
       }
     ],
     "llama_api_base": "http://localhost:8080/v1",
@@ -537,6 +589,228 @@
       ],
       "timeout_secs": 900,
       "api_key_env": null
+    },
+    {
+      "name": "AiderAgent",
+      "description": "Aider pair-programming CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "aider"
+      ],
+      "command": "aider",
+      "args": [
+        "--message",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "ContinueAgent",
+      "description": "Continue.dev CLI peer (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "cn",
+        "continue"
+      ],
+      "command": "cn",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "GooseAgent",
+      "description": "Block Goose agent CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "goose"
+      ],
+      "command": "goose",
+      "args": [
+        "run",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "ClineAgent",
+      "description": "Cline / Claude-Dev style CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "cline"
+      ],
+      "command": "cline",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "RooCodeAgent",
+      "description": "Roo Code agent CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "roo"
+      ],
+      "command": "roo",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "WindsurfAgent",
+      "description": "Windsurf Cascade CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "windsurf",
+        "cascade"
+      ],
+      "command": "windsurf",
+      "args": [
+        "-p",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "GeminiCliAgent",
+      "description": "Google Gemini CLI agent (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "gemini"
+      ],
+      "command": "gemini",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": "GEMINI_API_KEY",
+      "protocol": "cli"
+    },
+    {
+      "name": "AmazonQAgent",
+      "description": "Amazon Q Developer CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "q"
+      ],
+      "command": "q",
+      "args": [
+        "chat",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "GithubCopilotAgent",
+      "description": "GitHub Copilot CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "gh"
+      ],
+      "command": "gh",
+      "args": [
+        "copilot",
+        "--",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "TabbyAgent",
+      "description": "TabbyML self-hosted coding agent (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "tabby"
+      ],
+      "command": "tabby",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "SweepAgent",
+      "description": "Sweep AI coding agent (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "sweep"
+      ],
+      "command": "sweep",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": "SWEEP_API_KEY",
+      "protocol": "cli"
+    },
+    {
+      "name": "MentatAgent",
+      "description": "Mentat coding agent (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "mentat"
+      ],
+      "command": "mentat",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "SWEAgent",
+      "description": "Princeton SWE-agent (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "sweagent",
+        "swe-agent"
+      ],
+      "command": "sweagent",
+      "args": [
+        "run",
+        "--data_path",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "OpenDevinAgent",
+      "description": "OpenDevin / OpenHands alias (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "opendevin"
+      ],
+      "command": "opendevin",
+      "args": [
+        "--task",
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
+    },
+    {
+      "name": "BoltAgent",
+      "description": "StackBlitz Bolt agent CLI (pluggable when driver on PATH / configured).",
+      "detect_bins": [
+        "bolt"
+      ],
+      "command": "bolt",
+      "args": [
+        "{goal}"
+      ],
+      "timeout_secs": 600,
+      "api_key_env": null,
+      "protocol": "cli"
     }
   ]
 }

@@ -36,7 +36,7 @@ Foundation claims — each must hold in source:
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — `CapabilityRegistry` open-admits: (a) OpenAI-compatible engines/models from configured `inference_endpoints` URLs + well-known local ports (Anthropic/Gemini/Triton via config); (b) any MCP server written to `~/.susi/mcp_config.json` / `susi mcp-add` (stdio or HTTP); (c) protocol peers `cli` / `openai_chat` / `http` / `a2a` in `external_peer_agents`. Local Candle loads **llama/qwen2 GGUF only** — other weight formats ride remote engines.
+4. **Pluggable** — Leading catalogs: ≥20 peer agents, ≥20 engines, ≥100 models, ≥1000 MCP scout packages — open-admitted when drivers/keys speak supported protocols (`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Local Candle: llama/qwen2 GGUF only.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
@@ -51,10 +51,10 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Claim | Holds as |
 |-------|----------|
 | Agent-of-agents / OS layer for AI | Multi-agent swarm orchestrator + host daemon/ports — layer *for* agents, not a host OS |
-| Plugin protocol agents | Any peer in `external_peer_agents` over `cli` / `openai_chat` / `http` / `a2a` |
-| Plugin protocol engines | Any OpenAI-compat base URL (config or discovered ports); Anthropic/Gemini/Triton via config |
-| Plugin protocol models | Any model id from an admitted OpenAI-compat `/models`; local GGUF = llama/qwen2 via Candle |
-| Plugin protocol MCP | Any stdio or HTTP MCP server via `mcp_config.json` / `susi mcp-add` |
+| Plugin protocol agents | **≥20** leading peers in `external_peer_agents` (`cli` / `openai_chat` / `http` / `a2a`); UNAVAILABLE until driver present |
+| Plugin protocol engines | **≥20** `inference_endpoints` (+ discovered local ports) |
+| Plugin protocol models | **≥100** catalog models (`models.catalog.default.json`) + live `/models` discovery; local GGUF = llama/qwen2 |
+| Plugin protocol MCP | **≥1000** scout-registry packages (`mcp.registry.default.json`) provisioned on demand; any extra via `susi mcp-add` |
 | Swarm / Truth / Evidence | `susi-gawd` swarm, `TruthTransformer`, `EvidenceSession` / `EvidenceRecord` |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
 | Zero-config discovery | Daemon probes engines/MCP + Candle fallback without per-engine edits |

@@ -128,11 +128,11 @@ impl GmcpClient {
         let entries = store
             .load_with_healing(
                 &registry_path,
-                || Ok(cfg.bootstrap_mcp_servers()),
+                || Ok(Self::bundled_leading_mcp_registry()),
                 |_| false,
                 false,
             )
-            .unwrap_or_else(|_| cfg.bootstrap_mcp_servers());
+            .unwrap_or_else(|_| Self::bundled_leading_mcp_registry());
 
         if is_stale {
             static REGISTRY_FETCH_RUNNING: std::sync::atomic::AtomicBool =
@@ -171,6 +171,21 @@ impl GmcpClient {
         }
 
         entries
+    }
+
+    /// Bundled leading MCP scout catalog (≥1000). Used as zero-config fallback
+    /// for `global_mcp_registry.json` — packages are provisioned on demand.
+    pub fn bundled_leading_mcp_registry() -> Vec<GlobalMcpEntry> {
+        static BUNDLED: std::sync::OnceLock<Vec<GlobalMcpEntry>> = std::sync::OnceLock::new();
+        BUNDLED
+            .get_or_init(|| {
+                serde_json::from_str(susi_sandbox::manager::SusiConfig::leading_mcp_registry_json())
+                    .unwrap_or_else(|_| {
+                        susi_sandbox::manager::SusiConfig::default()
+                            .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
+                    })
+            })
+            .clone()
     }
 
     pub fn auto_configure_server(name: &str, package: &str) -> String {
@@ -413,6 +428,16 @@ mod tests {
     use std::sync::Mutex;
 
     static HOME_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn bundled_leading_mcp_registry_has_1000() {
+        let entries = GmcpClient::bundled_leading_mcp_registry();
+        assert!(
+            entries.len() >= 1000,
+            "expected ≥1000 MCP scout catalog entries, got {}",
+            entries.len()
+        );
+    }
 
     #[test]
     fn admit_mcp_server_writes_http_and_stdio() {
