@@ -880,6 +880,47 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "leading_mcp_list",
+        description = "List top MCP tool servers and enablement/readiness"
+    )]
+    pub fn leading_mcp_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let rows = susi_tools::LeadingMcpManager::new(workspace)
+            .and_then(|m| m.status())
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "leading_mcp_enable",
+        description = "Enable a leading MCP server into ~/.susi/mcp_config.json"
+    )]
+    pub fn leading_mcp_enable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let server = arg
+            .get("server")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("server is required"))?;
+        let cfg = susi_tools::LeadingMcpManager::new(workspace)
+            .and_then(|m| m.enable(server))
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&cfg).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "leading_mcp_disable",
+        description = "Disable a leading MCP server from ~/.susi/mcp_config.json"
+    )]
+    pub fn leading_mcp_disable(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let server = arg
+            .get("server")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("server is required"))?;
+        let removed = susi_tools::LeadingMcpManager::new(workspace)
+            .and_then(|m| m.disable(server))
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        Ok(format!("{{\"server\":\"{server}\",\"removed\":{removed}}}"))
+    }
+
+    #[tool(
         name = "agent_register",
         description = "Dynamically register a new agent profile"
     )]
@@ -1531,6 +1572,27 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         "Configure external MCP server",
         MetaCategory::McpProxy,
         CoreTools::mcp_configure,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "leading_mcp_list",
+        "List top MCP servers and readiness",
+        MetaCategory::McpProxy,
+        CoreTools::leading_mcp_list,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "leading_mcp_enable",
+        "Enable leading MCP server into mcp_config",
+        MetaCategory::McpProxy,
+        CoreTools::leading_mcp_enable,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "leading_mcp_disable",
+        "Disable leading MCP server from mcp_config",
+        MetaCategory::McpProxy,
+        CoreTools::leading_mcp_disable,
     );
     ToolRegistry::register_meta_tool(
         registry,

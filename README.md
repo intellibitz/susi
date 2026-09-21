@@ -6,7 +6,7 @@
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add`), including the top external coding agents (Claude Code, Cursor, Codex, Roo Code, Cline, Devin, Manus, Qwen-Agent, OpenHands, GitHub Copilot) managed end-to-end via `susi agents`, top agent frameworks/engines (LangGraph, OpenAI Agents SDK, AutoGen, CrewAI, Qwen-Agent, Semantic Kernel, OpenHands Runtime, LangChain, PydanticAI, LlamaIndex) via `susi frameworks`, and top developer/agent models (Claude Opus/Sonnet, GPT-5, Qwen Max, DeepSeek, Gemini, MiniMax M3, Kimi, GLM, Llama 4) via `susi models` when keys/endpoints are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including the top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, and top MCP tool servers (GitHub, Filesystem, PostgreSQL, Browser, Docker, Git, Jira, Linear, Kubernetes, Slack) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
 ---
 
@@ -36,7 +36,7 @@ Foundation claims — each must hold in source:
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`. Local Candle: llama/qwen2 GGUF only.
+4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`; leading MCP via `susi mcp enable`. Local Candle: llama/qwen2 GGUF only.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
@@ -54,7 +54,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol agents | **~10** curated executors (`susi agents`) + **~10** frameworks (`susi frameworks`) in `external_peer_agents` (`managed`); UNAVAILABLE until driver/config present; open admission beyond the catalog |
 | Plugin protocol engines | **~15** inference `inference_endpoints` (+ discovered local ports) — distinct from agent frameworks |
 | Plugin protocol models | **~10** ranked coding/agent models (`susi models`) + **~50** catalog + unbounded live `/models`; local GGUF = llama/qwen2 |
-| Plugin protocol MCP | **~100** real scout packages (+ remote registry refresh); any extra via `susi mcp-add` |
+| Plugin protocol MCP | **~10** leading tool servers (`susi mcp list|enable`) + **~100** scout packages (+ remote refresh); any extra via `susi mcp-add` |
 | Swarm / Truth / Evidence | `susi-gawd` swarm, `TruthTransformer`, `EvidenceSession` / `EvidenceRecord` |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
 | Zero-config discovery | Daemon probes engines/MCP + Candle fallback without per-engine edits |
@@ -104,7 +104,8 @@ susi keys prefer deepseek
 susi automate "refactor the auth module and verify with tests"
 
 # Open-admit any MCP server (stdio or HTTP URL)
-susi mcp-add filesystem npx -y @modelcontextprotocol/server-filesystem /tmp
+susi mcp list
+susi mcp enable filesystem
 susi mcp-add remote-http http://127.0.0.1:3100/mcp
 
 # Point external MCP / HTTP clients at the host contract

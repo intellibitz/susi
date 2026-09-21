@@ -1,0 +1,112 @@
+[
+  {
+    "id": "github",
+    "name": "GitHub MCP",
+    "rank": 1,
+    "documentation": "https://github.com/modelcontextprotocol/servers",
+    "package": "@modelcontextprotocol/server-github",
+    "runner": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env_keys": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    "category": "vcs"
+  },
+  {
+    "id": "filesystem",
+    "name": "Filesystem MCP",
+    "rank": 2,
+    "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-filesystem",
+    "package": "@modelcontextprotocol/server-filesystem",
+    "runner": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "{workspace}"],
+    "env_keys": [],
+    "category": "fs"
+  },
+  {
+    "id": "postgres",
+    "name": "PostgreSQL MCP",
+    "rank": 3,
+    "documentation": "https://github.com/modelcontextprotocol/servers",
+    "package": "@modelcontextprotocol/server-postgres",
+    "runner": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-postgres", "{env:POSTGRES_URL}"],
+    "env_keys": ["POSTGRES_URL"],
+    "category": "database"
+  },
+  {
+    "id": "browser",
+    "name": "Browser MCP",
+    "rank": 4,
+    "documentation": "https://github.com/microsoft/playwright-mcp",
+    "package": "@playwright/mcp",
+    "runner": "npx",
+    "args": ["-y", "@playwright/mcp"],
+    "env_keys": [],
+    "category": "browser"
+  },
+  {
+    "id": "docker",
+    "name": "Docker MCP",
+    "rank": 5,
+    "documentation": "https://www.npmjs.com/package/mcp-server-docker",
+    "package": "mcp-server-docker",
+    "runner": "npx",
+    "args": ["-y", "mcp-server-docker"],
+    "env_keys": [],
+    "category": "infra"
+  },
+  {
+    "id": "git",
+    "name": "Git MCP",
+    "rank": 6,
+    "documentation": "https://github.com/modelcontextprotocol/servers",
+    "package": "mcp-server-git",
+    "runner": "uvx",
+    "args": ["mcp-server-git", "--repository", "{workspace}"],
+    "env_keys": [],
+    "category": "vcs"
+  },
+  {
+    "id": "jira",
+    "name": "Jira MCP",
+    "rank": 7,
+    "documentation": "https://www.npmjs.com/package/mcp-server-jira",
+    "package": "mcp-server-jira",
+    "runner": "npx",
+    "args": ["-y", "mcp-server-jira"],
+    "env_keys": ["JIRA_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"],
+    "category": "productivity"
+  },
+  {
+    "id": "linear",
+    "name": "Linear MCP",
+    "rank": 8,
+    "documentation": "https://www.npmjs.com/package/mcp-server-linear",
+    "package": "mcp-server-linear",
+    "runner": "npx",
+    "args": ["-y", "mcp-server-linear"],
+    "env_keys": ["LINEAR_API_KEY"],
+    "category": "productivity"
+  },
+  {
+    "id": "kubernetes",
+    "name": "Kubernetes MCP",
+    "rank": 9,
+    "documentation": "https://www.npmjs.com/package/mcp-server-kubernetes",
+    "package": "mcp-server-kubernetes",
+    "runner": "npx",
+    "args": ["-y", "mcp-server-kubernetes"],
+    "env_keys": [],
+    "category": "infra"
+  },
+  {
+    "id": "slack",
+    "name": "Slack MCP",
+    "rank": 10,
+    "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-slack",
+    "package": "@modelcontextprotocol/server-slack",
+    "runner": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-slack"],
+    "env_keys": ["SLACK_BOT_TOKEN", "SLACK_TEAM_ID"],
+    "category": "comms"
+  }
+]

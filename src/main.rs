@@ -7,6 +7,7 @@
 
 mod agent_cli;
 mod framework_cli;
+mod mcp_cli;
 mod model_cli;
 
 use susi::SUSI_VERSION;
@@ -60,8 +61,11 @@ enum Commands {
     Install,
     /// Clean up sandboxed .susi environment
     Uninstall,
-    /// Start native MCP server
-    Mcp,
+    /// Manage leading MCP tool servers, or serve SUSI's native MCP stdio endpoint
+    Mcp {
+        #[command(subcommand)]
+        action: Option<mcp_cli::McpCommands>,
+    },
     /// Start GEMI REST server
     Gemi,
     /// Inspect workspace health report
@@ -214,6 +218,10 @@ fn command_requires_daemon(command: &Commands) -> bool {
         {
             false
         }
+        Commands::Mcp {
+            action: Some(mcp_cli::McpCommands::Serve) | None,
+        } => true,
+        Commands::Mcp { .. } => false,
         Commands::Clean
         | Commands::Review
         | Commands::Accept
@@ -416,6 +424,28 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    if let Some(Commands::Mcp {
+        action: Some(mcp_cli::McpCommands::Serve) | None,
+    }) = &cli.command
+    {
+        // Fall through to substrate boot + stdio MCP serve.
+    } else if let Some(Commands::Mcp { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| mcp_cli::execute(action, &cwd))
+        {
+            Ok(true) => {
+                // Should not happen for manage commands.
+                std::process::ExitCode::SUCCESS
+            }
+            Ok(false) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
 
     // Must run before anything can touch susi_tools::ToolRegistry (which
     // panics on first use if this hasn't happened yet) - see
@@ -591,7 +621,12 @@ fn main() -> std::process::ExitCode {
                     );
                 }
             }
-            Commands::Mcp => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
+            Commands::Mcp {
+                action: Some(mcp_cli::McpCommands::Serve) | None,
+            } => GmcpServer::run_stdio(&cwd, SUSI_VERSION),
+            Commands::Mcp { .. } => {
+                // Leading MCP manage commands handled before substrate boot.
+            }
             Commands::Gemi => {
                 // Degrade to bundled defaults rather than panic if
                 // config.json is torn by a concurrent writer.
