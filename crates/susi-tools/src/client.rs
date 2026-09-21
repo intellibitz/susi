@@ -173,8 +173,9 @@ impl GmcpClient {
         entries
     }
 
-    /// Bundled leading MCP scout catalog (≥1000). Used as zero-config fallback
-    /// for `global_mcp_registry.json` — packages are provisioned on demand.
+    /// Bundled leading MCP scout catalog (~100 real packages). Used as
+    /// zero-config fallback for `global_mcp_registry.json` — packages are
+    /// provisioned on demand; remote scout may enlarge the live file.
     pub fn bundled_leading_mcp_registry() -> Vec<GlobalMcpEntry> {
         static BUNDLED: std::sync::OnceLock<Vec<GlobalMcpEntry>> = std::sync::OnceLock::new();
         BUNDLED
@@ -430,12 +431,20 @@ mod tests {
     static HOME_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn bundled_leading_mcp_registry_has_1000() {
+    fn bundled_leading_mcp_registry_is_curated() {
         let entries = GmcpClient::bundled_leading_mcp_registry();
         assert!(
-            entries.len() >= 1000,
-            "expected ≥1000 MCP scout catalog entries, got {}",
+            (50..=120).contains(&entries.len()),
+            "expected ~50–100 real MCP scout entries (not synthetic 1000), got {}",
             entries.len()
+        );
+        assert!(
+            entries.iter().any(|e| e.name == "filesystem"),
+            "filesystem MCP missing"
+        );
+        assert!(
+            !entries.iter().any(|e| e.name.starts_with("mcp-catalog-")),
+            "synthetic filler slots must be removed"
         );
     }
 

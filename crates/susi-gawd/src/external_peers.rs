@@ -487,11 +487,11 @@ mod tests {
     }
 
     #[test]
-    fn bundled_peers_are_twenty_leading_agents() {
+    fn bundled_peers_are_curated_leading_agents() {
         let specs = SusiConfig::default().external_peer_agents();
         assert!(
-            specs.len() >= 20,
-            "expected ≥20 leading peer agents, got {}",
+            (8..=12).contains(&specs.len()),
+            "expected 8–12 curated peer agents, got {}",
             specs.len()
         );
         let names: Vec<_> = specs.iter().map(|s| s.name.as_str()).collect();

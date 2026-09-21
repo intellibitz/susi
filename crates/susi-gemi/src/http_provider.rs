@@ -801,9 +801,10 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
     register_model_catalog(registry);
 }
 
-/// Register the leading models catalog (≥100). Each entry mounts when its
+/// Register the curated models catalog (~50). Each entry mounts when its
 /// engine api_base is known and any required API key is present (local engines
-/// with empty api_key_env always admit).
+/// with empty api_key_env always admit). Live `/models` discovery remains
+/// unbounded on top of this ladder.
 pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
     let endpoints = effective_inference_endpoints();

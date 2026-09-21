@@ -43,7 +43,7 @@ These claims must hold in source; when README and this section disagree, source 
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (agent-of-agents orchestrator).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails; no naked assertions.
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality.
-4. **Pluggable** — Leading catalogs: ≥20 peer agents, ≥20 engines, ≥100 models, ≥1000 MCP scout packages — open-admitted when drivers/keys speak supported protocols. Local Candle: llama/qwen2 GGUF only.
+4. **Pluggable** — Curated catalogs: ~10 peer agents, ~15 engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols. Local Candle: llama/qwen2 GGUF only.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only HMAC-SHA256).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins/reflexes; Docker `sandbox_exec` for untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.

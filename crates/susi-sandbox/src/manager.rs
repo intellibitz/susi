@@ -1187,8 +1187,8 @@ impl SusiConfig {
         self.get_or_bundled_default("external_peer_agents")
     }
 
-    /// Leading models catalog (≥100): config key `model_catalog` or bundled
-    /// `config/models.catalog.default.json`.
+    /// Leading models catalog (~50 curated); live `/models` discovery remains
+    /// unbounded. Override via config key `model_catalog`.
     pub fn model_catalog(&self) -> Vec<ModelCatalogEntry> {
         if let Some(cfg) = self.get::<ModelCatalogConfig>("model_catalog") {
             if !cfg.models.is_empty() {
@@ -1207,7 +1207,8 @@ impl SusiConfig {
             .clone()
     }
 
-    /// Bundled leading MCP scout registry (≥1000 entries) for provision-on-demand.
+    /// Bundled leading MCP scout registry (~100 real packages). Remote scout
+    /// can refresh `global_mcp_registry.json`; not all are hot-plugged at once.
     pub fn leading_mcp_registry_json() -> &'static str {
         include_str!("../../../config/mcp.registry.default.json")
     }
@@ -2194,19 +2195,31 @@ mod tests {
     }
 
     #[test]
-    fn model_catalog_has_100() {
+    fn model_catalog_is_curated_ladder() {
         let models = SusiConfig::default().model_catalog();
-        assert!(models.len() >= 100, "got {}", models.len());
+        assert!(
+            (40..=60).contains(&models.len()),
+            "expected ~40–60 curated models, got {}",
+            models.len()
+        );
+        assert!(
+            !models.iter().any(|m| m.id.contains("catalog/model-")),
+            "filler catalog ids must be removed"
+        );
     }
 
     #[test]
-    fn leading_catalogs_meet_agent_engine_floors() {
+    fn leading_catalogs_meet_trustworthy_floors() {
         let peers = SusiConfig::default().external_peer_agents();
-        assert!(peers.len() >= 20, "agents {}", peers.len());
+        assert!((8..=12).contains(&peers.len()), "agents {}", peers.len());
         let engines = SusiConfig::default().inference_endpoints().endpoints;
-        assert!(engines.len() >= 20, "engines {}", engines.len());
+        assert!(
+            (12..=16).contains(&engines.len()),
+            "engines {}",
+            engines.len()
+        );
         let mcp: Vec<serde_json::Value> =
             serde_json::from_str(SusiConfig::leading_mcp_registry_json()).unwrap();
-        assert!(mcp.len() >= 1000, "mcp {}", mcp.len());
+        assert!((50..=120).contains(&mcp.len()), "mcp {}", mcp.len());
     }
 }

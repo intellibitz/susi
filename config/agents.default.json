@@ -265,87 +265,85 @@
   },
   {
     "name": "ClaudeCodeAgent",
-    "description": "Anthropic Claude Code peer agent (external; requires `claude` CLI).",
+    "description": "Anthropic Claude Code peer \u2014 terminal coding agent (pluggable when `claude` is on PATH).",
     "categories": [
       "peer",
       "coding",
-      "claude",
-      "external"
+      "external",
+      "claudecode"
     ],
     "semantic_anchors": [
-      "claude",
-      "anthropic",
-      "refactor",
-      "terminal-agent"
+      "claudecode",
+      "coding-agent",
+      "peer"
     ],
-    "base_rank": 0.92,
+    "base_rank": 0.9,
     "is_core": false
   },
   {
     "name": "CursorAgent",
-    "description": "Cursor Agent peer (external; requires cursor-agent/agent CLI).",
+    "description": "Cursor Agent peer \u2014 IDE-native coding agent (pluggable when `cursor-agent` or `agent` is on PATH).",
     "categories": [
       "peer",
       "coding",
-      "cursor",
-      "external"
+      "external",
+      "cursor"
     ],
     "semantic_anchors": [
       "cursor",
-      "ide-agent",
-      "inline-edit"
+      "coding-agent",
+      "peer"
     ],
-    "base_rank": 0.92,
+    "base_rank": 0.9,
     "is_core": false
   },
   {
     "name": "CodexAgent",
-    "description": "OpenAI Codex peer agent (external; requires `codex` CLI).",
+    "description": "OpenAI Codex peer \u2014 CLI/cloud coding agent (pluggable when `codex` is on PATH).",
     "categories": [
       "peer",
       "coding",
-      "codex",
-      "openai",
-      "external"
+      "external",
+      "codex"
     ],
     "semantic_anchors": [
       "codex",
-      "openai",
-      "cloud-job"
+      "coding-agent",
+      "peer"
     ],
-    "base_rank": 0.92,
+    "base_rank": 0.9,
     "is_core": false
   },
   {
     "name": "DevinAgent",
-    "description": "Devin peer agent (external; requires DEVIN_API_KEY and/or `devin` CLI).",
+    "description": "Devin peer \u2014 delegated cloud worker (pluggable when DEVIN_API_KEY is set and optional `devin` CLI is present).",
     "categories": [
       "peer",
       "coding",
-      "devin",
-      "external"
+      "external",
+      "devin"
     ],
     "semantic_anchors": [
       "devin",
-      "delegate",
-      "ticket"
+      "coding-agent",
+      "peer"
     ],
     "base_rank": 0.9,
     "is_core": false
   },
   {
     "name": "OpenHandsAgent",
-    "description": "OpenHands peer agent (external; requires `openhands` CLI).",
+    "description": "OpenHands peer \u2014 self-hostable autonomous platform (pluggable when `openhands` is on PATH).",
     "categories": [
       "peer",
       "coding",
-      "openhands",
-      "external"
+      "external",
+      "openhands"
     ],
     "semantic_anchors": [
       "openhands",
-      "self-host",
-      "autonomous"
+      "coding-agent",
+      "peer"
     ],
     "base_rank": 0.9,
     "is_core": false
@@ -368,23 +366,6 @@
     "is_core": false
   },
   {
-    "name": "ContinueAgent",
-    "description": "Continue.dev CLI peer (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "continue"
-    ],
-    "semantic_anchors": [
-      "continue",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
     "name": "GooseAgent",
     "description": "Block Goose agent CLI (pluggable when driver on PATH / configured).",
     "categories": [
@@ -395,57 +376,6 @@
     ],
     "semantic_anchors": [
       "goose",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "ClineAgent",
-    "description": "Cline / Claude-Dev style CLI (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "cline"
-    ],
-    "semantic_anchors": [
-      "cline",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "RooCodeAgent",
-    "description": "Roo Code agent CLI (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "roocode"
-    ],
-    "semantic_anchors": [
-      "roocode",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "WindsurfAgent",
-    "description": "Windsurf Cascade CLI (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "windsurf"
-    ],
-    "semantic_anchors": [
-      "windsurf",
       "coding-agent",
       "peer"
     ],
@@ -487,6 +417,23 @@
     "is_core": false
   },
   {
+    "name": "ContinueAgent",
+    "description": "Continue.dev CLI peer (pluggable when driver on PATH / configured).",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "continue"
+    ],
+    "semantic_anchors": [
+      "continue",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
     "name": "GithubCopilotAgent",
     "description": "GitHub Copilot CLI (pluggable when driver on PATH / configured).",
     "categories": [
@@ -497,108 +444,6 @@
     ],
     "semantic_anchors": [
       "githubcopilot",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "TabbyAgent",
-    "description": "TabbyML self-hosted coding agent (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "tabby"
-    ],
-    "semantic_anchors": [
-      "tabby",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "SweepAgent",
-    "description": "Sweep AI coding agent (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "sweep"
-    ],
-    "semantic_anchors": [
-      "sweep",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "MentatAgent",
-    "description": "Mentat coding agent (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "mentat"
-    ],
-    "semantic_anchors": [
-      "mentat",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "SWEAgent",
-    "description": "Princeton SWE-agent (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "swe"
-    ],
-    "semantic_anchors": [
-      "swe",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "OpenDevinAgent",
-    "description": "OpenDevin / OpenHands alias (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "opendevin"
-    ],
-    "semantic_anchors": [
-      "opendevin",
-      "coding-agent",
-      "peer"
-    ],
-    "base_rank": 0.9,
-    "is_core": false
-  },
-  {
-    "name": "BoltAgent",
-    "description": "StackBlitz Bolt agent CLI (pluggable when driver on PATH / configured).",
-    "categories": [
-      "peer",
-      "coding",
-      "external",
-      "bolt"
-    ],
-    "semantic_anchors": [
-      "bolt",
       "coding-agent",
       "peer"
     ],
