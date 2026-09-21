@@ -346,26 +346,36 @@ impl CoreTools {
             "- Axiom Rules: {}\n",
             susi_gawd::self_core::AlphaSelf::RULES.len()
         ));
-        report.push_str(&format!(
-            "- AoA Pillar: {}\n",
-            susi_gawd::self_core::AlphaSelf::AOA_COMPONENTS.len()
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "AoA Pillar",
+            susi_gawd::self_core::AlphaSelf::AOA_COMPONENTS,
         ));
-        report.push_str(&format!(
-            "- Agents Pillar: {}\n",
-            susi_gawd::self_core::AlphaSelf::AGENT_COMPONENTS.len()
+        report.push('\n');
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "Agents Pillar",
+            susi_gawd::self_core::AlphaSelf::AGENT_COMPONENTS,
         ));
-        report.push_str(&format!(
-            "- Engines Pillar: {}\n",
-            susi_gawd::self_core::AlphaSelf::ENGINE_COMPONENTS.len()
+        report.push('\n');
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "Engines Pillar",
+            susi_gawd::self_core::AlphaSelf::ENGINE_COMPONENTS,
         ));
-        report.push_str(&format!(
-            "- Models Pillar: {}\n",
-            susi_gawd::self_core::AlphaSelf::MODEL_COMPONENTS.len()
+        report.push('\n');
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "Models Pillar",
+            susi_gawd::self_core::AlphaSelf::MODEL_COMPONENTS,
         ));
-        report.push_str(&format!(
-            "- MCPs Pillar: {}\n\n",
-            susi_gawd::self_core::AlphaSelf::MCP_COMPONENTS.len()
+        report.push('\n');
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "MCPs Pillar",
+            susi_gawd::self_core::AlphaSelf::MCP_COMPONENTS,
         ));
+        report.push('\n');
+        report.push_str(&susi_gawd::self_core::AlphaSelf::format_pillar_inventory(
+            "Realized Capabilities",
+            susi_gawd::self_core::AlphaSelf::REALIZED_COMPONENTS,
+        ));
+        report.push_str("\n\n");
         report.push_str("## 2. SYSTEM ENVIRONMENT\n");
         report.push_str(&format!(
             "- CPUs: {}\n- RAM: {}GB\n- Workspace: {}\n",

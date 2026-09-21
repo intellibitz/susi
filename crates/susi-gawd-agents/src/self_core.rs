@@ -52,20 +52,54 @@ impl AlphaSelf {
     pub const REALIZED_COMPONENTS: &[SusiComponentSpec] = GEN_REALIZED_COMPONENTS;
     pub const COMPONENTS: &[SusiComponentSpec] = GEN_COMPONENTS;
 
+    /// One inventory line: `- Label (N): name1, name2, …` (or `(0): (none)`).
+    pub fn format_pillar_inventory(label: &str, comps: &[SusiComponentSpec]) -> String {
+        if comps.is_empty() {
+            format!("- {} (0): (none)", label)
+        } else {
+            let names = comps.iter().map(|c| c.name).collect::<Vec<_>>().join(", ");
+            format!("- {} ({}): {}", label, comps.len(), names)
+        }
+    }
+
     #[allow(dead_code)]
     pub fn inspect_compiled_binary_instructions() -> String {
-        format!(
-            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n- AoA Pillar: {}\n- Agents Pillar: {}\n- Engines Pillar: {}\n- Models Pillar: {}\n- MCPs Pillar: {}\n- Realized Capabilities: {}",
+        let mut out = format!(
+            "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n",
             Self::VERSION,
             Self::CORE_PARADIGM,
             Self::RULES.len(),
-            Self::AOA_COMPONENTS.len(),
-            Self::AGENT_COMPONENTS.len(),
-            Self::ENGINE_COMPONENTS.len(),
-            Self::MODEL_COMPONENTS.len(),
-            Self::MCP_COMPONENTS.len(),
-            Self::REALIZED_COMPONENTS.len()
-        )
+        );
+        out.push_str(&Self::format_pillar_inventory(
+            "AoA Pillar",
+            Self::AOA_COMPONENTS,
+        ));
+        out.push('\n');
+        out.push_str(&Self::format_pillar_inventory(
+            "Agents Pillar",
+            Self::AGENT_COMPONENTS,
+        ));
+        out.push('\n');
+        out.push_str(&Self::format_pillar_inventory(
+            "Engines Pillar",
+            Self::ENGINE_COMPONENTS,
+        ));
+        out.push('\n');
+        out.push_str(&Self::format_pillar_inventory(
+            "Models Pillar",
+            Self::MODEL_COMPONENTS,
+        ));
+        out.push('\n');
+        out.push_str(&Self::format_pillar_inventory(
+            "MCPs Pillar",
+            Self::MCP_COMPONENTS,
+        ));
+        out.push('\n');
+        out.push_str(&Self::format_pillar_inventory(
+            "Realized Capabilities",
+            Self::REALIZED_COMPONENTS,
+        ));
+        out
     }
 }
 
@@ -104,5 +138,26 @@ mod tests {
         let summary = AlphaSelf::inspect_compiled_binary_instructions();
         assert!(summary.contains(GEN_ENGINE_VERSION));
         assert!(summary.contains("Hardcoded Axiom Rules:"));
+        assert!(
+            summary.contains("AoA Pillar ("),
+            "pillar lines must include counts in parentheses"
+        );
+        // Names — not just counts — so install/identity output is actionable.
+        assert!(
+            !AlphaSelf::AOA_COMPONENTS.is_empty()
+                && summary.contains(AlphaSelf::AOA_COMPONENTS[0].name),
+            "AoA pillar must list component names, got:\n{summary}"
+        );
+        assert!(
+            !AlphaSelf::AGENT_COMPONENTS.is_empty()
+                && summary.contains(AlphaSelf::AGENT_COMPONENTS[0].name),
+            "Agents pillar must list component names, got:\n{summary}"
+        );
+        if AlphaSelf::MODEL_COMPONENTS.is_empty() {
+            assert!(
+                summary.contains("Models Pillar (0): (none)"),
+                "empty pillars must say (none), got:\n{summary}"
+            );
+        }
     }
 }
