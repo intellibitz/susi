@@ -86,10 +86,14 @@ type Pool = tokio::sync::Mutex<HashMap<String, Slot>>;
 static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, std::io::Error>> = OnceLock::new();
 static POOL: OnceLock<Pool> = OnceLock::new();
 
-pub(crate) fn call_blocking(config: McpServerConfig, name: String, arguments: Value) -> String {
+pub(crate) fn call_blocking_result(
+    config: McpServerConfig,
+    name: String,
+    arguments: Value,
+) -> Result<String, String> {
     let runtime = match RUNTIME.get_or_init(tokio::runtime::Runtime::new) {
         Ok(rt) => rt,
-        Err(e) => return format!("[FAIL] MCP runtime: {e}"),
+        Err(e) => return Err(format!("MCP runtime: {e}")),
     };
     let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let lease = Duration::from_secs(cfg.execution_lease_secs());
@@ -103,9 +107,8 @@ pub(crate) fn call_blocking(config: McpServerConfig, name: String, arguments: Va
         let _ = send.send(result);
     });
     match receive.recv_timeout(lease + Duration::from_secs(1)) {
-        Ok(Ok(value)) => value,
-        Ok(Err(e)) => format!("[FAIL] MCP: {e}"),
-        Err(e) => format!("[FAIL] MCP: {e}"),
+        Ok(result) => result,
+        Err(error) => Err(error.to_string()),
     }
 }
 

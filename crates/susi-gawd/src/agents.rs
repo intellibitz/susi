@@ -195,7 +195,7 @@ impl GawdAgent for SearchAgent {
     fn execute(
         &self,
         goal: &str,
-        _workspace: &Path,
+        workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         // Meta/admin pulses must not trigger outbound HTTP.
@@ -214,7 +214,7 @@ impl GawdAgent for SearchAgent {
             return Ok(res);
         }
 
-        let report = crate::live_search::gather_live_evidence(goal);
+        let report = crate::live_search::gather_live_evidence(goal, workspace);
         blackboard.insert(self.name(), report.clone());
         Ok(report)
     }

@@ -64,6 +64,27 @@ pub trait Tool: Send + Sync + 'static {
     ) -> susi_error::EaiResult<String>;
 }
 
+/// Captures at the actual invocation boundary, including callers that bypass
+/// the string-oriented ToolRegistry facade.
+struct ObservedTool<T>(T);
+impl<T: Tool> Tool for ObservedTool<T> {
+    fn name(&self) -> &str {
+        self.0.name()
+    }
+    fn description(&self) -> &str {
+        self.0.description()
+    }
+    fn execute(
+        &self,
+        args: &serde_json::Value,
+        workspace: &std::path::Path,
+    ) -> susi_error::EaiResult<String> {
+        crate::capture::EvidenceSession::capture_call(self.name(), args, workspace, || {
+            self.0.execute(args, workspace)
+        })
+    }
+}
+
 /// A specialized registry for managing capabilities (providers, tools, agents)
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
 #[derive(Default, Clone)]
@@ -115,7 +136,7 @@ impl CapabilityRegistry {
     /// Registers an abstract Tool with the capability registry.
     pub fn register_tool<T: Tool + 'static>(&self, tool: T) {
         let name = tool.name().to_string();
-        self.tools.insert(name, Arc::new(tool));
+        self.tools.insert(name, Arc::new(ObservedTool(tool)));
     }
 
     /// Retrieves a tool by name.

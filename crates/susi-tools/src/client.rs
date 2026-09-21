@@ -246,42 +246,32 @@ impl GmcpClient {
     }
 
     pub fn execute_external_tool(server_name: &str, tool_name: &str, args: &str) -> String {
-        let config_path = Self::get_config_path();
-        let config_content = match fs::read_to_string(&config_path) {
-            Ok(c) => c,
-            Err(_) => {
-                return format!(
-                    "[FAIL] MCP Error: Config not found at {}",
-                    config_path.display()
-                )
-            }
-        };
-
-        let config: McpConfig = match serde_json::from_str(&config_content) {
-            Ok(c) => c,
-            Err(e) => return format!("[FAIL] MCP Error: Config parse failed: {}", e),
-        };
-
-        let srv = match config.mcp_servers.get(server_name) {
-            Some(s) => s,
-            None => {
-                return format!(
-                    "[FAIL] MCP Error: Server '{}' not found in config.",
-                    server_name
-                )
-            }
-        };
-
-        Self::proxy_call(srv, tool_name, args)
+        Self::execute_external_tool_result(server_name, tool_name, args)
+            .unwrap_or_else(|error| format!("[FAIL] MCP: {error}"))
     }
 
-    fn proxy_call(srv: &McpServerConfig, tool_name: &str, args_json: &str) -> String {
+    /// Preserve remote error status for evidence capture; legacy string callers
+    /// can still use execute_external_tool above.
+    pub fn execute_external_tool_result(
+        server_name: &str,
+        tool_name: &str,
+        args: &str,
+    ) -> susi_error::EaiResult<String> {
+        let config_content = fs::read_to_string(Self::get_config_path())
+            .map_err(|e| susi_error::EaiError::filesystem(e.to_string()))?;
+        let config: McpConfig = serde_json::from_str(&config_content)
+            .map_err(|e| susi_error::EaiError::protocol(e.to_string()))?;
+        let srv = config
+            .mcp_servers
+            .get(server_name)
+            .ok_or_else(|| susi_error::EaiError::protocol("MCP server not configured"))?;
         let arguments = if tool_name == "reason" {
-            json!({"intent": args_json, "workspace_context": Self::gather_workspace_context()})
+            json!({"intent": args, "workspace_context": Self::gather_workspace_context()})
         } else {
-            serde_json::from_str(args_json).unwrap_or_else(|_| json!({"input":args_json}))
+            serde_json::from_str(args).unwrap_or_else(|_| json!({"input":args}))
         };
-        crate::connection::call_blocking(srv.clone(), tool_name.to_owned(), arguments)
+        crate::connection::call_blocking_result(srv.clone(), tool_name.to_owned(), arguments)
+            .map_err(susi_error::EaiError::protocol)
     }
 
     pub fn scout_reasoning_remotes() -> Vec<String> {

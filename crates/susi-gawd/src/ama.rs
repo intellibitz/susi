@@ -164,6 +164,20 @@ impl SusiMasterAgent {
         version: &str,
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
+        // Mission-scoped evidence ledger (same contract as `solve`): tool
+        // dispatches record receipts here, and citation answers resolve from
+        // them at verification and during cloud recovery.
+        let session = susi_core::capture::EvidenceSession::new(
+            goal,
+            workspace,
+            crate::security::SecurityDetector::redact,
+        )
+        .ok();
+        let _activation = session
+            .as_ref()
+            .map(susi_core::capture::EvidenceSession::activate);
+        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
+
         let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) =
             susi_gemi::models::ModelManager::get_active_engine_and_model(Some(
@@ -296,7 +310,13 @@ impl SusiMasterAgent {
             eprintln!("- [Recruited Agent] SecurityAgent (Provider: Local Core) cleared injection validation.");
 
             let lower_goal = goal.trim().to_lowercase();
-            let final_answer = if lower_goal.contains("identity") {
+            let system_read = crate::system_observe::capture_verified_read(goal, workspace);
+            let final_answer = if let Some(read) = &system_read {
+                match read {
+                    Ok(read) => read.answer().to_string(),
+                    Err(error) => format!("TRUTH_UNVERIFIED: {error}"),
+                }
+            } else if lower_goal.contains("identity") {
                 crate::self_core::AlphaSelf::inspect_compiled_binary_instructions()
             } else if lower_goal.contains("who am i") || lower_goal.contains("whoami") {
                 let user = std::env::var("USER")
@@ -409,28 +429,40 @@ impl SusiMasterAgent {
                     format!("Axiomatic Violation: {}", e)
                 }
             };
-            let final_answer =
-                match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+            // Only exact native identity/version queries have a deterministic
+            // completion contract here. Incidental keywords must not turn an
+            // unrelated request into a successful identity or version response.
+            let native_verification = match &system_read {
+                Some(Ok(read)) => Some(read.verify(goal, &final_answer, workspace)),
+                Some(Err(error)) => Some(Err(susi_error::EaiError::governance(format!(
+                    "TRUTH_UNVERIFIED: {error}"
+                )))),
+                None => verify_compiled_read(goal, &final_answer),
+            };
+            let verification = native_verification.unwrap_or_else(|| {
+                super::truth::TruthTransformer::verify_mission_with_cross_examine(
                     goal,
                     "SUSI_SOLVE",
                     &final_answer,
                     workspace,
-                ) {
-                    Ok(v) => {
-                        eprintln!(
+                )
+            });
+            let final_answer = match verification {
+                Ok(v) => {
+                    eprintln!(
                         "- [Reality Integrity Check] Status: SUCCESS | Fast-Path Read reality integrity verified."
                     );
-                        v
-                    }
-                    Err(e) => {
-                        verification_failed = true;
-                        eprintln!(
-                            "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
-                            e
-                        );
-                        format!("Reality Violation: {}", e)
-                    }
-                };
+                    v
+                }
+                Err(e) => {
+                    verification_failed = true;
+                    eprintln!(
+                        "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                        e
+                    );
+                    format!("Reality Violation: {}", e)
+                }
+            };
 
             let mut report = SusiMissionReport {
                 goal: goal.to_string(),
@@ -446,6 +478,7 @@ impl SusiMasterAgent {
                 final_answer,
             };
             crate::cloud_recovery::recover(&mut report, workspace);
+            attach_evidence_ledger(&mut report, session.as_ref());
             eprintln!("{}", report.completion_message());
             drop(_guard);
             eprintln!("{}", report.to_protocol_format(true));
@@ -473,6 +506,7 @@ impl SusiMasterAgent {
         match res {
             Ok(mut report) => {
                 crate::cloud_recovery::recover(&mut report, workspace);
+                attach_evidence_ledger(&mut report, session.as_ref());
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
                 eprintln!("{}", report.to_protocol_format(true));
@@ -488,6 +522,7 @@ impl SusiMasterAgent {
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
                 crate::cloud_recovery::recover(&mut err_report, workspace);
+                attach_evidence_ledger(&mut err_report, session.as_ref());
                 eprintln!("{}", err_report.completion_message());
                 drop(_guard);
                 eprintln!("{}", err_report.to_protocol_format(true));
@@ -533,12 +568,17 @@ impl SusiMasterAgent {
 
         eprintln!("\n[LIVE REASONING TOKENS]");
         eprintln!("- [Truth Convergence] Ingesting model reasoning trace stream:");
+        // Captured receipts change the answer contract: with a live ledger the
+        // answer must select evidence by citation, so swarm narrative alone can
+        // never be the final answer while receipts exist to cite.
+        let evidence_prompt = susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
         let reasoning_prompt = format!(
-            "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission. Output finalized verified actions.",
-            goal, swarm_context
+            "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission. Output finalized verified actions.{}",
+            goal, swarm_context, evidence_prompt
         );
 
         let final_answer = if !swarm_context.trim().is_empty()
+            && evidence_prompt.is_empty()
             && (swarm_context.contains("###")
                 || swarm_context.contains("| English")
                 || swarm_context.contains("AGENT_SUCCESS_RATIO"))
@@ -615,8 +655,22 @@ impl SusiMasterAgent {
         workspace: &Path,
         version: &str,
     ) -> EaiResult<SusiMissionReport> {
+        // Mission-scoped evidence ledger: every real tool dispatch inside this
+        // call — swarm agents on rayon workers, MCP calls, recovery attempts —
+        // records a receipt. Answers certify only by citing those receipts.
+        let session = susi_core::capture::EvidenceSession::new(
+            goal,
+            workspace,
+            crate::security::SecurityDetector::redact,
+        )
+        .ok();
+        let _activation = session
+            .as_ref()
+            .map(susi_core::capture::EvidenceSession::activate);
+        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
         crate::cloud_recovery::recover(&mut report, workspace);
+        attach_evidence_ledger(&mut report, session.as_ref());
         Ok(report)
     }
 
@@ -748,13 +802,20 @@ impl SusiMasterAgent {
                 || lower_goal.contains("release");
             let swarm_context = SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
-            let final_answer = if is_motion {
+            // When the mission captured real tool calls, the answer must cite
+            // those receipts — swarm narrative and motion labels are not proof.
+            // Force the synthesis step so the model can select citations.
+            let evidence_prompt =
+                susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
+
+            let final_answer = if is_motion && evidence_prompt.is_empty() {
                 // Admin/motion goal: label the output accordingly
                 format!(
                     "SUSI-Motion-Convergence ({}):\n\n{}",
                     version, swarm_context
                 )
-            } else if !swarm_context.trim().is_empty()
+            } else if evidence_prompt.is_empty()
+                && !swarm_context.trim().is_empty()
                 && !swarm_context.contains("No valid wisdom gathered")
             {
                 // Swarm Convergence: Use high-confidence swarm wisdom directly without CPU model loop hang
@@ -769,8 +830,8 @@ impl SusiMasterAgent {
                 // longer, correction-annotated goal happens to land low
                 // again - it forces a strictly bigger model each attempt.
                 let reasoning_prompt = format!(
-                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.",
-                    current_goal, swarm_context
+                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.{}",
+                    current_goal, swarm_context, evidence_prompt
                 );
 
                 let context_words = reasoning_prompt.split_whitespace().count();
@@ -1210,6 +1271,17 @@ impl SusiHybridAgent {
     }
 
     pub fn execute_hybrid_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
+        let session = susi_core::capture::EvidenceSession::new(
+            goal,
+            workspace,
+            crate::security::SecurityDetector::redact,
+        )
+        .ok();
+        let _activation = session
+            .as_ref()
+            .map(susi_core::capture::EvidenceSession::activate);
+        let _scope = susi_core::capture::EvidenceSession::enter(session);
+
         eprintln!("<thinking>");
         eprintln!("[SUSI Hybrid Agent] Goal: {}", goal);
 
@@ -1313,5 +1385,63 @@ mod report_tests {
                 serde_json::from_str(&report.to_protocol_format(false)).unwrap();
             assert_eq!(value["observation"], format!("Mission status: {status}"));
         }
+    }
+}
+
+/// Carry the mission's captured receipts into the report as an audit entry —
+/// provenance and hashes only, never response bodies.
+fn attach_evidence_ledger(
+    report: &mut SusiMissionReport,
+    session: Option<&std::sync::Arc<susi_core::capture::EvidenceSession>>,
+) {
+    let Some(session) = session else { return };
+    let Some(summary) = session.audit_summary() else {
+        return;
+    };
+    report.interactions.push(A2AMessage {
+        sender: "EvidenceLedger".into(),
+        recipient: "SUSI-Master".into(),
+        action: "EVIDENCE_CAPTURED".into(),
+        payload: summary,
+    });
+}
+
+/// Verify only outputs whose complete source is the running binary. No model,
+/// caller-supplied version, or untrusted tool text can certify these responses.
+fn verify_compiled_read(goal: &str, answer: &str) -> Option<susi_error::EaiResult<String>> {
+    let expected = match goal.trim().to_ascii_lowercase().as_str() {
+        "identity" | "susi identity" => {
+            crate::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+        }
+        "version" | "susi version" => format!(
+            "SUSI Engine Version: v{}",
+            crate::self_core::AlphaSelf::VERSION
+        ),
+        _ => return None,
+    };
+    Some(if answer == expected {
+        Ok(answer.to_string())
+    } else {
+        Err(susi_error::EaiError::governance(
+            "TRUTH_VIOLATION: output differs from compiled source",
+        ))
+    })
+}
+
+#[cfg(test)]
+mod compiled_read_truth_tests {
+    use super::*;
+
+    #[test]
+    fn compiled_reads_require_exact_intent_and_exact_output() {
+        let identity = crate::self_core::AlphaSelf::inspect_compiled_binary_instructions();
+        assert!(verify_compiled_read("identity", &identity).unwrap().is_ok());
+        assert!(verify_compiled_read("identity", "SUSI: all tests passed")
+            .unwrap()
+            .is_err());
+        assert!(verify_compiled_read("check identity and delete files", &identity).is_none());
+        assert!(verify_compiled_read("version", "SUSI Engine Version: v999")
+            .unwrap()
+            .is_err());
     }
 }

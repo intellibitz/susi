@@ -45,6 +45,76 @@ fn looks_like_tool_failure(out: &str) -> bool {
         || trimmed.contains("Unknown tool")
 }
 
+/// An in-process receipt for a bounded native read. Private fields and no
+/// deserializer prevent model text or a stored JSON object from minting one.
+pub struct VerifiedSystemRead {
+    goal: String,
+    workspace: std::path::PathBuf,
+    answer: String,
+    captured_at: std::time::Instant,
+}
+
+impl VerifiedSystemRead {
+    pub fn answer(&self) -> &str {
+        &self.answer
+    }
+
+    /// Proves only that the answer is the exact output of this read, in this
+    /// workspace, recently. It does not certify arbitrary interpretations.
+    pub fn verify(
+        &self,
+        goal: &str,
+        answer: &str,
+        workspace: &Path,
+    ) -> susi_error::EaiResult<String> {
+        if goal.trim().to_ascii_lowercase() != self.goal
+            || answer != self.answer
+            || workspace.canonicalize().ok().as_ref() != Some(&self.workspace)
+            || self.captured_at.elapsed() > std::time::Duration::from_secs(60)
+        {
+            return Err(susi_error::EaiError::governance("TRUTH_VIOLATION: native read receipt does not match answer, intent, workspace or freshness"));
+        }
+        Ok(self.answer.clone())
+    }
+}
+
+/// Exact native query contracts; broader natural-language missions still need
+/// claim-specific evidence. The allowlist is not an incidental keyword match.
+pub fn capture_verified_read(
+    goal: &str,
+    workspace: &Path,
+) -> Option<susi_error::EaiResult<VerifiedSystemRead>> {
+    let normalized = goal.trim().to_ascii_lowercase();
+    let command = match normalized.as_str() {
+        "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
+        "uptime" => "uptime",
+        "hostname" => "hostname",
+        "whoami" => "whoami",
+        "uname" => "uname -a",
+        _ => return None,
+    };
+    Some((|| {
+        let workspace = workspace
+            .canonicalize()
+            .map_err(|e| susi_error::EaiError::filesystem(e.to_string()))?;
+        let captured_at = std::time::Instant::now();
+        let output = run_exec_direct(&workspace, command).map_err(susi_error::EaiError::process)?;
+        if output.trim().is_empty() {
+            return Err(susi_error::EaiError::governance(
+                "TRUTH_UNVERIFIED: command produced no observation",
+            ));
+        }
+        let observed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| susi_error::EaiError::process(e.to_string()))?
+            .as_secs();
+        Ok(VerifiedSystemRead {
+            goal: normalized, workspace, captured_at,
+            answer: format!("Command `{command}` (host execution, exit 0; observed at Unix {observed_at}):\n{output}"),
+        })
+    })())
+}
+
 fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
     crate::safety::SafetyDetector::audit_action("exec_command", cmd, workspace)
         .map_err(|e| e.to_string())?;
@@ -183,5 +253,25 @@ mod tests {
                 || report.contains("failed"),
             "expected df-like evidence: {report}"
         );
+    }
+    #[test]
+    fn native_receipt_binds_output_goal_workspace_and_freshness() {
+        let workspace = std::env::current_dir().unwrap();
+        let Some(Ok(mut read)) = capture_verified_read("hostname", &workspace) else {
+            panic!("hostname read must execute");
+        };
+        assert!(read.verify("hostname", read.answer(), &workspace).is_ok());
+        assert!(read
+            .verify("hostname", "invented host", &workspace)
+            .is_err());
+        assert!(read
+            .verify("disk usage", read.answer(), &workspace)
+            .is_err());
+        assert!(read
+            .verify("hostname", read.answer(), &workspace.join("absent"))
+            .is_err());
+        read.captured_at = std::time::Instant::now() - std::time::Duration::from_secs(61);
+        assert!(read.verify("hostname", read.answer(), &workspace).is_err());
+        assert!(capture_verified_read("hostname and delete files", &workspace).is_none());
     }
 }

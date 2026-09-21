@@ -245,15 +245,25 @@ pub fn fetch_duckduckgo_instant(query: &str) -> EaiResult<String> {
 }
 
 /// Prefer live weather, then MCP search tools, then DuckDuckGo; never invent.
-pub fn gather_live_evidence(goal: &str) -> String {
+/// Every fetch is captured into the mission's evidence ledger (when one is
+/// live for `workspace`), so downstream answers can cite real receipts.
+pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
     let mut attempts: Vec<String> = Vec::new();
 
     if looks_like_weather_goal(goal) {
         match extract_place(goal) {
-            Some(place) => match fetch_open_meteo_weather(&place) {
-                Ok(report) => return report,
-                Err(e) => attempts.push(format!("Open-Meteo({place}): {e}")),
-            },
+            Some(place) => {
+                let args = serde_json::json!({ "place": place });
+                match susi_core::capture::EvidenceSession::capture_call(
+                    "open_meteo_weather",
+                    &args,
+                    workspace,
+                    || fetch_open_meteo_weather(&place),
+                ) {
+                    Ok(report) => return report,
+                    Err(e) => attempts.push(format!("Open-Meteo({place}): {e}")),
+                }
+            }
             None => {
                 attempts.push("Open-Meteo: could not extract a place name from the goal".into())
             }
@@ -263,8 +273,7 @@ pub fn gather_live_evidence(goal: &str) -> String {
     for tool in ["brave_search", "google_search", "web_search"] {
         if susi_tools::ToolRegistry::exists(tool) {
             let args = serde_json::json!({ "query": goal, "q": goal });
-            let out =
-                susi_tools::ToolRegistry::execute_tool(tool, &args, std::path::Path::new("."));
+            let out = susi_tools::ToolRegistry::execute_tool(tool, &args, workspace);
             let lower = out.to_ascii_lowercase();
             if !out.trim().is_empty()
                 && !lower.contains("error")
@@ -284,7 +293,12 @@ pub fn gather_live_evidence(goal: &str) -> String {
         }
     }
 
-    match fetch_duckduckgo_instant(goal) {
+    match susi_core::capture::EvidenceSession::capture_call(
+        "duckduckgo_instant",
+        &serde_json::json!({ "query": goal }),
+        workspace,
+        || fetch_duckduckgo_instant(goal),
+    ) {
         Ok(report) => return report,
         Err(e) => attempts.push(format!("DuckDuckGo: {e}")),
     }

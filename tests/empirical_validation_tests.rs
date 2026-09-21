@@ -12,10 +12,15 @@ fn test_empirical_reflex_classification() {
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
-    let res = ama.solve_clean("identity", &ws, susi::SUSI_VERSION);
+    let report = ama.solve_stream_report("identity", &ws, susi::SUSI_VERSION, &|_| {});
     let duration = start.elapsed();
 
-    assert!(res.contains("SUSI"));
+    assert!(report.is_success(), "{}", report.final_answer);
+    assert_eq!(report.exit_code(), std::process::ExitCode::SUCCESS);
+    assert_eq!(
+        report.final_answer,
+        susi_gawd::self_core::AlphaSelf::inspect_compiled_binary_instructions()
+    );
     assert!(duration.as_millis() < 10000);
 }
 

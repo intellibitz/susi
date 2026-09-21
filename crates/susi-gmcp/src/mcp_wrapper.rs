@@ -30,9 +30,7 @@ impl Tool for McpDynamicTool {
         } else {
             args.to_string()
         };
-        let result =
-            GmcpClient::execute_external_tool(&self.server_name, &self.mcp_tool_name, &args_str);
-        Ok(result)
+        GmcpClient::execute_external_tool_result(&self.server_name, &self.mcp_tool_name, &args_str)
     }
 }
 

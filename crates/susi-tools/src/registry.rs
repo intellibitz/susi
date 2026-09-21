@@ -129,7 +129,10 @@ impl ToolRegistry {
             } else {
                 arg.to_string()
             };
-            return GmcpClient::execute_external_tool(parts[0], parts[1], &arg_str);
+            return susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
+                GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str)
+            })
+            .unwrap_or_else(|error| error.to_string());
         }
 
         if name.starts_with("reflex_") {
@@ -143,7 +146,12 @@ impl ToolRegistry {
                 } else {
                     arg.to_string()
                 };
-                match susi_native::wasm::WasmHost::execute_reflex(&wasm_path, &arg_str) {
+                match susi_core::capture::EvidenceSession::capture_call(
+                    name,
+                    arg,
+                    workspace,
+                    || susi_native::wasm::WasmHost::execute_reflex(&wasm_path, &arg_str),
+                ) {
                     Ok(res) => return res,
                     Err(e) => return format!("Reflex Error: {}", e),
                 }
@@ -156,7 +164,9 @@ impl ToolRegistry {
             .get(name)
             .map(|entry| Arc::clone(entry.value()));
         if let Some(tool) = tool {
-            match tool.execute(arg, workspace) {
+            match susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
+                tool.execute(arg, workspace)
+            }) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),
             }

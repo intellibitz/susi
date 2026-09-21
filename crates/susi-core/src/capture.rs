@@ -1,0 +1,619 @@
+//! Mission-local execution provenance. Only host dispatch code captures results;
+//! generated or deserialized evidence cannot mint a receipt. Persisted receipts
+//! are audit records, not reusable authority after the live session is gone.
+
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::cell::RefCell;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use susi_error::{EaiError, EaiResult};
+
+const MAX_RECEIPTS: u64 = 128;
+const MAX_OUTPUT: usize = 64 * 1024;
+const MAX_ANSWER: usize = 256 * 1024;
+const MAX_AGE: Duration = Duration::from_secs(300);
+
+thread_local! {
+    static CURRENT: RefCell<Option<Arc<EvidenceSession>>> = const { RefCell::new(None) };
+}
+tokio::task_local! {
+    static ASYNC_CURRENT: Option<Arc<EvidenceSession>>;
+}
+
+/// Activated mission sessions visible to host tool dispatch on any thread.
+/// Swarm agents run on rayon workers that never inherit thread-locals, so
+/// scoping alone would silently drop their receipts. Lookup stays bound to
+/// the session's canonical workspace in `for_workspace`, so a session only
+/// ever records executions that physically happened inside its mission root.
+static ACTIVE: parking_lot::RwLock<Vec<Arc<EvidenceSession>>> =
+    parking_lot::RwLock::new(Vec::new());
+
+/// A source reference, never an agent-supplied copy of a tool response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReceiptCitation {
+    pub receipt_id: String,
+    /// Optional RFC 6901 pointer selecting a complete structured response value.
+    #[serde(default)]
+    pub json_pointer: Option<String>,
+}
+
+/// Agents compose an attributed answer by selecting captured observations.
+/// Free prose is not silently certified alongside the cited observations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GroundedAnswer {
+    pub citations: Vec<ReceiptCitation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolReceipt {
+    pub id: String,
+    pub tool: String,
+    pub arguments: String,
+    pub observed_at: u64,
+    pub output: String,
+    pub output_hash: String,
+    pub successful: bool,
+    #[serde(skip)]
+    captured_at: Instant,
+}
+
+/// Private, non-deserializable authority tied to one mission and workspace.
+pub struct EvidenceSession {
+    id: String,
+    goal: String,
+    workspace: PathBuf,
+    next: AtomicU64,
+    receipts: DashMap<String, ToolReceipt>,
+    redact: fn(&str) -> String,
+}
+
+/// A synchronous scope must never be moved to another thread or held over await.
+pub struct EvidenceScope {
+    previous: Option<Arc<EvidenceSession>>,
+    _not_send: std::marker::PhantomData<std::rc::Rc<()>>,
+}
+impl Drop for EvidenceScope {
+    fn drop(&mut self) {
+        CURRENT.with(|current| *current.borrow_mut() = self.previous.take());
+    }
+}
+
+/// While held, the session is visible to `for_workspace` from every thread.
+/// Dropping it ends the session's authority to mint new receipts; already
+/// recorded receipts stay resolvable only through a held `Arc`.
+pub struct EvidenceActivation {
+    id: String,
+}
+impl Drop for EvidenceActivation {
+    fn drop(&mut self) {
+        ACTIVE.write().retain(|session| session.id != self.id);
+    }
+}
+
+impl EvidenceSession {
+    pub fn new(goal: &str, workspace: &Path, redact: fn(&str) -> String) -> EaiResult<Arc<Self>> {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let workspace = workspace
+            .canonicalize()
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| EaiError::internal(e.to_string()))?;
+        Ok(Arc::new(Self {
+            id: format!(
+                "{}-{}-{}",
+                std::process::id(),
+                now.as_nanos(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ),
+            goal: goal.into(),
+            workspace,
+            next: AtomicU64::new(0),
+            receipts: DashMap::new(),
+            redact,
+        }))
+    }
+
+    pub fn current() -> Option<Arc<Self>> {
+        ASYNC_CURRENT
+            .try_with(Clone::clone)
+            .unwrap_or_else(|_| CURRENT.with(|current| current.borrow().clone()))
+    }
+
+    pub fn enter(session: Option<Arc<Self>>) -> EvidenceScope {
+        let previous = CURRENT.with(|current| current.replace(session));
+        EvidenceScope {
+            previous,
+            _not_send: std::marker::PhantomData,
+        }
+    }
+
+    pub async fn scope_async<F: std::future::Future>(
+        session: Option<Arc<Self>>,
+        future: F,
+    ) -> F::Output {
+        ASYNC_CURRENT.scope(session, future).await
+    }
+
+    /// Publish the session to host dispatch on every thread until the guard
+    /// drops. Missions activate once at their entry point.
+    pub fn activate(session: &Arc<Self>) -> EvidenceActivation {
+        ACTIVE.write().push(Arc::clone(session));
+        EvidenceActivation {
+            id: session.id.clone(),
+        }
+    }
+
+    /// The live session bound to this workspace: this thread/task's scope
+    /// first, then the most recently activated matching session. Sessions
+    /// for other workspaces never match, and a dropped activation or an
+    /// out-of-workspace call records nothing.
+    pub fn for_workspace(workspace: &Path) -> Option<Arc<Self>> {
+        let canonical = workspace.canonicalize().ok()?;
+        if let Some(session) = Self::current() {
+            if session.workspace == canonical {
+                return Some(session);
+            }
+        }
+        ACTIVE
+            .read()
+            .iter()
+            .rev()
+            .find(|s| s.workspace == canonical)
+            .cloned()
+    }
+
+    /// Execute a registered handler and capture its typed outcome. This API is
+    /// for trusted host adapters, never exposed as a model-callable tool.
+    pub fn capture_call(
+        tool: &str,
+        arguments: &serde_json::Value,
+        workspace: &Path,
+        execute: impl FnOnce() -> EaiResult<String>,
+    ) -> EaiResult<String> {
+        let session = Self::for_workspace(workspace);
+        let result = execute();
+        if let Some(session) = session {
+            session.record(tool, arguments, &result);
+        }
+        result
+    }
+
+    fn record(&self, tool: &str, arguments: &serde_json::Value, result: &EaiResult<String>) {
+        let index = self.next.fetch_add(1, Ordering::Relaxed);
+        if index >= MAX_RECEIPTS {
+            return;
+        }
+        let (output, mut successful) = match result {
+            Ok(output) => ((self.redact)(output), !output.trim().is_empty()),
+            Err(error) => ((self.redact)(&error.to_string()), false),
+        };
+        // JSON-RPC/MCP errors can arrive through adapters returning Ok(String).
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&output) {
+            if value.get("isError").and_then(|v| v.as_bool()) == Some(true)
+                || value.get("error").is_some_and(|v| !v.is_null())
+            {
+                successful = false;
+            }
+        }
+        if output.len() > MAX_OUTPUT {
+            successful = false;
+        }
+        let output: String = output.chars().take(MAX_OUTPUT / 4).collect();
+        // A truncated response is an audit event, never citable evidence.
+        if let Ok(original) = result {
+            if (self.redact)(original) != output {
+                successful = false;
+            }
+        }
+        let id = format!("{}:{index}", self.id);
+        let receipt = ToolReceipt {
+            id: id.clone(),
+            tool: (self.redact)(tool),
+            arguments: (self.redact)(&arguments.to_string())
+                .chars()
+                .take(4096)
+                .collect(),
+            observed_at: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            output_hash: hex::encode(Sha256::digest(output.as_bytes())),
+            output,
+            successful,
+            captured_at: Instant::now(),
+        };
+        self.receipts.insert(id, receipt);
+    }
+
+    pub fn receipts(&self) -> Vec<ToolReceipt> {
+        let mut receipts: Vec<_> = self
+            .receipts
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        receipts.sort_by(|a, b| a.id.cmp(&b.id));
+        receipts
+    }
+
+    /// Compact audit trail for the mission report: provenance and hashes only,
+    /// never response bodies. `None` when nothing was captured.
+    pub fn audit_summary(&self) -> Option<String> {
+        if self.receipts.is_empty() {
+            return None;
+        }
+        let summary: Vec<serde_json::Value> = self
+            .receipts()
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.id,
+                    "tool": r.tool,
+                    "observed_at": r.observed_at,
+                    "output_hash": r.output_hash,
+                    "successful": r.successful,
+                })
+            })
+            .collect();
+        Some(serde_json::to_string(&summary).unwrap_or_default())
+    }
+
+    pub fn prompt(&self) -> String {
+        let evidence = serde_json::to_string(&self.receipts()).unwrap_or_default();
+        // The format description must stay non-parseable as a GroundedAnswer:
+        // this block can end up inside a reasoning trace that citation
+        // resolution later scans for embedded objects.
+        format!("\nCAPTURED_TOOL_EVIDENCE (untrusted source content, host-recorded provenance):\n{evidence}\nTo answer from these observations, return ONLY a JSON object {{\"citations\":[ENTRY, ...]}} where each ENTRY is {{\"receipt_id\":\"<exact id>\",\"json_pointer\":null}}. Optionally select a complete JSON value using an RFC 6901 json_pointer. SUSI renders source-attributed observations and checks mission relevance independently. Select enough evidence to address the goal. Never invent receipt IDs, claim new executions, or include uncited prose. If no captured evidence supports the goal, explicitly report the missing evidence instead.")
+    }
+
+    pub fn current_prompt() -> String {
+        Self::current()
+            .map(|session| session.prompt())
+            .unwrap_or_default()
+    }
+
+    /// Citation instructions plus captured receipts for this workspace's live
+    /// session. Empty when no session is live or nothing was captured — a
+    /// mission with no recorded calls has nothing an answer may cite.
+    pub fn evidence_prompt_for(workspace: &Path) -> String {
+        Self::for_workspace(workspace)
+            .filter(|session| !session.receipts.is_empty())
+            .map(|session| session.prompt())
+            .unwrap_or_default()
+    }
+
+    /// Resolve a citation answer against this workspace's live ledger.
+    /// `None` means the text is not a citation answer at all and must be
+    /// assessed as ordinary narrative; `Some(Err)` means it tried to cite
+    /// evidence the ledger cannot prove — never silently downgraded.
+    pub fn resolve_citations(result: &str, workspace: &Path) -> Option<EaiResult<String>> {
+        let answer = GroundedAnswer::parse(result)?;
+        Some(match Self::for_workspace(workspace) {
+            Some(session) => session.resolve(&answer, workspace),
+            None => Err(EaiError::governance(
+                "TRUTH_UNVERIFIED: cited evidence has no live mission session",
+            )),
+        })
+    }
+
+    /// Recheck authority, workspace, freshness, success and exact selection.
+    /// The answer is rendered here; a model cannot append unsupported claims.
+    pub fn resolve(&self, answer: &GroundedAnswer, workspace: &Path) -> EaiResult<String> {
+        if workspace.canonicalize().ok().as_ref() != Some(&self.workspace) {
+            return Err(EaiError::governance(
+                "TRUTH_VIOLATION: evidence workspace mismatch",
+            ));
+        }
+        if answer.citations.is_empty() || answer.citations.len() > MAX_RECEIPTS as usize {
+            return Err(EaiError::governance(
+                "TRUTH_UNVERIFIED: empty or oversized citation set",
+            ));
+        }
+        let mut rendered = String::new();
+        let mut seen = std::collections::HashSet::new();
+        for citation in &answer.citations {
+            if !seen.insert((&citation.receipt_id, &citation.json_pointer)) {
+                return Err(EaiError::governance("TRUTH_VIOLATION: duplicate citation"));
+            }
+            let receipt = self.receipts.get(&citation.receipt_id).ok_or_else(|| {
+                EaiError::governance("TRUTH_UNVERIFIED: citation not captured in this mission")
+            })?;
+            if !receipt.successful || receipt.captured_at.elapsed() > MAX_AGE {
+                return Err(EaiError::governance(
+                    "TRUTH_UNVERIFIED: unsuccessful or expired tool receipt",
+                ));
+            }
+            let selected = match &citation.json_pointer {
+                None => receipt.output.clone(),
+                Some(pointer) => {
+                    let value: serde_json::Value =
+                        serde_json::from_str(&receipt.output).map_err(|_| {
+                            EaiError::governance("TRUTH_VIOLATION: response is not JSON")
+                        })?;
+                    value
+                        .pointer(pointer)
+                        .ok_or_else(|| {
+                            EaiError::governance("TRUTH_VIOLATION: JSON pointer missing")
+                        })?
+                        .to_string()
+                }
+            };
+            rendered.push_str(&format!("Source: {} | receipt {} | observed at Unix {} | arguments {} | selector {}\nTool reported:\n{}\n\n", receipt.tool, receipt.id, receipt.observed_at, receipt.arguments,
+                citation.json_pointer.as_deref().unwrap_or("entire response"), selected.lines().map(|line| format!("> {line}")).collect::<Vec<_>>().join("\n")));
+            if rendered.len() > MAX_ANSWER {
+                return Err(EaiError::governance(
+                    "TRUTH_UNVERIFIED: evidence answer exceeds size limit",
+                ));
+            }
+        }
+        Ok(rendered.trim_end().to_string())
+    }
+
+    pub fn goal(&self) -> &str {
+        &self.goal
+    }
+}
+
+/// End offset of the balanced `{...}` object starting at `text[0]`, honoring
+/// string literals and escapes. `None` when the braces never close.
+fn balanced_object_end(text: &str) -> Option<usize> {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (i, c) in text.char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if c == '\\' {
+                escape = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i + c.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+impl GroundedAnswer {
+    /// Parse a citation answer: the whole text first, then each balanced JSON
+    /// object carrying a `"citations"` key. Prose around the object is never
+    /// rendered — only resolved receipt content reaches the final answer.
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        if text.len() > MAX_ANSWER {
+            return None;
+        }
+        if let Ok(answer) = serde_json::from_str::<Self>(text) {
+            return Some(answer);
+        }
+        let mut offset = 0;
+        while let Some(found) = text[offset..].find('{') {
+            let open = offset + found;
+            let Some(end) = balanced_object_end(&text[open..]) else {
+                break;
+            };
+            let candidate = &text[open..open + end];
+            if candidate.contains("\"citations\"") {
+                if let Ok(answer) = serde_json::from_str::<Self>(candidate) {
+                    return Some(answer);
+                }
+            }
+            offset = open + end;
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Workspace(PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "susi-capture-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn session(workspace: &Workspace) -> Arc<EvidenceSession> {
+        EvidenceSession::new("mission", &workspace.0, |s| s.to_string()).unwrap()
+    }
+
+    fn first_receipt_id(session: &EvidenceSession) -> String {
+        session.receipts()[0].id.clone()
+    }
+
+    #[test]
+    fn dispatch_records_arguments_outcome_and_time() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        let out = EvidenceSession::capture_call(
+            "exec_command",
+            &serde_json::json!({"cmd": "uname"}),
+            &ws.0,
+            || Ok("Linux host".to_string()),
+        )
+        .unwrap();
+        assert_eq!(out, "Linux host");
+        let receipt = &session.receipts()[0];
+        assert_eq!(receipt.tool, "exec_command");
+        assert!(receipt.arguments.contains("uname"));
+        assert!(receipt.successful && receipt.observed_at > 0);
+        assert_eq!(receipt.output_hash.len(), 64);
+    }
+
+    #[test]
+    fn rayon_workers_record_into_the_mission_session() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        let path = ws.0.clone();
+        std::thread::spawn(move || {
+            EvidenceSession::capture_call("mcp_tool", &serde_json::json!(null), &path, || {
+                Ok("observation".to_string())
+            })
+            .unwrap();
+        })
+        .join()
+        .unwrap();
+        assert_eq!(session.receipts()[0].output, "observation");
+    }
+
+    #[test]
+    fn no_scope_and_wrong_workspace_record_nothing() {
+        let ws = Workspace::new();
+        let other = Workspace::new();
+        let session = session(&ws);
+        EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("x".into()))
+            .unwrap();
+        assert!(session.receipts().is_empty());
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("t", &serde_json::json!(null), &other.0, || Ok("x".into()))
+            .unwrap();
+        assert!(session.receipts().is_empty());
+        // Errors are captured as unsuccessful, never as citable success.
+        EvidenceSession::capture_call("bad", &serde_json::json!(null), &ws.0, || {
+            Err(EaiError::process("boom"))
+        })
+        .unwrap_err();
+        let receipt = &session.receipts()[0];
+        assert!(!receipt.successful && receipt.output.contains("boom"));
+    }
+
+    #[test]
+    fn parse_accepts_exact_json_and_embedded_object_only() {
+        let expected = GroundedAnswer {
+            citations: vec![ReceiptCitation {
+                receipt_id: "s:0".into(),
+                json_pointer: None,
+            }],
+        };
+        assert_eq!(
+            GroundedAnswer::parse(r#"{"citations":[{"receipt_id":"s:0"}]}"#)
+                .unwrap()
+                .citations[0]
+                .receipt_id,
+            expected.citations[0].receipt_id
+        );
+        let embedded = format!(
+            "narrative {} trailing",
+            r#"{"citations":[{"receipt_id":"s:0"}]}"#
+        );
+        assert!(GroundedAnswer::parse(&embedded).is_some());
+        for rejected in [
+            "plain narrative",
+            r#"{"other":{"citations":"not the answer shape"}}"#,
+            r#"{"citations":[{"receipt_id":"s:0","extra":1}]}"#,
+            r#"{"citations":"unclosed""#,
+        ] {
+            assert!(GroundedAnswer::parse(rejected).is_none(), "{rejected}");
+        }
+    }
+
+    #[test]
+    fn resolve_renders_receipts_and_rejects_forged_or_stale_citations() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call(
+            "open_meteo_weather",
+            &serde_json::json!({"place": "Chennai"}),
+            &ws.0,
+            || Ok(r#"{"current":{"temperature_2m":24.8}}"#.to_string()),
+        )
+        .unwrap();
+        let id = first_receipt_id(&session);
+        let answer = format!(
+            r#"{{"citations":[{{"receipt_id":"{id}","json_pointer":"/current/temperature_2m"}}]}}"#
+        );
+        let rendered = EvidenceSession::resolve_citations(&answer, &ws.0)
+            .unwrap()
+            .unwrap();
+        assert!(rendered.contains("open_meteo_weather") && rendered.contains("24.8"));
+        assert!(rendered.contains("observed at Unix"));
+
+        let forged = r#"{"citations":[{"receipt_id":"attacker:0"}]}"#;
+        assert!(EvidenceSession::resolve_citations(forged, &ws.0)
+            .unwrap()
+            .is_err());
+        let empty = r#"{"citations":[]}"#;
+        assert!(EvidenceSession::resolve_citations(empty, &ws.0)
+            .unwrap()
+            .is_err());
+        let duplicate =
+            format!(r#"{{"citations":[{{"receipt_id":"{id}"}},{{"receipt_id":"{id}"}}]}}"#);
+        assert!(EvidenceSession::resolve_citations(&duplicate, &ws.0)
+            .unwrap()
+            .is_err());
+        let other = Workspace::new();
+        assert!(EvidenceSession::resolve_citations(&answer, &other.0)
+            .unwrap()
+            .is_err());
+        // Non-citation text returns None so callers can apply normal checks.
+        assert!(EvidenceSession::resolve_citations("a narrative", &ws.0).is_none());
+    }
+
+    #[test]
+    fn citations_outlive_their_session_never() {
+        let ws = Workspace::new();
+        let answer;
+        {
+            let session = session(&ws);
+            let _activation = EvidenceSession::activate(&session);
+            EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("x".into()))
+                .unwrap();
+            answer = format!(
+                r#"{{"citations":[{{"receipt_id":"{}"}}]}}"#,
+                first_receipt_id(&session)
+            );
+        }
+        // Session dropped: persisted receipt text cannot mint authority.
+        assert!(EvidenceSession::resolve_citations(&answer, &ws.0)
+            .unwrap()
+            .is_err());
+    }
+
+    #[test]
+    fn evidence_prompt_lists_receipts_only_when_present() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        assert!(EvidenceSession::evidence_prompt_for(&ws.0).is_empty());
+        EvidenceSession::capture_call("mcp", &serde_json::json!(null), &ws.0, || Ok("data".into()))
+            .unwrap();
+        let prompt = EvidenceSession::evidence_prompt_for(&ws.0);
+        assert!(prompt.contains("CAPTURED_TOOL_EVIDENCE"));
+        assert!(prompt.contains(&first_receipt_id(&session)));
+    }
+}

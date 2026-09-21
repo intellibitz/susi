@@ -49,6 +49,23 @@ pub struct EvidenceRecord {
     pub signature: String, // SHA256 integrity checksum, not proof of authorship
 }
 
+/// Machine-readable result; missing proof and contradictory proof are distinct.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "status", content = "reason", rename_all = "snake_case")]
+pub enum EvidenceAssessment {
+    Verified,
+    Unverified(String),
+    Rejected(String),
+}
+
+/// Resolve symlinks and reject traversal, absolute escapes, directories and
+/// special files before reading. File evidence is always workspace-scoped.
+pub(crate) fn confined_file(workspace: &Path, path: &Path) -> Option<PathBuf> {
+    let root = workspace.canonicalize().ok()?;
+    let target = root.join(path).canonicalize().ok()?;
+    (target.starts_with(&root) && target.is_file()).then_some(target)
+}
+
 impl EvidenceRecord {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -68,11 +85,11 @@ impl EvidenceRecord {
             confidence,
             signature: String::new(),
         };
-        record.signature = record.calculate_signature();
+        record.signature = record.calculate_signature().unwrap_or_default();
         record
     }
 
-    fn calculate_signature(&self) -> String {
+    fn calculate_signature(&self) -> Option<String> {
         let mut hasher = Sha256::new();
         // Serialize a tuple to preserve field boundaries and bind every field.
         let payload = serde_json::to_vec(&(
@@ -83,63 +100,162 @@ impl EvidenceRecord {
             &self.source,
             self.confidence.to_bits(),
         ))
-        .expect("evidence fields are serializable");
+        .ok()?;
         hasher.update(payload);
-        hex::encode(hasher.finalize())
+        Some(hex::encode(hasher.finalize()))
+    }
+
+    /// Capture a file claim at the observation boundary. Verification later
+    /// reopens the file, so edits between observation and use invalidate it.
+    pub fn capture_file(
+        agent_id: &str,
+        workspace: &Path,
+        path: &Path,
+        predicate: &str,
+        value: &str,
+    ) -> std::io::Result<Self> {
+        let target = confined_file(workspace, path).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "file outside workspace or not regular",
+            )
+        })?;
+        let content = std::fs::read(target)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(std::io::Error::other)?
+            .as_secs();
+        Ok(Self::new(
+            agent_id.into(),
+            0.0,
+            now,
+            Claim {
+                subject: path.to_string_lossy().into_owned(),
+                predicate: predicate.into(),
+                value: value.into(),
+            },
+            EvidenceSource::File {
+                path: path.into(),
+                hash: hex::encode(Sha256::digest(content)),
+            },
+            0.0,
+        ))
     }
 
     pub fn render_for_gemi(&self) -> String {
         format!(
-            "[EVIDENCE AGENT: {} (Rank: {:.2}, Confidence: {:.2})]\nClaim: {} {} {}\nSource: {:?}\nSignature: {}\n",
+            "[UNASSESSED EVIDENCE AGENT: {} (Rank: {:.2}, Confidence: {:.2})]\nClaim: {} {} {}\nSource: {:?}\nSignature: {}\n",
             self.agent_id, self.rank, self.confidence, self.claim.subject, self.claim.predicate, self.claim.value, self.source, self.signature
         )
     }
 
-    pub fn verify_reality(&self, workspace: &Path) -> bool {
-        // 1. The record hasn't been tampered with since it was created.
-        if self.signature != self.calculate_signature()
-            || !self.rank.is_finite()
-            || !self.confidence.is_finite()
-            || !(0.0..=1.0).contains(&self.confidence)
-            || self.agent_id.trim().is_empty()
-            || self.claim.subject.trim().is_empty()
-            || self.claim.predicate.trim().is_empty()
-            || self.claim.value.trim().is_empty()
-        {
-            return false;
-        }
+    /// Integrity is not authenticity: anyone can construct a checksummed record.
+    pub fn verify_integrity(&self) -> bool {
+        !self.signature.is_empty()
+            && self.calculate_signature().as_deref() == Some(self.signature.as_str())
+            && self.rank.is_finite()
+            && self.rank >= 0.0
+            && self.confidence.is_finite()
+            && (0.0..=1.0).contains(&self.confidence)
+            && !self.agent_id.trim().is_empty()
+            && !self.claim.subject.trim().is_empty()
+            && !self.claim.predicate.trim().is_empty()
+            && !self.claim.value.trim().is_empty()
+    }
 
-        // 2. The claimed evidence still checks out physically.
+    /// Re-read the source and validate the actual claim. A checksum or an LLM
+    /// observation cannot substitute for this check. No commands are replayed.
+    pub fn assess(&self, workspace: &Path) -> EvidenceAssessment {
+        use EvidenceAssessment::*;
+        if !self.verify_integrity() {
+            return Rejected("invalid record integrity or metadata".into());
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if self.timestamp == 0 || self.timestamp > now.saturating_add(60) {
+            return Rejected("invalid observation timestamp".into());
+        }
         match &self.source {
             EvidenceSource::File { path, hash } => {
-                let target = workspace.join(path);
-                if !target.exists() {
-                    return false;
+                let Some(target) = confined_file(workspace, path) else {
+                    return Rejected("source is not a regular file inside the workspace".into());
+                };
+                let Ok(content) = std::fs::read(&target) else {
+                    return Rejected("source cannot be read".into());
+                };
+                if hex::encode(Sha256::digest(&content)) != *hash {
+                    return Rejected("source contents changed or hash does not match".into());
                 }
-                if let Ok(content) = std::fs::read(target) {
-                    let mut hasher = Sha256::new();
-                    hasher.update(content);
-                    let actual_hash = hex::encode(hasher.finalize());
-                    return actual_hash == *hash;
+                if confined_file(workspace, Path::new(&self.claim.subject)).as_ref()
+                    != Some(&target)
+                {
+                    return Rejected("claim subject does not identify the evidence file".into());
                 }
-                false
+                let supported = match self.claim.predicate.as_str() {
+                    "exists" => self.claim.value == "true",
+                    "sha256" => self.claim.value == *hash,
+                    "equals" => content == self.claim.value.as_bytes(),
+                    "contains" => std::str::from_utf8(&content)
+                        .is_ok_and(|text| text.contains(&self.claim.value)),
+                    _ => return Unverified("unsupported file claim predicate".into()),
+                };
+                if supported {
+                    Verified
+                } else {
+                    Rejected("file does not support the claim".into())
+                }
             }
-            EvidenceSource::Command { exit_code, .. } => *exit_code == 0,
-            EvidenceSource::McpTool { raw_response, .. } => {
-                // An empty claim or a recorded error from an MCP tool is physically invalid
-                if raw_response.trim().is_empty() || raw_response.to_lowercase().contains("error") {
-                    return false;
+            EvidenceSource::Command {
+                command,
+                output_hash,
+                ..
+            } => {
+                if command.trim().is_empty()
+                    || output_hash.len() != 64
+                    || !output_hash.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Rejected("malformed command evidence".into());
                 }
-                true
+                Unverified("recorded exit code and output hash are not an execution receipt".into())
+            }
+            EvidenceSource::McpTool {
+                tool_name,
+                raw_response,
+            } => {
+                if tool_name.trim().is_empty() || raw_response.trim().is_empty() {
+                    return Rejected("empty MCP evidence".into());
+                }
+                if let Ok(response) = serde_json::from_str::<serde_json::Value>(raw_response) {
+                    if response.get("isError").and_then(|v| v.as_bool()) == Some(true)
+                        || response.get("error").is_some_and(|v| !v.is_null())
+                    {
+                        return Rejected("MCP returned an error".into());
+                    }
+                }
+                Unverified("MCP response lacks independently checked claim support".into())
             }
             EvidenceSource::AgentObservation {
                 observation,
                 reasoning_trace,
-            } => !observation.trim().is_empty() && !reasoning_trace.trim().is_empty(),
+            } => {
+                if observation.trim().is_empty() || reasoning_trace.trim().is_empty() {
+                    return Rejected("empty agent observation".into());
+                }
+                Unverified("agent narrative is not independent evidence".into())
+            }
             EvidenceSource::System { metric, value } => {
-                !metric.trim().is_empty() && !value.trim().is_empty()
+                if metric.trim().is_empty() || value.trim().is_empty() {
+                    return Rejected("empty system observation".into());
+                }
+                Unverified("system metric has no trusted measurement receipt".into())
             }
         }
+    }
+
+    pub fn verify_reality(&self, workspace: &Path) -> bool {
+        self.assess(workspace) == EvidenceAssessment::Verified
     }
 }
 
@@ -168,7 +284,8 @@ mod tests {
     #[test]
     fn integrity_binds_rank_confidence_and_field_boundaries() {
         let original = observation();
-        assert!(original.verify_reality(Path::new(".")));
+        assert!(original.verify_integrity());
+        assert!(!original.verify_reality(Path::new(".")));
         let mut changed = original.clone();
         changed.rank = 1.0;
         assert!(!changed.verify_reality(Path::new(".")));
@@ -182,7 +299,7 @@ mod tests {
         assert!(!original.render_for_gemi().contains("VERIFIED"));
         let restored: EvidenceRecord =
             serde_json::from_str(&serde_json::to_string(&original).unwrap()).unwrap();
-        assert!(restored.verify_reality(Path::new(".")));
+        assert!(restored.verify_integrity());
     }
 
     #[test]
@@ -192,11 +309,196 @@ mod tests {
             observation: " ".into(),
             reasoning_trace: "trace".into(),
         };
-        record.signature = record.calculate_signature();
+        record.signature = record.calculate_signature().unwrap_or_default();
         assert!(!record.verify_reality(Path::new(".")));
         let mut record = observation();
         record.confidence = f32::NAN;
-        record.signature = record.calculate_signature();
+        record.signature = record.calculate_signature().unwrap_or_default();
         assert!(!record.verify_reality(Path::new(".")));
+    }
+    struct Workspace(PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "susi-evidence-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(path.join("source.txt"), "observed reality").unwrap();
+            Self(path)
+        }
+        fn record(&self, predicate: &str, value: &str) -> EvidenceRecord {
+            EvidenceRecord::capture_file(
+                "reader",
+                &self.0,
+                Path::new("source.txt"),
+                predicate,
+                value,
+            )
+            .unwrap()
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn correct_hash_does_not_prove_an_unrelated_or_false_claim() {
+        let ws = Workspace::new();
+        assert!(ws.record("contains", "reality").verify_reality(&ws.0));
+        assert!(ws
+            .record("equals", "observed reality")
+            .verify_reality(&ws.0));
+        assert!(ws.record("exists", "true").verify_reality(&ws.0));
+        assert!(!ws
+            .record("contains", "all tests passed")
+            .verify_reality(&ws.0));
+        assert!(!ws.record("mission_completed", "true").verify_reality(&ws.0));
+        let mut record = ws.record("exists", "true");
+        record.claim.subject = "nonexistent.txt".into();
+        record.signature = record.calculate_signature().unwrap_or_default();
+        assert!(!record.verify_reality(&ws.0));
+    }
+
+    #[test]
+    fn changed_source_and_cross_workspace_replay_are_rejected() {
+        let ws = Workspace::new();
+        let record = ws.record("equals", "observed reality");
+        std::fs::write(ws.0.join("source.txt"), "changed").unwrap();
+        assert!(!record.verify_reality(&ws.0));
+        let empty = ws.0.join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        assert!(!record.verify_reality(&empty));
+    }
+
+    #[test]
+    fn source_escapes_and_directories_cannot_be_captured() {
+        let ws = Workspace::new();
+        let other = Workspace::new();
+        assert!(EvidenceRecord::capture_file(
+            "reader",
+            &ws.0,
+            &other.0.join("source.txt"),
+            "exists",
+            "true"
+        )
+        .is_err());
+        assert!(
+            EvidenceRecord::capture_file("reader", &ws.0, Path::new("."), "exists", "true")
+                .is_err()
+        );
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(other.0.join("source.txt"), ws.0.join("escape")).unwrap();
+            assert!(EvidenceRecord::capture_file(
+                "reader",
+                &ws.0,
+                Path::new("escape"),
+                "exists",
+                "true"
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn forged_command_success_and_system_metrics_are_not_proof() {
+        let mut record = observation();
+        record.source = EvidenceSource::Command {
+            command: "cargo test".into(),
+            exit_code: 0,
+            output_hash: "a".repeat(64),
+        };
+        record.signature = record.calculate_signature().unwrap_or_default();
+        assert!(matches!(
+            record.assess(Path::new(".")),
+            EvidenceAssessment::Unverified(_)
+        ));
+        record.source = EvidenceSource::System {
+            metric: "tests_passed".into(),
+            value: "100%".into(),
+        };
+        record.signature = record.calculate_signature().unwrap_or_default();
+        assert!(matches!(
+            record.assess(Path::new(".")),
+            EvidenceAssessment::Unverified(_)
+        ));
+    }
+
+    #[test]
+    fn mcp_errors_are_structured_and_success_text_is_not_proof() {
+        let mut record = observation();
+        for (response, rejected) in [
+            (r#"{"isError":true,"content":[]}"#, true),
+            (r#"{"error":{"code":-32603}}"#, true),
+            (r#"{"error":null,"result":"zero errors"}"#, false),
+            (
+                r#"{"isError":false,"content":"error handling guide"}"#,
+                false,
+            ),
+            ("forged success", false),
+        ] {
+            record.source = EvidenceSource::McpTool {
+                tool_name: "test".into(),
+                raw_response: response.into(),
+            };
+            record.signature = record.calculate_signature().unwrap_or_default();
+            assert_eq!(
+                matches!(
+                    record.assess(Path::new(".")),
+                    EvidenceAssessment::Rejected(_)
+                ),
+                rejected
+            );
+            assert!(!record.verify_reality(Path::new(".")));
+        }
+    }
+
+    #[test]
+    fn timestamps_and_all_integrity_fields_are_checked() {
+        let ws = Workspace::new();
+        let original = ws.record("exists", "true");
+        let mut future = original.clone();
+        future.timestamp = u64::MAX;
+        future.signature = future.calculate_signature().unwrap_or_default();
+        assert!(!future.verify_reality(&ws.0));
+        let mut source = original.clone();
+        source.source = EvidenceSource::System {
+            metric: "fake".into(),
+            value: "true".into(),
+        };
+        assert!(!source.verify_integrity());
+        let mut timestamp = original.clone();
+        timestamp.timestamp += 1;
+        assert!(!timestamp.verify_integrity());
+        let mut agent = original;
+        agent.agent_id = "impostor".into();
+        assert!(!agent.verify_integrity());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn non_utf8_paths_cannot_panic_or_create_valid_records() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = PathBuf::from(std::ffi::OsString::from_vec(vec![0xff]));
+        let record = EvidenceRecord::new(
+            "agent".into(),
+            0.0,
+            1,
+            Claim {
+                subject: "file".into(),
+                predicate: "exists".into(),
+                value: "true".into(),
+            },
+            EvidenceSource::File {
+                path,
+                hash: "a".repeat(64),
+            },
+            0.0,
+        );
+        assert!(!record.verify_integrity());
     }
 }

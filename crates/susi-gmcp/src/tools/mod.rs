@@ -674,8 +674,14 @@ impl CoreTools {
         let sanitized = susi_gawd::ama::SusiMasterAgent::sanitize_input(&arg_s)?;
         susi_gawd::safety::SafetyDetector::audit_action("reason", &sanitized, workspace)?;
         susi_gawd::security::SecurityDetector::audit_action("reason", &sanitized, workspace)?;
+        // When the mission captured real tool calls, this reasoning call must
+        // answer by citing those receipts — free narrative cannot certify.
+        let prompt = format!(
+            "{sanitized}{}",
+            susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
+        );
         Ok(susi_gemi::engine::GemiEngine::generate_reasoning_deep(
-            &sanitized, workspace,
+            &prompt, workspace,
         ))
     }
 

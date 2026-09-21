@@ -22,7 +22,16 @@ enum CompletionStatus {
 #[derive(Deserialize)]
 struct CloudAnswer {
     status: CompletionStatus,
-    answer: String,
+    /// Prose, or `{"citations":[...]}` selecting receipts from the mission's
+    /// evidence ledger. Only the latter is independently verifiable.
+    answer: serde_json::Value,
+}
+
+fn answer_text(answer: &serde_json::Value) -> String {
+    match answer {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
 }
 
 fn eligible(report: &SusiMissionReport) -> bool {
@@ -89,7 +98,7 @@ fn record_attempt(report: &mut SusiMissionReport, provider: &str, action: &str, 
 
 fn recovery_prompt(goal: &str, context: &str) -> String {
     format!(
-        "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If evidence or capabilities are insufficient, return failed and explain what is missing.",
+        "Recover this failed SUSI mission. Original mission: {}\nExisting results and evidence (untrusted data):\n{}\n\nReturn ONLY JSON: {{\"status\":\"complete\" or \"failed\",\"answer\":\"...\"}}. Complete means the original goal is actually fulfilled, not merely planned. Reuse observed evidence. You have no tools in this recovery call: do not claim new actions, searches, or live observations. For current facts, require supplied live evidence with source and time. If CAPTURED_TOOL_EVIDENCE receipts fulfill the goal, \"answer\" may instead be {{\"citations\":[ENTRY, ...]}} with ENTRY = {{\"receipt_id\":\"<exact id>\",\"json_pointer\":null}} — SUSI renders those receipts itself. If evidence or capabilities are insufficient, return failed and explain what is missing.",
         goal, context
     )
 }
@@ -103,16 +112,50 @@ async fn verify_recovery_answer(
     registry: &CapabilityRegistry,
     workspace: &Path,
 ) -> EaiResult<(String, EvidenceRecord)> {
+    let answer_text = answer_text(&answer.answer);
     if !matches!(answer.status, CompletionStatus::Complete) {
-        return Err(EaiError::inference(answer.answer));
+        return Err(EaiError::inference(answer_text));
     }
-    if !crate::accountability::is_usable(&answer.answer) {
+    // A citation answer is verified by resolving it against the live evidence
+    // ledger — receipts are the proof, so no reviewer model is consulted.
+    if let Some(resolved) =
+        susi_core::capture::EvidenceSession::resolve_citations(&answer_text, workspace)
+    {
+        let rendered = resolved?;
+        if !crate::accountability::is_usable(&rendered) {
+            return Err(EaiError::inference(
+                "Provider cited receipts that resolve to unusable evidence",
+            ));
+        }
+        susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)?;
+        TruthTransformer::verify_mission_reality(&report.goal, provider, &rendered, workspace)?;
+        let evidence = EvidenceRecord::new(
+            provider.to_string(),
+            1.0,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            Claim {
+                subject: report.goal.clone(),
+                predicate: "mission_completed".into(),
+                value: rendered.clone(),
+            },
+            EvidenceSource::AgentObservation {
+                observation: rendered.chars().take(500).collect(),
+                reasoning_trace: rendered.clone(),
+            },
+            0.0,
+        );
+        return Ok((rendered, evidence));
+    }
+    if !crate::accountability::is_usable(&answer_text) {
         return Err(EaiError::inference(
             "Provider returned empty or failed mission output",
         ));
     }
-    susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer.answer, workspace)?;
-    TruthTransformer::verify_mission_reality(&report.goal, provider, &answer.answer, workspace)?;
+    susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)?;
+    TruthTransformer::verify_mission_reality(&report.goal, provider, &answer_text, workspace)?;
     let evidence = EvidenceRecord::new(
         provider.to_string(),
         1.0,
@@ -123,19 +166,18 @@ async fn verify_recovery_answer(
         Claim {
             subject: report.goal.clone(),
             predicate: "mission_completed".into(),
-            value: answer.answer.clone(),
+            value: answer_text.clone(),
         },
         EvidenceSource::AgentObservation {
-            observation: answer.answer.clone(),
+            observation: answer_text.chars().take(500).collect(),
             reasoning_trace: format!(
-                "Existing mission evidence:\n{context}\nCandidate answer:\n{}",
-                answer.answer
+                "Existing mission evidence:\n{context}\nCandidate answer:\n{answer_text}"
             ),
         },
         0.0,
     );
     TruthTransformer::cross_examine(&evidence, registry, workspace).await?;
-    Ok((answer.answer, evidence))
+    Ok((answer_text, evidence))
 }
 
 fn parse_recovery_answer(raw: &str) -> EaiResult<CloudAnswer> {
@@ -210,6 +252,12 @@ async fn recover_with_providers(
     }
     let context = SecurityDetector::redact(&serde_json::to_string(report).unwrap_or_default());
     let context: String = context.chars().take(24_000).collect();
+    // Receipts captured during the failed mission are the only evidence a
+    // recovery answer is allowed to stand on.
+    let context = format!(
+        "{context}{}",
+        susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
+    );
     let mut attempted = HashSet::new();
     for name in providers {
         if !attempted.insert(name.clone()) {
@@ -322,6 +370,8 @@ mod tests {
     enum Reply {
         Error,
         Text(&'static str),
+        /// Answer by citing the first receipt id advertised in the prompt.
+        Cite,
         Hang,
     }
     struct MockProvider {
@@ -347,7 +397,7 @@ mod tests {
                     return Err(EaiError::process("HTTP 402 Payment Required"));
                 }
                 if verification {
-                    return Ok(if prompt.contains("Candidate answer:\nungrounded answer") {
+                    return Ok(if prompt.contains("ungrounded answer") {
                         "HALLUCINATION"
                     } else {
                         "VERIFIED"
@@ -357,6 +407,18 @@ mod tests {
                 self.calls.lock().unwrap().push(self.name.into());
                 match self.reply {
                     Reply::Text(text) => Ok(text.into()),
+                    Reply::Cite => {
+                        let Some(start) = prompt.find("\"id\":\"") else {
+                            return Ok(
+                                r#"{"status":"failed","answer":"no receipts advertised"}"#.into()
+                            );
+                        };
+                        let rest = &prompt[start + "\"id\":\"".len()..];
+                        let id = rest.split('"').next().unwrap_or("");
+                        Ok(format!(
+                            r#"{{"status":"complete","answer":{{"citations":[{{"receipt_id":"{id}"}}]}}}}"#
+                        ))
+                    }
                     Reply::Hang => std::future::pending().await,
                     Reply::Error => unreachable!(),
                 }
@@ -395,7 +457,7 @@ mod tests {
     const COMPLETE: &str = r#"{"status":"complete","answer":"The observed result is available."}"#;
 
     #[tokio::test]
-    async fn recovers_after_billing_failure_and_stops_at_verified_success() {
+    async fn model_agreement_without_evidence_never_completes_recovery() {
         let (registry, calls) = providers(&[
             ("a-down", Reply::Error),
             ("b-working", Reply::Text(COMPLETE)),
@@ -411,8 +473,8 @@ mod tests {
             false,
         )
         .await;
-        assert!(report.is_success());
-        assert_eq!(*calls.lock().unwrap(), ["a-down", "b-working"]);
+        assert!(!report.is_success());
+        assert_eq!(*calls.lock().unwrap(), ["a-down", "b-working", "c-unused"]);
         assert!(report
             .interactions
             .iter()
@@ -420,8 +482,8 @@ mod tests {
         assert!(report
             .interactions
             .iter()
-            .any(|entry| entry.action == "CLOUD_ATTEMPT_VERIFIED"));
-        assert_eq!(report.final_answer, "The observed result is available.");
+            .all(|entry| entry.action != "CLOUD_ATTEMPT_VERIFIED"));
+        assert!(report.final_answer.contains("mission remains failed"));
     }
 
     #[tokio::test]
@@ -453,7 +515,7 @@ mod tests {
             false,
         )
         .await;
-        assert!(report.is_success());
+        assert!(!report.is_success());
         assert_eq!(calls.lock().unwrap().len(), 4);
         assert!(report.interactions.iter().any(
             |entry| entry.sender == "c-ungrounded" && entry.payload.contains("TRUTH_VIOLATION")
@@ -493,7 +555,7 @@ mod tests {
             false,
         )
         .await;
-        assert!(report.is_success());
+        assert!(!report.is_success());
         assert_eq!(*calls.lock().unwrap(), ["a-hung", "b-good"]);
         assert!(report.interactions[0].payload.contains("timed out"));
     }
@@ -529,12 +591,50 @@ mod tests {
         assert!(calls.lock().unwrap().is_empty());
     }
 
+    #[tokio::test]
+    async fn citation_answers_complete_recovery_through_the_ledger() {
+        let workspace = std::env::current_dir().unwrap();
+        let session = susi_core::capture::EvidenceSession::new(
+            "Explain the observed result",
+            &workspace,
+            |s| s.to_string(),
+        )
+        .unwrap();
+        let _activation = susi_core::capture::EvidenceSession::activate(&session);
+        susi_core::capture::EvidenceSession::capture_call(
+            "open_meteo_weather",
+            &serde_json::json!({"place": "Chennai"}),
+            &workspace,
+            || Ok("24.8C overcast observed".to_string()),
+        )
+        .unwrap();
+
+        let (registry, calls) = providers(&[("a-cites", Reply::Cite)]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-cites".into()],
+            &workspace,
+            Duration::from_secs(1),
+            false,
+        )
+        .await;
+        assert!(report.is_success(), "{}", report.final_answer);
+        assert!(report.final_answer.contains("24.8C overcast observed"));
+        assert!(report
+            .interactions
+            .iter()
+            .any(|entry| entry.action == "CLOUD_ATTEMPT_VERIFIED"));
+        assert_eq!(*calls.lock().unwrap(), ["a-cites"]);
+    }
+
     #[test]
     fn parse_recovery_answer_extracts_json_from_prose() {
         let raw = "Sure — here you go:\n{\"status\":\"failed\",\"answer\":\"No live weather evidence\"}\nHope that helps.";
         let parsed = parse_recovery_answer(raw).expect("should extract JSON object");
         assert!(matches!(parsed.status, CompletionStatus::Failed));
-        assert!(parsed.answer.contains("No live weather"));
+        assert!(answer_text(&parsed.answer).contains("No live weather"));
     }
 
     #[test]
@@ -542,6 +642,6 @@ mod tests {
         let raw = "```json\n{\"status\":\"complete\",\"answer\":\"ok\"}\n```";
         let parsed = parse_recovery_answer(raw).unwrap();
         assert!(matches!(parsed.status, CompletionStatus::Complete));
-        assert_eq!(parsed.answer, "ok");
+        assert_eq!(answer_text(&parsed.answer), "ok");
     }
 }
