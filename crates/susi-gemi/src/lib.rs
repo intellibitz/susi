@@ -1,27 +1,36 @@
-pub mod alpha;
-pub mod audio;
-pub mod benchmark;
-pub mod candle_provider;
-pub mod coding_models;
-pub(crate) mod download;
-pub mod engine;
-pub mod hardware;
-pub mod hf_discovery;
-pub mod http_provider;
-pub mod mcp_provider;
-mod model_cache;
-pub mod models;
-pub mod pulse;
-pub mod qwen2_split;
-pub mod reasoning;
-pub mod reflex;
-pub mod routing;
-pub mod speculative;
-mod token_stream;
-pub mod unified;
-pub mod vision;
-pub mod vllm;
+//! GEMI — universal inference & model substrate.
+//!
+//! # Two-tier layout
+//!
+//! | Tier | Crate | Responsibility |
+//! |------|-------|----------------|
+//! | **Models** | [`susi_gemi_models`] / [`models`] | Select & provision (lifecycle, ladder, coding catalog) |
+//! | **Engines** | [`engines`] | Run inference (backends, HTTP/MCP providers, router) |
+//!
+//! Engines depends on models. Models must not depend on this crate.
+//!
+//! Flat module paths (`engine`, `http_provider`, `hardware`, …) remain as
+//! compatibility re-exports for existing call sites.
 
+pub mod engines;
+
+// Models tier (physical crate) — preserve `susi_gemi::models::…` paths
+pub use susi_gemi_models as models;
+
+// Cross-cutting surfaces that use both tiers
 pub mod acp;
+pub mod benchmark;
+pub mod coding_models_ext;
 pub mod eval;
-pub mod intent;
+pub mod pulse;
+
+// ── Flat compatibility re-exports (do not remove without a migration) ─────
+pub use engines::runtime as engine;
+pub(crate) use engines::token_stream;
+pub use engines::{
+    alpha, audio, candle_provider, http_provider, mcp_provider, qwen2_split, reasoning, reflex,
+    routing, speculative, unified, vision, vllm,
+};
+
+pub use models::model_cache;
+pub use models::{coding_models, hardware, hf_discovery, intent};

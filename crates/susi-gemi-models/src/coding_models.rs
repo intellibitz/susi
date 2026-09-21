@@ -1,15 +1,17 @@
 //! Durable management of the top developer/agent-focused cloud models.
 //! Catalog ranks are editorial (coding + agents), not chatbot popularity.
+//!
+//! Paid probe / `HttpProvider` construction lives in the engines crate
+//! (`susi_gemi::coding_models_ext`) so this models crate never depends on engines.
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::http_provider::{
-    apply_cloud_env_file, effective_inference_endpoints_pub, HttpProvider, InferenceProtocol,
+use crate::cloud::{
+    apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
-use susi_core::provider::Provider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodingModelDefinition {
@@ -32,6 +34,16 @@ pub struct CodingModelOverride {
     pub model: Option<String>,
     pub protocol_type: Option<String>,
     pub api_key_env: Option<String>,
+}
+
+/// Resolved endpoint + credential metadata for engines to build an `HttpProvider`.
+#[derive(Debug, Clone)]
+pub struct CodingModelEndpoint {
+    pub def: CodingModelDefinition,
+    pub api_base: String,
+    pub protocol_type: String,
+    pub api_key_env: String,
+    pub api_key: String,
 }
 
 #[derive(Clone)]
@@ -115,8 +127,8 @@ impl CodingModelManager {
         } else {
             def.api_key_env.as_str()
         };
-        let key = HttpProvider::resolve_api_key(key_env, &def.engine);
-        if HttpProvider::is_remote_cloud(endpoint.api_base.trim()) && key.is_empty() {
+        let key = resolve_api_key(key_env, &def.engine);
+        if is_remote_cloud(endpoint.api_base.trim()) && key.is_empty() {
             bail!(
                 "set {key_env} (or `susi keys set {}`) for cloud access",
                 def.engine
@@ -128,44 +140,30 @@ impl CodingModelManager {
         ))
     }
 
-    pub fn provider(&self, id: &str) -> Result<HttpProvider> {
+    /// Resolve endpoint + key metadata for engines to construct an HTTP provider.
+    pub fn resolve_endpoint(&self, id: &str) -> Result<CodingModelEndpoint> {
         apply_cloud_env_file();
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
         let endpoint = endpoint_for(&def.engine).context("endpoint missing after preflight")?;
         let key_env = if def.api_key_env.is_empty() {
-            endpoint.api_key_env.as_str()
+            endpoint.api_key_env.clone()
         } else {
-            def.api_key_env.as_str()
+            def.api_key_env.clone()
         };
-        let protocol = InferenceProtocol::from_config(if def.protocol_type.is_empty() {
-            &endpoint.protocol_type
+        let protocol_type = if def.protocol_type.is_empty() {
+            endpoint.protocol_type.clone()
         } else {
-            &def.protocol_type
-        });
-        Ok(HttpProvider {
-            name: format!("coding-{}", def.id),
+            def.protocol_type.clone()
+        };
+        let api_key = resolve_api_key(&key_env, &def.engine);
+        Ok(CodingModelEndpoint {
+            def,
             api_base: endpoint.api_base.trim().to_string(),
-            model: def.model.clone(),
-            protocol,
-            api_key: HttpProvider::resolve_api_key(key_env, &def.engine),
+            protocol_type,
+            api_key_env: key_env,
+            api_key,
         })
-    }
-
-    /// Paid probe — short completion to verify auth/model id. Output is evidence, not Truth.
-    pub fn probe(&self, id: &str, prompt: &str) -> Result<String> {
-        if prompt.trim().is_empty() {
-            bail!("probe prompt must not be empty");
-        }
-        let provider = self.provider(id)?;
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .context("tokio runtime for model probe")?;
-        let text = runtime
-            .block_on(provider.generate(prompt))
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        Ok(redact_secrets(&text))
     }
 
     pub fn prefer(&self, id: &str) -> Result<String> {
@@ -175,8 +173,7 @@ impl CodingModelManager {
         let prefer = susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
         fs::write(&prefer, &def.id)?;
         // Also set the runtime override to the provider model id for cloud routing.
-        crate::models::ModelManager::set_selected_model(&def.model)
-            .map_err(|e| anyhow::anyhow!(e))?;
+        crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
         Ok(format!(
             "preferred coding model set to {} (api id {})",
             def.id, def.model
@@ -249,21 +246,6 @@ fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
         let _ = fs::remove_file(&tmp);
     }
     result
-}
-
-fn redact_secrets(text: &str) -> String {
-    let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
-        if value.len() >= 8
-            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
-        {
-            result = result.replace(&value, "[REDACTED]");
-        }
-    }
-    susi_core::redact::redact_patterns(
-        &["sk-".into(), "ghp_".into(), "github_pat_".into()],
-        &result,
-    )
 }
 
 #[cfg(test)]

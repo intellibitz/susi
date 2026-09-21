@@ -96,7 +96,7 @@ pub fn execute(action: Option<ModelCommands>, workspace: &Path) -> Result<()> {
             println!("{}", manager.prefer(&model)?);
         }
         ModelCommands::Probe { model, prompt } => {
-            let output = manager.probe(&model, &prompt)?;
+            let output = susi_gemi::coding_models_ext::probe(&model, &prompt)?;
             print_json(&serde_json::json!({
                 "model": model,
                 "output": output

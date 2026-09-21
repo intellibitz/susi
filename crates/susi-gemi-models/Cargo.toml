@@ -1,0 +1,39 @@
+[package]
+name = "susi-gemi-models"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-core = { workspace = true }
+susi-error = { workspace = true }
+susi-sandbox = { workspace = true }
+susi-paths = { path = "../susi-paths" }
+susi-agents = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+anyhow = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+once_cell = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+tokenizers = "0.23.2"
+rayon = "1.10"
+sysinfo = "0.39.6"
+libc = "0.2"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+candle-core = { version = "0.11.0" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
+
+[features]
+default = []
+# Mirrored for HardwareProfiler device selection; engines crate owns full candle-nn CUDA.
+cuda = ["candle-core/cuda"]
+metal = ["candle-core/metal"]

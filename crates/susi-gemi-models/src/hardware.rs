@@ -612,20 +612,19 @@ impl HardwareProfiler {
         // this process, not RAM installed in the machine. The latter can
         // qualify a model that will immediately OOM on a busy host.
         let ram_gb = Self::determine_available_ram_gb();
-        let free_disk_bytes =
-            Self::get_free_disk_bytes(&crate::models::ModelManager::get_models_dir());
+        let free_disk_bytes = Self::get_free_disk_bytes(&crate::ModelManager::get_models_dir());
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let config_steps = crate::hf_discovery::resolve_model_ladder(&cfg);
         let reserve = cfg.model_scoring_heuristics().system_ram_buffer_gb;
         let budget = Self::admission_ram_gb(ram_gb, reserve);
-        let models_dir = crate::models::ModelManager::get_models_dir();
+        let models_dir = crate::ModelManager::get_models_dir();
         let qualifying: Vec<_> = config_steps
             .into_iter()
             .filter(|step| {
                 let path = models_dir.join(&step.hf_file);
                 let mut admission = step.clone();
-                let resident = crate::models::ModelManager::valid_gguf_payload(&path);
+                let resident = crate::ModelManager::valid_gguf_payload(&path);
                 let partial = std::path::PathBuf::from(format!("{}.part", path.display()))
                     .metadata()
                     .map(|m| m.len())

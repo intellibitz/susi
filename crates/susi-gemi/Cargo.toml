@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-gemi-models = { workspace = true }
 susi-core = { workspace = true }
 susi-error = { workspace = true }
 susi-sandbox = { workspace = true }
@@ -49,6 +50,6 @@ candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 
 [features]
 default = []
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+cuda = ["susi-gemi-models/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+metal = ["susi-gemi-models/metal", "candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]

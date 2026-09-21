@@ -263,7 +263,7 @@ static MODEL_FAILURES: std::sync::OnceLock<DashMap<String, std::time::Instant>> 
 pub struct ModelManager;
 
 impl ModelManager {
-    pub(crate) fn record_inference_result(model: &str, success: bool) {
+    pub fn record_inference_result(model: &str, success: bool) {
         let failures = MODEL_FAILURES.get_or_init(DashMap::new);
         if success {
             failures.remove(model);
@@ -368,13 +368,13 @@ impl ModelManager {
     /// Resolves the model storage directory. If SUSI_MODEL_DIR or SUSI_USE_DOWNLOADS_DIR is active,
     /// prioritizes ~/Downloads/.susi/models as requested for expert testing.
     pub fn get_models_dir() -> PathBuf {
-        if cfg!(test) {
-            let p = std::env::temp_dir().join("susi_test_models");
+        if let Ok(dir) = std::env::var("SUSI_MODEL_DIR") {
+            let p = PathBuf::from(dir);
             let _ = fs::create_dir_all(&p);
             return p;
         }
-        if let Ok(dir) = std::env::var("SUSI_MODEL_DIR") {
-            let p = PathBuf::from(dir);
+        if cfg!(test) {
+            let p = std::env::temp_dir().join("susi_test_models");
             let _ = fs::create_dir_all(&p);
             return p;
         }

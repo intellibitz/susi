@@ -1429,10 +1429,28 @@ mod tests {
 
     #[test]
     fn test_has_usable_local_model_false_for_empty_workspace() {
-        let tmp_dir = std::env::temp_dir().join("susi_engine_test_no_models");
-        let _ = std::fs::create_dir_all(&tmp_dir);
-        assert!(!GemiEngine::has_usable_local_model(&tmp_dir));
-        let _ = std::fs::remove_dir_all(&tmp_dir);
+        // Point the models scan at an empty dir (test builds honor SUSI_MODEL_DIR
+        // ahead of the shared susi_test_models folder).
+        let isolated =
+            std::env::temp_dir().join(format!("susi_engine_test_no_models_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&isolated);
+        let models = isolated.join("models");
+        let workspace = isolated.join("workspace");
+        std::fs::create_dir_all(&models).unwrap();
+        std::fs::create_dir_all(&workspace).unwrap();
+        let prev = std::env::var_os("SUSI_MODEL_DIR");
+        unsafe {
+            std::env::set_var("SUSI_MODEL_DIR", &models);
+        }
+        let usable = GemiEngine::has_usable_local_model(&workspace);
+        unsafe {
+            match prev {
+                Some(v) => std::env::set_var("SUSI_MODEL_DIR", v),
+                None => std::env::remove_var("SUSI_MODEL_DIR"),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&isolated);
+        assert!(!usable);
     }
 
     #[test]

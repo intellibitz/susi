@@ -7371,6 +7371,7 @@ dependencies = [
  "susi-agents",
  "susi-core",
  "susi-error",
+ "susi-gemi-models",
  "susi-paths",
  "susi-sandbox",
  "susi-tools",
@@ -7381,6 +7382,32 @@ dependencies = [
  "ureq 3.4.2",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "susi-gemi-models"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "candle-core",
+ "dashmap",
+ "hex",
+ "libc",
+ "once_cell",
+ "parking_lot",
+ "rayon",
+ "reqwest 0.13.5",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "susi-agents",
+ "susi-core",
+ "susi-error",
+ "susi-paths",
+ "susi-sandbox",
+ "sysinfo",
+ "tokenizers 0.23.2",
+ "url",
 ]
 
 [[package]]

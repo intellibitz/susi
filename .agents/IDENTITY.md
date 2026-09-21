@@ -130,7 +130,7 @@ Public substrate principles — must hold in source (README cites this section):
 | **SUSI-Alpha** | 0 | Microsecond intent classification and deterministic neural reflex engine. |
 | **ReflexSynthesizer** | 0 | Native Rust code distillation and reflex generation. |
 | **UniversalExecutionSubstrate** | 2 | Hardware-aware inference layer supporting multiple model formats. |
-| **GEMI** | 2 | Deep reasoning bridge and unified cloud provider inference racing. |
+| **GEMI** | 2 | Deep reasoning bridge: crates `susi-gemi-models` (select/provision) + `susi-gemi` engines (run); unified cloud provider inference racing. |
 | **SUSI-Vision** | 2 | Candle-based image-feature extractor (untrained linear projection); not yet a trained vision-language model. |
 | **SUSI-Audio** | 2 | Candle-based audio-feature extractor (untrained linear projection); not yet a trained acoustic model. |
 | **NativeAlphaModel** | 0 | Local neural weights (`susi-alpha.safetensors`) for deterministic reflex. |

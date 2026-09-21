@@ -575,13 +575,30 @@ mod tests {
     fn cloud_failover_order_prefers_sticky_vendor_once() {
         use susi_core::registry::CapabilityRegistry;
 
-        let tmp = std::env::temp_dir().join(format!("susi_failover_pref_{}", std::process::id()));
-        let _ = std::fs::create_dir_all(&tmp);
-        // Isolate from the developer's ~/.susi/routing_preference.json.
-        // SAFETY: test-only HOME override; restored below.
+        // Serialize env mutation — other tests also touch HOME / XDG.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        let tmp = std::env::temp_dir().join(format!(
+            "susi_failover_pref_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let config = tmp.join("config");
+        let _ = std::fs::create_dir_all(&config);
+        let _ = std::fs::create_dir_all(tmp.join(".susi"));
+
         let prev_home = std::env::var_os("HOME");
+        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        let prev_susi_xdg = std::env::var_os("SUSI_XDG");
+        // SAFETY: test-only env override; restored below under ENV_LOCK.
         unsafe {
             std::env::set_var("HOME", &tmp);
+            std::env::set_var("XDG_CONFIG_HOME", &config);
+            std::env::set_var("SUSI_XDG", "0");
         }
 
         let registry = CapabilityRegistry::new();
@@ -609,12 +626,27 @@ mod tests {
             preferred_cloud: Some("deepseek".into()),
             ..Default::default()
         });
+        assert_eq!(
+            InferenceRouter::load_preference()
+                .preferred_cloud
+                .as_deref(),
+            Some("deepseek"),
+            "preference must round-trip under the isolated HOME"
+        );
         let order = InferenceRouter::cloud_failover_order(&registry);
 
         unsafe {
             match prev_home {
                 Some(h) => std::env::set_var("HOME", h),
                 None => std::env::remove_var("HOME"),
+            }
+            match prev_xdg {
+                Some(h) => std::env::set_var("XDG_CONFIG_HOME", h),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match prev_susi_xdg {
+                Some(h) => std::env::set_var("SUSI_XDG", h),
+                None => std::env::remove_var("SUSI_XDG"),
             }
         }
         let _ = std::fs::remove_dir_all(&tmp);

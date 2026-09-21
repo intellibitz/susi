@@ -59,7 +59,7 @@ struct Entry<T> {
 
 type Slot<T> = Arc<Mutex<Option<Entry<T>>>>;
 
-pub(crate) struct ModelCache<T> {
+pub struct ModelCache<T> {
     slots: Mutex<HashMap<PathBuf, Slot<T>>>,
 }
 
@@ -72,7 +72,7 @@ impl<T> Default for ModelCache<T> {
 }
 
 impl<T> ModelCache<T> {
-    pub(crate) fn get_or_load(
+    pub fn get_or_load(
         &self,
         path: &Path,
         device: &Device,
