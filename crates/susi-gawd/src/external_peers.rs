@@ -9,7 +9,9 @@ use crate::security::SecurityDetector;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 use susi_core::capture::EvidenceSession;
 use susi_core::registry::{AgentCapability, CapabilityRegistry};
 use susi_error::{EaiError, EaiResult};
@@ -17,10 +19,8 @@ use susi_sandbox::manager::{ExternalPeerAgentSpec, SusiConfig};
 
 /// Resolve the live driver binary for a peer spec.
 pub fn resolve_driver(spec: &ExternalPeerAgentSpec) -> Option<PathBuf> {
-    if !spec.command.trim().is_empty() {
-        if which_bin(spec.command.trim()).is_some() {
-            return Some(PathBuf::from(spec.command.trim()));
-        }
+    if !spec.command.trim().is_empty() && which_bin(spec.command.trim()).is_some() {
+        return Some(PathBuf::from(spec.command.trim()));
     }
     for bin in &spec.detect_bins {
         if let Some(path) = which_bin(bin) {
