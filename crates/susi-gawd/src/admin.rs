@@ -411,7 +411,15 @@ impl SusiAdmin {
                     updated.push(line.to_string());
                 }
             }
-            fs::write(&readme_path, updated.join("\n") + "\n")?;
+            let new_content = updated.join("\n") + "\n";
+            // Same hazard as the governance JSON path below: rewriting an
+            // already-correct badge is usually a byte no-op (which is why
+            // README did not show up dirtied), but trailing-newline /
+            // line-ending drift would still dirty the tree on every audit.
+            // Only write when the reconstructed file actually differs.
+            if new_content != readme_content {
+                fs::write(&readme_path, new_content)?;
+            }
         }
 
         // 2. Sync agent-governance ledgers (.agents/*.json)
@@ -420,9 +428,23 @@ impl SusiAdmin {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
                 let content = fs::read_to_string(&path)?;
-                let mut doc: serde_json::Value = serde_json::from_str(&content)
+                let original: serde_json::Value = serde_json::from_str(&content)
                     .map_err(|e| EaiError::config(format!("{file_name}: invalid JSON: {e}")))?;
+                let mut doc = original.clone();
                 doc["version"] = serde_json::Value::String(version.to_string());
+                // Skip the write when nothing semantically changed (the common
+                // case: this runs on every compliance audit, not just an
+                // actual version bump). `serde_json::to_string_pretty` writes
+                // non-ASCII literally rather than as `\uXXXX` escapes, which
+                // previously differed byte-for-byte from how these files were
+                // hand-edited - rewriting unconditionally re-escaped every
+                // em-dash on every audit, dirtying the tree even when the
+                // version hadn't changed and tripping `execute_release`'s own
+                // "working tree must be clean" gate before a real release
+                // ever got to run.
+                if doc == original {
+                    continue;
+                }
                 let pretty = serde_json::to_string_pretty(&doc)
                     .map_err(|e| EaiError::config(format!("{file_name}: serialize: {e}")))?;
                 fs::write(&path, pretty + "\n")?;
@@ -1067,6 +1089,98 @@ mod tests {
 
         // Re-applying the same version is a no-op (reported as unchanged).
         assert!(!SusiAdmin::set_cargo_version(&path, "0.3.0").unwrap());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Minimal workspace fixture for `enforce_version_consistency`: root
+    /// Cargo.toml plus the README badge and one governance ledger. The
+    /// ledger deliberately uses `\u2014` escapes so a naïve
+    /// `to_string_pretty` rewrite would change bytes even when the version
+    /// field is already correct — the bug that dirtied the tree on every
+    /// compliance audit and blocked `--cut`.
+    fn make_version_sync_fixture(dir: &Path, cargo_version: &str, ledger_version: &str) {
+        fs::create_dir_all(dir.join(".agents")).unwrap();
+        fs::write(
+            dir.join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"demo\"\nversion = \"{cargo_version}\"\nedition = \"2021\"\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("README.md"),
+            format!(
+                "# demo\n\n![SUSI Version](https://img.shields.io/badge/version-v{cargo_version}-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)\n"
+            ),
+        )
+        .unwrap();
+        // Keep `\u2014` as a literal escape sequence in the on-disk bytes.
+        fs::write(
+            dir.join(".agents/identity.json"),
+            format!(
+                "{{\n  \"version\": \"{ledger_version}\",\n  \"note\": \"before\\u2014after\"\n}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_enforce_version_consistency_skips_write_when_already_aligned() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_enforce_version_noop_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        make_version_sync_fixture(&dir, "0.2.3", "0.2.3");
+
+        let before_readme = fs::read(dir.join("README.md")).unwrap();
+        let before_identity = fs::read(dir.join(".agents/identity.json")).unwrap();
+        assert!(
+            before_identity.windows(6).any(|w| w == br"\u2014"),
+            "fixture must contain a \\u2014 escape so a rewrite would be visible"
+        );
+
+        let version = SusiAdmin::enforce_version_consistency(&dir).unwrap();
+        assert_eq!(version, "0.2.3");
+
+        // Byte-identical: neither the badge rewrite nor the serde_json pretty
+        // printer touched disk when nothing semantically changed. This is
+        // what keeps `execute_release(..., Some(cut))`'s clean-tree gate
+        // from failing after a prior compliance audit.
+        assert_eq!(fs::read(dir.join("README.md")).unwrap(), before_readme);
+        assert_eq!(
+            fs::read(dir.join(".agents/identity.json")).unwrap(),
+            before_identity
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_enforce_version_consistency_writes_when_version_differs() {
+        let dir =
+            std::env::temp_dir().join(format!("susi_enforce_version_bump_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        // Mimics the --cut path: Cargo.toml already bumped, docs still on
+        // the previous version — enforce must bring them forward.
+        make_version_sync_fixture(&dir, "0.3.0", "0.2.3");
+        // Stale badge so README also needs a rewrite.
+        fs::write(
+            dir.join("README.md"),
+            "# demo\n\n![SUSI Version](https://img.shields.io/badge/version-v0.2.3-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)\n",
+        )
+        .unwrap();
+
+        let version = SusiAdmin::enforce_version_consistency(&dir).unwrap();
+        assert_eq!(version, "0.3.0");
+
+        let readme = fs::read_to_string(dir.join("README.md")).unwrap();
+        assert!(readme.contains("version-v0.3.0-blue.svg"));
+        assert!(!readme.contains("version-v0.2.3-blue.svg"));
+
+        let identity: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(".agents/identity.json")).unwrap())
+                .unwrap();
+        assert_eq!(identity["version"], "0.3.0");
 
         let _ = fs::remove_dir_all(&dir);
     }
