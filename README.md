@@ -1,6 +1,6 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.5.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.6.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **The OS layer for AI agents** — an evidence-gated agent-of-agents substrate on your machine (not a replacement host OS).
 
