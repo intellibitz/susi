@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.7.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-21T17:15:46Z",
+  "last_verification": "2026-09-21T17:33:12Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1026,6 +1026,16 @@
         "ref": "symbol://ReceiptArchive"
       },
       "proof": "FIXED 2026-09-21: each EvidenceSession mint appends a hash+provenance line to `.susi/receipt_archive.jsonl` (schema susi/receipt_archive/v1; no response bodies). verify_answer/resolve/bind_receipt still require the live in-memory ledger — archive cannot reconstitute citations after the session ends (tested). Best-effort write; mission never fails on archive I/O."
+    },
+    {
+      "id": "EV-2022921-097",
+      "type": "REFACTOR",
+      "milestone": "Pure-Rust application source: no .py files in the tree",
+      "anchor": {
+        "label": "python_bridge",
+        "ref": "file://crates/susi-agents/src/external/python_bridge.rs"
+      },
+      "proof": "FIXED 2026-09-21: deleted crates/susi-agents/src/external/{qwen,runner}.py; optional external-adapter bridges live as Rust `&str` constants in python_bridge.rs and are still executed via host python -c when the operator opts into those adapters. Also removed orphan crates/susi-fabric and .claude/settings.json. Install/bootstrap shell scripts (install.sh, install.ps1, build-gpu.sh) remain distribution tooling, not application source."
     }
   ]
 }

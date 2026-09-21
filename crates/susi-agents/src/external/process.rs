@@ -37,11 +37,19 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         ),
         Adapter::Qwen { python } => (
             python.clone(),
-            vec!["-u".into(), "-c".into(), include_str!("qwen.py").into()],
+            vec![
+                "-u".into(),
+                "-c".into(),
+                super::python_bridge::QWEN_BRIDGE.trim_start().into(),
+            ],
         ),
         Adapter::Python { python, .. } => (
             python.clone(),
-            vec!["-u".into(), "-c".into(), include_str!("runner.py").into()],
+            vec![
+                "-u".into(),
+                "-c".into(),
+                super::python_bridge::FRAMEWORK_BRIDGE.trim_start().into(),
+            ],
         ),
         _ => anyhow::bail!("not a process adapter"),
     };

@@ -3,6 +3,7 @@
 mod catalog;
 mod cloud;
 mod process;
+mod python_bridge;
 
 use anyhow::{bail, Context, Result};
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};

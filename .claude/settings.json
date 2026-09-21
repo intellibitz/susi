@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(gh api repos/intellibitz/susi/branches/main/protection *)"
-    ]
-  }
-}
