@@ -32,7 +32,7 @@ External clients may hard-code these ports — the daemon never silently drifts 
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi` / `SusiDirs::substrate_home`), not to a project folder. Owns ports, models, and lock state.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when `binary.hash` changes).
-- **Control plane** — `susi start` / `susi stop` are deterministic host commands (never natural-language missions). `start` waits until ports 9090–9093 answer and prints the endpoints.
+- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090–9093 answer and print the endpoints.
 - Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.
 - Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port.
 

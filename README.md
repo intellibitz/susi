@@ -24,7 +24,7 @@ External clients can trust these ports — the daemon never silently drifts them
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
-- **Control plane** — `susi start` / `susi stop` are deterministic host commands (never missions). `start` waits until 9090–9093 are ready and prints the endpoints.
+- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until 9090–9093 are ready and print the endpoints.
 - **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on 9090/9091/9093 (except `/health` / CORS preflight).
 
 ---
@@ -71,6 +71,7 @@ irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
 # Bring up / tear down the host daemon (control plane — not a mission)
 susi start
 susi stop
+susi restart
 
 # Task across the agent swarm (cwd = workspace)
 susi "analyze this workspace and propose an optimization plan"
