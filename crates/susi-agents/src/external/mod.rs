@@ -268,6 +268,54 @@ impl AgentManager {
         Ok(runs)
     }
 
+    /// Zero-config readiness scan: adapters that pass local preflight are marked
+    /// ready and advertised on the capability registry.
+    pub fn auto_prime_ready(&self) -> Result<Vec<serde_json::Value>> {
+        let mut ready = Vec::new();
+        let caps = susi_core::registry::CapabilityRegistry::global();
+        let mut catalog = catalog(self.kind)?;
+        catalog.sort_by_key(|a| a.rank);
+        for def in catalog {
+            let adapter = match self.adapter(&def.id) {
+                Ok(a) => a,
+                Err(_) => continue,
+            };
+            match adapter.preflight() {
+                Ok(detail) => {
+                    caps.register_agent_capability(susi_core::registry::AgentCapability {
+                        name: def.peer_name.clone(),
+                        description: format!(
+                            "Managed {} `{}` (auto-ready)",
+                            self.kind.label(),
+                            def.id
+                        ),
+                        is_core: false,
+                    });
+                    ready.push(serde_json::json!({
+                        "id": def.id,
+                        "peer_name": def.peer_name,
+                        "kind": self.kind.label(),
+                        "ready": true,
+                        "detail": detail,
+                    }));
+                }
+                Err(e) => {
+                    if std::env::var("SUSI_VERBOSE").is_ok() {
+                        eprintln!("[AUTO] {} `{}` not ready: {e}", self.kind.label(), def.id);
+                    }
+                }
+            }
+        }
+        let status_path = susi_paths::SusiDirs::config_dir()
+            .join(self.kind.config_subdir())
+            .join("ready.json");
+        if let Some(parent) = status_path.parent() {
+            private_dir(parent)?;
+        }
+        atomic_json(&status_path, &ready)?;
+        Ok(ready)
+    }
+
     pub fn cancel(&self, id: &str) -> Result<RunRecord> {
         let run = self.read(id)?;
         if !run.status.active() && !matches!(run.status, RunStatus::Waiting | RunStatus::Unknown) {

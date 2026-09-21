@@ -190,6 +190,30 @@ impl CodingModelManager {
             .map(|s| s.trim().to_owned())
             .filter(|s| !s.is_empty())
     }
+
+    /// Zero-config: if no preferred coding model is set, prefer the best-ranked
+    /// catalog entry whose endpoint + credentials are ready.
+    pub fn auto_prefer_best_ready(&self) -> Result<Option<String>> {
+        if let Some(existing) = self.preferred() {
+            // Refresh selection if still ready; otherwise fall through to pick another.
+            if self.preflight(&existing).is_ok() {
+                return Ok(Some(existing));
+            }
+        }
+        let mut catalog = Self::catalog()?;
+        catalog.sort_by_key(|m| m.rank);
+        for def in catalog {
+            if self.preflight(&def.id).is_err() {
+                continue;
+            }
+            self.prefer(&def.id)?;
+            if std::env::var("SUSI_VERBOSE").is_ok() {
+                eprintln!("[AUTO] Preferred coding model `{}`", def.id);
+            }
+            return Ok(Some(def.id));
+        }
+        Ok(None)
+    }
 }
 
 impl CodingModelDefinition {

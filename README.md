@@ -40,7 +40,7 @@ Foundation claims — each must hold in source:
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
-8. **Provision** — missing MCP servers/tools are scouted and hot-plugged; daemon `bootstrap_zero_config_substrate` probes engines/MCP and keeps Candle as fallback (install + optional keys still required — not zero setup).
+8. **Provision** — missing MCP servers/tools are scouted and hot-plugged; daemon `bootstrap_zero_config_substrate` auto-seeds packs, auto-enables ready leading MCP, auto-prefers ready coding models, auto-admits ready peers, awakens local engines on PATH, and keeps Candle + weight priming (host installs + optional keys still gate cloud tiers).
 
 ---
 
@@ -57,7 +57,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol MCP | **~10** leading tool servers (`susi mcp list|enable`) + **~100** scout packages (+ remote refresh); any extra via `susi mcp-add` |
 | Swarm / Truth / Evidence | `susi-gawd` swarm, `TruthTransformer`, `EvidenceSession` / `EvidenceRecord` |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
-| Zero-config discovery | Daemon probes engines/MCP + Candle fallback without per-engine edits |
+| Zero-config discovery | Daemon auto-primes packs/MCP/models/peers + probes engines + Candle/weight fallback without per-engine edits |
 
 ## Install
 

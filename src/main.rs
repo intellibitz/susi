@@ -399,6 +399,9 @@ fn main() -> std::process::ExitCode {
     }
     if let Some(Commands::Agents { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| agent_cli::execute(action, &cwd))
@@ -412,6 +415,9 @@ fn main() -> std::process::ExitCode {
     }
     if let Some(Commands::Frameworks { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| framework_cli::execute(action, &cwd))
@@ -430,6 +436,9 @@ fn main() -> std::process::ExitCode {
         // Fall through to substrate boot + mission path below.
     } else if let Some(Commands::Models { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| model_cli::execute(action, &cwd))
@@ -448,6 +457,9 @@ fn main() -> std::process::ExitCode {
         // Fall through to substrate boot + stdio MCP serve.
     } else if let Some(Commands::Mcp { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
         return match env::current_dir()
             .map_err(anyhow::Error::from)
             .and_then(|cwd| mcp_cli::execute(action, &cwd))
@@ -476,6 +488,10 @@ fn main() -> std::process::ExitCode {
     // Zero-config: load ~/.susi/cloud.env before any inference/routing so
     // vendor keys work without editing config.json (and without a login shell).
     susi_gemi::http_provider::apply_cloud_env_file();
+    // Zero-config: auto-enable ready MCP / prefer coding models / admit peers.
+    let substrate = susi_paths::SusiDirs::substrate_home();
+    let _ = std::fs::create_dir_all(&substrate);
+    susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
     #[cfg(tokio_unstable)]
     console_subscriber::init();
 

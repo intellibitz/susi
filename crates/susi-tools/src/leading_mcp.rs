@@ -156,6 +156,7 @@ impl LeadingMcpManager {
         let mut config = load_mcp_config()?;
         config.mcp_servers.insert(def.id.clone(), srv.clone());
         save_mcp_config(&config)?;
+        clear_user_disabled(&self.config, &def.id)?;
         Ok(srv)
     }
 
@@ -166,7 +167,43 @@ impl LeadingMcpManager {
         if removed {
             save_mcp_config(&config)?;
         }
+        // Persist unload so zero-config auto-enable does not immediately re-admit.
+        mark_user_disabled(&self.config, &def.id)?;
         Ok(removed)
+    }
+
+    /// Zero-config: enable every leading MCP whose launcher + env keys are ready,
+    /// unless the user previously `disable`d it.
+    pub fn auto_enable_ready(&self) -> Result<Vec<String>> {
+        let disabled = load_user_disabled(&self.config);
+        let mut enabled = Vec::new();
+        let mut catalog = Self::catalog()?;
+        catalog.sort_by_key(|m| m.rank);
+        for def in catalog {
+            if disabled.iter().any(|id| id == &def.id) {
+                continue;
+            }
+            if self.is_enabled(&def.id).unwrap_or(false) {
+                continue;
+            }
+            if self.preflight(&def.id).is_err() {
+                continue;
+            }
+            match self.enable(&def.id) {
+                Ok(_) => {
+                    enabled.push(def.id.clone());
+                    if std::env::var("SUSI_VERBOSE").is_ok() {
+                        eprintln!("[AUTO] Enabled leading MCP `{}`", def.id);
+                    }
+                }
+                Err(e) => {
+                    if std::env::var("SUSI_VERBOSE").is_ok() {
+                        eprintln!("[AUTO] Skip MCP `{}`: {e}", def.id);
+                    }
+                }
+            }
+        }
+        Ok(enabled)
     }
 
     pub fn status(&self) -> Result<Vec<serde_json::Value>> {
@@ -328,6 +365,37 @@ fn private_dir(path: &Path) -> Result<()> {
         fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
     }
     Ok(())
+}
+
+fn user_disabled_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("user_disabled.json")
+}
+
+fn load_user_disabled(config_dir: &Path) -> Vec<String> {
+    match fs::read_to_string(user_disabled_path(config_dir)) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn mark_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
+    private_dir(config_dir)?;
+    let mut list = load_user_disabled(config_dir);
+    if !list.iter().any(|x| x == id) {
+        list.push(id.to_string());
+    }
+    atomic_json(&user_disabled_path(config_dir), &list)
+}
+
+fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
+    let mut list = load_user_disabled(config_dir);
+    let before = list.len();
+    list.retain(|x| x != id);
+    if list.len() == before {
+        return Ok(());
+    }
+    private_dir(config_dir)?;
+    atomic_json(&user_disabled_path(config_dir), &list)
 }
 
 fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {

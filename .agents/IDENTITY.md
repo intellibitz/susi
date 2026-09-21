@@ -47,7 +47,7 @@ These claims must hold in source; when README and this section disagree, source 
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only HMAC-SHA256).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins/reflexes; Docker `sandbox_exec` for untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
-8. **Provision** — MCP scout/hot-plug + daemon `bootstrap_zero_config_substrate` (engine/MCP probe, Candle fallback). Install + optional API keys still required.
+8. **Provision** — MCP scout/hot-plug + daemon `bootstrap_zero_config_substrate` auto-seeds packs, auto-enables ready leading MCP, auto-prefers ready coding models, auto-admits ready agents/frameworks, awakens local engines on PATH, and primes Candle + hardware model ladder. Host still supplies installs and API keys when a tier needs them.
 
 ### Design principles
 

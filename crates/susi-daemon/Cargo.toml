@@ -15,6 +15,8 @@ susi-sandbox = { path = "../susi-sandbox" }
 susi-gemi = { path = "../susi-gemi" }
 susi-paths = { path = "../susi-paths" }
 susi-server = { path = "../susi-server" }
+susi-tools = { path = "../susi-tools" }
+susi-agents = { path = "../susi-agents" }
 nix = { version = "0.31", features = ["process", "signal", "fs", "user"] }
 ciborium = "0.2"
 hex = "0.4.3"
