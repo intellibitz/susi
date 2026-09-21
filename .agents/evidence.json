@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.8.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-21T17:33:12Z",
+  "last_verification": "2026-09-21T19:16:31Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1036,6 +1036,16 @@
         "ref": "file://crates/susi-agents/src/external/python_bridge.rs"
       },
       "proof": "FIXED 2026-09-21: deleted crates/susi-agents/src/external/{qwen,runner}.py; optional external-adapter bridges live as Rust `&str` constants in python_bridge.rs and are still executed via host python -c when the operator opts into those adapters. Also removed orphan crates/susi-fabric and .claude/settings.json. Install/bootstrap shell scripts (install.sh, install.ps1, build-gpu.sh) remain distribution tooling, not application source."
+    },
+    {
+      "id": "EV-2022922-098",
+      "type": "AUDIT",
+      "milestone": "Mandate 42 triage batch 5: `.expect(`/`panic!(` sweep across eight crates + `.unwrap()` re-check in susi-core/susi-agents",
+      "anchor": {
+        "label": "TypedEventBus",
+        "ref": "symbol://TypedEventBus"
+      },
+      "proof": "FIXED 2026-09-22: grepped `.expect(`/`panic!(` across susi-sandbox, susi-gemi, susi-gemi-models, susi-agents, susi-core, susi-gawd, susi-gmcp, susi-gawd-agents (the eight crates with the largest raw `.unwrap()` counts from a prior full-repo grep) and classified every hit against each file's `#[cfg(test)]`/`mod tests` boundary. Found only 14 real non-test sites total: 6 already carried a Mandate 42 justification comment (sandbox/manager.rs x5 bundled-JSON `include_str!` pattern, susi-agents/registry.rs x1 same pattern) and needed no further action; the remaining 8 were fixed with a justifying comment each rather than rewritten, since all are genuinely safe by construction, not just plausibly safe: susi-sandbox/extensions.rs `create_pack`/`load_pack`/`create_pack`'s default-id branch (3 sites, `list_packs().find(...).expect(...)` immediately after writing/seeding that exact pack id with no intervening mutation) and its `load_json_or_bundled`/`bundled_manifest` (2 sites, same compile-time `include_str!` JSON pattern as manager.rs); susi-core/bus.rs's `TypedEventBus::publish`/`subscribe` (2 sites, `Arc<dyn Any>::downcast::<Subscribers<E>>()` where the map is keyed by `TypeId::of::<E>()` and only ever populated with that exact concrete type under that key, so the downcast cannot fail); susi-core/truth.rs's `SusiTruthAgent`'s static write-claim regex (1 site, compile-time string literal, not runtime input). Separately re-checked `.unwrap()` specifically in susi-core/src and susi-agents/src (118 raw hits) and found 100% of them inside `#[cfg(test)]`/`mod tests` boundaries \u2014 zero real sites, matching the same \"large raw count, no real violations\" pattern already documented for net_guard.rs and qwen2_split.rs. Net: zero open non-test `.unwrap()`/`.expect()`/`panic!()` sites remain in these eight crates as of this batch; five crates (susi-daemon, susi-gawd-swarm, susi-server, susi-tools, susi-native) still need the same real-vs-test split and are the honest next target, not the stale \"~139 remain\" figure this batch supersedes."
     }
   ]
 }

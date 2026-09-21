@@ -324,6 +324,10 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
     ensure_extensions_substrate()?;
     if id == DEFAULT_PACK_ID {
         seed_default_pack()?;
+        // Mandate 42: safe - seed_default_pack() just returned Ok, meaning it
+        // wrote (or confirmed) the default pack's manifest on disk; list_packs()
+        // reads that same directory synchronously with no intervening mutation,
+        // so the just-seeded id is guaranteed to be present in its output.
         return Ok(list_packs()
             .into_iter()
             .find(|p| p.id == DEFAULT_PACK_ID)
@@ -344,6 +348,10 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
         write_private_file(&manifest_path, &format!("{text}\n"))?;
     }
     invalidate_extension_caches();
+    // Mandate 42: safe - the manifest for `id` was just written above (or
+    // already existed), and list_packs() reads that same directory
+    // synchronously with no intervening mutation, so `id` is guaranteed to
+    // be present in its output.
     Ok(list_packs()
         .into_iter()
         .find(|p| p.id == id)
@@ -375,6 +383,10 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
     state.active = id.to_string();
     write_state(&state)?;
     invalidate_extension_caches();
+    // Mandate 42: safe - the early return above already guarantees
+    // `root.join("manifest.json")` exists for `id` before this point, and
+    // list_packs() reads that same directory synchronously with no
+    // intervening mutation, so `id` is guaranteed to be present in its output.
     Ok(list_packs()
         .into_iter()
         .find(|p| p.id == id)
@@ -473,6 +485,13 @@ pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &
             }
         }
     }
+    // Mandate 42: safe - `bundled` is always a `&'static str` produced by an
+    // include_str! at the call site (compiled into the binary), not a
+    // user-editable runtime file, same pattern as sandbox/manager.rs's
+    // bundled-default `.expect()` calls. Parsing either always succeeds or
+    // always fails for a given binary - a failure is a build/packaging bug
+    // caught by any test run, never a runtime condition that varies between
+    // calls.
     serde_json::from_str(bundled).unwrap_or_else(|e| {
         panic!("bundled extension pack file `{pack_relative}` must be valid JSON: {e}")
     })
@@ -480,6 +499,8 @@ pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &
 
 /// Bundled default-pack manifest (compile-time source tree layout).
 pub fn bundled_manifest() -> ExtensionManifest {
+    // Mandate 42: safe - BUNDLED_MANIFEST is compiled in via include_str!,
+    // see the comment on load_json_or_bundled above.
     serde_json::from_str(BUNDLED_MANIFEST)
         .expect("bundled config/extensions/default/manifest.json must be valid JSON")
 }

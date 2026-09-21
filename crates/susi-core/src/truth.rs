@@ -33,6 +33,10 @@ impl SusiTruthAgent {
         // Inspect every explicit write claim, rather than the first path-looking
         // word anywhere in the result. Quoting supports paths containing spaces.
         static WRITES: OnceLock<regex::Regex> = OnceLock::new();
+        // Mandate 42: safe - the pattern is a compile-time string literal,
+        // not runtime input; its validity doesn't depend on any value that
+        // varies between calls, so a failure here would be caught by any
+        // test run, never a runtime condition.
         let writes = WRITES.get_or_init(|| {
             regex::Regex::new(
                 r#"(?i)\b(?:wrote to|saved to)(?:[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s]+)))?"#,

@@ -60,6 +60,10 @@ impl TypedEventBus {
             .get(&TypeId::of::<E>())
             .map(|entry| Arc::clone(entry.value()));
         if let Some(subscribers) = subscribers {
+            // Mandate 42: safe - the map is keyed by TypeId::of::<E>(), and
+            // subscribe() (below) only ever inserts an Arc<Subscribers<E>>
+            // under that same key for that same E, so a lookup for E's key
+            // can never yield a value of any other concrete type.
             let subscribers = subscribers
                 .downcast::<Subscribers<E>>()
                 .expect("event type must match its subscriber list");
@@ -77,6 +81,10 @@ impl TypedEventBus {
                 .or_insert_with(|| Arc::new(Subscribers::<E>::new(Vec::new())));
             Arc::clone(entry.value())
         };
+        // Mandate 42: safe - same invariant as publish() above: this entry
+        // was either just inserted as Arc<Subscribers<E>> by the
+        // or_insert_with closure right above, or already held that same
+        // concrete type from a prior subscribe::<E>() call under this key.
         let subscribers = subscribers
             .downcast::<Subscribers<E>>()
             .expect("event type must match its subscriber list");
