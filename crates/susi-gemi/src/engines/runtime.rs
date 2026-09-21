@@ -803,7 +803,7 @@ impl GemiEngine {
 
     /// Unified Multi-Modal Reasoning
     pub fn cross_modal_reason(text: &str, image_path: &Path, audio_path: &Path) -> String {
-        use super::unified::SusiUnifiedSubstrate;
+        use super::unified::{CrossModalAttention, SusiUnifiedSubstrate};
 
         let unified_vec = match SusiUnifiedSubstrate::project_to_unified_space(
             Some(text),
@@ -814,16 +814,37 @@ impl GemiEngine {
             Err(e) => return format!("[Unified Substrate] Error: {}", e),
         };
 
-        use rayon::prelude::*;
-        let magnitude: f32 = unified_vec.par_iter().map(|x| x * x).sum();
+        let (attention_report, dominant) = match CrossModalAttention::global()
+            .and_then(|attn| attn.attend(&unified_vec))
+        {
+            Ok(([vision_w, audio_w, text_w], _fused)) => {
+                let dominant = [("Vision", vision_w), ("Audio", audio_w), ("Text", text_w)]
+                    .into_iter()
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                    .map(|(name, _)| name)
+                    .unwrap_or("Text");
+                (
+                    format!(
+                        "- **Cross-Modal Attention** (text token's row): Vision {:.4}, Audio {:.4}, Text {:.4}",
+                        vision_w, audio_w, text_w
+                    ),
+                    dominant,
+                )
+            }
+            Err(e) => (
+                format!("- **Cross-Modal Attention**: unavailable ({})", e),
+                "Text",
+            ),
+        };
 
         format!(
             "# SUSI Cross-Modal Reasoning\n\n\
             Successfully unified Text, Vision, and Audio into a single neural projection space.\n\n\
-            - **Unified Space Magnitude**: {:.4}\n\
+            {}\n\
+            - **Dominant Modality**: {}\n\
             - **Status**: Epistemically Aligned.\n\n\
-            The engine is now reasoning across modalities using a 1024-dimensional unified coordinate system.",
-            magnitude
+            The engine is now reasoning across modalities using a 1024-dimensional unified coordinate system with real (untrained) cross-modal self-attention, not just a magnitude readout.",
+            attention_report, dominant
         )
     }
 

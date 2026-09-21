@@ -30,6 +30,33 @@ impl SusiVisionEngine {
         })
     }
 
+    /// Load a pretrained checkpoint instead of random init, mirroring the
+    /// `global_dir.join("models/<name>.safetensors")` + `VarBuilder::
+    /// from_mmaped_safetensors` convention already used by
+    /// `SusiReasoningModel::load`/`SusiAlphaModel::load` for other
+    /// modalities. No training loop or dataset exists yet for vision, so
+    /// this will `Err` (no checkpoint file to find) until one is produced -
+    /// added so the substrate has somewhere real to load weights from once
+    /// it does, rather than only ever being able to random-init.
+    pub fn load(global_dir: &Path) -> Result<Self> {
+        let weights_path = global_dir.join("models/susi-vision.safetensors");
+        if !weights_path.exists() {
+            return Err(anyhow!(
+                "SUSI-Vision weights not found at {}. No training pipeline exists yet for this modality; falling back to SusiVisionEngine::new() (random init) is the caller's responsibility.",
+                weights_path.display()
+            ));
+        }
+        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
+        let feature_extractor =
+            candle_nn::linear(224 * 224 * 3, Self::DIM, vb.pp("vision_features"))?;
+        Ok(Self {
+            device,
+            feature_extractor,
+        })
+    }
+
     pub fn process_image(&self, image_path: &Path) -> Result<Tensor> {
         // 1. Hardware-Saturated Image Loading (Hardened for Reality)
         let img = image::open(image_path).map_err(|e| anyhow!("Image Load Error: {}", e))?;

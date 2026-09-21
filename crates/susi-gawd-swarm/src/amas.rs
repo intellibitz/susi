@@ -305,6 +305,48 @@ impl SusiSupervisor {
         successes as f32 / names.len() as f32
     }
 
+    /// VC-200-001 (roadmap.json) quorum-commit primitive: when a strict
+    /// majority of independently-produced blackboard entries (local agents
+    /// *and* dispatched peer nodes, which land on the same blackboard via
+    /// `PeerNode_<id>` keys — see step 3 of `supervise_mission`) agree on the
+    /// same normalized output, commit that value directly rather than
+    /// deferring to a single rank leader or LLM re-synthesis. This is real
+    /// majority voting across whatever currently responded, not a rank/trust
+    /// heuristic — but it is intentionally not a full Raft/Paxos protocol:
+    /// there's no persistent authenticated membership, no leader election,
+    /// and no log replication, so it can't tolerate a peer set that changes
+    /// between the request and the vote. Exact-match agreement after
+    /// trimming/whitespace/case normalization is deliberately strict (no
+    /// semantic similarity) so a "majority" can't be claimed from outputs
+    /// that merely look similar.
+    fn quorum_majority(valid_outputs: &[(String, String)]) -> Option<String> {
+        if valid_outputs.len() < 2 {
+            return None;
+        }
+        let mut counts: std::collections::HashMap<String, (usize, &str)> =
+            std::collections::HashMap::new();
+        for (_, output) in valid_outputs {
+            let trimmed = output.trim();
+            let normalized = trimmed
+                .to_lowercase()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            // Representative is the trimmed (but case-preserved) text, not the
+            // raw first-seen string, so a majority commit never surfaces
+            // stray leading/trailing whitespace just because whichever
+            // agent/peer happened to be inserted first had some.
+            let entry = counts.entry(normalized).or_insert((0, trimmed));
+            entry.0 += 1;
+        }
+        let quorum_threshold = valid_outputs.len() / 2 + 1;
+        counts
+            .into_values()
+            .filter(|(count, _)| *count >= quorum_threshold)
+            .max_by_key(|(count, _)| *count)
+            .map(|(_, representative)| representative.to_string())
+    }
+
     /// When one agent's rank is a clear outlier above the
     /// rest, return its answer directly instead of asking the local synthesis
     /// model to reconcile it with the others. LLM re-synthesis is fine for
@@ -511,37 +553,49 @@ impl SusiSupervisor {
                 })
                 .collect();
 
-            // Consensus Hardening: Direct pass-through if single valid output or query synthesis
-            let synthesized = if is_direct_synthesis || valid_outputs.len() <= 1 {
-                if valid_outputs.len() == 1 {
-                    valid_outputs[0].1.clone()
+            // Consensus Hardening: quorum-commit first (real majority agreement
+            // across whatever independently responded, local or peer), then
+            // direct pass-through, then rank-leader, then LLM re-synthesis.
+            let (synthesized, convergence_action) =
+                if is_direct_synthesis || valid_outputs.len() <= 1 {
+                    let out = if valid_outputs.len() == 1 {
+                        valid_outputs[0].1.clone()
+                    } else {
+                        weighted_wisdom.clone()
+                    };
+                    (out, "STATE_CONVERGENCE")
+                } else if let Some(quorum_output) = Self::quorum_majority(&valid_outputs) {
+                    eprintln!(
+                        "- [Consensus Master] Quorum reached: {} agree on the same output.",
+                        valid_outputs.len()
+                    );
+                    let _ = std::io::stdout().flush();
+                    (quorum_output, "QUORUM_COMMIT")
+                } else if let Some(leader_output) =
+                    Self::dominant_rank_leader(&valid_outputs, &fleet_info)
+                {
+                    (leader_output.to_string(), "STATE_CONVERGENCE")
                 } else {
-                    weighted_wisdom.clone()
-                }
-            } else if let Some(leader_output) =
-                Self::dominant_rank_leader(&valid_outputs, &fleet_info)
-            {
-                leader_output.to_string()
-            } else {
-                let prompts = susi_sandbox::manager::SusiPrompts::load_global();
-                let consensus_prompt = prompts
-                    .consensus_wisdom_prompt()
-                    .replace("{goal}", goal)
-                    .replace("{wisdom}", &weighted_wisdom);
-                eprintln!(
-                    "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
-                    valid_outputs.len()
-                );
-                let _ = std::io::stdout().flush();
-                susi_gemi::engine::GemiEngine::generate_reasoning_stream(
-                    &consensus_prompt,
-                    workspace,
-                    &|token| {
-                        print!("{}", token);
-                        let _ = std::io::stdout().flush();
-                    },
-                )
-            };
+                    let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+                    let consensus_prompt = prompts
+                        .consensus_wisdom_prompt()
+                        .replace("{goal}", goal)
+                        .replace("{wisdom}", &weighted_wisdom);
+                    eprintln!(
+                        "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
+                        valid_outputs.len()
+                    );
+                    let _ = std::io::stdout().flush();
+                    let out = susi_gemi::engine::GemiEngine::generate_reasoning_stream(
+                        &consensus_prompt,
+                        workspace,
+                        &|token| {
+                            print!("{}", token);
+                            let _ = std::io::stdout().flush();
+                        },
+                    );
+                    (out, "STATE_CONVERGENCE")
+                };
 
             // Measures reported execution outcomes, never factual accuracy.
             let agent_success_ratio = Self::reported_success_ratio(&a2a_logs, &fleet_info);
@@ -554,7 +608,7 @@ impl SusiSupervisor {
             a2a_logs.push(A2AMessage {
                 sender: "ConsensusMaster".into(),
                 recipient: "SUSI-Master".into(),
-                action: "STATE_CONVERGENCE".into(),
+                action: convergence_action.into(),
                 payload: final_payload,
             });
         }
@@ -926,6 +980,36 @@ mod tests {
         assert!(blackboard.contains_key("SafetyAgent"));
         assert!(blackboard.contains_key("SecurityAgent"));
         let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_quorum_majority_commits_on_agreement() {
+        let outputs = vec![
+            ("AgentA".to_string(), "  The answer is 42.  ".to_string()),
+            ("PeerNode_1".to_string(), "the answer is 42.".to_string()),
+            (
+                "AgentB".to_string(),
+                "something totally different".to_string(),
+            ),
+        ];
+        let quorum = SusiSupervisor::quorum_majority(&outputs);
+        assert_eq!(quorum, Some("The answer is 42.".to_string()));
+    }
+
+    #[test]
+    fn test_quorum_majority_none_without_majority() {
+        let outputs = vec![
+            ("AgentA".to_string(), "answer one".to_string()),
+            ("AgentB".to_string(), "answer two".to_string()),
+            ("AgentC".to_string(), "answer three".to_string()),
+        ];
+        assert_eq!(SusiSupervisor::quorum_majority(&outputs), None);
+    }
+
+    #[test]
+    fn test_quorum_majority_requires_at_least_two_outputs() {
+        let outputs = vec![("AgentA".to_string(), "solo answer".to_string())];
+        assert_eq!(SusiSupervisor::quorum_majority(&outputs), None);
     }
 
     #[test]

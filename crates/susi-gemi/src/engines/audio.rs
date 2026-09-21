@@ -29,6 +29,32 @@ impl SusiAudioEngine {
         })
     }
 
+    /// Load a pretrained checkpoint instead of random init, mirroring the
+    /// `global_dir.join("models/<name>.safetensors")` + `VarBuilder::
+    /// from_mmaped_safetensors` convention already used by
+    /// `SusiReasoningModel::load`/`SusiAlphaModel::load` for other
+    /// modalities. No training loop or dataset exists yet for audio, so
+    /// this will `Err` (no checkpoint file to find) until one is produced -
+    /// added so the substrate has somewhere real to load weights from once
+    /// it does, rather than only ever being able to random-init.
+    pub fn load(global_dir: &Path) -> Result<Self> {
+        let weights_path = global_dir.join("models/susi-audio.safetensors");
+        if !weights_path.exists() {
+            return Err(anyhow!(
+                "SUSI-Audio weights not found at {}. No training pipeline exists yet for this modality; falling back to SusiAudioEngine::new() (random init) is the caller's responsibility.",
+                weights_path.display()
+            ));
+        }
+        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let vb =
+            unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
+        let acoustic_processor = candle_nn::linear(16000, Self::DIM, vb.pp("audio_features"))?;
+        Ok(Self {
+            device,
+            acoustic_processor,
+        })
+    }
+
     pub fn process_audio(&self, audio_path: &Path) -> Result<Tensor> {
         // 1. Hardware-Saturated Audio Loading (Hardened for WAV Reality)
         let mut reader =

@@ -1,6 +1,8 @@
 // SUSI Unified Substrate: Multi-Modal Semantic Projection & Paged KV Storage
 // 100% Rust implementation for memory-efficient multi-threaded reasoning
 
+use candle_core::{DType, Device, Tensor};
+use candle_nn::{Linear, Module, VarBuilder, VarMap};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -379,6 +381,152 @@ impl SusiUnifiedSubstrate {
     }
 }
 
+/// VC-200-003 (roadmap.json) remaining gap: real single-head scaled
+/// dot-product self-attention across the three modality subspaces of a
+/// `project_to_unified_space` vector, treating each subspace as one token.
+/// This replaces `cross_modal_reason`'s previous vector-magnitude
+/// placeholder with real attention math and produces a genuine per-modality
+/// attention distribution. The projection/Q/K/V weight matrices are randomly
+/// initialized, same as `SusiVisionEngine`/`SusiAudioEngine` — there is still
+/// no training loop or dataset for this substrate, so this is real *fusion*
+/// math over honest (if untrained) features, not a claim of a trained
+/// cross-modal model.
+pub struct CrossModalAttention {
+    vision_proj: Linear,
+    audio_proj: Linear,
+    text_proj: Linear,
+    q_proj: Linear,
+    k_proj: Linear,
+    v_proj: Linear,
+    device: Device,
+}
+
+impl CrossModalAttention {
+    const ATTN_DIM: usize = 128;
+
+    fn new() -> EaiResult<Self> {
+        let map_err = |e: candle_core::Error| susi_error::EaiError::inference(e.to_string());
+        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let varmap = VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let vision_proj = candle_nn::linear(
+            crate::vision::SusiVisionEngine::DIM,
+            Self::ATTN_DIM,
+            vb.pp("vision_proj"),
+        )
+        .map_err(map_err)?;
+        let audio_proj = candle_nn::linear(
+            crate::audio::SusiAudioEngine::DIM,
+            Self::ATTN_DIM,
+            vb.pp("audio_proj"),
+        )
+        .map_err(map_err)?;
+        let text_proj = candle_nn::linear(
+            SusiUnifiedSubstrate::TEXT_DIM,
+            Self::ATTN_DIM,
+            vb.pp("text_proj"),
+        )
+        .map_err(map_err)?;
+        let q_proj =
+            candle_nn::linear(Self::ATTN_DIM, Self::ATTN_DIM, vb.pp("q_proj")).map_err(map_err)?;
+        let k_proj =
+            candle_nn::linear(Self::ATTN_DIM, Self::ATTN_DIM, vb.pp("k_proj")).map_err(map_err)?;
+        let v_proj =
+            candle_nn::linear(Self::ATTN_DIM, Self::ATTN_DIM, vb.pp("v_proj")).map_err(map_err)?;
+
+        Ok(Self {
+            vision_proj,
+            audio_proj,
+            text_proj,
+            q_proj,
+            k_proj,
+            v_proj,
+            device,
+        })
+    }
+
+    /// Process-lifetime singleton so repeated calls attend with the same
+    /// (randomly initialized, but fixed) weights instead of resampling new
+    /// random weights on every call, which would make identical input
+    /// produce different attention distributions from one call to the next.
+    pub fn global() -> EaiResult<&'static Self> {
+        static INSTANCE: OnceLock<EaiResult<CrossModalAttention>> = OnceLock::new();
+        match INSTANCE.get_or_init(Self::new) {
+            Ok(instance) => Ok(instance),
+            Err(e) => Err(susi_error::EaiError::inference(e.to_string())),
+        }
+    }
+
+    /// Returns `([vision_weight, audio_weight, text_weight], fused_vector)`:
+    /// the text token's attention distribution over all three modality
+    /// tokens (a real, if untrained, "which modality dominated this fusion"
+    /// signal), and the attention-weighted fused representation.
+    pub fn attend(&self, unified_vec: &[f32]) -> EaiResult<([f32; 3], Vec<f32>)> {
+        let map_err = |e: candle_core::Error| susi_error::EaiError::inference(e.to_string());
+        if unified_vec.len() != 1024 {
+            return Err(susi_error::EaiError::inference(format!(
+                "expected a 1024-D unified vector, got {}",
+                unified_vec.len()
+            )));
+        }
+
+        let to_tensor = |slice: &[f32]| -> EaiResult<Tensor> {
+            Tensor::from_vec(slice.to_vec(), (1, slice.len()), &self.device).map_err(map_err)
+        };
+        let vision = to_tensor(&unified_vec[0..512])?;
+        let audio = to_tensor(&unified_vec[512..768])?;
+        let text = to_tensor(&unified_vec[768..1024])?;
+
+        let vision_t = self.vision_proj.forward(&vision).map_err(map_err)?;
+        let audio_t = self.audio_proj.forward(&audio).map_err(map_err)?;
+        let text_t = self.text_proj.forward(&text).map_err(map_err)?;
+
+        // Stack the three projected modality tokens into a (1, 3, ATTN_DIM) sequence.
+        let tokens = Tensor::cat(&[&vision_t, &audio_t, &text_t], 0)
+            .map_err(map_err)?
+            .reshape((1, 3, Self::ATTN_DIM))
+            .map_err(map_err)?;
+
+        let q = self.q_proj.forward(&tokens).map_err(map_err)?;
+        let k = self.k_proj.forward(&tokens).map_err(map_err)?;
+        let v = self.v_proj.forward(&tokens).map_err(map_err)?;
+
+        let scores = (q
+            .matmul(&k.transpose(1, 2).map_err(map_err)?)
+            .map_err(map_err)?
+            / (Self::ATTN_DIM as f64).sqrt())
+        .map_err(map_err)?;
+        let weights = candle_nn::ops::softmax_last_dim(&scores).map_err(map_err)?;
+        // (1, 3, ATTN_DIM): the fused representation of all three tokens
+        // after attending to each other. Only the text token's row (index 2)
+        // is returned below as "the" fused vector, paired with its own
+        // attention distribution (`text_row`) over the other two modalities -
+        // consistent with treating text as the query modality being enriched
+        // by vision/audio context, not an arbitrary flattening of all rows.
+        let fused = weights.matmul(&v).map_err(map_err)?;
+
+        let text_row = weights
+            .narrow(1, 2, 1)
+            .map_err(map_err)?
+            .flatten_all()
+            .map_err(map_err)?
+            .to_vec1::<f32>()
+            .map_err(map_err)?;
+        let modality_weights = [text_row[0], text_row[1], text_row[2]];
+
+        let fused_vec = fused
+            .narrow(1, 2, 1)
+            .map_err(map_err)?
+            .flatten_all()
+            .map_err(map_err)?
+            .to_vec1::<f32>()
+            .map_err(map_err)?;
+
+        Ok((modality_weights, fused_vec))
+    }
+}
+
 #[cfg(test)]
 mod fusion_tests {
     use super::*;
@@ -406,5 +554,29 @@ mod fusion_tests {
         let a = SusiUnifiedSubstrate::project_to_unified_space(Some("alpha"), None, None).unwrap();
         let b = SusiUnifiedSubstrate::project_to_unified_space(Some("omega"), None, None).unwrap();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn test_cross_modal_attention_produces_valid_distribution() {
+        let unified_vec =
+            SusiUnifiedSubstrate::project_to_unified_space(Some("hello susi"), None, None).unwrap();
+        let attention = CrossModalAttention::global().unwrap();
+        let (weights, fused) = attention.attend(&unified_vec).unwrap();
+        // A softmax row over 3 modality tokens: non-negative, sums to ~1.
+        assert!(weights.iter().all(|w| *w >= 0.0));
+        let sum: f32 = weights.iter().sum();
+        assert!(
+            (sum - 1.0).abs() < 1e-4,
+            "weights {:?} sum to {}",
+            weights,
+            sum
+        );
+        assert_eq!(fused.len(), CrossModalAttention::ATTN_DIM);
+    }
+
+    #[test]
+    fn test_cross_modal_attention_rejects_wrong_size() {
+        let attention = CrossModalAttention::global().unwrap();
+        assert!(attention.attend(&[0.0f32; 10]).is_err());
     }
 }

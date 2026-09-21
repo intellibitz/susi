@@ -1056,6 +1056,36 @@
         "ref": "symbol://CandleProvider"
       },
       "proof": "FIXED 2026-09-22: `crates/susi-gemi/src/engines/candle_provider.rs`'s `generate()` used `Path::new(\".\")` with a `// TODO pass workspace` comment. Traced both construction sites (`susi-daemon/src/auto_discovery.rs:66` production, `:348` test-only) and confirmed neither has a real per-request project workspace in scope \u2014 the daemon there only knows `SusiDirs::substrate_home()`, which is explicitly documented and tested (`substrate_home_is_not_a_project_cwd`, susi-paths/src/lib.rs) as NOT a project workspace, so threading it through would have silently violated that invariant. A full fix requires adding a `workspace: &Path` parameter to the `Provider` trait itself (susi-core/src/provider.rs), which would also touch `http_provider.rs`, `mcp_provider.rs`, and three call sites (`coding_models_ext.rs`, `runtime.rs`, `cloud_recovery.rs`) \u2014 out of scope for this pass. Replaced the hardcoded `\".\"` with `std::env::current_dir()` (falling back to `\".\"` only if that call fails) as an honest, smaller improvement: this is the process's actual cwd rather than an always-relative placeholder, with a comment documenting why the real fix is architecturally bigger. `cargo check -p susi-gemi` passes."
+    },
+    {
+      "id": "EV-2022922-099",
+      "type": "AUDIT",
+      "milestone": "VC-200-002 wasm hot-patch: live compile+execute path run directly and confirmed passing (not just checked for the toolchain-absent skip branch)",
+      "anchor": {
+        "label": "ReflexSynthesizer",
+        "ref": "symbol://ReflexSynthesizer"
+      },
+      "proof": "FIXED 2026-09-22: `wasm32-wasip1` is installed in this dev environment (`rustup target list --installed`), contrary to VC-200-002's prior \"not installed\" note. Ran `cargo test -p susi-gawd --lib reflex_synth::tests::test_wasm_reflex_hot_patch_end_to_end` directly: it took the real branch (not the `[SKIP]` branch), `ReflexSynthesizer::synthesize_wasm_reflex` shelled out to `rustc --target wasm32-wasip1` and produced a `.wasm` file, and `susi_native::wasm::WasmHost::execute_reflex` ran it under `wasmer`/`wasmer_wasix` WASI and returned output containing `input=hello` as asserted \u2014 `test result: ok. 1 passed; 0 failed`. This is a genuine, verified pass of the full live path in at least one environment, not an inference from the code alone; it does not establish the toolchain is present in CI or other dev machines, and only exercises `synthesize_wasm_reflex`+`WasmHost::execute_reflex` directly rather than through `resolve_capability_gap`'s own call site."
+    },
+    {
+      "id": "EV-2022922-101",
+      "type": "FEAT",
+      "milestone": "VC-200-001 federated consensus: real majority quorum-commit primitive over the mission blackboard",
+      "anchor": {
+        "label": "SusiSupervisor",
+        "ref": "symbol://SusiSupervisor"
+      },
+      "proof": "FIXED 2026-09-22: added `SusiSupervisor::quorum_majority` (`crates/susi-gawd-swarm/src/amas.rs`), checked into `supervise_mission`'s consensus pass ahead of the pre-existing rank-leader/LLM-synthesis fallback, firing a new `QUORUM_COMMIT` A2A action (vs. the existing `STATE_CONVERGENCE`) when a strict majority of the shared blackboard's independently-produced entries (local agents AND dispatched peer nodes, which already land on the same blackboard under `PeerNode_<id>` keys) exact-match after trim/case/whitespace normalization. Caught and fixed a real bug via a unit test before this shipped: the first implementation kept the raw, untrimmed first-seen string as the representative for a matching normalized group, so a majority commit could surface stray leading/trailing whitespace depending on which agent happened to report first (`test_quorum_majority_commits_on_agreement` failed with `left: \"  The answer is 42.  \" right: \"The answer is 42.\"` before the fix); corrected to store the trimmed string as the representative. Three unit tests cover commit-on-majority, no-majority, and the `len() < 2` edge case; `cargo test -p susi-gawd-swarm --lib quorum` passes (3/3). Explicitly NOT Raft/Paxos: no persistent authenticated membership, no leader election, no log replication \u2014 see roadmap.json VC-200-001 for the honest scope of what this does and doesn't cover."
+    },
+    {
+      "id": "EV-2022922-102",
+      "type": "FEAT",
+      "milestone": "VC-200-003 multimodal fusion: real cross-modal self-attention replacing a vector-magnitude placeholder",
+      "anchor": {
+        "label": "CrossModalAttention",
+        "ref": "symbol://CrossModalAttention"
+      },
+      "proof": "FIXED 2026-09-22: `GemiEngine::cross_modal_reason` (`crates/susi-gemi/src/engines/runtime.rs`) previously just computed `sum(x^2)` magnitude of the unified vector and called it \"Epistemically Aligned\" \u2014 no attention or cross-modal mixing existed anywhere. Added `CrossModalAttention` (`crates/susi-gemi/src/engines/unified.rs`): projects the three modality subspaces (vision [0,512), audio [512,768), text [768,1024)) of a `project_to_unified_space` vector into a shared 128-D space via per-modality `Linear` layers, then runs real single-head scaled dot-product self-attention (Q/K/V `Linear` projections, `q.matmul(k^T)/sqrt(d)`, `softmax_last_dim`, `matmul(v)` \u2014 same pattern as `qwen2_split.rs`'s attention) over the 3 modality tokens, returning the text token's attention distribution over vision/audio/text plus its attended fused vector. `cross_modal_reason` now reports which modality actually dominated the fusion instead of a bare magnitude number. Also added `SusiVisionEngine::load`/`SusiAudioEngine::load` mirroring the pretrained-checkpoint convention already used by `SusiReasoningModel`/`SusiAlphaModel`. Caught and fixed a real bug via a unit test before this shipped: the first implementation flattened the full (1,3,128) attention output into a 384-element vector while documenting it as \"the fused representation\" (implying 128-D) \u2014 `test_cross_modal_attention_produces_valid_distribution` failed asserting `fused.len() == 128` (`left: 384 right: 128`); corrected to narrow to the text token's own row (index 2) before flattening, consistent with how the attention-weight row is already extracted. Weight matrices are randomly initialized, same honesty as `SusiVisionEngine`/`SusiAudioEngine` \u2014 no training loop or dataset exists for this substrate, so this is real attention math over untrained features, not a claim of a trained cross-modal model. `cargo test -p susi-gemi --lib cross_modal` passes (2/2)."
     }
   ]
 }
