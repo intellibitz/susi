@@ -987,8 +987,10 @@ impl SusiMasterAgent {
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
         let mut final_responses = Vec::new();
+        let mut all_ok = !results.is_empty();
 
         for report in results.into_iter() {
+            all_ok = all_ok && report.is_success();
             all_interactions.extend(report.interactions);
             all_agents.extend(report.agents);
             final_responses.push(report.final_answer);
@@ -996,7 +998,11 @@ impl SusiMasterAgent {
 
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: "COMPLETE".to_string(),
+            status: if all_ok {
+                "COMPLETE".to_string()
+            } else {
+                "FAILED".to_string()
+            },
             agents: all_agents,
             interactions: all_interactions,
             final_answer: format!(
@@ -1018,6 +1024,7 @@ impl SusiMasterAgent {
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
         let mut final_responses = Vec::new();
+        let mut all_ok = true;
 
         let mut current_step = 0;
         while current_step < plan.goals.len() {
@@ -1033,6 +1040,7 @@ impl SusiMasterAgent {
             all_interactions.extend(report.interactions.clone());
             all_agents.extend(report.agents.clone());
             final_responses.push(report.final_answer.clone());
+            all_ok = all_ok && report.is_success();
 
             // Dynamic Plan Mutation: Check for failure or gap in the last step
             if report.final_answer.contains("FAILURE") || report.final_answer.contains("GAP") {
@@ -1058,7 +1066,11 @@ impl SusiMasterAgent {
 
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: "COMPLETE".to_string(),
+            status: if all_ok {
+                "COMPLETE".to_string()
+            } else {
+                "FAILED".to_string()
+            },
             agents: all_agents,
             interactions: all_interactions,
             final_answer: format!(

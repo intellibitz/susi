@@ -363,8 +363,28 @@ async fn recover_with_providers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
     use susi_core::provider::{BoxFuture, Provider};
+
+    struct TempWorkspace(std::path::PathBuf);
+    impl TempWorkspace {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "susi-recovery-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for TempWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[derive(Clone, Copy)]
     enum Reply {
@@ -387,22 +407,15 @@ mod tests {
             Box::pin(async { Ok(true) })
         }
         fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
-            let verification = prompt.starts_with("You are the SUSI Truth Transformer");
             let prompt = prompt.to_string();
             Box::pin(async move {
                 if matches!(self.reply, Reply::Error) {
-                    if !verification {
-                        self.calls.lock().unwrap().push(self.name.into());
-                    }
+                    self.calls.lock().unwrap().push(self.name.into());
                     return Err(EaiError::process("HTTP 402 Payment Required"));
                 }
-                if verification {
-                    return Ok(if prompt.contains("ungrounded answer") {
-                        "HALLUCINATION"
-                    } else {
-                        "VERIFIED"
-                    }
-                    .into());
+                // Model review prompts are never absolute proof — ignore them.
+                if prompt.starts_with("You are the SUSI Truth Transformer") {
+                    return Ok("VERIFIED".into());
                 }
                 self.calls.lock().unwrap().push(self.name.into());
                 match self.reply {
@@ -458,6 +471,7 @@ mod tests {
 
     #[tokio::test]
     async fn model_agreement_without_evidence_never_completes_recovery() {
+        let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[
             ("a-down", Reply::Error),
             ("b-working", Reply::Text(COMPLETE)),
@@ -468,7 +482,7 @@ mod tests {
             &mut report,
             &registry,
             vec!["a-down".into(), "b-working".into(), "c-unused".into()],
-            Path::new("."),
+            &ws.0,
             Duration::from_secs(1),
             false,
         )
@@ -488,6 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_malformed_and_ungrounded_answers_advance_to_next_provider() {
+        let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[
             (
                 "a-missing",
@@ -510,27 +525,31 @@ mod tests {
                 "c-ungrounded".into(),
                 "d-good".into(),
             ],
-            Path::new("."),
+            &ws.0,
             Duration::from_secs(1),
             false,
         )
         .await;
         assert!(!report.is_success());
         assert_eq!(calls.lock().unwrap().len(), 4);
-        assert!(report.interactions.iter().any(
-            |entry| entry.sender == "c-ungrounded" && entry.payload.contains("TRUTH_VIOLATION")
-        ));
+        assert!(report.interactions.iter().any(|entry| {
+            entry.sender == "c-ungrounded" && entry.payload.contains("TRUTH_UNVERIFIED")
+        }));
+        assert!(report.interactions.iter().any(|entry| {
+            entry.sender == "d-good" && entry.payload.contains("not absolute evidence")
+        }));
     }
 
     #[tokio::test]
     async fn exhausted_providers_remain_failed_and_duplicates_are_not_retried() {
+        let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[("down", Reply::Error)]);
         let mut report = report();
         recover_with_providers(
             &mut report,
             &registry,
             vec!["down".into(), "down".into()],
-            Path::new("."),
+            &ws.0,
             Duration::from_secs(1),
             false,
         )
@@ -543,6 +562,7 @@ mod tests {
 
     #[tokio::test]
     async fn timed_out_attempt_advances_to_working_provider() {
+        let ws = TempWorkspace::new();
         let (registry, calls) =
             providers(&[("a-hung", Reply::Hang), ("b-good", Reply::Text(COMPLETE))]);
         let mut report = report();
@@ -550,7 +570,7 @@ mod tests {
             &mut report,
             &registry,
             vec!["a-hung".into(), "b-good".into()],
-            Path::new("."),
+            &ws.0,
             Duration::from_millis(20),
             false,
         )
@@ -562,6 +582,7 @@ mod tests {
 
     #[tokio::test]
     async fn successful_and_governance_blocked_missions_are_not_retried() {
+        let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[("unused", Reply::Text(COMPLETE))]);
         for status in ["COMPLETE", "BLOCKED", "ABORTED"] {
             let mut report = report();
@@ -570,7 +591,7 @@ mod tests {
                 &mut report,
                 &registry,
                 vec!["unused".into()],
-                Path::new("."),
+                &ws.0,
                 Duration::from_secs(1),
                 false,
             )
@@ -583,7 +604,7 @@ mod tests {
             &mut report,
             &registry,
             vec!["unused".into()],
-            Path::new("."),
+            &ws.0,
             Duration::from_secs(1),
             false,
         )
@@ -593,18 +614,17 @@ mod tests {
 
     #[tokio::test]
     async fn citation_answers_complete_recovery_through_the_ledger() {
-        let workspace = std::env::current_dir().unwrap();
-        let session = susi_core::capture::EvidenceSession::new(
-            "Explain the observed result",
-            &workspace,
-            |s| s.to_string(),
-        )
-        .unwrap();
+        let ws = TempWorkspace::new();
+        let session =
+            susi_core::capture::EvidenceSession::new("Explain the observed result", &ws.0, |s| {
+                s.to_string()
+            })
+            .unwrap();
         let _activation = susi_core::capture::EvidenceSession::activate(&session);
         susi_core::capture::EvidenceSession::capture_call(
             "open_meteo_weather",
             &serde_json::json!({"place": "Chennai"}),
-            &workspace,
+            &ws.0,
             || Ok("24.8C overcast observed".to_string()),
         )
         .unwrap();
@@ -615,7 +635,7 @@ mod tests {
             &mut report,
             &registry,
             vec!["a-cites".into()],
-            &workspace,
+            &ws.0,
             Duration::from_secs(1),
             false,
         )

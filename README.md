@@ -31,7 +31,7 @@ External clients can trust these ports — the daemon never silently drifts them
 
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents.
 2. **Evidence** — mission-scoped `EvidenceSession` ledger: real tool/MCP calls mint `ToolReceipt`s; answers cite receipt IDs — generated text cannot invent evidence.
-3. **Truth** — `TruthTransformer` resolves citations from the live ledger and rejects narrative when citable receipts exist; file/workspace claims are re-checked against reality.
+3. **Truth** — absolute only: live ledger citations, compiled binary reads, or native verified receipts. Models never certify facts.
 4. **Pluggable** — `CapabilityRegistry` mounts Candle / llama.cpp, vLLM / Ollama, OpenAI-compatible clouds, and MCP tools behind one interface.
 5. **Audit** — agent actions signed into an immutable accountability chain.
 6. **Sandbox** — Wasmer isolates untrusted plugins, agents, and reflexes.
