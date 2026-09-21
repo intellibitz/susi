@@ -48,18 +48,15 @@ impl Adapter {
             Self::Qwen { python } if python.trim().is_empty() => {
                 bail!("python executable is required")
             }
-            Self::Devin { api_key_env } | Self::Manus { api_key_env } => {
+            Self::Devin { api_key_env } | Self::Manus { api_key_env }
                 if api_key_env.is_empty()
                     || !api_key_env
                         .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                {
-                    bail!(
-                        "api_key_env must name an environment variable, not contain a credential"
-                    );
-                }
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_') =>
+            {
+                bail!("api_key_env must name an environment variable, not contain a credential");
             }
-            _ => {}
+            Self::Devin { .. } | Self::Manus { .. } | Self::Qwen { .. } => {}
         }
         Ok(())
     }
@@ -109,9 +106,8 @@ pub fn resolve_program(program: &str) -> Option<PathBuf> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            return p
-                .metadata()
-                .is_ok_and(|m| m.permissions().mode() & 0o111 != 0);
+            p.metadata()
+                .is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
         }
         #[cfg(not(unix))]
         true
