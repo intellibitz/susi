@@ -34,16 +34,19 @@ External clients can trust these ports — the daemon never silently drifts them
 Claims that must hold in source (aligned with `.agents/IDENTITY.md`):
 
 1. **Swarm** — multi-agent consensus that routes, debates, and converges on intents.
-2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions.
-3. **Truth** — `TruthTransformer` absolute sources only (ledger citations, compiled reads, native receipts).
-4. **Blackboard** — live swarm shared state; persisted to `.susi/last_blackboard.json` (`susi blackboard`).
-5. **Glass box** — inspectable reasoning, tools, blackboard, and auto-prime reports.
-6. **Zero-config Auto** — auto-seed packs, enable ready MCP, prefer ready models, admit ready peers (`susi auto`); host installs/keys still gate cloud tiers.
-7. **Pluggable** — curated catalogs + open admission via protocols; extension packs hold vendor opinions.
-8. **Audit** — append-only HMAC accountability chain.
-9. **Sandbox** — Wasmer for untrusted Wasm; Docker `sandbox_exec` for untrusted shell when available.
-10. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
-11. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
+2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger.
+3. **Truth** — absolute sources only (ledger citations, compiled reads, native receipts).
+4. **Blackboard** — live swarm shared state (`.susi/last_blackboard.json`, `susi blackboard`).
+5. **Glass box** — inspectable traces, blackboard, auto-prime, governance, substrate reports.
+6. **Zero-config Auto** — `susi auto`; host installs/keys still gate cloud tiers.
+7. **Governance-first** — Safety/Security clear before parallel fleet (`.susi/last_governance.json`).
+8. **Pluggable** — `CapabilityRegistry` + extension packs (`susi substrate`).
+9. **Sandbox** — Wasmer for Wasm plugins/reflexes; Docker `sandbox_exec` when available.
+10. **Host contract** — fixed ports 9090–9093 (`susi start` / `susi substrate`).
+11. **Reflexes** — Wasm reflexes under the data dir (`susi substrate`).
+12. **Audit** — append-only HMAC accountability chain.
+13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
+14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
 ---
 
@@ -55,11 +58,13 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 |-------|----------|
 | Agent-of-agents / OS layer for AI | Multi-agent swarm orchestrator + host daemon/ports — layer *for* agents, not a host OS |
 | Evidence / Truth / Blackboard / Glass box | Ledger + absolute truth gate + persisted blackboard in mission traces |
-| Zero-config Auto | `susi auto` + bootstrap auto-prime packs/MCP/models/peers/engines (host keys/installs still required for cloud) |
-| Plugin protocol agents | **~10** curated executors (`susi agents`) + **~10** frameworks (`susi frameworks`); UNAVAILABLE until driver/config present |
-| Plugin protocol engines | **~15** inference `inference_endpoints` (+ discovered local ports) |
-| Plugin protocol models | **~10** ranked coding/agent models (`susi models`) + **~50** catalog + live `/models`; local GGUF = llama/qwen2 |
-| Plugin protocol MCP | **~10** leading tool servers (`susi mcp`) + **~100** scout packages; extras via `susi mcp-add` |
+| Governance-first | Safety/Security awaited before parallel fleet; `.susi/last_governance.json` |
+| Zero-config Auto | `susi auto` + bootstrap auto-prime (host keys/installs still required for cloud) |
+| Pluggable / Sandbox / Host contract / Reflexes | `susi substrate` reports registry, Wasmer/Docker, ports 9090–9093, reflex wasm count |
+| Plugin protocol agents | **~10** curated executors + **~10** frameworks; UNAVAILABLE until driver/config present |
+| Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
+| Plugin protocol models | **~10** ranked coding models + **~50** catalog + live `/models`; local GGUF = llama/qwen2 |
+| Plugin protocol MCP | **~10** leading servers + **~100** scout packages |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
 
 ## Install

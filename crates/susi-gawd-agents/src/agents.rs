@@ -1668,10 +1668,12 @@ impl GawdAgentFleet {
                     let failure = format!("[GOVERNANCE_BLOCK] {}", e);
                     blackboard.insert(name.clone(), failure.clone());
                     results.push((name, failure));
+                    persist_governance_report(&workspace, &results, false);
                     return results;
                 }
             }
         }
+        persist_governance_report(&workspace, &results, true);
 
         let agents_len = agents.len();
 
@@ -1724,6 +1726,41 @@ impl GawdAgentFleet {
 
         results
     }
+}
+
+/// Glass-box proof of Mandate 37: Safety/Security cleared (or vetoed) before
+/// the parallel fleet. Persisted for `susi substrate` / mission inspectability.
+fn persist_governance_report(workspace: &Path, results: &[(String, String)], cleared: bool) {
+    let dir = workspace.join(".susi");
+    let _ = std::fs::create_dir_all(&dir);
+    let agents: Vec<serde_json::Value> = results
+        .iter()
+        .map(|(name, outcome)| {
+            let redacted = susi_core::redact::redact_patterns(
+                &[
+                    "sk-".into(),
+                    "ghp_".into(),
+                    "github_pat_".into(),
+                    "xoxb-".into(),
+                ],
+                outcome,
+            );
+            serde_json::json!({
+                "agent": name,
+                "outcome": redacted,
+            })
+        })
+        .collect();
+    let body = serde_json::json!({
+        "kind": "governance_first",
+        "cleared": cleared,
+        "sequencing": "SafetyAgent and SecurityAgent awaited before parallel fleet",
+        "agents": agents,
+    });
+    let _ = std::fs::write(
+        dir.join("last_governance.json"),
+        serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+    );
 }
 
 #[cfg(test)]
