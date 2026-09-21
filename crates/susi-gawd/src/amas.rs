@@ -172,8 +172,10 @@ impl SusiSupervisor {
             let t_shared = Arc::clone(&shared);
 
             std::thread::spawn(move || {
+                // Host contract: UDP 9092 belongs to the daemon alone.
+                // Peer scouts bind an ephemeral port and talk *to* 9092.
                 let port = Self::get_udp_discovery_port();
-                let socket_res = UdpSocket::bind(format!("0.0.0.0:{}", port));
+                let socket_res = UdpSocket::bind("0.0.0.0:0");
                 if let Ok(socket) = socket_res {
                     let _ = socket.set_broadcast(true);
                     let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
@@ -201,17 +203,11 @@ impl SusiSupervisor {
 
                         if let Ok((amt, src)) = socket.recv_from(&mut buf) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
-                            if msg.starts_with("SUSI_PING") {
-                                let pong_msg = format!(
-                                    "SUSI_PONG:{}:{}:{}",
-                                    local_caps,
-                                    registry_checksum,
-                                    local_bloom.to_hex()
-                                );
-                                let _ = socket.send_to(pong_msg.as_bytes(), src);
-                            }
-
-                            if msg.starts_with("SUSI_PONG") || msg.starts_with("SUSI_PING") {
+                            // Scouts never answer discovery — that is the daemon's job on 9092.
+                            if msg.starts_with("SUSI_PONG")
+                                || msg.starts_with("SUSI_LAN_PONG")
+                                || msg.starts_with("SUSI_PING")
+                            {
                                 if src.ip().is_loopback()
                                     || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
                                 {
@@ -267,7 +263,10 @@ impl SusiSupervisor {
 
                         let _ = socket
                             .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
-                        std::thread::sleep(Duration::from_millis(100)); // Relax lock contention heavily
+                        // Also speak the daemon's LAN ping dialect so host discovery works.
+                        let _ =
+                            socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
+                        std::thread::sleep(Duration::from_millis(100));
                     }
                 }
             });
@@ -1105,5 +1104,19 @@ mod tests {
         let (reward, _) = SusiSupervisor::rank_delta_for_output("all clear");
         let (penalty, _) = SusiSupervisor::rank_delta_for_output("FAILURE: crashed");
         assert!(penalty.abs() > reward.abs());
+    }
+
+    #[test]
+    fn peer_scout_never_steals_host_contract_udp_port() {
+        // While the host-contract discovery port is held (as the daemon would),
+        // listing cluster nodes must still succeed — scouts bind ephemeral ports.
+        let _holder =
+            std::net::UdpSocket::bind(format!("127.0.0.1:{}", susi_paths::ports::UDP_DISCOVERY))
+                .expect("test must hold the host-contract UDP port");
+        let nodes = SusiSupervisor::list_cluster_nodes();
+        assert!(
+            nodes.iter().any(|n| n.node_id == "susi-local-master"),
+            "local master must remain discoverable without binding 9092"
+        );
     }
 }

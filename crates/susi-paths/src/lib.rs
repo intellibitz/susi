@@ -80,4 +80,46 @@ pub mod ports {
     pub const GEMI: u16 = 9091;
     pub const UDP_DISCOVERY: u16 = 9092;
     pub const GMCP_HTTP: u16 = 9093;
+
+    /// Stable host contract advertised to external clients.
+    pub const ALL: [(u16, &str); 4] = [
+        (GMCP, "GMCP/MCP HTTP"),
+        (GEMI, "GEMI HTTP"),
+        (UDP_DISCOVERY, "A2A UDP discovery"),
+        (GMCP_HTTP, "GMCP HTTP alias"),
+    ];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_contract_ports_are_stable() {
+        assert_eq!(ports::GMCP, 9090);
+        assert_eq!(ports::GEMI, 9091);
+        assert_eq!(ports::UDP_DISCOVERY, 9092);
+        assert_eq!(ports::GMCP_HTTP, 9093);
+        assert_eq!(ports::ALL.len(), 4);
+        let mut seen = std::collections::BTreeSet::new();
+        for (port, _) in ports::ALL {
+            assert!(seen.insert(port), "duplicate host-contract port {port}");
+        }
+    }
+
+    #[test]
+    fn substrate_home_is_not_a_project_cwd() {
+        let home = SusiDirs::substrate_home();
+        assert!(
+            home.ends_with(".susi") || home.to_string_lossy().contains("susi"),
+            "substrate_home should be the host substrate root, got {}",
+            home.display()
+        );
+        // Distinct from a typical project folder under github.com/...
+        assert!(
+            !home.to_string_lossy().contains("/github.com/"),
+            "{}",
+            home.display()
+        );
+    }
 }

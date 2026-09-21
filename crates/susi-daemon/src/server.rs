@@ -265,42 +265,17 @@ impl SusiDaemon {
         let _ = std::fs::create_dir_all(&substrate_home);
 
         let current_exe = std::env::current_exe().ok();
-        let msgs = susi_sandbox::manager::SusiMessages::load_global();
-        if let Some(running) = Self::find_running_daemon(global_dir) {
-            if let Some(ref exe) = current_exe {
-                if let Ok(false) =
-                    susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
-                        exe, global_dir,
-                    )
-                {
-                    // Daemon is always home-scoped, so any CLI may safely
-                    // restart a stale binary — there is no foreign workspace
-                    // ownership to protect.
-                    let def_recompiled =
-                        "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
-                    let msg = msgs
-                        .get("daemon", "binary_recompiled")
-                        .unwrap_or(&def_recompiled);
-                    info!("{}", msg.replace("{}", &running.pid.to_string()));
-                    Self::stop_daemon(&substrate_home, global_dir);
-                } else {
-                    return;
-                }
-            } else {
-                return;
-            }
-        }
         let bin_name = if cfg!(target_os = "windows") {
             "bin/susi.exe"
         } else {
             "bin/susi"
         };
         let global_bin = global_dir.join(bin_name);
-
-        let bin_to_run = if let Some(ref exe) = current_exe {
+        // Host contract: prefer the canonical ~/.susi/bin/susi.
+        let bin_to_run = if global_bin.exists() {
+            global_bin.clone()
+        } else if let Some(ref exe) = current_exe {
             exe.clone()
-        } else if global_bin.exists() {
-            global_bin
         } else {
             PathBuf::from(if cfg!(target_os = "windows") {
                 "susi.exe"
@@ -308,6 +283,27 @@ impl SusiDaemon {
                 "susi"
             })
         };
+
+        let msgs = susi_sandbox::manager::SusiMessages::load_global();
+        if let Some(running) = Self::find_running_daemon(global_dir) {
+            if let Ok(false) = susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+                &bin_to_run,
+                global_dir,
+            ) {
+                // Daemon is always home-scoped, so any CLI may safely
+                // restart a stale binary — there is no foreign workspace
+                // ownership to protect.
+                let def_recompiled =
+                    "[SusiDaemon] Binary recompiled. Restarting daemon PID {}...".to_string();
+                let msg = msgs
+                    .get("daemon", "binary_recompiled")
+                    .unwrap_or(&def_recompiled);
+                info!("{}", msg.replace("{}", &running.pid.to_string()));
+                Self::stop_daemon(&substrate_home, global_dir);
+            } else {
+                return;
+            }
+        }
 
         // Binary Integrity Check
         match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
@@ -805,8 +801,13 @@ impl SusiDaemon {
         let mut buf = [0u8; 512];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
             let msg = String::from_utf8_lossy(&buf[..amt]);
-            if msg.contains("SUSI_LAN_PING") {
-                let pong = format!("SUSI_LAN_PONG:susi-daemon-node:{}", gmcp_port);
+            // Own the host-contract UDP surface: answer both LAN and peer dialects.
+            if msg.contains("SUSI_LAN_PING") || msg.starts_with("SUSI_PING") {
+                let pong = if msg.contains("SUSI_LAN_PING") {
+                    format!("SUSI_LAN_PONG:susi-daemon-node:{}", gmcp_port)
+                } else {
+                    "SUSI_PONG:daemon:0:".to_string()
+                };
                 let _ = socket.send_to(pong.as_bytes(), src);
             }
         }

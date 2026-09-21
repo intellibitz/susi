@@ -16,7 +16,7 @@ External clients can trust these ports — the daemon never silently drifts them
 
 | Port | Surface |
 |------|---------|
-| **9090** | GMCP / MCP HTTP (`/mcp`) |
+| **9090** | GMCP / MCP HTTP (`/mcp`; `/messages` alias) |
 | **9091** | GEMI HTTP (inference / models) |
 | **9092** | A2A UDP discovery |
 | **9093** | GMCP HTTP alias (streamable / SSE) |
