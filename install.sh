@@ -94,8 +94,12 @@ elif [[ -n "${BASH_SOURCE[0]}" ]] && check_is_susi_source "$(dirname "${BASH_SOU
     HAS_LOCAL_SOURCE=1
 fi
 
-# 2. Try Binary Download First (Lightning Fast) if no local source exists
-if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
+# 2. Try Binary Download First (Lightning Fast).
+# Prefer a published release binary even when running from a local checkout —
+# cold source builds of this workspace are tens of minutes; the prebuilt path
+# is seconds. Developers who need to install *this* tree's WIP binary opt into
+# source with SUSI_FORCE_SOURCE=1.
+if [ -z "${SUSI_FORCE_SOURCE:-}" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "unknown" ]]; then
     # Download the susi binary
     GPU_SUFFIX=""
     if [[ "$PLATFORM" == "linux" ]] && command -v nvidia-smi >/dev/null 2>&1; then
@@ -122,6 +126,9 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         DOWNLOAD_NAME="$ENGINE_BINARY.tar.gz"
     fi
 
+    if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
+        echo "Local source detected; still preferring prebuilt binary (set SUSI_FORCE_SOURCE=1 to build this checkout)."
+    fi
     echo "Attempting to download pre-compiled engine binary from $SUSI_REPO..."
 
     DEPLOYED=0
@@ -215,10 +222,8 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
         rm -f "$ENGINE_TMP" "$DOWNLOAD_TMP" 2>/dev/null || true
     fi
     [ -n "$EXTRACT_DIR" ] && rm -rf "$EXTRACT_DIR" 2>/dev/null || true
-else
-    if [ "$HAS_LOCAL_SOURCE" = "1" ]; then
-        echo "Local source repository detected. Skipping remote binary download and building from source."
-    fi
+elif [ -n "${SUSI_FORCE_SOURCE:-}" ]; then
+    echo "SUSI_FORCE_SOURCE=1: skipping prebuilt download, building from source."
 fi
 
 # 3. Fallback to Local Source or Clone & Build
@@ -231,14 +236,10 @@ if [ "$INSTALLED" = "0" ]; then
         SCRIPT_DIR_DETECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || echo "")"
     fi
 
-    # SOURCE_IS_TEMP distinguishes "downloaded to a throwaway extraction dir
-    # this run" from "a real local checkout" — used below to decide whether
-    # it's safe to redirect cargo's target/ into a persistent cache (see the
-    # CARGO_TARGET_DIR comment before the build invocation). A real checkout
-    # keeps building into its own in-repo target/ exactly as before, since a
-    # developer running install.sh from a clone already gets that dir's
-    # natural persistence across repeated runs and may rely on its location
-    # (IDE integration, cargo test reusing it, ...).
+    # SOURCE_IS_TEMP is true when we extracted a GitHub source archive into a
+    # throwaway mktemp dir (vs a real local checkout). Kept for messaging;
+    # the persistent build-cache redirect below applies to both paths unless
+    # the user opts out.
     SOURCE_IS_TEMP=0
     if [[ -n "$SCRIPT_DIR_DETECT" && -f "$SCRIPT_DIR_DETECT/Cargo.toml" ]]; then
         SCRIPT_DIR="$SCRIPT_DIR_DETECT"
@@ -385,29 +386,26 @@ if [ "$INSTALLED" = "0" ]; then
         LOCKED_FLAG=""
         [ -f "$SCRIPT_DIR/Cargo.lock" ] && LOCKED_FLAG="--locked"
 
-        # Where cargo will place the binary. Default is in-repo target/; for a
-        # throwaway source extract we may redirect into ~/.susi/build-cache
-        # below. Track the path ourselves so ENGINE_SRC matches what cargo
-        # actually used (including an ambient CARGO_TARGET_DIR the user set).
+        # Where cargo will place the binary. Track it so ENGINE_SRC matches
+        # what cargo actually used (including an ambient CARGO_TARGET_DIR).
         BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$SCRIPT_DIR/target}"
 
-        # A downloaded source archive lands in a fresh mktemp dir every run,
-        # so its target/ (compiled candle/wasmer/tantivy/... dependency
-        # artifacts, the overwhelming majority of a cold build's time) would
-        # normally be thrown away and rebuilt from scratch on every single
-        # re-run of this installer. Redirect it into a persistent cache under
-        # $GLOBAL_SUSI_DIR instead, so a repeat install/upgrade only
-        # recompiles what actually changed - cargo's own content-hash
-        # fingerprinting already makes this safe (identical to how a local
-        # `git pull && cargo build` reuses target/). Only done for the
-        # temp-extraction path: a real local checkout keeps using its own
-        # in-repo target/ exactly as before (see SOURCE_IS_TEMP's comment).
-        # Respect an explicit user CARGO_TARGET_DIR if already set.
-        if [ "$SOURCE_IS_TEMP" = "1" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+        # Persistent build cache under ~/.susi/build-cache so every install.sh
+        # source fallback (temp extract *and* local checkout) reuses candle/
+        # wasmer/… artifacts across runs. Opt out with SUSI_USE_REPO_TARGET=1
+        # (keep in-repo target/ for IDE / cargo test workflows) or by setting
+        # CARGO_TARGET_DIR yourself.
+        if [ -z "${CARGO_TARGET_DIR:-}" ] && [ -z "${SUSI_USE_REPO_TARGET:-}" ]; then
             BUILD_TARGET_DIR="$GLOBAL_SUSI_DIR/build-cache"
             export CARGO_TARGET_DIR="$BUILD_TARGET_DIR"
             mkdir -p "$CARGO_TARGET_DIR"
-            echo "  Reusing persistent build cache: $CARGO_TARGET_DIR"
+            if [ "$SOURCE_IS_TEMP" = "1" ]; then
+                echo "  Reusing persistent build cache: $CARGO_TARGET_DIR"
+            else
+                echo "  Using persistent build cache: $CARGO_TARGET_DIR (SUSI_USE_REPO_TARGET=1 for in-repo target/)"
+            fi
+        elif [ -n "${SUSI_USE_REPO_TARGET:-}" ]; then
+            echo "  Using in-repo target/ (SUSI_USE_REPO_TARGET=1)."
         fi
 
         # shellcheck disable=SC2086

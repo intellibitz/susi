@@ -1,2 +1,11 @@
 [alias]
 xb = "run --package xtask -- build"
+
+# Fast linkers for Linux (mold → lld → cc). See .cargo/fast-linker.
+# Does not change macOS/Windows linkers. Safe on hosts without mold/lld:
+# the wrapper falls back to cc.
+[target.x86_64-unknown-linux-gnu]
+linker = ".cargo/fast-linker"
+
+[target.aarch64-unknown-linux-gnu]
+linker = ".cargo/fast-linker"
