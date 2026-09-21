@@ -128,16 +128,34 @@ if [ "$HAS_LOCAL_SOURCE" = "0" ] && [[ "$PLATFORM" != "unknown" && "$ARCH" != "u
     ENGINE_TMP="$GLOBAL_BIN_DIR/susi-new"
     DOWNLOAD_TMP="$GLOBAL_BIN_DIR/$DOWNLOAD_NAME"
     CHECKSUM_TMP="$DOWNLOAD_TMP.sha256"
+    # The binary and its .sha256 are two independent downloads (each pays its
+    # own DNS/TLS/redirect-to-release-asset round trip) - fetch them
+    # concurrently instead of one after another. DEPLOYED is still only set
+    # when both succeed, identical to the previous sequential `&&` chain.
     if command -v curl >/dev/null 2>&1; then
         echo "  Downloading engine: $DOWNLOAD_NAME..."
-        if curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$DOWNLOAD_NAME" -o "$DOWNLOAD_TMP" \
-            && curl -sSfL --connect-timeout 15 "$BASE_URL/$DOWNLOAD_NAME.sha256" -o "$CHECKSUM_TMP"; then
+        curl -sSfL --connect-timeout 15 --speed-limit 1024 --speed-time 30 "$BASE_URL/$DOWNLOAD_NAME" -o "$DOWNLOAD_TMP" &
+        BIN_DL_PID=$!
+        curl -sSfL --connect-timeout 15 "$BASE_URL/$DOWNLOAD_NAME.sha256" -o "$CHECKSUM_TMP" &
+        SHA_DL_PID=$!
+        BIN_DL_OK=0
+        SHA_DL_OK=0
+        if wait "$BIN_DL_PID"; then BIN_DL_OK=1; fi
+        if wait "$SHA_DL_PID"; then SHA_DL_OK=1; fi
+        if [ "$BIN_DL_OK" = "1" ] && [ "$SHA_DL_OK" = "1" ]; then
             DEPLOYED=1
         fi
     elif command -v wget >/dev/null 2>&1; then
         echo "  Downloading engine: $DOWNLOAD_NAME..."
-        if wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME" -O "$DOWNLOAD_TMP" \
-            && wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME.sha256" -O "$CHECKSUM_TMP"; then
+        wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME" -O "$DOWNLOAD_TMP" &
+        BIN_DL_PID=$!
+        wget -q --timeout=30 --tries=2 "$BASE_URL/$DOWNLOAD_NAME.sha256" -O "$CHECKSUM_TMP" &
+        SHA_DL_PID=$!
+        BIN_DL_OK=0
+        SHA_DL_OK=0
+        if wait "$BIN_DL_PID"; then BIN_DL_OK=1; fi
+        if wait "$SHA_DL_PID"; then SHA_DL_OK=1; fi
+        if [ "$BIN_DL_OK" = "1" ] && [ "$SHA_DL_OK" = "1" ]; then
             DEPLOYED=1
         fi
     fi
@@ -213,6 +231,15 @@ if [ "$INSTALLED" = "0" ]; then
         SCRIPT_DIR_DETECT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || echo "")"
     fi
 
+    # SOURCE_IS_TEMP distinguishes "downloaded to a throwaway extraction dir
+    # this run" from "a real local checkout" — used below to decide whether
+    # it's safe to redirect cargo's target/ into a persistent cache (see the
+    # CARGO_TARGET_DIR comment before the build invocation). A real checkout
+    # keeps building into its own in-repo target/ exactly as before, since a
+    # developer running install.sh from a clone already gets that dir's
+    # natural persistence across repeated runs and may rely on its location
+    # (IDE integration, cargo test reusing it, ...).
+    SOURCE_IS_TEMP=0
     if [[ -n "$SCRIPT_DIR_DETECT" && -f "$SCRIPT_DIR_DETECT/Cargo.toml" ]]; then
         SCRIPT_DIR="$SCRIPT_DIR_DETECT"
         echo "Using local source directory: $SCRIPT_DIR"
@@ -234,6 +261,7 @@ if [ "$INSTALLED" = "0" ]; then
             echo "Error: 'tar' and either 'curl' or 'wget' are required for source fallback."
             exit 1
         fi
+        SOURCE_IS_TEMP=1
     fi
 
     if command -v cargo >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
@@ -356,12 +384,38 @@ if [ "$INSTALLED" = "0" ]; then
         start_heartbeat
         LOCKED_FLAG=""
         [ -f "$SCRIPT_DIR/Cargo.lock" ] && LOCKED_FLAG="--locked"
+
+        # Where cargo will place the binary. Default is in-repo target/; for a
+        # throwaway source extract we may redirect into ~/.susi/build-cache
+        # below. Track the path ourselves so ENGINE_SRC matches what cargo
+        # actually used (including an ambient CARGO_TARGET_DIR the user set).
+        BUILD_TARGET_DIR="${CARGO_TARGET_DIR:-$SCRIPT_DIR/target}"
+
+        # A downloaded source archive lands in a fresh mktemp dir every run,
+        # so its target/ (compiled candle/wasmer/tantivy/... dependency
+        # artifacts, the overwhelming majority of a cold build's time) would
+        # normally be thrown away and rebuilt from scratch on every single
+        # re-run of this installer. Redirect it into a persistent cache under
+        # $GLOBAL_SUSI_DIR instead, so a repeat install/upgrade only
+        # recompiles what actually changed - cargo's own content-hash
+        # fingerprinting already makes this safe (identical to how a local
+        # `git pull && cargo build` reuses target/). Only done for the
+        # temp-extraction path: a real local checkout keeps using its own
+        # in-repo target/ exactly as before (see SOURCE_IS_TEMP's comment).
+        # Respect an explicit user CARGO_TARGET_DIR if already set.
+        if [ "$SOURCE_IS_TEMP" = "1" ] && [ -z "${CARGO_TARGET_DIR:-}" ]; then
+            BUILD_TARGET_DIR="$GLOBAL_SUSI_DIR/build-cache"
+            export CARGO_TARGET_DIR="$BUILD_TARGET_DIR"
+            mkdir -p "$CARGO_TARGET_DIR"
+            echo "  Reusing persistent build cache: $CARGO_TARGET_DIR"
+        fi
+
         # shellcheck disable=SC2086
         (cd "$SCRIPT_DIR" && "${CARGO_WRAPPER[@]}" cargo build --release -p susi --bin susi $LOCKED_FLAG $BUILD_FEATURES)
         stop_heartbeat
         wait_wasm
 
-        ENGINE_SRC="$SCRIPT_DIR/target/release/susi"
+        ENGINE_SRC="$BUILD_TARGET_DIR/release/susi"
 
         if [ -f "$ENGINE_SRC" ]; then
             # Validate built binary
