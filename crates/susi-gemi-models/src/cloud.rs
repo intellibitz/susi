@@ -3,9 +3,15 @@
 //! Key storage (`~/.susi/cloud.env`) and inference-endpoint merge live here so the
 //! models crate never depends on engines. Provider registry registration stays in
 //! `susi-gemi::http_provider`.
+//!
+//! Vendor env aliases come from the active extension pack
+//! (`config/extensions/default/cloud-vendors.json`); host overrides at
+//! `~/.susi/extensions/<pack>/cloud-vendors.json`.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
+
+use susi_sandbox::extensions::{load_cloud_vendors, CloudVendorEntry};
 
 /// Zero-config cloud secrets: `~/.susi/cloud.env` (KEY=value lines).
 /// Shell / process env always wins; this file only fills missing keys so an
@@ -64,6 +70,32 @@ pub fn apply_cloud_env_file() {
     }
 }
 
+fn generic_vendor_api_key_env(vendor: &str) -> String {
+    format!(
+        "{}_API_KEY",
+        vendor
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_uppercase()
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>()
+            .trim_matches('_')
+            .replace("__", "_")
+    )
+}
+
+fn find_vendor_entry(needle: &str) -> Option<CloudVendorEntry> {
+    let lower = needle.to_ascii_lowercase();
+    load_cloud_vendors().into_iter().find(|v| {
+        v.id.eq_ignore_ascii_case(&lower)
+            || v.aliases.iter().any(|a| a.eq_ignore_ascii_case(&lower))
+    })
+}
+
 /// Map a user-facing vendor name (or raw `FOO_API_KEY`) to the env var name.
 pub fn resolve_vendor_env_name(vendor: &str) -> Option<String> {
     let trimmed = vendor.trim();
@@ -74,60 +106,21 @@ pub fn resolve_vendor_env_name(vendor: &str) -> Option<String> {
     if upper.ends_with("_API_KEY") || upper.ends_with("_KEY") {
         return Some(upper);
     }
-    let env = match trimmed.to_ascii_lowercase().as_str() {
-        "openai" => "OPENAI_API_KEY",
-        "anthropic" | "claude" => "ANTHROPIC_API_KEY",
-        "gemini" | "google" | "googlegemini" => "GEMINI_API_KEY",
-        "deepseek" => "DEEPSEEK_API_KEY",
-        "kimi" | "moonshot" => "MOONSHOT_API_KEY",
-        "minimax" => "MINIMAX_API_KEY",
-        "qwen" | "dashscope" | "alibaba" => "DASHSCOPE_API_KEY",
-        "zhipu" | "glm" | "bigmodel" => "ZHIPU_API_KEY",
-        "openrouter" => "OPENROUTER_API_KEY",
-        "mistral" => "MISTRAL_API_KEY",
-        "groq" => "GROQ_API_KEY",
-        "together" => "TOGETHER_API_KEY",
-        "fireworks" => "FIREWORKS_API_KEY",
-        other => {
-            // Unknown vendor → `{VENDOR}_API_KEY` so custom OpenAI-compat still works
-            // once they also have an endpoint (or use OpenRouter).
-            return Some(format!(
-                "{}_API_KEY",
-                other
-                    .chars()
-                    .map(|c| {
-                        if c.is_ascii_alphanumeric() {
-                            c.to_ascii_uppercase()
-                        } else {
-                            '_'
-                        }
-                    })
-                    .collect::<String>()
-                    .trim_matches('_')
-                    .replace("__", "_")
-            ));
-        }
-    };
-    Some(env.to_string())
+    if let Some(entry) = find_vendor_entry(trimmed) {
+        return Some(entry.api_key_env);
+    }
+    // Unknown vendor → `{VENDOR}_API_KEY` so custom OpenAI-compat still works
+    // once they also have an endpoint (or use OpenRouter). Protocol-generic
+    // escape hatch — not a hardcoded vendor table.
+    Some(generic_vendor_api_key_env(trimmed))
 }
 
-/// Known vendors the CLI can suggest (name → env var).
-pub fn known_cloud_vendors() -> &'static [(&'static str, &'static str)] {
-    &[
-        ("openai", "OPENAI_API_KEY"),
-        ("anthropic", "ANTHROPIC_API_KEY"),
-        ("gemini", "GEMINI_API_KEY"),
-        ("deepseek", "DEEPSEEK_API_KEY"),
-        ("kimi", "MOONSHOT_API_KEY"),
-        ("minimax", "MINIMAX_API_KEY"),
-        ("qwen", "DASHSCOPE_API_KEY"),
-        ("zhipu", "ZHIPU_API_KEY"),
-        ("openrouter", "OPENROUTER_API_KEY"),
-        ("mistral", "MISTRAL_API_KEY"),
-        ("groq", "GROQ_API_KEY"),
-        ("together", "TOGETHER_API_KEY"),
-        ("fireworks", "FIREWORKS_API_KEY"),
-    ]
+/// Known vendors the CLI can suggest (id → env var), from the active pack.
+pub fn known_cloud_vendors() -> Vec<(String, String)> {
+    load_cloud_vendors()
+        .into_iter()
+        .map(|v| (v.id, v.api_key_env))
+        .collect()
 }
 
 /// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix) and apply
@@ -203,11 +196,11 @@ pub fn list_api_key_status() -> Vec<(String, String, bool)> {
         .map(|c| parse_env_file(&c).into_iter().map(|(k, _)| k).collect())
         .unwrap_or_default();
     known_cloud_vendors()
-        .iter()
+        .into_iter()
         .map(|(vendor, env)| {
-            let present = file_keys.contains(*env)
-                || std::env::var(env).ok().filter(|v| !v.is_empty()).is_some();
-            ((*vendor).to_string(), (*env).to_string(), present)
+            let present = file_keys.contains(&env)
+                || std::env::var(&env).ok().filter(|v| !v.is_empty()).is_some();
+            (vendor, env, present)
         })
         .collect()
 }
@@ -273,59 +266,33 @@ pub fn effective_inference_endpoints() -> Vec<susi_sandbox::manager::InferenceEn
     by_name.into_values().collect()
 }
 
+fn env_nonempty(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.is_empty())
+}
+
 /// Resolve an API key from env / vendor convention (never logs the value).
 pub fn resolve_api_key(api_key_env: &str, endpoint_name: &str) -> String {
     if !api_key_env.is_empty() {
-        if let Ok(v) = std::env::var(api_key_env) {
-            if !v.is_empty() {
-                return v;
-            }
+        if let Some(v) = env_nonempty(api_key_env) {
+            return v;
         }
     }
-    // Convention fallbacks by vendor name (OpenAI-compat + native APIs)
-    let lower = endpoint_name.to_ascii_lowercase();
-    let candidates: &[&str] = match lower.as_str() {
-        "openai" => &["OPENAI_API_KEY"],
-        "anthropic" => &["ANTHROPIC_API_KEY"],
-        "googlegemini" | "gemini" | "google" => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        "deepseek" => &["DEEPSEEK_API_KEY"],
-        "minimax" => &["MINIMAX_API_KEY"],
-        "kimi" | "moonshot" => &["MOONSHOT_API_KEY", "KIMI_API_KEY"],
-        "qwen" | "dashscope" => &["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
-        "zhipu" | "glm" => &["ZHIPU_API_KEY", "BIGMODEL_API_KEY"],
-        "openrouter" => &["OPENROUTER_API_KEY"],
-        "mistral" => &["MISTRAL_API_KEY"],
-        "groq" => &["GROQ_API_KEY"],
-        "together" => &["TOGETHER_API_KEY"],
-        "fireworks" => &["FIREWORKS_API_KEY"],
-        _ => &[],
-    };
-    for env in candidates {
-        if let Ok(v) = std::env::var(env) {
-            if !v.is_empty() {
+    // Pack aliases + primary/alt env names (OpenAI-compat + native APIs).
+    if let Some(entry) = find_vendor_entry(endpoint_name) {
+        if let Some(v) = env_nonempty(&entry.api_key_env) {
+            return v;
+        }
+        for alt in &entry.api_key_env_alts {
+            if let Some(v) = env_nonempty(alt) {
                 return v;
             }
         }
     }
     // Any named endpoint: try `{NAME}_API_KEY` (e.g. DeepSeek → DEEPSEEK_API_KEY).
-    let generic = format!(
-        "{}_API_KEY",
-        endpoint_name
-            .chars()
-            .map(|c| if c.is_ascii_alphanumeric() {
-                c.to_ascii_uppercase()
-            } else {
-                '_'
-            })
-            .collect::<String>()
-            .trim_matches('_')
-            .replace("__", "_")
-    );
+    let generic = generic_vendor_api_key_env(endpoint_name);
     if !generic.is_empty() {
-        if let Ok(v) = std::env::var(&generic) {
-            if !v.is_empty() {
-                return v;
-            }
+        if let Some(v) = env_nonempty(&generic) {
+            return v;
         }
     }
     String::new()
@@ -381,9 +348,31 @@ OPENAI_API_KEY=sk-oai
             Some("GEMINI_API_KEY")
         );
         assert_eq!(
+            resolve_vendor_env_name("claude").as_deref(),
+            Some("ANTHROPIC_API_KEY")
+        );
+        assert_eq!(
             resolve_vendor_env_name("OPENAI_API_KEY").as_deref(),
             Some("OPENAI_API_KEY")
         );
+    }
+
+    #[test]
+    fn resolve_vendor_env_name_generic_escape_hatch() {
+        assert_eq!(
+            resolve_vendor_env_name("acme-cloud").as_deref(),
+            Some("ACME_CLOUD_API_KEY")
+        );
+    }
+
+    #[test]
+    fn known_cloud_vendors_come_from_pack() {
+        let vendors = known_cloud_vendors();
+        assert!(vendors
+            .iter()
+            .any(|(id, env)| id == "openai" && env == "OPENAI_API_KEY"));
+        assert!(vendors.iter().any(|(id, _)| id == "deepseek"));
+        assert!(vendors.len() >= 10);
     }
 
     #[test]

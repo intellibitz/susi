@@ -1,6 +1,7 @@
 pub mod audit_chain;
 pub mod auto_install;
 pub mod daemon_state;
+pub mod extensions;
 pub mod manager;
 pub mod versioned_store;
 pub use manager::SandboxManager;

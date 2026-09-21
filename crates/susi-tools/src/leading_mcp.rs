@@ -56,8 +56,10 @@ impl LeadingMcpManager {
     }
 
     pub fn catalog() -> Result<Vec<LeadingMcpDefinition>> {
-        serde_json::from_str(include_str!("../../../config/leading-mcp.json"))
-            .context("invalid bundled leading-mcp catalog")
+        Ok(susi_sandbox::extensions::load_json_or_bundled(
+            "leading-mcp.json",
+            include_str!("../../../config/leading-mcp.json"),
+        ))
     }
 
     pub fn definition(id: &str) -> Result<LeadingMcpDefinition> {

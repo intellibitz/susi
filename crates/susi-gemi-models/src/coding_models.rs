@@ -62,8 +62,12 @@ impl CodingModelManager {
     }
 
     pub fn catalog() -> Result<Vec<CodingModelDefinition>> {
-        serde_json::from_str(include_str!("../../../config/coding-models.json"))
-            .context("invalid bundled coding-models catalog")
+        // Extension-pack API: host `~/.susi/extensions/<pack>/coding-models.json`
+        // overrides the bundled catalog (manifest may still point at config/).
+        Ok(susi_sandbox::extensions::load_json_or_bundled(
+            "coding-models.json",
+            include_str!("../../../config/coding-models.json"),
+        ))
     }
 
     pub fn definition(id: &str) -> Result<CodingModelDefinition> {

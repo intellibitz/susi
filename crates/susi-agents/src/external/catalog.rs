@@ -85,15 +85,14 @@ pub struct AgentDefinition {
 }
 
 pub fn catalog(kind: CatalogKind) -> Result<Vec<AgentDefinition>> {
-    serde_json::from_str(kind.bundled()).with_context(|| {
-        format!(
-            "invalid bundled {} catalog",
-            match kind {
-                CatalogKind::Execution => "execution-agent",
-                CatalogKind::Framework => "agent-engine",
-            }
-        )
-    })
+    let name = match kind {
+        CatalogKind::Execution => "execution-agents.json",
+        CatalogKind::Framework => "agent-engines.json",
+    };
+    Ok(susi_sandbox::extensions::load_json_or_bundled(
+        name,
+        kind.bundled(),
+    ))
 }
 
 pub fn definition(kind: CatalogKind, id: &str) -> Result<AgentDefinition> {

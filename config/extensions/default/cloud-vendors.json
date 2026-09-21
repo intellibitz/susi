@@ -1,0 +1,71 @@
+[
+  {
+    "id": "openai",
+    "aliases": ["openai"],
+    "api_key_env": "OPENAI_API_KEY"
+  },
+  {
+    "id": "anthropic",
+    "aliases": ["anthropic", "claude"],
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  {
+    "id": "gemini",
+    "aliases": ["gemini", "google", "googlegemini"],
+    "api_key_env": "GEMINI_API_KEY",
+    "api_key_env_alts": ["GOOGLE_API_KEY"]
+  },
+  {
+    "id": "deepseek",
+    "aliases": ["deepseek"],
+    "api_key_env": "DEEPSEEK_API_KEY"
+  },
+  {
+    "id": "kimi",
+    "aliases": ["kimi", "moonshot"],
+    "api_key_env": "MOONSHOT_API_KEY",
+    "api_key_env_alts": ["KIMI_API_KEY"]
+  },
+  {
+    "id": "minimax",
+    "aliases": ["minimax"],
+    "api_key_env": "MINIMAX_API_KEY"
+  },
+  {
+    "id": "qwen",
+    "aliases": ["qwen", "dashscope", "alibaba"],
+    "api_key_env": "DASHSCOPE_API_KEY",
+    "api_key_env_alts": ["QWEN_API_KEY"]
+  },
+  {
+    "id": "zhipu",
+    "aliases": ["zhipu", "glm", "bigmodel"],
+    "api_key_env": "ZHIPU_API_KEY",
+    "api_key_env_alts": ["BIGMODEL_API_KEY"]
+  },
+  {
+    "id": "openrouter",
+    "aliases": ["openrouter"],
+    "api_key_env": "OPENROUTER_API_KEY"
+  },
+  {
+    "id": "mistral",
+    "aliases": ["mistral"],
+    "api_key_env": "MISTRAL_API_KEY"
+  },
+  {
+    "id": "groq",
+    "aliases": ["groq"],
+    "api_key_env": "GROQ_API_KEY"
+  },
+  {
+    "id": "together",
+    "aliases": ["together"],
+    "api_key_env": "TOGETHER_API_KEY"
+  },
+  {
+    "id": "fireworks",
+    "aliases": ["fireworks"],
+    "api_key_env": "FIREWORKS_API_KEY"
+  }
+]
