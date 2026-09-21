@@ -1,11 +1,11 @@
 {
   "schema": "susi/identity/v1",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "title": "SUSI Substrate Identity",
-  "description": "This ledger defines the engine's constitutional mandates, component\ntopology, execution model, and release/runtime protocols. It is the source\nof truth compiled into the binary at build time (see `susi-gawd-agents build.rs \u2192 AlphaSelf`).\nThe public host contract in `README.md` must stay consistent with this document\nand with `susi_paths::ports` / `SusiDaemon` \u2014 when they disagree, source wins\nand both documents are updated in the same change.",
+  "description": "This ledger defines the engine's constitutional mandates, component\ntopology, execution model, and release/runtime protocols. It is the source\nof truth compiled into the binary at build time (see `susi-gawd-agents build.rs → AlphaSelf`).\nThe public host contract in `README.md` must stay consistent with this document\nand with `susi_paths::ports` / `SusiDaemon` — when they disagree, source wins\nand both documents are updated in the same change.",
   "audience": "agent-governance",
-  "canonical_addressing": "Canonical addressing: mandates in this document are cited as `Mandate N` (Pillar I) or `Pillar <N> item N` (Pillars II\u2013IV). Source comments predating this document's current structure used to also cite `Rule N`, `Aspiration N`, and `ENGINE-N` \u2014 none of those schemes ever corresponded to this document's current numbering, and no reconciliation table exists. As of 2026-09-18 those stale citations were reconciled across every file that carried them. This happened in two passes, and the first pass's own \"zero remain\" claim was itself wrong: a case-sensitive sweep found 96 mixed-case `Rule N`/`Aspiration N`/`ENGINE-N` occurrences across 19 files and fixed all of them, but the sweep's own regex only matched `Rule` (not `RULE`), so it silently missed 17 further all-caps `RULE N` occurrences across 10 files \u2014 caught and fixed in a second pass once discovered. Combined, every citation was either stripped down to its still-accurate descriptive text (the numbered scheme dropped, the reasoning kept \u2014 the large majority) or, in the handful of cases where the reference was verifiably the same concept under a new name, rewritten to its real current citation: `admin.rs`'s and `evolution.rs`'s/`reflex_synth.rs`'s \"Motion Rule (Protocol)\" citations to `Pillar IV item 3` and `Mandate 20` respectively (two genuinely distinct concepts that historically shared the same name, per Mandate 20's own collision note), and `security.rs`'s/`net_guard.rs`'s exact-title matches to `Mandate 10`/`Mandate 12`. No correspondence was ever invented without a verifiable match \u2014 where a plausible-looking old number didn't match a current mandate's substance, the number was dropped rather than guessed. Two test-fixture strings in `amas.rs` containing the literal words \"test aspiration 23\" (simulated mission-goal text, not code comments) were correctly left untouched by both passes.",
-  "citation_drift_note": "A related, distinct kind of drift \u2014 comments citing `Mandate N` using the *current* terminology with a number that doesn't match this document's actual current mandate at that number \u2014 was scoped and fixed separately (`EV-2022920-031`): 5 of 41 such citations were wrong, corrected or stripped the same way.",
+  "canonical_addressing": "Canonical addressing: mandates in this document are cited as `Mandate N` (Pillar I) or `Pillar <N> item N` (Pillars II–IV). Source comments predating this document's current structure used to also cite `Rule N`, `Aspiration N`, and `ENGINE-N` — none of those schemes ever corresponded to this document's current numbering, and no reconciliation table exists. As of 2026-09-18 those stale citations were reconciled across every file that carried them. This happened in two passes, and the first pass's own \"zero remain\" claim was itself wrong: a case-sensitive sweep found 96 mixed-case `Rule N`/`Aspiration N`/`ENGINE-N` occurrences across 19 files and fixed all of them, but the sweep's own regex only matched `Rule` (not `RULE`), so it silently missed 17 further all-caps `RULE N` occurrences across 10 files — caught and fixed in a second pass once discovered. Combined, every citation was either stripped down to its still-accurate descriptive text (the numbered scheme dropped, the reasoning kept — the large majority) or, in the handful of cases where the reference was verifiably the same concept under a new name, rewritten to its real current citation: `admin.rs`'s and `evolution.rs`'s/`reflex_synth.rs`'s \"Motion Rule (Protocol)\" citations to `Pillar IV item 3` and `Mandate 20` respectively (two genuinely distinct concepts that historically shared the same name, per Mandate 20's own collision note), and `security.rs`'s/`net_guard.rs`'s exact-title matches to `Mandate 10`/`Mandate 12`. No correspondence was ever invented without a verifiable match — where a plausible-looking old number didn't match a current mandate's substance, the number was dropped rather than guessed. Two test-fixture strings in `amas.rs` containing the literal words \"test aspiration 23\" (simulated mission-goal text, not code comments) were correctly left untouched by both passes.",
+  "citation_drift_note": "A related, distinct kind of drift — comments citing `Mandate N` using the *current* terminology with a number that doesn't match this document's actual current mandate at that number — was scoped and fixed separately (`EV-2022920-031`): 5 of 41 such citations were wrong, corrected or stripped the same way.",
   "host_contract": {
     "ports": [
       {
@@ -26,12 +26,12 @@
       }
     ],
     "notes": [
-      "**`global susi`** \u2014 background daemon bound to the host substrate (`~/.susi` / `SusiDirs::substrate_home`), not to a project folder. Owns ports, models, and lock state.",
-      "**`susi` CLI** \u2014 jailed to the caller's cwd; intents run against that workspace.",
-      "**Canonical binary** \u2014 `~/.susi/bin/susi` (hot-reloads when `binary.hash` changes).",
-      "**Control plane** \u2014 `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090\u20139093 answer and print the endpoints.",
+      "**`global susi`** — background daemon bound to the host substrate (`~/.susi` / `SusiDirs::substrate_home`), not to a project folder. Owns ports, models, and lock state.",
+      "**`susi` CLI** — jailed to the caller's cwd; intents run against that workspace.",
+      "**Canonical binary** — `~/.susi/bin/susi` (hot-reloads when `binary.hash` changes).",
+      "**Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090–9093 answer and print the endpoints.",
       "Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.",
-      "Peer scouts must not bind 9092 \u2014 only the daemon owns the host-contract UDP port."
+      "Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port."
     ]
   },
   "foundation_pillars": [
@@ -88,7 +88,7 @@
     {
       "id": 11,
       "title": "Host contract",
-      "summary": "fixed ports 9090\u20139093; never silent drift."
+      "summary": "fixed ports 9090–9093; never silent drift."
     },
     {
       "id": 12,
@@ -120,12 +120,12 @@
     {
       "id": 3,
       "title": "Traceable reasoning",
-      "summary": "thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies \u2014 Mandate 38); tool receipts also append to `.susi/receipt_archive.jsonl` (hashes/provenance only \u2014 not truth authority)."
+      "summary": "thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38); tool receipts also append to `.susi/receipt_archive.jsonl` (hashes/provenance only — not truth authority)."
     },
     {
       "id": 4,
       "title": "Concurrency-first",
-      "summary": "Tokio, Rayon, Crossbeam, parking_lot on real hardware. Swarm dispatch uses Rayon work-stealing; daemon/HTTP use Tokio; pulse queue uses Crossbeam `SegQueue`; shared state uses `parking_lot` / DashMap \u2014 not single-threaded simulation."
+      "summary": "Tokio, Rayon, Crossbeam, parking_lot on real hardware. Swarm dispatch uses Rayon work-stealing; daemon/HTTP use Tokio; pulse queue uses Crossbeam `SegQueue`; shared state uses `parking_lot` / DashMap — not single-threaded simulation."
     }
   ],
   "pillars": {
@@ -152,7 +152,7 @@
         {
           "id": 4,
           "title": "Sub-2ms Client Reflex",
-          "imperative": "A *client* (CLI caller, IDE, HTTP/MCP caller) must never be left waiting past 2ms for acknowledgment \u2014 this governs the client-facing response, not the total wall-clock time of the work itself; see Mandate 32 for how that's achieved (instant return, streaming, or an async task handle). Internal primitive operations (a lock acquisition, a config read, a hashmap lookup) should stay sub-millisecond, but a multi-agent swarm mission's true completion time is bounded by inference and I/O, not this mandate \u2014 measuring end-to-end mission latency against a 2ms ceiling produces guaranteed, meaningless \"violation\" telemetry on every non-trivial mission and must not be done (see Mandate 26)."
+          "imperative": "A *client* (CLI caller, IDE, HTTP/MCP caller) must never be left waiting past 2ms for acknowledgment — this governs the client-facing response, not the total wall-clock time of the work itself; see Mandate 32 for how that's achieved (instant return, streaming, or an async task handle). Internal primitive operations (a lock acquisition, a config read, a hashmap lookup) should stay sub-millisecond, but a multi-agent swarm mission's true completion time is bounded by inference and I/O, not this mandate — measuring end-to-end mission latency against a 2ms ceiling produces guaranteed, meaningless \"violation\" telemetry on every non-trivial mission and must not be done (see Mandate 26)."
         },
         {
           "id": 5,
@@ -172,7 +172,7 @@
         {
           "id": 8,
           "title": "Epistemic Chain of Truth",
-          "imperative": "Source code and empirical runtime results outrank prior training knowledge, memory, or assumption. When they conflict, the freshly-read source or the freshly-run result wins, and prior belief is discarded, not defended. Mission completion requires absolute evidence only: live `EvidenceSession` / `ToolReceipt` citations, compiled binary reads, or native verified receipts \u2014 models never certify facts (`TruthTransformer`)."
+          "imperative": "Source code and empirical runtime results outrank prior training knowledge, memory, or assumption. When they conflict, the freshly-read source or the freshly-run result wins, and prior belief is discarded, not defended. Mission completion requires absolute evidence only: live `EvidenceSession` / `ToolReceipt` citations, compiled binary reads, or native verified receipts — models never certify facts (`TruthTransformer`)."
         },
         {
           "id": 9,
@@ -197,7 +197,7 @@
         {
           "id": 13,
           "title": "Daemon Persistence",
-          "imperative": "Sustain a continuous, resilient background process bound to the host substrate, owning the hard-contract ports 9090\u20139093 (GMCP/GEMI/UDP/alias) plus models and lock state. Never silently remap those ports."
+          "imperative": "Sustain a continuous, resilient background process bound to the host substrate, owning the hard-contract ports 9090–9093 (GMCP/GEMI/UDP/alias) plus models and lock state. Never silently remap those ports."
         },
         {
           "id": 14,
@@ -232,7 +232,7 @@
         {
           "id": 20,
           "title": "Alpha-Self Evolution Order",
-          "imperative": "Self-modification workflow strictly follows: Motion (the triggering intent) -> Architecture (design) -> Structure (implementation) -> Logic (verification). Not to be confused with the release \"Motion Rule\" (Pillar IV item 3), a distinct, unrelated CI sequence that happens to share the word \"Motion\" \u2014 the two were previously both called \"The Motion Rule,\" a naming collision that made this document self-contradictory about what \"The Motion Rule\" means."
+          "imperative": "Self-modification workflow strictly follows: Motion (the triggering intent) -> Architecture (design) -> Structure (implementation) -> Logic (verification). Not to be confused with the release \"Motion Rule\" (Pillar IV item 3), a distinct, unrelated CI sequence that happens to share the word \"Motion\" — the two were previously both called \"The Motion Rule,\" a naming collision that made this document self-contradictory about what \"The Motion Rule\" means."
         },
         {
           "id": 21,
@@ -242,12 +242,12 @@
         {
           "id": 22,
           "title": "Self-Healing Reflex",
-          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives \u2014 if a foreign process owns 9090\u20139093, bind fails closed."
+          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives — if a foreign process owns 9090–9093, bind fails closed."
         },
         {
           "id": 23,
           "title": "Substrate Purity",
-          "imperative": "Protocol-agnostic admission via registries and config \u2014 OpenAI-compat / Anthropic / Gemini / Triton engines, MCP (stdio/HTTP), and peer agents (`managed` / `cli` / `openai_chat` / `http` / `a2a`). No static domain logic in core; local Candle remains llama/qwen2 GGUF-scoped."
+          "imperative": "Protocol-agnostic admission via registries and config — OpenAI-compat / Anthropic / Gemini / Triton engines, MCP (stdio/HTTP), and peer agents (`managed` / `cli` / `openai_chat` / `http` / `a2a`). No static domain logic in core; local Candle remains llama/qwen2 GGUF-scoped."
         },
         {
           "id": 24,
@@ -257,7 +257,7 @@
         {
           "id": 25,
           "title": "Destructive Command Guard",
-          "imperative": "Every code path capable of a destructive filesystem, git, or process operation \u2014 not only tool-call arguments passed through `exec_command` \u2014 must be checked against `SafetyDetector`'s destructive-command patterns (e.g. `rm -rf /`, `rm -rf ~`) before it runs, and any such operation must additionally require an explicit, unambiguous intent sentinel rather than firing on incidental keyword presence in free-text goal input (see Mandate 41). A destructive-pattern list that isn't wired to every place capable of performing that class of operation is a guard that only looks like one; this was found violated in practice (`AdminAgent`'s uninstall action performed an `rm -rf`-equivalent on `~/.susi` without ever consulting `SafetyDetector`, reachable by any goal string containing the word \"remove\") and fixed, but the general principle \u2014 audit coverage must match capability, not just intent \u2014 is the actual mandate."
+          "imperative": "Every code path capable of a destructive filesystem, git, or process operation — not only tool-call arguments passed through `exec_command` — must be checked against `SafetyDetector`'s destructive-command patterns (e.g. `rm -rf /`, `rm -rf ~`) before it runs, and any such operation must additionally require an explicit, unambiguous intent sentinel rather than firing on incidental keyword presence in free-text goal input (see Mandate 41). A destructive-pattern list that isn't wired to every place capable of performing that class of operation is a guard that only looks like one; this was found violated in practice (`AdminAgent`'s uninstall action performed an `rm -rf`-equivalent on `~/.susi` without ever consulting `SafetyDetector`, reachable by any goal string containing the word \"remove\") and fixed, but the general principle — audit coverage must match capability, not just intent — is the actual mandate."
         },
         {
           "id": 26,
@@ -302,12 +302,12 @@
         {
           "id": 34,
           "title": "The 3 Innovation Pillars of Excellence",
-          "imperative": "- **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores (agent-of-agents orchestration).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` \u2014 not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models`**: Provides non-blocking resumable background downloads and employs a dynamic runtime Hugging Face discovery algorithm to construct a progressive, optimized model ladder based on available host hardware capacity, fully escaping static hardcoded constraints."
+          "imperative": "- **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores (agent-of-agents orchestration).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` — not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models`**: Provides non-blocking resumable background downloads and employs a dynamic runtime Hugging Face discovery algorithm to construct a progressive, optimized model ladder based on available host hardware capacity, fully escaping static hardcoded constraints."
         },
         {
           "id": 35,
           "title": "Registry + Trait + Config Substrate Pattern (\"100% Dynamic Config - Zero Hardcoded Structs\")",
-          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source code is strictly prohibited. Adding a new model, tool, or provider must be doable 100% via configuration or self-registering traits without editing source code. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation \u2014 its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct \u2014 anything read from and, especially, written back to a user-editable JSON file \u2014 must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) \u2014 `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces \u2014 those are correctly typed and closed. **Exception (Host contract):** public ports 9090\u20139093 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable \u2014 Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract."
+          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source code is strictly prohibited. Adding a new model, tool, or provider must be doable 100% via configuration or self-registering traits without editing source code. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation — its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct — anything read from and, especially, written back to a user-editable JSON file — must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) — `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces — those are correctly typed and closed. **Exception (Host contract):** public ports 9090–9093 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable — Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract."
         },
         {
           "id": 36,
@@ -317,12 +317,12 @@
         {
           "id": 37,
           "title": "Governance-First Sequencing",
-          "imperative": "In any swarm dispatch, `SafetyAgent` and `SecurityAgent` must clear the goal before any execution-capable agent in the same mission is allowed to run \u2014 they never race in the same parallel batch as execution-capable agents, since a destructive or leaking action could otherwise complete before the veto lands. This is a scheduling guarantee, not just a policy statement: governance agents are dispatched and awaited first."
+          "imperative": "In any swarm dispatch, `SafetyAgent` and `SecurityAgent` must clear the goal before any execution-capable agent in the same mission is allowed to run — they never race in the same parallel batch as execution-capable agents, since a destructive or leaking action could otherwise complete before the veto lands. This is a scheduling guarantee, not just a policy statement: governance agents are dispatched and awaited first."
         },
         {
           "id": 38,
           "title": "Credential Masking",
-          "imperative": "Text that will be persisted to telemetry, audit logs, or any other durable record must have configured secret-token patterns redacted (`SecurityDetector::redact`) before it is written \u2014 not merely blocked at the point of an explicit \"send this secret\" action. Mandate 26 (full telemetry visibility) and Mandate 10 (no secret leaks) both hold: redact the secret, don't suppress the surrounding record."
+          "imperative": "Text that will be persisted to telemetry, audit logs, or any other durable record must have configured secret-token patterns redacted (`SecurityDetector::redact`) before it is written — not merely blocked at the point of an explicit \"send this secret\" action. Mandate 26 (full telemetry visibility) and Mandate 10 (no secret leaks) both hold: redact the secret, don't suppress the surrounding record."
         },
         {
           "id": 39,
@@ -332,17 +332,17 @@
         {
           "id": 40,
           "title": "World-Facing Surface Authentication",
-          "imperative": "Any network-facing HTTP surface (GMCP HTTP, GEMI REST, or any future equivalent) must support a required bearer-token check (`api_auth_token`) and a per-client rate limit (`rate_limit_per_minute`), both config-driven and both checked before any route is dispatched except CORS preflight and an unauthenticated liveness probe. The daemon **seeds** a host token on first start (`SusiConfig::ensure_api_auth_token_seeded` \u2192 `~/.susi/api_token`); when a token is configured, every HTTP peer (including localhost) must present `Authorization: Bearer <token>`. Before seeding, non-loopback peers are denied (fail closed on the wire). A world-facing surface with no way to require authentication is not a theoretical gap \u2014 this substrate shipped with exactly that gap until it was found and closed."
+          "imperative": "Any network-facing HTTP surface (GMCP HTTP, GEMI REST, or any future equivalent) must support a required bearer-token check (`api_auth_token`) and a per-client rate limit (`rate_limit_per_minute`), both config-driven and both checked before any route is dispatched except CORS preflight and an unauthenticated liveness probe. The daemon **seeds** a host token on first start (`SusiConfig::ensure_api_auth_token_seeded` → `~/.susi/api_token`); when a token is configured, every HTTP peer (including localhost) must present `Authorization: Bearer <token>`. Before seeding, non-loopback peers are denied (fail closed on the wire). A world-facing surface with no way to require authentication is not a theoretical gap — this substrate shipped with exactly that gap until it was found and closed."
         },
         {
           "id": 41,
           "title": "Untrusted Input Boundary",
-          "imperative": "Goal/intent text and any LLM-synthesized artifact derived from it (a specialist agent's `description`, a tool argument, a blackboard entry) must be treated as adversarial once it can originate from an unauthenticated or external caller. Concretely: (a) a mutating or destructive operation must never fire on incidental keyword presence in free-text goal input \u2014 it requires an explicit, unambiguous intent sentinel (the `admin pulse:` prefix convention); (b) any agent profile synthesized by an LLM from goal text must be sanitized (bounded field lengths, `is_core` forced false, governance-checked) before it is persisted or ever fed back into a future mission's prompt, since persisted state becomes part of every subsequent mission that recruits it. This mandate exists because both failure modes were found present in shipped code and fixed; it generalizes the fix so the same class of bug can't recur in a new code path."
+          "imperative": "Goal/intent text and any LLM-synthesized artifact derived from it (a specialist agent's `description`, a tool argument, a blackboard entry) must be treated as adversarial once it can originate from an unauthenticated or external caller. Concretely: (a) a mutating or destructive operation must never fire on incidental keyword presence in free-text goal input — it requires an explicit, unambiguous intent sentinel (the `admin pulse:` prefix convention); (b) any agent profile synthesized by an LLM from goal text must be sanitized (bounded field lengths, `is_core` forced false, governance-checked) before it is persisted or ever fed back into a future mission's prompt, since persisted state becomes part of every subsequent mission that recruits it. This mandate exists because both failure modes were found present in shipped code and fixed; it generalizes the fix so the same class of bug can't recur in a new code path."
         },
         {
           "id": 42,
           "title": "Fallible Error Handling",
-          "imperative": "Zero `.unwrap()`/`.expect()`/`panic!()` in non-test code, except at a call site carrying a comment stating the specific invariant that makes the panic path unreachable (e.g. \"safe: length checked above\", \"safe: regex is a compile-time literal\"). Everywhere else, the fallible path must propagate a real `Result`/`EaiResult` via `?` rather than crash the calling thread \u2014 this substrate's daemon and swarm-dispatch paths (Mandate 5, Mandate 13) cannot afford an unrecoverable panic from what should have been a recoverable error. `#[cfg(test)]` code is explicitly exempt: an `.unwrap()` on a known-good test fixture is idiomatic and correct, not a violation \u2014 this mandate governs production code paths, not test assertions. This is phrased as a scoped rule rather than a bare \"no unwrap, ever\" specifically because the latter would be false today (269 call sites existed in `src/` when this mandate was written) and Mandate 1 (No Lies) forbids writing a false claim into this document; this mandate is the target an ongoing triage is converging on, not a claim of present compliance. Four triage batches so far: `EV-2022920-047` (`net_guard.rs` found already fully compliant despite a raw count of 7 \u2014 every site inside `#[cfg(test)]`; `reflex_synth.rs` had 3 real non-test sites, 2 fixed and 1 given a justifying comment), `EV-2022920-048` (`qwen2_split.rs` also found already fully compliant despite a raw count of 51; `daemon/server.rs`'s 2 real non-test sites fixed \u2014 notably `run_daemon_loop`'s config-load `.expect()`, more severe than a typical unwrap because `panic = \"abort\"` means it aborted the whole daemon process, not just a thread), `EV-2022920-049` (`agents.rs`'s and `speculative.rs`'s one and two real non-test sites respectively, both verified genuinely safe by construction and comment-justified rather than rewritten), and `EV-2022920-050` (`bloat_audit.rs` found to have zero real sites \u2014 its raw count of 42 was almost entirely the tool's own report-label strings describing unwrap/expect/clone counts, not actual calls; `manager.rs`'s 4 real sites are all the same bundled-default-JSON pattern, comment-justified once and referenced from the other three rather than repeated). A fifth batch (EV-2022922-098) checked `.expect(`/`panic!(` across eight more crates (susi-sandbox, susi-gemi, susi-gemi-models, susi-agents, susi-core, susi-gawd, susi-gmcp, susi-gawd-agents) plus re-checked `.unwrap()` in susi-core/susi-agents specifically, and found only 14 real non-test sites total across all of that (not the dozens the earlier \"~139 remain\" estimate implied for a batch of this size) \u2014 6 already carried a Mandate 42 justification comment (sandbox/manager.rs x5, susi-agents/registry.rs x1), and the remaining 8 (susi-sandbox/extensions.rs x5, susi-core/bus.rs x2, susi-core/truth.rs x1) were verified genuinely safe by construction and given one. Zero open non-test sites remain in those eight crates as of this batch. The old \"~139 remain\" figure predates this batch, was never re-derived from a full re-grep, and should not be trusted as current \u2014 five crates (susi-daemon, susi-gawd-swarm, susi-server, susi-tools, susi-native) have not yet been split into real vs. test-only sites at all, so the true remaining count is presently unknown rather than ~139; the next batch should start there."
+          "imperative": "Zero `.unwrap()`/`.expect()`/`panic!()` in non-test code, except at a call site carrying a comment stating the specific invariant that makes the panic path unreachable (e.g. \"safe: length checked above\", \"safe: regex is a compile-time literal\"). Everywhere else, the fallible path must propagate a real `Result`/`EaiResult` via `?` rather than crash the calling thread — this substrate's daemon and swarm-dispatch paths (Mandate 5, Mandate 13) cannot afford an unrecoverable panic from what should have been a recoverable error. `#[cfg(test)]` code is explicitly exempt: an `.unwrap()` on a known-good test fixture is idiomatic and correct, not a violation — this mandate governs production code paths, not test assertions. This is phrased as a scoped rule rather than a bare \"no unwrap, ever\" specifically because the latter would be false today (269 call sites existed in `src/` when this mandate was written) and Mandate 1 (No Lies) forbids writing a false claim into this document; this mandate is the target an ongoing triage is converging on, not a claim of present compliance. Four triage batches so far: `EV-2022920-047` (`net_guard.rs` found already fully compliant despite a raw count of 7 — every site inside `#[cfg(test)]`; `reflex_synth.rs` had 3 real non-test sites, 2 fixed and 1 given a justifying comment), `EV-2022920-048` (`qwen2_split.rs` also found already fully compliant despite a raw count of 51; `daemon/server.rs`'s 2 real non-test sites fixed — notably `run_daemon_loop`'s config-load `.expect()`, more severe than a typical unwrap because `panic = \"abort\"` means it aborted the whole daemon process, not just a thread), `EV-2022920-049` (`agents.rs`'s and `speculative.rs`'s one and two real non-test sites respectively, both verified genuinely safe by construction and comment-justified rather than rewritten), and `EV-2022920-050` (`bloat_audit.rs` found to have zero real sites — its raw count of 42 was almost entirely the tool's own report-label strings describing unwrap/expect/clone counts, not actual calls; `manager.rs`'s 4 real sites are all the same bundled-default-JSON pattern, comment-justified once and referenced from the other three rather than repeated). A fifth batch (EV-2022922-098) checked `.expect(`/`panic!(` across eight more crates (susi-sandbox, susi-gemi, susi-gemi-models, susi-agents, susi-core, susi-gawd, susi-gmcp, susi-gawd-agents) plus re-checked `.unwrap()` in susi-core/susi-agents specifically, and found only 14 real non-test sites total across all of that (not the dozens the earlier \"~139 remain\" estimate implied for a batch of this size) — 6 already carried a Mandate 42 justification comment (sandbox/manager.rs x5, susi-agents/registry.rs x1), and the remaining 8 (susi-sandbox/extensions.rs x5, susi-core/bus.rs x2, susi-core/truth.rs x1) were verified genuinely safe by construction and given one. Zero open non-test sites remain in those eight crates as of this batch. The old \"~139 remain\" figure predates this batch, was never re-derived from a full re-grep, and should not be trusted as current — five crates (susi-daemon, susi-gawd-swarm, susi-server, susi-tools, susi-native) have not yet been split into real vs. test-only sites at all, so the true remaining count is presently unknown rather than ~139; the next batch should start there."
         }
       ]
     },
@@ -369,12 +369,12 @@
         {
           "symbol": "EvolutionManager",
           "tier": 1,
-          "function": "Substrate self-healing: runs the test-driven evolutionary cycle that is Mandate 20's \"Alpha-Self Evolution Order\" (not Pillar IV's release \"Motion Rule\" \u2014 see that mandate's naming-collision note)."
+          "function": "Substrate self-healing: runs the test-driven evolutionary cycle that is Mandate 20's \"Alpha-Self Evolution Order\" (not Pillar IV's release \"Motion Rule\" — see that mandate's naming-collision note)."
         },
         {
           "symbol": "SusiDaemon",
           "tier": 1,
-          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090\u20139093 and spawns from `~/.susi/bin/susi`."
+          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090–9093 and spawns from `~/.susi/bin/susi`."
         },
         {
           "symbol": "SubstrateKernelLoader",
@@ -489,7 +489,7 @@
         {
           "symbol": "TruthTransformer",
           "tier": 1,
-          "function": "Absolute-truth gate (`susi-core::truth`): accepts only ledger citations, compiled reads, or native verified receipts \u2014 models never certify facts."
+          "function": "Absolute-truth gate (`susi-core::truth`): accepts only ledger citations, compiled reads, or native verified receipts — models never certify facts."
         },
         {
           "symbol": "Evidence IR Substrate",
@@ -521,7 +521,7 @@
         {
           "id": 4,
           "title": "The 3 Priming Spheres",
-          "imperative": "- **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware/OS, provisions model ladder weights, owns host-contract ports 9090\u20139093, and maintains global evidence ledgers.\n- **`susi` Primes `AlphaWorld`**: Unconditionally jailed to `cwd`, `susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).\n- **`susi` Primes `susi repo`**: When `cwd` is the engine's source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`."
+          "imperative": "- **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware/OS, provisions model ladder weights, owns host-contract ports 9090–9093, and maintains global evidence ledgers.\n- **`susi` Primes `AlphaWorld`**: Unconditionally jailed to `cwd`, `susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).\n- **`susi` Primes `susi repo`**: When `cwd` is the engine's source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`."
         }
       ]
     },
