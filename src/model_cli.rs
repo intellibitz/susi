@@ -32,12 +32,10 @@ pub enum ModelCommands {
 }
 
 fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    let text = serde_json::to_string_pretty(value)?;
-    let redacted = susi_core::redact::redact_patterns(
-        &["sk-".into(), "ghp_".into(), "github_pat_".into()],
-        &text,
+    println!(
+        "{}",
+        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
     );
-    println!("{redacted}");
     Ok(())
 }
 

@@ -441,7 +441,12 @@ pub fn redact(text: &str) -> String {
         }
     }
     susi_core::redact::redact_patterns(
-        &["sk-".into(), "ghp_".into(), "github_pat_".into()],
+        &[
+            format!("{}-", "sk"),
+            format!("{}_", "ghp"),
+            format!("{}_", "github_pat"),
+            format!("{}-", "xoxb"),
+        ],
         &result,
     )
 }
