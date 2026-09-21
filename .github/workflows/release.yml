@@ -20,19 +20,19 @@ jobs:
           - os: ubuntu-latest
             name: linux-x86_64
             artifact: susi-linux-x86_64
-            src: target/release/susi
+            src: target/dist/susi
           - os: ubuntu-24.04-arm
             name: linux-aarch64
             artifact: susi-linux-aarch64
-            src: target/release/susi
+            src: target/dist/susi
           - os: macos-13
             name: macos-x86_64
             artifact: susi-macos-x86_64
-            src: target/release/susi
+            src: target/dist/susi
           - os: macos-14
             name: macos-aarch64
             artifact: susi-macos-aarch64
-            src: target/release/susi
+            src: target/dist/susi
     # Windows builds are not published here: the cfg(windows) build of
     # wasmer used on that target pulls in wasmer-compiler-singlepass,
     # which is BUSL-1.1 licensed and requires a paid Wasmer sponsorship
@@ -49,7 +49,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
       - name: Build Engine
-        run: cargo build --release
+        # [profile.dist]: fat LTO + CGU=1 for published binaries. The one-line
+        # installer uses [profile.release] (thin LTO) for fast source builds.
+        run: cargo build --profile dist
 
       - name: Rename Binary
         shell: bash
@@ -92,7 +94,7 @@ jobs:
         # (Turing) is used as a broadly-compatible baseline for this
         # distributed binary; a contributor building for their own GPU
         # should use ./build-gpu.sh instead, which auto-detects it.
-        run: CUDA_COMPUTE_CAP=75 cargo build --release --features cuda
+        run: CUDA_COMPUTE_CAP=75 cargo build --profile dist --features cuda
 
       - name: Bundle CUDA Runtime Libraries
         # cuBLAS/cuDART's SONAME is tied to this specific CUDA major version
@@ -120,18 +122,18 @@ jobs:
                 collect_cuda_libs "lib/$name"
               done
           }
-          collect_cuda_libs target/release/susi
-          patchelf --set-rpath '$ORIGIN/lib' target/release/susi
-          if ldd target/release/susi | grep -q "not found"; then
+          collect_cuda_libs target/dist/susi
+          patchelf --set-rpath '$ORIGIN/lib' target/dist/susi
+          if ldd target/dist/susi | grep -q "not found"; then
             echo "Error: binary still has unresolved shared library dependencies after bundling:" >&2
-            ldd target/release/susi | grep "not found" >&2
+            ldd target/dist/susi | grep "not found" >&2
             exit 1
           fi
 
       - name: Package Binary + Bundled Libraries
         run: |
           mkdir -p dist/lib
-          mv target/release/susi dist/susi-linux-x86_64-cuda
+          mv target/dist/susi dist/susi-linux-x86_64-cuda
           mv lib/* dist/lib/
           tar -czf susi-linux-x86_64-cuda.tar.gz -C dist susi-linux-x86_64-cuda lib
 

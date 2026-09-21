@@ -169,11 +169,23 @@ otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otl
 
 [profile.release]
 opt-level = 3 # High performance
-lto = "fat" # Thin LTO: 10x faster compilation, low RAM overhead, eliminates link-time hangs
-codegen-units = 1 # Hardware-saturated parallel codegen
-incremental = false # Speed up iterative builds
+# Thin LTO (not fat): ~10x faster compile/link than fat LTO on this workspace,
+# low RAM, avoids multi-hour link hangs on large crates (susi-daemon → candle/
+# wasmer/…). Cross-crate opts still apply; runtime delta vs fat is small.
+lto = "thin"
+# Parallel LLVM codegen within each crate. codegen-units=1 serializes the
+# heaviest units (susi-daemon, candle, wasmer) and dominates cold install time.
+codegen-units = 16
+incremental = false # Release artifacts should not carry incremental caches
 panic = "abort"
 strip = true
+
+# Max-opt distribution profile for published release binaries (CI). Not used
+# by the one-line installer — that path stays on [profile.release] above.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
 
 [profile.dev]
 # Optimize dependencies in debug builds. This greatly improves runtime performance of

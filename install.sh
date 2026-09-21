@@ -236,22 +236,10 @@ if [ "$INSTALLED" = "0" ]; then
         fi
     fi
 
-    # neural reflex synthesizer target
-    if command -v rustup >/dev/null 2>&1 || [ -f "$HOME/.cargo/bin/rustup" ]; then
-        echo "Installing wasm32-wasip1 toolchain for Neural Reflex Generation..."
-        if command -v rustup >/dev/null 2>&1; then
-            rustup target add wasm32-wasip1 || true
-        else
-            "$HOME/.cargo/bin/rustup" target add wasm32-wasip1 || true
-        fi
-    fi
-
     if command -v cargo >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
         echo "Building release binaries from source. This crate has a large dependency"
-        echo "tree (candle, wasmer, tantivy, tonic, ...) — a cold build with no cargo"
-        echo "cache commonly takes 15-30+ minutes. This is expected, not a hang; a"
-        echo "heartbeat below confirms the build is still active even during a long"
-        echo "silent stretch on a single large crate."
+        echo "tree (candle, wasmer, tantivy, ...) — a cold build commonly takes several"
+        echo "minutes. A heartbeat below confirms progress during long silent stretches."
 
         # 100% GPU Hardware Interrogation Build Strategy
         BUILD_FEATURES=""
@@ -294,6 +282,43 @@ if [ "$INSTALLED" = "0" ]; then
             fi
         fi
 
+        # Prefer a fast linker when available — mold/lld cut release link time
+        # dramatically on the heavy final crate (susi → susi-daemon → …). Do not
+        # override an explicit user RUSTFLAGS; append only.
+        CARGO_WRAPPER=()
+        if [[ "$PLATFORM" == "linux" ]]; then
+            if command -v mold >/dev/null 2>&1; then
+                # mold -run intercepts the linker for the whole cargo tree —
+                # more reliable than guessing -fuse-ld / -B paths across distros.
+                CARGO_WRAPPER=(mold -run)
+                echo "  Using mold linker for faster linking."
+            elif command -v clang >/dev/null 2>&1 && command -v ld.lld >/dev/null 2>&1; then
+                export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-fuse-ld=lld"
+                echo "  Using lld linker for faster linking."
+            fi
+        fi
+
+        # Reuse compiler cache across installs when the user already has one.
+        if command -v sccache >/dev/null 2>&1 && [ -z "${RUSTC_WRAPPER:-}" ]; then
+            export RUSTC_WRAPPER=sccache
+            echo "  Using sccache for faster recompiles."
+        fi
+
+        # wasm32-wasip1 is only needed at runtime for neural reflex synthesis,
+        # not to compile the susi binary — fetch it in parallel with the build.
+        WASM_PID=""
+        if command -v rustup >/dev/null 2>&1 || [ -f "$HOME/.cargo/bin/rustup" ]; then
+            echo "Installing wasm32-wasip1 toolchain for Neural Reflex Generation (parallel with build)..."
+            (
+                if command -v rustup >/dev/null 2>&1; then
+                    rustup target add wasm32-wasip1
+                else
+                    "$HOME/.cargo/bin/rustup" target add wasm32-wasip1
+                fi
+            ) >/dev/null 2>&1 &
+            WASM_PID=$!
+        fi
+
         # Heartbeat so a long silent stretch (cargo prints a new line only when a
         # compilation unit starts/finishes, and a single large crate can take
         # several minutes) doesn't read as a frozen script.
@@ -316,13 +341,25 @@ if [ "$INSTALLED" = "0" ]; then
                 HEARTBEAT_PID=""
             fi
         }
-        trap stop_heartbeat EXIT
+        wait_wasm() {
+            if [ -n "$WASM_PID" ]; then
+                wait "$WASM_PID" 2>/dev/null || true
+                WASM_PID=""
+            fi
+        }
+        trap 'stop_heartbeat; wait_wasm' EXIT
 
-        # Build Engine
+        # Build only the installable binary (-p susi), not workspace extras
+        # (xtask, …). --locked skips registry re-resolution when Cargo.lock is
+        # present (always true for the GitHub source archive / local checkout).
         echo "  Building engine..."
         start_heartbeat
-        (cd "$SCRIPT_DIR" && cargo build --release $BUILD_FEATURES)
+        LOCKED_FLAG=""
+        [ -f "$SCRIPT_DIR/Cargo.lock" ] && LOCKED_FLAG="--locked"
+        # shellcheck disable=SC2086
+        (cd "$SCRIPT_DIR" && "${CARGO_WRAPPER[@]}" cargo build --release -p susi --bin susi $LOCKED_FLAG $BUILD_FEATURES)
         stop_heartbeat
+        wait_wasm
 
         ENGINE_SRC="$SCRIPT_DIR/target/release/susi"
 

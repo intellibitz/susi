@@ -68,11 +68,27 @@ if (-not $Installed -and (Get-Command "cargo" -ErrorAction SilentlyContinue)) {
     Stop-Process -Name "susi" -ErrorAction SilentlyContinue
     Stop-Process -Name "susi-engine" -ErrorAction SilentlyContinue
 
-    # Build Engine
-    Write-Host "  Building engine..." -ForegroundColor Gray
-    cargo build --release | Out-Null
+    # Match install.sh: thin-LTO release profile + only the installable binary.
+    # sccache when present; --locked when Cargo.lock ships with the tree.
+    if ((Get-Command "sccache" -ErrorAction SilentlyContinue) -and -not $env:RUSTC_WRAPPER) {
+        $env:RUSTC_WRAPPER = "sccache"
+        Write-Host "  Using sccache for faster recompiles." -ForegroundColor Gray
+    }
 
-    $EngineSrc = "target\release\susi-engine.exe"
+    Write-Host "  Building engine..." -ForegroundColor Gray
+    $locked = @()
+    if (Test-Path "Cargo.lock") { $locked = @("--locked") }
+    & cargo build --release -p susi --bin susi @locked
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "cargo build failed with exit code $LASTEXITCODE"
+        exit $LASTEXITCODE
+    }
+
+    $EngineSrc = "target\release\susi.exe"
+    if (-not (Test-Path $EngineSrc)) {
+        # Legacy artifact name from older trees
+        $EngineSrc = "target\release\susi-engine.exe"
+    }
 
     if (Test-Path $EngineSrc) {
         Copy-Item $EngineSrc $EngineExePath -Force
