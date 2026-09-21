@@ -290,7 +290,7 @@ impl SusiUnifiedSubstrate {
     const TEXT_OFFSET: usize = 768;
     const TEXT_DIM: usize = 256;
 
-    /// VC-200-003 (ROADMAP.md): 1024-D multi-signal manifold with real,
+    /// VC-200-003 (roadmap.json): 1024-D multi-signal manifold with real,
     /// non-overlapping per-modality subspaces:
     ///   [0, 512)    vision  — SusiVisionEngine::DIM real neural features
     ///   [512, 768)  audio   — SusiAudioEngine::DIM real neural features

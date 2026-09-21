@@ -25,6 +25,9 @@ parking_lot = { workspace = true }
 flume = { workspace = true }
 dashmap = { workspace = true }
 
+[build-dependencies]
+serde_json = { workspace = true }
+
 [features]
 default = []
 cuda = ["susi-gemi/cuda"]

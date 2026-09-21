@@ -825,7 +825,7 @@ impl SusiDaemon {
     }
 
     /// Confirms `pid` is genuinely running a trusted susi binary before the
-    /// Sovereign Eviction protocol (IDENTITY.md Mandate 22) is allowed to
+    /// Sovereign Eviction protocol (identity.json Mandate 22) is allowed to
     /// SIGKILL it. `/proc/{pid}/comm` is deliberately NOT used as identity
     /// evidence: it is the process's self-reported name (settable via
     /// `prctl`/`argv[0]`), so any unprivileged process could claim to be

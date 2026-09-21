@@ -1,5 +1,5 @@
 // SUSI Reflex Synthesizer
-// Test-Driven Evolution Substrate, implementing IDENTITY.md Mandate 20's
+// Test-Driven Evolution Substrate, implementing identity.json Mandate 20's
 // Alpha-Self Evolution Order (Motion -> Architecture -> Structure -> Logic) —
 // not the unrelated release-gate "Motion Rule" (Pillar IV item 3); this file
 // predates the renaming that split those two concepts apart and originally
@@ -65,7 +65,7 @@ impl ReflexSynthesizer {
 
     /// Synthesizes and compiles a WASI reflex that can be hot-loaded by
     /// `ToolRegistry::execute_tool` (the `reflex_<name>` convention) without a
-    /// daemon restart — the concrete mechanism behind ROADMAP.md's VC-200-002
+    /// daemon restart — the concrete mechanism behind roadmap.json's VC-200-002
     /// "Autonomous Trait Patching" vector. Output is derived from the reflex's
     /// runtime argument (FNV-1a signature), not a hardcoded constant, so two
     /// different calls are verifiably not just replaying the same canned value.

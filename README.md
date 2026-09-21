@@ -146,7 +146,7 @@ Catalog loaders still embed bundled JSON via `include_str!` for offline boot; ho
 
 ## Design principles
 
-Defined in `.agents/IDENTITY.md` (Design principles):
+Defined in `.agents/identity.json` (`design_principles`):
 - **Autonomous by default** — plan and execute via swarm consensus, not step-by-step babysitting.
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).

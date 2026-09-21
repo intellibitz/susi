@@ -350,7 +350,7 @@ fn scan_workspace_top_level(workspace: &Path) -> (usize, usize) {
     (files, dirs)
 }
 
-/// Workspace Analysis Agent: real file-system awareness backing IDENTITY.md
+/// Workspace Analysis Agent: real file-system awareness backing identity.json
 /// Pillar II's "High-density context manager and workspace analyzer" — this
 /// `is_core: true` (always-recruited) agent previously had no native
 /// implementation and silently fell back to a generic, unbacked LLM-prompted
@@ -389,7 +389,7 @@ impl GawdAgent for ContextAgent {
     }
 }
 
-/// Safety Governance Agent (IDENTITY.md Mandate 36 & 37)
+/// Safety Governance Agent (identity.json Mandate 36 & 37)
 pub struct SafetyAgent;
 
 impl GawdAgent for SafetyAgent {
@@ -416,7 +416,7 @@ impl GawdAgent for SafetyAgent {
     }
 }
 
-/// Security Governance Agent (IDENTITY.md Mandate 38 & 39)
+/// Security Governance Agent (identity.json Mandate 38 & 39)
 pub struct SecurityAgent;
 
 impl GawdAgent for SecurityAgent {
@@ -440,7 +440,7 @@ impl GawdAgent for SecurityAgent {
     }
 }
 
-/// Autonomous Drift & Evolution Agent (IDENTITY.md Mandate 22: Self-Healing Reflex)
+/// Autonomous Drift & Evolution Agent (identity.json Mandate 22: Self-Healing Reflex)
 pub struct EvolutionAgent;
 
 impl GawdAgent for EvolutionAgent {

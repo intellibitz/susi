@@ -414,39 +414,18 @@ impl SusiAdmin {
             fs::write(&readme_path, updated.join("\n") + "\n")?;
         }
 
-        // 2. Sync Governance Files (.agents/*.md)
-        let governance_files = ["IDENTITY.md", "ROADMAP.md", "EVIDENCE.md"];
+        // 2. Sync agent-governance ledgers (.agents/*.json)
+        let governance_files = ["identity.json", "roadmap.json", "evidence.json"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
                 let content = fs::read_to_string(&path)?;
-                let mut updated = Vec::new();
-                let mut in_frontmatter = false;
-                let mut frontmatter_count = 0;
-                for line in content.lines() {
-                    let trimmed = line.trim();
-                    if trimmed == "---" {
-                        frontmatter_count += 1;
-                        in_frontmatter = frontmatter_count == 1;
-                        updated.push(line.to_string());
-                        continue;
-                    }
-
-                    if in_frontmatter && trimmed.starts_with("version = \"") {
-                        updated.push(format!("version = \"{}\"", version));
-                    } else if !in_frontmatter
-                        && trimmed.starts_with("* **Current Engine Version**: `v")
-                    {
-                        updated.push(format!("* **Current Engine Version**: `v{}`", version));
-                    } else {
-                        updated.push(line.to_string());
-                    }
-
-                    if frontmatter_count == 2 {
-                        in_frontmatter = false;
-                    }
-                }
-                fs::write(&path, updated.join("\n") + "\n")?;
+                let mut doc: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| EaiError::config(format!("{file_name}: invalid JSON: {e}")))?;
+                doc["version"] = serde_json::Value::String(version.to_string());
+                let pretty = serde_json::to_string_pretty(&doc)
+                    .map_err(|e| EaiError::config(format!("{file_name}: serialize: {e}")))?;
+                fs::write(&path, pretty + "\n")?;
             }
         }
 
@@ -493,15 +472,16 @@ impl SusiAdmin {
             }
         }
 
-        // Check Governance Files (.agents/*.md)
-        let governance_files = ["IDENTITY.md", "ROADMAP.md", "EVIDENCE.md"];
+        // Check agent-governance ledgers (.agents/*.json)
+        let governance_files = ["identity.json", "roadmap.json", "evidence.json"];
         for file_name in governance_files {
             let path = workspace.join(".agents").join(file_name);
             if path.exists() {
                 let content = fs::read_to_string(&path)?;
-                let expected_line = format!("version = \"{}\"", version);
-                let expected_legacy = format!("* **Current Engine Version**: `v{}`", version);
-                if !content.contains(&expected_line) && !content.contains(&expected_legacy) {
+                let doc: serde_json::Value = serde_json::from_str(&content)
+                    .map_err(|e| EaiError::config(format!("{file_name}: invalid JSON: {e}")))?;
+                let file_ver = doc.get("version").and_then(|v| v.as_str()).unwrap_or("");
+                if file_ver != version {
                     return Err(EaiError::config(format!(
                         "{}: version is out of sync with Cargo.toml (v{}). Run 'susi admin sync'.",
                         file_name, version
@@ -513,7 +493,7 @@ impl SusiAdmin {
         Ok(())
     }
 
-    /// Motion Rule (IDENTITY.md Pillar IV item 3): cargo check -> compliance audit ->
+    /// Motion Rule (identity.json Pillar IV item 3): cargo check -> compliance audit ->
     /// cargo test -> clippy -> mission smoke tests -> susi admin sync -> git
     /// push, as one gated sequence. Each step must pass before the next runs;
     /// a git push failure (e.g. no configured upstream, diverged history) is
@@ -733,9 +713,9 @@ impl SusiAdmin {
             // Also stage docs that enforce_version_consistency touches
             let doc_files = [
                 "README.md",
-                ".agents/IDENTITY.md",
-                ".agents/ROADMAP.md",
-                ".agents/EVIDENCE.md",
+                ".agents/identity.json",
+                ".agents/roadmap.json",
+                ".agents/evidence.json",
             ];
             for doc in &doc_files {
                 let path = workspace.join(doc);
@@ -889,110 +869,82 @@ impl SusiAdmin {
         ("[MISSION]", "Dynamic Task Fulfillment")
     }
 
-    /// Ingest a natural language intent and automatically inject it into EVIDENCE.md
-    /// Supports both Genomic mode (.agents/EVIDENCE.md) and World mode (.susi/EVIDENCE.md).
+    /// Ingest a natural language intent into `evidence.json` (`entries[]`).
+    /// Genomic mode: `.agents/evidence.json`. World mode: `.susi/evidence.json`.
     pub fn ingest_natural_intent(workspace: &Path, intent: &str) -> EaiResult<String> {
-        let mut evidence_path = workspace.join(".agents/EVIDENCE.md");
+        let mut evidence_path = workspace.join(".agents/evidence.json");
 
-        // World Fallback: If .agents/ is missing, use .susi/ sandbox
         if !evidence_path.exists() {
-            evidence_path = workspace.join(".susi/EVIDENCE.md");
+            evidence_path = workspace.join(".susi/evidence.json");
             if !evidence_path.exists() {
-                // Synthesize a new local evidence from hard-compiled genome if missing
                 fs::create_dir_all(workspace.join(".susi"))
                     .map_err(|e| EaiError::filesystem(e.to_string()))?;
-                fs::write(&evidence_path, crate::self_core::AlphaSelf::EVIDENCE_MD)?;
+                fs::write(&evidence_path, crate::self_core::AlphaSelf::EVIDENCE_JSON)?;
             }
         }
 
-        // 1. Dynamic Neural Cascade Classifier (Tier 0 Reflex -> Tier 2 GEMI -> Motion)
         let (prefix, _category) = Self::classify_natural_intent(workspace, intent);
+        let typ = prefix.trim_matches(|c| c == '[' || c == ']');
 
-        // 2. Read EVIDENCE.md and find the last index
         let content = fs::read_to_string(&evidence_path)?;
-        let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+        let mut doc: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| EaiError::config(format!("evidence.json: invalid JSON: {e}")))?;
 
-        // 2.5 Prevent Duplicate Intent Ingestion
         let intent_trimmed = intent.trim().to_lowercase();
-        let is_duplicate = lines
-            .iter()
-            .any(|l| l.to_lowercase().contains(&intent_trimmed));
+        let entries = doc
+            .get_mut("entries")
+            .and_then(|v| v.as_array_mut())
+            .ok_or_else(|| EaiError::config("evidence.json: missing entries array"))?;
 
+        let is_duplicate = entries.iter().any(|e| {
+            e.get("milestone")
+                .and_then(|m| m.as_str())
+                .map(|m| m.to_lowercase().contains(&intent_trimmed))
+                .unwrap_or(false)
+        });
         if is_duplicate {
             return Ok(format!(
-                "Intent '{}' is already present in memory ({})",
-                intent, prefix
+                "Intent '{intent}' is already present in memory ({prefix})"
             ));
         }
 
-        let mut last_index = 0;
+        let mut last_index = 0usize;
         let mut best_suffix = "2022920".to_string();
-
-        for line in &lines {
-            if line.contains("EV-") {
-                let parts: Vec<&str> = line.split('|').collect();
-                if parts.len() > 1 {
-                    let token = parts[1].trim();
-                    if token.starts_with("EV-") {
-                        let sub_parts: Vec<&str> = token.split('-').collect();
-                        if sub_parts.len() >= 3 {
-                            if sub_parts[1] > best_suffix.as_str() {
-                                best_suffix = sub_parts[1].to_string();
-                            }
-                            if let Ok(idx) = sub_parts[2].parse::<usize>() {
-                                if idx > last_index {
-                                    last_index = idx;
-                                }
-                            }
-                        }
+        for e in entries.iter() {
+            let Some(token) = e.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if !token.starts_with("EV-") {
+                continue;
+            }
+            let sub_parts: Vec<&str> = token.split('-').collect();
+            if sub_parts.len() >= 3 {
+                if sub_parts[1] > best_suffix.as_str() {
+                    best_suffix = sub_parts[1].to_string();
+                }
+                if let Ok(idx) = sub_parts[2].parse::<usize>() {
+                    if idx > last_index {
+                        last_index = idx;
                     }
                 }
             }
         }
 
-        let new_index = last_index + 1;
-        let id = format!("EV-{}-{:03}", best_suffix, new_index);
+        let id = format!("EV-{}-{:03}", best_suffix, last_index + 1);
+        entries.push(serde_json::json!({
+            "id": id,
+            "type": typ,
+            "milestone": intent,
+            "anchor": { "label": "manual", "ref": "symbol://manual" },
+            "proof": "STAGED"
+        }));
 
-        let entry = format!(
-            "| {} | {} | {} | [manual](symbol://manual) | STAGED |",
-            id, prefix, intent
-        );
-
-        // 3. Inject into Section 1 (Pending)
-        let mut section1_start = None;
-        for (i, line) in lines.iter().enumerate() {
-            if line.contains("## 1. Sovereign Ledger (The Monotonic Proof)")
-                || line.contains("## 1. Pending")
-            {
-                section1_start = Some(i);
-                break;
-            }
-        }
-
-        if let Some(start) = section1_start {
-            let mut insert_pos = start + 1;
-            while insert_pos < lines.len()
-                && (lines[insert_pos].trim().is_empty()
-                    || lines[insert_pos].trim().starts_with("---")
-                    || lines[insert_pos].trim().starts_with("| ID")
-                    || lines[insert_pos].trim().starts_with("| :---"))
-            {
-                insert_pos += 1;
-            }
-            lines.insert(insert_pos, entry);
-        } else {
-            lines.push(entry);
-        }
-
-        let mut final_content = lines.join("\n");
-        if !final_content.ends_with('\n') {
-            final_content.push('\n');
-        }
-        fs::write(&evidence_path, final_content)?;
+        let pretty = serde_json::to_string_pretty(&doc)
+            .map_err(|e| EaiError::config(format!("evidence.json: serialize: {e}")))?;
+        fs::write(&evidence_path, pretty + "\n")?;
 
         Ok(format!(
-            "Intent ingested successfully as {} into sovereign memory",
-            prefix
+            "Intent ingested successfully as {prefix} into sovereign memory"
         ))
     }
 

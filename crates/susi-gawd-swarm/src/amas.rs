@@ -25,7 +25,7 @@ pub struct A2AMessage {
 
 /// Fixed-size (256-bit) capability bloom filter exchanged during peer discovery,
 /// so goal routing can test "does this peer likely register tool/agent X" without
-/// shipping the full registry over the wire. VC-200-001 (ROADMAP.md) hardening:
+/// shipping the full registry over the wire. VC-200-001 (roadmap.json) hardening:
 /// replaces trust/hardware-only peer ranking with real semantic overlap.
 const BLOOM_WORDS: usize = 4;
 const BLOOM_HASHES: usize = 3;

@@ -155,6 +155,9 @@ wasmer = { version = "7", features = ["cranelift", "sys"] }
 wasmer = { version = "7", features = ["singlepass", "sys"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
+[build-dependencies]
+serde_json = { workspace = true }
+
 [features]
 default = []
 cuda = ["susi-gemi/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]

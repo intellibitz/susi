@@ -18,7 +18,7 @@ impl GenomeDistiller {
             .unwrap()
             .as_secs();
 
-        // 1. Distill IDENTITY.md (Governance Axiom Rules)
+        // 1. Distill identity.json (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {
             samples.push(ReasoningSample {
                 intent: format!("What is the mandate for rule {}?", rule.title),
@@ -44,7 +44,7 @@ impl GenomeDistiller {
             });
         }
 
-        // 4. Distill IDENTITY.md Components
+        // 4. Distill identity.json Components
         for comp in AlphaSelf::COMPONENTS {
             samples.push(ReasoningSample {
                 intent: format!("What is the role of {} in the substrate?", comp.name),

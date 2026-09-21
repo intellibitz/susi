@@ -1,470 +1,371 @@
+//! Compile `.agents/{identity,roadmap,evidence}.json` into static axiom tables.
+use serde_json::Value;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+fn agents_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.agents")
+}
 
 fn main() {
-    let out_dir = env::var_os("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
+    let agents = agents_dir();
+    let identity_path = agents.join("identity.json");
+    let roadmap_path = agents.join("roadmap.json");
+    let evidence_path = agents.join("evidence.json");
 
-    let identity_md_raw =
-        fs::read_to_string("../../.agents/IDENTITY.md").expect("Missing IDENTITY.md");
-    let roadmap_md_raw =
-        fs::read_to_string("../../.agents/ROADMAP.md").expect("Missing ROADMAP.md");
-    let evidence_md_raw =
-        fs::read_to_string("../../.agents/EVIDENCE.md").expect("Missing EVIDENCE.md");
-    let readme_md_raw = fs::read_to_string("../../README.md").unwrap_or_default();
-
-    // SUSI Version Synchronization Hook
-    let cargo_toml = fs::read_to_string("../../Cargo.toml").expect("Missing Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(agents.join("../Cargo.toml")).expect("Missing workspace Cargo.toml");
     let version = cargo_toml
         .lines()
         .find(|l| l.trim().starts_with("version = \""))
         .and_then(|l| l.split('"').nth(1))
-        .expect("Could not find version in Cargo.toml");
+        .expect("Could not find version in Cargo.toml")
+        .to_string();
 
-    let identity_md = skip_frontmatter(&sync_version(
-        "../../.agents/IDENTITY.md",
-        &identity_md_raw,
-        version,
+    let identity = load_and_sync_version(&identity_path, "susi/identity/v1", &version);
+    let roadmap = load_and_sync_version(&roadmap_path, "susi/roadmap/v1", &version);
+    let evidence = load_and_sync_version(&evidence_path, "susi/evidence/v1", &version);
+
+    validate_identity(&identity);
+    validate_roadmap(&roadmap);
+    validate_evidence(&evidence);
+
+    sync_readme_badge(agents.join("../README.md"), &version);
+
+    let out_dir = env::var_os("OUT_DIR").unwrap();
+    let dest_path = Path::new(&out_dir).join("generated_axioms.rs");
+    let generated = emit_axioms(&version, &identity, &roadmap, &evidence);
+    fs::write(&dest_path, generated).unwrap();
+
+    println!("cargo:rerun-if-changed={}", identity_path.display());
+    println!("cargo:rerun-if-changed={}", roadmap_path.display());
+    println!("cargo:rerun-if-changed={}", evidence_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        agents.join("../Cargo.toml").display()
+    );
+}
+
+fn load_and_sync_version(path: &Path, expected_schema: &str, version: &str) -> Value {
+    let raw =
+        fs::read_to_string(path).unwrap_or_else(|e| panic!("Missing {}: {e}", path.display()));
+    let mut doc: Value = serde_json::from_str(&raw)
+        .unwrap_or_else(|e| panic!("Invalid JSON {}: {e}", path.display()));
+    let schema = doc
+        .get("schema")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| panic!("{}: missing schema", path.display()));
+    if schema != expected_schema {
+        panic!(
+            "{}: expected schema {:?}, got {:?}",
+            path.display(),
+            expected_schema,
+            schema
+        );
+    }
+    let cur = doc.get("version").and_then(|v| v.as_str()).unwrap_or("");
+    if cur != version {
+        doc["version"] = Value::String(version.to_string());
+        let pretty = serde_json::to_string_pretty(&doc).expect("serialize");
+        fs::write(path, pretty + "\n").ok();
+    }
+    doc
+}
+
+fn require_array<'a>(doc: &'a Value, path: &str) -> &'a Vec<Value> {
+    doc.pointer(path)
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| panic!("missing or non-array path {path}"))
+}
+
+fn validate_identity(doc: &Value) {
+    assert_eq!(doc["audience"], "agent-governance");
+    let mandates = require_array(doc, "/pillars/dna/mandates");
+    assert!(!mandates.is_empty(), "identity: dna.mandates empty");
+    let components = require_array(doc, "/pillars/body/components");
+    assert!(!components.is_empty(), "identity: body.components empty");
+    let protocols = require_array(doc, "/pillars/engine/protocols");
+    assert!(!protocols.is_empty(), "identity: engine.protocols empty");
+    let ports = require_array(doc, "/host_contract/ports");
+    assert!(ports.len() >= 4, "identity: host_contract.ports needs ≥4");
+    let foundation = require_array(doc, "/foundation_pillars");
+    assert!(!foundation.is_empty(), "identity: foundation_pillars empty");
+}
+
+fn validate_roadmap(doc: &Value) {
+    let vectors = require_array(doc, "/vectors");
+    assert!(!vectors.is_empty(), "roadmap: vectors empty");
+    for v in vectors {
+        let id = v["id"].as_str().unwrap_or("");
+        assert!(
+            id.starts_with("VC-"),
+            "roadmap vector id must start with VC-"
+        );
+    }
+}
+
+fn validate_evidence(doc: &Value) {
+    let entries = require_array(doc, "/entries");
+    assert!(!entries.is_empty(), "evidence: entries empty");
+    for e in entries {
+        let id = e["id"].as_str().unwrap_or("");
+        assert!(id.starts_with("EV-"), "evidence id must start with EV-");
+        assert!(e.get("proof").and_then(|p| p.as_str()).is_some());
+        assert!(e
+            .pointer("/anchor/label")
+            .and_then(|l| l.as_str())
+            .is_some());
+    }
+}
+
+fn sync_readme_badge(readme_path: PathBuf, version: &str) {
+    let Ok(readme_md_raw) = fs::read_to_string(&readme_path) else {
+        return;
+    };
+    if !readme_md_raw.contains("https://img.shields.io/badge/version-v") {
+        return;
+    }
+    let mut updated = Vec::new();
+    for line in readme_md_raw.lines() {
+        if line.contains("https://img.shields.io/badge/version-v") {
+            updated.push(format!(
+                "![SUSI Version](https://img.shields.io/badge/version-v{}-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)",
+                version
+            ));
+        } else {
+            updated.push(line.to_string());
+        }
+    }
+    let new_readme = updated.join("\n") + "\n";
+    if new_readme != readme_md_raw {
+        let _ = fs::write(readme_path, new_readme);
+    }
+}
+
+fn emit_rule(id: usize, title: &str, imperative: &str) -> String {
+    format!("    SusiAxiomRule {{ id: {id}, title: {title:?}, imperative: {imperative:?} }},\n")
+}
+
+fn seq_suffix(id: &str) -> usize {
+    id.split('-')
+        .next_back()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+fn tier_enum(tier: i64) -> &'static str {
+    match tier {
+        0 => "SusiCoreTier::Tier0Reflex",
+        2 => "SusiCoreTier::Tier2Reasoning",
+        _ => "SusiCoreTier::Tier1Swarm",
+    }
+}
+
+fn emit_component(name: &str, tier: i64, description: &str) -> String {
+    format!(
+        "    SusiComponentSpec {{ name: {name:?}, tier: {}, description: {description:?} }},\n",
+        tier_enum(tier)
+    )
+}
+
+fn categorize_component(name: &str) -> &'static str {
+    let n = name.to_lowercase();
+    if n.contains("gawd")
+        || n.contains("admin")
+        || n.contains("loader")
+        || n.contains("daemon")
+        || n.contains("evolutionmanager")
+    {
+        "aoa"
+    } else if n.contains("agent") || n.contains("factory") || n.contains("scout") {
+        "agents"
+    } else if n.contains("susi-")
+        || n.contains("engine")
+        || n.contains("substrate")
+        || n.contains("gemi")
+        || n.contains("synthesizer")
+    {
+        if n.contains("model") {
+            "models"
+        } else {
+            "engines"
+        }
+    } else if n.contains("mcp")
+        || n.contains("server")
+        || n.contains("host")
+        || n.contains("evidence")
+    {
+        "mcps"
+    } else {
+        "realized"
+    }
+}
+
+fn emit_axioms(version: &str, identity: &Value, roadmap: &Value, evidence: &Value) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "pub const GEN_ENGINE_VERSION: &str = {version:?};\n\n"
     ));
-    let roadmap_md = skip_frontmatter(&sync_version(
-        "../../.agents/ROADMAP.md",
-        &roadmap_md_raw,
-        version,
-    ));
-    let evidence_md = skip_frontmatter(&sync_version(
-        "../../.agents/EVIDENCE.md",
-        &evidence_md_raw,
-        version,
-    ));
 
-    // Sync README badge
-    if readme_md_raw.contains("https://img.shields.io/badge/version-v") {
-        let mut updated = Vec::new();
-        for line in readme_md_raw.lines() {
-            if line.contains("https://img.shields.io/badge/version-v") {
-                updated.push(format!("![SUSI Version](https://img.shields.io/badge/version-v{}-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)", version));
-            } else {
-                updated.push(line.to_string());
-            }
-        }
-        let new_readme = updated.join("\n") + "\n";
-        if new_readme != readme_md_raw {
-            fs::write("../../README.md", new_readme).ok();
-        }
+    // DNA mandates -> GEN_AGENT_RULES
+    out.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
+    for m in require_array(identity, "/pillars/dna/mandates") {
+        let id = m["id"].as_u64().unwrap() as usize;
+        let title = m["title"].as_str().unwrap_or("");
+        let imperative = m["imperative"].as_str().unwrap_or("");
+        out.push_str(&emit_rule(id, title, imperative));
     }
+    out.push_str("];\n\n");
 
-    let mut generated_code = String::new();
-
-    // Workspace engine version (root Cargo.toml), not this crate's 0.1.0.
-    generated_code.push_str(&format!(
-        "pub const GEN_ENGINE_VERSION: &str = {:?};\n\n",
-        version
-    ));
-
-    // 1. IDENTITY.md (Constitutional Mandates) -> GEN_AGENT_RULES (1-49)
-    generated_code.push_str("pub const GEN_AGENT_RULES: &[SusiAxiomRule] = &[\n");
-    let mut active_section = "";
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 2. Pillar II: THE BODY") {
-            active_section = "topology";
-        } else if line.starts_with("## 3. Pillar III: THE MIND") {
-            active_section = "mind";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
+    // Roadmap -> GEN_ENGINE_AXIOMS (50-99)
+    out.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
+    for v in require_array(roadmap, "/vectors") {
+        let id = v["id"].as_str().unwrap_or("");
+        let seq = seq_suffix(id);
+        if seq == 0 {
+            continue;
         }
-
-        if active_section == "constitutional" {
-            if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!(
-                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                    rule.0, rule.1, rule.2
-                ));
-            }
-        }
+        let title = format!(
+            "{} {}",
+            v["mastery_target"].as_str().unwrap_or(""),
+            v["vector"].as_str().unwrap_or("")
+        );
+        let imperative = v["progress"].as_str().unwrap_or("");
+        out.push_str(&emit_rule(seq + 50, &title, imperative));
     }
-    generated_code.push_str("];\n\n");
+    out.push_str("];\n\n");
 
-    // 2. ROADMAP.md -> GEN_ENGINE_AXIOMS (50-99)
-    generated_code.push_str("pub const GEN_ENGINE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    for line in roadmap_md.lines() {
-        let line = line.trim();
-        if line.starts_with('|') && line.contains("VC-") {
-            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-            if parts.len() >= 5 {
-                let id_str = parts[1];
-                let seq_str = id_str.split('-').next_back().unwrap_or("0");
-                let seq: usize = seq_str.parse().unwrap_or(0);
-                if seq > 0 {
-                    let title = format!("{} {}", parts[3], parts[2]);
-                    let imperative = parts[4].to_string();
-                    generated_code.push_str(&format!(
-                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                        seq + 50,
-                        title,
-                        imperative
-                    ));
-                }
-            }
-        }
+    // Engine protocols -> GEN_DEPLOYMENT_RULES (100-149)
+    out.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
+    for p in require_array(identity, "/pillars/engine/protocols") {
+        let id = p["id"].as_u64().unwrap() as usize;
+        let title = p["title"].as_str().unwrap_or("");
+        let imperative = p["imperative"].as_str().unwrap_or("");
+        out.push_str(&emit_rule(id + 100, title, imperative));
     }
-    generated_code.push_str("];\n\n");
+    out.push_str("];\n\n");
 
-    // 3. IDENTITY.md (Build & Deployment Protocols) -> GEN_DEPLOYMENT_RULES (100-149)
-    generated_code.push_str("pub const GEN_DEPLOYMENT_RULES: &[SusiAxiomRule] = &[\n");
-    active_section = "";
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 2. Pillar II: THE BODY") {
-            active_section = "topology";
-        } else if line.starts_with("## 3. Pillar III: THE MIND") {
-            active_section = "mind";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
+    // Evidence -> GEN_PULSE_AXIOMS (150+)
+    out.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
+    for e in require_array(evidence, "/entries") {
+        let id = e["id"].as_str().unwrap_or("");
+        let seq = seq_suffix(id);
+        if seq == 0 {
+            continue;
         }
-
-        if active_section == "build" {
-            if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!(
-                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                    rule.0 + 100,
-                    rule.1,
-                    rule.2
-                ));
-            }
-        }
+        let typ = e["type"].as_str().unwrap_or("");
+        let milestone = e["milestone"].as_str().unwrap_or("");
+        let title = format!("{milestone} [{typ}]");
+        let anchor_label = e
+            .pointer("/anchor/label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let proof = e["proof"].as_str().unwrap_or("");
+        let imperative = format!("Anchor: {anchor_label}. Proof: {proof}");
+        out.push_str(&emit_rule(seq + 150, &title, &imperative));
     }
-    generated_code.push_str("];\n\n");
+    out.push_str("];\n\n");
 
-    // 5. EVIDENCE.md -> GEN_PULSE_AXIOMS (150-299)
-    generated_code.push_str("pub const GEN_PULSE_AXIOMS: &[SusiAxiomRule] = &[\n");
-    for line in evidence_md.lines() {
-        let line = line.trim();
-        if line.starts_with('|') && line.contains("EV-") {
-            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-            if parts.len() >= 6 {
-                let id_str = parts[1];
-                let seq_str = id_str.split('-').next_back().unwrap_or("0");
-                let seq: usize = seq_str.parse().unwrap_or(0);
-                if seq > 0 {
-                    let title = format!("{} [{}]", parts[3], parts[2]);
-                    let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
-                    generated_code.push_str(&format!(
-                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                        seq + 150,
-                        title,
-                        imperative
-                    ));
-                }
-            }
-        }
-    }
-    generated_code.push_str("];\n\n");
-
-    // 8. IDENTITY.md -> Pillar-based Components
-    active_section = "";
-    generated_code.push_str("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
+    // Components by category
+    let mut aoa = String::from("pub const GEN_AOA_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut agents = String::from("pub const GEN_AGENT_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut engines = String::from("pub const GEN_ENGINE_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut models = String::from("pub const GEN_MODEL_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut mcps = String::from("pub const GEN_MCP_COMPONENTS: &[SusiComponentSpec] = &[\n");
     let mut realized =
         String::from("pub const GEN_REALIZED_COMPONENTS: &[SusiComponentSpec] = &[\n");
+    let mut all = String::from("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
 
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 2. Pillar II: THE BODY") {
-            active_section = "topology";
-        } else if line.starts_with("## 3. Pillar III: THE MIND") {
-            active_section = "mind";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
-        }
-
-        if active_section == "topology" {
-            if let Some(comp) = parse_table_row(line) {
-                let tier = match comp.2.as_str() {
-                    "0" => "SusiCoreTier::Tier0Reflex",
-                    "2" => "SusiCoreTier::Tier2Reasoning",
-                    _ => "SusiCoreTier::Tier1Swarm",
-                };
-                let entry = format!(
-                    "    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n",
-                    comp.0, tier, comp.1
-                );
-
-                // Heuristic categorization for legacy compatibility
-                let name_lower = comp.0.to_lowercase();
-                if name_lower.contains("gawd")
-                    || name_lower.contains("admin")
-                    || name_lower.contains("loader")
-                    || name_lower.contains("daemon")
-                    || name_lower.contains("evolutionmanager")
-                {
-                    generated_code.push_str(&entry); // AOA
-                } else if name_lower.contains("agent")
-                    || name_lower.contains("factory")
-                    || name_lower.contains("scout")
-                {
-                    agents.push_str(&entry);
-                } else if name_lower.contains("susi-")
-                    || name_lower.contains("engine")
-                    || name_lower.contains("substrate")
-                    || name_lower.contains("gemi")
-                    || name_lower.contains("synthesizer")
-                {
-                    if name_lower.contains("model") {
-                        models.push_str(&entry);
-                    } else {
-                        engines.push_str(&entry);
-                    }
-                } else if name_lower.contains("mcp")
-                    || name_lower.contains("server")
-                    || name_lower.contains("host")
-                    || name_lower.contains("evidence")
-                {
-                    mcps.push_str(&entry);
-                } else {
-                    realized.push_str(&entry);
-                }
-            }
+    for c in require_array(identity, "/pillars/body/components") {
+        let name = c["symbol"].as_str().unwrap_or("");
+        let tier = c["tier"].as_i64().unwrap_or(1);
+        let description = c["function"].as_str().unwrap_or("");
+        let entry = emit_component(name, tier, description);
+        all.push_str(&entry);
+        match categorize_component(name) {
+            "aoa" => aoa.push_str(&entry),
+            "agents" => agents.push_str(&entry),
+            "engines" => engines.push_str(&entry),
+            "models" => models.push_str(&entry),
+            "mcps" => mcps.push_str(&entry),
+            _ => realized.push_str(&entry),
         }
     }
-    generated_code.push_str("];\n\n");
-    agents.push_str("];\n\n");
-    engines.push_str("];\n\n");
-    models.push_str("];\n\n");
-    mcps.push_str("];\n\n");
-    realized.push_str("];\n\n");
-    generated_code.push_str(&agents);
-    generated_code.push_str(&engines);
-    generated_code.push_str(&models);
-    generated_code.push_str(&mcps);
-    generated_code.push_str(&realized);
-
-    // Combined COMPONENTS for legacy support
-    generated_code.push_str("pub const GEN_COMPONENTS: &[SusiComponentSpec] = &[\n");
-    active_section = "";
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 2. Pillar II: THE BODY") {
-            active_section = "topology";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
-        }
-
-        if active_section == "topology" {
-            if let Some(comp) = parse_table_row(line) {
-                let tier = match comp.2.as_str() {
-                    "0" => "SusiCoreTier::Tier0Reflex",
-                    "2" => "SusiCoreTier::Tier2Reasoning",
-                    _ => "SusiCoreTier::Tier1Swarm",
-                };
-                generated_code.push_str(&format!(
-                    "    SusiComponentSpec {{ name: {:?}, tier: {}, description: {:?} }},\n",
-                    comp.0, tier, comp.1
-                ));
-            }
-        }
+    for bucket in [
+        &mut aoa,
+        &mut agents,
+        &mut engines,
+        &mut models,
+        &mut mcps,
+        &mut realized,
+        &mut all,
+    ] {
+        bucket.push_str("];\n\n");
     }
-    generated_code.push_str("];\n\n");
+    out.push_str(&aoa);
+    out.push_str(&agents);
+    out.push_str(&engines);
+    out.push_str(&models);
+    out.push_str(&mcps);
+    out.push_str(&realized);
+    out.push_str(&all);
 
-    // 9. Unified RULES List
-    generated_code.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
-    active_section = "";
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
-        }
-
-        if active_section == "constitutional" {
-            if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!(
-                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                    rule.0, rule.1, rule.2
-                ));
-            }
-        }
+    // Unified GEN_RULES
+    out.push_str("pub const GEN_RULES: &[SusiAxiomRule] = &[\n");
+    for m in require_array(identity, "/pillars/dna/mandates") {
+        let id = m["id"].as_u64().unwrap() as usize;
+        out.push_str(&emit_rule(
+            id,
+            m["title"].as_str().unwrap_or(""),
+            m["imperative"].as_str().unwrap_or(""),
+        ));
     }
-    for line in roadmap_md.lines() {
-        let line = line.trim();
-        if line.starts_with('|') && line.contains("VC-") {
-            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-            if parts.len() >= 5 {
-                let id_str = parts[1];
-                let seq_str = id_str.split('-').next_back().unwrap_or("0");
-                let seq: usize = seq_str.parse().unwrap_or(0);
-                if seq > 0 {
-                    let title = format!("{} {}", parts[3], parts[2]);
-                    let imperative = parts[4].to_string();
-                    generated_code.push_str(&format!(
-                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                        seq + 50,
-                        title,
-                        imperative
-                    ));
-                }
-            }
-        }
-    }
-    active_section = "";
-    for line in identity_md.lines() {
-        if line.starts_with("## 1. Pillar I: THE DNA") {
-            active_section = "constitutional";
-        } else if line.starts_with("## 4. Pillar IV: THE ENGINE") {
-            active_section = "build";
-        }
-
-        if active_section == "build" {
-            if let Some(rule) = parse_list_item(line) {
-                generated_code.push_str(&format!(
-                    "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                    rule.0 + 100,
-                    rule.1,
-                    rule.2
-                ));
-            }
-        }
-    }
-    for line in evidence_md.lines() {
-        let line = line.trim();
-        if line.starts_with('|') && line.contains("EV-") {
-            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-            if parts.len() >= 6 {
-                let id_str = parts[1];
-                let seq_str = id_str.split('-').next_back().unwrap_or("0");
-                let seq: usize = seq_str.parse().unwrap_or(0);
-                if seq > 0 {
-                    let title = format!("{} [{}]", parts[3], parts[2]);
-                    let imperative = format!("Anchor: {}. Proof: {}", parts[4], parts[5]);
-                    generated_code.push_str(&format!(
-                        "    SusiAxiomRule {{ id: {}, title: {:?}, imperative: {:?} }},\n",
-                        seq + 150,
-                        title,
-                        imperative
-                    ));
-                }
-            }
-        }
-    }
-    generated_code.push_str("];\n");
-
-    fs::write(&dest_path, generated_code).unwrap();
-
-    println!("cargo:rerun-if-changed=.agents/IDENTITY.md");
-    println!("cargo:rerun-if-changed=.agents/ROADMAP.md");
-    println!("cargo:rerun-if-changed=.agents/EVIDENCE.md");
-}
-
-fn parse_list_item(line: &str) -> Option<(usize, String, String)> {
-    let line = line.trim();
-    if line.is_empty() || !line.chars().next().unwrap().is_ascii_digit() {
-        return None;
-    }
-    let parts: Vec<&str> = line.splitn(2, '.').collect();
-    if parts.len() < 2 {
-        return None;
-    }
-    let id: usize = parts[0].parse().ok()?;
-    let content = parts[1].trim();
-
-    if content.starts_with("**") {
-        let sub_parts: Vec<&str> = content.splitn(2, ':').collect();
-        if sub_parts.len() < 2 {
-            return None;
-        }
-        let title = sub_parts[0].trim_matches('*').trim();
-        let imperative = sub_parts[1].trim();
-        return Some((id, title.to_string(), imperative.to_string()));
-    }
-
-    let sub_parts: Vec<&str> = content.splitn(2, ':').collect();
-    if sub_parts.len() >= 2 {
-        let title = sub_parts[0].trim();
-        let imperative = sub_parts[1].trim();
-        return Some((id, title.to_string(), imperative.to_string()));
-    }
-
-    None
-}
-
-fn parse_table_row(line: &str) -> Option<(String, String, String)> {
-    let line = line.trim();
-    if !line.starts_with('|') || line.contains("Symbol | Tier") || line.contains(":---") {
-        return None;
-    }
-    let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-    if parts.len() >= 4 {
-        let symbol = parts[1].trim_matches('*').trim().to_string();
-        let tier = parts[2].to_string();
-        let function = parts[3].to_string();
-        return Some((symbol, function, tier));
-    }
-    None
-}
-
-fn sync_version(path: &str, content: &str, version: &str) -> String {
-    let mut updated = Vec::new();
-    let mut changed = false;
-    let mut in_frontmatter = false;
-    let mut frontmatter_count = 0;
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed == "---" {
-            frontmatter_count += 1;
-            in_frontmatter = frontmatter_count == 1;
-            updated.push(line.to_string());
+    for v in require_array(roadmap, "/vectors") {
+        let id = v["id"].as_str().unwrap_or("");
+        let seq = seq_suffix(id);
+        if seq == 0 {
             continue;
         }
-
-        if in_frontmatter && trimmed.starts_with("version = \"") {
-            let new_line = format!("version = \"{}\"", version);
-            if new_line != trimmed {
-                updated.push(new_line);
-                changed = true;
-            } else {
-                updated.push(line.to_string());
-            }
-        } else if !in_frontmatter
-            && (trimmed.starts_with("* **Current Engine Version**: `v")
-                || trimmed.starts_with("* **Current Engine Version**: v"))
-        {
-            let new_line = format!("* **Current Engine Version**: `v{}`", version);
-            if new_line != trimmed {
-                updated.push(new_line);
-                changed = true;
-            } else {
-                updated.push(line.to_string());
-            }
-        } else {
-            updated.push(line.to_string());
-        }
-
-        if frontmatter_count == 2 {
-            in_frontmatter = false;
-        }
+        let title = format!(
+            "{} {}",
+            v["mastery_target"].as_str().unwrap_or(""),
+            v["vector"].as_str().unwrap_or("")
+        );
+        out.push_str(&emit_rule(
+            seq + 50,
+            &title,
+            v["progress"].as_str().unwrap_or(""),
+        ));
     }
-    let result = updated.join("\n") + "\n";
-    if changed {
-        fs::write(path, &result).ok();
+    for p in require_array(identity, "/pillars/engine/protocols") {
+        let id = p["id"].as_u64().unwrap() as usize;
+        out.push_str(&emit_rule(
+            id + 100,
+            p["title"].as_str().unwrap_or(""),
+            p["imperative"].as_str().unwrap_or(""),
+        ));
     }
-    result
-}
-
-fn skip_frontmatter(content: &str) -> String {
-    if content.starts_with("---") {
-        let parts: Vec<&str> = content.splitn(3, "---").collect();
-        if parts.len() == 3 {
-            return parts[2].trim_start().to_string();
+    for e in require_array(evidence, "/entries") {
+        let id = e["id"].as_str().unwrap_or("");
+        let seq = seq_suffix(id);
+        if seq == 0 {
+            continue;
         }
+        let title = format!(
+            "{} [{}]",
+            e["milestone"].as_str().unwrap_or(""),
+            e["type"].as_str().unwrap_or("")
+        );
+        let imperative = format!(
+            "Anchor: {}. Proof: {}",
+            e.pointer("/anchor/label")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            e["proof"].as_str().unwrap_or("")
+        );
+        out.push_str(&emit_rule(seq + 150, &title, &imperative));
     }
-    content.to_string()
+    out.push_str("];\n");
+    out
 }

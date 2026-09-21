@@ -33,9 +33,12 @@ impl AlphaSelf {
     pub const CORE_PARADIGM: &'static str =
         "susi — evidence-gated intelligence reflex & execution substrate (GAWD / GEMI / GMCP)";
 
-    pub const IDENTITY_MD: &'static str = include_str!("../../../.agents/IDENTITY.md");
-    pub const EVIDENCE_MD: &'static str = include_str!("../../../.agents/EVIDENCE.md");
-    pub const ROADMAP_MD: &'static str = include_str!("../../../.agents/ROADMAP.md");
+    /// Agent-governance identity ledger (`susi/identity/v1`) — not end-user docs.
+    pub const IDENTITY_JSON: &'static str = include_str!("../../../.agents/identity.json");
+    /// Agent-governance evidence ledger (`susi/evidence/v1`) — not end-user docs.
+    pub const EVIDENCE_JSON: &'static str = include_str!("../../../.agents/evidence.json");
+    /// Agent-governance roadmap ledger (`susi/roadmap/v1`) — not end-user docs.
+    pub const ROADMAP_JSON: &'static str = include_str!("../../../.agents/roadmap.json");
 
     pub const RULES: &[SusiAxiomRule] = GEN_RULES;
     pub const PULSE_AXIOMS: &[SusiAxiomRule] = GEN_PULSE_AXIOMS;
@@ -75,15 +78,27 @@ mod tests {
         assert_eq!(AlphaSelf::VERSION, GEN_ENGINE_VERSION);
         assert!(
             !AlphaSelf::RULES.is_empty(),
-            "IDENTITY.md axioms must be compiled into binary"
+            "identity.json axioms must be compiled into binary"
         );
         assert!(
             !AlphaSelf::COMPONENTS.is_empty(),
-            "IDENTITY.md components must be compiled into binary"
+            "identity.json components must be compiled into binary"
         );
         assert!(
             !AlphaSelf::PULSE_AXIOMS.is_empty(),
-            "EVIDENCE.md axioms must be compiled into binary"
+            "evidence.json axioms must be compiled into binary"
+        );
+        assert!(
+            AlphaSelf::IDENTITY_JSON.contains("susi/identity/v1"),
+            "identity.json must declare schema"
+        );
+        assert!(
+            AlphaSelf::EVIDENCE_JSON.contains("susi/evidence/v1"),
+            "evidence.json must declare schema"
+        );
+        assert!(
+            AlphaSelf::ROADMAP_JSON.contains("susi/roadmap/v1"),
+            "roadmap.json must declare schema"
         );
 
         let summary = AlphaSelf::inspect_compiled_binary_instructions();

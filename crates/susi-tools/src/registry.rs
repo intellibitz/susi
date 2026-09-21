@@ -225,7 +225,7 @@ impl ToolRegistry {
             return Ok(res);
         }
 
-        // VC-200-002 (ROADMAP.md): last-resort autonomous hot-patch - delegated
+        // VC-200-002 (roadmap.json): last-resort autonomous hot-patch - delegated
         // to the engine hooks (was a direct call to
         // gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex; see
         // hooks.rs for why this crate can't depend on gawd directly).

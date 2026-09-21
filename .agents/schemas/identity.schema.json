@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intellibitz.com/susi/schemas/identity.schema.json",
+  "title": "susi/identity/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "title",
+    "audience",
+    "host_contract",
+    "foundation_pillars",
+    "design_principles",
+    "pillars"
+  ],
+  "properties": {
+    "schema": { "const": "susi/identity/v1" },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "audience": { "const": "agent-governance" },
+    "canonical_addressing": { "type": "string" },
+    "citation_drift_note": { "type": "string" },
+    "host_contract": {
+      "type": "object",
+      "required": ["ports", "notes"],
+      "properties": {
+        "ports": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["port", "surface"],
+            "properties": {
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "surface": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "notes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "foundation_pillars": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "summary"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "design_principles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "summary"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "pillars": {
+      "type": "object",
+      "required": ["dna", "body", "mind", "engine"],
+      "properties": {
+        "dna": {
+          "type": "object",
+          "required": ["id", "name", "mandates"],
+          "properties": {
+            "id": { "const": 1 },
+            "name": { "type": "string" },
+            "subtitle": { "type": "string" },
+            "mandates": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["id", "title", "imperative"],
+                "properties": {
+                  "id": { "type": "integer", "minimum": 1 },
+                  "title": { "type": "string" },
+                  "imperative": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "body": {
+          "type": "object",
+          "required": ["id", "name", "components"],
+          "properties": {
+            "id": { "const": 2 },
+            "name": { "type": "string" },
+            "subtitle": { "type": "string" },
+            "components": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["symbol", "tier", "function"],
+                "properties": {
+                  "symbol": { "type": "string" },
+                  "tier": { "type": "integer", "enum": [0, 1, 2] },
+                  "function": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "mind": {
+          "type": "object",
+          "required": ["id", "name", "steps"],
+          "properties": {
+            "id": { "const": 3 },
+            "name": { "type": "string" },
+            "subtitle": { "type": "string" },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id", "title", "imperative"],
+                "properties": {
+                  "id": { "type": "integer" },
+                  "title": { "type": "string" },
+                  "imperative": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "engine": {
+          "type": "object",
+          "required": ["id", "name", "protocols"],
+          "properties": {
+            "id": { "const": 4 },
+            "name": { "type": "string" },
+            "subtitle": { "type": "string" },
+            "protocols": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["id", "title", "imperative"],
+                "properties": {
+                  "id": { "type": "integer" },
+                  "title": { "type": "string" },
+                  "imperative": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

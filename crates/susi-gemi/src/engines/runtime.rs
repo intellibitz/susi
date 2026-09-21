@@ -1,6 +1,6 @@
 // GEMI: Universal AI Inference & Reasoning Bridge
 // 100% Rust implementation for Native Intelligence Substrate
-// Competitive Inference Racing (unrelated to the release Motion Rule, IDENTITY.md Pillar IV item 3 — this file predates that name and reused it for a different concept)
+// Competitive Inference Racing (unrelated to the release Motion Rule, identity.json Pillar IV item 3 — this file predates that name and reused it for a different concept)
 
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;

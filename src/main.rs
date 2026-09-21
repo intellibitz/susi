@@ -146,7 +146,7 @@ enum Commands {
     Benchmark,
     /// Native LLM reasoning accuracy evaluations (MMLU-lite)
     Eval,
-    /// Ingest a natural language intent into sovereign memory (EVIDENCE.md)
+    /// Ingest a natural language intent into sovereign memory (evidence.json)
     Pulse {
         #[arg(trailing_var_arg = true)]
         intent: Vec<String>,
