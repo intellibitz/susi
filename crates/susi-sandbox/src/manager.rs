@@ -955,13 +955,16 @@ impl SusiConfig {
             &path,
             || Ok(Self::default()),
             |cfg| {
-                merge_missing_registry_defaults(
+                let mut changed = merge_missing_registry_defaults(
                     &mut cfg.settings,
                     &Self::bundled_defaults().settings,
                 );
                 // Bearer lives only in ~/.susi/api_token (0600). Never heal or
                 // persist it into world-readable config.json.
-                cfg.settings.remove("api_auth_token");
+                if cfg.settings.remove("api_auth_token").is_some() {
+                    changed = true;
+                }
+                changed
             },
             true,
         )
@@ -972,11 +975,14 @@ impl SusiConfig {
             &Self::get_config_path(global_dir),
             || Ok(Self::default()),
             |cfg| {
-                merge_missing_registry_defaults(
+                let mut changed = merge_missing_registry_defaults(
                     &mut cfg.settings,
                     &Self::bundled_defaults().settings,
                 );
-                cfg.settings.remove("api_auth_token");
+                if cfg.settings.remove("api_auth_token").is_some() {
+                    changed = true;
+                }
+                changed
             },
             true,
         )
