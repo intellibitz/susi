@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.8.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-21T19:16:31Z",
+  "last_verification": "2026-09-21T19:38:40Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1086,6 +1086,16 @@
         "ref": "symbol://CrossModalAttention"
       },
       "proof": "FIXED 2026-09-22: `GemiEngine::cross_modal_reason` (`crates/susi-gemi/src/engines/runtime.rs`) previously just computed `sum(x^2)` magnitude of the unified vector and called it \"Epistemically Aligned\" \u2014 no attention or cross-modal mixing existed anywhere. Added `CrossModalAttention` (`crates/susi-gemi/src/engines/unified.rs`): projects the three modality subspaces (vision [0,512), audio [512,768), text [768,1024)) of a `project_to_unified_space` vector into a shared 128-D space via per-modality `Linear` layers, then runs real single-head scaled dot-product self-attention (Q/K/V `Linear` projections, `q.matmul(k^T)/sqrt(d)`, `softmax_last_dim`, `matmul(v)` \u2014 same pattern as `qwen2_split.rs`'s attention) over the 3 modality tokens, returning the text token's attention distribution over vision/audio/text plus its attended fused vector. `cross_modal_reason` now reports which modality actually dominated the fusion instead of a bare magnitude number. Also added `SusiVisionEngine::load`/`SusiAudioEngine::load` mirroring the pretrained-checkpoint convention already used by `SusiReasoningModel`/`SusiAlphaModel`. Caught and fixed a real bug via a unit test before this shipped: the first implementation flattened the full (1,3,128) attention output into a 384-element vector while documenting it as \"the fused representation\" (implying 128-D) \u2014 `test_cross_modal_attention_produces_valid_distribution` failed asserting `fused.len() == 128` (`left: 384 right: 128`); corrected to narrow to the text token's own row (index 2) before flattening, consistent with how the attention-weight row is already extracted. Weight matrices are randomly initialized, same honesty as `SusiVisionEngine`/`SusiAudioEngine` \u2014 no training loop or dataset exists for this substrate, so this is real attention math over untrained features, not a claim of a trained cross-modal model. `cargo test -p susi-gemi --lib cross_modal` passes (2/2)."
+    },
+    {
+      "id": "EV-2022922-103",
+      "type": "FIX",
+      "milestone": "Fixed a pre-existing test-isolation race: two files' own private HOME/XDG env-mutation locks didn't know about each other",
+      "anchor": {
+        "label": "InferenceRouter",
+        "ref": "symbol://InferenceRouter"
+      },
+      "proof": "FIXED 2026-09-22: `cargo test --workspace` (default parallelism) intermittently failed `engines::routing::tests::preferred_cloud_substring_match` (crates/susi-gemi/src/engines/routing.rs) with `assertion failed: InferenceRouter::matches_preferred_cloud(\"deepseek-deepseek-chat\")`; `cargo test -p susi-gemi --lib -- --test-threads=1` passed 100%, confirming a race rather than a logic bug. Root cause: `routing.rs`'s `load_preference`/`save_preference` resolve through `susi_paths::SusiDirs::config_dir()`, which reads the process-global `HOME`/`XDG_CONFIG_HOME` env vars; `routing.rs`'s own `cloud_failover_order_prefers_sticky_vendor_once` test temporarily redirects those same env vars under a local `ENV_LOCK`, and `http_provider.rs` (same crate, same test binary) independently redirects them too under its own separate `cloud_env_test_lock()` \u2014 neither lock knew about the other, and `preferred_cloud_substring_match` didn't hold either one, so a concurrent env redirect from any of those tests could make it read/write the wrong config dir mid-test. Fixed by adding one shared `crate::engines::env_test_lock()` (crates/susi-gemi/src/engines/mod.rs) and switching all three call sites (both `routing.rs` tests, both `http_provider.rs` tests) onto it, deleting the two now-redundant private locks. Verified: `cargo test -p susi-gemi --lib` run 8 times back-to-back under default parallelism, 63/63 passed each time (previously observed to fail intermittently); `cargo test --workspace` and `cargo clippy --workspace --all-targets --locked -- -D warnings` both clean afterward."
     }
   ]
 }

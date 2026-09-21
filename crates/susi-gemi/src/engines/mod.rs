@@ -23,3 +23,21 @@ pub(crate) mod token_stream;
 pub mod unified;
 pub mod vision;
 pub mod vllm;
+
+/// Serializes every test in this crate that mutates the process-global
+/// `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`SUSI_XDG` env vars, or that
+/// reads/writes a real file under `susi_paths::SusiDirs::config_dir()`
+/// (which resolves through those same env vars). Env var mutation is
+/// visible to every thread immediately, so two tests in different files
+/// that each use their own private lock (as `routing.rs` and
+/// `http_provider.rs` used to) can still race against each other, since
+/// `cargo test` runs all of a crate's tests in one process by default.
+/// Both files' env-mutating tests hold this single lock instead.
+#[cfg(test)]
+pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}

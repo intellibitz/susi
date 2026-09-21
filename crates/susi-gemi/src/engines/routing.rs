@@ -556,6 +556,12 @@ mod tests {
 
     #[test]
     fn preferred_cloud_substring_match() {
+        // See crate::engines::env_test_lock's doc: this test doesn't mutate
+        // HOME/XDG itself, but it reads/writes the real preference file
+        // those env vars resolve through, so it must still serialize
+        // against tests (in this file and http_provider.rs) that redirect
+        // them.
+        let _guard = crate::engines::env_test_lock();
         let prev = InferenceRouter::load_preference();
         let pref = RoutingPreference {
             preferred_cloud: Some("deepseek".into()),
@@ -575,9 +581,9 @@ mod tests {
     fn cloud_failover_order_prefers_sticky_vendor_once() {
         use susi_core::registry::CapabilityRegistry;
 
-        // Serialize env mutation — other tests also touch HOME / XDG.
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Serialize against every other test that touches the real
+        // preference file or mutates HOME / XDG (see env_test_lock's doc).
+        let _guard = crate::engines::env_test_lock();
 
         let tmp = std::env::temp_dir().join(format!(
             "susi_failover_pref_{}_{}",

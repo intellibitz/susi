@@ -782,7 +782,7 @@ mod tests {
 
     #[test]
     fn upsert_and_register_roundtrip_in_temp_cloud_env() {
-        let _guard = cloud_env_test_lock();
+        let _guard = crate::engines::env_test_lock();
         let isolated = IsolatedCloudHome::new("susi_key_reg");
 
         let msg = register_api_key("deepseek", "sk-test-deepseek").unwrap();
@@ -809,7 +809,7 @@ mod tests {
 
     #[test]
     fn register_configured_respects_api_key_presence() {
-        let _guard = cloud_env_test_lock();
+        let _guard = crate::engines::env_test_lock();
         let _isolated = IsolatedCloudHome::new("susi_key_cfg");
         unsafe {
             std::env::remove_var("OPENAI_API_KEY");
@@ -862,12 +862,6 @@ mod tests {
             std::env::remove_var("OPENAI_API_KEY");
             std::env::remove_var("DEEPSEEK_API_KEY");
         }
-    }
-
-    fn cloud_env_test_lock() -> std::sync::MutexGuard<'static, ()> {
-        use std::sync::{Mutex, OnceLock};
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
     }
 
     /// Redirect HOME + XDG_* so cloud.env never reads the developer machine.
