@@ -1,13 +1,15 @@
 //! # susi-core
 //!
-//! susi is a zero-trust AI operating system. It is infinitely Pluggable (4)—bring any
-//! model, any agent, and any MCP tool. We orchestrate them into a consensus-driven
-//! Swarm (1). But unlike naive frameworks, susi operates on strict Evidence (2).
-//! Our Universal Truth (3) Transformer cross-examines every claim to physically
-//! and semantically eliminate hallucinations. Every action is Cryptographically
-//! Audited (5) for compliance, untrusted code is tightly Sandboxed (6) for security,
-//! routine intelligence is compiled into fast Reflexes (7) for speed, and missing
-//! tools are Autonomously Provisioned (8) on the fly.
+//! Core types for the susi agent substrate: Evidence (2), Truth (3), and the
+//! CapabilityRegistry for Pluggable (4) providers, agents, and tools.
+//!
+//! Public claims that hold in source today: mission finals are evidence-gated;
+//! `TruthTransformer` accepts absolute sources only (live ledger citations,
+//! compiled binary reads, native verified receipts — models never certify);
+//! providers/agents/MCP mount behind one catalog for the backends we ship
+//! (not an unbounded “any model” guarantee). Swarm consensus, HMAC audit,
+//! Wasm/Docker sandbox, reflex distillation, and MCP provisioning live in
+//! sibling crates (`susi-gawd`, `susi-sandbox`, `susi-gmcp`, …).
 
 pub mod bus;
 pub mod capture;
@@ -23,5 +25,5 @@ pub mod truth;
 pub use capture::{EvidenceSession, GroundedAnswer, ReceiptCitation, ToolReceipt};
 pub use evidence::{Claim, EvidenceAssessment, EvidenceRecord, EvidenceSource};
 pub use provider::Provider;
-pub use registry::{CapabilityRegistry, Tool};
+pub use registry::{AgentCapability, CapabilityRegistry, Tool};
 pub use truth::TruthTransformer;

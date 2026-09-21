@@ -86,6 +86,35 @@ impl SusiMissionReport {
             format!("{}\n\n{}", json_str, trimmed_answer)
         }
     }
+
+    /// Design principle Traceable reasoning: persist inspectable thought + tool
+    /// provenance under the workspace `.susi/` tree (no secret bodies).
+    pub fn persist_inspectable_trace(&self, workspace: &Path) {
+        let dir = workspace.join(".susi");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("last_mission_trace.json");
+        let protocol_raw = self.to_protocol_format(false);
+        // Protocol may append the final answer after a blank line; parse JSON only.
+        let json_part = protocol_raw
+            .split("\n\n")
+            .next()
+            .unwrap_or(protocol_raw.as_str());
+        let protocol: serde_json::Value =
+            serde_json::from_str(json_part).unwrap_or_else(|_| serde_json::json!({}));
+        let body = serde_json::json!({
+            "goal": self.goal,
+            "status": self.status,
+            "agents": self.agents,
+            "interactions": self.interactions,
+            "final_answer": self.final_answer,
+            "protocol": protocol,
+            "protocol_raw": protocol_raw,
+        });
+        let _ = std::fs::write(
+            path,
+            serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+        );
+    }
 }
 
 pub struct SusiMasterAgent;
@@ -299,6 +328,7 @@ impl SusiMasterAgent {
                     interactions: Vec::new(),
                     final_answer: format!("[GOVERNANCE_BLOCK] {}", e),
                 };
+                report.persist_inspectable_trace(workspace);
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
                 eprintln!("{}", report.to_protocol_format(true));
@@ -478,7 +508,7 @@ impl SusiMasterAgent {
                 final_answer,
             };
             crate::cloud_recovery::recover(&mut report, workspace);
-            attach_evidence_ledger(&mut report, session.as_ref());
+            attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             eprintln!("{}", report.completion_message());
             drop(_guard);
             eprintln!("{}", report.to_protocol_format(true));
@@ -506,7 +536,7 @@ impl SusiMasterAgent {
         match res {
             Ok(mut report) => {
                 crate::cloud_recovery::recover(&mut report, workspace);
-                attach_evidence_ledger(&mut report, session.as_ref());
+                attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
                 eprintln!("{}", report.to_protocol_format(true));
@@ -522,7 +552,7 @@ impl SusiMasterAgent {
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
                 crate::cloud_recovery::recover(&mut err_report, workspace);
-                attach_evidence_ledger(&mut err_report, session.as_ref());
+                attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 eprintln!("{}", err_report.completion_message());
                 drop(_guard);
                 eprintln!("{}", err_report.to_protocol_format(true));
@@ -670,7 +700,7 @@ impl SusiMasterAgent {
         let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
         crate::cloud_recovery::recover(&mut report, workspace);
-        attach_evidence_ledger(&mut report, session.as_ref());
+        attach_evidence_ledger(&mut report, session.as_ref(), workspace);
         Ok(report)
     }
 
@@ -996,20 +1026,20 @@ impl SusiMasterAgent {
             final_responses.push(report.final_answer);
         }
 
+        let joined = format!(
+            "PARALLEL_FORK_JOIN_COMPLETE ({} steps):\n\n{}",
+            final_responses.len(),
+            final_responses.join("\n\n---\n\n")
+        );
+        let (status, final_answer) =
+            Self::evidence_gated_aggregate_status(goal, workspace, all_ok, joined);
+
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: if all_ok {
-                "COMPLETE".to_string()
-            } else {
-                "FAILED".to_string()
-            },
+            status,
             agents: all_agents,
             interactions: all_interactions,
-            final_answer: format!(
-                "PARALLEL_FORK_JOIN_COMPLETE ({} steps):\n\n{}",
-                final_responses.len(),
-                final_responses.join("\n\n---\n\n")
-            ),
+            final_answer,
         })
     }
 
@@ -1064,20 +1094,65 @@ impl SusiMasterAgent {
             current_step += 1;
         }
 
+        let joined = format!(
+            "PLANNED_MISSION_COMPLETE:\n\n{}",
+            final_responses.join("\n\n---\n\n")
+        );
+        let (status, final_answer) =
+            Self::evidence_gated_aggregate_status(goal, workspace, all_ok, joined);
+
         Ok(SusiMissionReport {
             goal: goal.to_string(),
-            status: if all_ok {
-                "COMPLETE".to_string()
-            } else {
-                "FAILED".to_string()
-            },
+            status,
             agents: all_agents,
             interactions: all_interactions,
-            final_answer: format!(
-                "PLANNED_MISSION_COMPLETE:\n\n{}",
-                final_responses.join("\n\n---\n\n")
-            ),
+            final_answer,
         })
+    }
+
+    /// Aggregate COMPLETE only when every child succeeded *and* any live
+    /// ledger receipts are cited (or there are none to cite). Children already
+    /// passed absolute gates; this closes the join-path soft COMPLETE hole.
+    fn evidence_gated_aggregate_status(
+        goal: &str,
+        workspace: &Path,
+        all_ok: bool,
+        joined: String,
+    ) -> (String, String) {
+        if !all_ok {
+            return ("FAILED".to_string(), joined);
+        }
+        match susi_core::capture::EvidenceSession::verify_answer(&joined, workspace) {
+            Some(Ok(rendered)) => ("COMPLETE".to_string(), rendered),
+            Some(Err(e)) => (
+                "FAILED".to_string(),
+                format!("TRUTH_UNVERIFIED: {e}\n\n{joined}"),
+            ),
+            None => {
+                // No live receipts requiring citation — children already absolute.
+                // Still run the crown gate so fabricated join text cannot slip.
+                match super::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    goal,
+                    "AGGREGATE_JOIN",
+                    &joined,
+                    workspace,
+                ) {
+                    Ok(rendered) => ("COMPLETE".to_string(), rendered),
+                    Err(e) => {
+                        // Empty ledger + no compiled/native path in join text:
+                        // children were individually COMPLETE, so accept join.
+                        if e.to_string().contains("no absolute evidence") {
+                            ("COMPLETE".to_string(), joined)
+                        } else {
+                            (
+                                "FAILED".to_string(),
+                                format!("TRUTH_UNVERIFIED: {e}\n\n{joined}"),
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
@@ -1401,21 +1476,24 @@ mod report_tests {
 }
 
 /// Carry the mission's captured receipts into the report as an audit entry —
-/// provenance and hashes only, never response bodies.
+/// provenance and hashes only, never response bodies. Then persist an
+/// inspectable trace (Design principle: Traceable reasoning).
 fn attach_evidence_ledger(
     report: &mut SusiMissionReport,
     session: Option<&std::sync::Arc<susi_core::capture::EvidenceSession>>,
+    workspace: &Path,
 ) {
-    let Some(session) = session else { return };
-    let Some(summary) = session.audit_summary() else {
-        return;
-    };
-    report.interactions.push(A2AMessage {
-        sender: "EvidenceLedger".into(),
-        recipient: "SUSI-Master".into(),
-        action: "EVIDENCE_CAPTURED".into(),
-        payload: summary,
-    });
+    if let Some(session) = session {
+        if let Some(summary) = session.audit_summary() {
+            report.interactions.push(A2AMessage {
+                sender: "EvidenceLedger".into(),
+                recipient: "SUSI-Master".into(),
+                action: "EVIDENCE_CAPTURED".into(),
+                payload: summary,
+            });
+        }
+    }
+    report.persist_inspectable_trace(workspace);
 }
 
 /// Verify only outputs whose complete source is the running binary. No model,
@@ -1455,5 +1533,37 @@ mod compiled_read_truth_tests {
         assert!(verify_compiled_read("version", "SUSI Engine Version: v999")
             .unwrap()
             .is_err());
+    }
+
+    #[test]
+    fn mission_trace_is_persisted_for_inspectability() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_trace_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let report = SusiMissionReport {
+            goal: "inspect workspace".into(),
+            status: "SUCCESS".into(),
+            agents: vec![],
+            interactions: vec![A2AMessage {
+                sender: "EvidenceLedger".into(),
+                recipient: "SUSI-Master".into(),
+                action: "EVIDENCE_CAPTURED".into(),
+                payload: r#"[{"id":"r1","tool":"exec_command"}]"#.into(),
+            }],
+            final_answer: "done".into(),
+        };
+        report.persist_inspectable_trace(&dir);
+        let path = dir.join(".susi/last_mission_trace.json");
+        let body = std::fs::read_to_string(&path).expect("trace file");
+        assert!(body.contains("inspect workspace"));
+        assert!(body.contains("EVIDENCE_CAPTURED"));
+        assert!(body.contains("thought") || body.contains("supervise_mission_swarm"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

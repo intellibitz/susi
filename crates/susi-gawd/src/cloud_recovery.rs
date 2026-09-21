@@ -109,7 +109,7 @@ async fn verify_recovery_answer(
     provider: &str,
     answer: CloudAnswer,
     context: &str,
-    registry: &CapabilityRegistry,
+    _registry: &CapabilityRegistry,
     workspace: &Path,
 ) -> EaiResult<(String, EvidenceRecord)> {
     let answer_text = answer_text(&answer.answer);
@@ -128,6 +128,8 @@ async fn verify_recovery_answer(
             ));
         }
         susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)?;
+        // Already citation-resolved from the live ledger — do not re-enter the
+        // crown gate (it would demand citations again on rendered prose).
         TruthTransformer::verify_mission_reality(&report.goal, provider, &rendered, workspace)?;
         let evidence = EvidenceRecord::new(
             provider.to_string(),
@@ -155,7 +157,13 @@ async fn verify_recovery_answer(
         ));
     }
     susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)?;
-    TruthTransformer::verify_mission_reality(&report.goal, provider, &answer_text, workspace)?;
+    // Absolute gate only — no soft verify_mission_reality + model cross-examine.
+    let verified = TruthTransformer::verify_mission_with_cross_examine(
+        &report.goal,
+        provider,
+        &answer_text,
+        workspace,
+    )?;
     let evidence = EvidenceRecord::new(
         provider.to_string(),
         1.0,
@@ -166,18 +174,17 @@ async fn verify_recovery_answer(
         Claim {
             subject: report.goal.clone(),
             predicate: "mission_completed".into(),
-            value: answer_text.clone(),
+            value: verified.clone(),
         },
         EvidenceSource::AgentObservation {
-            observation: answer_text.chars().take(500).collect(),
+            observation: verified.chars().take(500).collect(),
             reasoning_trace: format!(
-                "Existing mission evidence:\n{context}\nCandidate answer:\n{answer_text}"
+                "Existing mission evidence:\n{context}\nCandidate answer:\n{verified}"
             ),
         },
         0.0,
     );
-    TruthTransformer::cross_examine(&evidence, registry, workspace).await?;
-    Ok((answer_text, evidence))
+    Ok((verified, evidence))
 }
 
 fn parse_recovery_answer(raw: &str) -> EaiResult<CloudAnswer> {
@@ -536,7 +543,7 @@ mod tests {
             entry.sender == "c-ungrounded" && entry.payload.contains("TRUTH_UNVERIFIED")
         }));
         assert!(report.interactions.iter().any(|entry| {
-            entry.sender == "d-good" && entry.payload.contains("not absolute evidence")
+            entry.sender == "d-good" && entry.payload.contains("no absolute evidence")
         }));
     }
 

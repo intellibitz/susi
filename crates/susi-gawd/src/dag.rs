@@ -112,28 +112,6 @@ impl MissionDag {
 
             for (idx, res, elapsed) in batch_results {
                 if let Ok(output) = res {
-                    let record = EvidenceRecord::new(
-                        self.nodes[idx].title.clone(),
-                        0.95,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                        super::evidence::Claim {
-                            subject: self.nodes[idx].title.clone(),
-                            predicate: "reported_result".to_string(),
-                            value: output.chars().take(120).collect(),
-                        },
-                        super::evidence::EvidenceSource::AgentObservation {
-                            observation: output.chars().take(500).collect(),
-                            reasoning_trace: format!(
-                                "Task '{}': {}\n\nOutput:\n{}",
-                                self.nodes[idx].title, self.nodes[idx].goal, output
-                            ),
-                        },
-                        0.92,
-                    );
-
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
                     match super::truth::TruthTransformer::verify_mission_with_cross_examine(
@@ -150,7 +128,30 @@ impl MissionDag {
                             self.nodes[idx].completed = true;
                             executed_count += 1;
                             bb.insert(format!("TaskNode_{}", idx), verified);
-                            all_evidence.push(record);
+
+                            // Pillar Evidence: only store Claim trails that assess Verified
+                            // (ToolReceipt-bound). Naked AgentObservation IR is not a trail.
+                            if let Some(session) =
+                                susi_core::capture::EvidenceSession::for_workspace(workspace)
+                            {
+                                if let Some(receipt) =
+                                    session.receipts().into_iter().find(|r| r.successful)
+                                {
+                                    if let Ok(record) = session.bind_receipt(
+                                        &receipt.id,
+                                        &self.nodes[idx].title,
+                                        super::evidence::Claim {
+                                            subject: self.nodes[idx].title.clone(),
+                                            predicate: "observed".to_string(),
+                                            value: receipt.output_hash.clone(),
+                                        },
+                                    ) {
+                                        if record.verify_reality(workspace) {
+                                            all_evidence.push(record);
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Err(e) => {
                             let msg = format!("[TRUTH_VIOLATION] {}", e);

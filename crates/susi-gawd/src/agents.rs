@@ -3,7 +3,7 @@
 // Agents must add functionality directly to the susi engine, not simulate
 // results themselves.
 
-use susi_error::EaiResult;
+use susi_error::{EaiError, EaiResult};
 
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -549,14 +549,9 @@ fn extract_candidate_file_paths(text: &str) -> Vec<String> {
 }
 
 /// Verifies `claim`'s file-path references (if any) actually exist in
-/// `workspace`. This is the real, checkable slice of "backed by empirical
-/// evidence" this agent uses — it audits raw blackboard text directly, not
-/// the structured `EvidenceRecord`/`Claim` provenance pipeline
-/// (`gawd/evidence.rs`), which is a separate mechanism `dispatch_explosive_swarm`
-/// now populates via `MissionDag::execute_dag` (stored on the blackboard
-/// under `EvidenceRecord::<subject>` keys) but which this agent does not
-/// currently consume — a possible future improvement, not a gap in this
-/// function's own design.
+/// `workspace`. Path grounding is the fast check for free-text blackboard
+/// entries. Structured `EvidenceRecord` / `Claim` trails (Pillar Evidence) are
+/// assessed separately by [`EpistemicAuditorAgent`] via `record.assess`.
 fn audit_claim_grounding(claim: &str, workspace: &Path) -> (usize, Vec<String>) {
     let paths = extract_candidate_file_paths(claim);
     let hallucinated: Vec<String> = paths
@@ -567,7 +562,9 @@ fn audit_claim_grounding(claim: &str, workspace: &Path) -> (usize, Vec<String>) 
     (paths.len(), hallucinated)
 }
 
-/// Epistemic Auditor Agent: Ensures every agent claim is backed by empirical Evidence IR records.
+/// Epistemic Auditor Agent: Pillar Evidence — structured `EvidenceRecord` /
+/// `Claim` trails must assess clean; hallucinated file paths are naked
+/// assertions and hard-reject the swarm (no rubber-stamp).
 pub struct EpistemicAuditorAgent;
 
 impl GawdAgent for EpistemicAuditorAgent {
@@ -583,13 +580,33 @@ impl GawdAgent for EpistemicAuditorAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
+        use susi_core::evidence::{EvidenceAssessment, EvidenceRecord};
+
         let mut total = 0usize;
         let mut grounded = 0usize;
         let mut ungrounded = 0usize;
+        let mut ir_verified = 0usize;
+        let mut ir_failed: Vec<String> = Vec::new();
         let mut hallucinated_paths: Vec<String> = Vec::new();
 
         for entry in blackboard.iter() {
             if entry.key() == &self.name() {
+                continue;
+            }
+            if entry.key().starts_with("EvidenceRecord::") {
+                total += 1;
+                match serde_json::from_str::<EvidenceRecord>(entry.value()) {
+                    Ok(record) => match record.assess(workspace) {
+                        EvidenceAssessment::Verified => ir_verified += 1,
+                        EvidenceAssessment::Unverified(reason)
+                        | EvidenceAssessment::Rejected(reason) => {
+                            ir_failed.push(format!("{}: {reason}", entry.key()));
+                        }
+                    },
+                    Err(_) => {
+                        ir_failed.push(format!("{}: unparseable EvidenceRecord", entry.key()))
+                    }
+                }
                 continue;
             }
             total += 1;
@@ -603,10 +620,27 @@ impl GawdAgent for EpistemicAuditorAgent {
             }
         }
 
-        let res = if !hallucinated_paths.is_empty() {
-            format!(
+        if !hallucinated_paths.is_empty() {
+            let res = format!(
                 "[EpistemicAuditorAgent]: Audited {} agent claims — {} file-grounded, {} unverifiable (no file reference), {} referenced non-existent paths: {:?}. Epistemic integrity: UNGROUNDED CLAIMS DETECTED.",
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
+            );
+            blackboard.insert(self.name(), res.clone());
+            return Err(EaiError::governance(res));
+        }
+        if !ir_failed.is_empty() {
+            let res = format!(
+                "[EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified, {} EvidenceRecord failed ({:?}). Epistemic integrity: NAKED OR REJECTED ASSERTIONS.",
+                total, ir_verified, ir_failed.len(), ir_failed
+            );
+            blackboard.insert(self.name(), res.clone());
+            return Err(EaiError::governance(res));
+        }
+
+        let res = if ir_verified > 0 {
+            format!(
+                "[EpistemicAuditorAgent]: Audited {} claims — {} EvidenceRecord verified against workspace, {} file-grounded prose, {} unverifiable prose. Epistemic integrity: EVIDENCE TRAILS VERIFIED.",
+                total, ir_verified, grounded, ungrounded
             )
         } else if grounded > 0 {
             format!(
@@ -721,15 +755,19 @@ impl GawdAgent for ConsensusMediatorAgent {
                 total
             )
         } else if healthy.is_empty() {
-            format!(
-                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. All {} report critical/problem signals ({:?}) — swarm-wide distress, not a partial conflict.",
+            let res = format!(
+                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. All {} report critical/problem signals ({:?}) — swarm-wide distress, not a partial conflict. Consensus rejected.",
                 total, critical.len(), critical
-            )
+            );
+            blackboard.insert(self.name(), res.clone());
+            return Err(EaiError::governance(res));
         } else {
-            format!(
-                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. CONFLICT: {} agent(s) report critical/problem signals ({:?}) while {} agent(s) report routine status ({:?}). Consensus not reached without further mediation.",
+            let res = format!(
+                "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. CONFLICT: {} agent(s) report critical/problem signals ({:?}) while {} agent(s) report routine status ({:?}). Consensus not reached.",
                 total, critical.len(), critical, healthy.len(), healthy
-            )
+            );
+            blackboard.insert(self.name(), res.clone());
+            return Err(EaiError::governance(res));
         };
         blackboard.insert(self.name(), res.clone());
         Ok(res)
@@ -1686,10 +1724,9 @@ impl GawdAgentFleet {
         match dag.execute_dag(&workspace, &blackboard, &event_tx) {
             Ok(evidence_records) => {
                 for record in &evidence_records {
-                    blackboard.insert(
-                        format!("EvidenceRecord::{}", record.claim.subject),
-                        record.render_for_gemi(),
-                    );
+                    let payload =
+                        serde_json::to_string(record).unwrap_or_else(|_| record.render_for_gemi());
+                    blackboard.insert(format!("EvidenceRecord::{}", record.claim.subject), payload);
                 }
                 if let Some(record) = evidence_records.first() {
                     results.push(("MissionDag".to_string(), record.claim.value.clone()));
@@ -2151,12 +2188,45 @@ mod tests {
             "Fixed the bug in src/does/not/exist.rs".to_string(),
         );
         let agent = EpistemicAuditorAgent;
-        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
+        let err = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap_err();
+        let res = err.to_string();
         assert!(res.contains("UNGROUNDED CLAIMS DETECTED"));
         assert!(res.contains("src/does/not/exist.rs"));
         // Must never trip the swarm's own FAILURE/GAP consensus filters.
         assert!(!res.contains("FAILURE"));
         assert!(!res.contains("GAP"));
+    }
+
+    #[test]
+    fn test_epistemic_auditor_rejects_unverified_evidence_record() {
+        use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
+        let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
+        let record = EvidenceRecord::new(
+            "agent".into(),
+            1.0,
+            1,
+            Claim {
+                subject: "mission".into(),
+                predicate: "says".into(),
+                value: "trust me".into(),
+            },
+            EvidenceSource::AgentObservation {
+                observation: "trust me".into(),
+                reasoning_trace: "because I said so".into(),
+            },
+            0.0,
+        );
+        blackboard.insert(
+            "EvidenceRecord::mission".to_string(),
+            serde_json::to_string(&record).unwrap(),
+        );
+        let agent = EpistemicAuditorAgent;
+        let err = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .unwrap_err();
+        assert!(err.to_string().contains("NAKED OR REJECTED ASSERTIONS"));
     }
 
     #[test]
@@ -2209,7 +2279,10 @@ mod tests {
         );
         blackboard.insert("DevOpsAgent".to_string(), "Bloat audit clean.".to_string());
         let agent = ConsensusMediatorAgent;
-        let res = agent.execute("goal", Path::new("."), &blackboard).unwrap();
+        let err = agent
+            .execute("goal", Path::new("."), &blackboard)
+            .expect_err("split critical/healthy signals must reject consensus");
+        let res = err.to_string();
         assert!(res.contains("CONFLICT"));
         assert!(res.contains("ResourceArbitratorAgent"));
         assert!(res.contains("DevOpsAgent"));

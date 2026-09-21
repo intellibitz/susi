@@ -42,6 +42,28 @@ impl ToolRegistry {
             category,
             handler: Arc::new(handler),
         };
+        // Dual-mount: ToolRegistry dispatch + CapabilityRegistry catalog.
+        struct CapTool {
+            name: String,
+            desc: String,
+            handler: crate::types::MetaToolHandler,
+        }
+        impl susi_core::registry::Tool for CapTool {
+            fn name(&self) -> &str {
+                &self.name
+            }
+            fn description(&self) -> &str {
+                &self.desc
+            }
+            fn execute(&self, args: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+                (self.handler)(args, workspace)
+            }
+        }
+        susi_core::registry::CapabilityRegistry::global().register_tool(CapTool {
+            name: name.to_string(),
+            desc: desc.to_string(),
+            handler: tool.handler.clone(),
+        });
         registry.tools.insert(name.to_string(), Arc::new(tool));
     }
 
@@ -150,7 +172,7 @@ impl ToolRegistry {
                     name,
                     arg,
                     workspace,
-                    || susi_native::wasm::WasmHost::execute_reflex(&wasm_path, &arg_str),
+                    || susi_native::wasm::WasmHost::execute_untrusted_wasm(&wasm_path, &arg_str),
                 ) {
                     Ok(res) => return res,
                     Err(e) => return format!("Reflex Error: {}", e),

@@ -18,3 +18,4 @@ susi-paths = { path = "../susi-paths" }
 susi-core = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
+getrandom = { workspace = true }

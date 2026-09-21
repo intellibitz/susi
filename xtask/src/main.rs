@@ -182,6 +182,20 @@ fn main() {
                 }
 
                 println!("xtask: Successfully installed latest susi to your local system.");
+
+                // Seed the host trust anchor so the next `susi start` does not
+                // treat a fresh install as a binary-signature change.
+                let susi_home = home.join(".susi");
+                if let Ok(output) = std::process::Command::new("sha256sum").arg(&dest).output() {
+                    if output.status.success() {
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        if let Some(hash) = stdout.split_whitespace().next() {
+                            let _ = fs::write(susi_home.join("binary.hash"), hash);
+                            let _ = fs::remove_file(susi_home.join("binary.hash.cache"));
+                            println!("xtask: Updated ~/.susi/binary.hash trust anchor.");
+                        }
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("xtask: Failed to copy binary: {}", e);

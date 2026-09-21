@@ -1,7 +1,10 @@
 // SUSI Network Guard: API Authentication & Rate Limiting for world-facing
 // HTTP surfaces (GMCP HTTP, GEMI REST). Mandate 12: Hardware Authority (DoS
-// prevention) & general perimeter hardening for a substrate that is
-// reachable from the open network, not just localhost.
+// prevention) & Mandate 40: world-facing surface authentication.
+//
+// Zero-trust default: after the host seeds `api_auth_token`, every HTTP
+// request (including localhost) must present `Authorization: Bearer <token>`.
+// Before seeding, non-loopback peers are denied (fail closed on the wire).
 
 use dashmap::DashMap;
 use std::net::IpAddr;
@@ -13,16 +16,16 @@ pub struct NetGuard;
 
 impl NetGuard {
     /// Whether an `Authorization: Bearer <token>` header satisfies the
-    /// configured `api_auth_token`. If no token is configured (the bundled
-    /// default), every request is authorized — auth is opt-in so existing
-    /// local/desktop installs keep working unmodified; an operator exposing
-    /// susi beyond localhost is expected to set `api_auth_token`.
-    pub fn is_authorized(auth_header: Option<&str>) -> bool {
+    /// configured `api_auth_token` for this peer.
+    ///
+    /// - Token configured → bearer required for every peer (zero-trust).
+    /// - Token empty (pre-seed) → loopback only; remote peers denied.
+    pub fn is_authorized(auth_header: Option<&str>, peer: IpAddr) -> bool {
         let token = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
         if token.is_empty() {
-            return true;
+            return peer.is_loopback();
         }
         auth_header
             .and_then(|h| h.strip_prefix("Bearer "))
@@ -141,10 +144,25 @@ mod tests {
     }
 
     #[test]
-    fn test_is_authorized_open_when_no_token_configured() {
-        // Bundled default api_auth_token is "", so any header (or none) passes.
-        assert!(NetGuard::is_authorized(None));
-        assert!(NetGuard::is_authorized(Some("Bearer anything")));
+    fn empty_token_allows_loopback_only() {
+        // When the live host already seeded a token this test observes the
+        // seeded-token path instead — still must not panic.
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        let remote = IpAddr::from([8, 8, 8, 8]);
+        let token = susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .api_auth_token();
+        if token.is_empty() {
+            assert!(NetGuard::is_authorized(None, loopback));
+            assert!(!NetGuard::is_authorized(None, remote));
+        } else {
+            assert!(!NetGuard::is_authorized(None, loopback));
+            assert!(NetGuard::is_authorized(
+                Some(&format!("Bearer {}", token)),
+                loopback
+            ));
+            assert!(!NetGuard::is_authorized(Some("Bearer wrong"), remote));
+        }
     }
 
     #[test]

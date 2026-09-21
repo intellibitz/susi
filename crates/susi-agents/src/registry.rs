@@ -55,6 +55,14 @@ impl AgentMetaRegistry {
     const MAX_NON_CORE_AGENTS: usize = 300;
 
     pub fn register_agent(&self, profile: AgentProfile) {
+        // Mount into the shared capability catalog (providers + tools + agents).
+        susi_core::registry::CapabilityRegistry::global().register_agent_capability(
+            susi_core::registry::AgentCapability {
+                name: profile.name.clone(),
+                description: profile.description.clone(),
+                is_core: profile.is_core,
+            },
+        );
         let _ = self.store.modify(
             &Self::registry_path(),
             || Ok(self.bootstrap_data()),
@@ -113,7 +121,8 @@ impl AgentMetaRegistry {
     }
 
     pub fn list_agents(&self) -> Vec<AgentProfile> {
-        self.store
+        let agents = self
+            .store
             .load_with_healing(
                 &Self::registry_path(),
                 || Ok(self.bootstrap_data()),
@@ -140,7 +149,17 @@ impl AgentMetaRegistry {
                 },
                 false,
             )
-            .unwrap_or_else(|_| self.bootstrap_data())
+            .unwrap_or_else(|_| self.bootstrap_data());
+        // Keep CapabilityRegistry agent catalog in sync with the meta registry.
+        let caps = susi_core::registry::CapabilityRegistry::global();
+        for profile in &agents {
+            caps.register_agent_capability(susi_core::registry::AgentCapability {
+                name: profile.name.clone(),
+                description: profile.description.clone(),
+                is_core: profile.is_core,
+            });
+        }
+        agents
     }
 
     pub fn get_checksum(&self) -> u64 {

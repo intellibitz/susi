@@ -22,7 +22,7 @@ use tracing::{error, info, warn};
 #[derive(Parser)]
 #[command(name = "susi")]
 #[command(version = SUSI_VERSION)]
-#[command(about = "EAI: Exponential Intelligence for Any AI - GAWD, GEMI & GMCP Multi-Agent Engine", long_about = None)]
+#[command(about = "susi: evidence-gated AI agent substrate — GAWD, GEMI & GMCP", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -34,8 +34,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Ensure the global susi daemon is running and report its status
+    /// Ensure the global susi daemon is running and report host-contract endpoints
     Start,
+    /// Stop the global susi daemon (deterministic control plane — never a mission)
+    Stop,
     /// Start persistent SUSI Pulse Shell
     Shell,
     /// Initialize sandboxed .susi environment
@@ -173,6 +175,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Undo
         | Commands::OsClean
         | Commands::Uninstall
+        | Commands::Stop
         | Commands::Pulse { .. }
         | Commands::Keys { .. }
         | Commands::DaemonStart { .. } => false,
@@ -392,12 +395,71 @@ fn main() -> std::process::ExitCode {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Start => match SusiDaemon::check_status(&cwd, &global_dir) {
-                Some(pid) => println!("[SUSI Daemon] Running (PID: {}).", pid),
-                None => {
-                    println!("[SUSI Daemon] Failed to start. Check ~/.susi/audit.log for details.")
+            Commands::Start => {
+                match SusiDaemon::check_status(&cwd, &global_dir) {
+                    Some(pid) if SusiDaemon::host_contract_ready() => {
+                        println!("[SUSI Daemon] Running (PID: {}).", pid);
+                        println!("{}", SusiDaemon::host_contract_endpoints_report());
+                        let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+                        println!(
+                            "Auth: Bearer token in {} (required for HTTP clients)",
+                            susi_paths::SusiDirs::config_dir()
+                                .join("api_token")
+                                .display()
+                        );
+                    }
+                    Some(pid) => {
+                        // PID alive but ports not yet (or no longer) bound.
+                        if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(5)) {
+                            println!("[SUSI Daemon] Running (PID: {}).", pid);
+                            println!("{}", SusiDaemon::host_contract_endpoints_report());
+                            let _ =
+                                susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+                            println!(
+                                "Auth: Bearer token in {} (required for HTTP clients)",
+                                susi_paths::SusiDirs::config_dir()
+                                    .join("api_token")
+                                    .display()
+                            );
+                        } else {
+                            eprintln!(
+                                "[SUSI Daemon] Process {} is up but host-contract ports 9090–9093 are not ready.",
+                                pid
+                            );
+                            std::process::exit(1);
+                        }
+                    }
+                    None => {
+                        eprintln!(
+                            "[SUSI Daemon] Failed to start. Host-contract ports 9090–9093 are not listening."
+                        );
+                        std::process::exit(1);
+                    }
                 }
-            },
+            }
+            Commands::Stop => {
+                let killed = SusiDaemon::stop_all_daemons(&global_dir);
+                // Give listeners a moment to release the host-contract ports.
+                for _ in 0..20 {
+                    if !SusiDaemon::host_contract_tcp_ready() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if killed > 0 {
+                    println!(
+                        "[SUSI Daemon] Stopped {} process(es). Host-contract ports released.",
+                        killed
+                    );
+                } else if SusiDaemon::host_contract_tcp_ready() {
+                    eprintln!(
+                        "[SUSI Daemon] No lock/unit found, but ports 9090/9091/9093 are still listening."
+                    );
+                    std::process::exit(1);
+                } else {
+                    println!("[SUSI Daemon] Already stopped.");
+                }
+            }
             Commands::Shell => run_shell(&cwd),
             Commands::Install => {
                 println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");

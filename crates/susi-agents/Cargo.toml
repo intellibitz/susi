@@ -11,5 +11,6 @@ serde_json = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
 susi-error = { workspace = true }
+susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-paths = { path = "../susi-paths" }

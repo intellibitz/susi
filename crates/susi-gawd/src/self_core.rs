@@ -29,7 +29,7 @@ pub struct AlphaSelf;
 impl AlphaSelf {
     pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
     pub const CORE_PARADIGM: &'static str =
-        "EAI (Exponential Intelligence for Any AI) - Intelligence Reflex & Execution Substrate";
+        "susi — evidence-gated intelligence reflex & execution substrate (GAWD / GEMI / GMCP)";
 
     pub const IDENTITY_MD: &'static str = include_str!("../../../.agents/IDENTITY.md");
     pub const EVIDENCE_MD: &'static str = include_str!("../../../.agents/EVIDENCE.md");

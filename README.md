@@ -4,9 +4,9 @@
 
 **The operating system for AI agents.**
 
-susi is a zero-trust AI substrate that runs on your machine: a persistent host daemon, stable network ports external clients can hard-code, local and cloud inference behind one router, and a swarm that only accepts claims backed by evidence. It sits on Linux / macOS / WSL — it does not replace your OS; it is the OS layer *for* agents.
+susi is an evidence-gated AI substrate that runs on your machine: a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`) — it does not replace your OS; it is the OS layer *for* agents.
 
-> Bring any model, any agent, any MCP tool. susi mounts them as capabilities, orchestrates a consensus **Swarm**, grounds every claim in **Evidence**, cross-examines with a **Truth** transformer, cryptographically **audits** actions, **sandboxes** untrusted code, compiles routine paths into **reflexes**, and **provisions** missing tools on the fly.
+> Mount models, agents, and MCP tools as capabilities. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime.
 
 ---
 
@@ -24,18 +24,22 @@ External clients can trust these ports — the daemon never silently drifts them
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
+- **Control plane** — `susi start` / `susi stop` are deterministic host commands (never missions). `start` waits until 9090–9093 are ready and prints the endpoints.
+- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on 9090/9091/9093 (except `/health` / CORS preflight).
 
 ---
 
 ## The 8 pillars
 
-1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents.
-2. **Evidence** — mission-scoped `EvidenceSession` ledger: real tool/MCP calls mint `ToolReceipt`s; answers cite receipt IDs — generated text cannot invent evidence.
-3. **Truth** — absolute only: live ledger citations, compiled binary reads, or native verified receipts. Models never certify facts.
+Foundation claims — each must hold in source:
+
+1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
+2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
+3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
 4. **Pluggable** — `CapabilityRegistry` mounts Candle / llama.cpp, vLLM / Ollama, OpenAI-compatible clouds, and MCP tools behind one interface.
-5. **Audit** — agent actions signed into an immutable accountability chain.
-6. **Sandbox** — Wasmer isolates untrusted plugins, agents, and reflexes.
-7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
+5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
+6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
+7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
 8. **Provision** — missing MCP servers and tools are scouted and hot-plugged at runtime.
 
 ---
@@ -64,6 +68,10 @@ irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex
 ## Quickstart
 
 ```bash
+# Bring up / tear down the host daemon (control plane — not a mission)
+susi start
+susi stop
+
 # Task across the agent swarm (cwd = workspace)
 susi "analyze this workspace and propose an optimization plan"
 
@@ -80,6 +88,8 @@ susi keys prefer deepseek
 #   http://127.0.0.1:9090/mcp
 #   http://127.0.0.1:9091/
 #   http://127.0.0.1:9093/mcp
+# Bearer required (except /health):
+#   Authorization: Bearer "$(cat ~/.susi/api_token)"
 ```
 
 Stdio MCP for editors that prefer a subprocess:
@@ -91,10 +101,10 @@ susi mcp
 
 ## Design principles
 
-Defined in `.agents/`:
+Defined in `.agents/IDENTITY.md` (Design principles):
 - **Autonomous by default** — plan and execute via swarm consensus, not step-by-step babysitting.
 - **Grounded outputs** — claims checked against tools and workspace state.
-- **Traceable reasoning** — thinking and tool calls are inspectable.
+- **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`).
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
 
 ---

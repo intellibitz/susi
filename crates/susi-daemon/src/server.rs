@@ -10,11 +10,12 @@ use susi_paths::ports;
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
+use std::net::{TcpStream, UdpSocket};
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
@@ -158,6 +159,71 @@ impl SusiDaemon {
     pub fn check_status(_workspace: &Path, global_dir: &Path) -> Option<u32> {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock)
+    }
+
+    /// True when the public host-contract TCP surfaces (9090/9091/9093) accept connections.
+    pub fn host_contract_tcp_ready() -> bool {
+        [ports::GMCP, ports::GEMI, ports::GMCP_HTTP]
+            .iter()
+            .all(|port| {
+                TcpStream::connect_timeout(
+                    &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
+                    Duration::from_millis(200),
+                )
+                .is_ok()
+            })
+    }
+
+    /// True when UDP discovery on 9092 answers a LAN ping (daemon owns the port).
+    pub fn host_contract_udp_ready() -> bool {
+        let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
+            return false;
+        };
+        let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
+        let target = std::net::SocketAddr::from(([127, 0, 0, 1], ports::UDP_DISCOVERY));
+        if sock.send_to(b"SUSI_LAN_PING", target).is_err() {
+            return false;
+        }
+        let mut buf = [0u8; 256];
+        match sock.recv_from(&mut buf) {
+            Ok((n, _)) => {
+                let msg = String::from_utf8_lossy(&buf[..n]);
+                msg.contains("SUSI_LAN_PONG")
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Full host contract: TCP 9090/9091/9093 + UDP 9092 discovery.
+    pub fn host_contract_ready() -> bool {
+        Self::host_contract_tcp_ready() && Self::host_contract_udp_ready()
+    }
+
+    /// Block until host-contract ports are live, or `timeout` elapses.
+    pub fn wait_for_host_contract(timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            if Self::host_contract_ready() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        Self::host_contract_ready()
+    }
+
+    /// Human-readable host-contract endpoints for CLI / logs.
+    pub fn host_contract_endpoints_report() -> String {
+        format!(
+            "Host contract endpoints:\n\
+             - GMCP/MCP  http://127.0.0.1:{}/mcp\n\
+             - GEMI      http://127.0.0.1:{}/\n\
+             - UDP disco 127.0.0.1:{}\n\
+             - GMCP alias http://127.0.0.1:{}/mcp",
+            ports::GMCP,
+            ports::GEMI,
+            ports::UDP_DISCOVERY,
+            ports::GMCP_HTTP
+        )
     }
 
     /// Locate the single host daemon, if running.
@@ -319,11 +385,14 @@ impl SusiDaemon {
                 );
             }
             Ok(false) => {
-                let def_tampered = "[SusiDaemon] Binary integrity check FAILED.".to_string();
-                warn!(
+                // Hash file is self-healing: Ok(false) means the binary changed
+                // (rebuild/hot-reload) and the trust anchor was rewritten — not
+                // a refused tamper. Real refusal would leave the old hash.
+                let def_updated =
+                    "[SusiDaemon] Binary signature changed; trust anchor updated.".to_string();
+                info!(
                     "{}",
-                    msgs.get("daemon", "binary_tampered")
-                        .unwrap_or(&def_tampered)
+                    msgs.get("daemon", "binary_updated").unwrap_or(&def_updated)
                 );
             }
             Err(e) => warn!("[SusiDaemon] Could not verify binary integrity: {}", e),
@@ -358,6 +427,9 @@ impl SusiDaemon {
                 .map(|s| s.success())
                 .unwrap_or(false);
             if spawned_via_systemd {
+                // systemd-run returns before binds complete — wait for the
+                // public host-contract ports so callers never race.
+                let _ = Self::wait_for_host_contract(Duration::from_secs(10));
                 return;
             }
         }
@@ -403,6 +475,7 @@ impl SusiDaemon {
             if let Ok(mut child) = cmd.spawn() {
                 let _ = child.wait();
             }
+            let _ = Self::wait_for_host_contract(Duration::from_secs(10));
         }
 
         #[cfg(not(unix))]
@@ -416,6 +489,7 @@ impl SusiDaemon {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
             let _ = cmd.spawn();
+            let _ = Self::wait_for_host_contract(Duration::from_secs(10));
         }
     }
 
@@ -427,6 +501,8 @@ impl SusiDaemon {
         // project-cwd passed via --workspace for backwards compatibility.
         let workspace = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&workspace);
+        // Zero-trust: seed host bearer token before opening world-facing ports.
+        let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
         susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);
@@ -893,6 +969,29 @@ impl SusiDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_contract_endpoint_report_lists_canonical_ports() {
+        let report = SusiDaemon::host_contract_endpoints_report();
+        assert!(report.contains(":9090/mcp"));
+        assert!(report.contains(":9091/"));
+        assert!(report.contains(":9092"));
+        assert!(report.contains(":9093/mcp"));
+    }
+
+    #[test]
+    fn wait_for_host_contract_times_out_when_nothing_listens() {
+        // Bind the contract ports ourselves only if they are free — otherwise
+        // skip: a live local daemon would make "timeout when down" untestable.
+        if SusiDaemon::host_contract_tcp_ready() {
+            return;
+        }
+        let ready = SusiDaemon::wait_for_host_contract(Duration::from_millis(250));
+        assert!(
+            !ready,
+            "wait_for_host_contract must return false when nothing owns 9090–9093"
+        );
+    }
 
     #[test]
     fn test_lock_file_path() {

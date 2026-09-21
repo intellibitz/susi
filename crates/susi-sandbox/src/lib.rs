@@ -1,3 +1,4 @@
+pub mod audit_chain;
 pub mod auto_install;
 pub mod daemon_state;
 pub mod manager;

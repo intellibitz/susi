@@ -998,12 +998,67 @@ impl SusiConfig {
         self.get_or_bundled_default("allow_origin")
     }
     /// Bearer token required on world-facing HTTP surfaces (GMCP HTTP, GEMI
-    /// REST). Empty (the bundled default) means auth is not enforced, so
-    /// existing local/desktop installs keep working unmodified; operators
-    /// exposing susi beyond localhost should set this.
+    /// REST). Empty only before first daemon seed — [`Self::ensure_api_auth_token_seeded`]
+    /// writes a host token so zero-trust auth is always available.
     pub fn api_auth_token(&self) -> String {
         self.get_or_bundled_default("api_auth_token")
     }
+
+    /// Ensure `api_auth_token` is non-empty on the host substrate. Generates a
+    /// 32-byte hex secret on first run, persists it to `config.json` and
+    /// `~/.susi/api_token` (0600), and returns the active token.
+    pub fn ensure_api_auth_token_seeded() -> String {
+        let global_dir = susi_paths::SusiDirs::config_dir();
+        let mut cfg = Self::load_global().unwrap_or_default();
+        let existing = cfg.api_auth_token();
+        if !existing.is_empty() {
+            let token_path = global_dir.join("api_token");
+            if !token_path.exists() {
+                let _ = fs::write(&token_path, existing.trim());
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+                }
+            }
+            return existing;
+        }
+        let mut raw = [0u8; 32];
+        if getrandom::fill(&mut raw).is_err() {
+            // Extremely unlikely; fall back to a process-unique but weaker seed.
+            let fallback = format!(
+                "{}:{}:{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0),
+                global_dir.display()
+            );
+            use sha2::{Digest, Sha256};
+            let digest = Sha256::digest(fallback.as_bytes());
+            raw.copy_from_slice(&digest[..32]);
+        }
+        let token = hex::encode(raw);
+        cfg.settings.insert(
+            "api_auth_token".to_string(),
+            serde_json::Value::String(token.clone()),
+        );
+        let _ = cfg.save(&global_dir);
+        let token_path = global_dir.join("api_token");
+        let _ = fs::write(&token_path, &token);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+        }
+        eprintln!(
+            "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP 9090/9091/9093)",
+            token_path.display()
+        );
+        token
+    }
+
     /// Max requests per IP per 60s window on world-facing HTTP surfaces. 0
     /// disables rate limiting.
     pub fn rate_limit_per_minute(&self) -> u32 {
@@ -1350,10 +1405,6 @@ impl SusiAuditLogger {
             let _ = fs::create_dir_all(&susi_dir);
         }
         let audit_file = workspace.join(".susi/audit.log");
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
 
         // Deterministic credential masking (Mandate 10: No Secret Leaks) — every
         // telemetry write funnels through here, so this is the one chokepoint
@@ -1368,14 +1419,6 @@ impl SusiAuditLogger {
         let details = susi_core::redact::redact_patterns(&secret_patterns, details);
         let details = details.as_str();
 
-        let log_entry = serde_json::json!({
-            "ts": ts,
-            "level": format!("{:?}", level),
-            "type": event_type,
-            "details": details,
-            "pid": std::process::id(),
-        });
-
         tracing::info!(
             target: "susi_audit",
             event_type = event_type,
@@ -1385,13 +1428,20 @@ impl SusiAuditLogger {
             "audit_event"
         );
 
-        if let Ok(mut f) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(audit_file)
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "{}", log_entry);
+        // Cryptographic accountability chain: hash-linked + HMAC-SHA256 under
+        // ~/.susi/audit.hmac.key (immutable without the host key).
+        if let Err(e) = crate::audit_chain::append_signed_entry(
+            &audit_file,
+            &format!("{:?}", level),
+            event_type,
+            details,
+            std::process::id(),
+        ) {
+            tracing::warn!(
+                target: "susi_audit",
+                "failed to append signed audit entry: {}",
+                e
+            );
         }
     }
 

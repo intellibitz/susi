@@ -11,7 +11,12 @@ use wasmer_wasix::Pipe;
 pub struct WasmHost;
 
 impl WasmHost {
-    /// Executes a distilled reflex from a Wasm file
+    /// Pillar Sandbox: run untrusted Wasm (plugins or reflexes) under Wasmer/WASI.
+    pub fn execute_untrusted_wasm(wasm_path: &Path, arg: &str) -> EaiResult<String> {
+        Self::execute_reflex(wasm_path, arg)
+    }
+
+    /// Executes a distilled reflex from a Wasm file (Wasmer/WASI isolation).
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
         let engine = Engine::default();
         let module = Module::from_file(&engine, wasm_path)

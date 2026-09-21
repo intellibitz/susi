@@ -151,6 +151,7 @@ async fn handle_gemi_request(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok()),
+            peer_ip,
         ) {
             return Ok(json_response(
                 StatusCode::UNAUTHORIZED,

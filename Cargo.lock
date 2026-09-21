@@ -7252,6 +7252,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "susi-core",
  "susi-error",
  "susi-paths",
  "susi-sandbox",
@@ -7434,6 +7435,7 @@ version = "0.1.0"
 dependencies = [
  "bollard",
  "futures",
+ "getrandom 0.3.4",
  "hex",
  "parking_lot",
  "serde",

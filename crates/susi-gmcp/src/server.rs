@@ -184,6 +184,7 @@ async fn handle_request(
         req.headers()
             .get(hyper::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok()),
+        peer,
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
     } else if !susi_agents::net_guard::RateLimiter::global()

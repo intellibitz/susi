@@ -95,6 +95,16 @@ pub struct CapabilityRegistry {
     providers: Arc<DashMap<String, Arc<dyn Provider>>>,
     /// Maps tool names to their instantiated capabilities
     tools: Arc<DashMap<String, Arc<dyn Tool>>>,
+    /// Maps agent names to mounted agent capability descriptors
+    agents: Arc<DashMap<String, AgentCapability>>,
+}
+
+/// Lightweight agent capability mounted alongside providers and tools.
+#[derive(Debug, Clone)]
+pub struct AgentCapability {
+    pub name: String,
+    pub description: String,
+    pub is_core: bool,
 }
 
 impl CapabilityRegistry {
@@ -103,6 +113,7 @@ impl CapabilityRegistry {
             services: Arc::new(DynamicServiceRegistry::new()),
             providers: Arc::new(DashMap::new()),
             tools: Arc::new(DashMap::new()),
+            agents: Arc::new(DashMap::new()),
         }
     }
 
@@ -154,6 +165,39 @@ impl CapabilityRegistry {
         self.tools.iter().map(|kv| kv.key().clone()).collect()
     }
 
+    /// Mount an agent capability (name/description) into the same registry as
+    /// providers and tools — one catalog for models, agents, and MCP tools.
+    pub fn register_agent_capability(&self, agent: AgentCapability) {
+        self.agents.insert(agent.name.clone(), agent);
+    }
+
+    pub fn get_agent(&self, name: &str) -> Option<AgentCapability> {
+        self.agents.get(name).map(|v| v.clone())
+    }
+
+    pub fn list_agents(&self) -> Vec<String> {
+        self.agents.iter().map(|kv| kv.key().clone()).collect()
+    }
+
+    pub fn unregister_agent(&self, name: &str) -> bool {
+        self.agents.remove(name).is_some()
+    }
+
+    /// Unified capability inventory: providers + tools + agents.
+    pub fn list_all_capabilities(&self) -> Vec<(String, &'static str)> {
+        let mut out = Vec::new();
+        for name in self.list_providers() {
+            out.push((name, "provider"));
+        }
+        for name in self.list_tools() {
+            out.push((name, "tool"));
+        }
+        for name in self.list_agents() {
+            out.push((name, "agent"));
+        }
+        out
+    }
+
     /// Exposes the underlying dynamic service registry for ad-hoc capability registration.
     pub fn dynamic_services(&self) -> &DynamicServiceRegistry {
         &self.services
@@ -164,6 +208,37 @@ impl CapabilityRegistry {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn agents_tools_and_providers_mount_as_capabilities() {
+        let registry = CapabilityRegistry::new();
+        registry.register_agent_capability(AgentCapability {
+            name: "SafetyAgent".into(),
+            description: "governance".into(),
+            is_core: true,
+        });
+        struct T;
+        impl Tool for T {
+            fn name(&self) -> &str {
+                "probe"
+            }
+            fn description(&self) -> &str {
+                "probe tool"
+            }
+            fn execute(
+                &self,
+                _args: &serde_json::Value,
+                _workspace: &std::path::Path,
+            ) -> susi_error::EaiResult<String> {
+                Ok("ok".into())
+            }
+        }
+        registry.register_tool(T);
+        let all = registry.list_all_capabilities();
+        assert!(all.iter().any(|(n, k)| n == "SafetyAgent" && *k == "agent"));
+        assert!(all.iter().any(|(n, k)| n == "probe" && *k == "tool"));
+        assert!(registry.get_agent("SafetyAgent").unwrap().is_core);
+    }
 
     #[test]
     fn factory_can_replace_itself_without_deadlocking() {
