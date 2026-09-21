@@ -1,4 +1,4 @@
-//! Tier A substrate status: Pluggable, Sandbox, Governance, Host-contract, Reflexes.
+//! Tier S substrate status: Pluggable, Sandbox, Governance, Host-contract, Reflexes.
 use anyhow::Result;
 use clap::Subcommand;
 use serde::Serialize;

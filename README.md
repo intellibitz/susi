@@ -2,7 +2,7 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.7.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**The OS layer for AI agents** — an evidence-gated agent-of-agents substrate on your machine (not a replacement host OS).
+**The OS layer for AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS). Verify the crown with `susi crown`.
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
@@ -29,24 +29,26 @@ External clients can trust these ports — the daemon never silently drifts them
 
 ---
 
-## Foundation pillars
+## Foundation pillars (Tier S)
 
-Claims that must hold in source (aligned with `.agents/IDENTITY.md`):
+Every pillar below is a **Tier S** crown USP — must hold in source and pass `susi crown verify`:
 
-1. **Swarm** — multi-agent consensus that routes, debates, and converges on intents.
-2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger.
-3. **Truth** — absolute sources only (ledger citations, compiled reads, native receipts).
-4. **Blackboard** — live swarm shared state (`.susi/last_blackboard.json`, `susi blackboard`).
-5. **Glass box** — inspectable traces, blackboard, auto-prime, governance, substrate reports.
-6. **Zero-config Auto** — `susi auto`; host installs/keys still gate cloud tiers.
-7. **Governance-first** — Safety/Security clear before parallel fleet (`.susi/last_governance.json`).
-8. **Pluggable** — `CapabilityRegistry` + extension packs (`susi substrate`).
-9. **Sandbox** — Wasmer for Wasm plugins/reflexes; Docker `sandbox_exec` when available.
-10. **Host contract** — fixed ports 9090–9093 (`susi start` / `susi substrate`).
-11. **Reflexes** — Wasm reflexes under the data dir (`susi substrate`).
-12. **Audit** — append-only HMAC accountability chain.
+1. **Truth** — absolute sources only; models never certify.
+2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
+3. **Swarm** — agent-of-agents consensus (GAWD).
+4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
+5. **Glass box** — inspectable traces / blackboard / governance / crown reports.
+6. **Audit** — append-only HMAC accountability chain.
+7. **Zero-config Auto** — `susi auto`; host installs/keys still gate cloud.
+8. **Governance-first** — Safety/Security before parallel fleet.
+9. **Pluggable** — `CapabilityRegistry` + extension packs.
+10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
+11. **Host contract** — fixed ports 9090–9093.
+12. **Reflexes** — Wasm reflexes under the data dir.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
+
+Verify: `susi crown` (exit non-zero if any critical USP fails).
 
 ---
 
@@ -56,12 +58,9 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 
 | Claim | Holds as |
 |-------|----------|
-| Agent-of-agents / OS layer for AI | Multi-agent swarm orchestrator + host daemon/ports — layer *for* agents, not a host OS |
-| Evidence / Truth / Blackboard / Glass box | Ledger + absolute truth gate + persisted blackboard in mission traces |
-| Governance-first | Safety/Security awaited before parallel fleet; `.susi/last_governance.json` |
-| Zero-config Auto | `susi auto` + bootstrap auto-prime (host keys/installs still required for cloud) |
-| Pluggable / Sandbox / Host contract / Reflexes | `susi substrate` reports registry, Wasmer/Docker, ports 9090–9093, reflex wasm count |
-| Plugin protocol agents | **~10** curated executors + **~10** frameworks; UNAVAILABLE until driver/config present |
+| Tier S crown | `susi crown verify` — Truth/Evidence/Swarm/Blackboard/Glass/Audit/Auto/Governance/Pluggable/Sandbox/Host/Reflexes/Provision/Concurrency |
+| Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS |
+| Plugin protocol agents | **~10** executors + **~10** frameworks; UNAVAILABLE until driver/config present |
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** ranked coding models + **~50** catalog + live `/models`; local GGUF = llama/qwen2 |
 | Plugin protocol MCP | **~10** leading servers + **~100** scout packages |

@@ -36,24 +36,24 @@ External clients may hard-code these ports — the daemon never silently drifts 
 - Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.
 - Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port.
 
-### Public foundation pillars
+### Public foundation pillars (Tier S)
 
-These claims must hold in source; when README and this section disagree, source wins and both are updated together:
+Every pillar below is a **Tier S** crown USP — must hold in source and pass `susi crown verify`. When README and this section disagree, source wins and both are updated together:
 
-1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (agent-of-agents orchestrator).
-2. **Evidence** — structured `EvidenceRecord` / `Claim` trails; no naked assertions.
-3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality.
-4. **Blackboard** — live swarm shared state (`MissionBlackboard`); persisted to `.susi/last_blackboard.json` (`susi blackboard`).
-5. **Glass box** — Mandate 26: reasoning, tool calls, and state mutations are inspectable (traces + blackboard + auto-prime + governance + substrate reports).
-6. **Zero-config Auto** — substrate auto-seeds packs, enables ready MCP, prefers ready coding models, admits ready peers, awakens local engines (`susi auto`); host still supplies installs/keys when a tier needs them.
-7. **Governance-first** — Mandate 37: `SafetyAgent`/`SecurityAgent` clear (or veto) before any parallel execution-capable agent; proof in `.susi/last_governance.json`.
-8. **Pluggable** — protocol-generic admit via `CapabilityRegistry` (providers/tools/agents) + extension packs; catalogs open-admit when drivers/keys speak supported protocols (`susi substrate`).
-9. **Sandbox** — Wasmer isolates untrusted Wasm plugins/reflexes (`WasmHost::execute_untrusted_wasm`); Docker `sandbox_exec` when Docker is available (`susi substrate`).
-10. **Host contract** — daemon owns fixed ports 9090–9093; never silent drift (`susi start` / `susi substrate`).
-11. **Reflexes** — routine intelligence distilled into Wasm under the data dir; training threshold from config (`susi substrate`).
-12. **Audit** — agent actions signed into an immutable accountability chain (append-only HMAC-SHA256).
-13. **Provision** — daemon `bootstrap_zero_config_substrate` + `auto_prime_ecosystem` keep the ecosystem primed (Candle + hardware model ladder).
-14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot on real hardware (not single-threaded simulation).
+1. **Truth** — `TruthTransformer` / `SusiTruthAgent`; models never certify facts.
+2. **Evidence** — `EvidenceSession` / `ToolReceipt` / `EvidenceRecord`; no naked assertions.
+3. **Swarm** — multi-agent consensus (`susi-gawd`) agent-of-agents orchestrator.
+4. **Blackboard** — `MissionBlackboard`; `.susi/last_blackboard.json` (`susi blackboard`).
+5. **Glass box** — Mandate 26; traces + blackboard + governance + crown reports.
+6. **Audit** — append-only HMAC-SHA256 chain (`audit_chain::verify_chain`).
+7. **Zero-config Auto** — packs/MCP/models/peers auto-prime (`susi auto`); host installs/keys still gate cloud.
+8. **Governance-first** — Mandate 37; Safety/Security before parallel fleet (`.susi/last_governance.json`).
+9. **Pluggable** — `CapabilityRegistry` + extension packs (`susi substrate`).
+10. **Sandbox** — Wasmer `WasmHost::execute_untrusted_wasm`; Docker `sandbox_exec` when available.
+11. **Host contract** — fixed ports 9090–9093; never silent drift.
+12. **Reflexes** — Wasm under data dir; training threshold from config.
+13. **Provision** — `bootstrap_zero_config_substrate` + Candle/weight ladder.
+14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
 ### Design principles
 

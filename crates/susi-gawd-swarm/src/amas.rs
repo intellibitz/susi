@@ -559,7 +559,7 @@ impl SusiSupervisor {
             });
         }
 
-        // Glass-box: persist the live mission blackboard (Tier A USP).
+        // Glass-box: persist the live mission blackboard (Tier S USP).
         let _ = blackboard.persist_inspectable(workspace);
 
         // 6. Kick off a background distillation-state check (skip if one's already running)

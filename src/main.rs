@@ -8,6 +8,7 @@
 mod agent_cli;
 mod auto_cli;
 mod blackboard_cli;
+mod crown_cli;
 mod extensions_cli;
 mod framework_cli;
 mod mcp_cli;
@@ -91,6 +92,11 @@ enum Commands {
     Substrate {
         #[command(subcommand)]
         action: Option<substrate_cli::SubstrateCommands>,
+    },
+    /// Tier S crown: verify every USP holds (Truth, Evidence, Swarm, …)
+    Crown {
+        #[command(subcommand)]
+        action: Option<crown_cli::CrownCommands>,
     },
     /// Start GEMI REST server
     Gemi,
@@ -245,7 +251,10 @@ fn command_requires_daemon(command: &Commands) -> bool {
             false
         }
         Commands::Extensions { .. } => false,
-        Commands::Auto { .. } | Commands::Blackboard { .. } | Commands::Substrate { .. } => false,
+        Commands::Auto { .. }
+        | Commands::Blackboard { .. }
+        | Commands::Substrate { .. }
+        | Commands::Crown { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,
@@ -456,6 +465,18 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    if let Some(Commands::Crown { action }) = cli.command {
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| crown_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(Commands::Agents { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
         let substrate = susi_paths::SusiDirs::substrate_home();
@@ -617,7 +638,8 @@ fn main() -> std::process::ExitCode {
             | Commands::Extensions { .. }
             | Commands::Auto { .. }
             | Commands::Blackboard { .. }
-            | Commands::Substrate { .. } => {
+            | Commands::Substrate { .. }
+            | Commands::Crown { .. } => {
                 // Handled before substrate boot above.
             }
             Commands::Start => {
