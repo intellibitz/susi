@@ -1,6 +1,6 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.4.1-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.4.2-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **The operating system for AI agents.**
 
