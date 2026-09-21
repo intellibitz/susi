@@ -19,6 +19,47 @@ use headless_chrome::Browser;
 use qdrant_client::Qdrant;
 use tantivy::{collector::TopDocs, query::QueryParser, schema::*, Index, TantivyDocument};
 
+fn external_agent_control(
+    arg: &serde_json::Value,
+    workspace: &Path,
+    action: &str,
+) -> EaiResult<String> {
+    let id = arg
+        .get("task_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| EaiError::protocol("task_id is required"))?;
+    let manager = susi_agents::external::AgentManager::new(workspace)
+        .map_err(|e| EaiError::process(e.to_string()))?;
+    if action == "logs" {
+        return manager
+            .logs(
+                id,
+                arg.get("stderr").and_then(|v| v.as_bool()).unwrap_or(false),
+                65536,
+            )
+            .map_err(|e| EaiError::process(e.to_string()));
+    }
+    let run = match action {
+        "cancel" => manager.cancel(id),
+        "send" => manager.send(
+            id,
+            arg.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+        ),
+        _ if arg
+            .get("refresh")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false) =>
+        {
+            manager.refresh(id)
+        }
+        _ => manager.status(id),
+    }
+    .map_err(|e| EaiError::process(e.to_string()))?;
+    serde_json::to_string(&run)
+        .map(|s| susi_agents::external::redact(&s))
+        .map_err(|e| EaiError::protocol(e.to_string()))
+}
+
 /// Ensure path is normalized and contained within workspace
 fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
     let user_path = user_path.trim().trim_matches('"').trim_matches('\'');
@@ -514,6 +555,94 @@ impl CoreTools {
             task_handle.report_progress();
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+    }
+
+    #[tool(
+        name = "agents_list",
+        description = "List managed external executors and local setup readiness"
+    )]
+    pub fn agents_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let manager = susi_agents::external::AgentManager::new(workspace)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        let catalog =
+            susi_agents::external::catalog().map_err(|e| EaiError::config(e.to_string()))?;
+        let agents: Vec<_> = catalog
+            .into_iter()
+            .map(|agent| {
+                let readiness = manager.adapter(&agent.id).and_then(|a| a.preflight());
+                serde_json::json!({"agent": agent, "prerequisites_present": readiness.is_ok(),
+                "detail": readiness.unwrap_or_else(|e| e.to_string())})
+            })
+            .collect();
+        serde_json::to_string(&agents).map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "agents_run",
+        description = "Launch an external agent task; returns a durable task ID for status, logs and cancellation"
+    )]
+    pub fn agents_run(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let agent = arg
+            .get("agent")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("agent is required"))?;
+        let prompt = arg
+            .get("prompt")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("prompt is required"))?;
+        let manager = susi_agents::external::AgentManager::new(workspace)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        let run = manager
+            .start(agent, prompt)
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&run)
+            .map(|s| susi_agents::external::redact(&s))
+            .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "agents_tasks",
+        description = "List persisted external agent tasks for this workspace"
+    )]
+    pub fn agents_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let runs = susi_agents::external::AgentManager::new(workspace)
+            .and_then(|m| m.list())
+            .map_err(|e| EaiError::process(e.to_string()))?;
+        serde_json::to_string(&runs)
+            .map(|s| susi_agents::external::redact(&s))
+            .map_err(|e| EaiError::protocol(e.to_string()))
+    }
+
+    #[tool(
+        name = "agents_status",
+        description = "Inspect an external task; refresh=true recovers cloud status after worker loss"
+    )]
+    pub fn agents_status(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "status")
+    }
+
+    #[tool(
+        name = "agents_cancel",
+        description = "Request cancellation of a managed external agent task"
+    )]
+    pub fn agents_cancel(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "cancel")
+    }
+
+    #[tool(
+        name = "agents_logs",
+        description = "Read the last 64 KiB of external agent output; stderr=true selects errors"
+    )]
+    pub fn agents_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "logs")
+    }
+
+    #[tool(
+        name = "agents_send",
+        description = "Send a follow-up message to an existing cloud agent task"
+    )]
+    pub fn agents_send(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        external_agent_control(arg, workspace, "send")
     }
 
     #[tool(
@@ -1118,6 +1247,55 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         "Execute command in workspace",
         MetaCategory::WorkspaceIo,
         CoreTools::exec_command,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_list",
+        "List managed external executors and setup readiness",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_list,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_run",
+        "Launch external task with agent and prompt",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_run,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_tasks",
+        "List durable external tasks",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_tasks,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_status",
+        "Inspect external task_id; optional refresh",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_status,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_cancel",
+        "Cancel external task_id",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_cancel,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_logs",
+        "Read external task_id output; optional stderr",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_logs,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "agents_send",
+        "Send message to cloud task_id",
+        MetaCategory::IntelligenceBridge,
+        CoreTools::agents_send,
     );
     ToolRegistry::register_meta_tool(
         registry,

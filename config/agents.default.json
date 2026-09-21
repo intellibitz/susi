@@ -265,7 +265,7 @@
   },
   {
     "name": "ClaudeCodeAgent",
-    "description": "Anthropic Claude Code peer \u2014 terminal coding agent (pluggable when `claude` is on PATH).",
+    "description": "Claude Code managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -282,7 +282,7 @@
   },
   {
     "name": "CursorAgent",
-    "description": "Cursor Agent peer \u2014 IDE-native coding agent (pluggable when `cursor-agent` or `agent` is on PATH).",
+    "description": "Cursor Agent managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -299,7 +299,7 @@
   },
   {
     "name": "CodexAgent",
-    "description": "OpenAI Codex peer \u2014 CLI/cloud coding agent (pluggable when `codex` is on PATH).",
+    "description": "Codex Agent managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -315,8 +315,42 @@
     "is_core": false
   },
   {
+    "name": "RooCodeAgent",
+    "description": "Roo Code managed executor; setup and task lifecycle via `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "roocode"
+    ],
+    "semantic_anchors": [
+      "roocode",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "ClineAgent",
+    "description": "Cline managed executor; setup and task lifecycle via `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "cline"
+    ],
+    "semantic_anchors": [
+      "cline",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
     "name": "DevinAgent",
-    "description": "Devin peer \u2014 delegated cloud worker (pluggable when DEVIN_API_KEY is set and optional `devin` CLI is present).",
+    "description": "Devin managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -332,8 +366,42 @@
     "is_core": false
   },
   {
+    "name": "ManusAgent",
+    "description": "Manus managed executor; setup and task lifecycle via `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "manus"
+    ],
+    "semantic_anchors": [
+      "manus",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "QwenAgent",
+    "description": "Qwen-Agent managed executor; setup and task lifecycle via `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "qwen"
+    ],
+    "semantic_anchors": [
+      "qwen",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
     "name": "OpenHandsAgent",
-    "description": "OpenHands peer \u2014 self-hostable autonomous platform (pluggable when `openhands` is on PATH).",
+    "description": "OpenHands managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -435,7 +503,7 @@
   },
   {
     "name": "GithubCopilotAgent",
-    "description": "GitHub Copilot CLI (pluggable when driver on PATH / configured).",
+    "description": "GitHub Copilot Agent managed executor; setup and task lifecycle via `susi agents`.",
     "categories": [
       "peer",
       "coding",

@@ -286,6 +286,43 @@ impl GawdAgent for ExternalPeerAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
+        if peer_protocol(&self.spec) == "managed" {
+            let manager = susi_agents::external::AgentManager::new(workspace)
+                .map_err(|e| EaiError::process(e.to_string()))?;
+            if let Err(e) = manager.adapter(&self.spec.name).and_then(|a| a.preflight()) {
+                let msg = format!(
+                    "[UNAVAILABLE] {}: {}. Install/configure via `susi agents setup {}`.",
+                    self.spec.name, e, self.spec.name
+                );
+                blackboard.insert(self.name(), msg.clone());
+                return Err(EaiError::governance(msg));
+            }
+            let result = EvidenceSession::capture_call(
+                &format!("external_peer:{}", self.spec.name),
+                &serde_json::json!({"agent": self.spec.name, "goal": goal}),
+                workspace,
+                || {
+                    let run = manager
+                        .prepare(&self.spec.name, goal)
+                        .and_then(|run| manager.execute(&run.id))
+                        .map_err(|e| EaiError::process(e.to_string()))?;
+                    let output = manager
+                        .logs(&run.id, false, 1024 * 1024)
+                        .map_err(|e| EaiError::process(e.to_string()))?;
+                    let result = format!("task={} status={:?}\n{}", run.id, run.status, output);
+                    if run.status != susi_agents::external::RunStatus::Succeeded {
+                        return Err(EaiError::process(format!(
+                            "{}\n{}",
+                            result,
+                            run.error.unwrap_or_default()
+                        )));
+                    }
+                    Ok(result)
+                },
+            )?;
+            blackboard.insert(self.name(), result.clone());
+            return Ok(result);
+        }
         if !api_key_ready(&self.spec) {
             let env = self.spec.api_key_env.clone().unwrap_or_default();
             let msg = format!(
@@ -490,8 +527,8 @@ mod tests {
     fn bundled_peers_are_curated_leading_agents() {
         let specs = SusiConfig::default().external_peer_agents();
         assert!(
-            (8..=12).contains(&specs.len()),
-            "expected 8–12 curated peer agents, got {}",
+            specs.len() >= 10,
+            "expected at least 10 curated peer agents, got {}",
             specs.len()
         );
         let names: Vec<_> = specs.iter().map(|s| s.name.as_str()).collect();
@@ -502,6 +539,11 @@ mod tests {
             "DevinAgent",
             "OpenHandsAgent",
             "AiderAgent",
+            "RooCodeAgent",
+            "ClineAgent",
+            "ManusAgent",
+            "QwenAgent",
+            "GithubCopilotAgent",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }

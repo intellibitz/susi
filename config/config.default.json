@@ -467,74 +467,53 @@
   "external_peer_agents": [
     {
       "name": "ClaudeCodeAgent",
-      "description": "Anthropic Claude Code peer \u2014 terminal coding agent (pluggable when `claude` is on PATH).",
-      "detect_bins": [
-        "claude"
-      ],
-      "command": "claude",
-      "args": [
-        "-p",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null
+      "description": "Claude Code managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
     },
     {
       "name": "CursorAgent",
-      "description": "Cursor Agent peer \u2014 IDE-native coding agent (pluggable when `cursor-agent` or `agent` is on PATH).",
-      "detect_bins": [
-        "cursor-agent",
-        "agent"
-      ],
-      "command": "",
-      "args": [
-        "-p",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null
+      "description": "Cursor Agent managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
     },
     {
       "name": "CodexAgent",
-      "description": "OpenAI Codex peer \u2014 CLI/cloud coding agent (pluggable when `codex` is on PATH).",
-      "detect_bins": [
-        "codex"
-      ],
-      "command": "codex",
-      "args": [
-        "exec",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null
+      "description": "Codex Agent managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "RooCodeAgent",
+      "description": "Roo Code managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "ClineAgent",
+      "description": "Cline managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
     },
     {
       "name": "DevinAgent",
-      "description": "Devin peer \u2014 delegated cloud worker (pluggable when DEVIN_API_KEY is set and optional `devin` CLI is present).",
-      "detect_bins": [
-        "devin"
-      ],
-      "command": "devin",
-      "args": [
-        "run",
-        "{goal}"
-      ],
-      "timeout_secs": 900,
-      "api_key_env": "DEVIN_API_KEY"
+      "description": "Devin managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "ManusAgent",
+      "description": "Manus managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "QwenAgent",
+      "description": "Qwen-Agent managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
     },
     {
       "name": "OpenHandsAgent",
-      "description": "OpenHands peer \u2014 self-hostable autonomous platform (pluggable when `openhands` is on PATH).",
-      "detect_bins": [
-        "openhands"
-      ],
-      "command": "openhands",
-      "args": [
-        "--task",
-        "{goal}"
-      ],
-      "timeout_secs": 900,
-      "api_key_env": null
+      "description": "OpenHands managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "GithubCopilotAgent",
+      "description": "GitHub Copilot Agent managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
     },
     {
       "name": "AiderAgent",
@@ -604,22 +583,6 @@
       ],
       "command": "cn",
       "args": [
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null,
-      "protocol": "cli"
-    },
-    {
-      "name": "GithubCopilotAgent",
-      "description": "GitHub Copilot CLI (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "gh"
-      ],
-      "command": "gh",
-      "args": [
-        "copilot",
-        "--",
         "{goal}"
       ],
       "timeout_secs": 600,

@@ -845,13 +845,13 @@ pub struct InferenceRoutingConfig {
 /// Config-driven external coding-agent peer (Claude Code, Cursor, Codex, …).
 ///
 /// Open admission: any name + protocol in `external_peer_agents` mounts as a
-/// GawdAgent. Protocols: `cli` (default), `openai_chat`, `http`, `a2a`.
+/// GawdAgent. Protocols: `managed`, `cli` (default), `openai_chat`, `http`, `a2a`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct ExternalPeerAgentSpec {
     pub name: String,
     pub description: String,
-    /// Wire protocol: `cli` | `openai_chat` | `http` | `a2a` (default `cli`).
+    /// Wire protocol: `managed` | `cli` | `openai_chat` | `http` | `a2a` (default `cli`).
     pub protocol: String,
     /// Base URL for `openai_chat` / `http` / `a2a` peers (OpenAI-compat or A2A).
     pub api_base: String,
@@ -1184,7 +1184,32 @@ impl SusiConfig {
 
     /// Leading external coding agents mounted as pluggable swarm peers.
     pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
-        self.get_or_bundled_default("external_peer_agents")
+        let mut peers: Vec<ExternalPeerAgentSpec> =
+            self.get_or_bundled_default("external_peer_agents");
+        // Migrate only exact historical built-ins. Preserve user-edited commands,
+        // endpoints, argv, credentials and timeouts. New bundled peers are admitted
+        // for existing installations as well as fresh installs.
+        let legacy: Vec<ExternalPeerAgentSpec> =
+            serde_json::from_str(include_str!("../../../config/execution-peers.legacy.json"))
+                .unwrap_or_default();
+        let defaults: Vec<ExternalPeerAgentSpec> =
+            Self::default().get_or_bundled_default("external_peer_agents");
+        for peer in &mut peers {
+            if legacy
+                .iter()
+                .any(|old| serde_json::to_value(old).ok() == serde_json::to_value(&*peer).ok())
+            {
+                if let Some(updated) = defaults.iter().find(|p| p.name == peer.name) {
+                    *peer = updated.clone();
+                }
+            }
+        }
+        for default in defaults.into_iter().filter(|p| p.protocol == "managed") {
+            if !peers.iter().any(|p| p.name == default.name) {
+                peers.push(default);
+            }
+        }
+        peers
     }
 
     /// Leading models catalog (~50 curated); live `/models` discovery remains
@@ -2211,7 +2236,7 @@ mod tests {
     #[test]
     fn leading_catalogs_meet_trustworthy_floors() {
         let peers = SusiConfig::default().external_peer_agents();
-        assert!((8..=12).contains(&peers.len()), "agents {}", peers.len());
+        assert!(peers.len() >= 10, "agents {}", peers.len());
         let engines = SusiConfig::default().inference_endpoints().endpoints;
         assert!(
             (12..=16).contains(&engines.len()),

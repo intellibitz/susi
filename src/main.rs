@@ -5,6 +5,8 @@
 #![allow(unexpected_cfgs)]
 #![allow(missing_docs)]
 
+mod agent_cli;
+
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
 use susi_gawd::ama::SusiMasterAgent;
@@ -34,6 +36,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Manage external task executors end to end
+    Agents {
+        #[command(subcommand)]
+        action: agent_cli::AgentCommands,
+    },
     /// Ensure the global susi daemon is running and report host-contract endpoints
     Start,
     /// Stop the global susi daemon (deterministic control plane — never a mission)
@@ -187,7 +194,8 @@ enum AdminCommands {
 /// binary integrity checks or daemon restart.
 fn command_requires_daemon(command: &Commands) -> bool {
     match command {
-        Commands::Clean
+        Commands::Agents { .. }
+        | Commands::Clean
         | Commands::Review
         | Commands::Accept
         | Commands::Undo
@@ -343,6 +351,22 @@ fn run_shell(workspace: &Path) {
 }
 
 fn main() -> std::process::ExitCode {
+    let cli = Cli::parse();
+    // External executors do not need model provisioning, daemon boot, or self-deployment.
+    if let Some(Commands::Agents { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| agent_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+
     // Must run before anything can touch susi_tools::ToolRegistry (which
     // panics on first use if this hasn't happened yet) - see
     // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
@@ -400,7 +424,6 @@ fn main() -> std::process::ExitCode {
         num_cpus
     );
 
-    let cli = Cli::parse();
     let mut exit_code = std::process::ExitCode::SUCCESS;
 
     let needs_daemon = match &cli.command {
@@ -415,6 +438,9 @@ fn main() -> std::process::ExitCode {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
+            Commands::Agents { .. } => {
+                // Handled before substrate boot above.
+            }
             Commands::Start => {
                 control_plane_start(&cwd, &global_dir);
             }

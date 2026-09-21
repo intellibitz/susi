@@ -6265,6 +6265,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
@@ -7248,8 +7249,12 @@ dependencies = [
 name = "susi-agents"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "dashmap",
+ "getrandom 0.3.4",
+ "libc",
  "parking_lot",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "susi-core",

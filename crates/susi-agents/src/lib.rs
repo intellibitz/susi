@@ -8,3 +8,4 @@ pub use types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
     MissionBlackboard, SwarmBlackboard,
 };
+pub mod external;

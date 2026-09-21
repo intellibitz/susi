@@ -1,0 +1,145 @@
+[
+  {
+    "id": "claude-code",
+    "name": "Claude Code",
+    "peer_name": "ClaudeCodeAgent",
+    "rank": 1,
+    "documentation": "https://code.claude.com/docs/en/setup",
+    "adapter": {
+      "kind": "command",
+      "program": "claude",
+      "args": [
+        "-p",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "cursor",
+    "name": "Cursor Agent",
+    "peer_name": "CursorAgent",
+    "rank": 2,
+    "documentation": "https://cursor.com/docs/cli/installation",
+    "adapter": {
+      "kind": "command",
+      "program": "cursor-agent",
+      "args": [
+        "-p",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "codex",
+    "name": "Codex Agent",
+    "peer_name": "CodexAgent",
+    "rank": 3,
+    "documentation": "https://developers.openai.com/codex/cli",
+    "adapter": {
+      "kind": "command",
+      "program": "codex",
+      "args": [
+        "exec",
+        "--",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "roo-code",
+    "name": "Roo Code",
+    "peer_name": "RooCodeAgent",
+    "rank": 4,
+    "documentation": "https://github.com/RooCodeInc/Roo-Code/tree/main/apps/cli",
+    "adapter": {
+      "kind": "command",
+      "program": "roo",
+      "args": [
+        "--print",
+        "--",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "cline",
+    "name": "Cline",
+    "peer_name": "ClineAgent",
+    "rank": 5,
+    "documentation": "https://docs.cline.bot/usage/cli-overview",
+    "adapter": {
+      "kind": "command",
+      "program": "cline",
+      "args": [
+        "--json",
+        "--",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "devin",
+    "name": "Devin",
+    "peer_name": "DevinAgent",
+    "rank": 6,
+    "documentation": "https://docs.devin.ai/api-reference/v1/sessions/create-a-new-devin-session",
+    "adapter": {
+      "kind": "devin",
+      "api_key_env": "DEVIN_API_KEY"
+    }
+  },
+  {
+    "id": "manus",
+    "name": "Manus",
+    "peer_name": "ManusAgent",
+    "rank": 7,
+    "documentation": "https://open.manus.im/docs/v2/task.create",
+    "adapter": {
+      "kind": "manus",
+      "api_key_env": "MANUS_API_KEY"
+    }
+  },
+  {
+    "id": "qwen-agent",
+    "name": "Qwen-Agent",
+    "peer_name": "QwenAgent",
+    "rank": 8,
+    "documentation": "https://github.com/QwenLM/Qwen-Agent",
+    "adapter": {
+      "kind": "qwen",
+      "python": "python3"
+    }
+  },
+  {
+    "id": "openhands",
+    "name": "OpenHands",
+    "peer_name": "OpenHandsAgent",
+    "rank": 9,
+    "documentation": "https://docs.openhands.dev/openhands/usage/cli/headless",
+    "adapter": {
+      "kind": "command",
+      "program": "openhands",
+      "args": [
+        "--headless",
+        "-t",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "github-copilot",
+    "name": "GitHub Copilot Agent",
+    "peer_name": "GithubCopilotAgent",
+    "rank": 10,
+    "documentation": "https://docs.github.com/en/copilot/how-tos/copilot-cli/automate-copilot-cli/run-cli-programmatically",
+    "adapter": {
+      "kind": "command",
+      "program": "copilot",
+      "args": [
+        "--no-ask-user",
+        "-p",
+        "{prompt}"
+      ]
+    }
+  }
+]

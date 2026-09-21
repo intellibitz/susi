@@ -6,7 +6,7 @@
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add`), including leading external coding agents (Claude Code, Cursor, Codex, Devin, OpenHands) when their CLIs are installed. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add`), including the top external coding agents (Claude Code, Cursor, Codex, Roo Code, Cline, Devin, Manus, Qwen-Agent, OpenHands, GitHub Copilot) managed end-to-end via `susi agents` when their CLIs/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
 ---
 
@@ -36,7 +36,7 @@ Foundation claims — each must hold in source:
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — Curated catalogs: ~10 peer agents, ~15 engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Local Candle: llama/qwen2 GGUF only.
+4. **Pluggable** — Curated catalogs: ~10 peer agents, ~15 engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors are lifecycle-managed by `susi agents`. Local Candle: llama/qwen2 GGUF only.
 5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
 6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
 7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
@@ -51,7 +51,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Claim | Holds as |
 |-------|----------|
 | Agent-of-agents / OS layer for AI | Multi-agent swarm orchestrator + host daemon/ports — layer *for* agents, not a host OS |
-| Plugin protocol agents | **~10** curated peers in `external_peer_agents`; UNAVAILABLE until driver present; open admission beyond the catalog |
+| Plugin protocol agents | **~10** curated peers in `external_peer_agents` (`managed` lifecycle via `susi agents`); UNAVAILABLE until driver/key present; open admission beyond the catalog |
 | Plugin protocol engines | **~15** `inference_endpoints` (+ discovered local ports) |
 | Plugin protocol models | **~50** curated catalog + unbounded live `/models` discovery; local GGUF = llama/qwen2 |
 | Plugin protocol MCP | **~100** real scout packages (+ remote registry refresh); any extra via `susi mcp-add` |
