@@ -1,6 +1,10 @@
 //! Mission-local execution provenance. Only host dispatch code captures results;
-//! generated or deserialized evidence cannot mint a receipt. Persisted receipts
-//! are audit records, not reusable authority after the live session is gone.
+//! generated or deserialized evidence cannot mint a receipt.
+//!
+//! Each mint is also appended (best-effort) to
+//! `{workspace}/.susi/receipt_archive.jsonl` for audit. That file is **not**
+//! reusable authority — `verify_answer` / `resolve` / `bind_receipt` use only
+//! the live in-memory ledger.
 //!
 //! Crown rule: when a live ledger holds citable receipts, an answer must cite
 //! them. Generated text may select observations; it may never invent them.
@@ -245,6 +249,13 @@ impl EvidenceSession {
             successful,
             captured_at: Instant::now(),
         };
+        // Audit mirror — never feeds verify_answer / resolve / bind_receipt.
+        crate::receipt_archive::ReceiptArchive::append(
+            &self.workspace,
+            &self.id,
+            &self.goal,
+            &receipt,
+        );
         self.receipts.insert(id, receipt);
     }
 

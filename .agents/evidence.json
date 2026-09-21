@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.7.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-21T17:07:57Z",
+  "last_verification": "2026-09-21T17:15:46Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1016,6 +1016,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-21: converted IDENTITY.md/ROADMAP.md/EVIDENCE.md into identity.json / roadmap.json / evidence.json (schemas susi/*/v1 + JSON Schema under .agents/schemas/). build.rs validates schema+shape and emits AlphaSelf axioms from structured fields; admin sync/verify/ingest write JSON; README points at identity.json design_principles; Markdown sources deleted. Audience=agent-governance (not end-user docs)."
+    },
+    {
+      "id": "EV-2022921-096",
+      "type": "FEAT",
+      "milestone": "Append-only receipt archive under .susi/ for audit (not truth authority)",
+      "anchor": {
+        "label": "ReceiptArchive",
+        "ref": "symbol://ReceiptArchive"
+      },
+      "proof": "FIXED 2026-09-21: each EvidenceSession mint appends a hash+provenance line to `.susi/receipt_archive.jsonl` (schema susi/receipt_archive/v1; no response bodies). verify_answer/resolve/bind_receipt still require the live in-memory ledger — archive cannot reconstitute citations after the session ends (tested). Best-effort write; mission never fails on archive I/O."
     }
   ]
 }

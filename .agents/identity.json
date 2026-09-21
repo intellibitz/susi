@@ -58,7 +58,7 @@
     {
       "id": 5,
       "title": "Glass box",
-      "summary": "Mandate 26; traces + blackboard + governance + crown reports."
+      "summary": "Mandate 26; traces + blackboard + governance + crown reports + `.susi/receipt_archive.jsonl` (audit-only; truth uses live ledger)."
     },
     {
       "id": 6,
@@ -120,7 +120,7 @@
     {
       "id": 3,
       "title": "Traceable reasoning",
-      "summary": "thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38)."
+      "summary": "thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38); tool receipts also append to `.susi/receipt_archive.jsonl` (hashes/provenance only — not truth authority)."
     },
     {
       "id": 4,

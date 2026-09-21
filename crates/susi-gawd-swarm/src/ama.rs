@@ -1502,8 +1502,10 @@ mod report_tests {
 }
 
 /// Carry the mission's captured receipts into the report as an audit entry —
-/// provenance and hashes only, never response bodies. Then persist an
-/// inspectable trace (Design principle: Traceable reasoning).
+/// provenance and hashes only, never response bodies. Receipts are also
+/// mirrored append-only to `.susi/receipt_archive.jsonl` at mint time (audit
+/// only — truth still uses the live ledger). Then persist an inspectable
+/// trace (Design principle: Traceable reasoning).
 fn attach_evidence_ledger(
     report: &mut SusiMissionReport,
     session: Option<&std::sync::Arc<susi_core::capture::EvidenceSession>>,

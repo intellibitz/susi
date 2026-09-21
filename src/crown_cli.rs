@@ -97,15 +97,24 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
 
     // --- Glass box ---
     let trace_path = workspace.join(".susi").join("last_mission_trace.json");
+    let archive_path = workspace.join(susi_core::ARCHIVE_REL);
     let glass = workspace.join(".susi").is_dir() || bb_api;
     out.push(check(
         "glass_box",
         true,
         glass,
         format!(
-            "inspectable surfaces under .susi/ (trace exists={})",
-            trace_path.is_file()
+            "inspectable surfaces under .susi/ (trace exists={}; receipt_archive exists={}; archive is audit-only)",
+            trace_path.is_file(),
+            archive_path.is_file()
         ),
+    ));
+    out.push(check(
+        "receipt_archive",
+        true,
+        std::any::type_name::<susi_core::ReceiptArchive>().contains("ReceiptArchive")
+            && susi_core::ARCHIVE_SCHEMA == "susi/receipt_archive/v1",
+        "ReceiptArchive append-only JSONL under .susi/ — audit mirror, not live-ledger authority",
     ));
 
     // --- Audit ---
