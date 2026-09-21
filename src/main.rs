@@ -6,6 +6,8 @@
 #![allow(missing_docs)]
 
 mod agent_cli;
+mod auto_cli;
+mod blackboard_cli;
 mod extensions_cli;
 mod framework_cli;
 mod mcp_cli;
@@ -72,6 +74,17 @@ enum Commands {
     Extensions {
         #[command(subcommand)]
         action: Option<extensions_cli::ExtensionCommands>,
+    },
+    /// Zero-config auto substrate: packs, MCP, models, peers readiness
+    Auto {
+        #[command(subcommand)]
+        action: Option<auto_cli::AutoCommands>,
+    },
+    /// Inspect the last mission blackboard (swarm shared state)
+    #[command(name = "blackboard", visible_alias = "bb")]
+    Blackboard {
+        #[command(subcommand)]
+        action: Option<blackboard_cli::BlackboardCommands>,
     },
     /// Start GEMI REST server
     Gemi,
@@ -226,6 +239,7 @@ fn command_requires_daemon(command: &Commands) -> bool {
             false
         }
         Commands::Extensions { .. } => false,
+        Commands::Auto { .. } | Commands::Blackboard { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,
@@ -397,6 +411,33 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    if let Some(Commands::Auto { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| auto_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Blackboard { action }) = cli.command {
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| blackboard_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(Commands::Agents { action }) = cli.command {
         susi_gemi::http_provider::apply_cloud_env_file();
         let substrate = susi_paths::SusiDirs::substrate_home();
@@ -553,7 +594,11 @@ fn main() -> std::process::ExitCode {
         let ama = SusiMasterAgent::new();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         match command {
-            Commands::Agents { .. } | Commands::Frameworks { .. } | Commands::Extensions { .. } => {
+            Commands::Agents { .. }
+            | Commands::Frameworks { .. }
+            | Commands::Extensions { .. }
+            | Commands::Auto { .. }
+            | Commands::Blackboard { .. } => {
                 // Handled before substrate boot above.
             }
             Commands::Start => {

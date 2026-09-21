@@ -36,18 +36,21 @@ External clients may hard-code these ports — the daemon never silently drifts 
 - Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.
 - Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port.
 
-### Public foundation (8 pillars)
+### Public foundation pillars
 
 These claims must hold in source; when README and this section disagree, source wins and both are updated together:
 
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (agent-of-agents orchestrator).
 2. **Evidence** — structured `EvidenceRecord` / `Claim` trails; no naked assertions.
 3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality.
-4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`). Executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`; leading MCP via `susi mcp enable`. Local Candle: llama/qwen2 GGUF only. Vendor opinions ship as extension packs (bundled `config/extensions/default/`, auto-seeded to `~/.susi/extensions/`; `susi extensions` create/load/unload); core stays protocol-generic.
-5. **Audit** — agent actions signed into an immutable accountability chain (append-only HMAC-SHA256).
-6. **Sandbox** — Wasmer isolates untrusted Wasm plugins/reflexes; Docker `sandbox_exec` for untrusted shell when available.
-7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
-8. **Provision** — MCP scout/hot-plug + daemon `bootstrap_zero_config_substrate` auto-seeds packs, auto-enables ready leading MCP, auto-prefers ready coding models, auto-admits ready agents/frameworks, awakens local engines on PATH, and primes Candle + hardware model ladder. Host still supplies installs and API keys when a tier needs them.
+4. **Blackboard** — live swarm shared state (`MissionBlackboard`); persisted to `.susi/last_blackboard.json` and embedded in mission traces (`susi blackboard`).
+5. **Glass box** — Mandate 26: reasoning, tool calls, and state mutations are inspectable (traces + blackboard + auto-prime reports).
+6. **Zero-config Auto** — substrate auto-seeds packs, enables ready MCP, prefers ready coding models, admits ready peers, awakens local engines (`susi auto`); host still supplies installs/keys when a tier needs them.
+7. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols. Vendor opinions ship as extension packs; core stays protocol-generic.
+8. **Audit** — agent actions signed into an immutable accountability chain (append-only HMAC-SHA256).
+9. **Sandbox** — Wasmer isolates untrusted Wasm plugins/reflexes; Docker `sandbox_exec` for untrusted shell when available.
+10. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
+11. **Provision** — daemon `bootstrap_zero_config_substrate` + `auto_prime_ecosystem` keep the ecosystem primed (Candle + hardware model ladder).
 
 ### Design principles
 
@@ -55,7 +58,7 @@ Public substrate principles — must hold in source (README cites this section):
 
 1. **Autonomous by default** — plan and execute via swarm consensus, not step-by-step babysitting. Bare `susi "<intent>"` dispatches GAWD swarm supervision end-to-end; callers are not prompted for each agent step. (One-time cloud-provider preference prompts are host config, not mission babysitting.)
 2. **Grounded outputs** — claims checked against tools and workspace state. Mission finals require live `ToolReceipt` citations or other absolute truth sources (`TruthTransformer`); EpistemicAuditor rejects hallucinated paths and failed `EvidenceRecord` trails.
-3. **Traceable reasoning** — thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger in protocol output and persist `.susi/last_mission_trace.json` (hashes/provenance for tools; no secret bodies — Mandate 38).
+3. **Traceable reasoning** — thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38).
 4. **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware. Swarm dispatch uses Rayon work-stealing; daemon/HTTP use Tokio; pulse queue uses Crossbeam `SegQueue`; shared state uses `parking_lot` / DashMap — not single-threaded simulation.
 
 ## 1. Pillar I: THE DNA (Constitutional Mandates)

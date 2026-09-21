@@ -559,6 +559,9 @@ impl SusiSupervisor {
             });
         }
 
+        // Glass-box: persist the live mission blackboard (Tier A USP).
+        let _ = blackboard.persist_inspectable(workspace);
+
         // 6. Kick off a background distillation-state check (skip if one's already running)
         static DISTILLATION_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);

@@ -29,18 +29,21 @@ External clients can trust these ports — the daemon never silently drifts them
 
 ---
 
-## The 8 pillars
+## Foundation pillars
 
-Foundation claims — each must hold in source:
+Claims that must hold in source (aligned with `.agents/IDENTITY.md`):
 
-1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents (split critical/healthy signals hard-reject; no rubber-stamp).
-2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions (mission finals require absolute citations).
-3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality (absolute sources only: ledger citations, compiled reads, native verified receipts).
-4. **Pluggable** — Curated catalogs: ~10 peer executors + ~10 agent frameworks + ~10 coding/agent models + ~10 leading MCP tool servers, ~15–20 inference engines, ~50 models (+ live `/models` discovery), ~100 real MCP packages (+ remote scout) — open-admitted when drivers/keys speak supported protocols (`managed`/`cli`/`openai_chat`/`http`/`a2a`, OpenAI-compat (+ Anthropic/Gemini/Triton), MCP stdio/HTTP). Top executors via `susi agents`; frameworks via `susi frameworks`; coding models via `susi models`; leading MCP via `susi mcp enable`. Local Candle: llama/qwen2 GGUF only. Vendor opinions (env aliases, curated ranks) live in extension packs — auto-seeded under `~/.susi/extensions/` (`susi extensions`); core stays protocol-generic.
-5. **Audit** — agent actions signed into an immutable accountability chain (append-only, hash-linked HMAC-SHA256 under `~/.susi/audit.hmac.key`).
-6. **Sandbox** — Wasmer isolates untrusted Wasm plugins and reflexes; Docker `sandbox_exec` isolates untrusted shell when available.
-7. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths (`reflex_training_threshold`).
-8. **Provision** — missing MCP servers/tools are scouted and hot-plugged; daemon `bootstrap_zero_config_substrate` auto-seeds packs, auto-enables ready leading MCP, auto-prefers ready coding models, auto-admits ready peers, awakens local engines on PATH, and keeps Candle + weight priming (host installs + optional keys still gate cloud tiers).
+1. **Swarm** — multi-agent consensus that routes, debates, and converges on intents.
+2. **Evidence** — structured `EvidenceRecord` / `Claim` trails plus live `ToolReceipt` ledger; no naked assertions.
+3. **Truth** — `TruthTransformer` absolute sources only (ledger citations, compiled reads, native receipts).
+4. **Blackboard** — live swarm shared state; persisted to `.susi/last_blackboard.json` (`susi blackboard`).
+5. **Glass box** — inspectable reasoning, tools, blackboard, and auto-prime reports.
+6. **Zero-config Auto** — auto-seed packs, enable ready MCP, prefer ready models, admit ready peers (`susi auto`); host installs/keys still gate cloud tiers.
+7. **Pluggable** — curated catalogs + open admission via protocols; extension packs hold vendor opinions.
+8. **Audit** — append-only HMAC accountability chain.
+9. **Sandbox** — Wasmer for untrusted Wasm; Docker `sandbox_exec` for untrusted shell when available.
+10. **Reflexes** — routine intelligence distilled into fast Wasm / tensor paths.
+11. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 
 ---
 
@@ -51,13 +54,13 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Claim | Holds as |
 |-------|----------|
 | Agent-of-agents / OS layer for AI | Multi-agent swarm orchestrator + host daemon/ports — layer *for* agents, not a host OS |
-| Plugin protocol agents | **~10** curated executors (`susi agents`) + **~10** frameworks (`susi frameworks`) in `external_peer_agents` (`managed`); UNAVAILABLE until driver/config present; open admission beyond the catalog |
-| Plugin protocol engines | **~15** inference `inference_endpoints` (+ discovered local ports) — distinct from agent frameworks |
-| Plugin protocol models | **~10** ranked coding/agent models (`susi models`) + **~50** catalog + unbounded live `/models`; local GGUF = llama/qwen2 |
-| Plugin protocol MCP | **~10** leading tool servers (`susi mcp list|enable`) + **~100** scout packages (+ remote refresh); any extra via `susi mcp-add` |
-| Swarm / Truth / Evidence | `susi-gawd` swarm, `TruthTransformer`, `EvidenceSession` / `EvidenceRecord` |
+| Evidence / Truth / Blackboard / Glass box | Ledger + absolute truth gate + persisted blackboard in mission traces |
+| Zero-config Auto | `susi auto` + bootstrap auto-prime packs/MCP/models/peers/engines (host keys/installs still required for cloud) |
+| Plugin protocol agents | **~10** curated executors (`susi agents`) + **~10** frameworks (`susi frameworks`); UNAVAILABLE until driver/config present |
+| Plugin protocol engines | **~15** inference `inference_endpoints` (+ discovered local ports) |
+| Plugin protocol models | **~10** ranked coding/agent models (`susi models`) + **~50** catalog + live `/models`; local GGUF = llama/qwen2 |
+| Plugin protocol MCP | **~10** leading tool servers (`susi mcp`) + **~100** scout packages; extras via `susi mcp-add` |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
-| Zero-config discovery | Daemon auto-primes packs/MCP/models/peers + probes engines + Candle/weight fallback without per-engine edits |
 
 ## Install
 
@@ -142,7 +145,7 @@ Catalog loaders still embed bundled JSON via `include_str!` for offline boot; ho
 Defined in `.agents/IDENTITY.md` (Design principles):
 - **Autonomous by default** — plan and execute via swarm consensus, not step-by-step babysitting.
 - **Grounded outputs** — claims checked against tools and workspace state.
-- **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`).
+- **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
 
 ---

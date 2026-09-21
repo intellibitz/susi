@@ -109,11 +109,21 @@ impl SusiMissionReport {
             "final_answer": self.final_answer,
             "protocol": protocol,
             "protocol_raw": protocol_raw,
+            "blackboard_path": ".susi/last_blackboard.json",
+            "blackboard": load_persisted_blackboard(workspace),
         });
         let _ = std::fs::write(
             path,
             serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
         );
+    }
+}
+
+fn load_persisted_blackboard(workspace: &Path) -> serde_json::Value {
+    let path = workspace.join(".susi").join("last_blackboard.json");
+    match std::fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or(serde_json::json!({})),
+        Err(_) => serde_json::json!({ "entries": [], "agent_count": 0 }),
     }
 }
 

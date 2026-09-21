@@ -96,16 +96,60 @@ impl HighDensityContextStore {
         self.inner.is_empty()
     }
 
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Ordered snapshot for glass-box inspectability (mission traces / CLI).
+    pub fn snapshot(&self) -> std::collections::BTreeMap<String, String> {
+        let mut map = std::collections::BTreeMap::new();
+        for r in self.inner.iter() {
+            map.insert(r.key().clone(), r.value().clone());
+        }
+        map
+    }
+
     pub fn iter(&self) -> dashmap::iter::Iter<'_, String, String> {
         self.inner.iter()
     }
 
     pub fn to_json(&self) -> String {
-        let mut map = std::collections::HashMap::new();
-        for r in self.inner.iter() {
-            map.insert(r.key().clone(), r.value().clone());
+        serde_json::to_string(&self.snapshot()).unwrap_or_else(|_| "{}".into())
+    }
+
+    /// Persist the live swarm blackboard under the workspace for glass-box review.
+    /// Bodies are secret-redacted before write (Mandate 38).
+    pub fn persist_inspectable(&self, workspace: &Path) -> std::path::PathBuf {
+        let dir = workspace.join(".susi");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("last_blackboard.json");
+        let mut entries = Vec::new();
+        for (agent, output) in self.snapshot() {
+            let redacted = susi_core::redact::redact_patterns(
+                &[
+                    "sk-".into(),
+                    "ghp_".into(),
+                    "github_pat_".into(),
+                    "xoxb-".into(),
+                ],
+                &output,
+            );
+            entries.push(serde_json::json!({
+                "agent": agent,
+                "bytes": output.len(),
+                "output": redacted,
+            }));
         }
-        serde_json::to_string(&map).unwrap_or_else(|_| "{}".into())
+        let body = serde_json::json!({
+            "kind": "mission_blackboard",
+            "entries": entries,
+            "agent_count": entries.len(),
+        });
+        let _ = std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+        );
+        path
     }
 }
 
@@ -123,4 +167,30 @@ pub trait GawdAgent: Send + Sync {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persist_inspectable_writes_blackboard_file() {
+        let store = HighDensityContextStore::new(8);
+        store.insert("SafetyAgent".into(), "clear".into());
+        let dir = std::env::temp_dir().join(format!(
+            "susi_bb_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = store.persist_inspectable(&dir);
+        assert!(path.is_file());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("SafetyAgent"));
+        assert!(text.contains("mission_blackboard"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

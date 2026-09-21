@@ -77,13 +77,21 @@ pub async fn bootstrap_zero_config_substrate() {
 }
 
 /// Auto-admit host-ready ecosystem components (MCP, coding models, peers).
-pub fn auto_prime_ecosystem(substrate: &Path) {
+/// Persists a glass-box report under `~/.susi/last_auto_prime.json`.
+pub fn auto_prime_ecosystem(substrate: &Path) -> serde_json::Value {
+    let mut mcp_enabled: Vec<String> = Vec::new();
+    let mut preferred_model: Option<String> = None;
+    let mut agents_ready = 0usize;
+    let mut frameworks_ready = 0usize;
+
     match susi_tools::LeadingMcpManager::new(substrate) {
         Ok(mcp) => match mcp.auto_enable_ready() {
-            Ok(ids) if !ids.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() => {
-                eprintln!("[BOOTSTRAP] Auto-enabled MCP: {:?}", ids);
+            Ok(ids) => {
+                if !ids.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Auto-enabled MCP: {:?}", ids);
+                }
+                mcp_enabled = ids;
             }
-            Ok(_) => {}
             Err(e) => {
                 if std::env::var("SUSI_VERBOSE").is_ok() {
                     eprintln!("[BOOTSTRAP] MCP auto-enable skipped: {e}");
@@ -99,10 +107,13 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
 
     match susi_gemi::coding_models::CodingModelManager::new() {
         Ok(models) => match models.auto_prefer_best_ready() {
-            Ok(Some(id)) if std::env::var("SUSI_VERBOSE").is_ok() => {
-                eprintln!("[BOOTSTRAP] Preferred coding model: {id}");
+            Ok(Some(id)) => {
+                if std::env::var("SUSI_VERBOSE").is_ok() {
+                    eprintln!("[BOOTSTRAP] Preferred coding model: {id}");
+                }
+                preferred_model = Some(id);
             }
-            Ok(_) => {}
+            Ok(None) => {}
             Err(e) => {
                 if std::env::var("SUSI_VERBOSE").is_ok() {
                     eprintln!("[BOOTSTRAP] Coding-model auto-prefer skipped: {e}");
@@ -122,10 +133,19 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
     ] {
         match susi_agents::external::AgentManager::for_kind(substrate, kind) {
             Ok(mgr) => match mgr.auto_prime_ready() {
-                Ok(ready) if !ready.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() => {
-                    eprintln!("[BOOTSTRAP] Auto-ready {}: {}", kind.label(), ready.len());
+                Ok(ready) => {
+                    if !ready.is_empty() && std::env::var("SUSI_VERBOSE").is_ok() {
+                        eprintln!("[BOOTSTRAP] Auto-ready {}: {}", kind.label(), ready.len());
+                    }
+                    match kind {
+                        susi_agents::external::CatalogKind::Execution => {
+                            agents_ready = ready.len();
+                        }
+                        susi_agents::external::CatalogKind::Framework => {
+                            frameworks_ready = ready.len();
+                        }
+                    }
                 }
-                Ok(_) => {}
                 Err(e) => {
                     if std::env::var("SUSI_VERBOSE").is_ok() {
                         eprintln!("[BOOTSTRAP] {} auto-prime skipped: {e}", kind.label());
@@ -139,6 +159,26 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
             }
         }
     }
+
+    let pack = susi_sandbox::extensions::active_pack();
+    let report = serde_json::json!({
+        "kind": "auto_prime",
+        "active_pack": pack.id,
+        "pack_root": pack.root,
+        "mcp_enabled": mcp_enabled,
+        "preferred_coding_model": preferred_model,
+        "agents_ready": agents_ready,
+        "frameworks_ready": frameworks_ready,
+    });
+    let path = susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&report).unwrap_or_else(|_| "{}".into()),
+    );
+    report
 }
 
 /// If a well-known local engine binary is on PATH but its API port is closed,
