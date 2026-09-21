@@ -25,6 +25,6 @@ pub mod self_validation;
 mod system_observe;
 
 pub use susi_agents::{net_guard, task_manager};
-pub use susi_core::{bus, evidence, manifold, queue, truth};
+pub use susi_core::{bus, capture, evidence, manifold, queue, truth};
 
 pub use ama::SusiMasterAgent;

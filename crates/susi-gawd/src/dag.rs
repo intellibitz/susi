@@ -134,26 +134,22 @@ impl MissionDag {
                         0.92,
                     );
 
-                    // Dual-pipeline truth: physical signature + semantic
-                    // cross-examine via discovered CapabilityRegistry providers.
-                    let verification = super::truth::TruthTransformer::verify_mission_reality(
+                    // Crown path: citation answers resolve from the live ledger;
+                    // narratives without required citations fail TRUTH_UNVERIFIED.
+                    match super::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &self.nodes[idx].goal,
                         &self.nodes[idx].title,
                         &output,
                         workspace,
-                    )
-                    .and_then(|_| {
-                        super::truth::TruthTransformer::cross_examine_sync(&record, workspace)
-                    });
-                    match verification {
-                        Ok(()) => {
+                    ) {
+                        Ok(verified) => {
                             let _ = event_sender.send(super::bus::SwarmEventType::AgentCompleted {
                                 agent_name: self.nodes[idx].title.clone(),
                                 elapsed_ms: elapsed,
                             });
                             self.nodes[idx].completed = true;
                             executed_count += 1;
-                            bb.insert(format!("TaskNode_{}", idx), output);
+                            bb.insert(format!("TaskNode_{}", idx), verified);
                             all_evidence.push(record);
                         }
                         Err(e) => {

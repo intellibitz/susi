@@ -20,6 +20,7 @@ pub mod registry;
 pub mod truth;
 
 // Top-level exports for the fundamental susi-core types
+pub use capture::{EvidenceSession, GroundedAnswer, ReceiptCitation, ToolReceipt};
 pub use evidence::{Claim, EvidenceAssessment, EvidenceRecord, EvidenceSource};
 pub use provider::Provider;
 pub use registry::{CapabilityRegistry, Tool};

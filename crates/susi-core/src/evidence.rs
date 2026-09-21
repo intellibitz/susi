@@ -21,6 +21,13 @@ pub enum EvidenceSource {
         tool_name: String,
         raw_response: String,
     },
+    /// Bound to a live [`crate::capture::EvidenceSession`] receipt. Assessment
+    /// re-resolves the receipt; a copied hash alone never proves execution.
+    ToolReceipt {
+        receipt_id: String,
+        tool: String,
+        output_hash: String,
+    },
     System {
         metric: String,
         value: String,
@@ -235,6 +242,42 @@ impl EvidenceRecord {
                     }
                 }
                 Unverified("MCP response lacks independently checked claim support".into())
+            }
+            EvidenceSource::ToolReceipt {
+                receipt_id,
+                tool,
+                output_hash,
+            } => {
+                if receipt_id.trim().is_empty()
+                    || tool.trim().is_empty()
+                    || output_hash.len() != 64
+                    || !output_hash.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Rejected("malformed tool receipt binding".into());
+                }
+                let Some(session) = crate::capture::EvidenceSession::for_workspace(workspace)
+                else {
+                    return Unverified("no live evidence session for tool receipt".into());
+                };
+                let Some(receipt) = session.receipt(receipt_id) else {
+                    return Rejected("tool receipt not captured in this mission".into());
+                };
+                if receipt.tool != *tool || receipt.output_hash != *output_hash {
+                    return Rejected("tool receipt binding does not match live ledger".into());
+                }
+                if !receipt.successful {
+                    return Rejected("tool receipt recorded an unsuccessful execution".into());
+                }
+                // Claim value must appear in the captured output — a bound
+                // receipt proves the tool ran, not an arbitrary interpretation.
+                let claim_supported = receipt.output.contains(&self.claim.value)
+                    || self.claim.predicate == "observed"
+                        && self.claim.value == receipt.output_hash;
+                if claim_supported {
+                    Verified
+                } else {
+                    Rejected("live receipt does not support the claim value".into())
+                }
             }
             EvidenceSource::AgentObservation {
                 observation,
@@ -456,6 +499,56 @@ mod tests {
             );
             assert!(!record.verify_reality(Path::new(".")));
         }
+    }
+
+    #[test]
+    fn tool_receipt_bindings_require_live_ledger_support() {
+        let ws = Workspace::new();
+        let session =
+            crate::capture::EvidenceSession::new("mission", &ws.0, |s| s.to_string()).unwrap();
+        let _activation = crate::capture::EvidenceSession::activate(&session);
+        crate::capture::EvidenceSession::capture_call(
+            "open_meteo_weather",
+            &serde_json::json!({"place": "Chennai"}),
+            &ws.0,
+            || Ok(r#"{"current":{"temperature_2m":24.8}}"#.into()),
+        )
+        .unwrap();
+        let receipt = &session.receipts()[0];
+        let mut record = EvidenceRecord::new(
+            "search".into(),
+            1.0,
+            receipt.observed_at,
+            Claim {
+                subject: "Chennai".into(),
+                predicate: "temperature".into(),
+                value: "24.8".into(),
+            },
+            EvidenceSource::ToolReceipt {
+                receipt_id: receipt.id.clone(),
+                tool: receipt.tool.clone(),
+                output_hash: receipt.output_hash.clone(),
+            },
+            1.0,
+        );
+        assert_eq!(record.assess(&ws.0), EvidenceAssessment::Verified);
+        record.claim.value = "999".into();
+        record.signature = record.calculate_signature().unwrap_or_default();
+        assert!(matches!(
+            record.assess(&ws.0),
+            EvidenceAssessment::Rejected(_)
+        ));
+        record.claim.value = "24.8".into();
+        record.source = EvidenceSource::ToolReceipt {
+            receipt_id: "forged:0".into(),
+            tool: receipt.tool.clone(),
+            output_hash: receipt.output_hash.clone(),
+        };
+        record.signature = record.calculate_signature().unwrap_or_default();
+        assert!(matches!(
+            record.assess(&ws.0),
+            EvidenceAssessment::Rejected(_)
+        ));
     }
 
     #[test]

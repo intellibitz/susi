@@ -124,22 +124,34 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
     let bin = parts
         .next()
         .ok_or_else(|| "Command cannot be empty".to_string())?;
-    let output = Command::new(bin)
-        .args(parts)
-        .current_dir(workspace)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| format!("Exec failed: {e}"))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    if !output.status.success() {
-        return Err(if stderr.is_empty() {
-            "Command failed with non-zero exit status".into()
-        } else {
-            stderr
-        });
-    }
-    Ok(stdout)
+    let args: Vec<&str> = parts.collect();
+    let execute = || {
+        let output = Command::new(bin)
+            .args(&args)
+            .current_dir(workspace)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map_err(|e| susi_error::EaiError::process(format!("Exec failed: {e}")))?;
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        if !output.status.success() {
+            return Err(susi_error::EaiError::process(if stderr.is_empty() {
+                "Command failed with non-zero exit status".into()
+            } else {
+                stderr
+            }));
+        }
+        Ok(stdout)
+    };
+    // Mint a ledger receipt whenever a mission session is live — native reads
+    // must not bypass capture just because they skip ToolRegistry.
+    susi_core::capture::EvidenceSession::capture_call(
+        "exec_command",
+        &serde_json::Value::String(cmd.to_string()),
+        workspace,
+        execute,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn run_exec(workspace: &Path, cmd: &str) -> String {

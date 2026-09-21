@@ -116,10 +116,10 @@ async fn verify_recovery_answer(
     if !matches!(answer.status, CompletionStatus::Complete) {
         return Err(EaiError::inference(answer_text));
     }
-    // A citation answer is verified by resolving it against the live evidence
-    // ledger — receipts are the proof, so no reviewer model is consulted.
+    // Crown gate: citations resolve from the ledger; if receipts exist and
+    // were not cited, fail — never promote narrative over captured evidence.
     if let Some(resolved) =
-        susi_core::capture::EvidenceSession::resolve_citations(&answer_text, workspace)
+        susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace)
     {
         let rendered = resolved?;
         if !crate::accountability::is_usable(&rendered) {

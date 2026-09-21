@@ -83,17 +83,19 @@ impl TruthTransformer {
     /// Dual pipeline for swarm finals: physical reality check, then semantic
     /// cross-examination via discovered CapabilityRegistry providers.
     /// A citation answer is verified by resolving it against the mission's
-    /// live evidence ledger — generated prose never upgrades it.
+    /// live evidence ledger — generated prose never upgrades it. When the
+    /// ledger holds citable receipts, narrative without citations is rejected.
     pub fn verify_mission_with_cross_examine(
         goal: &str,
         tool_name: &str,
         result: &str,
         workspace: &Path,
     ) -> EaiResult<String> {
-        if let Some(resolved) =
-            crate::capture::EvidenceSession::resolve_citations(result, workspace)
-        {
-            return resolved;
+        if let Some(resolved) = crate::capture::EvidenceSession::verify_answer(result, workspace) {
+            let rendered = resolved?;
+            // Resolved ledger text can still claim writes — check the workspace.
+            return Self::verify_mission_reality(goal, tool_name, &rendered, workspace)
+                .map(|_| rendered);
         }
         let verified = Self::verify_mission_reality(goal, tool_name, result, workspace)?;
         let record = Self::mission_evidence_record(goal, tool_name, &verified);
@@ -245,10 +247,11 @@ impl TruthTransformer {
             reasoning_trace,
         } = &record.source
         {
-            // A trace that is a citation answer is verified by the ledger
-            // itself, not by asking a reviewer whether it sounds plausible.
+            // A trace that is a citation answer — or that must cite live
+            // receipts — is verified by the ledger itself, not by asking a
+            // reviewer whether narrative sounds plausible.
             if let Some(resolved) =
-                crate::capture::EvidenceSession::resolve_citations(reasoning_trace, workspace)
+                crate::capture::EvidenceSession::verify_answer(reasoning_trace, workspace)
             {
                 return resolved.map(|_| ());
             }
@@ -319,6 +322,26 @@ mod tests {
     use crate::evidence::{Claim, EvidenceRecord, EvidenceSource};
     use crate::provider::{BoxFuture, Provider};
     use sha2::{Digest, Sha256};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TempWorkspace(std::path::PathBuf);
+    impl TempWorkspace {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "susi-truth-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for TempWorkspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
 
     #[test]
     fn checks_every_write_claim_including_quoted_and_extensionless_paths() {
@@ -688,15 +711,16 @@ mod tests {
 
     #[test]
     fn citation_answers_verify_through_the_ledger_not_the_narrative() {
-        let workspace = std::env::current_dir().unwrap();
+        // Isolated workspace: parallel tests must not share an activated ledger.
+        let ws = TempWorkspace::new();
         let session =
-            crate::capture::EvidenceSession::new("inspect the host", &workspace, |s| s.to_string())
+            crate::capture::EvidenceSession::new("inspect the host", &ws.0, |s| s.to_string())
                 .unwrap();
         let _activation = crate::capture::EvidenceSession::activate(&session);
         crate::capture::EvidenceSession::capture_call(
             "exec_command",
             &serde_json::json!({"cmd": "hostname"}),
-            &workspace,
+            &ws.0,
             || Ok("susi-host".to_string()),
         )
         .unwrap();
@@ -709,19 +733,30 @@ mod tests {
             "inspect the host",
             "SUSI_SOLVE",
             &cited,
-            &workspace,
+            &ws.0,
         )
         .unwrap();
         assert!(rendered.contains("susi-host"));
         assert!(rendered.contains("receipt"));
+        assert!(rendered.contains("output_hash"));
 
         let forged = TruthTransformer::verify_mission_with_cross_examine(
             "inspect the host",
             "SUSI_SOLVE",
             r#"{"citations":[{"receipt_id":"forged:0"}]}"#,
-            &workspace,
+            &ws.0,
         )
         .unwrap_err();
         assert!(forged.to_string().contains("TRUTH_UNVERIFIED"));
+
+        // Crown gate: with citable receipts present, prose cannot complete.
+        let narrative = TruthTransformer::verify_mission_with_cross_examine(
+            "inspect the host",
+            "SUSI_SOLVE",
+            "The hostname is definitely susi-host, trust me.",
+            &ws.0,
+        )
+        .unwrap_err();
+        assert!(narrative.to_string().contains("must be cited"));
     }
 }

@@ -30,8 +30,8 @@ External clients can trust these ports — the daemon never silently drifts them
 ## The 8 pillars
 
 1. **Swarm** — multi-agent consensus (`susi-gawd`) that routes, debates, and converges on intents.
-2. **Evidence** — structured `EvidenceRecord` / `Claim` trails; no naked assertions.
-3. **Truth** — `TruthTransformer` cross-examines claims against workspace reality.
+2. **Evidence** — mission-scoped `EvidenceSession` ledger: real tool/MCP calls mint `ToolReceipt`s; answers cite receipt IDs — generated text cannot invent evidence.
+3. **Truth** — `TruthTransformer` resolves citations from the live ledger and rejects narrative when citable receipts exist; file/workspace claims are re-checked against reality.
 4. **Pluggable** — `CapabilityRegistry` mounts Candle / llama.cpp, vLLM / Ollama, OpenAI-compatible clouds, and MCP tools behind one interface.
 5. **Audit** — agent actions signed into an immutable accountability chain.
 6. **Sandbox** — Wasmer isolates untrusted plugins, agents, and reflexes.
