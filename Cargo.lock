@@ -6913,7 +6913,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -7021,7 +7021,7 @@ dependencies = [
 
 [[package]]
 name = "susi-daemon"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "ciborium",
  "hex",
@@ -7055,7 +7055,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -7151,7 +7151,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-http",
@@ -7218,7 +7218,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -7289,7 +7289,7 @@ dependencies = [
 
 [[package]]
 name = "susi-server"
-version = "0.8.1"
+version = "0.9.0"
 dependencies = [
  "bytes",
  "http-body-util",

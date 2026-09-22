@@ -1,6 +1,6 @@
 {
   "schema": "susi/identity/v1",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "title": "SUSI Substrate Identity",
   "description": "This ledger defines the engine's constitutional mandates, component\ntopology, execution model, and release/runtime protocols. It is the source\nof truth compiled into the binary at build time (see `susi-gawd-agents build.rs → AlphaSelf`).\nThe public host contract in `README.md` must stay consistent with this document\nand with `susi_paths::ports` / `SusiDaemon` — when they disagree, source wins\nand both documents are updated in the same change.",
   "audience": "agent-governance",
