@@ -47,7 +47,7 @@ pub mod ama {
     use super::init_hooks;
     use susi_error::EaiResult;
 
-    pub use susi_gawd_swarm::ama::{SusiHybridAgent, SusiMissionReport, SusiSwarmReport};
+    pub use susi_gawd_swarm::ama::{SusiMissionReport, SusiSwarmReport};
 
     /// Host-facing AMA constructor. Returns the swarm agent after wiring hooks.
     pub struct SusiMasterAgent;

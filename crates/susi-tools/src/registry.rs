@@ -243,20 +243,6 @@ impl ToolRegistry {
         hooks().resolve_capability_gap(server_name, workspace)
     }
 
-    pub fn acquire_meta_lock(resource_id: &str) -> bool {
-        if !Self::acquire_local_lock(resource_id) {
-            return false;
-        }
-
-        // Distributed Resource Sovereignty: Broadcast to peers
-        if !hooks().broadcast_lock_request(resource_id) {
-            Self::release_meta_lock(resource_id);
-            return false;
-        }
-
-        true
-    }
-
     pub fn acquire_local_lock(resource_id: &str) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

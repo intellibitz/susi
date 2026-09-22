@@ -209,18 +209,6 @@ impl GmcpService {
     pub fn resource_updated(&self, uri: String) {
         let _ = self.changes.send(Change::Resource(uri));
     }
-    pub fn remove_tool(&self, name: &str) {
-        self.catalog.write().tools.remove(name);
-        let _ = self.changes.send(Change::Tools);
-    }
-    pub fn remove_resource(&self, uri: &str) {
-        self.catalog.write().resources.remove(uri);
-        let _ = self.changes.send(Change::Resources);
-    }
-    pub fn remove_prompt(&self, name: &str) {
-        self.catalog.write().prompts.remove(name);
-        let _ = self.changes.send(Change::Prompts);
-    }
     fn tools(&self) -> Result<Vec<Tool>, ErrorData> {
         let mut tools = BTreeMap::new();
         for tool in ToolRegistry::list_tools() {

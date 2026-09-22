@@ -96,17 +96,4 @@ impl SubstrateKernelLoader {
         let _ = std::io::stdout().flush();
         Ok(())
     }
-
-    /// Parses a module manifest JSON string into a `SubstrateModuleManifest`.
-    pub fn assemble_module(manifest_content: &str) -> EaiResult<SubstrateModuleManifest> {
-        let manifest: SubstrateModuleManifest = serde_json::from_str(manifest_content)
-            .map_err(|e| EaiError::config(format!("Invalid module manifest JSON: {}", e)))?;
-
-        println!(
-            "Success! [{}] (v{}) | Capabilities: {:?}",
-            manifest.module_id, manifest.version, manifest.capabilities
-        );
-        let _ = std::io::stdout().flush();
-        Ok(manifest)
-    }
 }

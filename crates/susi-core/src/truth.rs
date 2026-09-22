@@ -8,15 +8,6 @@ use susi_error::{EaiError, EaiResult};
 pub struct SusiTruthAgent;
 
 impl SusiTruthAgent {
-    pub fn verify_swarm_reality(
-        goal: &str,
-        tool_name: &str,
-        result: &str,
-        workspace: &Path,
-    ) -> EaiResult<String> {
-        Self::verify_mission_reality(goal, tool_name, result, workspace)
-    }
-
     /// Preflight for explicit write claims, not proof of mission completion.
     /// Existence alone does not establish who wrote a file or what changed.
     pub fn verify_mission_reality(
@@ -159,12 +150,6 @@ impl TruthTransformer {
             .iter()
             .map(|record| record.assess(workspace))
             .collect()
-    }
-
-    /// Sync bridge for swarm/DAG callers into async [`cross_examine`], using the
-    /// process-wide CapabilityRegistry populated by zero-config discovery.
-    pub fn cross_examine_sync(record: &EvidenceRecord, workspace: &Path) -> EaiResult<()> {
-        Self::cross_examine_blocking(record, CapabilityRegistry::global(), workspace)
     }
 
     fn verifier_runtime() -> Option<&'static tokio::runtime::Runtime> {

@@ -4,7 +4,6 @@
 use crate::genome_distiller::GenomeDistiller;
 use std::path::Path;
 use susi_error::EaiResult;
-use susi_gemi::reasoning::SusiReasoningModel;
 
 pub struct ReasoningTrainer;
 
@@ -37,11 +36,5 @@ impl ReasoningTrainer {
         }
 
         Ok("Tier 2 Reasoning Substrate Optimal.".into())
-    }
-
-    pub fn force_distillation(_workspace: &Path) -> EaiResult<String> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
-        SusiReasoningModel::train_from_experience(&global_dir)
-            .map_err(|e| susi_error::EaiError::inference(e.to_string()))
     }
 }

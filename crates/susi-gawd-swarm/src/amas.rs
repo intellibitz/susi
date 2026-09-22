@@ -3,7 +3,6 @@
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::io::Write;
 use std::net::UdpSocket;
 use std::path::Path;
@@ -11,10 +10,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::peer_registry;
-use susi_error::EaiResult;
 use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 use susi_gemi::hardware::HardwareProfiler;
-use susi_sandbox::manager::NeuralCheckpoint;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AMessage {
@@ -768,21 +765,6 @@ impl SusiSupervisor {
         })
     }
 
-    /// Reasoning Auction: Ranks peer nodes based on weighted hardware and trust scores.
-    pub fn rank_reasoning_peers() -> Vec<ClusterPeerNode> {
-        let mut nodes = Self::list_cluster_nodes();
-
-        nodes.sort_by(|a, b| {
-            let a_score = (a.trust_score * 0.4) + (a.latency_ms as f32 * -0.2);
-            let b_score = (b.trust_score * 0.4) + (b.latency_ms as f32 * -0.2);
-            b_score
-                .partial_cmp(&a_score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        nodes
-    }
-
     /// Cluster Intent Routing: Prioritizes peers with semantically relevant capabilities.
     pub fn rank_peers_for_goal(goal: &str) -> Vec<ClusterPeerNode> {
         let mut nodes = Self::list_cluster_nodes();
@@ -872,136 +854,6 @@ impl SusiSupervisor {
         format!("[A2A Fallback]: Node '{}' unreachable.", addr)
     }
 
-    pub fn broadcast_lan_ping() -> Vec<String> {
-        let mut active_peers = Vec::new();
-        if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
-            let port = Self::get_udp_discovery_port();
-            let _ = socket.set_broadcast(true);
-            let _ = socket.set_read_timeout(Some(Duration::from_millis(200)));
-
-            let _ = socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
-
-            let mut buf = [0u8; 512];
-            while let Ok((amt, src)) = socket.recv_from(&mut buf) {
-                let msg = String::from_utf8_lossy(&buf[..amt]);
-                if msg.contains("SUSI_LAN_ACK") || msg.contains("SUSI") {
-                    active_peers.push(src.to_string());
-                }
-            }
-        }
-        if active_peers.is_empty() {
-            active_peers.push(format!("127.0.0.1:{} (local)", susi_paths::ports::GMCP));
-        }
-        active_peers
-    }
-
-    pub fn sync_cluster_state(workspace: &Path, payload: &str) -> String {
-        let nodes = Self::list_cluster_nodes();
-        use rayon::prelude::*;
-
-        // Sync peers in parallel via rayon, capped at 16 concurrent to bound
-        // local resource use.
-        let total_nodes = nodes.len();
-        let target_nodes: Vec<_> = nodes
-            .into_iter()
-            .filter(|n| n.node_id != "susi-local-master")
-            .take(16)
-            .collect();
-
-        let synced = target_nodes
-            .par_iter()
-            .map(|node| {
-                let signed_payload = format!("SIG:{}:{}", node.node_id, payload);
-                let res = Self::dispatch_peer_task(&node.address, "swarm_sync", &signed_payload);
-                if res.contains("Sync complete") {
-                    1
-                } else {
-                    0
-                }
-            })
-            .sum::<usize>();
-
-        let sync_file = workspace.join(".susi/cluster_sync.json");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let sync_data = serde_json::json!({
-            "timestamp": now,
-            "synced_nodes": synced,
-            "total_cluster_nodes": total_nodes,
-            "payload_size": payload.len()
-        });
-
-        let _ = std::fs::write(&sync_file, sync_data.to_string());
-        format!(
-            "Synchronized state across {} nodes in parallel (checksum verified).",
-            synced
-        )
-    }
-
-    pub fn borrow_remote_reflex(prompt: &str) -> Option<String> {
-        let nodes = Self::list_cluster_nodes();
-
-        // Find a workstation node with GPU capability
-        let target_node = nodes.iter().find(|n| {
-            n.node_type == "WORKSTATION_NODE" && n.is_active && n.node_id != "susi-local-master"
-        });
-
-        if let Some(node) = target_node {
-            let res = Self::dispatch_peer_task(&node.address, "reason", prompt);
-            if !res.contains("fallback") && !res.contains("unreachable") {
-                return Some(format!("[Borrowed Reflex from {}]: {}", node.node_id, res));
-            }
-        }
-        None
-    }
-
-    pub fn replicate_checkpoint(checkpoint: &NeuralCheckpoint) {
-        let nodes = Self::list_cluster_nodes();
-        let payload = serde_json::to_string(checkpoint).unwrap_or_default();
-
-        for node in nodes {
-            if node.node_type == "WORKSTATION_NODE" && node.node_id != "susi-local-master" {
-                let _ = Self::dispatch_peer_task(&node.address, "replicate_state", &payload);
-            }
-        }
-    }
-
-    pub fn query_cluster_checkpoints() -> Vec<NeuralCheckpoint> {
-        let nodes = Self::list_cluster_nodes();
-        let mut checkpoints = Vec::new();
-
-        for node in nodes {
-            if node.node_id != "susi-local-master" {
-                let res = Self::dispatch_peer_task(&node.address, "get_checkpoints", "");
-                if let Ok(list) = serde_json::from_str::<Vec<NeuralCheckpoint>>(&res) {
-                    checkpoints.extend(list);
-                }
-            }
-        }
-        checkpoints
-    }
-
-    pub fn broadcast_reflex_learned(name: &str, wasm_path: &Path) {
-        if let Ok(wasm_data) = fs::read(wasm_path) {
-            let nodes = Self::list_cluster_nodes();
-            use base64::{engine::general_purpose, Engine as _};
-            let encoded = general_purpose::STANDARD.encode(&wasm_data);
-            let payload = serde_json::json!({
-                "name": name,
-                "wasm_b64": encoded
-            })
-            .to_string();
-
-            for node in nodes {
-                if node.node_type == "WORKSTATION_NODE" && node.node_id != "susi-local-master" {
-                    let _ = Self::dispatch_peer_task(&node.address, "replicate_reflex", &payload);
-                }
-            }
-        }
-    }
-
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
         let nodes = Self::list_cluster_nodes();
         use rayon::prelude::*;
@@ -1024,40 +876,6 @@ impl SusiSupervisor {
             .sum::<usize>();
 
         successes == target_nodes.len()
-    }
-
-    /// Pulls distilled reasoning samples from each active peer node and stages
-    /// them locally for distillation.
-    pub fn aggregate_federated_experience(workspace: &Path) -> EaiResult<String> {
-        let nodes = Self::list_cluster_nodes();
-        let mut total_samples = 0;
-        let mut node_count = 0;
-
-        for node in nodes {
-            if node.node_id == "susi-local-master" || !node.is_active {
-                continue;
-            }
-
-            // Request distilled experiences from the peer
-            let res = Self::dispatch_peer_task(&node.address, "get_distilled_experience", "");
-            if let Ok(samples) =
-                serde_json::from_str::<Vec<susi_gemi::reasoning::ReasoningSample>>(&res)
-            {
-                for sample in samples {
-                    // Stage for local distillation
-                    susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
-                        &sample.intent,
-                        &sample.successful_outcome,
-                        workspace,
-                        Some(serde_json::json!({"source_node": node.node_id})),
-                    )?;
-                    total_samples += 1;
-                }
-                node_count += 1;
-            }
-        }
-
-        Ok(format!("Aggregated {} distilled experiences from {} independent nodes into the Knowledge Vault.", total_samples, node_count))
     }
 }
 

@@ -29,9 +29,4 @@ impl AxiomSubstrate {
 
         (agents_summary, projects_summary)
     }
-
-    #[allow(dead_code)]
-    pub fn get_substrate_summary() -> String {
-        AlphaSelf::inspect_compiled_binary_instructions()
-    }
 }

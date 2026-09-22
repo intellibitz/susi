@@ -293,17 +293,6 @@ impl ModelManager {
             .map(|m| m.model_id().to_string())
     }
 
-    pub fn set_selected_engine(engine_name: &str) -> Result<String, String> {
-        let susi_dir = susi_paths::SusiDirs::config_dir();
-        let _ = fs::create_dir_all(&susi_dir);
-        let engine_file = susi_dir.join("selected_engine.txt");
-        fs::write(&engine_file, engine_name.trim()).map_err(|e| e.to_string())?;
-        Ok(format!(
-            "Active execution engine set to: '{}'",
-            engine_name.trim()
-        ))
-    }
-
     pub fn get_selected_engine() -> Option<String> {
         let engine_file = susi_paths::SusiDirs::config_dir().join("selected_engine.txt");
         fs::read_to_string(&engine_file)

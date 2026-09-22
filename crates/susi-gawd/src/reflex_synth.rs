@@ -171,32 +171,6 @@ impl ReflexSynthesizer {
             intent_literal = intent_literal
         )
     }
-
-    pub fn evolve_substrate_native(intent: &str, workspace: &Path) -> EaiResult<String> {
-        let code = match susi_gemi::pulse::SusiPulse::reason(
-            &format!("GENERATE_RUST_TOOL: {}", intent),
-            workspace,
-        ) {
-            Ok(c) => c,
-            Err(_) => {
-                return Err(EaiError::protocol(
-                    "Reflex synthesis failed: No reasoning response.",
-                ))
-            }
-        };
-
-        if !code.contains("struct ") || !code.contains("impl SusiTool for ") {
-            return Err(EaiError::protocol(
-                "Synthesized code missing SusiTool implementation.",
-            ));
-        }
-
-        let tool_name = intent.split_whitespace().next().unwrap_or("new_tool");
-        let path = workspace.join(format!("src/gmcp/tools/{}.rs", tool_name));
-        fs::write(&path, code)?;
-
-        crate::admin::SusiAdmin::execute_release(workspace, None)
-    }
 }
 
 #[cfg(test)]

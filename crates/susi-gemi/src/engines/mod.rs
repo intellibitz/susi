@@ -20,7 +20,6 @@ pub mod routing;
 pub mod runtime;
 pub mod speculative;
 pub(crate) mod token_stream;
-pub mod vllm;
 
 /// Serializes every test in this crate that mutates the process-global
 /// `HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`SUSI_XDG` env vars, or that

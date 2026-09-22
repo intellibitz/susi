@@ -149,40 +149,6 @@ impl BloatAuditor {
         Ok(report)
     }
 
-    /// Recursive secret-token scan of `src/**/*.rs` using governance patterns.
-    /// Returns `(relative_path, hit_count)` for every file with at least one hit.
-    pub fn collect_secret_hits(workspace: &Path) -> Vec<(String, usize)> {
-        let src_dir = workspace.join("src");
-        let files = Self::discover_rust_files(&src_dir);
-        let patterns = Self::load_secret_patterns();
-        if patterns.is_empty() {
-            return Vec::new();
-        }
-        files
-            .par_iter()
-            .filter_map(|path| {
-                let content = std::fs::read_to_string(path).ok()?;
-                let mut hits = 0usize;
-                for line in content.lines() {
-                    for pattern in &patterns {
-                        if !pattern.is_empty() && line.contains(pattern.as_str()) {
-                            hits += 1;
-                        }
-                    }
-                }
-                if hits == 0 {
-                    return None;
-                }
-                let rel = path
-                    .strip_prefix(workspace)
-                    .unwrap_or(path)
-                    .display()
-                    .to_string();
-                Some((rel, hits))
-            })
-            .collect()
-    }
-
     fn load_secret_patterns() -> Vec<String> {
         susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
             .map(|c| c.governance().secret_tokens)

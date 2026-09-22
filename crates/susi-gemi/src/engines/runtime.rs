@@ -442,22 +442,6 @@ pub struct MissionPlanner;
 pub type IntentPlanner = MissionPlanner;
 
 impl MissionPlanner {
-    pub fn plan_intent(goal: &str, workspace: &Path) -> EaiResult<IntentPlan> {
-        Self::plan_mission(goal, workspace)
-    }
-
-    pub fn partition_intent(goal: &str, workspace: &Path) -> EaiResult<IntentPlan> {
-        Self::partition_mission(goal, workspace)
-    }
-
-    pub fn refine_intent(
-        original_goal: &str,
-        blackboard_state: &str,
-        workspace: &Path,
-    ) -> EaiResult<IntentPlan> {
-        Self::refine_plan(original_goal, blackboard_state, workspace)
-    }
-
     pub fn plan_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
         let prompts = susi_sandbox::manager::SusiPrompts::load_global();
         let plan_prompt = prompts.intent_planner_prompt().replace("{goal}", goal);

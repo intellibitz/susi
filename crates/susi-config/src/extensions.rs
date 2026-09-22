@@ -727,22 +727,6 @@ pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     vendors
 }
 
-/// Bundled cloud-vendors JSON (for tests / explicit include_str callers).
-pub fn bundled_cloud_vendors_json() -> &'static str {
-    BUNDLED_CLOUD_VENDORS
-}
-
-/// Resolve a logical catalog name via the active manifest's `files` map.
-pub fn catalog_relative_path(logical_name: &str) -> Option<String> {
-    active_manifest().files.get(logical_name).cloned()
-}
-
-/// Whether `path` is under an extension pack root (host overrides).
-pub fn is_pack_override_path(path: &Path) -> bool {
-    let pack = active_pack();
-    path.starts_with(&pack.root)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

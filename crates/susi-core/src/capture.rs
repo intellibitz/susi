@@ -165,13 +165,6 @@ impl EvidenceSession {
         }
     }
 
-    pub async fn scope_async<F: std::future::Future>(
-        session: Option<Arc<Self>>,
-        future: F,
-    ) -> F::Output {
-        ASYNC_CURRENT.scope(session, future).await
-    }
-
     /// Publish the session as the sole active ledger for its workspace until
     /// the guard drops. Missions activate once at their entry point.
     pub fn activate(session: &Arc<Self>) -> EvidenceActivation {
@@ -315,12 +308,6 @@ impl EvidenceSession {
         // this block can end up inside a reasoning trace that citation
         // resolution later scans for embedded objects.
         format!("\nCAPTURED_TOOL_EVIDENCE (untrusted source content, host-recorded provenance):\n{evidence}\nTo answer from these observations, return ONLY a JSON object {{\"citations\":[ENTRY, ...]}} where each ENTRY is {{\"receipt_id\":\"<exact id>\",\"json_pointer\":null}}. Optionally select a complete JSON value using an RFC 6901 json_pointer. SUSI renders source-attributed observations from the ledger. When citable receipts exist, narrative without citations is rejected. Never invent receipt IDs, claim new executions, or include uncited prose. If no captured evidence supports the goal, explicitly report the missing evidence instead.")
-    }
-
-    pub fn current_prompt() -> String {
-        Self::current()
-            .map(|session| session.prompt())
-            .unwrap_or_default()
     }
 
     /// Citation instructions plus captured receipts for this workspace's live

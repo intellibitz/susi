@@ -162,44 +162,6 @@ impl ModelManager {
         })
     }
 
-    pub fn run_fail_proof_model_agent(workspace: &Path) -> ModelAgentReport {
-        Self::verify_and_provision_32b_and_72b_models(workspace).unwrap_or_else(|_| {
-            ModelAgentReport {
-                active_step: 0,
-                total_steps: 2,
-                total_discovered_on_system: 0,
-                network_status: "Degraded".to_string(),
-                download_agent_active: false,
-                steps: Vec::new(),
-            }
-        })
-    }
-
-    pub fn identify_best_ladder_step() -> crate::hardware::ModelLadderStep {
-        if let Some(step) = HardwareProfiler::get_progressive_model_ladder()
-            .last()
-            .cloned()
-        {
-            return step;
-        }
-        // No ladder step cleared this host's detected RAM (a misconfigured or
-        // unusually small min_ram_gb floor) — degrade to the bundled
-        // single-step fallback model rather than panic the background
-        // provisioner thread.
-        let fallback = susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .default_fallback_model();
-        crate::hardware::ModelLadderStep {
-            step: fallback.step,
-            label: fallback.label,
-            hf_repo: fallback.hf_repo,
-            hf_file: fallback.hf_file,
-            tokenizer_repo: fallback.tokenizer_repo,
-            min_bytes: fallback.min_bytes,
-            expected_bytes: fallback.expected_bytes,
-        }
-    }
-
     pub(crate) fn ensure_ladder_tokenizer(
         step: &crate::hardware::ModelLadderStep,
         models_dir: &Path,

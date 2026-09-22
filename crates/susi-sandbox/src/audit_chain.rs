@@ -205,11 +205,6 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
     Ok(count)
 }
 
-/// Public verify helper used by CLI / tests.
-pub fn verify_workspace_audit(workspace: &Path) -> Result<usize, String> {
-    verify_chain(&workspace.join(".susi/audit.log"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

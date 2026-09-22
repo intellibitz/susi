@@ -358,18 +358,4 @@ pub fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
 
 pub struct ContextSummarizer;
 
-impl ContextSummarizer {
-    /// Context Compression: Reduces Mission Blackboard to high-density semantic summary.
-    pub fn compress_blackboard(blackboard: &std::collections::HashMap<String, String>) -> String {
-        let mut summary = String::new();
-        for (agent, output) in blackboard {
-            let clean_output = if output.len() > 100 {
-                format!("{}...", &output[..97])
-            } else {
-                output.clone()
-            };
-            summary.push_str(&format!("[{}: {}] ", agent, clean_output));
-        }
-        summary
-    }
-}
+impl ContextSummarizer {}

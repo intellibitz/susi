@@ -48,15 +48,6 @@ pub fn persist_verified_peer(node: &ClusterPeerNode) {
     let _ = susi_config::atomic_write_json_pretty(&path, &nodes);
 }
 
-/// Remove a peer (e.g. explicit operator removal or failed re-verify).
-#[allow(dead_code)]
-pub fn remove_persisted_peer(address: &str) {
-    let path = registry_path();
-    let mut nodes = load_persisted_peers();
-    nodes.retain(|n| n.address != address);
-    let _ = susi_config::atomic_write_json_pretty(&path, &nodes);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

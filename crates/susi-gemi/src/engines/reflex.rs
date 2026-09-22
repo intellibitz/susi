@@ -13,11 +13,6 @@ pub enum ReflexDecision {
 pub struct ReflexEngine;
 
 impl ReflexEngine {
-    pub fn scout_tier0_assets() -> Vec<susi_agents::DiscoverableAsset> {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-        cfg.discoverable_assets()
-    }
-
     /// Attempts to solve the mission using the Tier 0 SusiPulse Bootstrap Brain.
     pub fn try_solve(intent: &str, workspace: &Path) -> (ReflexDecision, u128) {
         let start = Instant::now();

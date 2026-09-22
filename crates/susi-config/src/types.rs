@@ -315,22 +315,6 @@ impl ChatTemplateConfig {
         out
     }
 
-    // Backward compat
-    pub fn render_legacy(
-        &self,
-        model_name: &str,
-        system_prompt: &str,
-        user_prompt: &str,
-    ) -> String {
-        let vars = HashMap::from([
-            ("system".to_string(), system_prompt.to_string()),
-            ("prompt".to_string(), user_prompt.to_string()),
-            ("system_prompt".to_string(), system_prompt.to_string()),
-            ("user_prompt".to_string(), user_prompt.to_string()),
-        ]);
-        self.render(model_name, &vars)
-    }
-
     pub fn register(&mut self, name: String, template: String) {
         self.templates.insert(name, template);
     }
@@ -506,9 +490,6 @@ impl SusiMessages {
     pub fn get(&self, category: &str, key: &str) -> Option<&String> {
         self.categories.get(category)?.get(key)
     }
-    pub fn get_category(&self, category: &str) -> Option<&StringRegistry> {
-        self.categories.get(category)
-    }
     pub fn register(&mut self, category: String, key: String, message: String) {
         self.categories
             .entry(category)
@@ -571,11 +552,7 @@ pub struct InferenceEndpointsConfig {
     pub endpoints: Vec<InferenceEndpointItem>,
 }
 
-impl InferenceEndpointsConfig {
-    pub fn get_endpoint(&self, name: &str) -> Option<&str> {
-        self.fields.get(name)?.as_str()
-    }
-}
+impl InferenceEndpointsConfig {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]

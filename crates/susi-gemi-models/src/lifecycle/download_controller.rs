@@ -119,43 +119,6 @@ impl ModelDownloadController {
         ))
     }
 
-    pub fn pause_download(&self, target: &str) -> bool {
-        if let Some(task) = self.active_downloads.get(target) {
-            if !SwarmTaskManager::global().pause_task(&task.task_handle.task_id) {
-                return false;
-            }
-            ModelManager::save_download_progress("", target, 0, 0, "PAUSED");
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn resume_download(&self, target: &str) -> bool {
-        if let Some(task) = self.active_downloads.get(target) {
-            if !SwarmTaskManager::global().resume_task(&task.task_handle.task_id) {
-                return false;
-            }
-            ModelManager::save_download_progress("", target, 0, 0, "RUNNING");
-            true
-        } else {
-            let _ = self.start_download(target);
-            true
-        }
-    }
-
-    pub fn stop_download(&self, target: &str) -> bool {
-        if let Some(task) = self.active_downloads.get(target) {
-            if !SwarmTaskManager::global().kill_task(&task.task_handle.task_id) {
-                return false;
-            }
-            ModelManager::save_download_progress("", target, 0, 0, "STOPPED");
-            true
-        } else {
-            false
-        }
-    }
-
     pub fn get_progress(&self, target: &str) -> Option<ModelDownloadProgress> {
         let progress_file = ModelManager::progress_path(target);
         if let Ok(content) = fs::read_to_string(&progress_file) {

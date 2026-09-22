@@ -77,38 +77,6 @@ impl GmcpClient {
         discovered
     }
 
-    pub fn list_external_prompts() -> Vec<McpTool> {
-        let mut prompts = Vec::new();
-        let config_path = Self::get_config_path();
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<McpConfig>(&content) {
-                for (name, _srv) in config.mcp_servers {
-                    prompts.push(McpTool {
-                        name: format!("{}:prompt:*", name),
-                        description: format!("Prompts from MCP server: {}", name),
-                    });
-                }
-            }
-        }
-        prompts
-    }
-
-    pub fn list_external_resources() -> Vec<McpTool> {
-        let mut resources = Vec::new();
-        let config_path = Self::get_config_path();
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<McpConfig>(&content) {
-                for (name, _srv) in config.mcp_servers {
-                    resources.push(McpTool {
-                        name: format!("{}:resource:*", name),
-                        description: format!("Resources from MCP server: {}", name),
-                    });
-                }
-            }
-        }
-        resources
-    }
-
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
         let global_dir = susi_paths::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");

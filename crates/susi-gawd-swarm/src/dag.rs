@@ -37,24 +37,6 @@ impl MissionDag {
         }
     }
 
-    /// Dynamically spawn a sub-task dependent on parent task completion
-    pub fn spawn_subtask(&mut self, title: &str, goal: &str, parent_id: usize) -> usize {
-        let new_id = self.nodes.len();
-        self.nodes.push(TaskNode {
-            task_id: new_id,
-            title: title.to_string(),
-            goal: goal.to_string(),
-            dependencies: vec![parent_id],
-            assigned_agent: None,
-            completed: false,
-        });
-        eprintln!(
-            "[DAG Sub-Task Spawned] Task #{} '{}' dependent on Task #{}",
-            new_id, title, parent_id
-        );
-        new_id
-    }
-
     /// Execute the DAG topologically using work-stealing parallel execution
     pub fn execute_dag(
         &mut self,

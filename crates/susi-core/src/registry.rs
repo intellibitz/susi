@@ -89,8 +89,6 @@ impl<T: Tool> Tool for ObservedTool<T> {
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
 #[derive(Default, Clone)]
 pub struct CapabilityRegistry {
-    /// Underlying generic registry for holding capability instances
-    services: Arc<DynamicServiceRegistry>,
     /// Maps provider names to their instantiated capabilities
     providers: Arc<DashMap<String, Arc<dyn Provider>>>,
     /// Maps tool names to their instantiated capabilities
@@ -110,7 +108,6 @@ pub struct AgentCapability {
 impl CapabilityRegistry {
     pub fn new() -> Self {
         Self {
-            services: Arc::new(DynamicServiceRegistry::new()),
             providers: Arc::new(DashMap::new()),
             tools: Arc::new(DashMap::new()),
             agents: Arc::new(DashMap::new()),
@@ -155,11 +152,6 @@ impl CapabilityRegistry {
         self.tools.get(name).map(|v| v.clone())
     }
 
-    /// Removes a tool by name. Returns true if it was present.
-    pub fn unregister_tool(&self, name: &str) -> bool {
-        self.tools.remove(name).is_some()
-    }
-
     /// Retrieves a list of all registered tool names.
     pub fn list_tools(&self) -> Vec<String> {
         self.tools.iter().map(|kv| kv.key().clone()).collect()
@@ -179,10 +171,6 @@ impl CapabilityRegistry {
         self.agents.iter().map(|kv| kv.key().clone()).collect()
     }
 
-    pub fn unregister_agent(&self, name: &str) -> bool {
-        self.agents.remove(name).is_some()
-    }
-
     /// Unified capability inventory: providers + tools + agents.
     pub fn list_all_capabilities(&self) -> Vec<(String, &'static str)> {
         let mut out = Vec::new();
@@ -196,11 +184,6 @@ impl CapabilityRegistry {
             out.push((name, "agent"));
         }
         out
-    }
-
-    /// Exposes the underlying dynamic service registry for ad-hoc capability registration.
-    pub fn dynamic_services(&self) -> &DynamicServiceRegistry {
-        &self.services
     }
 }
 

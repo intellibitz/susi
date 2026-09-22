@@ -61,11 +61,6 @@ impl SessionManager {
         self.sessions.read().get(session_id).cloned()
     }
 
-    /// Get a session by ID
-    pub fn get_session(&self, session_id: &str) -> Option<Session> {
-        self.sessions.read().get(session_id).cloned()
-    }
-
     /// Add a message to a session
     pub fn add_message(&self, session_id: &str, role: String, content: String) {
         if let Some(session) = self.sessions.write().get_mut(session_id) {
@@ -82,20 +77,5 @@ impl SessionManager {
         if let Some(session) = self.sessions.write().get_mut(session_id) {
             session.mode = mode;
         }
-    }
-
-    /// Get session mode
-    pub fn get_mode(&self, session_id: &str) -> Option<String> {
-        self.sessions.read().get(session_id).map(|s| s.mode.clone())
-    }
-
-    /// List all sessions
-    pub fn list_sessions(&self) -> Vec<Session> {
-        self.sessions.read().values().cloned().collect()
-    }
-
-    /// Delete a session
-    pub fn delete_session(&self, session_id: &str) {
-        self.sessions.write().remove(session_id);
     }
 }

@@ -969,31 +969,6 @@ impl SusiAdmin {
             "Intent ingested successfully as {prefix} into sovereign memory"
         ))
     }
-
-    pub fn execute_autonomous_evolution_cycle(workspace: &Path) -> EaiResult<String> {
-        let res = crate::evolution::EvolutionManager::evolve_substrate(workspace)?;
-        // Never auto-cuts a version bump - that's a deliberate `--cut`-only
-        // action (see execute_release's own doc comment on why), not
-        // something an autonomous cycle should ever decide on its own.
-        let _ = Self::execute_release(workspace, None)?;
-        Ok(res)
-    }
-
-    pub fn run_lint(workspace: &Path) -> EaiResult<String> {
-        let out = Command::new("cargo")
-            .args(["clippy", "--all-targets", "--all-features"])
-            .current_dir(workspace)
-            .output()?;
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
-    }
-
-    pub fn run_audit(workspace: &Path) -> EaiResult<String> {
-        let out = Command::new("cargo")
-            .arg("audit")
-            .current_dir(workspace)
-            .output()?;
-        Ok(String::from_utf8_lossy(&out.stdout).to_string())
-    }
 }
 
 #[cfg(test)]

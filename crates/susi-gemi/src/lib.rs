@@ -32,7 +32,7 @@ pub use engines::runtime as engine;
 pub(crate) use engines::token_stream;
 pub use engines::{
     alpha, candle_provider, http_provider, mcp_provider, qwen2_split, reasoning, reflex, routing,
-    speculative, vllm,
+    speculative,
 };
 
 pub use models::model_cache;
