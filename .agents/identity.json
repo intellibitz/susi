@@ -58,7 +58,7 @@
     {
       "id": 5,
       "title": "Glass box",
-      "summary": "Mandate 26; traces + blackboard + governance + crown reports + `.susi/receipt_archive.jsonl` (audit-only; truth uses live ledger)."
+      "summary": "Mandate 26 (not naked secrets); traces + blackboard + governance + crown reports + `.susi/receipt_archive.jsonl` (audit-only; truth uses live ledger); secrets redacted (Mandate 38)."
     },
     {
       "id": 6,
@@ -120,7 +120,7 @@
     {
       "id": 3,
       "title": "Traceable reasoning",
-      "summary": "thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38); tool receipts also append to `.susi/receipt_archive.jsonl` (hashes/provenance only — not truth authority)."
+      "summary": "Mandate 26; thinking and tool calls are inspectable. Mission reports expose agent interactions + evidence ledger + blackboard in protocol output and persist `.susi/last_mission_trace.json` / `.susi/last_blackboard.json` (hashes/provenance for tools; no secret bodies — Mandate 38); tool receipts also append to `.susi/receipt_archive.jsonl` (hashes/provenance only — not truth authority). Not unbounded \"100% transparency.\""
     },
     {
       "id": 4,
@@ -281,8 +281,8 @@
         },
         {
           "id": 26,
-          "title": "Glass Box Transparency",
-          "imperative": "100% of reasoning steps, tool calls, and state mutations must be visible through telemetry."
+          "title": "Glass Box Transparency (Not Naked Secrets)",
+          "imperative": "Reasoning steps, tool calls, and state mutations that SUSI performs must be **inspectable through telemetry** — mission protocol output, `.susi/last_mission_trace.json`, `.susi/last_blackboard.json`, governance reports, crown reports, and receipt provenance (`.susi/receipt_archive.jsonl` is audit-only; truth authority remains the live evidence ledger). Telemetry must reflect **real** calls and outcomes (no aspirational narration of work that did not run). Visibility is **bounded**: Mandate 10 / Mandate 38 require secret-token patterns redacted before durable write — redact the secret, do not suppress the surrounding record. This mandate does **not** require exposing provider/model internals (raw logits, vendor system prompts) or unredacted credential bodies. A bare \"100% transparency\" claim (including naked secrets or third-party internals) is forbidden by Mandate 1 — this mandate is glass-box *inspectability of SUSI's own steps*, not omniscient disclosure."
         },
         {
           "id": 27,
@@ -342,7 +342,7 @@
         {
           "id": 38,
           "title": "Credential Masking",
-          "imperative": "Text that will be persisted to telemetry, audit logs, or any other durable record must have configured secret-token patterns redacted (`SecurityDetector::redact`) before it is written — not merely blocked at the point of an explicit \"send this secret\" action. Mandate 26 (full telemetry visibility) and Mandate 10 (no secret leaks) both hold: redact the secret, don't suppress the surrounding record."
+          "imperative": "Text that will be persisted to telemetry, audit logs, or any other durable record must have configured secret-token patterns redacted (`SecurityDetector::redact`) before it is written — not merely blocked at the point of an explicit \"send this secret\" action. Mandate 26 (glass-box inspectability of SUSI steps) and Mandate 10 (no secret leaks) both hold: redact the secret, don't suppress the surrounding record."
         },
         {
           "id": 39,

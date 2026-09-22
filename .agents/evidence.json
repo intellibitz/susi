@@ -1146,6 +1146,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: evaluated whether to mandate \"one-line install\" absolutely; rejected frictionless-forever form under Mandate 1 (bash-not-sh, network/rustup, GPU toolkit caveats, Windows install.ps1). Elevated Pillar IV Binary Dominance / Auto-Path / Canonical Binary into DNA Mandate 47 \"One-Line Install Surface (Not Frictionless Forever)\": curl|bash remains primary Unix surface with checksum Binary Dominance, source fallback, PATH inject, canonical ~/.susi/bin/susi, optional daemon; visible GPU/toolkit warnings required. Cross-linked engine protocols 5–7; design_principles #8; README Install cites Mandate 47. Verified: identity JSON parses; genome test after build."
+    },
+    {
+      "id": "EV-2022922-109",
+      "type": "DOCS",
+      "milestone": "Mandate 26 refined: Glass Box Transparency (Not Naked Secrets) — reject 100% transparency slogan",
+      "anchor": {
+        "label": "identity.json Mandate 26",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to add a new \"100% transparency\" mandate; rejected — glass-box already DNA Mandate 26; bare omniscient disclosure (naked secrets, provider internals) fails Mandate 1 and conflicts with Mandates 10/38. Refined Mandate 26 in place to \"Glass Box Transparency (Not Naked Secrets)\": inspectable SUSI reasoning/tool/mutation telemetry with real (non-aspirational) traces; redact secrets without suppressing records; no requirement to expose vendor logits/prompts or unredacted credentials. Updated Tier S Glass box summary, design_principles Traceable reasoning, Mandate 38 cross-ref wording, README Glass box + Traceable reasoning. Verified: identity JSON parses; genome test after build."
     }
   ]
 }

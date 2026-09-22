@@ -37,7 +37,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
 3. **Swarm** — agent-of-agents consensus (GAWD).
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
-5. **Glass box** — inspectable traces / blackboard / governance / crown reports.
+5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
 6. **Audit** — append-only HMAC accountability chain.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
@@ -151,7 +151,7 @@ Catalog loaders still embed bundled JSON via `include_str!` for offline boot; ho
 Defined in `.agents/identity.json` (`design_principles`):
 - **Autonomous by default** — Mandate 46; plan and execute via swarm consensus, not step-by-step babysitting; evidence-gated and governance-first (not “100% automation”).
 - **Grounded outputs** — claims checked against tools and workspace state.
-- **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).
+- **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
 - **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
 - **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
