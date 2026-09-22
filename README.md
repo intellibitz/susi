@@ -2,7 +2,7 @@
 
 ![SUSI Version](https://img.shields.io/badge/version-v0.9.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
-**The OS layer for AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS). Verify the crown with `susi crown`.
+**The OS layer for AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS; Mandate 45). Verify the crown with `susi crown`.
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
@@ -59,12 +59,12 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Claim | Holds as |
 |-------|----------|
 | Tier S crown | `susi crown verify` — Truth/Evidence/Swarm/Blackboard/Glass/Audit/Auto/Governance/Pluggable/Sandbox/Host/Reflexes/Provision/Concurrency |
-| Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS |
+| Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS (Mandate 45) |
 | Plugin protocol agents | **~10** executors + **~10** frameworks; UNAVAILABLE until driver/config present |
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
-| Automation | `susi automate <intent>` (evidence-gated swarm mission) |
+| Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot) |
 
 ## Install
 
@@ -147,12 +147,13 @@ Catalog loaders still embed bundled JSON via `include_str!` for offline boot; ho
 ## Design principles
 
 Defined in `.agents/identity.json` (`design_principles`):
-- **Autonomous by default** — plan and execute via swarm consensus, not step-by-step babysitting.
+- **Autonomous by default** — Mandate 46; plan and execute via swarm consensus, not step-by-step babysitting; evidence-gated and governance-first (not “100% automation”).
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
 - **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
 - **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
+- **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
 
 ---
 

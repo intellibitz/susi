@@ -1116,6 +1116,26 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: evaluated whether to mandate absolute \"0 config\"; rejected under Mandate 1 because cloud keys, host installs (npx/docker/ollama/python), and user disable pins remain real gates. Elevated existing Tier S foundation \"Zero-config Auto\" into DNA Mandate 44 \"Zero-Config Substrate Auto (Not Absolute Zero Config)\": boot must auto-prime packs/MCP/models/peers without hand-edited config.json for the happy path; doctor/setup must explain missing gates; no silent credential provisioning or paid probes. Linked foundation pillar 7 summary to Mandate 44; added design_principles #6 and README lines. Verified: identity JSON parses; genome compile path unchanged pending next cargo build of susi-gawd-agents."
+    },
+    {
+      "id": "EV-2022922-106",
+      "type": "DOCS",
+      "milestone": "Mandate 45: OS layer for AI agents (scoped) — reject replacement host OS claim",
+      "anchor": {
+        "label": "identity.json Mandate 45",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to mandate \"susi is OS for AI\"; rejected absolute replacement-host-OS form under Mandate 1 (already softened in README/verified claims per EV-2022920 era). Added Mandate 45 \"OS Layer for AI Agents (Not a Host OS)\": citable DNA for daemon/ports/swarm/admission/audit/sandbox as the operating *layer for agents* on Linux/macOS/WSL; forbids documenting SUSI as replacing the host kernel/init/package manager. Added design_principles #7; README tagline and claims table cite Mandate 45. Verified: identity JSON parses; `cargo test -p susi-gawd-agents test_compiled_genome` after build."
+    },
+    {
+      "id": "EV-2022922-107",
+      "type": "DOCS",
+      "milestone": "Mandate 46: Autonomous execution by default (scoped) — reject unbounded 100% automation",
+      "anchor": {
+        "label": "identity.json Mandate 46",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to mandate \"100% automation\"; rejected absolute form under Mandate 1 because governance-first (37), truth/evidence COMPLETE gates, admin pulse sentinels (41), install/key gates (44), and operator vetoes remain real. Elevated design principle Autonomous by default into DNA Mandate 46 \"Autonomous Execution by Default (Not Unbounded Automation)\": bare intent/`susi automate` runs swarm end-to-end without step babysitting; host config is not babysitting; forbids \"always COMPLETE / no veto\" claims. Updated design_principles #1 summary and README Automation claim + Design principles line. Verified: identity JSON parses; genome test after build."
     }
   ]
 }

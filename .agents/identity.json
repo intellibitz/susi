@@ -110,7 +110,7 @@
     {
       "id": 1,
       "title": "Autonomous by default",
-      "summary": "plan and execute via swarm consensus, not step-by-step babysitting. Bare `susi \"<intent>\"` dispatches GAWD swarm supervision end-to-end; callers are not prompted for each agent step. (One-time cloud-provider preference prompts are host config, not mission babysitting.)"
+      "summary": "Mandate 46; plan and execute via swarm consensus, not step-by-step babysitting. Bare `susi \"<intent>\"` / `susi automate` dispatches GAWD end-to-end; callers are not prompted for each agent step. (One-time cloud-provider preference prompts are host config, not mission babysitting.) Autonomy stays evidence-gated and governance-first — not unbounded \"100% automation.\""
     },
     {
       "id": 2,
@@ -136,6 +136,11 @@
       "id": 6,
       "title": "Zero-config auto",
       "summary": "Boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44). Installs and API keys remain explicit gates — not \"never configure anything.\""
+    },
+    {
+      "id": 7,
+      "title": "OS layer for AI agents",
+      "summary": "Agent-of-agents substrate on the host machine (Mandate 45) — not a replacement host OS."
     }
   ],
   "pillars": {
@@ -363,6 +368,16 @@
           "id": 44,
           "title": "Zero-Config Substrate Auto (Not Absolute Zero Config)",
           "imperative": "On daemon and CLI boot, SUSI must **auto-prime** the substrate without requiring a hand-edited `config.json` for the happy path: seed/load extension packs, auto-enable leading MCP servers whose launchers and env keys are already satisfied (honoring prior `susi mcp disable`), auto-prefer the best ready coding/frontier model when none is pinned, auto-prime ready external agents/frameworks into the capability registry, and run `bootstrap_zero_config_substrate` / weight-ladder provisioning when policy allows. Operator **installs** (Node, Docker, Ollama, uv, …) and **credentials** (API keys, tokens) remain explicit gates — never silently purchased, invented, or scraped. Missing gates must be diagnosable via `susi doctor` / `setup` / `susi auto status` (and related control planes), not silent no-ops that look like success. Cloud or paid probes must not run without an opt-in path. A bare \"zero config forever / never configure anything\" claim is forbidden by Mandate 1: foundation pillar Zero-config Auto already states that host installs/keys still gate cloud, and this mandate is that rule in citable DNA form — not a promise that foreign peers appear with an empty machine."
+        },
+        {
+          "id": 45,
+          "title": "OS Layer for AI Agents (Not a Host OS)",
+          "imperative": "SUSI is the **operating layer for AI agents** on a machine — not a general-purpose host operating system. Concretely the layer means: persistent `global susi` daemon bound to `~/.susi`, fixed host-contract ports 9090–9093, evidence-gated agent-of-agents swarm (GAWD), model/MCP/peer admission and control planes, HMAC audit, Wasmer/Docker sandbox, reflexes, and crown-verifiable Tier S pillars. It runs **on** Linux / macOS / WSL (and Windows via installer), does not replace the host kernel, init, package manager, or desktop, and must never be documented or marketed as \"the computer's OS\" or a drop-in replacement for Linux/macOS/Windows. Public wording must prefer \"OS layer for AI agents\" / \"agent-of-agents substrate\" (as in `README.md` and verified product claims) over unbounded \"OS for AI\" slogans. Absolute replacement-OS language is forbidden by Mandate 1; this mandate is the citable DNA form of that product boundary."
+        },
+        {
+          "id": 46,
+          "title": "Autonomous Execution by Default (Not Unbounded Automation)",
+          "imperative": "Given an intent, SUSI must **plan and execute via GAWD swarm consensus end-to-end** without prompting the caller for each agent step — bare `susi \"<intent>\"` and `susi automate <intent>` are first-class autonomous surfaces (design principle Autonomous by default). One-time host configuration (API keys, prefer pins, pack load/unload, MCP enable/disable) is **not** mission babysitting. Autonomy remains **bounded**: Mandate 37 (governance-first Safety/Security before fleet); Truth/Evidence gates so mission COMPLETE requires absolute sources and soft model review is not completion; Mandate 41 (mutating admin actions need an explicit `admin pulse:` sentinel); Mandate 44 (missing installs/credentials fail diagnosably, never silent fake success); operator vetoes (disable MCP, clear prefer) must be honored. A bare \"100% automation / no human / no veto / always COMPLETE\" claim is forbidden by Mandate 1 — this mandate is autonomy *by default under evidence and governance*, not unbounded autopilot."
         }
       ]
     },
