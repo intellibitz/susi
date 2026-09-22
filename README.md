@@ -6,7 +6,7 @@
 
 susi runs a persistent host daemon, stable network ports external clients can hard-code, bearer-authenticated HTTP on those ports, local and cloud inference behind one router, and a swarm that refuses mission COMPLETE without absolute evidence. It sits on Linux / macOS / WSL (native Windows via `install.ps1`).
 
-> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including the top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, and top MCP tool servers (GitHub, Filesystem, PostgreSQL, Browser, Docker, Git, Jira, Linear, Kubernetes, Slack) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
+> Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers (Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools, …) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
 ---
 
@@ -41,7 +41,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 6. **Audit** — append-only HMAC accountability chain.
 7. **Zero-config Auto** — `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
-9. **Pluggable** — `CapabilityRegistry` + extension packs.
+9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
 11. **Host contract** — fixed ports 9090–9093.
 12. **Reflexes** — Wasm reflexes under the data dir.
@@ -62,8 +62,8 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Agent-of-agents / OS layer for AI | Multi-agent swarm + host daemon/ports — layer *for* agents, not a host OS |
 | Plugin protocol agents | **~10** executors + **~10** frameworks; UNAVAILABLE until driver/config present |
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
-| Plugin protocol models | **~10** ranked coding models + **~50** catalog + live `/models`; local GGUF = llama/qwen2 |
-| Plugin protocol MCP | **~10** leading servers + **~100** scout packages |
+| Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
+| Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
 | Automation | `susi automate <intent>` (evidence-gated swarm mission) |
 
 ## Install

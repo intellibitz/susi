@@ -153,11 +153,16 @@ mod tests {
                 && summary.contains(AlphaSelf::AGENT_COMPONENTS[0].name),
             "Agents pillar must list component names, got:\n{summary}"
         );
-        if AlphaSelf::MODEL_COMPONENTS.is_empty() {
-            assert!(
-                summary.contains("Models Pillar (0): (none)"),
-                "empty pillars must say (none), got:\n{summary}"
-            );
-        }
+        assert!(
+            !AlphaSelf::MODEL_COMPONENTS.is_empty()
+                && summary.contains(AlphaSelf::MODEL_COMPONENTS[0].name),
+            "Models pillar must list component names (identity from source), got:\n{summary}"
+        );
+        assert!(
+            summary.contains("CodingModelManager")
+                || summary.contains("FrontierManager")
+                || summary.contains("OpenWeightManager"),
+            "Models pillar must include curated model managers, got:\n{summary}"
+        );
     }
 }

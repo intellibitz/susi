@@ -180,17 +180,21 @@ fn categorize_component(name: &str) -> &'static str {
         "aoa"
     } else if n.contains("agent") || n.contains("factory") || n.contains("scout") {
         "agents"
+    } else if n.contains("model")
+        || n.contains("frontier")
+        || n.contains("openweight")
+        || n.contains("openrouter")
+        || n.contains("codingmodel")
+    {
+        // Model control planes and native weight specs — Models pillar.
+        "models"
     } else if n.contains("susi-")
         || n.contains("engine")
         || n.contains("substrate")
         || n.contains("gemi")
         || n.contains("synthesizer")
     {
-        if n.contains("model") {
-            "models"
-        } else {
-            "engines"
-        }
+        "engines"
     } else if n.contains("mcp")
         || n.contains("server")
         || n.contains("host")

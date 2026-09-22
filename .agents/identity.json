@@ -78,7 +78,7 @@
     {
       "id": 9,
       "title": "Pluggable",
-      "summary": "`CapabilityRegistry` + extension packs (`susi substrate`)."
+      "summary": "`CapabilityRegistry` + extension packs; end-to-end managed catalogs (`susi models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`)."
     },
     {
       "id": 10,
@@ -302,7 +302,7 @@
         {
           "id": 34,
           "title": "The 3 Innovation Pillars of Excellence",
-          "imperative": "- **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores (agent-of-agents orchestration).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` — not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models`**: Provides non-blocking resumable background downloads and employs a dynamic runtime Hugging Face discovery algorithm to construct a progressive, optimized model ladder based on available host hardware capacity, fully escaping static hardcoded constraints."
+          "imperative": "- **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores (agent-of-agents orchestration).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` — not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models` (+ frontier / openweight / openrouter)**: Provides non-blocking resumable background downloads and a dynamic runtime Hugging Face discovery algorithm for the progressive model ladder, **and** durable end-to-end control planes for curated catalogs — coding/agent cloud models (`susi models`), top 5 frontier reasoning engines (`susi frontier`: Claude Sonnet, GPT-4o/5, DeepSeek-R1/V3, Gemini Pro, Llama 3/3.1), open-weight FOSS-adjacent hosts (`susi openweight` via Ollama/vLLM), and OpenRouter routes (`susi openrouter`). Parallel durable planes manage leading external agents/frameworks (`susi agents` / `susi frameworks`) and MCP servers (`susi mcp`; top ranks Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools). Catalogs load via extension packs (`Mandate 35`); no subscriptions are provisioned implicitly."
         },
         {
           "id": 35,
@@ -465,6 +465,36 @@
           "symbol": "NativeReasoningModel",
           "tier": 2,
           "function": "Distilled Tier 2 logic weights (`susi-reason.safetensors`)."
+        },
+        {
+          "symbol": "CodingModelManager",
+          "tier": 2,
+          "function": "`susi models` (`susi_gemi_models::coding_models`): ranked coding/agent cloud models — list/doctor/setup/configure/prefer/probe."
+        },
+        {
+          "symbol": "FrontierManager",
+          "tier": 2,
+          "function": "`susi frontier` (`susi_gemi_models::frontier`): top 5 frontier reasoning engines (Claude 3.5/4 Sonnet, GPT-4o/5, DeepSeek-R1/V3, Gemini 1.5/2.0 Pro, Llama 3/3.1) with variants — list/doctor/setup/prefer/probe."
+        },
+        {
+          "symbol": "OpenWeightManager",
+          "tier": 2,
+          "function": "`susi openweight` (`susi_gemi_models::open_weight`): top open-weight FOSS-adjacent models (DeepSeek-R1/V3, Llama 3.x, Qwen 2.5-Coder, Mistral Nemo/Large, Phi-4) via Ollama/vLLM — list/doctor/pull/prefer/probe."
+        },
+        {
+          "symbol": "OpenRouterManager",
+          "tier": 2,
+          "function": "`susi openrouter` (`susi_gemi_models::openrouter`): OpenRouter credentials, curated routes, prefer pin, and live `/models` probe."
+        },
+        {
+          "symbol": "LeadingMcpManager",
+          "tier": 1,
+          "function": "`susi mcp` (`susi_tools::leading_mcp`): durable enable/disable into `~/.susi/mcp_config.json`; editorial top ranks Filesystem, GitHub (official `ghcr.io/github/github-mcp-server`), Context7, Playwright, Sentry (`@sentry/mcp-server`) + Chrome DevTools companion."
+        },
+        {
+          "symbol": "ExternalAgentManager",
+          "tier": 1,
+          "function": "`susi agents` / `susi frameworks` (`susi_agents::external`): end-to-end doctor/setup/run/tasks for leading external coding agents and Python engines (OpenHands, Aider, SWE-agent, CrewAI, LangGraph, AutoGen, smolagents, LlamaIndex, Temporal, E2B, Haystack, n8n, …)."
         },
         {
           "symbol": "GMCP Server",
