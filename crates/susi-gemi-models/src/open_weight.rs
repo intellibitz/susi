@@ -464,14 +464,11 @@ mod tests {
             OpenWeightManager::definition("phi4").unwrap().ollama_tag,
             "phi4"
         );
-        assert_eq!(
-            OpenWeightManager::definition("llama-3.2")
-                .unwrap()
-                .variants
-                .iter()
-                .any(|v| v.id == "llama-3.2"),
-            true
-        );
+        assert!(OpenWeightManager::definition("llama-3.2")
+            .unwrap()
+            .variants
+            .iter()
+            .any(|v| v.id == "llama-3.2"));
     }
 
     #[test]
