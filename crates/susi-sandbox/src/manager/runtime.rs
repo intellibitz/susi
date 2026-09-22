@@ -1,14 +1,11 @@
 //! Sandbox runtime helpers: docker exec, audit, backup, intent bundles, memory.
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 
 use super::config::SusiConfig;
-use super::json_util::{
-    confined_workspace_join, merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
-};
+use super::json_util::confined_workspace_join;
 use super::types::*;
 
 // === SANDBOX MANAGER ===
@@ -430,6 +427,10 @@ impl SusiMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manager::json_util::{
+        merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
+    };
+    use std::collections::HashMap;
 
     #[test]
     fn test_checkpoint_lifecycle() {
