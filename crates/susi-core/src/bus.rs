@@ -80,6 +80,15 @@ impl SwarmEvent {
     }
 }
 
+/// Process-wide typed bus for substrate-internal telemetry (schedule
+/// decisions, dispatch traces). Distinct from the per-mission channels from
+/// [`create_swarm_bus`]: subscribers here observe events across the whole
+/// process, not one mission.
+pub fn global_bus() -> &'static TypedEventBus {
+    static BUS: std::sync::OnceLock<TypedEventBus> = std::sync::OnceLock::new();
+    BUS.get_or_init(TypedEventBus::new)
+}
+
 pub type LegacySwarmEventBus = (
     flume::Sender<SwarmEventType>,
     flume::Receiver<SwarmEventType>,

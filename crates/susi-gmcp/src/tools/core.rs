@@ -14,13 +14,7 @@ use susi_tools::hooks::hooks as engine_hooks;
 use susi_tools::GmcpClient;
 
 #[cfg(feature = "tools-rich")]
-use fastembed::TextEmbedding;
-#[cfg(feature = "tools-rich")]
 use headless_chrome::Browser;
-#[cfg(feature = "tools-rich")]
-use qdrant_client::Qdrant;
-#[cfg(feature = "tools-rich")]
-use tantivy::{collector::TopDocs, query::QueryParser, schema::*, Index, TantivyDocument};
 
 #[cfg(feature = "tools-rich")]
 use super::helpers::secure_external_url;
@@ -227,6 +221,34 @@ impl CoreTools {
     )]
     pub fn train_reflexes(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         engine_hooks().train_reflexes(workspace)
+    }
+
+    #[tool(
+        name = "swarm_schedule",
+        description = "Show recent mission scheduler decisions: per-agent scores, admitted vs deferred"
+    )]
+    pub fn swarm_schedule(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let decisions = susi_gawd_agents::scheduler::MissionScheduler::recent_decisions();
+        if decisions.is_empty() {
+            return Ok("No missions scheduled yet.".to_string());
+        }
+        let mut out = String::from("# Mission Schedule Log\n\n");
+        for d in decisions.iter().rev() {
+            out.push_str(&format!("## [{}] \"{}\"\n", d.timestamp, d.goal));
+            for e in &d.entries {
+                out.push_str(&format!(
+                    "- {} `{}` score={:.3} (rank={:.2} intent={:.2} urgency={:.2})\n",
+                    if e.admitted { "RUN" } else { "DEFER" },
+                    e.name,
+                    e.score,
+                    e.learned_rank,
+                    e.intent_match,
+                    e.urgency_boost
+                ));
+            }
+            out.push('\n');
+        }
+        Ok(out)
     }
 
     #[tool(name = "read_file", description = "Read file content in workspace")]
@@ -923,7 +945,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     #[tool(
         name = "semantic_search",
-        description = "Fast embedded search via tantivy"
+        description = "Unified BM25 recall over .susi memory, experience, audit log, and workspace files"
     )]
     pub fn semantic_search(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query_str = arg
@@ -931,50 +953,18 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
-        let index_path = workspace.join(".susi/index");
-        let _ = fs::create_dir_all(&index_path);
+        let hits = super::semantic_index::SemanticIndex::search(workspace, query_str, 5)?;
 
-        let mut schema_builder = Schema::builder();
-        let path_field = schema_builder.add_text_field("path", TEXT | STORED);
-        let content_field = schema_builder.add_text_field("content", TEXT);
-        let schema = schema_builder.build();
-
-        let index = Index::open_or_create(
-            tantivy::directory::MmapDirectory::open(&index_path)
-                .map_err(|e| EaiError::filesystem(e.to_string()))?,
-            schema.clone(),
-        )
-        .map_err(|e| EaiError::filesystem(e.to_string()))?;
-
-        let reader = index
-            .reader()
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let searcher = reader.searcher();
-
-        let query_parser = QueryParser::for_index(&index, vec![content_field]);
-        let query = query_parser
-            .parse_query(query_str)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-
-        let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(5).order_by_score())
-            .map_err(|e| EaiError::process(e.to_string()))?;
-
-        let mut out = format!("Tantivy search results for '{}':\n", query_str);
-        if top_docs.is_empty() {
-            out.push_str("No matches found in .susi/index.\n");
+        let mut out = format!("Semantic recall results for '{}':\n", query_str);
+        if hits.is_empty() {
+            out.push_str("No matches found in the unified index.\n");
         }
-        for (_score, doc_address) in top_docs {
-            let doc: TantivyDocument = searcher
-                .doc(doc_address)
-                .map_err(|e| EaiError::process(e.to_string()))?;
-            let p = doc
-                .get_first(path_field)
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            out.push_str(&format!("- {}\n", p));
+        for hit in hits {
+            out.push_str(&format!(
+                "- [{:.3}] ({}:{}) {}\n",
+                hit.score, hit.source, hit.doc_id, hit.snippet
+            ));
         }
-
         Ok(out)
     }
 
@@ -1056,61 +1046,27 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     #[tool(
         name = "rag_query",
-        description = "Semantic memory retrieval via Qdrant/FastEmbed"
+        description = "Vector recall over the unified .susi index via local fastembed cosine similarity"
     )]
-    pub fn rag_query(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn rag_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let query = arg
             .get("query")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing query"))?;
 
-        // Initialize with default options to ensure compilation
-        let mut model = TextEmbedding::try_new(Default::default())
-            .map_err(|e| EaiError::inference(e.to_string()))?;
+        let hits = super::semantic_index::SemanticIndex::vector_recall(workspace, query, 3)?;
 
-        let embeddings = model
-            .embed(vec![query], None)
-            .map_err(|e| EaiError::inference(e.to_string()))?;
-        let vector = embeddings
-            .first()
-            .ok_or_else(|| EaiError::inference("Embedding failed"))?
-            .clone();
-
-        Self::shared_runtime()?.block_on(async {
-            let client = Qdrant::from_url(
-                &susi_sandbox::manager::SusiConfig::load_global()
-                    .unwrap_or_default()
-                    .qdrant_url(),
-            )
-            .build()
-            .map_err(|e| {
-                EaiError::process(format!(
-                    "[CAPABILITY_GAP] Qdrant connection failed: {}. Ensure Qdrant is running.",
-                    e
-                ))
-            })?;
-
-            let search_result = client
-                .search_points(qdrant_client::qdrant::SearchPoints {
-                    collection_name: "susi_knowledge".to_string(),
-                    vector,
-                    limit: 3,
-                    with_payload: Some(true.into()),
-                    ..Default::default()
-                })
-                .await
-                .map_err(|e| EaiError::process(e.to_string()))?;
-
-            let mut out = "Top 3 Semantic Matches:\n".to_string();
-            if search_result.result.is_empty() {
-                out.push_str("No semantic matches found in Qdrant collection 'susi_knowledge'.\n");
-            }
-            for res in search_result.result {
-                let payload = serde_json::to_string(&res.payload).unwrap_or_default();
-                out.push_str(&format!("- [Score: {:.3}] {}\n", res.score, payload));
-            }
-            Ok(out)
-        })
+        let mut out = "Top 3 Semantic Matches:\n".to_string();
+        if hits.is_empty() {
+            out.push_str("No embedded documents in the unified index yet.\n");
+        }
+        for hit in hits {
+            out.push_str(&format!(
+                "- [Score: {:.3}] ({}:{}) {}\n",
+                hit.score, hit.source, hit.doc_id, hit.snippet
+            ));
+        }
+        Ok(out)
     }
 }
 

@@ -5058,29 +5058,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
-name = "qdrant-client"
-version = "1.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dddc19df129bad7346ebd027288621ab1ac7e52678371f906b9a8622d7aaf87e"
-dependencies = [
- "anyhow",
- "derive_builder",
- "futures",
- "futures-util",
- "parking_lot",
- "prost",
- "prost-types",
- "reqwest 0.13.5",
- "semver",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tonic",
- "tonic-prost",
-]
-
-[[package]]
 name = "qoi"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6574,6 +6551,7 @@ dependencies = [
  "log",
  "rayon",
  "reqwest 0.13.5",
+ "serde",
  "serde_json",
  "susi-agents",
  "susi-core",
@@ -6675,7 +6653,6 @@ dependencies = [
  "jsonschema",
  "libc",
  "parking_lot",
- "qdrant-client",
  "rmcp",
  "serde",
  "serde_json",
@@ -6683,6 +6660,7 @@ dependencies = [
  "susi-agents",
  "susi-core",
  "susi-error",
+ "susi-gawd-agents",
  "susi-gemi",
  "susi-paths",
  "susi-sandbox",
@@ -7419,7 +7397,6 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
- "flate2",
  "h2",
  "http",
  "http-body",
@@ -7429,11 +7406,9 @@ dependencies = [
  "hyper-util",
  "percent-encoding",
  "pin-project",
- "rustls-native-certs",
  "socket2",
  "sync_wrapper",
  "tokio",
- "tokio-rustls",
  "tokio-stream",
  "tower",
  "tower-layer",

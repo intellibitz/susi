@@ -75,6 +75,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "swarm_schedule",
+        "Show recent mission scheduler decisions",
+        MetaCategory::SystemPrimitive,
+        CoreTools::swarm_schedule,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "train_reflexes",
         "Manually trigger native neural reflex distillation",
         MetaCategory::SystemPrimitive,
@@ -325,7 +332,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "semantic_search",
-        "Fast embedded search via tantivy",
+        "Unified BM25 recall over .susi stores and workspace files",
         MetaCategory::CodingSpecialist,
         CoreTools::semantic_search,
     );
@@ -348,7 +355,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "rag_query",
-        "Semantic memory retrieval via Qdrant/FastEmbed",
+        "Vector recall over the unified .susi index (local fastembed)",
         MetaCategory::AssistantSpecialist,
         CoreTools::rag_query,
     );

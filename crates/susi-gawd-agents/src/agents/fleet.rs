@@ -485,6 +485,27 @@ impl GawdAgentFleet {
         }
         persist_governance_report(&workspace, &results, true);
 
+        // Priority admission: score the recruited fleet (learned rank +
+        // intent match + urgency affinity) and run only the top
+        // `max_concurrent_agents`; the rest are deferred this mission.
+        let cap = Self::get_max_concurrent_agents();
+        let (agents, decision) = crate::scheduler::MissionScheduler::schedule(&goal, agents, cap);
+        let deferred: Vec<&str> = decision
+            .entries
+            .iter()
+            .filter(|e| !e.admitted)
+            .map(|e| e.name.as_str())
+            .collect();
+        if !deferred.is_empty() {
+            println!(
+                "- [Mission Scheduler] {} agents deferred (cap {}): {}",
+                deferred.len(),
+                cap,
+                deferred.join(", ")
+            );
+            let _ = std::io::stdout().flush();
+        }
+
         let agents_len = agents.len();
 
         println!("- [Swarm Dispatch] Initializing Rayon work-stealing parallel execution for {} agents...", agents_len);

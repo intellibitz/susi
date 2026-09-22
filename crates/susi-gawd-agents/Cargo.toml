@@ -13,12 +13,14 @@ susi-sandbox = { workspace = true }
 susi-agents = { workspace = true }
 susi-tools = { workspace = true }
 susi-gemi = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 rayon = "1.12"
 log = "0.4"
 
 [build-dependencies]
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 [features]

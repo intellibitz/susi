@@ -15,6 +15,7 @@ pub mod goal_shape;
 pub(crate) mod live_search;
 pub mod pkb;
 pub mod safety;
+pub mod scheduler;
 pub mod security;
 pub mod self_core;
 pub mod system_observe;
