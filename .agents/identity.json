@@ -141,6 +141,11 @@
       "id": 7,
       "title": "OS layer for AI agents",
       "summary": "Agent-of-agents substrate on the host machine (Mandate 45) — not a replacement host OS."
+    },
+    {
+      "id": 8,
+      "title": "One-line install",
+      "summary": "Unix primary surface is `curl …/install.sh | bash` (Mandate 47); Binary Dominance + PATH inject + canonical `~/.susi/bin/susi`. Not \"always frictionless.\""
     }
   ],
   "pillars": {
@@ -378,6 +383,11 @@
           "id": 46,
           "title": "Autonomous Execution by Default (Not Unbounded Automation)",
           "imperative": "Given an intent, SUSI must **plan and execute via GAWD swarm consensus end-to-end** without prompting the caller for each agent step — bare `susi \"<intent>\"` and `susi automate <intent>` are first-class autonomous surfaces (design principle Autonomous by default). One-time host configuration (API keys, prefer pins, pack load/unload, MCP enable/disable) is **not** mission babysitting. Autonomy remains **bounded**: Mandate 37 (governance-first Safety/Security before fleet); Truth/Evidence gates so mission COMPLETE requires absolute sources and soft model review is not completion; Mandate 41 (mutating admin actions need an explicit `admin pulse:` sentinel); Mandate 44 (missing installs/credentials fail diagnosably, never silent fake success); operator vetoes (disable MCP, clear prefer) must be honored. A bare \"100% automation / no human / no veto / always COMPLETE\" claim is forbidden by Mandate 1 — this mandate is autonomy *by default under evidence and governance*, not unbounded autopilot."
+        },
+        {
+          "id": 47,
+          "title": "One-Line Install Surface (Not Frictionless Forever)",
+          "imperative": "The **primary documented install** for Unix-like hosts (Linux / macOS / WSL) must remain a single pipeable command — `curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash` — that: (1) requires **bash** (not `sh`); (2) prefers **Binary Dominance** (checksum-verified prebuilt release artifact) with transparent **source-build fallback** (rustup/Cargo when needed); (3) performs **Auto-Path Injection** of `~/.susi/bin`; (4) deploys the canonical `~/.susi/bin/susi` binary (**Canonical Binary Dynamics**); (5) optionally registers a login-persistent daemon unless `SUSI_NO_DAEMON=1`. Visible failure and honesty gates: GPU present without toolkit must warn explicitly (CPU-only), not silent success theater; escape hatches (`SUSI_FORCE_SOURCE`, `SUSI_USE_REPO_TARGET`, mold bootstrap skip) remain documented. Windows' primary surface is `install.ps1` (`irm … | iex`), not the curl|bash line. Installer scripts are distribution tooling (Mandate 43 exempt), not first-party runtime. A bare \"one line always succeeds with zero network / zero toolchain / zero build\" claim is forbidden by Mandate 1 — this mandate is the blessed install *surface*, not a promise of zero friction on every host."
         }
       ]
     },
@@ -618,17 +628,17 @@
         {
           "id": 5,
           "title": "Binary Dominance",
-          "imperative": "Prioritize pre-compiled binary deployment with transparent local build fallback."
+          "imperative": "Prioritize pre-compiled binary deployment with transparent local build fallback (Mandate 47 one-line install surface)."
         },
         {
           "id": 6,
           "title": "Auto-Path Injection",
-          "imperative": "Installer must inject `.susi/bin` into host environment variables."
+          "imperative": "Installer must inject `.susi/bin` into host environment variables (Mandate 47)."
         },
         {
           "id": 7,
           "title": "Canonical Binary Dynamics & Hot-Reload Protocol",
-          "imperative": "A single compiled binary deployed at `~/.susi/bin/susi` (the host-contract path). Invocations in `cwd` capture local workspace context, check `~/.susi/substrate.lock`, and ensure `global susi` owns ports/models without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` evicts the stale daemon and hot-reloads `global susi` from the canonical binary automatically."
+          "imperative": "A single compiled binary deployed at `~/.susi/bin/susi` (the host-contract path; Mandate 47). Invocations in `cwd` capture local workspace context, check `~/.susi/substrate.lock`, and ensure `global susi` owns ports/models without duplicate daemons. Detecting binary signature changes (`binary.hash`), `susi` evicts the stale daemon and hot-reloads `global susi` from the canonical binary automatically."
         }
       ]
     }

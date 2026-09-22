@@ -68,12 +68,14 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 
 ## Install
 
+Primary surface (Mandate 47): one pipeable command on Unix-like hosts; Windows uses `install.ps1`.
+
 ### Linux / macOS / WSL
 ```bash
 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | bash
 ```
 
-Pipe into `bash`, not `sh` (Debian/Ubuntu/Alpine `sh` is not bash). Binaries and model weights are checksum-verified; if no platform binary exists, the installer builds from source ([rustup.rs](https://rustup.rs)). Prefers a prebuilt release even inside a source checkout (set `SUSI_FORCE_SOURCE=1` to build that tree). Source builds reuse `~/.susi/build-cache` unless `SUSI_USE_REPO_TARGET=1` or `CARGO_TARGET_DIR` is set. On Linux, a missing mold linker is bootstrapped into `~/.susi/mold` (skip with `SUSI_SKIP_MOLD_BOOTSTRAP=1`).
+Pipe into `bash`, not `sh` (Debian/Ubuntu/Alpine `sh` is not bash). Binaries and model weights are checksum-verified; if no platform binary exists, the installer builds from source ([rustup.rs](https://rustup.rs)). Prefers a prebuilt release even inside a source checkout (set `SUSI_FORCE_SOURCE=1` to build that tree). Source builds reuse `~/.susi/build-cache` unless `SUSI_USE_REPO_TARGET=1` or `CARGO_TARGET_DIR` is set. On Linux, a missing mold linker is bootstrapped into `~/.susi/mold` (skip with `SUSI_SKIP_MOLD_BOOTSTRAP=1`). GPU without CUDA toolkit → explicit CPU-only warning (not silent success theater).
 
 By default a login-persistent daemon is registered (systemd user unit / launchd). Skip with:
 ```bash
@@ -154,6 +156,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
 - **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
+- **One-line install** — Unix `curl …/install.sh | bash` (Mandate 47); not “always frictionless.”
 
 ---
 

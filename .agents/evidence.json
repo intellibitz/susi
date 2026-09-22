@@ -1136,6 +1136,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: evaluated whether to mandate \"100% automation\"; rejected absolute form under Mandate 1 because governance-first (37), truth/evidence COMPLETE gates, admin pulse sentinels (41), install/key gates (44), and operator vetoes remain real. Elevated design principle Autonomous by default into DNA Mandate 46 \"Autonomous Execution by Default (Not Unbounded Automation)\": bare intent/`susi automate` runs swarm end-to-end without step babysitting; host config is not babysitting; forbids \"always COMPLETE / no veto\" claims. Updated design_principles #1 summary and README Automation claim + Design principles line. Verified: identity JSON parses; genome test after build."
+    },
+    {
+      "id": "EV-2022922-108",
+      "type": "DOCS",
+      "milestone": "Mandate 47: One-line install surface (scoped) — reject frictionless-forever claim",
+      "anchor": {
+        "label": "identity.json Mandate 47",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to mandate \"one-line install\" absolutely; rejected frictionless-forever form under Mandate 1 (bash-not-sh, network/rustup, GPU toolkit caveats, Windows install.ps1). Elevated Pillar IV Binary Dominance / Auto-Path / Canonical Binary into DNA Mandate 47 \"One-Line Install Surface (Not Frictionless Forever)\": curl|bash remains primary Unix surface with checksum Binary Dominance, source fallback, PATH inject, canonical ~/.susi/bin/susi, optional daemon; visible GPU/toolkit warnings required. Cross-linked engine protocols 5–7; design_principles #8; README Install cites Mandate 47. Verified: identity JSON parses; genome test after build."
     }
   ]
 }
