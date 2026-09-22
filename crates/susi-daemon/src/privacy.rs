@@ -10,12 +10,12 @@ fn mac_key_path() -> std::path::PathBuf {
 
 fn load_or_create_mac_key() -> [u8; 32] {
     let path = mac_key_path();
-    if let Ok(bytes) = std::fs::read(&path) {
-        if bytes.len() >= 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes[..32]);
-            return key;
-        }
+    if let Ok(bytes) = std::fs::read(&path)
+        && bytes.len() >= 32
+    {
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes[..32]);
+        return key;
     }
     // Two 128-bit nonces → 32 bytes of key material.
     let a = susi_config::cluster_key::random_nonce_hex();
