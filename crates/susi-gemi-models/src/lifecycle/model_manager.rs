@@ -1,7 +1,7 @@
 // Model Manager: GGUF, Cloud & Autonomous Model Discovery
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
-use super::hardware::HardwareProfiler;
+use crate::hardware::HardwareProfiler;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -10,6 +10,8 @@ use std::sync::Arc;
 use susi_agents::task_manager::{SwarmTaskManager, TaskHandle};
 use susi_error::EaiResult;
 use susi_sandbox::manager::ModelInfo;
+
+use super::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelDownloadProgress {
@@ -43,7 +45,7 @@ impl ModelDownloadController {
 
     pub fn start_download(&self, url: &str) -> Result<String, String> {
         let target = url.trim().to_string();
-        let file_name = super::download::artifact_name(&target)?;
+        let file_name = crate::download::artifact_name(&target)?;
         let entry = match self.active_downloads.entry(target.clone()) {
             dashmap::mapref::entry::Entry::Occupied(_) => {
                 return Ok(format!("Download already active for: {}", target))
@@ -192,59 +194,6 @@ impl ModelDownloadController {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelVerificationResult {
-    pub model_id: String,
-    pub path: String,
-    pub file_size_bytes: u64,
-    pub file_size_formatted: String,
-    pub is_valid_gguf: bool,
-    pub magic_header: String,
-    pub test_inference_status: String,
-    pub latency_ms: u128,
-    pub checksum_verified: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelProvenance {
-    pub source_url: String,
-    pub timestamp: u64,
-    pub original_checksum: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentStepStatus {
-    pub step: usize,
-    pub model_label: String,
-    pub hf_repo: String,
-    pub status: String,
-    pub bytes_downloaded: u64,
-    pub expected_bytes: u64,
-    pub percentage: f32,
-    pub path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelAgentReport {
-    pub active_step: usize,
-    pub total_steps: usize,
-    pub total_discovered_on_system: usize,
-    pub network_status: String,
-    pub download_agent_active: bool,
-    pub steps: Vec<ModelAgentStepStatus>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelBenchmarkResult {
-    pub model_id: String,
-    pub name: String,
-    pub is_local: bool,
-    pub latency_ms: u128,
-    pub tokens_per_sec: f32,
-    pub status: String,
-    pub memory_used_mb: f32,
-    pub peak_memory_mb: f32,
-}
-
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
 /// (from `SusiConfig::model_scan_exclude_dirs`/`model_file_extensions`/
 /// `model_file_min_bytes`) and threaded through the recursion rather than
@@ -1204,7 +1153,7 @@ impl ModelManager {
         }
         let models_dir = Self::get_models_dir();
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
-        let file_name = super::download::artifact_name(target)?;
+        let file_name = crate::download::artifact_name(target)?;
         let path = models_dir.join(&file_name);
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let trusted_origin = url::Url::parse(target)
@@ -1224,7 +1173,7 @@ impl ModelManager {
             let last_report = std::cell::RefCell::new(
                 std::time::Instant::now() - std::time::Duration::from_secs(3),
             );
-            let result = super::download::transfer(
+            let result = crate::download::transfer(
                 target,
                 &path,
                 policy.download_timeout_secs,
@@ -1536,7 +1485,7 @@ impl ModelManager {
         })
     }
 
-    pub fn identify_best_ladder_step() -> super::hardware::ModelLadderStep {
+    pub fn identify_best_ladder_step() -> crate::hardware::ModelLadderStep {
         if let Some(step) = HardwareProfiler::get_progressive_model_ladder()
             .last()
             .cloned()
@@ -1550,7 +1499,7 @@ impl ModelManager {
         let fallback = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .default_fallback_model();
-        super::hardware::ModelLadderStep {
+        crate::hardware::ModelLadderStep {
             step: fallback.step,
             label: fallback.label,
             hf_repo: fallback.hf_repo,
@@ -1588,7 +1537,7 @@ impl ModelManager {
         let token = std::env::var("HF_TOKEN").ok();
         let mut error = String::new();
         for _ in 0..policy.download_attempts.clamp(1, 8) {
-            match super::download::transfer(
+            match crate::download::transfer(
                 &url,
                 &path,
                 policy.download_timeout_secs,

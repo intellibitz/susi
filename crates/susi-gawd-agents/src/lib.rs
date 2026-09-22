@@ -11,6 +11,7 @@ pub mod axiom;
 pub mod brain;
 pub mod dag_hooks;
 pub mod external_peers;
+pub mod goal_shape;
 pub(crate) mod live_search;
 pub mod pkb;
 pub mod safety;

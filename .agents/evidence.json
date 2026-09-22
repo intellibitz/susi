@@ -1186,6 +1186,16 @@
         "ref": "file://src/execution_agent_cli.rs"
       },
       "proof": "FIXED 2026-09-22: Phase 2. Structure: src/execution_agent_cli.rs shared plane (List/Doctor/Setup/Run/Tasks/Status/Logs/Cancel + launch/worker); thin wrappers for aider/openhands/gemini/swe-agent/openclaw/browser-use/deerflow/openviking (~160→~25 lines each). Source: split crates/susi-sandbox/src/manager.rs (2375) into manager/{json_util,types,config,runtime}.rs with pub use compatibility (susi_sandbox::manager::* unchanged); fixed include_str depth; restored SusiConfig without #[serde(default)] (struct-level default + OnceLock bundled_defaults deadlocks Deserialize). Deferred agents.rs split — native agents call GawdAgentFleet::is_meta_command (circular); needs shared meta helper first. Verified: cargo check -p susi; susi-sandbox manager::runtime::tests::test_* + extensions tests; fmt."
+    },
+    {
+      "id": "EV-2022922-113",
+      "type": "CODE",
+      "milestone": "Optimize Phase 3: goal_shape + agents native/fleet split + lifecycle types",
+      "anchor": {
+        "label": "goal_shape.rs + agents/{native,fleet} + lifecycle/{types,model_manager}",
+        "ref": "file://crates/susi-gawd-agents/src/goal_shape.rs"
+      },
+      "proof": "FIXED 2026-09-22: Phase 3. Broke native↔fleet cycle via crate::goal_shape::{is_meta_command,is_meta_or_simple_query}; GawdAgentFleet methods delegate; SearchAgent uses goal_shape. Split agents.rs (2466) into agents/{native,fleet}.rs with pub(super) helpers for cross-module tests. Split lifecycle.rs into lifecycle/{types,model_manager}.rs (report types vs download/controller/ModelManager; crate::hardware/download imports). Verified: susi-gawd-agents lib 60 tests; susi-gemi-models lib 69 tests; cargo check -p susi."
     }
   ]
 }
