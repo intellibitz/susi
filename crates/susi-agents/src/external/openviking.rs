@@ -3,7 +3,7 @@
 //! Task lifecycle reuses [`super::AgentManager`]. Headless retrieval uses
 //! `ov find "{prompt}" -o json` against a configured OpenViking endpoint.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde_json::json;
 use std::path::PathBuf;
 use std::process::Command;
@@ -14,7 +14,6 @@ pub const AGENT_ID: &str = "openviking";
 pub const DOCUMENTATION: &str = "https://docs.openviking.ai/en/getting-started/05-cli-setup";
 pub const INSTALL_DOCS: &str = "https://docs.openviking.ai/en/getting-started/01-quick-start";
 pub const SERVER_DOCS: &str = "https://docs.openviking.ai/en/getting-started/01-quick-start";
-pub const DEFAULT_LOCAL_URL: &str = "http://127.0.0.1:1933";
 
 /// True when the client can authenticate (API key env or saved ovcli.conf).
 pub fn credentials_present() -> bool {
@@ -173,55 +172,6 @@ pub fn status() -> serde_json::Value {
     })
 }
 
-/// Non-interactive local client config pointing at a custom OpenViking server URL.
-pub fn init_local_client(url: &str, name: &str) -> Result<serde_json::Value> {
-    let ov = resolve_program("ov").context("ov executable missing — install @openviking/cli")?;
-    // Display language must be set before most non-interactive commands.
-    let _ = Command::new(&ov)
-        .args(["language", "en"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-    let output = Command::new(&ov)
-        .args([
-            "config",
-            "add",
-            "custom",
-            "--name",
-            name,
-            "--url",
-            url,
-            "--activate",
-            "-o",
-            "json",
-        ])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .context("ov config add failed to start")?;
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "ov config add failed: {}",
-            err.lines().last().unwrap_or(&output.status.to_string())
-        );
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value =
-        serde_json::from_str(stdout.trim()).unwrap_or_else(|_| json!({ "raw": stdout.trim() }));
-    Ok(json!({
-        "agent": AGENT_ID,
-        "url": url,
-        "name": name,
-        "config": parsed,
-        "next": [
-            "openviking-server   # if using a local server",
-            "susi openviking doctor",
-            "susi openviking run --wait \"what resources do I have?\""
-        ]
-    }))
-}
-
 /// Ensure durable workers carry a recognizable process banner.
 pub fn ensure_process_banner(cmd: &mut Command) {
     if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
@@ -246,10 +196,5 @@ mod tests {
             }
             other => panic!("expected command adapter, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn default_local_url_is_http() {
-        assert!(DEFAULT_LOCAL_URL.starts_with("http://"));
     }
 }

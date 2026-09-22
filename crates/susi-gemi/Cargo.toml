@@ -30,8 +30,6 @@ url = { workspace = true }
 hex = { workspace = true }
 libc = "0.2"
 sysinfo = "0.39.6"
-agent-client-protocol = "2.2"
-agent-client-protocol-http = { version = "2.2", features = ["server"] }
 uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]

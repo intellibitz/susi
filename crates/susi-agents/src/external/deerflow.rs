@@ -3,9 +3,9 @@
 //! Task lifecycle reuses [`super::AgentManager`]. Headless runs use
 //! `deerflow --json "{prompt}"` (embedded DeerFlowClient — no Gateway required).
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde_json::json;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
 use super::catalog::{definition, resolve_program, CatalogKind};
@@ -15,20 +15,6 @@ pub const DOCUMENTATION: &str = "https://github.com/bytedance/deer-flow";
 pub const INSTALL_DOCS: &str = "https://github.com/bytedance/deer-flow/blob/main/Install.md";
 pub const TUI_DOCS: &str = "https://github.com/bytedance/deer-flow/blob/main/backend/docs/TUI.md";
 pub const PACKAGE: &str = "deerflow-harness";
-
-/// Minimal operator-owned config written by `susi deerflow init`.
-pub const EXAMPLE_CONFIG: &str = r#"# Minimal DeerFlow config for SUSI headless runs.
-# Prefer a full clone + `make setup` for production; see Install.md.
-config_version: 46
-log_level: info
-
-models:
-  - name: gpt-4o-mini
-    display_name: GPT-4o-mini
-    use: langchain_openai:ChatOpenAI
-    model: gpt-4o-mini
-    api_key: $OPENAI_API_KEY
-"#;
 
 pub fn credentials_present() -> bool {
     for key in [
@@ -141,64 +127,6 @@ pub fn status() -> serde_json::Value {
     })
 }
 
-/// Write minimal config + home under `<workspace>/.susi/deerflow/`.
-pub fn init_workspace(workspace: &Path) -> Result<serde_json::Value> {
-    let dir = workspace.join(".susi").join("deerflow");
-    let home = dir.join("home");
-    std::fs::create_dir_all(&home).with_context(|| format!("mkdir {}", home.display()))?;
-    let config = dir.join("config.yaml");
-    if !config.exists() {
-        std::fs::write(&config, EXAMPLE_CONFIG)
-            .with_context(|| format!("write {}", config.display()))?;
-    }
-    let config_abs = config.canonicalize().unwrap_or_else(|_| config.clone());
-    let home_abs = home.canonicalize().unwrap_or_else(|_| home.clone());
-    let project_abs = dir.canonicalize().unwrap_or_else(|_| dir.clone());
-    Ok(json!({
-        "agent": AGENT_ID,
-        "config": config_abs,
-        "home": home_abs,
-        "project_root": project_abs,
-        "export": [
-            format!("export DEER_FLOW_CONFIG_PATH={}", config_abs.display()),
-            format!("export DEER_FLOW_HOME={}", home_abs.display()),
-            format!("export DEER_FLOW_PROJECT_ROOT={}", project_abs.display()),
-        ],
-        "next": [
-            format!("export DEER_FLOW_CONFIG_PATH={}", config_abs.display()),
-            format!("export DEER_FLOW_HOME={}", home_abs.display()),
-            "uv pip install deerflow-harness   # or: pip install deerflow-harness",
-            "export OPENAI_API_KEY=…",
-            "susi deerflow doctor",
-            "susi deerflow run --wait \"say hello\""
-        ]
-    }))
-}
-
-/// If DeerFlow env is unset, bind the workspace scaffold when present.
-pub fn bind_workspace_config(workspace: &Path) -> Option<PathBuf> {
-    let config = workspace.join(".susi").join("deerflow").join("config.yaml");
-    if !config.is_file() {
-        return None;
-    }
-    let abs = config.canonicalize().unwrap_or(config);
-    if std::env::var_os("DEER_FLOW_CONFIG_PATH").is_none() {
-        std::env::set_var("DEER_FLOW_CONFIG_PATH", &abs);
-    }
-    let home = workspace.join(".susi").join("deerflow").join("home");
-    if std::env::var_os("DEER_FLOW_HOME").is_none() && (home.is_dir() || home.parent().is_some()) {
-        let _ = std::fs::create_dir_all(&home);
-        let home_abs = home.canonicalize().unwrap_or(home);
-        std::env::set_var("DEER_FLOW_HOME", &home_abs);
-    }
-    if std::env::var_os("DEER_FLOW_PROJECT_ROOT").is_none() {
-        let root = workspace.join(".susi").join("deerflow");
-        let root_abs = root.canonicalize().unwrap_or(root);
-        std::env::set_var("DEER_FLOW_PROJECT_ROOT", &root_abs);
-    }
-    Some(abs)
-}
-
 /// Propagate DeerFlow env into a detached worker command.
 pub fn apply_process_env(cmd: &mut Command) {
     if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
@@ -216,10 +144,6 @@ pub fn apply_process_env(cmd: &mut Command) {
     }
 }
 
-pub fn ensure_process_banner(cmd: &mut Command) {
-    apply_process_env(cmd);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,29 +159,5 @@ mod tests {
             }
             other => panic!("expected command adapter, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn init_writes_config() {
-        let dir = std::env::temp_dir().join(format!(
-            "susi-deerflow-init-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let report = init_workspace(&dir).unwrap();
-        let config = PathBuf::from(report["config"].as_str().unwrap());
-        assert!(config.is_file());
-        let body = std::fs::read_to_string(&config).unwrap();
-        assert!(body.contains("langchain_openai:ChatOpenAI"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn example_config_mentions_openai() {
-        assert!(EXAMPLE_CONFIG.contains("OPENAI_API_KEY"));
-        assert!(EXAMPLE_CONFIG.contains("config_version"));
     }
 }

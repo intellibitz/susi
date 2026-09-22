@@ -907,12 +907,6 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
     }
 }
 
-pub type VllmBridgeAgent = DynamicInferenceEndpointAgent;
-pub type SglangBridgeAgent = DynamicInferenceEndpointAgent;
-pub type LlamaCppBridgeAgent = DynamicInferenceEndpointAgent;
-pub type TensorRtBridgeAgent = DynamicInferenceEndpointAgent;
-pub type LmdeployBridgeAgent = DynamicInferenceEndpointAgent;
-
 /// SOTA Library Scouting Agent
 pub struct LibraryScoutAgent;
 

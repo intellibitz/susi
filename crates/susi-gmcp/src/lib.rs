@@ -20,15 +20,5 @@ impl GmcpHost {
     }
 }
 
-/// Protocol Dispatcher: Trait for handling cross-protocol JSON-RPC requests.
-pub trait ProtocolDispatcher: Send + Sync {
-    fn handle_request(&self, line: &str, workspace: &Path) -> String;
-}
-
-/// Capability Resolver: Trait for dynamic discovery and resolution of tool capabilities.
-pub trait CapabilityResolver: Send + Sync {
-    fn resolve(&self, name: &str) -> Option<String>;
-}
-
 #[cfg(test)]
 mod protocol_tests;

@@ -29,30 +29,27 @@ pub use aider::{
     AGENT_ID as AIDER_AGENT_ID,
 };
 use anyhow::{bail, Context, Result};
-pub use autogen::{ENGINE_ID as AUTOGEN_ENGINE_ID, PROFILE as AUTOGEN_PROFILE};
+pub use autogen::PROFILE as AUTOGEN_PROFILE;
 pub use browser_use::{
     doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
     AGENT_ID as BROWSER_USE_AGENT_ID,
 };
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
-pub use crewai::{ENGINE_ID as CREWAI_ENGINE_ID, PROFILE as CREWAI_PROFILE};
+pub use crewai::PROFILE as CREWAI_PROFILE;
 pub use deerflow::{
-    apply_process_env as deerflow_apply_process_env,
-    bind_workspace_config as deerflow_bind_workspace_config, doctor as deerflow_doctor,
-    ensure_process_banner as deerflow_ensure_process_banner,
-    init_workspace as deerflow_init_workspace, setup as deerflow_setup, status as deerflow_status,
+    doctor as deerflow_doctor, setup as deerflow_setup, status as deerflow_status,
     AGENT_ID as DEERFLOW_AGENT_ID,
 };
-pub use e2b::{ENGINE_ID as E2B_ENGINE_ID, PROFILE as E2B_PROFILE};
+pub use e2b::PROFILE as E2B_PROFILE;
 pub use gemini_cli::{
     doctor as gemini_cli_doctor, setup as gemini_cli_setup, status as gemini_cli_status,
     AGENT_ID as GEMINI_CLI_AGENT_ID,
 };
-pub use haystack::{ENGINE_ID as HAYSTACK_ENGINE_ID, PROFILE as HAYSTACK_PROFILE};
-pub use langgraph::{ENGINE_ID as LANGGRAPH_ENGINE_ID, PROFILE as LANGGRAPH_PROFILE};
-pub use llamaindex::{ENGINE_ID as LLAMAINDEX_ENGINE_ID, PROFILE as LLAMAINDEX_PROFILE};
-pub use n8n::{ENGINE_ID as N8N_ENGINE_ID, PROFILE as N8N_PROFILE};
-pub use openai_agents::{ENGINE_ID as OPENAI_AGENTS_ENGINE_ID, PROFILE as OPENAI_AGENTS_PROFILE};
+pub use haystack::PROFILE as HAYSTACK_PROFILE;
+pub use langgraph::PROFILE as LANGGRAPH_PROFILE;
+pub use llamaindex::PROFILE as LLAMAINDEX_PROFILE;
+pub use n8n::PROFILE as N8N_PROFILE;
+pub use openai_agents::PROFILE as OPENAI_AGENTS_PROFILE;
 pub use openclaw::{
     doctor as openclaw_doctor, setup as openclaw_setup, status as openclaw_status,
     AGENT_ID as OPENCLAW_AGENT_ID,
@@ -61,14 +58,12 @@ pub use openhands::{
     doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
 };
 pub use openviking::{
-    doctor as openviking_doctor, ensure_process_banner as openviking_ensure_process_banner,
-    init_local_client as openviking_init_local_client, setup as openviking_setup,
-    status as openviking_status, AGENT_ID as OPENVIKING_AGENT_ID,
-    DEFAULT_LOCAL_URL as OPENVIKING_DEFAULT_LOCAL_URL,
+    doctor as openviking_doctor, setup as openviking_setup, status as openviking_status,
+    AGENT_ID as OPENVIKING_AGENT_ID,
 };
 pub use python_engine::{EngineDoctor, EngineProfile};
 use serde::{Deserialize, Serialize};
-pub use smolagents::{ENGINE_ID as SMOLAGENTS_ENGINE_ID, PROFILE as SMOLAGENTS_PROFILE};
+pub use smolagents::PROFILE as SMOLAGENTS_PROFILE;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -77,7 +72,7 @@ pub use swe_agent::{
     doctor as swe_agent_doctor, setup as swe_agent_setup, status as swe_agent_status,
     AGENT_ID as SWE_AGENT_ID,
 };
-pub use temporal::{ENGINE_ID as TEMPORAL_ENGINE_ID, PROFILE as TEMPORAL_PROFILE};
+pub use temporal::PROFILE as TEMPORAL_PROFILE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

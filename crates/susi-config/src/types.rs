@@ -9,7 +9,6 @@ use crate::json_util::{
     StringRegistry,
 };
 
-pub type TrustLevel = String; // Was enum, now dynamic: "conservative", "balanced", "autonomous", "any_new_level"
 pub type RiskTier = String; // Was enum, now dynamic: "Tier0ZeroRisk", "Tier1LowRisk", etc.
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -553,13 +552,6 @@ pub struct InferenceEndpointsConfig {
 }
 
 impl InferenceEndpointsConfig {}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct DiscoverableAssetConfig {
-    #[serde(flatten)]
-    pub fields: DynamicRegistry,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]

@@ -18,7 +18,6 @@ pub mod engines;
 pub use susi_gemi_models as models;
 
 // Cross-cutting surfaces that use both tiers
-pub mod acp;
 pub mod benchmark;
 pub mod coding_models_ext;
 pub mod eval;

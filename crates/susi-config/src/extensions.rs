@@ -704,11 +704,6 @@ pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
     }
 }
 
-/// Manifest for the active pack.
-pub fn active_manifest() -> ExtensionManifest {
-    manifest_for(&active_pack().id)
-}
-
 /// Cloud vendors from the active pack (host override or bundled default).
 pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     let _ = ensure_extensions_substrate();

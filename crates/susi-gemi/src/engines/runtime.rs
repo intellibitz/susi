@@ -436,10 +436,7 @@ pub struct MissionPlan {
     pub goals: Vec<String>,
 }
 
-pub type IntentPlan = MissionPlan;
-
 pub struct MissionPlanner;
-pub type IntentPlanner = MissionPlanner;
 
 impl MissionPlanner {
     pub fn plan_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {

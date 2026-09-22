@@ -9,7 +9,6 @@ use crate::types::{McpTool, MetaCategory, MetaTool, SusiTool};
 
 pub struct ToolRegistry {
     pub tools: DashMap<String, Arc<dyn SusiTool>>,
-    pub locks: DashMap<String, u64>,
 }
 
 impl ToolRegistry {
@@ -18,7 +17,6 @@ impl ToolRegistry {
         REGISTRY.get_or_init(|| {
             let registry = ToolRegistry {
                 tools: DashMap::new(),
-                locks: DashMap::new(),
             };
             hooks().bootstrap_tools(&registry);
             registry
@@ -243,36 +241,6 @@ impl ToolRegistry {
         hooks().resolve_capability_gap(server_name, workspace)
     }
 
-    pub fn acquire_local_lock(resource_id: &str) -> bool {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        Self::global().try_acquire_local_lock(resource_id, now)
-    }
-
-    fn try_acquire_local_lock(&self, resource_id: &str, now: u64) -> bool {
-        const LEASE_SECS: u64 = 300;
-        match self.locks.entry(resource_id.to_owned()) {
-            dashmap::mapref::entry::Entry::Occupied(mut entry) => {
-                // A backwards clock adjustment must not expire an active lease.
-                if now.saturating_sub(*entry.get()) < LEASE_SECS {
-                    return false;
-                }
-                entry.insert(now);
-            }
-            dashmap::mapref::entry::Entry::Vacant(entry) => {
-                entry.insert(now);
-            }
-        }
-        true
-    }
-
-    pub fn release_meta_lock(resource_id: &str) {
-        let registry = Self::global();
-        registry.locks.remove(resource_id);
-    }
-
     /// Zero-Config Autonomous Tool Linking
     pub fn auto_link_essential_mcp_servers() {
         let registry = GmcpClient::fetch_global_registry();
@@ -314,45 +282,6 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn registry() -> ToolRegistry {
-        ToolRegistry {
-            tools: DashMap::new(),
-            locks: DashMap::new(),
-        }
-    }
-
-    #[test]
-    fn lease_expires_at_boundary_and_tolerates_clock_rollback() {
-        let registry = registry();
-        assert!(registry.try_acquire_local_lock("resource", 100));
-        assert!(!registry.try_acquire_local_lock("resource", 99));
-        assert!(!registry.try_acquire_local_lock("resource", 399));
-        assert!(registry.try_acquire_local_lock("resource", 400));
-        assert!(!registry.try_acquire_local_lock("resource", 400));
-        assert!(registry.try_acquire_local_lock("another", 400));
-    }
-
-    #[test]
-    fn concurrent_callers_have_one_lease_owner() {
-        let registry = registry();
-        let barrier = std::sync::Barrier::new(16);
-        std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..16)
-                .map(|_| {
-                    scope.spawn(|| {
-                        barrier.wait();
-                        registry.try_acquire_local_lock("resource", 100)
-                    })
-                })
-                .collect();
-            let winners = handles
-                .into_iter()
-                .filter_map(|handle| handle.join().unwrap().then_some(()))
-                .count();
-            assert_eq!(winners, 1);
-        });
-    }
 
     struct MockCapabilityTool;
 
