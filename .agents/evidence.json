@@ -1096,6 +1096,16 @@
         "ref": "symbol://InferenceRouter"
       },
       "proof": "FIXED 2026-09-22: `cargo test --workspace` (default parallelism) intermittently failed `engines::routing::tests::preferred_cloud_substring_match` (crates/susi-gemi/src/engines/routing.rs) with `assertion failed: InferenceRouter::matches_preferred_cloud(\"deepseek-deepseek-chat\")`; `cargo test -p susi-gemi --lib -- --test-threads=1` passed 100%, confirming a race rather than a logic bug. Root cause: `routing.rs`'s `load_preference`/`save_preference` resolve through `susi_paths::SusiDirs::config_dir()`, which reads the process-global `HOME`/`XDG_CONFIG_HOME` env vars; `routing.rs`'s own `cloud_failover_order_prefers_sticky_vendor_once` test temporarily redirects those same env vars under a local `ENV_LOCK`, and `http_provider.rs` (same crate, same test binary) independently redirects them too under its own separate `cloud_env_test_lock()` — neither lock knew about the other, and `preferred_cloud_substring_match` didn't hold either one, so a concurrent env redirect from any of those tests could make it read/write the wrong config dir mid-test. Fixed by adding one shared `crate::engines::env_test_lock()` (crates/susi-gemi/src/engines/mod.rs) and switching all three call sites (both `routing.rs` tests, both `http_provider.rs` tests) onto it, deleting the two now-redundant private locks. Verified: `cargo test -p susi-gemi --lib` run 8 times back-to-back under default parallelism, 63/63 passed each time (previously observed to fail intermittently); `cargo test --workspace` and `cargo clippy --workspace --all-targets --locked -- -D warnings` both clean afterward."
+    },
+    {
+      "id": "EV-2022922-104",
+      "type": "DOCS",
+      "milestone": "Mandate 43: Rust substrate (scoped) — reject absolute 100% Rust claim",
+      "anchor": {
+        "label": "identity.json Mandate 43",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to mandate \"100% Rust\"; rejected absolute form under Mandate 1 (No Lies) because first-party substrate is Rust while Pluggable deliberately manages non-Rust peers (npx/uvx/docker/python/ollama via Rust adapters). Added Mandate 43 \"Rust Substrate (Not Absolute Polyglot Ban)\": first-party runtime must be Rust or Wasm-from-Rust; no new first-party .py/.ts/.js application source; install scripts exempt; foreign processes only as opt-in managed peers. Also added design_principles #5 and README Design principles line. Verified: identity JSON parses; `cargo test -p susi-gawd-agents test_compiled_genome` passes with Mandate 43 compiled into GEN_RULES."
     }
   ]
 }

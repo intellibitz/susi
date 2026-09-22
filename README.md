@@ -151,6 +151,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
+- **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
 
 ---
 
