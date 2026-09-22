@@ -56,7 +56,8 @@ pub struct ExtensionManifest {
     /// Optional host capabilities (warn / degrade if missing).
     #[serde(default)]
     pub optional: Vec<String>,
-    /// Declared permissions (enforcement lands in a later phase).
+    /// Declared permissions — enforced: unknown strings and `files` entries
+    /// escaping the pack root without `filesystem.read` are rejected at load.
     #[serde(default)]
     pub permissions: Vec<String>,
     /// Logical file name → path relative to the pack root.
@@ -74,8 +75,44 @@ fn default_api_version() -> String {
 /// Host API major this binary supports for extension packs.
 pub const HOST_PACK_API_MAJOR: u32 = 1;
 
+/// Permission vocabulary the host can enforce. Unknown strings are rejected —
+/// a permission the host cannot enforce must never be silently granted.
+pub const KNOWN_PERMISSIONS: &[&str] = &[
+    "filesystem.read",
+    "filesystem.write",
+    "network.egress",
+    "process.exec",
+];
+
+/// True when `rel` resolves outside the pack root: absolute paths always
+/// escape; a `..` that climbs above the root escapes (e.g. the bundled default
+/// pack's `../../coding-models.json`, which is permitted only because it
+/// declares `filesystem.read`).
+fn path_escapes_pack_root(rel: &str) -> bool {
+    let path = Path::new(rel);
+    if path.is_absolute() {
+        return true;
+    }
+    let mut depth: u32 = 0;
+    for comp in path.components() {
+        match comp {
+            std::path::Component::ParentDir => {
+                if depth == 0 {
+                    return true;
+                }
+                depth -= 1;
+            }
+            std::path::Component::Normal(_) => depth += 1,
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Validate a pack manifest for load. Returns `Ok(())` or a human error.
 /// Incompatible `api_version` majors fail; missing optional deps do not.
+/// Permissions are enforced: unknown permission strings and `files` entries
+/// that escape the pack root without declaring `filesystem.read` are rejected.
 pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
     if manifest.id.trim().is_empty() {
         return Err("pack manifest id must not be empty".into());
@@ -97,6 +134,28 @@ pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
             return Err(format!(
                 "pack `{}` has an empty permissions entry",
                 manifest.id
+            ));
+        }
+        if !KNOWN_PERMISSIONS.contains(&perm.as_str()) {
+            return Err(format!(
+                "pack `{}` declares unknown permission `{perm}` (known: {})",
+                manifest.id,
+                KNOWN_PERMISSIONS.join(", ")
+            ));
+        }
+    }
+    let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
+    for (logical, rel) in &manifest.files {
+        if Path::new(rel).is_absolute() {
+            return Err(format!(
+                "pack `{id}` maps `{logical}` to an absolute path `{rel}` — pack files must be relative to the pack root",
+                id = manifest.id
+            ));
+        }
+        if path_escapes_pack_root(rel) && !can_read_outside {
+            return Err(format!(
+                "pack `{id}` maps `{logical}` outside its root (`{rel}`) without declaring `filesystem.read`",
+                id = manifest.id
             ));
         }
     }
@@ -558,11 +617,26 @@ pub fn pack_file(name: &str) -> Option<PathBuf> {
 }
 
 fn resolve_pack_path(pack: &ExtensionPack, name: &str) -> Option<PathBuf> {
-    let direct = pack.root.join(name);
-    if direct.is_file() {
-        return Some(direct);
+    // Runtime jail (defense in depth with validate_manifest): logical names and
+    // `files` targets stay inside the pack root unless the manifest declares
+    // `filesystem.read`.
+    if !path_escapes_pack_root(name) {
+        let direct = pack.root.join(name);
+        if direct.is_file() {
+            return Some(direct);
+        }
     }
-    if let Some(rel) = manifest_for(&pack.id).files.get(name).map(|s| s.as_str()) {
+    let manifest = manifest_for(&pack.id);
+    if let Some(rel) = manifest.files.get(name).map(|s| s.as_str()) {
+        let escapes = path_escapes_pack_root(rel);
+        let can_read_outside = manifest.permissions.iter().any(|p| p == "filesystem.read");
+        if Path::new(rel).is_absolute() || (escapes && !can_read_outside) {
+            eprintln!(
+                "[extensions] pack `{}` denied `{name}` (`{rel}` escapes pack root without `filesystem.read`)",
+                pack.id
+            );
+            return None;
+        }
         let mapped = pack.root.join(rel);
         if mapped.is_file() {
             return Some(mapped);
@@ -672,12 +746,9 @@ pub fn is_pack_override_path(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex as StdMutex;
-
-    static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn with_temp_home<F: FnOnce()>(f: F) {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = crate::env_test_lock();
         let tmp = std::env::temp_dir().join(format!(
             "susi_ext_{}_{}",
             std::process::id(),
@@ -687,6 +758,9 @@ mod tests {
                 .as_nanos()
         ));
         let _ = std::fs::create_dir_all(&tmp);
+        // Pre-create the legacy base so `SusiDirs::use_xdg()` cannot flip
+        // mid-test if a concurrent test creates it under the swapped HOME.
+        let _ = std::fs::create_dir_all(tmp.join(".susi"));
         let prev_home = std::env::var_os("HOME");
         let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
         let prev_pack = std::env::var_os("SUSI_EXTENSION_PACK");
@@ -772,9 +846,15 @@ mod tests {
 
     #[test]
     fn load_json_or_bundled_uses_bundled_when_no_host_file() {
-        let vendors: Vec<CloudVendorEntry> =
-            load_json_or_bundled("cloud-vendors.json", BUNDLED_CLOUD_VENDORS);
-        assert!(!vendors.is_empty());
+        // Must hold env_test_lock via with_temp_home: load_json_or_bundled
+        // reaches ensure_extensions_substrate()/state.json, whose path derives
+        // from HOME — running it while another test has HOME swapped would
+        // race a lost update on that test's temp-root state.json.
+        with_temp_home(|| {
+            let vendors: Vec<CloudVendorEntry> =
+                load_json_or_bundled("cloud-vendors.json", BUNDLED_CLOUD_VENDORS);
+            assert!(!vendors.is_empty());
+        });
     }
 
     #[test]
@@ -846,6 +926,93 @@ mod tests {
             assert!(loaded.active);
             unload_pack("mine").unwrap();
             assert_eq!(active_pack().id, "default");
+        });
+    }
+
+    #[test]
+    fn validate_manifest_rejects_unknown_permission() {
+        let mut m = bundled_manifest();
+        m.permissions = vec!["kernel.root".into()];
+        let err = validate_manifest(&m).expect_err("unknown permission must fail");
+        assert!(err.contains("unknown permission"), "{err}");
+    }
+
+    #[test]
+    fn validate_manifest_rejects_escaping_files_without_permission() {
+        let mut m = bundled_manifest();
+        m.permissions = Vec::new();
+        m.files
+            .insert("evil.json".into(), "../../outside.json".into());
+        let err = validate_manifest(&m).expect_err("escape without filesystem.read must fail");
+        assert!(err.contains("filesystem.read"), "{err}");
+    }
+
+    #[test]
+    fn validate_manifest_allows_escaping_files_with_filesystem_read() {
+        // The bundled default pack maps catalogs via `../../` and declares
+        // filesystem.read — it must keep validating.
+        let m = bundled_manifest();
+        assert!(
+            m.files.values().any(|v| v.starts_with("../")),
+            "bundled manifest uses parent-relative files"
+        );
+        assert!(validate_manifest(&m).is_ok());
+    }
+
+    #[test]
+    fn validate_manifest_rejects_absolute_file_paths_even_with_permission() {
+        let mut m = bundled_manifest();
+        m.files.insert("abs.json".into(), "/etc/passwd".into());
+        let err = validate_manifest(&m).expect_err("absolute path must fail");
+        assert!(err.contains("absolute"), "{err}");
+    }
+
+    #[test]
+    fn load_pack_rejects_escaping_files_manifest() {
+        with_temp_home(|| {
+            ensure_extensions_substrate().unwrap();
+            let bad = extensions_root().join("escape");
+            private_dir(&bad).unwrap();
+            write_private_file(
+                &bad.join("manifest.json"),
+                r#"{
+  "id": "escape",
+  "name": "Escape",
+  "version": "0.0.1",
+  "files": { "loot.json": "../../loot.json" }
+}"#,
+            )
+            .unwrap();
+            let err = load_pack("escape").expect_err("must reject");
+            assert!(err.contains("filesystem.read"), "{err}");
+            assert_eq!(active_pack().id, "default");
+        });
+    }
+
+    #[test]
+    fn resolve_pack_path_jails_escapes_without_filesystem_read() {
+        with_temp_home(|| {
+            // Defense-in-depth: bypass load-time validation by writing the
+            // manifest directly, then prove resolve_pack_path still refuses.
+            ensure_extensions_substrate().unwrap();
+            let dir = extensions_root().join("jailbreak");
+            private_dir(&dir).unwrap();
+            write_private_file(
+                &dir.join("manifest.json"),
+                r#"{
+  "id": "jailbreak",
+  "name": "Jailbreak",
+  "version": "0.0.1",
+  "files": { "loot": "../../loot.json" }
+}"#,
+            )
+            .unwrap();
+            write_private_file(&extensions_root().join("../loot.json"), "{}").unwrap();
+            let pack = ExtensionPack {
+                id: "jailbreak".into(),
+                root: dir,
+            };
+            assert!(resolve_pack_path(&pack, "loot").is_none());
         });
     }
 }

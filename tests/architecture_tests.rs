@@ -122,6 +122,157 @@ fn no_workspace_crate_cycles() {
 }
 
 #[test]
+fn layer_matrix_forbidden_edges() {
+    // ARCHITECTURE.md "must not import" column, enforced per crate.
+    // Each entry: (crate, workspace crates it may not depend on).
+    let forbidden: &[(&str, &[&str])] = &[
+        ("susi-gmcp", &["susi-gawd", "susi-daemon", "susi-server"]),
+        (
+            "susi-tools",
+            &[
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gmcp",
+                "susi-agents",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gawd-agents",
+            &[
+                "susi-gawd",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-gmcp",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gawd-swarm",
+            &[
+                "susi-gawd",
+                "susi-gawd-a2a",
+                "susi-gmcp",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gawd-a2a",
+            &["susi-gawd", "susi-gmcp", "susi-daemon", "susi-server"],
+        ),
+        (
+            "susi-agents",
+            &[
+                "susi-gemi",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gemi-models",
+            &[
+                "susi-gemi",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gemi",
+            &[
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-sandbox",
+            &[
+                "susi-tools",
+                "susi-agents",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-config",
+            &[
+                "susi-core",
+                "susi-native",
+                "susi-sandbox",
+                "susi-tools",
+                "susi-agents",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-native",
+            &[
+                "susi-core",
+                "susi-tools",
+                "susi-agents",
+                "susi-sandbox",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+    ];
+    let graph = workspace_graph();
+    for (crate_name, banned) in forbidden {
+        let deps = graph
+            .get(*crate_name)
+            .unwrap_or_else(|| panic!("{crate_name} missing from workspace graph"));
+        for dep in *banned {
+            assert!(
+                !deps.contains(*dep),
+                "{crate_name} must not depend on {dep} (ARCHITECTURE.md layer matrix)"
+            );
+        }
+    }
+}
+
+#[test]
 fn susi_error_must_not_depend_on_candle_or_features() {
     let root = workspace_root();
     let text = std::fs::read_to_string(root.join("crates/susi-error/Cargo.toml"))

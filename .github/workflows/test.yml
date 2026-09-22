@@ -63,6 +63,11 @@ jobs:
       - name: Install Linux System Dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
+      # wasm32-wasip1 lets test_wasm_reflex_hot_patch_end_to_end take the real
+      # compile+execute branch instead of skipping (VC-200-002 evidence).
+      - name: Install wasm32-wasip1 target
+        run: rustup target add wasm32-wasip1
+
       - name: cargo test
         run: cargo test --workspace --locked
 

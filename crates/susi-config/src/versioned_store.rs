@@ -167,7 +167,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        crate::manager::atomic_write_json_pretty(path, &val)?;
+        crate::atomic_write_json_pretty(path, &val)?;
 
         let final_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -232,7 +232,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            crate::manager::atomic_write_json_pretty(path, &val)?;
+            crate::atomic_write_json_pretty(path, &val)?;
         }
 
         Ok(val)
@@ -276,7 +276,7 @@ mod tests {
 
     #[test]
     fn config_defaults_are_consistent_and_independent() {
-        use crate::manager::SusiConfig;
+        use crate::SusiConfig;
         let mut direct = SusiConfig::default();
         let generic: SusiConfig = Default::default();
         assert_eq!(direct.settings, generic.settings);
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn config_reload_bypasses_unchanged_mtime_without_rewriting() {
-        use crate::manager::SusiConfig;
+        use crate::SusiConfig;
         let dir = TestDir::new();
         let nested = dir.0.join("new/config");
         SusiConfig::default().save(&nested).unwrap();
@@ -378,8 +378,7 @@ mod tests {
                     let barrier = &barrier;
                     scope.spawn(move || {
                         barrier.wait();
-                        crate::manager::atomic_write_json_pretty(path, &vec![writer; 1000])
-                            .unwrap();
+                        crate::atomic_write_json_pretty(path, &vec![writer; 1000]).unwrap();
                         let value: Vec<u32> =
                             serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
                         assert_eq!(value.len(), 1000);

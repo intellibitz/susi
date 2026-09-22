@@ -6,6 +6,7 @@ members = [
     "crates/susi-error",
     "crates/susi-core",
     "crates/susi-native",
+    "crates/susi-config",
     "crates/susi-sandbox",
     "crates/susi-agents",
     "crates/susi-tools",
@@ -46,6 +47,7 @@ complexity = { level = "warn", priority = -1 }
 susi-error = { path = "crates/susi-error" }
 susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
+susi-config = { path = "crates/susi-config" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }

@@ -1,5 +1,5 @@
 [package]
-name = "susi-sandbox"
+name = "susi-config"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
@@ -8,13 +8,10 @@ publish = false
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-bollard = "0.21.1"
-futures = "0.3"
-tracing = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
 susi-error = { workspace = true }
 susi-paths = { path = "../susi-paths" }
-susi-config = { workspace = true }
-susi-core = { workspace = true }
+parking_lot = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }

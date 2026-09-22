@@ -12,6 +12,7 @@ susi-error = { path = "../susi-error" }
 susi-gawd = { path = "../susi-gawd" }
 susi-gmcp = { path = "../susi-gmcp" }
 susi-sandbox = { path = "../susi-sandbox" }
+susi-config = { workspace = true }
 susi-gemi = { path = "../susi-gemi" }
 susi-paths = { path = "../susi-paths" }
 susi-server = { path = "../susi-server" }

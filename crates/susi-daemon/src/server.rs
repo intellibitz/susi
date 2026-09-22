@@ -876,9 +876,24 @@ impl SusiDaemon {
             "[A2A Cluster UDP] Discovery listener active on {}",
             addr_display
         );
-        let mut buf = [0u8; 512];
+        let mut buf = [0u8; 1024];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
             let msg = String::from_utf8_lossy(&buf[..amt]);
+            // Cluster-key handshake (VC-200-001): answer a signed ping with a
+            // signed pong echoing the requester's nonce. Only peers that hold
+            // ~/.susi/cluster.key can complete this — an unauthenticated LAN
+            // host still gets legacy discovery but never roster admission.
+            if let Some((_caps, _checksum, _bloom, nonce)) =
+                susi_config::cluster_key::verify_signed_ping(&msg)
+            {
+                let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
+                if let Some(pong) =
+                    susi_config::cluster_key::signed_pong("susi-daemon-node", 0, &bloom, &nonce)
+                {
+                    let _ = socket.send_to(pong.as_bytes(), src);
+                }
+                continue;
+            }
             // Own the host-contract UDP surface: answer both LAN and peer dialects.
             if msg.contains("SUSI_LAN_PING") || msg.starts_with("SUSI_PING") {
                 let pong = if msg.contains("SUSI_LAN_PING") {

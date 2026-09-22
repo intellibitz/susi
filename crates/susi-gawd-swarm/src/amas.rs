@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use crate::peer_registry;
 use susi_error::EaiResult;
 use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 use susi_gemi::hardware::HardwareProfiler;
@@ -133,7 +134,8 @@ pub fn tokenize_goal(goal: &str) -> Vec<String> {
 pub enum PeerAdmission {
     /// This process / loopback — same operator, same host.
     Local,
-    /// Operator-configured allowlist (not yet plumbed via config; reserved).
+    /// Verified by the `~/.susi/cluster.key` HMAC handshake (or an operator
+    /// allowlist). May receive the host bearer and feed mission quorum.
     Explicit,
     /// Learned from unauthenticated UDP discovery. **Never** receive the host
     /// bearer token — any LAN host that answers a ping would otherwise steal it.
@@ -186,6 +188,16 @@ impl SusiSupervisor {
                 admission: PeerAdmission::Local,
             }];
 
+            // Rehydrate cluster-key-verified peers from the persistent
+            // registry — only `Explicit` entries ever land in peers.json, so
+            // a signed peer survives restart without re-handshaking.
+            let mut initial = initial;
+            for peer in peer_registry::load_persisted_peers() {
+                if !initial.iter().any(|n| n.address == peer.address) {
+                    initial.push(peer);
+                }
+            }
+
             let shared = Arc::new(RwLock::new(initial));
             let t_shared = Arc::clone(&shared);
 
@@ -203,6 +215,9 @@ impl SusiSupervisor {
                     let mut local_bloom = CapabilityBloom::local_snapshot();
                     let mut last_registry_checksum =
                         susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
+                    // Outstanding signed-handshake nonce: a SUSI_PONG_SIG must
+                    // echo it to prove the peer holds `~/.susi/cluster.key`.
+                    let mut pending_nonce: Option<String> = None;
 
                     loop {
                         let registry_checksum =
@@ -221,6 +236,49 @@ impl SusiSupervisor {
 
                         if let Ok((amt, src)) = socket.recv_from(&mut buf) {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
+                            // Signed pong: peer proved it holds cluster.key and
+                            // echoed our nonce — promote to Explicit + persist.
+                            if let Some(nonce) = pending_nonce.as_deref() {
+                                if let Some((node_id, checksum, bloom_hex)) =
+                                    susi_config::cluster_key::verify_signed_pong(&msg, nonce)
+                                {
+                                    let addr_str =
+                                        format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
+                                    let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
+                                    let mut peers = t_shared.write();
+                                    let entry = if let Some(p) =
+                                        peers.iter_mut().find(|p| p.address == addr_str)
+                                    {
+                                        p.trust_score = (p.trust_score + 0.05).min(1.0);
+                                        p.is_active = true;
+                                        p.registry_checksum = checksum;
+                                        p.capability_bloom = peer_bloom;
+                                        p.admission = PeerAdmission::Explicit;
+                                        p.clone()
+                                    } else {
+                                        let node = ClusterPeerNode {
+                                            node_id,
+                                            address: addr_str,
+                                            node_type: "PEER".into(),
+                                            is_active: true,
+                                            capabilities: vec!["CORE".into()],
+                                            registry_checksum: checksum,
+                                            latency_ms: 0,
+                                            uptime_secs: 0,
+                                            trust_score: 0.8,
+                                            capability_bloom: peer_bloom,
+                                            // Cluster-key handshake verified —
+                                            // may receive the host bearer.
+                                            admission: PeerAdmission::Explicit,
+                                        };
+                                        peers.push(node.clone());
+                                        node
+                                    };
+                                    drop(peers);
+                                    peer_registry::persist_verified_peer(&entry);
+                                    continue;
+                                }
+                            }
                             // Scouts never answer discovery — that is the daemon's job on 9092.
                             if msg.starts_with("SUSI_PONG")
                                 || msg.starts_with("SUSI_LAN_PONG")
@@ -284,6 +342,18 @@ impl SusiSupervisor {
 
                         let _ = socket
                             .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
+                        // Cluster-key handshake (VC-200-001): only nodes that
+                        // can HMAC-sign a pong echoing this nonce may become
+                        // Explicit roster members.
+                        if let Some((signed, nonce)) = susi_config::cluster_key::signed_ping(
+                            &local_caps,
+                            registry_checksum,
+                            &local_bloom.to_hex(),
+                        ) {
+                            pending_nonce = Some(nonce);
+                            let _ = socket
+                                .send_to(signed.as_bytes(), format!("255.255.255.255:{}", port));
+                        }
                         // Also speak the daemon's LAN ping dialect so host discovery works.
                         let _ =
                             socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));

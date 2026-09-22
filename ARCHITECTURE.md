@@ -40,7 +40,8 @@ Concrete implementations are assembled only at composition roots.
 | `susi-error` | Stable error model | `EaiError`, `EaiResult` | std, serde_json, `susi-paths` | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports: Evidence, Truth, Provider, Tool, CapabilityRegistry, bus | traits + ledger types | `susi-error`, std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
 | `susi-native` | Wasmer Wasm host | `WasmHost` | `susi-error`, wasmer | feature planes | Wasm modules | instance | yes |
-| `susi-sandbox` | Docker sandbox + `SusiConfig` + extension packs | `SandboxManager`, `SusiConfig`, `extensions` | core, paths, error, bollard | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
+| `susi-config` | `SusiConfig` dynamic registry + typed config fragments + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | paths, error, serde, ureq | everything above error/paths | no | config files | yes |
+| `susi-sandbox` | Docker sandbox runtime (re-exports `susi-config` via `manager`) | `SandboxManager`, `manager` | config, core, paths, error, bollard | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
 | `susi-tools` | Tool registry + MCP client adapters + `EngineHooks` port | `ToolRegistry`, `EngineHooks` | core, sandbox, native, rmcp/reqwest | gawd/gemi/gmcp **directly** (use hooks) | tools | registry | yes |
 | `susi-agents` | Agent types + external peer adapters | `GawdAgent`, registries | core, sandbox | gemi engines | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | core, sandbox, agents | gemi engines crate | catalogs | cache dirs | yes |
@@ -115,8 +116,10 @@ Pack manifests support (additive, Mandate 35 flatten for unknowns):
 Loading: discover → validate manifest → check `apiVersion` major → resolve
 requires → mark loaded. Optional pack failure must not stop the daemon.
 
-Permissions are **declared** now; hard enforcement (path jail, network
-allowlist) is a later phase — never treat discovery as trust.
+Permissions are **enforced**: `validate_manifest` rejects unknown permission
+strings and `files` entries that escape the pack root without `filesystem.read`
+(absolute paths are always rejected); `resolve_pack_path` applies the same jail
+at resolution time as defense in depth. Never treat discovery as trust.
 
 ## Errors
 
@@ -138,8 +141,10 @@ the GEMI (or other adapter) edge.
 - Prefer `SusiConfig` accessors over scattered `std::env::var` in new code;
   env remains valid for override knobs (`SUSI_*`).
 
-**Deferred:** relocating `SusiConfig` out of `susi-sandbox` into a dedicated
-config/infra home (large move; documented here so it is not forgotten).
+`SusiConfig` and the dynamic-registry substrate (typed config fragments,
+extension packs, `VersionedJsonStore`) live in `susi-config`, layered below
+`susi-sandbox`. `susi_sandbox::manager` re-exports that surface so existing
+import paths keep resolving.
 
 ## Architecture tests
 
@@ -163,9 +168,12 @@ Close to the modularization goal when:
 - [x] Optional pack validation failure does not abort substrate seed.
 - [x] Modules testable; architecture tests in CI.
 - [x] No workspace dependency cycles.
-- [ ] Full permission enforcement for packs (declared; enforce next).
-- [ ] `SusiConfig` relocated out of sandbox.
-- [ ] Versioned application event schemas beyond the existing bus.
+- [x] Pack permission enforcement at manifest load + file resolution.
+- [x] `SusiConfig` relocated out of sandbox (→ `susi-config` crate).
+- [x] Versioned application event schemas beyond the existing bus
+  (`susi_core::bus::SwarmEvent` envelope: `schema_version` + `#[serde(flatten)]`
+  v1 `SwarmEventType` payload; `SwarmEvent::decode` drops unknown versions with
+  a warning, never panics).
 
 Public boundaries use stable DTOs and versioned events where applicable.
 Configuration authority for bundled JSON is documented in
@@ -180,5 +188,7 @@ lighter local checks; shipped binaries keep the default.
 1. **Stabilize contracts** — keep expanding ports only at real seams.
 2. **Move I/O outward** — config crate; keep providers in GEMI.
 3. **Tighten feature public APIs** — hide internals behind facades.
-4. **Enforce pack permissions** at load/execute.
+4. ~~Enforce pack permissions~~ — done at manifest load and file resolution;
+   execute-time network/process grants (`network.egress`, `process.exec`) are
+   declared vocabulary reserved for Wasm/exec surfaces.
 5. **CI** — reject layer violations (architecture tests already fail the build).

@@ -5,10 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use susi_error::EaiResult;
 
-use super::json_util::{
+use crate::json_util::{
     atomic_write_json_pretty, merge_missing_registry_defaults, DynamicRegistry,
 };
-use super::types::*;
+use crate::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiConfig {
@@ -36,7 +36,7 @@ impl SusiConfig {
     fn bundled_defaults() -> &'static Self {
         static DEFAULTS: std::sync::OnceLock<SusiConfig> = std::sync::OnceLock::new();
         DEFAULTS.get_or_init(|| {
-            serde_json::from_str(include_str!("../../../../config/config.default.json"))
+            serde_json::from_str(include_str!("../../../config/config.default.json"))
                 .expect("bundled config.default.json must be valid JSON")
         })
     }
@@ -371,10 +371,9 @@ impl SusiConfig {
         // Migrate only exact historical built-ins. Preserve user-edited commands,
         // endpoints, argv, credentials and timeouts. New bundled peers are admitted
         // for existing installations as well as fresh installs.
-        let legacy: Vec<ExternalPeerAgentSpec> = serde_json::from_str(include_str!(
-            "../../../../config/execution-peers.legacy.json"
-        ))
-        .unwrap_or_default();
+        let legacy: Vec<ExternalPeerAgentSpec> =
+            serde_json::from_str(include_str!("../../../config/execution-peers.legacy.json"))
+                .unwrap_or_default();
         let defaults: Vec<ExternalPeerAgentSpec> =
             Self::default().get_or_bundled_default("external_peer_agents");
         for peer in &mut peers {
@@ -409,7 +408,7 @@ impl SusiConfig {
         BUNDLED
             .get_or_init(|| {
                 let file: ModelCatalogConfig = serde_json::from_str(include_str!(
-                    "../../../../config/models.catalog.default.json"
+                    "../../../config/models.catalog.default.json"
                 ))
                 .expect("bundled models.catalog.default.json must be valid");
                 file.models
@@ -420,7 +419,7 @@ impl SusiConfig {
     /// Bundled leading MCP scout registry (~100 real packages). Remote scout
     /// can refresh `global_mcp_registry.json`; not all are hot-plugged at once.
     pub fn leading_mcp_registry_json() -> &'static str {
-        include_str!("../../../../config/mcp.registry.default.json")
+        include_str!("../../../config/mcp.registry.default.json")
     }
 
     /// The explicitly configured ladder, or empty if none is set. This is a
@@ -584,11 +583,11 @@ fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
     let catalogs = [
         (
             "execution-agents.json",
-            include_str!("../../../../config/execution-agents.json"),
+            include_str!("../../../config/execution-agents.json"),
         ),
         (
             "agent-engines.json",
-            include_str!("../../../../config/agent-engines.json"),
+            include_str!("../../../config/agent-engines.json"),
         ),
     ];
     for (logical, bundled) in catalogs {

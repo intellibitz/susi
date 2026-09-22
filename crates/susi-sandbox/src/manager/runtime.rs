@@ -4,9 +4,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use susi_error::{EaiError, EaiResult};
 
-use super::config::SusiConfig;
-use super::json_util::confined_workspace_join;
-use super::types::*;
+use susi_config::confined_workspace_join;
+use susi_config::SusiConfig;
+use susi_config::*;
 
 // === SANDBOX MANAGER ===
 pub struct SandboxManager;
@@ -427,10 +427,8 @@ impl SusiMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::json_util::{
-        merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
-    };
     use std::collections::HashMap;
+    use susi_config::{merge_missing_registry_defaults, DynamicRegistry, DynamicValue};
 
     #[test]
     fn test_checkpoint_lifecycle() {
@@ -902,6 +900,11 @@ mod tests {
 
     #[test]
     fn leading_catalogs_meet_trustworthy_floors() {
+        // external_peer_agents() -> load_json_or_bundled -> ensure_extensions_substrate()
+        // performs a read-modify-write on the extensions state.json, whose path
+        // derives from HOME; serialize against tests that swap HOME so it
+        // cannot clobber their temp-root state.
+        let _guard = crate::env_test_lock();
         let peers = SusiConfig::default().external_peer_agents();
         assert!(peers.len() >= 20, "agents {}", peers.len());
         let engines = SusiConfig::default().inference_endpoints().endpoints;

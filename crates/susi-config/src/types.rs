@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::json_util::{
+use crate::json_util::{
     merge_missing_json_defaults, merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
     StringRegistry,
 };
@@ -261,7 +261,7 @@ impl Default for ChatTemplateConfig {
         // that binary - a failure is a build/packaging bug caught by any
         // test run, never a runtime condition that varies between calls.
         let templates: StringRegistry = serde_json::from_str(include_str!(
-            "../../../../config/chat_templates.default.json"
+            "../../../config/chat_templates.default.json"
         ))
         .expect(
             "Fatal: chat_templates.default.json must be valid JSON. Zero hardcoded config allowed.",
@@ -380,7 +380,7 @@ impl SusiPrompts {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.
         let prompts: DynamicRegistry = serde_json::from_str(include_str!(
-            "../../../../config/prompts.default.json"
+            "../../../config/prompts.default.json"
         ))
         .expect("Fatal: prompts.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self {
@@ -497,7 +497,7 @@ impl SusiMessages {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.
         let categories: HashMap<String, StringRegistry> = serde_json::from_str(include_str!(
-            "../../../../config/messages.default.json"
+            "../../../config/messages.default.json"
         ))
         .expect("Fatal: messages.default.json must be valid JSON. Zero hardcoded config allowed.");
         Self { categories }

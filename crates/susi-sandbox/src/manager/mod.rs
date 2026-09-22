@@ -1,19 +1,12 @@
-//! Sandbox manager: dynamic config registry and workspace helpers.
+//! Sandbox manager: runtime helpers.
 //!
-//! Split for Mandate 3 (bloat) readability; public paths stay `susi_sandbox::manager::*`.
+//! `SusiConfig` and the dynamic-registry config substrate moved to the
+//! `susi-config` crate; re-exported here so existing `susi_sandbox::manager::*`
+//! import paths keep resolving during the transition.
 
-mod config;
-mod json_util;
 mod runtime;
-mod types;
 
-pub use config::SusiConfig;
-pub use json_util::{
-    atomic_write_json_pretty, confined_workspace_join, http_agent, merge_missing_json_defaults,
-    merge_missing_registry_defaults, DynamicRegistry, DynamicValue, ModelTier, ProviderType,
-    StringRegistry,
-};
 pub use runtime::{
     IntentBundleManager, LogLevel, SandboxManager, SusiAuditLogger, SusiBackupManager, SusiMemory,
 };
-pub use types::*;
+pub use susi_config::*;

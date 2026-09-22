@@ -12,6 +12,7 @@ susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-agents = { workspace = true }
+susi-config = { workspace = true }
 susi-tools = { workspace = true }
 susi-gemi = { workspace = true }
 serde = { workspace = true }

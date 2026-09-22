@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const GENESIS: &str = "SUSI_AUDIT_GENESIS_v1";
-const BLOCK: usize = 64; // SHA-256 block size
 
 static CHAIN_LOCK: Mutex<()> = Mutex::new(());
 
@@ -49,27 +48,10 @@ pub fn load_or_create_hmac_key() -> std::io::Result<[u8; 32]> {
     Ok(key)
 }
 
-/// HMAC-SHA256 without a digest-version-mismatched `hmac` crate.
+/// HMAC-SHA256 — shared implementation lives in `susi_config::cluster_key`
+/// (also used by the cluster-key peer handshake).
 fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    let mut keyed = [0u8; BLOCK];
-    keyed[..32].copy_from_slice(key);
-    let mut ipad = [0x36u8; BLOCK];
-    let mut opad = [0x5cu8; BLOCK];
-    for i in 0..BLOCK {
-        ipad[i] ^= keyed[i];
-        opad[i] ^= keyed[i];
-    }
-    let mut inner = Sha256::new();
-    inner.update(ipad);
-    inner.update(message);
-    let inner_hash = inner.finalize();
-    let mut outer = Sha256::new();
-    outer.update(opad);
-    outer.update(inner_hash);
-    let out = outer.finalize();
-    let mut mac = [0u8; 32];
-    mac.copy_from_slice(&out);
-    mac
+    susi_config::cluster_key::hmac_sha256(key, message)
 }
 
 fn last_hash(audit_file: &Path) -> String {
@@ -245,6 +227,9 @@ mod tests {
 
     #[test]
     fn signed_entries_verify_and_detect_tamper() {
+        // The HMAC key path derives from SusiDirs::substrate_home(); serialize
+        // against tests that swap HOME so the key does not change mid-test.
+        let _guard = crate::env_test_lock();
         let path = temp_audit();
         append_signed_entry(&path, "Info", "TEST_A", "alpha-payload", 1).unwrap();
         append_signed_entry(&path, "Info", "TEST_B", "beta-payload", 1).unwrap();
