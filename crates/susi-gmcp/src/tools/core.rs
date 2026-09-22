@@ -1112,14 +1112,6 @@ impl CoreTools {
             Ok(out)
         })
     }
-
-    #[tool(
-        name = "audio_transcribe",
-        description = "Production-grade transcription substrate"
-    )]
-    pub fn audio_transcribe(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        Ok("Audio transcription completed successfully.".to_string())
-    }
 }
 
 #[cfg(test)]

@@ -25,11 +25,7 @@ impl SusiHybridAgent {
                 "sandbox_exec".to_string(),
                 "lsp_proxy".to_string(),
             ],
-            assistant_toolbox: vec![
-                "browser_automate".to_string(),
-                "rag_query".to_string(),
-                "audio_transcribe".to_string(),
-            ],
+            assistant_toolbox: vec!["browser_automate".to_string(), "rag_query".to_string()],
         }
     }
 

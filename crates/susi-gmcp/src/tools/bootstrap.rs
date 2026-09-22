@@ -352,13 +352,6 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::AssistantSpecialist,
         CoreTools::rag_query,
     );
-    ToolRegistry::register_meta_tool(
-        registry,
-        "audio_transcribe",
-        "Production-grade transcription substrate",
-        MetaCategory::AssistantSpecialist,
-        CoreTools::audio_transcribe,
-    );
 
     // DYNAMIC DISCOVERY: Synthesized Native Reflexes
     crate::reflexes::register_synthesized_reflexes(registry);

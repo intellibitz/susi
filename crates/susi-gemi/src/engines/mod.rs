@@ -8,7 +8,6 @@
 //! `susi_gemi::http_provider` paths remain as compatibility re-exports.
 
 pub mod alpha;
-pub mod audio;
 pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod http_provider;
@@ -21,8 +20,6 @@ pub mod routing;
 pub mod runtime;
 pub mod speculative;
 pub(crate) mod token_stream;
-pub mod unified;
-pub mod vision;
 pub mod vllm;
 
 /// Serializes every test in this crate that mutates the process-global

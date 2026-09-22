@@ -26,9 +26,7 @@ once_cell = { workspace = true }
 dashmap = { workspace = true }
 flume = { workspace = true }
 sha2 = { workspace = true }
-hound = "3.5"
 url = { workspace = true }
-image = "0.25"
 hex = { workspace = true }
 libc = "0.2"
 sysinfo = "0.39.6"

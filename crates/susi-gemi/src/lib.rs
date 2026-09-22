@@ -31,8 +31,8 @@ pub mod pulse;
 pub use engines::runtime as engine;
 pub(crate) use engines::token_stream;
 pub use engines::{
-    alpha, audio, candle_provider, http_provider, mcp_provider, qwen2_split, reasoning, reflex,
-    routing, speculative, unified, vision, vllm,
+    alpha, candle_provider, http_provider, mcp_provider, qwen2_split, reasoning, reflex, routing,
+    speculative, vllm,
 };
 
 pub use models::model_cache;
