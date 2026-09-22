@@ -1,11 +1,15 @@
 use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 /// Generic "versioned JSON config store" abstraction that unifies mtime-cache
 /// and self-healing-merge logic originally hand-rolled in five places.
+///
+/// The cache holds `Arc<T>` so hot paths can share a snapshot without cloning
+/// the full registry on every `load_*` hit.
 pub struct VersionedJsonStore<T> {
-    cache: RwLock<Option<(SystemTime, PathBuf, T)>>,
+    cache: RwLock<Option<(SystemTime, PathBuf, Arc<T>)>>,
 }
 
 impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonStore<T> {
@@ -23,8 +27,24 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         strict_parse: bool,
     ) -> susi_error::EaiResult<T>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>, // Generates the default to adopt if missing
-        H: FnOnce(&mut T) -> bool,               // Modifies in-place, returns true if save needed
+        F: FnOnce() -> susi_error::EaiResult<T>,
+        H: FnOnce(&mut T) -> bool,
+    {
+        Ok((*self.load_arc_with_healing(path, on_missing, heal_fn, strict_parse)?).clone())
+    }
+
+    /// Same as [`Self::load_with_healing`] but returns a shared `Arc` so cache
+    /// hits avoid cloning the full value tree.
+    pub fn load_arc_with_healing<F, H>(
+        &self,
+        path: &Path,
+        on_missing: F,
+        heal_fn: H,
+        strict_parse: bool,
+    ) -> susi_error::EaiResult<Arc<T>>
+    where
+        F: FnOnce() -> susi_error::EaiResult<T>,
+        H: FnOnce(&mut T) -> bool,
     {
         let current_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -37,7 +57,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                     && *cached_time == current_modified
                     && current_modified != SystemTime::UNIX_EPOCH
                 {
-                    return Ok(cached_val.clone());
+                    return Ok(Arc::clone(cached_val));
                 }
             }
         }
@@ -53,17 +73,17 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                 && *cached_time == current_modified
                 && current_modified != SystemTime::UNIX_EPOCH
             {
-                return Ok(cached_val.clone());
+                return Ok(Arc::clone(cached_val));
             }
         }
 
-        let val = self.read_from_disk(path, on_missing, heal_fn, strict_parse)?;
+        let val = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
 
         let final_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
             .unwrap_or(current_modified);
 
-        *guard = Some((final_modified, path.to_path_buf(), val.clone()));
+        *guard = Some((final_modified, path.to_path_buf(), Arc::clone(&val)));
         Ok(val)
     }
 
@@ -80,14 +100,28 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         F: FnOnce() -> susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
+        Ok((*self.reload_arc_with_healing(path, on_missing, heal_fn, strict_parse)?).clone())
+    }
+
+    pub fn reload_arc_with_healing<F, H>(
+        &self,
+        path: &Path,
+        on_missing: F,
+        heal_fn: H,
+        strict_parse: bool,
+    ) -> susi_error::EaiResult<Arc<T>>
+    where
+        F: FnOnce() -> susi_error::EaiResult<T>,
+        H: FnOnce(&mut T) -> bool,
+    {
         let mut guard = self.cache.write();
         // A failed reload must not leave a previously valid value cached.
         *guard = None;
-        let value = self.read_from_disk(path, on_missing, heal_fn, strict_parse)?;
+        let value = Arc::new(self.read_from_disk(path, on_missing, heal_fn, strict_parse)?);
         let modified = std::fs::metadata(path)
             .and_then(|metadata| metadata.modified())
             .unwrap_or(SystemTime::UNIX_EPOCH);
-        *guard = Some((modified, path.to_path_buf(), value.clone()));
+        *guard = Some((modified, path.to_path_buf(), Arc::clone(&value)));
         Ok(value)
     }
 
@@ -118,7 +152,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                 && *cached_time == current_modified
                 && current_modified != SystemTime::UNIX_EPOCH
             {
-                cached_val.clone()
+                (**cached_val).clone()
             } else {
                 self.read_from_disk(path, on_missing, heal_fn, strict_parse)?
             }
@@ -137,7 +171,8 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             .and_then(|m| m.modified())
             .unwrap_or(current_modified);
 
-        *guard = Some((final_modified, path.to_path_buf(), val.clone()));
+        let shared = Arc::new(val.clone());
+        *guard = Some((final_modified, path.to_path_buf(), Arc::clone(&shared)));
         Ok(val)
     }
 
@@ -299,6 +334,21 @@ mod tests {
     }
 
     #[test]
+    fn load_arc_shares_cache_hit_without_cloning_value() {
+        let dir = TestDir::new();
+        let path = dir.0.join("config.json");
+        let store = VersionedJsonStore::<u32>::new();
+        let first = store
+            .load_arc_with_healing(&path, || Ok(7), |_| false, true)
+            .unwrap();
+        let second = store
+            .load_arc_with_healing(&path, || Ok(7), |_| false, true)
+            .unwrap();
+        assert_eq!(*first, 7);
+        assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
     fn failed_reload_invalidates_previous_cached_value() {
         let dir = TestDir::new();
         let path = dir.0.join("config.json");
@@ -367,7 +417,7 @@ mod tests {
                 }
             )
             .is_err());
-        assert_eq!(store.cache.read().as_ref().unwrap().2, 1);
+        assert_eq!(*store.cache.read().as_ref().unwrap().2, 1);
     }
 
     #[test]

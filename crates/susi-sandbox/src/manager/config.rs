@@ -22,6 +22,16 @@ impl Default for SusiConfig {
     }
 }
 
+/// Host-contract ports live in `susi_paths::ports` (compile-time). Bundled
+/// JSON may still list them for documentation; they must not be backfilled
+/// into `~/.susi/config.json` on heal.
+const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
+    "gmcp_port",
+    "gmcp_http_port",
+    "gemi_port",
+    "udp_discovery_port",
+];
+
 impl SusiConfig {
     fn bundled_defaults() -> &'static Self {
         static DEFAULTS: std::sync::OnceLock<SusiConfig> = std::sync::OnceLock::new();
@@ -29,6 +39,29 @@ impl SusiConfig {
             serde_json::from_str(include_str!("../../../../config/config.default.json"))
                 .expect("bundled config.default.json must be valid JSON")
         })
+    }
+
+    /// Bundled defaults with host-contract port keys removed — used only for
+    /// heal merges so polluted/legacy port fields are never re-persisted.
+    fn heal_defaults() -> &'static DynamicRegistry {
+        static DEFAULTS: std::sync::OnceLock<DynamicRegistry> = std::sync::OnceLock::new();
+        DEFAULTS.get_or_init(|| {
+            let mut settings = Self::bundled_defaults().settings.clone();
+            for key in HOST_CONTRACT_PORT_KEYS {
+                settings.remove(*key);
+            }
+            settings
+        })
+    }
+
+    fn heal_in_place(cfg: &mut Self) -> bool {
+        let mut changed = merge_missing_registry_defaults(&mut cfg.settings, Self::heal_defaults());
+        // Bearer lives only in ~/.susi/api_token (0600). Never heal or
+        // persist it into world-readable config.json.
+        if cfg.settings.remove("api_auth_token").is_some() {
+            changed = true;
+        }
+        changed
     }
 
     fn store() -> &'static crate::versioned_store::VersionedJsonStore<Self> {
@@ -50,46 +83,40 @@ impl SusiConfig {
     /// only lands in config.default.json (e.g. a new field on an existing key)
     /// silently never reaches an install whose config.json predates it.
     pub fn load(global_dir: &Path) -> EaiResult<Self> {
+        Ok((*Self::load_arc(global_dir)?).clone())
+    }
+
+    /// Shared snapshot of the config (cache-hit is `Arc::clone`, not a deep copy).
+    pub fn load_arc(global_dir: &Path) -> EaiResult<std::sync::Arc<Self>> {
         let path = Self::get_config_path(global_dir);
-        Self::store().load_with_healing(
+        Self::store().load_arc_with_healing(
             &path,
             || Ok(Self::default()),
-            |cfg| {
-                let mut changed = merge_missing_registry_defaults(
-                    &mut cfg.settings,
-                    &Self::bundled_defaults().settings,
-                );
-                // Bearer lives only in ~/.susi/api_token (0600). Never heal or
-                // persist it into world-readable config.json.
-                if cfg.settings.remove("api_auth_token").is_some() {
-                    changed = true;
-                }
-                changed
-            },
+            Self::heal_in_place,
             true,
         )
     }
 
     pub fn reload(global_dir: &Path) -> EaiResult<Self> {
-        Self::store().reload_with_healing(
+        Ok((*Self::reload_arc(global_dir)?).clone())
+    }
+
+    pub fn reload_arc(global_dir: &Path) -> EaiResult<std::sync::Arc<Self>> {
+        Self::store().reload_arc_with_healing(
             &Self::get_config_path(global_dir),
             || Ok(Self::default()),
-            |cfg| {
-                let mut changed = merge_missing_registry_defaults(
-                    &mut cfg.settings,
-                    &Self::bundled_defaults().settings,
-                );
-                if cfg.settings.remove("api_auth_token").is_some() {
-                    changed = true;
-                }
-                changed
-            },
+            Self::heal_in_place,
             true,
         )
     }
 
     pub fn load_global() -> EaiResult<Self> {
         Self::load(&susi_paths::SusiDirs::config_dir())
+    }
+
+    /// Process-global config snapshot shared across hot request paths.
+    pub fn load_global_arc() -> EaiResult<std::sync::Arc<Self>> {
+        Self::load_arc(&susi_paths::SusiDirs::config_dir())
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct
@@ -351,10 +378,7 @@ impl SusiConfig {
         let defaults: Vec<ExternalPeerAgentSpec> =
             Self::default().get_or_bundled_default("external_peer_agents");
         for peer in &mut peers {
-            if legacy
-                .iter()
-                .any(|old| serde_json::to_value(old).ok() == serde_json::to_value(&*peer).ok())
-            {
+            if legacy.iter().any(|old| peer_exact_legacy_match(old, peer)) {
                 if let Some(updated) = defaults.iter().find(|p| p.name == peer.name) {
                     *peer = updated.clone();
                 }
@@ -530,6 +554,20 @@ impl SusiConfig {
     pub fn model_file_min_bytes(&self) -> u64 {
         self.get_or_bundled_default("model_file_min_bytes")
     }
+}
+
+/// Exact field equality for legacy peer migrate (avoids double `serde_json::to_value`).
+fn peer_exact_legacy_match(a: &ExternalPeerAgentSpec, b: &ExternalPeerAgentSpec) -> bool {
+    a.name == b.name
+        && a.description == b.description
+        && a.protocol == b.protocol
+        && a.api_base == b.api_base
+        && a.model == b.model
+        && a.detect_bins == b.detect_bins
+        && a.command == b.command
+        && a.args == b.args
+        && a.timeout_secs == b.timeout_secs
+        && a.api_key_env == b.api_key_env
 }
 
 /// Minimal catalog row used to admit managed swarm peers from extension packs.

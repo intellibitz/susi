@@ -37,7 +37,7 @@ fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
-    let allow_origin = susi_sandbox::manager::SusiConfig::load_global()
+    let allow_origin = susi_sandbox::manager::SusiConfig::load_global_arc()
         .unwrap_or_default()
         .get("allow_origin")
         .unwrap_or_else(|| "*".to_string());
@@ -99,7 +99,7 @@ impl GemiServer {
                 }
             };
             let workspace = Arc::new(workspace);
-            let capacity = susi_sandbox::manager::SusiConfig::load_global()
+            let capacity = susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default().gemi_max_concurrent_requests();
             let admission = Arc::new(tokio::sync::Semaphore::new(capacity.min(tokio::sync::Semaphore::MAX_PERMITS)));
 
@@ -147,7 +147,7 @@ async fn handle_gemi_request(
     // conventional unauthenticated liveness probe — everything else on this
     // world-facing surface is gated below.
     if method != Method::OPTIONS && path != "/health" {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
         if !susi_agents::net_guard::NetGuard::is_authorized(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
@@ -314,34 +314,28 @@ async fn handle_gemi_request(
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
-        (&Method::OPTIONS, _) => Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header(
-                "Access-Control-Allow-Origin",
-                HeaderValue::from_str(
-                    &susi_sandbox::manager::SusiConfig::load_global()
-                        .unwrap_or_default()
-                        .get("allow_origin")
-                        .unwrap_or_else(|| "*".to_string()),
+        (&Method::OPTIONS, _) => {
+            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+            let allow_origin = cfg.get("allow_origin").unwrap_or_else(|| "*".to_string());
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(
+                    "Access-Control-Allow-Origin",
+                    HeaderValue::from_str(&allow_origin)
+                        .unwrap_or_else(|_| HeaderValue::from_static("*")),
                 )
-                .unwrap_or_else(|_| HeaderValue::from_static("*")),
-            )
-            .header(
-                "Access-Control-Allow-Methods",
-                HeaderValue::from_static("GET, POST, OPTIONS"),
-            )
-            .header(
-                "Access-Control-Allow-Headers",
-                HeaderValue::from_str(
-                    &susi_sandbox::manager::SusiConfig::load_global()
-                        .unwrap_or_default()
-                        .get("allow_origin")
-                        .unwrap_or_else(|| "*".to_string()),
+                .header(
+                    "Access-Control-Allow-Methods",
+                    HeaderValue::from_static("GET, POST, OPTIONS"),
                 )
-                .unwrap_or_else(|_| HeaderValue::from_static("*")),
-            )
-            .body(full_body(Vec::new()))
-            .unwrap()),
+                .header(
+                    "Access-Control-Allow-Headers",
+                    HeaderValue::from_str(&allow_origin)
+                        .unwrap_or_else(|_| HeaderValue::from_static("*")),
+                )
+                .body(full_body(Vec::new()))
+                .unwrap())
+        }
         _ => Ok(json_response(
             StatusCode::NOT_FOUND,
             &json!({"error": "Endpoint not found"}),
@@ -377,7 +371,7 @@ fn build_streaming_response(
         .header(
             "Access-Control-Allow-Origin",
             HeaderValue::from_str(
-                &susi_sandbox::manager::SusiConfig::load_global()
+                &susi_sandbox::manager::SusiConfig::load_global_arc()
                     .unwrap_or_default()
                     .get("allow_origin")
                     .unwrap_or_else(|| "*".to_string()),

@@ -376,6 +376,63 @@ enum AdminCommands {
     Reload,
 }
 
+/// Prep steps before a control-plane CLI handler runs (not a swarm mission).
+#[derive(Clone, Copy)]
+enum PlanePrep {
+    /// No cloud.env / ecosystem priming.
+    None,
+    /// Apply `~/.susi/cloud.env` only.
+    Cloud,
+    /// Cloud.env + ensure substrate home exists.
+    CloudSubstrate,
+    /// Cloud.env + substrate home + `auto_prime_ecosystem`.
+    CloudEcosystem,
+}
+
+fn apply_plane_prep(prep: PlanePrep) {
+    match prep {
+        PlanePrep::None => {}
+        PlanePrep::Cloud => {
+            susi_gemi::http_provider::apply_cloud_env_file();
+        }
+        PlanePrep::CloudSubstrate | PlanePrep::CloudEcosystem => {
+            susi_gemi::http_provider::apply_cloud_env_file();
+            let substrate = susi_paths::SusiDirs::substrate_home();
+            let _ = std::fs::create_dir_all(&substrate);
+            if matches!(prep, PlanePrep::CloudEcosystem) {
+                susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+            }
+        }
+    }
+}
+
+fn plane_exit(result: anyhow::Result<()>) -> std::process::ExitCode {
+    match result {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_plane_cwd(
+    prep: PlanePrep,
+    f: impl FnOnce(&Path) -> anyhow::Result<()>,
+) -> std::process::ExitCode {
+    apply_plane_prep(prep);
+    plane_exit(
+        env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| f(&cwd)),
+    )
+}
+
+fn run_plane(prep: PlanePrep, f: impl FnOnce() -> anyhow::Result<()>) -> std::process::ExitCode {
+    apply_plane_prep(prep);
+    plane_exit(f())
+}
+
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
@@ -580,98 +637,33 @@ fn run_shell(workspace: &Path) {
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    // External executors/frameworks do not need model provisioning, daemon boot, or self-deployment.
+    // Control-plane planes return early; Models::Local and Mcp serve fall through.
     if let Some(Commands::Extensions { action }) = cli.command {
-        return match extensions_cli::execute(action) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane(PlanePrep::None, || extensions_cli::execute(action));
     }
     if let Some(Commands::Auto { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| auto_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::CloudSubstrate, |cwd| {
+            auto_cli::execute(action, cwd)
+        });
     }
     if let Some(Commands::Blackboard { action }) = cli.command {
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| blackboard_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::None, |cwd| blackboard_cli::execute(action, cwd));
     }
     if let Some(Commands::Substrate { action }) = cli.command {
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| substrate_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::None, |cwd| substrate_cli::execute(action, cwd));
     }
     if let Some(Commands::Crown { action }) = cli.command {
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| crown_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::None, |cwd| crown_cli::execute(action, cwd));
     }
     if let Some(Commands::Agents { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| agent_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+            agent_cli::execute(action, cwd)
+        });
     }
     if let Some(Commands::Frameworks { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| framework_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+            framework_cli::execute(action, cwd)
+        });
     }
     if let Some(Commands::Models {
         action: Some(model_cli::ModelCommands::Local),
@@ -679,304 +671,96 @@ fn main() -> std::process::ExitCode {
     {
         // Fall through to substrate boot + mission path below.
     } else if let Some(Commands::Models { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| model_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+            model_cli::execute(action, cwd)
+        });
     }
     if let Some(Commands::OpenWeight { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match open_weight_cli::execute(action) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane(PlanePrep::CloudEcosystem, || {
+            open_weight_cli::execute(action)
+        });
     }
     if let Some(Commands::Frontier { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match frontier_cli::execute(action) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane(PlanePrep::CloudEcosystem, || frontier_cli::execute(action));
     }
     if let Some(Commands::OpenRouter { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match openrouter_cli::execute(action) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane(PlanePrep::Cloud, || openrouter_cli::execute(action));
     }
     if let Some(Commands::OpenHands { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| openhands_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| openhands_cli::execute(action, cwd));
     }
     if let Some(Commands::Gemini { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| gemini_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| gemini_cli::execute(action, cwd));
     }
     if let Some(Commands::Aider { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| aider_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| aider_cli::execute(action, cwd));
     }
     if let Some(Commands::SweAgent { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| swe_agent_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| swe_agent_cli::execute(action, cwd));
     }
     if let Some(Commands::OpenClaw { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| openclaw_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| openclaw_cli::execute(action, cwd));
     }
     if let Some(Commands::BrowserUse { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| browser_use_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            browser_use_cli::execute(action, cwd)
+        });
     }
     if let Some(Commands::OpenViking { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| openviking_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| openviking_cli::execute(action, cwd));
     }
     if let Some(Commands::DeerFlow { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| deerflow_cli::execute(action, &cwd))
-        {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| deerflow_cli::execute(action, cwd));
     }
     if let Some(Commands::LangGraph { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::LANGGRAPH_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::LANGGRAPH_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::OpenAiAgents { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(
-                    &susi_agents::external::OPENAI_AGENTS_PROFILE,
-                    action,
-                    &cwd,
-                )
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::OPENAI_AGENTS_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::AutoGen { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::AUTOGEN_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::AUTOGEN_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::SmolAgents { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::SMOLAGENTS_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::SMOLAGENTS_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::CrewAi { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::CREWAI_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::CREWAI_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::LlamaIndex { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::LLAMAINDEX_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::LLAMAINDEX_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::Temporal { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::TEMPORAL_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::TEMPORAL_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::E2b { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::E2B_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::E2B_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::Haystack { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::HAYSTACK_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::HAYSTACK_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::N8n { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| {
-                python_engine_cli::execute(&susi_agents::external::N8N_PROFILE, action, &cwd)
-            }) {
-            Ok(()) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        return run_plane_cwd(PlanePrep::Cloud, |cwd| {
+            python_engine_cli::execute(&susi_agents::external::N8N_PROFILE, action, cwd)
+        });
     }
     if let Some(Commands::Mcp {
         action: Some(mcp_cli::McpCommands::Serve) | None,
@@ -984,24 +768,12 @@ fn main() -> std::process::ExitCode {
     {
         // Fall through to substrate boot + stdio MCP serve.
     } else if let Some(Commands::Mcp { action }) = cli.command {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let substrate = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&substrate);
-        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-        return match env::current_dir()
-            .map_err(anyhow::Error::from)
-            .and_then(|cwd| mcp_cli::execute(action, &cwd))
-        {
-            Ok(true) => {
-                // Should not happen for manage commands.
-                std::process::ExitCode::SUCCESS
-            }
-            Ok(false) => std::process::ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
-                std::process::ExitCode::FAILURE
-            }
-        };
+        apply_plane_prep(PlanePrep::CloudEcosystem);
+        return plane_exit(
+            env::current_dir()
+                .map_err(anyhow::Error::from)
+                .and_then(|cwd| mcp_cli::execute(action, &cwd).map(|_| ())),
+        );
     }
 
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.

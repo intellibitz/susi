@@ -222,18 +222,18 @@
     },
     {
       "category": "database",
-      "description": "Standard Protocol SQL Database Server",
+      "description": "Postgres MCP (official @modelcontextprotocol/server-postgres)",
       "latency_ms": 10,
-      "name": "database",
-      "package": "mcp-server-postgres",
+      "name": "postgres",
+      "package": "@modelcontextprotocol/server-postgres",
       "trust_score": 0.95
     },
     {
       "category": "vcs",
-      "description": "Standard Protocol Version Control Server",
+      "description": "Git MCP for local repository operations",
       "latency_ms": 30,
-      "name": "vcs",
-      "package": "mcp-server-github",
+      "name": "git",
+      "package": "mcp-server-git",
       "trust_score": 0.92
     }
   ],

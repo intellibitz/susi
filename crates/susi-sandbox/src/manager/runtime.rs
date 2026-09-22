@@ -456,43 +456,38 @@ mod tests {
 
     /// Every scalar accessor's only fallback is config.default.json itself
     /// (via get_or_bundled_default) — there is no second, Rust-literal copy
-    /// of any default that could drift out of sync with it. This was not
-    /// previously true: gmcp_http_port/gemi_port/udp_discovery_port's Rust
-    /// literals were scrambled relative to config.default.json,
-    /// max_stdin_size_bytes was off by 100x, reflex_training_threshold by
-    /// 10x, and alpha_weights_url/mcp_registry_url's Rust fallback was an
-    /// empty string — all invisible in practice because the fallback path
-    /// only fires when config.default.json itself is missing a key, which
-    /// normal operation never hits. Asserting against config.default.json's
-    /// actual values (not against a second hand-copied literal in this test)
-    /// is what would have caught that drift.
+    /// of any default that could drift out of sync with it. Host-contract
+    /// ports are an exception: accessors always return `susi_paths::ports`
+    /// (JSON port fields are documentation-only and are not heal-merged into
+    /// host `config.json`).
     #[test]
     fn test_config_accessors_match_bundled_default_single_source_of_truth() {
         let default = SusiConfig::default();
         let raw: serde_json::Value =
             serde_json::from_str(include_str!("../../../../config/config.default.json")).unwrap();
 
-        assert_eq!(
-            default.gmcp_port(),
-            raw["gmcp_port"].as_u64().unwrap() as u16
-        );
+        // Host contract: accessors ignore JSON; bundled docs must still match constants.
         assert_eq!(default.gmcp_port(), susi_paths::ports::GMCP);
         assert_eq!(
-            default.gmcp_http_port(),
-            raw["gmcp_http_port"].as_u64().unwrap() as u16
+            raw["gmcp_port"].as_u64().unwrap() as u16,
+            susi_paths::ports::GMCP
         );
         assert_eq!(default.gmcp_http_port(), susi_paths::ports::GMCP_HTTP);
         assert_eq!(
-            default.gemi_port(),
-            raw["gemi_port"].as_u64().unwrap() as u16
+            raw["gmcp_http_port"].as_u64().unwrap() as u16,
+            susi_paths::ports::GMCP_HTTP
         );
         assert_eq!(default.gemi_port(), susi_paths::ports::GEMI);
         assert_eq!(
-            default.udp_discovery_port(),
-            raw["udp_discovery_port"].as_u64().unwrap() as u16
+            raw["gemi_port"].as_u64().unwrap() as u16,
+            susi_paths::ports::GEMI
         );
         assert_eq!(
             default.udp_discovery_port(),
+            susi_paths::ports::UDP_DISCOVERY
+        );
+        assert_eq!(
+            raw["udp_discovery_port"].as_u64().unwrap() as u16,
             susi_paths::ports::UDP_DISCOVERY
         );
         assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());

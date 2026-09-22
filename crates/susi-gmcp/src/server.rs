@@ -71,7 +71,7 @@ impl GmcpServer {
             return;
         }
         runtime.block_on(async move {
-            let limit = susi_sandbox::manager::SusiConfig::load_global()
+            let limit = susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default()
                 .max_rpc_body_bytes();
             let transport = (
@@ -109,7 +109,7 @@ impl GmcpServer {
                     return;
                 }
             };
-            let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
             let permits = Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrent_agents()));
             let application = GmcpService::new(workspace);
             if let Err(e) = crate::catalog::install(&application) {
@@ -151,7 +151,7 @@ impl GmcpServer {
 }
 
 pub fn http_service(service: GmcpService) -> HttpService {
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
     let mut transport = StreamableHttpServerConfig::default();
     transport.max_request_body_bytes = cfg.max_rpc_body_bytes();
     if let Some(hosts) = cfg.get::<Vec<String>>("mcp_allowed_hosts") {
@@ -177,7 +177,7 @@ async fn handle_request(
     mut service: HttpService,
     peer: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
     } else if !susi_agents::net_guard::NetGuard::is_authorized(
