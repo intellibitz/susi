@@ -39,7 +39,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports.
 6. **Audit** — append-only HMAC accountability chain.
-7. **Zero-config Auto** — `susi auto`; host installs/keys still gate cloud.
+7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
@@ -152,6 +152,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Traceable reasoning** — thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`).
 - **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
 - **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
+- **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
 
 ---
 

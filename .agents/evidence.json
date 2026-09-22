@@ -1106,6 +1106,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: evaluated whether to mandate \"100% Rust\"; rejected absolute form under Mandate 1 (No Lies) because first-party substrate is Rust while Pluggable deliberately manages non-Rust peers (npx/uvx/docker/python/ollama via Rust adapters). Added Mandate 43 \"Rust Substrate (Not Absolute Polyglot Ban)\": first-party runtime must be Rust or Wasm-from-Rust; no new first-party .py/.ts/.js application source; install scripts exempt; foreign processes only as opt-in managed peers. Also added design_principles #5 and README Design principles line. Verified: identity JSON parses; `cargo test -p susi-gawd-agents test_compiled_genome` passes with Mandate 43 compiled into GEN_RULES."
+    },
+    {
+      "id": "EV-2022922-105",
+      "type": "DOCS",
+      "milestone": "Mandate 44: Zero-config substrate auto (scoped) — reject absolute zero config",
+      "anchor": {
+        "label": "identity.json Mandate 44",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: evaluated whether to mandate absolute \"0 config\"; rejected under Mandate 1 because cloud keys, host installs (npx/docker/ollama/python), and user disable pins remain real gates. Elevated existing Tier S foundation \"Zero-config Auto\" into DNA Mandate 44 \"Zero-Config Substrate Auto (Not Absolute Zero Config)\": boot must auto-prime packs/MCP/models/peers without hand-edited config.json for the happy path; doctor/setup must explain missing gates; no silent credential provisioning or paid probes. Linked foundation pillar 7 summary to Mandate 44; added design_principles #6 and README lines. Verified: identity JSON parses; genome compile path unchanged pending next cargo build of susi-gawd-agents."
     }
   ]
 }

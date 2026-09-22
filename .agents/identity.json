@@ -68,7 +68,7 @@
     {
       "id": 7,
       "title": "Zero-config Auto",
-      "summary": "packs/MCP/models/peers auto-prime (`susi auto`); host installs/keys still gate cloud."
+      "summary": "Mandate 44; packs/MCP/models/peers auto-prime (`susi auto`); host installs/keys still gate cloud."
     },
     {
       "id": 8,
@@ -131,6 +131,11 @@
       "id": 5,
       "title": "Rust substrate",
       "summary": "First-party runtime is Rust (or Wasm from Rust). Non-Rust processes are opt-in managed peers only (Mandate 43) — not a false \"100% Rust process tree\" claim."
+    },
+    {
+      "id": 6,
+      "title": "Zero-config auto",
+      "summary": "Boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44). Installs and API keys remain explicit gates — not \"never configure anything.\""
     }
   ],
   "pillars": {
@@ -353,6 +358,11 @@
           "id": 43,
           "title": "Rust Substrate (Not Absolute Polyglot Ban)",
           "imperative": "All SUSI **first-party runtime** — daemon, swarm/governance, truth/evidence, inference router (GEMI), MCP host surfaces (GMCP), CLI control planes, and Wasm reflexes compiled from Rust — must be implemented in Rust (or Wasm produced from Rust). This is **not** a claim that the process tree is 100% Rust: non-Rust programs are allowed only as **opt-in managed peers** behind Rust adapters (`susi agents`, `susi frameworks`, `susi mcp`, `susi openweight`, and similar), never as required core paths for substrate operation. Concretely: (a) no new first-party application source in `.py` / `.ts` / `.js` under the repo (distribution scripts like `install.sh` / `install.ps1` / `build-gpu.sh` are exempt as installer tooling, not runtime); (b) optional external bridges may live as Rust string constants executed via host `python`/`npx`/`uvx`/`docker`/`ollama` only when the operator enables that peer; (c) a bare \"100% Rust\" mandate is forbidden by Mandate 1 because it would be false while Pluggable (Mandate 34 / foundation Pluggable) deliberately manages foreign ecosystems. Absolute process-tree purity would require dropping those managed peers — a product pivot, not a documentation claim."
+        },
+        {
+          "id": 44,
+          "title": "Zero-Config Substrate Auto (Not Absolute Zero Config)",
+          "imperative": "On daemon and CLI boot, SUSI must **auto-prime** the substrate without requiring a hand-edited `config.json` for the happy path: seed/load extension packs, auto-enable leading MCP servers whose launchers and env keys are already satisfied (honoring prior `susi mcp disable`), auto-prefer the best ready coding/frontier model when none is pinned, auto-prime ready external agents/frameworks into the capability registry, and run `bootstrap_zero_config_substrate` / weight-ladder provisioning when policy allows. Operator **installs** (Node, Docker, Ollama, uv, …) and **credentials** (API keys, tokens) remain explicit gates — never silently purchased, invented, or scraped. Missing gates must be diagnosable via `susi doctor` / `setup` / `susi auto status` (and related control planes), not silent no-ops that look like success. Cloud or paid probes must not run without an opt-in path. A bare \"zero config forever / never configure anything\" claim is forbidden by Mandate 1: foundation pillar Zero-config Auto already states that host installs/keys still gate cloud, and this mandate is that rule in citable DNA form — not a promise that foreign peers appear with an empty machine."
         }
       ]
     },
