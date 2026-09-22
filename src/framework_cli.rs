@@ -1,5 +1,5 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
-use crate::catalog_plane_cli::{launch, run_worker};
+use crate::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -115,10 +115,12 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             launch(
                 &manager,
                 &run.id,
-                wait,
-                &["frameworks", "worker", &run.id],
-                None,
-                "framework",
+                LaunchOpts {
+                    wait,
+                    worker_argv: &["frameworks", "worker", &run.id],
+                    banner: None,
+                    fail_label: "framework",
+                },
             )?;
         }
         FrameworkCommands::Retry { task_id, wait } => {
@@ -130,10 +132,12 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             launch(
                 &manager,
                 &run.id,
-                wait,
-                &["frameworks", "worker", &run.id],
-                None,
-                "framework",
+                LaunchOpts {
+                    wait,
+                    worker_argv: &["frameworks", "worker", &run.id],
+                    banner: None,
+                    fail_label: "framework",
+                },
             )?;
         }
         FrameworkCommands::Worker { task_id } => run_worker(manager, &task_id, "framework")?,

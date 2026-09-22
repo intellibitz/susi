@@ -1,6 +1,6 @@
 //! Shared clap control plane for execution agents (aider, openhands, …).
 
-use crate::catalog_plane_cli::launch;
+use crate::catalog_plane_cli::{launch, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
@@ -81,10 +81,12 @@ pub fn execute(
             launch(
                 &manager,
                 &run.id,
-                wait,
-                &["agents", "worker", &run.id],
-                plane.process_banner,
-                agent_id,
+                LaunchOpts {
+                    wait,
+                    worker_argv: &["agents", "worker", &run.id],
+                    banner: plane.process_banner,
+                    fail_label: agent_id,
+                },
             )?;
         }
         ExecutionAgentCommands::Tasks => {

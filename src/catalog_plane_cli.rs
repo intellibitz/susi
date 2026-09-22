@@ -7,27 +7,28 @@ use susi_agents::external::{AgentManager, RunStatus};
 
 use crate::cli_json::print_json;
 
-/// Detach a worker subprocess or run in-process when `wait` is set.
-pub fn launch(
-    manager: &AgentManager,
-    id: &str,
-    wait: bool,
-    worker_argv: &[&str],
-    banner: Option<&str>,
-    fail_label: &str,
-) -> Result<()> {
+/// Options for [`launch`].
+pub struct LaunchOpts<'a> {
+    pub wait: bool,
+    pub worker_argv: &'a [&'a str],
+    pub banner: Option<&'a str>,
+    pub fail_label: &'a str,
+}
+
+/// Detach a worker subprocess or run in-process when `opts.wait` is set.
+pub fn launch(manager: &AgentManager, id: &str, opts: LaunchOpts<'_>) -> Result<()> {
     print_json(&manager.read(id)?)?;
-    if wait {
-        return run_worker(manager.clone(), id, fail_label);
+    if opts.wait {
+        return run_worker(manager.clone(), id, opts.fail_label);
     }
     let mut command = Command::new(std::env::current_exe()?);
     command
-        .args(worker_argv)
+        .args(opts.worker_argv)
         .current_dir(&manager.read(id)?.workspace)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    if let Some(banner) = banner {
+    if let Some(banner) = opts.banner {
         if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
             command.env("SUSI_PROCESS_BANNER", banner);
         }

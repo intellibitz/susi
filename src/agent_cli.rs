@@ -1,5 +1,5 @@
 //! Deterministic external-agent control plane, available without inference/daemon boot.
-use crate::catalog_plane_cli::{launch, run_worker};
+use crate::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
@@ -109,10 +109,12 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
             launch(
                 &manager,
                 &run.id,
-                wait,
-                &["agents", "worker", &run.id],
-                None,
-                "agent",
+                LaunchOpts {
+                    wait,
+                    worker_argv: &["agents", "worker", &run.id],
+                    banner: None,
+                    fail_label: "agent",
+                },
             )?;
         }
         AgentCommands::Retry { task_id, wait } => {
@@ -124,10 +126,12 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
             launch(
                 &manager,
                 &run.id,
-                wait,
-                &["agents", "worker", &run.id],
-                None,
-                "agent",
+                LaunchOpts {
+                    wait,
+                    worker_argv: &["agents", "worker", &run.id],
+                    banner: None,
+                    fail_label: "agent",
+                },
             )?;
         }
         AgentCommands::Worker { task_id } => run_worker(manager, &task_id, "agent")?,
