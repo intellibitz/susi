@@ -103,7 +103,7 @@
     {
       "id": 14,
       "title": "Concurrency-first",
-      "summary": "Tokio / Rayon / Crossbeam / parking_lot."
+      "summary": "Tokio / Rayon / Crossbeam / parking_lot (Mandates 5, 28–30; lock-preferring, not wait-free absolute)."
     }
   ],
   "design_principles": [
@@ -125,7 +125,7 @@
     {
       "id": 4,
       "title": "Concurrency-first",
-      "summary": "Tokio, Rayon, Crossbeam, parking_lot on real hardware. Swarm dispatch uses Rayon work-stealing; daemon/HTTP use Tokio; pulse queue uses Crossbeam `SegQueue`; shared state uses `parking_lot` / DashMap — not single-threaded simulation."
+      "summary": "Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30). Swarm dispatch uses Rayon work-stealing; daemon/HTTP use Tokio; pulse queue uses Crossbeam `SegQueue`; shared state prefers `parking_lot` / DashMap — lock-preferring, not a \"zero blocking forever\" claim."
     },
     {
       "id": 5,
@@ -166,18 +166,18 @@
         },
         {
           "id": 3,
-          "title": "100% Bloat Rejection",
-          "imperative": "Continuously audit for and eliminate technical bloat (dead code, oversized functions, unjustified `.unwrap()`/`.clone()` density, config/behavior drift) rather than claiming an unverifiable absolute; `BloatAuditor` (`susi bloat-audit`) is the enforcement mechanism, not a formality."
+          "title": "Bloat Rejection (Continuous Audit)",
+          "imperative": "Continuously audit for and eliminate technical bloat (dead code, oversized functions, unjustified `.unwrap()`/`.clone()` density, config/behavior drift). `BloatAuditor` (`susi bloat-audit`) is the enforcement mechanism, not a formality. A bare \"100% bloat-free forever\" claim is forbidden by Mandate 1 — this mandate is continuous rejection via measurable audit, not an unverifiable absolute clean state."
         },
         {
           "id": 4,
-          "title": "Sub-2ms Client Reflex",
+          "title": "Sub-2ms Client Reflex (Ack, Not Mission Done)",
           "imperative": "A *client* (CLI caller, IDE, HTTP/MCP caller) must never be left waiting past 2ms for acknowledgment — this governs the client-facing response, not the total wall-clock time of the work itself; see Mandate 32 for how that's achieved (instant return, streaming, or an async task handle). Internal primitive operations (a lock acquisition, a config read, a hashmap lookup) should stay sub-millisecond, but a multi-agent swarm mission's true completion time is bounded by inference and I/O, not this mandate — measuring end-to-end mission latency against a 2ms ceiling produces guaranteed, meaningless \"violation\" telemetry on every non-trivial mission and must not be done (see Mandate 26)."
         },
         {
           "id": 5,
-          "title": "Lock-Free Execution",
-          "imperative": "Utilize non-blocking concurrency primitives. Blocking thread locks are prohibited in the swarm execution path."
+          "title": "Lock-Preferring Swarm Path (Not Zero Blocking)",
+          "imperative": "On the swarm execution path, prefer non-blocking concurrency: atomics, lock-free structures (`DashMap`), channels (Crossbeam/CSP), and `parking_lot` only when a mutex is required. Blocking `std::sync` locks and long holds on the Rayon/Tokio critical path are discouraged. Exceptions are allowed when labeled and bounded (e.g. `tokio::task::spawn_blocking` for sync I/O, short critical sections). A bare \"blocking locks prohibited everywhere / zero blocking ever\" claim is forbidden by Mandate 1 — this mandate is lock-*preferring* swarm design, not a proof of a fully wait-free process."
         },
         {
           "id": 6,
@@ -196,23 +196,23 @@
         },
         {
           "id": 9,
-          "title": "Ultra Professional Standard",
-          "imperative": "Keep all code, documentation, and comments professional and technical. Zero filler."
+          "title": "Professional Technical Standard",
+          "imperative": "Keep code, documentation, and comments professional and technical — prefer precise, dense prose over marketing filler. A bare \"zero filler forever\" claim is forbidden by Mandate 1 (filler is subjective and not mechanically measurable); this mandate is a style target enforced by review and Mandate 6, not a count of zero adjectives."
         },
         {
           "id": 10,
-          "title": "No Secret Leaks",
-          "imperative": "Zero tolerance for leaking tokens, credentials, API keys, or sensitive configuration data."
+          "title": "No Secret Leaks (Pattern Redaction, Not Omniscience)",
+          "imperative": "Do not leak tokens, credentials, API keys, or sensitive configuration in logs, telemetry, mission traces, or outbound tool content. Durable records must pass Mandate 38 (`SecurityDetector::redact`) before write. A bare \"zero tolerance / never leak any secret shape\" claim is forbidden by Mandate 1 — detection is pattern- and config-based, not omniscient; unknown secret formats may require config updates. Intentional non-leak plus redaction is the mandate, not perfect cryptography of every possible secret."
         },
         {
           "id": 11,
-          "title": "Real Working Code Only",
-          "imperative": "No hard-coded mockups or placeholder code. Write functional, production-ready code only."
+          "title": "Real Working Code (Not Silent Fakes)",
+          "imperative": "Shipped production paths must be functional — no hard-coded mockups or placeholders that present as real success. Tests, fixtures, stubs, and harness doubles are allowed when labeled as such (`#[cfg(test)]`, clear stub names). A bare \"no placeholders anywhere in the repo\" claim is forbidden by Mandate 1; this mandate forbids silent fake-success in operator-facing and daemon paths (aligned with Mandate 44 diagnosable gates)."
         },
         {
           "id": 12,
-          "title": "Hardware Authority",
-          "imperative": "Physical hardware capacity is the sole and final limit. Saturate CPU/GPU topologies and prevent OOM proactively."
+          "title": "Hardware Authority (Bounded by Governance Too)",
+          "imperative": "Physical hardware capacity bounds compute and memory: saturate CPU/GPU topologies responsibly and prevent OOM proactively. Hardware is **not** the sole limit — rate limits, bearer auth (Mandate 40), governance (Mandate 37), evidence gates, and operator prefer pins also constrain work. A bare \"hardware is the only ceiling\" claim is forbidden by Mandate 1."
         },
         {
           "id": 13,
@@ -221,8 +221,8 @@
         },
         {
           "id": 14,
-          "title": "Substrate Priming",
-          "imperative": "Autonomously provision the highest-ranking open-source neural weights compatible with hardware."
+          "title": "Substrate Priming (Policy-Gated)",
+          "imperative": "Autonomously provision the highest-ranking open-source neural weights compatible with detected hardware **when policy allows** (`bootstrap_zero_config_substrate` / model ladder), honoring prefer pins, no-download / offline flags, and disk limits. A bare \"always download the absolute highest weights\" claim is forbidden by Mandate 1 — priming is best-effort under Mandate 44 gates, not forced saturation of every host."
         },
         {
           "id": 15,
@@ -231,23 +231,23 @@
         },
         {
           "id": 16,
-          "title": "Absolute Sovereignty",
-          "imperative": "Unconstrained runtime adaptation and structural synthesis driven by empirical swarm intelligence."
+          "title": "Empirical Adaptation (Governance-Bounded)",
+          "imperative": "Adapt runtime structure and agent composition from empirical swarm outcomes (registry hot-reload, reflex synthesis, mission feedback) — not from unconstrained invention. Adaptation remains bounded by Mandates 37 (governance-first), 41 (untrusted input), 25/36 (destructive guards), and 46 (autonomy under evidence). A bare \"Absolute Sovereignty / unconstrained synthesis\" claim is forbidden by Mandate 1."
         },
         {
           "id": 17,
-          "title": "Recursive Decomposition",
-          "imperative": "Spawn parallel sub-swarms for atomic components, joining results upon convergence."
+          "title": "Recursive Decomposition (When Beneficial)",
+          "imperative": "Prefer spawning parallel sub-swarms for separable atomic components and joining on convergence when that improves throughput or clarity. Sequential or single-agent dispatch remains correct for small goals, governance-only checks, or when parallelism would add noise. A bare \"always parallel sub-swarms\" claim is forbidden by Mandate 1."
         },
         {
           "id": 18,
-          "title": "Mission Persistence",
-          "imperative": "Maintain stateful mission checkpoints to allow recovery from interrupted swarms."
+          "title": "Mission Persistence (Best-Effort Checkpoints)",
+          "imperative": "Persist mission-relevant state (blackboard, traces, receipts, neural/mission checkpoints where implemented) so interrupted work can resume or be diagnosed. A bare \"universal crash-proof recovery of every swarm\" claim is forbidden by Mandate 1 — persistence coverage is best-effort and path-dependent; missing checkpoints must fail honestly, not invent resumed success."
         },
         {
           "id": 19,
-          "title": "Decoupled Messaging",
-          "imperative": "Utilize asynchronous messaging primitives (Pub-Sub, Actor/CSP channels) for orchestration."
+          "title": "Decoupled Messaging (Prefer Async)",
+          "imperative": "Prefer asynchronous messaging (Pub-Sub, Actor/CSP channels, Crossbeam queues) for multi-agent orchestration. Short synchronous local calls remain allowed on hot paths where a channel would be pure overhead. A bare \"all messaging must be async\" claim is forbidden by Mandate 1."
         },
         {
           "id": 20,
@@ -257,7 +257,7 @@
         {
           "id": 21,
           "title": "Dynamic Intent Resolution",
-          "imperative": "Intents resolve dynamically along the Continuous Intent Manifold."
+          "imperative": "Resolve operator intents via dynamic registries, config, and control-plane routing (`CapabilityRegistry`, extension packs, agent/framework/MCP/model planes) rather than hard-coded goal enums. A bare \"Continuous Intent Manifold\" slogan without a defined substrate mechanism is forbidden by Mandate 1 — this mandate names the real resolution surface, not an undefined manifold."
         },
         {
           "id": 22,
@@ -286,48 +286,48 @@
         },
         {
           "id": 27,
-          "title": "Absolute Accountability",
-          "imperative": "Every action must be uniquely identifiable and attributable to a specific genomic reflex."
+          "title": "Action Accountability (Agent/Tool/Receipt)",
+          "imperative": "Every operator-visible or audited action must be uniquely identifiable and attributable in telemetry/audit — to a specific agent, tool call, receipt, or genomic reflex when one produced it. A bare \"every action is a genomic reflex\" claim is forbidden by Mandate 1; reflexes are one attribution class among agents/tools/receipts (see Mandates 26 and 38)."
         },
         {
           "id": 28,
-          "title": "Async Defaults",
-          "imperative": "Default to `tokio` for all non-blocking operations."
+          "title": "Async Defaults (Tokio Prefer)",
+          "imperative": "Default to `tokio` for non-blocking I/O and daemon/HTTP concurrency. Sync or `spawn_blocking` paths are allowed when the API is inherently blocking and the block is isolated. A bare \"tokio for all operations forever\" claim is forbidden by Mandate 1."
         },
         {
           "id": 29,
-          "title": "Data Parallelism",
-          "imperative": "Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning."
+          "title": "Data Parallelism (Rayon Prefer)",
+          "imperative": "Utilize `rayon` for CPU-bound parallel loops and recursive fork-join partitioning on the swarm/fleet path. Sequential loops remain correct for tiny workloads or when Rayon would oversubscribe. A bare \"rayon for every loop\" claim is forbidden by Mandate 1."
         },
         {
           "id": 30,
-          "title": "Locking Standard",
-          "imperative": "Mandatory use of `parking_lot` when atomics are insufficient."
+          "title": "Locking Standard (parking_lot Prefer)",
+          "imperative": "When a mutex is required (atomics insufficient), prefer `parking_lot` over `std::sync` Mutex/RwLock in first-party runtime. `std::sync` and other locks remain acceptable at FFI/OS boundaries or when an external crate forces them. A bare \"parking_lot exclusively everywhere\" claim is forbidden by Mandate 1."
         },
         {
           "id": 31,
-          "title": "Strict 2-Form Substrate Axiom",
-          "imperative": "The substrate exists in exactly two operational forms:\n- **`global susi` (The Background Service)**: The persistent background daemon (`susi.service` / `daemon-start`) bound to `SusiDirs::substrate_home` (`~/.susi`). Manages CPU/GPU saturation, OS environment care, hard-contract network ports (9090 GMCP `/mcp`, 9091 GEMI, 9092 A2A UDP, 9093 GMCP alias), and central model weights (`~/.susi/models`). World-facing HTTP is not jailed to cwd (see Mandate 40 and the Host contract section).\n- **`susi` (Unconditionally Jailed to `cwd`)**: The single canonical binary invocation (`~/.susi/bin/susi`), unconditionally jailed to the active working directory (`cwd`). Whether executing standard tasks, `susi admin` commands, or operating in `susi repo` (where `cwd` happens to be `susi`'s own Rust source code), `susi` operates exclusively on the active `cwd` context and stages intent bundles (`susi accept`), while the daemon owns ports, models, and lock state."
+          "title": "Strict 2-Form Substrate Axiom (Not OS Chroot)",
+          "imperative": "The substrate exists in exactly two operational forms:\n- **`global susi` (The Background Service)**: The persistent background daemon (`susi.service` / `daemon-start`) bound to `SusiDirs::substrate_home` (`~/.susi`). Manages CPU/GPU saturation, OS environment care, hard-contract network ports (9090 GMCP `/mcp`, 9091 GEMI, 9092 A2A UDP, 9093 GMCP alias), and central model weights (`~/.susi/models`). World-facing HTTP is not jailed to cwd (see Mandate 40 and the Host contract section).\n- **`susi` (Workspace-Scoped CLI)**: The single canonical binary invocation (`~/.susi/bin/susi`) treats the active working directory (`cwd`) as the mission/workspace context for tasks, `susi admin` when operating on that tree, and `susi repo` when `cwd` is the engine source — staging intent bundles (`susi accept`) while the daemon owns ports, models, and lock state.\n\"Jailed to cwd\" means **workspace scoping for missions and local artifacts**, not an OS chroot/seccomp cage of the whole process. A bare \"unconditionally OS-jailed\" claim is forbidden by Mandate 1."
         },
         {
           "id": 32,
-          "title": "Zero-Client-Wait Guarantee (Universal Non-Blocking Interop)",
-          "imperative": "`susi` must NEVER keep any client waiting (IDE, CLI, MCP client, HTTP/REST caller, or external agent). Because `susi` is non-blocking and instant by design, all client-facing interactions must return an instant response (<2ms), stream live telemetry continuously, or yield a background task handle immediately. Hard execution leases and cancellation checks must terminate unresponsive operations proactively before client timeouts occur."
+          "title": "Client Non-Blocking Surfaces (Not Instant Work)",
+          "imperative": "Client-facing interactions (IDE, CLI ack, MCP, HTTP/REST, external agents) must not block the caller on full mission completion: return an instant acknowledgment (Mandate 4 Sub-2ms client reflex), stream live telemetry, or yield a background task handle immediately. Hard execution leases and cancellation must terminate unresponsive work before client timeouts. Wall-clock swarm/inference time is **not** required to be <2ms — measuring end-to-end mission latency against that ceiling produces meaningless \"violations\" (see Mandate 4). A bare \"NEVER wait / instant by design for all work\" claim is forbidden by Mandate 1 — this mandate is non-blocking *client surfaces*, not zero-latency compute."
         },
         {
           "id": 33,
-          "title": "Synchronized Substrate Versioning & Self-Priming",
-          "imperative": "When `susi` operates on `susi repo`, it must automatically synchronize manifests (`susi admin sync`), recompile binaries, and deploy them to `~/.susi/bin/`. Detecting new binary signatures, `local susi` and `global susi` must automatically hot-reload and align to the current version in lockstep across all environments."
+          "title": "Synchronized Substrate Versioning (Repo/Release Paths)",
+          "imperative": "When `susi` operates on `susi repo` (or via release/sync admin paths), it must synchronize manifests (`susi admin sync`), recompile when needed, and deploy to `~/.susi/bin/`. On detecting new binary signatures, local and global susi should hot-reload and align. This does **not** require every unrelated `cwd` or offline host to rebuild; network/toolchain failures must surface honestly (Mandate 47). A bare \"always recompile and hot-reload everywhere in lockstep\" claim is forbidden by Mandate 1."
         },
         {
           "id": 34,
-          "title": "The 3 Innovation Pillars of Excellence",
-          "imperative": "- **`susi swarm`**: Delivers maximum hardware power via lock-free CSP channels and work-stealing parallel agent dispatches across all host CPU/GPU cores (agent-of-agents orchestration).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` — not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models` (+ frontier / openweight / openrouter)**: Provides non-blocking resumable background downloads and a dynamic runtime Hugging Face discovery algorithm for the progressive model ladder, **and** durable end-to-end control planes for curated catalogs — coding/agent cloud models (`susi models`), top 5 frontier reasoning engines (`susi frontier`: Claude Sonnet, GPT-4o/5, DeepSeek-R1/V3, Gemini Pro, Llama 3/3.1), open-weight FOSS-adjacent hosts (`susi openweight` via Ollama/vLLM), and OpenRouter routes (`susi openrouter`). Parallel durable planes manage leading external agents/frameworks (`susi agents` / `susi frameworks`) and MCP servers (`susi mcp`; top ranks Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools). Catalogs load via extension packs (`Mandate 35`); no subscriptions are provisioned implicitly."
+          "title": "Three Innovation Pillars (Swarm / Engine / Models)",
+          "imperative": "- **`susi swarm`**: Agent-of-agents orchestration via lock-preferring CSP channels and Rayon work-stealing parallel agent dispatch across available host CPU cores (GPU used when inference backends allow — not a claim of saturating every GPU on every mission).\n- **`susi engine`**: Races Candle (llama/qwen2 GGUF) against OpenAI-compatible local/cloud engines (and Anthropic/Gemini/Triton via config) through `CapabilityRegistry` — not a claim of native SafeTensors/ONNX chat weights.\n- **`susi models` (+ frontier / openweight / openrouter)**: Non-blocking resumable background downloads and dynamic Hugging Face discovery for the progressive model ladder, **and** durable end-to-end control planes for curated catalogs — coding/agent cloud models (`susi models`), top 5 frontier reasoning engines (`susi frontier`: Claude Sonnet, GPT-4o/5, DeepSeek-R1/V3, Gemini Pro, Llama 3/3.1), open-weight FOSS-adjacent hosts (`susi openweight` via Ollama/vLLM), and OpenRouter routes (`susi openrouter`). Parallel durable planes manage leading external agents/frameworks (`susi agents` / `susi frameworks`) and MCP servers (`susi mcp`; top ranks Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools). Catalogs load via extension packs (`Mandate 35`); no subscriptions are provisioned implicitly.\nA bare \"maximum hardware power / excellence\" marketing claim is forbidden by Mandate 1 — these pillars name real control planes and engines, not unbounded saturation."
         },
         {
           "id": 35,
-          "title": "Registry + Trait + Config Substrate Pattern (\"100% Dynamic Config - Zero Hardcoded Structs\")",
-          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source code is strictly prohibited. Adding a new model, tool, or provider must be doable 100% via configuration or self-registering traits without editing source code. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation — its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct — anything read from and, especially, written back to a user-editable JSON file — must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) — `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces — those are correctly typed and closed. **Exception (Host contract):** public ports 9090–9093 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable — Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract."
+          "title": "Dynamic Config Registries (Not Zero Typed Structs)",
+          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source as the *only* admission path is prohibited. Adding a new model, tool, or provider must be doable via configuration or self-registering traits without editing core admission enums. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation — its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct — anything read from and, especially, written back to a user-editable JSON file — must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) — `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces — those are correctly typed and closed. **Exception (Host contract):** public ports 9090–9093 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable — Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract. A bare \"100% dynamic config / zero hardcoded structs\" slogan is forbidden by Mandate 1 while typed protocol structs and host-contract constants remain necessary."
         },
         {
           "id": 36,

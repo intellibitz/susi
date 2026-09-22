@@ -152,7 +152,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **Autonomous by default** — Mandate 46; plan and execute via swarm consensus, not step-by-step babysitting; evidence-gated and governance-first (not “100% automation”).
 - **Grounded outputs** — claims checked against tools and workspace state.
 - **Traceable reasoning** — Mandate 26; thinking and tool calls are inspectable (`.susi/last_mission_trace.json`, `.susi/last_blackboard.json`); not “100% transparency” of secrets or vendor internals.
-- **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware.
+- **Concurrency-first** — Tokio, Rayon, Crossbeam, parking_lot on real hardware (Mandates 5, 28–30; lock-preferring, not “zero blocking forever”).
 - **Rust substrate** — first-party runtime is Rust (or Wasm from Rust); non-Rust peers are opt-in managed adapters only (Mandate 43), not a “100% Rust process tree” claim.
 - **Zero-config auto** — boot auto-primes packs/MCP/models/peers without hand-edited config for the happy path (Mandate 44); installs and keys remain explicit gates.
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.

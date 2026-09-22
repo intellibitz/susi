@@ -1156,6 +1156,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: evaluated whether to add a new \"100% transparency\" mandate; rejected — glass-box already DNA Mandate 26; bare omniscient disclosure (naked secrets, provider internals) fails Mandate 1 and conflicts with Mandates 10/38. Refined Mandate 26 in place to \"Glass Box Transparency (Not Naked Secrets)\": inspectable SUSI reasoning/tool/mutation telemetry with real (non-aspirational) traces; redact secrets without suppressing records; no requirement to expose vendor logits/prompts or unredacted credentials. Updated Tier S Glass box summary, design_principles Traceable reasoning, Mandate 38 cross-ref wording, README Glass box + Traceable reasoning. Verified: identity JSON parses; genome test after build."
+    },
+    {
+      "id": "EV-2022922-110",
+      "type": "DOCS",
+      "milestone": "Mandate 1 audit: rewrite DNA hotspots — reject absolute slogans",
+      "anchor": {
+        "label": "identity.json DNA mandates 3–35 hotspot pass",
+        "ref": "file://.agents/identity.json"
+      },
+      "proof": "FIXED 2026-09-22: audited Mandates 1–47 against Mandate 1 (No Lies). Left already-scoped 1–2, 6–8, 13, 15, 20, 22–26, 36–47 intact. Rewrote in place (IDs stable): 3 (bloat continuous audit), 4 (ack not mission done), 5 (lock-preferring), 9 (professional standard), 10 (redaction not omniscience), 11 (no silent fakes), 12 (hardware bounded by governance), 14 (policy-gated priming), 16 (empirical adaptation not absolute sovereignty), 17 (decomposition when beneficial), 18 (best-effort checkpoints), 19 (prefer async), 21 (drop undefined Intent Manifold slogan), 27 (agent/tool/receipt attribution), 28–30 (tokio/rayon/parking_lot prefer), 31 (workspace scope not OS chroot), 32 (client non-blocking not instant work), 33 (repo/release sync paths), 34 (three pillars without maximum-excellence marketing), 35 (dynamic config not zero typed structs). Synced design_principles/foundation Concurrency-first and README Concurrency-first line. Verified: identity JSON parses; genome test after build."
     }
   ]
 }
