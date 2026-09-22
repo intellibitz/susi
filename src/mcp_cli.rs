@@ -1,4 +1,5 @@
 //! Leading MCP server control plane (list/doctor/enable) plus stdio serve.
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
@@ -27,14 +28,6 @@ pub enum McpCommands {
     Reset { server: String },
     /// Show enablement status for the top MCP servers
     Status,
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 /// Returns `true` when the caller should run the native stdio MCP server.

@@ -8,6 +8,7 @@
 //! that already depend on `susi-gemi`. Depend on this crate directly when only
 //! selection/provisioning is needed.
 
+pub mod catalog_store;
 pub mod cloud;
 pub mod coding_models;
 pub(crate) mod download;

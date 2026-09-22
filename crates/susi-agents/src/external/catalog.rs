@@ -49,7 +49,7 @@ impl CatalogKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Adapter {
     Command {
         program: String,
@@ -89,6 +89,9 @@ pub struct AgentDefinition {
     pub rank: u8,
     pub documentation: String,
     pub adapter: Adapter,
+    /// Mandate 35: preserve unknown catalog keys from extension packs.
+    #[serde(flatten, default)]
+    pub extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 pub fn catalog(kind: CatalogKind) -> Result<Vec<AgentDefinition>> {

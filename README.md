@@ -144,6 +144,8 @@ Core is **protocol-generic** (admit/run/doctor/enable + registries). Vendor opin
 
 Catalog loaders still embed bundled JSON via `include_str!` for offline boot; host pack files win when present.
 
+Editorial catalog **views** stay separate JSON files under `config/` (not one mega-catalog): `coding-models.json`, `frontier-models.json`, `open-weight-models.json`, `openrouter-models.json`, `leading-mcp.json`, `execution-agents.json`, `agent-engines.json`, plus `models.catalog.default.json` for the broader ladder. Host overrides live under `~/.susi/{coding-models,frontier-models,open-weight,leading-mcp}/` and preserve unknown keys on configure (Mandate 35).
+
 ---
 
 ## Design principles

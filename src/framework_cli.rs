@@ -1,9 +1,10 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use susi_agents::external::{catalog, redact, Adapter, AgentManager, CatalogKind, RunStatus};
+use susi_agents::external::{catalog, Adapter, AgentManager, CatalogKind, RunStatus};
 
 #[derive(Debug, Subcommand)]
 pub enum FrameworkCommands {
@@ -59,11 +60,6 @@ pub enum FrameworkCommands {
     Worker {
         task_id: String,
     },
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!("{}", redact(&serde_json::to_string_pretty(value)?));
-    Ok(())
 }
 
 pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {

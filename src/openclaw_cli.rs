@@ -1,4 +1,5 @@
 //! Deterministic OpenClaw control plane (no daemon required).
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
@@ -39,14 +40,6 @@ pub enum OpenClawCommands {
     Cancel {
         task_id: String,
     },
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 pub fn execute(action: Option<OpenClawCommands>, workspace: &Path) -> Result<()> {

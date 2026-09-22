@@ -5,10 +5,12 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
 
+use crate::catalog_store::{atomic_json, private_dir};
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
@@ -46,12 +48,15 @@ pub struct FrontierDefinition {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FrontierOverride {
     pub engine: Option<String>,
     pub model: Option<String>,
     pub protocol_type: Option<String>,
     pub api_key_env: Option<String>,
+    /// Mandate 35: preserve unknown keys on configure read-modify-write.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -237,6 +242,7 @@ impl FrontierManager {
                     model: Some(def.model.clone()),
                     protocol_type: Some(def.protocol_type.clone()),
                     api_key_env: Some(def.api_key_env.clone()),
+                    ..Default::default()
                 },
             )?;
         }
@@ -316,39 +322,6 @@ fn endpoint_for(name: &str) -> Option<susi_sandbox::manager::InferenceEndpointIt
         .find(|e| e.name.to_ascii_lowercase() == lower)
 }
 
-fn private_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
-}
-
-fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    let result = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.flush()?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,6 +364,7 @@ mod tests {
                     model: Some("gpt-4o-mini".into()),
                     protocol_type: None,
                     api_key_env: None,
+                    ..Default::default()
                 },
             )
             .unwrap();

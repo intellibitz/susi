@@ -12,7 +12,7 @@
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -47,6 +47,9 @@ pub struct ExtensionManifest {
     /// Logical file name → path relative to the pack root.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
+    /// Mandate 35: preserve unknown pack-manifest keys.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Durable substrate state (`~/.susi/extensions/state.json`).
@@ -59,6 +62,9 @@ struct ExtensionsState {
     /// Packs the user unloaded — not auto-loaded on discover until `load_pack`.
     #[serde(default)]
     unloaded: Vec<String>,
+    /// Mandate 35: preserve unknown state keys on write-back.
+    #[serde(flatten, default)]
+    extra: HashMap<String, serde_json::Value>,
 }
 
 fn default_pack_id() -> String {
@@ -71,6 +77,7 @@ impl Default for ExtensionsState {
             active: DEFAULT_PACK_ID.to_string(),
             loaded: vec![DEFAULT_PACK_ID.to_string()],
             unloaded: Vec::new(),
+            extra: HashMap::new(),
         }
     }
 }
@@ -170,6 +177,7 @@ fn host_seed_manifest() -> ExtensionManifest {
         version: "0.1.0".into(),
         description: "Auto-seeded vendor opinions. Edit files here or drop additional packs under ~/.susi/extensions/<id>/.".into(),
         files,
+        extra: HashMap::new(),
     }
 }
 
@@ -352,6 +360,7 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
             version: "0.0.1".into(),
             description: format!("Host extension pack `{id}`."),
             files: BTreeMap::new(),
+            extra: HashMap::new(),
         };
         let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
         write_private_file(&manifest_path, &format!("{text}\n"))?;
@@ -534,6 +543,7 @@ pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
         version: "0.0.0".into(),
         description: String::new(),
         files: Default::default(),
+        extra: HashMap::new(),
     }
 }
 

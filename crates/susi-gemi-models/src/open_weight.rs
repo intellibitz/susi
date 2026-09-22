@@ -5,10 +5,13 @@
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
+use crate::catalog_store::{atomic_json, private_dir};
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
@@ -50,11 +53,14 @@ pub struct OpenWeightDefinition {
     pub notes: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenWeightOverride {
     pub engine: Option<String>,
     pub ollama_tag: Option<String>,
     pub protocol_type: Option<String>,
+    /// Mandate 35: preserve unknown keys on configure read-modify-write.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, Value>,
 }
 
 #[derive(Clone)]
@@ -405,41 +411,6 @@ fn which(bin: &str) -> Option<PathBuf> {
     None
 }
 
-fn private_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
-    }
-    Ok(())
-}
-
-fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    let tmp = path.with_extension("tmp");
-    let result = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.flush()?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -496,6 +467,7 @@ mod tests {
                     engine: None,
                     ollama_tag: Some("phi4:14b".into()),
                     protocol_type: None,
+                    ..Default::default()
                 },
             )
             .unwrap();

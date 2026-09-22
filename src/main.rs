@@ -11,6 +11,7 @@ mod auto_cli;
 mod autogen_cli;
 mod blackboard_cli;
 mod browser_use_cli;
+mod cli_json;
 mod crown_cli;
 mod deerflow_cli;
 mod extensions_cli;

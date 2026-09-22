@@ -34,6 +34,9 @@ pub struct LeadingMcpOverride {
     pub args: Option<Vec<String>>,
     pub env_keys: Option<Vec<String>>,
     pub package: Option<String>,
+    /// Mandate 35: preserve unknown keys on configure read-modify-write.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 #[derive(Clone)]
@@ -498,6 +501,7 @@ mod tests {
                     ]),
                     env_keys: Some(vec![]),
                     package: None,
+                    ..Default::default()
                 },
             )
             .unwrap();

@@ -6,8 +6,9 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use crate::catalog_store::private_dir;
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, list_api_key_status, resolve_api_key,
 };
@@ -186,16 +187,6 @@ fn validate_model_slug(slug: &str) -> Result<()> {
     }
     if slug.len() > 200 {
         bail!("OpenRouter model id too long");
-    }
-    Ok(())
-}
-
-fn private_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o700));
     }
     Ok(())
 }

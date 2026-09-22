@@ -86,57 +86,27 @@ susi-agents = { workspace = true }
 susi-tools = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokenizers = "0.23.2"
 anyhow = { workspace = true }
 clap = { version = "4.6", features = ["derive", "env"] }
-dashmap = { workspace = true }
-indicatif = "0.18.6"
 reqwest = { workspace = true }
-ureq = { version = "3.4.2", features = ["json"] }
-wasmer-wasix = { version = "0.704.2", features = ["sys"] }
-wasmer-types = "7.4.2"
-bytes = "1.12"
-hex = { workspace = true }
-base64 = "0.23.1"
 once_cell = { workspace = true }
-libc = "0.2"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1"
-image = "0.25"
-hound = "3.5"
-shlex = "2.0"
 signal-hook = "0.4.4"
-md5 = "0.8.1"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
 tracing-opentelemetry = { version = "0.33", optional = true }
 opentelemetry = { version = "0.32", optional = true }
 opentelemetry-otlp = { version = "0.32", optional = true }
-sha2 = { workspace = true }
 tokio = { workspace = true }
 # Optional: only needed for tokio-console / RUSTFLAGS='--cfg tokio_unstable'.
 # Keeping it off the default graph drops console-subscriber (+ its tonic path)
 # from cold release builds.
 console-subscriber = { version = "0.5.0", optional = true }
-flume = { workspace = true }
 rayon = "1.12"
 parking_lot = { workspace = true }
-crossbeam = "0.8"
-rmcp = { version = "3.4.0", features = ["server", "client"] }
-qdrant-client = "1.19"
-fastembed = "7.0.1"
-syn = { version = "3.0.6", features = ["full", "visit"] }
-bollard = "0.21.1"
-tantivy = "0.26.2"
-headless_chrome = "1.0.22"
-url = { workspace = true }
-regex = "1.13"
-futures = "0.3"
-tokio-stream = "0.1"
-directories = "6.0.0"
 
+# Candle stays on the root package so `--features cuda|mkl|metal` can forward
+# backend flags; inference code lives in susi-gemi / susi-native.
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }
 candle-nn = { version = "0.11.0" }
@@ -147,23 +117,15 @@ candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
 candle-nn = { version = "0.11.0", features = ["metal", "accelerate"] }
 candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 
-[target.'cfg(not(windows))'.dependencies]
-# wasmer's cranelift compiler backend has a hard compile_error on Windows
-# (wasmer-compiler-cranelift 7.4.2 lib.rs); singlepass is used there instead
-# below. `wasmer::Engine::default()` (src/native/wasm.rs) picks whichever
-# backend feature was compiled in, so no source changes are needed.
-wasmer = { version = "7.4.2", features = ["cranelift", "sys"] }
-
 [target.'cfg(windows)'.dependencies]
-wasmer = { version = "7.4.2", features = ["singlepass", "sys"] }
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
 [build-dependencies]
 serde_json = { workspace = true }
 
 # crates.io candle-core 0.11.0 still depends on tokenizers ^0.22, which pulls a
-# second copy alongside our / fastembed's 0.23.2. Patch to candle main (same
-# 0.11.0 package version) which already uses tokenizers 0.23.x — one graph.
+# second copy alongside tokenizers 0.23.x used elsewhere. Patch to candle main
+# (same 0.11.0 package version) which already uses tokenizers 0.23.x — one graph.
 [patch.crates-io]
 candle-core = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-nn = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }

@@ -1,4 +1,5 @@
 //! Extension pack control plane (list/create/load/unload/status).
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use susi_sandbox::extensions::{
@@ -19,14 +20,6 @@ pub enum ExtensionCommands {
     Unload { id: String },
     /// Ensure default pack is seeded and print its path
     Seed,
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 pub fn execute(action: Option<ExtensionCommands>) -> Result<()> {

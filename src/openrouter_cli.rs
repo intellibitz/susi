@@ -1,4 +1,5 @@
 //! Deterministic OpenRouter control plane (no daemon required).
+use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
 use susi_gemi::openrouter::OpenRouterManager;
@@ -35,14 +36,6 @@ pub enum OpenRouterCommands {
         #[arg(long, default_value_t = 50)]
         limit: usize,
     },
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 pub fn execute(action: Option<OpenRouterCommands>) -> Result<()> {

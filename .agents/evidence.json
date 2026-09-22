@@ -1166,6 +1166,16 @@
         "ref": "file://.agents/identity.json"
       },
       "proof": "FIXED 2026-09-22: audited Mandates 1–47 against Mandate 1 (No Lies). Left already-scoped 1–2, 6–8, 13, 15, 20, 22–26, 36–47 intact. Rewrote in place (IDs stable): 3 (bloat continuous audit), 4 (ack not mission done), 5 (lock-preferring), 9 (professional standard), 10 (redaction not omniscience), 11 (no silent fakes), 12 (hardware bounded by governance), 14 (policy-gated priming), 16 (empirical adaptation not absolute sovereignty), 17 (decomposition when beneficial), 18 (best-effort checkpoints), 19 (prefer async), 21 (drop undefined Intent Manifold slogan), 27 (agent/tool/receipt attribution), 28–30 (tokio/rayon/parking_lot prefer), 31 (workspace scope not OS chroot), 32 (client non-blocking not instant work), 33 (repo/release sync paths), 34 (three pillars without maximum-excellence marketing), 35 (dynamic config not zero typed structs). Synced design_principles/foundation Concurrency-first and README Concurrency-first line. Verified: identity JSON parses; genome test after build."
+    },
+    {
+      "id": "EV-2022922-111",
+      "type": "CODE",
+      "milestone": "Optimize Phase 1: config Mandate 35 flatten, CLI/catalog DRY, root dep trim",
+      "anchor": {
+        "label": "catalog_store + cli_json + override flatten",
+        "ref": "file://crates/susi-gemi-models/src/catalog_store.rs"
+      },
+      "proof": "FIXED 2026-09-22: Phase 1 optimization (Mandate 3 + 35). Config: flatten catch-alls on FrontierOverride/OpenWeightOverride/CodingModelOverride/LeadingMcpOverride, ExtensionManifest/ExtensionsState, AgentDefinition; removed deny_unknown_fields on Adapter; kept execution-peers.legacy as exact-builtin migrate helper. Source: shared catalog_store::{private_dir,atomic_json} for frontier/open-weight/coding/openrouter; susi-server json_response no terminal unwrap. Structure: src/cli_json.rs replaces ~24 print_json copies; README documents separate editorial catalog views. Root Cargo.toml: dropped unused direct deps (wasmer/qdrant/fastembed/bollard/tantivy/headless_chrome/hyper/rmcp/…); retained candle for cuda|mkl|metal feature forward. Verified: cargo check -p susi; susi-gemi-models lib tests; leading_mcp + extensions tests; genome test."
     }
   ]
 }

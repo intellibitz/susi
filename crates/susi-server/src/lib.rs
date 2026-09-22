@@ -37,23 +37,24 @@ fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
+    let allow_origin = susi_sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .get("allow_origin")
+        .unwrap_or_else(|| "*".to_string());
+    let origin_header =
+        HeaderValue::from_str(&allow_origin).unwrap_or_else(|_| HeaderValue::from_static("*"));
     Response::builder()
         .status(status)
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-        .header(
-            "Access-Control-Allow-Origin",
-            HeaderValue::from_str(
-                &susi_sandbox::manager::SusiConfig::load_global()
-                    .unwrap_or_default()
-                    .get("allow_origin")
-                    .unwrap_or_else(|| "*".to_string()),
-            )
-            .unwrap_or_else(|_| HeaderValue::from_static("*")),
-        )
+        .header("Access-Control-Allow-Origin", origin_header)
         .body(full_body(
             serde_json::to_string(payload).unwrap_or_default(),
         ))
-        .unwrap()
+        .unwrap_or_else(|_| {
+            Response::new(full_body(
+                serde_json::to_string(payload).unwrap_or_default(),
+            ))
+        })
 }
 
 pub struct GemiServer;

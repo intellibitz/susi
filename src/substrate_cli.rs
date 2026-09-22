@@ -1,7 +1,7 @@
 //! Tier S substrate status: Pluggable, Sandbox, Governance, Host-contract, Reflexes.
+use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
-use serde::Serialize;
 use std::path::Path;
 use std::process::Command;
 use susi_daemon::SusiDaemon;
@@ -11,14 +11,6 @@ use susi_paths::ports;
 pub enum SubstrateCommands {
     /// Show Pluggable / Sandbox / Governance / Host-contract / Reflexes status (default)
     Status,
-}
-
-fn print_json(value: &impl Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 fn load_json(path: &Path) -> Option<serde_json::Value> {

@@ -1,4 +1,5 @@
 //! Zero-config auto substrate status (packs, MCP, models, peers).
+use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
 use serde::Serialize;
@@ -22,14 +23,6 @@ pub enum AutoCommands {
     Status,
     /// Re-run auto-prime now (packs/MCP/models/peers)
     Prime,
-}
-
-fn print_json(value: &impl Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 fn load_json_file(path: &Path) -> Option<serde_json::Value> {

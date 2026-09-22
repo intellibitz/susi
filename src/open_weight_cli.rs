@@ -1,4 +1,5 @@
 //! Deterministic open-weight frontier model control plane (local host; no daemon for list/doctor).
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use susi_gemi::open_weight::{OpenWeightManager, OpenWeightOverride};
@@ -33,14 +34,6 @@ pub enum OpenWeightCommands {
         #[arg(default_value = "Reply with exactly: ok")]
         prompt: String,
     },
-}
-
-fn print_json(value: &impl serde::Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 pub fn execute(action: Option<OpenWeightCommands>) -> Result<()> {

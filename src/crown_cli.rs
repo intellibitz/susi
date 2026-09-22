@@ -2,6 +2,7 @@
 //!
 //! Critical checks must pass for exit 0. Host-gated capabilities report
 //! `ready`/`optional` without failing the crown when the host lacks Docker/daemon.
+use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use serde::Serialize;
@@ -24,14 +25,6 @@ struct UspCheck {
     critical: bool,
     holds: bool,
     detail: String,
-}
-
-fn print_json(value: &impl Serialize) -> Result<()> {
-    println!(
-        "{}",
-        susi_agents::external::redact(&serde_json::to_string_pretty(value)?)
-    );
-    Ok(())
 }
 
 fn check(id: &'static str, critical: bool, holds: bool, detail: impl Into<String>) -> UspCheck {
