@@ -2,7 +2,23 @@
   "id": "default",
   "name": "SUSI Default Extension Pack",
   "version": "0.1.0",
+  "apiVersion": "1",
   "description": "Bundled vendor opinions (cloud env aliases, curated catalog pointers). Core stays protocol-generic; host may override via ~/.susi/extensions/<id>/.",
+  "capabilities": [
+    "catalog.cloud_vendors",
+    "catalog.coding_models",
+    "catalog.mcp",
+    "catalog.frontier",
+    "catalog.open_weight",
+    "catalog.openrouter",
+    "catalog.agents",
+    "catalog.engines"
+  ],
+  "requires": [],
+  "optional": [],
+  "permissions": [
+    "filesystem.read"
+  ],
   "files": {
     "cloud-vendors.json": "cloud-vendors.json",
     "coding-models.json": "../../coding-models.json",

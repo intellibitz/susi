@@ -1117,7 +1117,8 @@ impl NativeInferenceEngine for SusiGgufEngine {
 
             let input = candle_core::Tensor::new(tokens_to_process.as_slice(), &device)
                 .map_err(|e| EaiError::inference(format!("Tensor creation failed: {}", e)))?
-                .unsqueeze(0)?;
+                .unsqueeze(0)
+                .map_err(crate::engines::candle_err::from_candle)?;
 
             // KV-Cache Positioning (Correct Synchronization)
             let pos = if i == 0 {

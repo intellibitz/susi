@@ -42,14 +42,65 @@ pub struct ExtensionManifest {
     pub id: String,
     pub name: String,
     pub version: String,
+    /// Host API major compatibility (`1` ↔ host major `1`). Default `1`.
+    #[serde(default = "default_api_version", alias = "apiVersion")]
+    pub api_version: String,
     #[serde(default)]
     pub description: String,
+    /// Declared capability ids (e.g. `catalog.coding_models`).
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+    /// Required host capabilities (hard fail if missing).
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// Optional host capabilities (warn / degrade if missing).
+    #[serde(default)]
+    pub optional: Vec<String>,
+    /// Declared permissions (enforcement lands in a later phase).
+    #[serde(default)]
+    pub permissions: Vec<String>,
     /// Logical file name → path relative to the pack root.
     #[serde(default)]
     pub files: BTreeMap<String, String>,
     /// Mandate 35: preserve unknown pack-manifest keys.
     #[serde(flatten, default)]
     pub extra: HashMap<String, serde_json::Value>,
+}
+
+fn default_api_version() -> String {
+    "1".into()
+}
+
+/// Host API major this binary supports for extension packs.
+pub const HOST_PACK_API_MAJOR: u32 = 1;
+
+/// Validate a pack manifest for load. Returns `Ok(())` or a human error.
+/// Incompatible `api_version` majors fail; missing optional deps do not.
+pub fn validate_manifest(manifest: &ExtensionManifest) -> Result<(), String> {
+    if manifest.id.trim().is_empty() {
+        return Err("pack manifest id must not be empty".into());
+    }
+    let major = manifest
+        .api_version
+        .split('.')
+        .next()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(0);
+    if major != HOST_PACK_API_MAJOR {
+        return Err(format!(
+            "pack `{}` api_version {} incompatible with host major {}",
+            manifest.id, manifest.api_version, HOST_PACK_API_MAJOR
+        ));
+    }
+    for perm in &manifest.permissions {
+        if perm.trim().is_empty() {
+            return Err(format!(
+                "pack `{}` has an empty permissions entry",
+                manifest.id
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Durable substrate state (`~/.susi/extensions/state.json`).
@@ -175,7 +226,16 @@ fn host_seed_manifest() -> ExtensionManifest {
         id: DEFAULT_PACK_ID.to_string(),
         name: "SUSI Default Extension Pack".into(),
         version: "0.1.0".into(),
+        api_version: default_api_version(),
         description: "Auto-seeded vendor opinions. Edit files here or drop additional packs under ~/.susi/extensions/<id>/.".into(),
+        capabilities: vec![
+            "catalog.cloud_vendors".into(),
+            "catalog.coding_models".into(),
+            "catalog.mcp".into(),
+        ],
+        requires: Vec::new(),
+        optional: Vec::new(),
+        permissions: vec!["filesystem.read".into()],
         files,
         extra: HashMap::new(),
     }
@@ -243,6 +303,13 @@ pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
                 continue;
             }
             if !path.join("manifest.json").is_file() {
+                continue;
+            }
+            let discovered = manifest_for(id);
+            if let Err(e) = validate_manifest(&discovered) {
+                eprintln!(
+                    "[extensions] skipping pack `{id}`: {e} (optional failure; core continues)"
+                );
                 continue;
             }
             if state.unloaded.iter().any(|x| x == id) {
@@ -358,7 +425,12 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
             id: id.to_string(),
             name: id.to_string(),
             version: "0.0.1".into(),
+            api_version: default_api_version(),
             description: format!("Host extension pack `{id}`."),
+            capabilities: Vec::new(),
+            requires: Vec::new(),
+            optional: Vec::new(),
+            permissions: Vec::new(),
             files: BTreeMap::new(),
             extra: HashMap::new(),
         };
@@ -392,6 +464,12 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
             "pack `{id}` not found under {} — drop a manifest.json there or use `default`",
             extensions_root().display()
         ));
+    }
+    let manifest = manifest_for(id);
+    if let Err(e) = validate_manifest(&manifest) {
+        // Optional / third-party packs must not brick the substrate: refuse
+        // this pack only, leave active pack unchanged.
+        return Err(format!("pack `{id}` rejected: {e}"));
     }
     let mut state = read_state();
     state.unloaded.retain(|x| x != id);
@@ -541,7 +619,12 @@ pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
         id: pack_id.to_string(),
         name: pack_id.to_string(),
         version: "0.0.0".into(),
+        api_version: default_api_version(),
         description: String::new(),
+        capabilities: Vec::new(),
+        requires: Vec::new(),
+        optional: Vec::new(),
+        permissions: Vec::new(),
         files: Default::default(),
         extra: HashMap::new(),
     }
@@ -644,6 +727,38 @@ mod tests {
         assert_eq!(m.id, "default");
         assert!(m.files.contains_key("cloud-vendors.json"));
         assert!(m.files.contains_key("coding-models.json"));
+        assert!(validate_manifest(&m).is_ok());
+        assert_eq!(m.api_version.chars().next(), Some('1'));
+    }
+
+    #[test]
+    fn validate_manifest_rejects_incompatible_api_major() {
+        let mut m = bundled_manifest();
+        m.api_version = "2.0.0".into();
+        assert!(validate_manifest(&m).is_err());
+    }
+
+    #[test]
+    fn load_pack_rejects_incompatible_api_without_activating() {
+        with_temp_home(|| {
+            ensure_extensions_substrate().unwrap();
+            let bad = extensions_root().join("badapi");
+            private_dir(&bad).unwrap();
+            write_private_file(
+                &bad.join("manifest.json"),
+                r#"{
+  "id": "badapi",
+  "name": "Bad",
+  "version": "0.0.1",
+  "apiVersion": "99",
+  "files": {}
+}"#,
+            )
+            .unwrap();
+            let err = load_pack("badapi").expect_err("must reject");
+            assert!(err.contains("incompatible") || err.contains("rejected"));
+            assert_eq!(active_pack().id, "default");
+        });
     }
 
     #[test]

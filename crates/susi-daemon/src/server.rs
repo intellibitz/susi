@@ -503,6 +503,8 @@ impl SusiDaemon {
         let _ = std::fs::create_dir_all(&workspace);
         // Zero-trust: seed host bearer token before opening world-facing ports.
         let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+        // Composition root: EngineHooks before any ToolRegistry / MCP dispatch.
+        crate::composition::wire_engine_hooks();
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
         susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);

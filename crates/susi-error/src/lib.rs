@@ -57,6 +57,8 @@ impl EaiError {
             "ts": ts,
             "error": self.to_string(),
             "kind": self.kind_name(),
+            "code": self.code(),
+            "retryable": self.retryable(),
         });
 
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -86,6 +88,48 @@ impl EaiError {
             Self::Authorization(_, _) => "Authorization",
             Self::Internal(_, _) => "Internal",
             Self::Unknown(_, _) => "Unknown",
+        }
+    }
+
+    /// Stable machine-readable error code (additive; does not rename variants).
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Governance(_, _) => "susi.governance",
+            Self::Hardware(_, _) => "susi.hardware",
+            Self::Protocol(_, _) => "susi.protocol",
+            Self::Inference(_, _) => "susi.inference",
+            Self::Sandbox(_, _) => "susi.sandbox",
+            Self::Config(_, _) => "susi.config",
+            Self::Io(_, _) => "susi.io",
+            Self::Network(_, _) => "susi.network",
+            Self::Filesystem(_, _) => "susi.filesystem",
+            Self::Process(_, _) => "susi.process",
+            Self::Authentication(_, _) => "susi.authentication",
+            Self::Authorization(_, _) => "susi.authorization",
+            Self::Internal(_, _) => "susi.internal",
+            Self::Unknown(_, _) => "susi.unknown",
+        }
+    }
+
+    /// Whether a caller may reasonably retry the failed operation.
+    #[must_use]
+    pub const fn retryable(&self) -> bool {
+        match self {
+            Self::Network(_, _)
+            | Self::Io(_, _)
+            | Self::Hardware(_, _)
+            | Self::Process(_, _)
+            | Self::Inference(_, _)
+            | Self::Sandbox(_, _) => true,
+            Self::Governance(_, _)
+            | Self::Protocol(_, _)
+            | Self::Config(_, _)
+            | Self::Filesystem(_, _)
+            | Self::Authentication(_, _)
+            | Self::Authorization(_, _)
+            | Self::Internal(_, _)
+            | Self::Unknown(_, _) => false,
         }
     }
 }
@@ -134,8 +178,24 @@ macro_rules! impl_from_err {
 
 impl_from_err!(std::io::Error, Io);
 impl_from_err!(serde_json::Error, Config);
-impl_from_err!(candle_core::Error, Inference);
+// Candle / provider errors convert at the GEMI (adapter) edge — not here —
+// so `susi-error` stays free of inference-framework dependencies.
 impl_from_err!(std::string::FromUtf8Error, Protocol);
 impl_from_err!(std::num::ParseIntError, Protocol);
 
 pub type EaiResult<T> = Result<T, EaiError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_and_retryable_are_stable() {
+        let net = EaiError::network("down");
+        assert_eq!(net.code(), "susi.network");
+        assert!(net.retryable());
+        let gov = EaiError::governance("veto");
+        assert_eq!(gov.code(), "susi.governance");
+        assert!(!gov.retryable());
+    }
+}

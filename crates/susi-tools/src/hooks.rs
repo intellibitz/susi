@@ -7,8 +7,10 @@
 //
 // Instead, the one real caller in a position to satisfy all of this (gmcp,
 // which already legitimately depends on gawd/gemi) implements EngineHooks
-// and main.rs wires it in once at startup via `init`. Everything in this
-// crate that needs one of these capabilities goes through `hooks()`.
+// (`susi_gmcp::SusiEngineHooks`) and composition roots wire it once via
+// `susi_daemon::composition::wire_engine_hooks` / `wire_cli_substrate`.
+// Everything in this crate that needs one of these capabilities goes through
+// `hooks()`.
 
 use crate::registry::ToolRegistry;
 use std::path::Path;

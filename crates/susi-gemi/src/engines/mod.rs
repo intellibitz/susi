@@ -9,6 +9,7 @@
 
 pub mod alpha;
 pub mod audio;
+pub(crate) mod candle_err;
 pub mod candle_provider;
 pub mod http_provider;
 pub mod mcp_provider;

@@ -192,19 +192,44 @@ impl ReflexInferenceKernel {
         let mut attention_accum = vec![];
 
         for g in 0..kv_heads {
-            let k_group = k_tensor.get(0)?.get(g)?;
-            let v_group = v_tensor.get(0)?.get(g)?;
+            let k_group = k_tensor
+                .get(0)
+                .map_err(|e| susi_error::EaiError::inference(e.to_string()))?
+                .get(g)
+                .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
+            let v_group = v_tensor
+                .get(0)
+                .map_err(|e| susi_error::EaiError::inference(e.to_string()))?
+                .get(g)
+                .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
 
             for h in 0..group_ratio {
                 let q_idx = g * group_ratio + h;
-                let q_head = q_tensor.get(0)?.get(q_idx)?;
+                let q_head = q_tensor
+                    .get(0)
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?
+                    .get(q_idx)
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
 
                 // Compute scaled dot-product attention
-                let scores = q_head.matmul(&k_group.transpose(0, 1)?)?;
-                let scaled_scores = (scores / (head_dim as f64).sqrt())?;
+                let scores = q_head
+                    .matmul(
+                        &k_group
+                            .transpose(0, 1)
+                            .map_err(|e| susi_error::EaiError::inference(e.to_string()))?,
+                    )
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
+                let scaled_scores = (scores / (head_dim as f64).sqrt())
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
 
-                let context_block = scaled_scores.matmul(&v_group)?;
-                let sum_val = context_block.sum_all()?.to_vec0::<f32>().unwrap_or(0.0);
+                let context_block = scaled_scores
+                    .matmul(&v_group)
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?;
+                let sum_val = context_block
+                    .sum_all()
+                    .map_err(|e| susi_error::EaiError::inference(e.to_string()))?
+                    .to_vec0::<f32>()
+                    .unwrap_or(0.0);
                 attention_accum.push(sum_val);
             }
         }

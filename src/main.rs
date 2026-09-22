@@ -1003,22 +1003,11 @@ fn main() -> std::process::ExitCode {
         };
     }
 
-    // Must run before anything can touch susi_tools::ToolRegistry (which
-    // panics on first use if this hasn't happened yet) - see
-    // gmcp::tools::SusiEngineHooks and susi_tools::hooks for why this
-    // indirection exists instead of a direct dependency.
-    susi_tools::hooks::init(Box::new(susi::hooks::SusiEngineHooks));
-
+    // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
+    // See ARCHITECTURE.md and susi_daemon::composition.
     susi_sandbox::auto_install::push_to_hardware_if_dev_build();
-    // Zero-config: seed/load extension packs before catalogs or vendor resolution.
-    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
-    // Zero-config: load ~/.susi/cloud.env before any inference/routing so
-    // vendor keys work without editing config.json (and without a login shell).
-    susi_gemi::http_provider::apply_cloud_env_file();
-    // Zero-config: auto-enable ready MCP / prefer coding models / admit peers.
     let substrate = susi_paths::SusiDirs::substrate_home();
-    let _ = std::fs::create_dir_all(&substrate);
-    susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+    susi_daemon::composition::wire_cli_substrate(&substrate);
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
     console_subscriber::init();
 

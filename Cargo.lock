@@ -7015,7 +7015,6 @@ dependencies = [
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
- "candle-core",
  "serde_json",
  "susi-paths",
 ]

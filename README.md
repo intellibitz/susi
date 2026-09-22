@@ -160,6 +160,7 @@ Defined in `.agents/identity.json` (`design_principles`):
 - **OS layer for AI agents** — agent-of-agents substrate on the host (Mandate 45); not a replacement host OS.
 - **One-line install** — Unix `curl …/install.sh | bash` (Mandate 47); not “always frictionless.”
 
+Crate boundaries, composition roots, ports, and the plugin triad are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) (enforced by `tests/architecture_tests.rs`).
 ---
 
 ## License
