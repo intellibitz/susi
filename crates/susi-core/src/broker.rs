@@ -128,6 +128,7 @@ impl IpcBroker {
     }
 
     /// Record a permission grant into the context graph as an observation.
+    #[allow(clippy::too_many_arguments)]
     pub fn grant_and_record(
         &self,
         grantor: &str,

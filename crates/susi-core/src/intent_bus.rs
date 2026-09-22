@@ -184,6 +184,7 @@ impl IntentBus {
     }
 
     /// Publish a need; returns best matches (score ≥ threshold).
+    #[allow(clippy::too_many_arguments)]
     pub fn need(
         &self,
         from: &str,

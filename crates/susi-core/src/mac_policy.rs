@@ -209,7 +209,7 @@ impl MacPolicy {
         }
         let expect = self.sign(token);
         // Constant-time-ish compare
-        expect.as_bytes().len() == token.signature.as_bytes().len()
+        expect.len() == token.signature.len()
             && expect
                 .as_bytes()
                 .iter()
