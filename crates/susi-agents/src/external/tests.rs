@@ -113,7 +113,7 @@ fn curated_execution_agents_with_native_adapters() {
 #[test]
 fn ten_unique_frameworks_with_python_adapters() {
     let catalog = catalog(CatalogKind::Framework).unwrap();
-    assert_eq!(catalog.len(), 11);
+    assert_eq!(catalog.len(), 15);
     let mut ids = std::collections::HashSet::new();
     for (index, engine) in catalog.iter().enumerate() {
         assert!(ids.insert(&engine.id));

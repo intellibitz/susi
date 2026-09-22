@@ -5,17 +5,24 @@ mod autogen;
 mod browser_use;
 mod catalog;
 mod cloud;
+mod crewai;
 mod deerflow;
+mod e2b;
 mod gemini_cli;
+mod haystack;
 mod langgraph;
+mod llamaindex;
+mod n8n;
 mod openai_agents;
 mod openclaw;
 mod openhands;
 mod openviking;
 mod process;
 mod python_bridge;
+pub mod python_engine;
 mod smolagents;
 mod swe_agent;
+mod temporal;
 
 pub use aider::{
     doctor as aider_doctor, setup as aider_setup, status as aider_status,
@@ -34,6 +41,7 @@ pub use browser_use::{
     AGENT_ID as BROWSER_USE_AGENT_ID,
 };
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
+pub use crewai::{ENGINE_ID as CREWAI_ENGINE_ID, PROFILE as CREWAI_PROFILE};
 pub use deerflow::{
     apply_process_env as deerflow_apply_process_env,
     bind_workspace_config as deerflow_bind_workspace_config, doctor as deerflow_doctor,
@@ -41,10 +49,12 @@ pub use deerflow::{
     init_workspace as deerflow_init_workspace, setup as deerflow_setup, status as deerflow_status,
     AGENT_ID as DEERFLOW_AGENT_ID,
 };
+pub use e2b::{ENGINE_ID as E2B_ENGINE_ID, PROFILE as E2B_PROFILE};
 pub use gemini_cli::{
     doctor as gemini_cli_doctor, setup as gemini_cli_setup, status as gemini_cli_status,
     AGENT_ID as GEMINI_CLI_AGENT_ID,
 };
+pub use haystack::{ENGINE_ID as HAYSTACK_ENGINE_ID, PROFILE as HAYSTACK_PROFILE};
 pub use langgraph::{
     bind_workspace_config as langgraph_bind_workspace_config,
     doctor_or_bail as langgraph_doctor_or_bail,
@@ -52,6 +62,8 @@ pub use langgraph::{
     init_workspace as langgraph_init_workspace, setup_report as langgraph_setup_report,
     LangGraphDoctor, CONFIG_ENV as LANGGRAPH_CONFIG_ENV, ENGINE_ID as LANGGRAPH_ENGINE_ID,
 };
+pub use llamaindex::{ENGINE_ID as LLAMAINDEX_ENGINE_ID, PROFILE as LLAMAINDEX_PROFILE};
+pub use n8n::{ENGINE_ID as N8N_ENGINE_ID, PROFILE as N8N_PROFILE};
 pub use openai_agents::{
     bind_workspace_config as openai_agents_bind_workspace_config,
     doctor_or_bail as openai_agents_doctor_or_bail,
@@ -73,6 +85,7 @@ pub use openviking::{
     status as openviking_status, AGENT_ID as OPENVIKING_AGENT_ID,
     DEFAULT_LOCAL_URL as OPENVIKING_DEFAULT_LOCAL_URL,
 };
+pub use python_engine::{EngineDoctor, EngineProfile};
 use serde::{Deserialize, Serialize};
 pub use smolagents::{
     bind_workspace_config as smolagents_bind_workspace_config,
@@ -89,6 +102,7 @@ pub use swe_agent::{
     doctor as swe_agent_doctor, setup as swe_agent_setup, status as swe_agent_status,
     AGENT_ID as SWE_AGENT_ID,
 };
+pub use temporal::{ENGINE_ID as TEMPORAL_ENGINE_ID, PROFILE as TEMPORAL_PROFILE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

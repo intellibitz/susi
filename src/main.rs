@@ -24,6 +24,7 @@ mod openclaw_cli;
 mod openhands_cli;
 mod openrouter_cli;
 mod openviking_cli;
+mod python_engine_cli;
 mod smolagents_cli;
 mod substrate_cli;
 mod swe_agent_cli;
@@ -203,6 +204,42 @@ enum Commands {
         #[command(subcommand)]
         action: Option<smolagents_cli::SmolAgentsCommands>,
     },
+    /// Manage CrewAI end to end (role-based multi-agent orchestration)
+    #[command(name = "crewai")]
+    CrewAi {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
+    /// Manage LlamaIndex end to end (RAG / agent data framework)
+    #[command(name = "llamaindex", visible_alias = "llama")]
+    LlamaIndex {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
+    /// Manage Temporal end to end (durable workflow engine)
+    #[command(name = "temporal")]
+    Temporal {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
+    /// Manage E2B end to end (cloud sandbox code-execution runtime)
+    #[command(name = "e2b")]
+    E2b {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
+    /// Manage Haystack end to end (document / RAG pipelines)
+    #[command(name = "haystack")]
+    Haystack {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
+    /// Manage n8n end to end (automation / event-trigger workflows)
+    #[command(name = "n8n")]
+    N8n {
+        #[command(subcommand)]
+        action: Option<python_engine_cli::EngineCommands>,
+    },
     /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
     #[command(name = "keys", visible_alias = "key")]
     Keys {
@@ -347,6 +384,12 @@ fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::OpenAiAgents { .. }
         | Commands::AutoGen { .. }
         | Commands::SmolAgents { .. }
+        | Commands::CrewAi { .. }
+        | Commands::LlamaIndex { .. }
+        | Commands::Temporal { .. }
+        | Commands::E2b { .. }
+        | Commands::Haystack { .. }
+        | Commands::N8n { .. }
             if !matches!(
                 command,
                 Commands::Models {
@@ -802,6 +845,90 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    if let Some(Commands::CrewAi { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::CREWAI_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::LlamaIndex { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::LLAMAINDEX_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Temporal { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::TEMPORAL_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::E2b { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::E2B_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Haystack { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::HAYSTACK_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::N8n { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::N8N_PROFILE, action, &cwd)
+            }) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(Commands::Mcp {
         action: Some(mcp_cli::McpCommands::Serve) | None,
     }) = &cli.command
@@ -1116,6 +1243,14 @@ fn main() -> std::process::ExitCode {
             }
             Commands::SmolAgents { .. } => {
                 // Control-plane smolagents commands handled before substrate boot.
+            }
+            Commands::CrewAi { .. }
+            | Commands::LlamaIndex { .. }
+            | Commands::Temporal { .. }
+            | Commands::E2b { .. }
+            | Commands::Haystack { .. }
+            | Commands::N8n { .. } => {
+                // Control-plane Python engine commands handled before substrate boot.
             }
             Commands::SelectModel { model } => {
                 let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);

@@ -141,5 +141,57 @@
       "import_name": "smolagents",
       "config_env": "SUSI_SMOLAGENTS_CONFIG"
     }
+  },
+  {
+    "id": "temporal",
+    "name": "Temporal",
+    "peer_name": "TemporalEngine",
+    "rank": 12,
+    "documentation": "https://docs.temporal.io/develop/python",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "temporalio",
+      "config_env": "SUSI_TEMPORAL_CONFIG"
+    }
+  },
+  {
+    "id": "e2b",
+    "name": "E2B Sandbox",
+    "peer_name": "E2bEngine",
+    "rank": 13,
+    "documentation": "https://e2b.dev/docs",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "e2b",
+      "config_env": "SUSI_E2B_CONFIG"
+    }
+  },
+  {
+    "id": "haystack",
+    "name": "Haystack",
+    "peer_name": "HaystackEngine",
+    "rank": 14,
+    "documentation": "https://docs.haystack.deepset.ai/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "haystack",
+      "config_env": "SUSI_HAYSTACK_CONFIG"
+    }
+  },
+  {
+    "id": "n8n",
+    "name": "n8n",
+    "peer_name": "N8nEngine",
+    "rank": 15,
+    "documentation": "https://docs.n8n.io/",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "urllib",
+      "config_env": "SUSI_N8N_CONFIG"
+    }
   }
 ]

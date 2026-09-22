@@ -157,20 +157,44 @@
   "stdin_timeout_secs": 120,
   "bootstrap_mcp_servers": [
     {
+      "category": "fs",
+      "description": "Sandboxed filesystem read/write for autonomous agents",
+      "latency_ms": 20,
+      "name": "filesystem",
+      "package": "@modelcontextprotocol/server-filesystem",
+      "trust_score": 0.95
+    },
+    {
+      "category": "exec",
+      "description": "Host shell / command execution for scripts and tests",
+      "latency_ms": 40,
+      "name": "bash",
+      "package": "mcp-server-commands",
+      "trust_score": 0.85
+    },
+    {
+      "category": "browser",
+      "description": "Playwright headless browser for UI interaction",
+      "latency_ms": 80,
+      "name": "browser",
+      "package": "@playwright/mcp",
+      "trust_score": 0.92
+    },
+    {
+      "category": "search",
+      "description": "Brave Search live web querying",
+      "latency_ms": 80,
+      "name": "brave-search",
+      "package": "@brave/brave-search-mcp-server",
+      "trust_score": 0.9
+    },
+    {
       "category": "database",
       "description": "Standard Protocol SQL Database Server",
       "latency_ms": 10,
       "name": "database",
       "package": "mcp-server-postgres",
       "trust_score": 0.95
-    },
-    {
-      "category": "search",
-      "description": "Standard Protocol Web Search Server",
-      "latency_ms": 50,
-      "name": "search",
-      "package": "mcp-server-search",
-      "trust_score": 0.9
     },
     {
       "category": "vcs",
@@ -602,7 +626,7 @@
     },
     {
       "name": "CrewAIEngine",
-      "description": "CrewAI managed agent framework; setup via susi frameworks.",
+      "description": "CrewAI managed agent framework; setup via susi crewai (or susi frameworks).",
       "protocol": "managed"
     },
     {
@@ -632,12 +656,32 @@
     },
     {
       "name": "LlamaIndexEngine",
-      "description": "LlamaIndex Agent Framework managed engine; setup via susi frameworks.",
+      "description": "LlamaIndex Agent Framework managed engine; setup via susi llamaindex (or susi frameworks).",
       "protocol": "managed"
     },
     {
       "name": "SmolAgentsEngine",
       "description": "Hugging Face smolagents managed framework; setup via susi smolagents (or susi frameworks).",
+      "protocol": "managed"
+    },
+    {
+      "name": "TemporalEngine",
+      "description": "Temporal durable workflow engine; setup via susi temporal (or susi frameworks).",
+      "protocol": "managed"
+    },
+    {
+      "name": "E2bEngine",
+      "description": "E2B cloud sandbox runtime; setup via susi e2b (or susi frameworks).",
+      "protocol": "managed"
+    },
+    {
+      "name": "HaystackEngine",
+      "description": "Haystack document/RAG pipeline engine; setup via susi haystack (or susi frameworks).",
+      "protocol": "managed"
+    },
+    {
+      "name": "N8nEngine",
+      "description": "n8n automation/event trigger engine; setup via susi n8n (or susi frameworks).",
       "protocol": "managed"
     },
     {

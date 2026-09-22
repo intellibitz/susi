@@ -661,9 +661,9 @@
   },
   {
     "name": "CrewAIEngine",
-    "description": "CrewAI managed agent framework; setup via `susi frameworks`.",
+    "description": "CrewAI managed agent framework; setup via `susi crewai` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "crewai"],
-    "semantic_anchors": ["crewai", "agent-framework", "peer"],
+    "semantic_anchors": ["crewai", "agent-framework", "peer", "susi-crewai"],
     "base_rank": 0.88,
     "is_core": false
   },
@@ -709,9 +709,9 @@
   },
   {
     "name": "LlamaIndexEngine",
-    "description": "LlamaIndex Agent Framework managed engine; setup via `susi frameworks`.",
+    "description": "LlamaIndex Agent Framework managed engine; setup via `susi llamaindex` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "llamaindex"],
-    "semantic_anchors": ["llamaindex", "agent-framework", "peer"],
+    "semantic_anchors": ["llamaindex", "agent-framework", "peer", "susi-llamaindex"],
     "base_rank": 0.88,
     "is_core": false
   },
@@ -720,6 +720,38 @@
     "description": "Hugging Face smolagents managed framework; setup via `susi smolagents` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "smolagents"],
     "semantic_anchors": ["smolagents", "agent-framework", "peer", "susi-smolagents"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "TemporalEngine",
+    "description": "Temporal durable workflow engine; setup via `susi temporal` (or `susi frameworks`).",
+    "categories": ["peer", "framework", "external", "temporal"],
+    "semantic_anchors": ["temporal", "durable-workflow", "peer", "susi-temporal"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "E2bEngine",
+    "description": "E2B cloud sandbox runtime; setup via `susi e2b` (or `susi frameworks`).",
+    "categories": ["peer", "framework", "external", "e2b"],
+    "semantic_anchors": ["e2b", "sandbox", "peer", "susi-e2b"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "HaystackEngine",
+    "description": "Haystack document/RAG pipeline engine; setup via `susi haystack` (or `susi frameworks`).",
+    "categories": ["peer", "framework", "external", "haystack"],
+    "semantic_anchors": ["haystack", "rag", "peer", "susi-haystack"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "N8nEngine",
+    "description": "n8n automation/event trigger engine; setup via `susi n8n` (or `susi frameworks`).",
+    "categories": ["peer", "framework", "external", "n8n"],
+    "semantic_anchors": ["n8n", "automation", "peer", "susi-n8n"],
     "base_rank": 0.88,
     "is_core": false
   }

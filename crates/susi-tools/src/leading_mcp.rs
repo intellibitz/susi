@@ -428,7 +428,7 @@ mod tests {
     #[test]
     fn ten_ranked_leading_mcp_servers() {
         let catalog = LeadingMcpManager::catalog().unwrap();
-        assert_eq!(catalog.len(), 10);
+        assert_eq!(catalog.len(), 20);
         for (i, m) in catalog.iter().enumerate() {
             assert_eq!(m.rank as usize, i + 1);
             m.validate().unwrap();
@@ -440,6 +440,26 @@ mod tests {
         assert_eq!(
             LeadingMcpManager::definition("browser").unwrap().package,
             "@playwright/mcp"
+        );
+        assert_eq!(
+            LeadingMcpManager::definition("brave-search")
+                .unwrap()
+                .package,
+            "@brave/brave-search-mcp-server"
+        );
+        assert_eq!(
+            LeadingMcpManager::definition("bash").unwrap().package,
+            "mcp-server-commands"
+        );
+        assert_eq!(
+            LeadingMcpManager::definition("composio").unwrap().package,
+            "composio-mcp-server"
+        );
+        assert_eq!(
+            LeadingMcpManager::definition("sequential-thinking")
+                .unwrap()
+                .id,
+            "sequential-thinking"
         );
     }
 

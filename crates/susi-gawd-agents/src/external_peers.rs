@@ -331,6 +331,24 @@ impl GawdAgent for ExternalPeerAgent {
                 susi_agents::external::CatalogKind::Framework if def.id == "smolagents" => {
                     "susi smolagents setup"
                 }
+                susi_agents::external::CatalogKind::Framework if def.id == "crewai" => {
+                    "susi crewai setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "llamaindex" => {
+                    "susi llamaindex setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "temporal" => {
+                    "susi temporal setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "e2b" => {
+                    "susi e2b setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "haystack" => {
+                    "susi haystack setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "n8n" => {
+                    "susi n8n setup"
+                }
                 susi_agents::external::CatalogKind::Framework => "susi frameworks setup",
             };
             if let Err(e) = manager.adapter(&def.id).and_then(|a| a.preflight()) {
@@ -605,6 +623,10 @@ mod tests {
             "PydanticAIEngine",
             "LlamaIndexEngine",
             "SmolAgentsEngine",
+            "TemporalEngine",
+            "E2bEngine",
+            "HaystackEngine",
+            "N8nEngine",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }

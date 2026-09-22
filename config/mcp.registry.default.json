@@ -42,7 +42,7 @@
   {
     "name": "sqlite",
     "description": "MCP server: sqlite",
-    "package": "@modelcontextprotocol/server-sqlite",
+    "package": "mcp-server-sqlite",
     "category": "database",
     "trust_score": 0.85,
     "latency_ms": 50
@@ -57,11 +57,11 @@
   },
   {
     "name": "fetch",
-    "description": "MCP server: fetch",
-    "package": "@modelcontextprotocol/server-fetch",
+    "description": "MCP server: fetch (HTML→Markdown)",
+    "package": "mcp-server-fetch",
     "category": "web",
-    "trust_score": 0.85,
-    "latency_ms": 50
+    "trust_score": 0.9,
+    "latency_ms": 80
   },
   {
     "name": "puppeteer",
@@ -81,11 +81,11 @@
   },
   {
     "name": "brave-search",
-    "description": "MCP server: brave-search",
-    "package": "@modelcontextprotocol/server-brave-search",
+    "description": "MCP server: brave-search (official Brave Search API)",
+    "package": "@brave/brave-search-mcp-server",
     "category": "search",
-    "trust_score": 0.85,
-    "latency_ms": 50
+    "trust_score": 0.9,
+    "latency_ms": 80
   },
   {
     "name": "google-maps",
@@ -126,6 +126,30 @@
     "category": "reasoning",
     "trust_score": 0.85,
     "latency_ms": 50
+  },
+  {
+    "name": "bash",
+    "description": "MCP server: bash/commands (host shell execution)",
+    "package": "mcp-server-commands",
+    "category": "exec",
+    "trust_score": 0.8,
+    "latency_ms": 40
+  },
+  {
+    "name": "crawl4ai",
+    "description": "MCP server: crawl4ai (advanced web crawl → Markdown)",
+    "package": "mcp-crawl4ai",
+    "category": "web",
+    "trust_score": 0.85,
+    "latency_ms": 120
+  },
+  {
+    "name": "composio",
+    "description": "MCP server: composio (9000+ tools aggregator)",
+    "package": "composio-mcp-server",
+    "category": "aggregator",
+    "trust_score": 0.85,
+    "latency_ms": 100
   },
   {
     "name": "everything",
