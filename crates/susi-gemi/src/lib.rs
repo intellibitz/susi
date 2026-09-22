@@ -25,6 +25,7 @@ pub mod frontier_ext;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod pulse;
+pub mod telemetry;
 
 // ── Flat compatibility re-exports (do not remove without a migration) ─────
 pub use engines::runtime as engine;

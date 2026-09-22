@@ -5,16 +5,20 @@
 
 use crate::agent_cli;
 use crate::aider_cli;
+use crate::ambient_cli;
 use crate::auto_cli;
 use crate::blackboard_cli;
+use crate::broker_cli;
 use crate::browser_use_cli;
 use crate::cli_defs::Commands;
+use crate::context_graph_cli;
 use crate::crown_cli;
 use crate::deerflow_cli;
 use crate::extensions_cli;
 use crate::framework_cli;
 use crate::frontier_cli;
 use crate::gemini_cli;
+use crate::intent_cli;
 use crate::mcp_cli;
 use crate::model_cli;
 use crate::open_weight_cli;
@@ -22,10 +26,15 @@ use crate::openclaw_cli;
 use crate::openhands_cli;
 use crate::openrouter_cli;
 use crate::openviking_cli;
+use crate::patch_cli;
+use crate::plan_cli;
 use crate::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
+use crate::privacy_cli;
 use crate::python_engine_cli;
 use crate::substrate_cli;
 use crate::swe_agent_cli;
+use crate::telemetry_cli;
+use crate::tx_cli;
 
 use std::env;
 use std::path::Path;
@@ -51,6 +60,47 @@ pub(crate) fn dispatch(
     if let Some(Commands::Blackboard { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             blackboard_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::ContextGraph { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            context_graph_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Broker { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            broker_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Telemetry { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || {
+            telemetry_cli::execute(action)
+        }));
+    }
+    if let Some(Commands::Patch { args }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            patch_cli::execute(args, cwd)
+        }));
+    }
+    if let Some(Commands::Plan { args }) = command {
+        return Ok(run_plane_cwd(PlanePrep::CloudSubstrate, |cwd| {
+            plan_cli::execute(args, cwd)
+        }));
+    }
+    if let Some(Commands::Privacy { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || privacy_cli::execute(action)));
+    }
+    if let Some(Commands::Intent { action }) = command {
+        return Ok(run_plane(PlanePrep::None, || intent_cli::execute(action)));
+    }
+    if let Some(Commands::Ambient { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            ambient_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Tx { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            tx_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Substrate { action }) = command {

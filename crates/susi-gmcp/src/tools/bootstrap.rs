@@ -359,6 +359,133 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::AssistantSpecialist,
         CoreTools::rag_query,
     );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_query",
+        "Query the Universal Context Graph for the current workspace or a specific node id",
+        MetaCategory::SystemPrimitive,
+        CoreTools::context_graph_query,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_ingest",
+        "Ingest an external context event into the Universal Context Graph",
+        MetaCategory::SystemPrimitive,
+        CoreTools::context_graph_ingest,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "context_graph_compact",
+        "Compact the append-only Universal Context Graph log",
+        MetaCategory::SystemPrimitive,
+        CoreTools::context_graph_compact,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_grant",
+        "Grant an inter-app permission scope",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ipc_grant,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_request",
+        "Request an inter-app permission (opens negotiation)",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ipc_request,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_negotiate",
+        "Approve or deny a pending permission request",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ipc_negotiate,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_send",
+        "Send a broker message (requires dispatch grant unless from=susi)",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ipc_send,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ipc_receive",
+        "Receive broker messages for an identity",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ipc_receive,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "host_telemetry",
+        "Sample host thermal, battery, and load telemetry",
+        MetaCategory::SystemPrimitive,
+        CoreTools::host_telemetry,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "apply_patch_cycle",
+        "Apply a workspace-confined patch then run tests; revert on failure",
+        MetaCategory::WorkspaceIo,
+        CoreTools::apply_patch_cycle,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "privacy_status",
+        "Report privacy mode and cryptographic capability grants",
+        MetaCategory::SystemPrimitive,
+        CoreTools::privacy_status,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "privacy_consent_egress",
+        "Grant time-limited network egress / cloud inference consent",
+        MetaCategory::SystemPrimitive,
+        CoreTools::privacy_consent_egress,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "intent_advertise",
+        "Advertise a provider capability on the semantic intent bus",
+        MetaCategory::SystemPrimitive,
+        CoreTools::intent_advertise,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "intent_need",
+        "Publish a need and match providers on the semantic intent bus",
+        MetaCategory::SystemPrimitive,
+        CoreTools::intent_need,
+    );
+    #[cfg(feature = "tools-rich")]
+    ToolRegistry::register_meta_tool(
+        registry,
+        "ambient_pulse",
+        "Scan workspace, record FS changes into context graph, refresh vector index",
+        MetaCategory::SystemPrimitive,
+        CoreTools::ambient_pulse,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tx_begin",
+        "Begin a multi-agent transaction snapshotting listed files",
+        MetaCategory::WorkspaceIo,
+        CoreTools::tx_begin,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tx_commit",
+        "Commit an open multi-agent transaction",
+        MetaCategory::WorkspaceIo,
+        CoreTools::tx_commit,
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "tx_abort",
+        "Abort a transaction and restore snapshotted files",
+        MetaCategory::WorkspaceIo,
+        CoreTools::tx_abort,
+    );
 
     // DYNAMIC DISCOVERY: Synthesized Native Reflexes
     crate::reflexes::register_synthesized_reflexes(registry);

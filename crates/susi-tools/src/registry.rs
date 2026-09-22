@@ -133,6 +133,12 @@ impl ToolRegistry {
     }
 
     pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
+        if let Err(e) =
+            susi_core::mac_policy::MacPolicy::global().authorize_tool(name, arg, workspace, None)
+        {
+            return format!("{e}");
+        }
+
         // Prefer CapabilityRegistry for discovered MCP tools so swarm dispatch
         // uses the same hot-plugged catalog as zero-config bootstrap.
         if let Some(tool) = susi_core::registry::CapabilityRegistry::global().get_tool(name) {

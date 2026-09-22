@@ -109,6 +109,20 @@ impl HighDensityContextStore {
         map
     }
 
+    /// Restore blackboard entries from a prior snapshot (transaction abort).
+    /// Keys present in the live store but absent from `snap` are removed.
+    pub fn restore_snapshot(&self, snap: &std::collections::BTreeMap<String, String>) {
+        let live_keys: Vec<String> = self.inner.iter().map(|r| r.key().clone()).collect();
+        for k in live_keys {
+            if !snap.contains_key(&k) {
+                self.inner.remove(&k);
+            }
+        }
+        for (k, v) in snap {
+            self.inner.insert(k.clone(), v.clone());
+        }
+    }
+
     pub fn iter(&self) -> dashmap::iter::Iter<'_, String, String> {
         self.inner.iter()
     }

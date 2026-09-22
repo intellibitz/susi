@@ -66,8 +66,14 @@ roots — never by stuffing implementations into `susi-core`.
 | `Provider` | `susi-core` | Candle, HTTP OpenAI-compat, MCP-as-provider |
 | `Tool` | `susi-core` | Core tools, MCP tools, observed wrappers |
 | `CapabilityRegistry` | `susi-core` | process-wide catalog (locator today; prefer pass-by-ref in new code) |
+| `ContextGraph` | `susi-core` | process-wide evidence-backed entity/relation graph; storage path supplied by composition root |
+| `IpcBroker` | `susi-core` | inter-app permission grants, negotiation, and typed message passing |
+| `MacPolicy` / `CapabilityToken` | `susi-core` | HMAC-SHA256 capability MAC on every tool dispatch; privacy modes |
+| `IntentBus` | `susi-core` | semantic provider/need matching (Jaccard + hash embeddings) |
+| `TxManager` | `susi-core` | multi-agent file/blackboard transactional snapshots |
+| `TelemetrySnapshot` | `susi-core` (types) / `susi-gemi::telemetry` (Linux sampler) | thermal zones, battery, load; daemon watchdog consumes |
 | `EngineHooks` | `susi-tools` | `susi_daemon::engine_hooks::SusiEngineHooks` |
-| `AdminHooks` / `HostHooks` | gawd-agents / gawd-swarm | gawd host facades |
+| `AdminHooks` / `HostHooks` | gawd-agents / gawd-swarm | gawd host facades (includes `apply_patch_cycle`) |
 | `ProtocolDispatcher` / `CapabilityResolver` | `susi-gmcp` | MCP protocol |
 
 Do **not** invent empty interfaces for every struct. Prefer the existing trait
@@ -89,8 +95,9 @@ Sequence (both paths, subset as applicable):
 3. Apply secrets surface (`~/.susi/cloud.env`) — never log secret bodies.
 4. Construct / discover infrastructure (providers, MCP, peers).
 5. Mount capabilities into `CapabilityRegistry`.
-6. Attach transports (CLI ack, HTTP, MCP, UDP discovery).
-7. Start / serve.
+6. Initialize `ContextGraph` durable storage path (`~/.susi/context_graph.jsonl`).
+7. Attach transports (CLI ack, HTTP, MCP, UDP discovery).
+8. Start / serve.
 
 Business / domain code must not construct global `HttpClient`, DB pools, or
 plugin managers inside use cases.
@@ -182,6 +189,23 @@ Configuration authority for bundled JSON is documented in
 `susi-gmcp` defaults to feature `tools-rich` (browser / tantivy / qdrant /
 fastembed / syn AST tools). Use `--no-default-features` on that crate for
 lighter local checks; shipped binaries keep the default.
+
+## Autonomy surfaces (substrate-level)
+
+These close the gap between “agent-of-agents substrate” and multi-hop /
+cross-app / self-healing operation — still workspace-confined and
+evidence-gated, not a kernel IPC or power-management daemon:
+
+| Surface | Entry points | Behavior |
+|---------|--------------|----------|
+| **Autonomous planning loop** | `susi plan`, `SusiMasterAgent::solve_autonomous` | Decompose goal → multi-step mission pipeline → abort on failure → synthesize |
+| **Inter-app permission / IPC broker** | `susi broker`, MCP `ipc_*`, HTTP `/broker/*` | Grant / request / negotiate / dispatch messages between identities |
+| **Host telemetry** | `susi telemetry`, MCP `host_telemetry`, HTTP `/telemetry`, daemon watchdog | Linux thermal / battery / load; throttles fleet concurrency under stress |
+| **Apply-patch-then-test** | `susi patch`, MCP `apply_patch_cycle`, HTTP `/patch/apply`, `SelfHealingAgent` via `AdminHooks` | Workspace-confined edit → test → rollback on failure; gated by `trust_level` / `auto_apply` |
+| **MAC + edge privacy** | `susi privacy`, MCP `privacy_*`, `MacPolicy` on every tool | HMAC capability tokens; `local_only` blocks cloud inference + network egress unless consented; mandatory Docker sandbox for host exec |
+| **Semantic intent bus** | `susi intent`, MCP `intent_*`, fleet recruitment | NL/hash-embedding provider↔need matching; publishes `IntentRouted` on typed bus |
+| **Ambient context sync** | `susi ambient`, daemon ambient indexer | FS mtime poll → ContextGraph + SemanticIndex refresh |
+| **Multi-agent transactions** | `susi tx`, MCP `tx_*`, patch/plan loops | File (+ optional blackboard) snapshots with commit/abort restore |
 
 ## Migration roadmap (remaining)
 

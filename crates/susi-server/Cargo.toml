@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 susi-agents = { workspace = true }
+susi-core = { path = "../susi-core" }
 susi-gawd = { path = "../susi-gawd" }
 susi-gemi = { path = "../susi-gemi" }
 susi-tools = { path = "../susi-tools" }

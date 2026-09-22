@@ -14,7 +14,7 @@
 
 use std::path::Path;
 use std::sync::Once;
-use susi_error::EaiResult;
+use susi_error::{EaiError, EaiResult};
 use susi_gawd_agents::admin_hooks::AdminHooks;
 use susi_gawd_swarm::host_hooks::HostHooks;
 
@@ -28,6 +28,7 @@ pub mod compliance;
 pub mod evolution;
 pub mod genome_distiller;
 pub mod kernel_loader;
+pub mod patch_cycle;
 pub mod reason_trainer;
 pub mod reflex_synth;
 pub mod reflex_trainer;
@@ -94,6 +95,18 @@ impl AdminHooks for GawdAdminHooks {
     }
     fn perform_autonomous_drift_audit(&self, workspace: &Path) -> EaiResult<String> {
         evolution::EvolutionManager::perform_autonomous_drift_audit(workspace)
+    }
+    fn apply_patch_cycle(
+        &self,
+        workspace: &Path,
+        request_json: &str,
+        trust_level: &str,
+    ) -> EaiResult<String> {
+        let request: patch_cycle::PatchRequest = serde_json::from_str(request_json)
+            .map_err(|e| EaiError::governance(format!("invalid patch request JSON: {e}")))?;
+        let outcome = patch_cycle::apply_patch_cycle(workspace, &request, trust_level)?;
+        serde_json::to_string_pretty(&outcome)
+            .map_err(|e| EaiError::governance(format!("serialize patch outcome: {e}")))
     }
 }
 

@@ -322,6 +322,45 @@ impl GawdAgentFleet {
             }
         }
 
+        // 1b. Semantic intent bus: match goal against agent descriptions/anchors
+        // when keyword routing left gaps (or always boost discovery).
+        {
+            let caps: Vec<(String, String)> = available_agents
+                .iter()
+                .filter(|a| !a.is_core)
+                .map(|a| {
+                    let desc = format!(
+                        "{} {} {}",
+                        a.description,
+                        a.semantic_anchors.join(" "),
+                        a.categories.join(" ")
+                    );
+                    (a.name.clone(), desc)
+                })
+                .collect();
+            let bus = susi_core::intent_bus::IntentBus::global();
+            for (name, desc) in &caps {
+                let _ = bus.advertise(name, desc, serde_json::json!({"agent": name}), None);
+            }
+            let matched = bus.match_goal_to_capabilities(goal, &caps, 0.18, max_agents);
+            for (name, _score) in matched {
+                if fleet.iter().any(|a| a.name() == name) {
+                    continue;
+                }
+                if let Some(profile) = available_agents.iter().find(|a| a.name == name) {
+                    fleet.push(instantiate_agent(profile));
+                }
+            }
+            let _ = bus.need(
+                "MissionScheduler",
+                goal,
+                serde_json::json!({"workspace": workspace.display().to_string()}),
+                None,
+                0.18,
+                8,
+            );
+        }
+
         // 2. Inference endpoints mapping — open admission: any configured
         // OpenAI-compat / protocol endpoint mounts as a DynamicInferenceEndpointAgent
         // when api_base is set (env override optional).
@@ -835,6 +874,9 @@ mod tests {
             }
             fn perform_autonomous_drift_audit(&self, _: &Path) -> EaiResult<String> {
                 Ok(String::new())
+            }
+            fn apply_patch_cycle(&self, _: &Path, _: &str, _: &str) -> EaiResult<String> {
+                Ok(r#"{"applied":false,"error":"stub"}"#.into())
             }
         }
         crate::admin_hooks::init(Box::new(StubBloatHooks));

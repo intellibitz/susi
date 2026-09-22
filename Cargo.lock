@@ -6718,6 +6718,7 @@ dependencies = [
  "rayon",
  "serde_json",
  "susi-agents",
+ "susi-core",
  "susi-gawd",
  "susi-gemi",
  "susi-sandbox",

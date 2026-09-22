@@ -359,6 +359,10 @@ impl SusiConfig {
         self.get_or_bundled_default("inference_routing")
     }
 
+    pub fn privacy(&self) -> PrivacyConfig {
+        self.get_or_bundled_default("privacy")
+    }
+
     /// Leading external coding agents mounted as pluggable swarm peers.
     ///
     /// `config.default.json` / host `config.json` may list CLI/HTTP/A2A peers and

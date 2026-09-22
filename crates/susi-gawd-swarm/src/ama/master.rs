@@ -607,6 +607,143 @@ impl SusiMasterAgent {
         Ok(report)
     }
 
+    /// Autonomous planning loop: decompose the goal into steps, execute each
+    /// step with the normal mission pipeline, verify, and synthesize a final
+    /// answer. Bounded by `max_steps` and recursion depth.
+    pub fn solve_autonomous(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        max_steps: u32,
+    ) -> EaiResult<SusiMissionReport> {
+        let goal = Self::sanitize_input(goal)?;
+        let plan = self.plan_steps(&goal, workspace, max_steps);
+
+        let session = susi_core::capture::EvidenceSession::new(
+            &goal,
+            workspace,
+            susi_gawd_agents::security::SecurityDetector::redact,
+        )
+        .ok();
+        let _activation = session
+            .as_ref()
+            .map(susi_core::capture::EvidenceSession::activate);
+        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
+
+        let mut step_reports = Vec::new();
+        let mut step_summaries = Vec::new();
+
+        // Multi-agent transaction boundary for the planning loop.
+        let plan_tx = susi_core::agent_tx::TxManager::global()
+            .begin(
+                workspace,
+                &format!("autonomous plan: {goal}"),
+                &[],
+                Default::default(),
+            )
+            .ok();
+
+        for (i, step) in plan.iter().enumerate() {
+            eprintln!(
+                "\n[AUTONOMOUS PLAN] Step {}/{}: {}",
+                i + 1,
+                plan.len(),
+                step
+            );
+            let mut report = self.solve_internal(step, workspace, version, 0)?;
+            crate::cloud_recovery::recover(&mut report, workspace);
+
+            let success = report.status == "COMPLETE" || report.status == "SUCCESS";
+            let summary = format!(
+                "Step {}: {} -> status={}, answer={}",
+                i + 1,
+                step,
+                report.status,
+                report.final_answer.chars().take(200).collect::<String>()
+            );
+            step_summaries.push(summary);
+            step_reports.push(report.clone());
+
+            susi_core::context_graph::ContextGraph::global().record_agent_observation(
+                session.as_ref().map(|s| s.id()),
+                "AutonomousPlanner",
+                &format!("{}: {}", step, report.final_answer),
+                workspace,
+            );
+
+            if !success {
+                if let Some(ref tx) = plan_tx {
+                    let _ = susi_core::agent_tx::TxManager::global().abort(&tx.id, workspace);
+                }
+                let mut final_report = SusiMissionReport {
+                    goal: goal.clone(),
+                    status: "FAILED".to_string(),
+                    agents: report.agents,
+                    interactions: report.interactions,
+                    final_answer: format!(
+                        "Autonomous plan aborted at step {} (transaction rolled back). {}\n\nPrior steps:\n{}",
+                        i + 1,
+                        report.final_answer,
+                        step_summaries.join("\n")
+                    ),
+                };
+                attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
+                return Ok(final_report);
+            }
+        }
+
+        if let Some(ref tx) = plan_tx {
+            let _ = susi_core::agent_tx::TxManager::global().commit(&tx.id);
+        }
+
+        // Synthesize final answer from step results.
+        let synthesis_goal = if step_summaries.len() <= 1 {
+            goal.clone()
+        } else {
+            format!(
+                "Original goal: {}\n\nCompleted plan steps:\n{}\n\nSynthesize a concise final answer.",
+                goal,
+                step_summaries.join("\n")
+            )
+        };
+        let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
+        crate::cloud_recovery::recover(&mut final_report, workspace);
+        attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
+        Ok(final_report)
+    }
+
+    /// Ask the reasoning substrate to decompose `goal` into a bounded list of
+    /// steps. Falls back to a single-step plan if decomposition fails or the
+    /// model is unavailable.
+    fn plan_steps(&self, goal: &str, workspace: &Path, max_steps: u32) -> Vec<String> {
+        let prompt = format!(
+            "Break the following goal into at most {} concise, ordered steps. \
+             Return one step per line starting with a number and a period. \
+             Do not add extra commentary.\n\nGoal: {}\n\nSteps:",
+            max_steps.max(1).min(8),
+            goal
+        );
+        let response = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
+        let steps: Vec<String> = response
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| {
+                let trimmed = l.trim();
+                trimmed
+                    .split_once('.')
+                    .map(|(_, rest)| rest.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
+            .take(max_steps.max(1).min(8) as usize)
+            .collect();
+        if steps.is_empty() {
+            vec![goal.to_string()]
+        } else {
+            steps
+        }
+    }
+
     fn solve_internal(
         &self,
         goal: &str,

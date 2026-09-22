@@ -8,15 +8,19 @@ use clap::{Parser, Subcommand};
 
 use crate::agent_cli;
 use crate::aider_cli;
+use crate::ambient_cli;
 use crate::auto_cli;
 use crate::blackboard_cli;
+use crate::broker_cli;
 use crate::browser_use_cli;
+use crate::context_graph_cli;
 use crate::crown_cli;
 use crate::deerflow_cli;
 use crate::extensions_cli;
 use crate::framework_cli;
 use crate::frontier_cli;
 use crate::gemini_cli;
+use crate::intent_cli;
 use crate::mcp_cli;
 use crate::model_cli;
 use crate::open_weight_cli;
@@ -24,9 +28,14 @@ use crate::openclaw_cli;
 use crate::openhands_cli;
 use crate::openrouter_cli;
 use crate::openviking_cli;
+use crate::patch_cli;
+use crate::plan_cli;
+use crate::privacy_cli;
 use crate::python_engine_cli;
 use crate::substrate_cli;
 use crate::swe_agent_cli;
+use crate::telemetry_cli;
+use crate::tx_cli;
 
 #[derive(Parser)]
 #[command(name = "susi")]
@@ -86,6 +95,60 @@ pub(crate) enum Commands {
     Blackboard {
         #[command(subcommand)]
         action: Option<blackboard_cli::BlackboardCommands>,
+    },
+    /// Inspect and query the universal context graph
+    #[command(name = "context-graph", visible_alias = "cg")]
+    ContextGraph {
+        #[command(subcommand)]
+        action: Option<context_graph_cli::ContextGraphCommands>,
+    },
+    /// Inter-app permission and message broker
+    #[command(name = "broker")]
+    Broker {
+        #[command(subcommand)]
+        action: Option<broker_cli::BrokerCommands>,
+    },
+    /// Sample host telemetry (thermal / battery / load)
+    #[command(name = "telemetry")]
+    Telemetry {
+        #[command(subcommand)]
+        action: Option<telemetry_cli::TelemetryCommands>,
+    },
+    /// Apply a patch and run tests, rolling back on failure
+    #[command(name = "patch")]
+    Patch {
+        #[command(flatten)]
+        args: patch_cli::PatchApplyArgs,
+    },
+    /// Solve a goal using the autonomous planning loop
+    #[command(name = "plan")]
+    Plan {
+        #[command(flatten)]
+        args: plan_cli::PlanArgs,
+    },
+    /// Privacy mode, egress consent, and cryptographic capability grants
+    #[command(name = "privacy")]
+    Privacy {
+        #[command(subcommand)]
+        action: Option<privacy_cli::PrivacyCommands>,
+    },
+    /// Semantic intent bus (advertise / need / match)
+    #[command(name = "intent")]
+    Intent {
+        #[command(subcommand)]
+        action: Option<intent_cli::IntentCommands>,
+    },
+    /// Ambient FS → context graph / vector index sync
+    #[command(name = "ambient")]
+    Ambient {
+        #[command(subcommand)]
+        action: Option<ambient_cli::AmbientCommands>,
+    },
+    /// Multi-agent transactional snapshots
+    #[command(name = "tx")]
+    Tx {
+        #[command(subcommand)]
+        action: Option<tx_cli::TxCommands>,
     },
     /// Pluggable / Sandbox / Governance / Host-contract / Reflexes status
     Substrate {
@@ -401,6 +464,15 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Extensions { .. } => false,
         Commands::Auto { .. }
         | Commands::Blackboard { .. }
+        | Commands::ContextGraph { .. }
+        | Commands::Broker { .. }
+        | Commands::Telemetry { .. }
+        | Commands::Patch { .. }
+        | Commands::Plan { .. }
+        | Commands::Privacy { .. }
+        | Commands::Intent { .. }
+        | Commands::Ambient { .. }
+        | Commands::Tx { .. }
         | Commands::Substrate { .. }
         | Commands::Crown { .. } => false,
         Commands::Mcp {

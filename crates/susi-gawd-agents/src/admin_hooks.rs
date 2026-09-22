@@ -17,6 +17,14 @@ pub trait AdminHooks: Send + Sync {
     fn bloat_audit_workspace(&self, workspace: &Path) -> EaiResult<String>;
     /// Drift / self-healing audit (host owns `EvolutionManager`).
     fn perform_autonomous_drift_audit(&self, workspace: &Path) -> EaiResult<String>;
+    /// Apply a workspace-confined patch-then-test cycle (host owns `patch_cycle`).
+    /// `request_json` is a serialized `PatchRequest`. Returns serialized `PatchOutcome`.
+    fn apply_patch_cycle(
+        &self,
+        workspace: &Path,
+        request_json: &str,
+        trust_level: &str,
+    ) -> EaiResult<String>;
 }
 
 static HOOKS: OnceLock<Box<dyn AdminHooks>> = OnceLock::new();
@@ -61,8 +69,19 @@ impl AdminHooks for NoOpAdminHooks {
     fn perform_autonomous_drift_audit(&self, _workspace: &Path) -> EaiResult<String> {
         Ok("Substrate drift audit nominal (host hooks unwired).".to_string())
     }
+    fn apply_patch_cycle(
+        &self,
+        _workspace: &Path,
+        _request_json: &str,
+        _trust_level: &str,
+    ) -> EaiResult<String> {
+        Ok(
+            "[ADMIN_UNWIRED] apply_patch_cycle: susi_gawd_agents::admin_hooks::init was never called."
+                .to_string(),
+        )
+    }
 }
 
-pub(crate) fn hooks() -> &'static dyn AdminHooks {
+pub fn hooks() -> &'static dyn AdminHooks {
     HOOKS.get_or_init(|| Box::new(NoOpAdminHooks)).as_ref()
 }

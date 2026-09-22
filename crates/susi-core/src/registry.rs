@@ -79,6 +79,12 @@ impl<T: Tool> Tool for ObservedTool<T> {
         args: &serde_json::Value,
         workspace: &std::path::Path,
     ) -> susi_error::EaiResult<String> {
+        crate::mac_policy::MacPolicy::global().authorize_tool(
+            self.name(),
+            args,
+            workspace,
+            None,
+        )?;
         crate::capture::EvidenceSession::capture_call(self.name(), args, workspace, || {
             self.0.execute(args, workspace)
         })

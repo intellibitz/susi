@@ -239,6 +239,9 @@ impl InferenceRouter {
     /// One deterministic recovery pass, honoring local-only policy and the
     /// preferred vendor without changing process-wide routing preferences.
     pub fn cloud_failover_order(registry: &susi_core::registry::CapabilityRegistry) -> Vec<String> {
+        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            return Vec::new();
+        }
         let cfg = SusiConfig::load_global()
             .unwrap_or_default()
             .inference_routing();
@@ -301,6 +304,12 @@ impl InferenceRouter {
     /// Decide whether to escalate to cloud before local inference.
     /// Returns `None` when local path should proceed as usual.
     pub fn maybe_escalate_to_cloud(available_providers: &[String]) -> Option<CloudEscalation> {
+        // Hard edge-privacy gate: local_only MAC mode never escalates unless
+        // an explicit cloud.inference capability token was granted.
+        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            return None;
+        }
+
         let cfg = SusiConfig::load_global()
             .unwrap_or_default()
             .inference_routing();

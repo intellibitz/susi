@@ -668,6 +668,30 @@ pub struct InferenceRoutingConfig {
     pub ask_when_multiple_clouds: bool,
 }
 
+/// Edge privacy controls: local-only inference and egress consent.
+/// `mode`: `balanced` | `local_only` | `open`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PrivacyConfig {
+    pub mode: String,
+    /// When true (or mode is local_only), host `exec_command` requires
+    /// `process.exec` grant; prefer Docker `sandbox_exec`.
+    pub mandatory_sandbox_for_exec: bool,
+    /// When true (default), `network.egress` needs an explicit capability grant
+    /// or `susi privacy consent --egress`.
+    pub require_egress_consent: bool,
+}
+
+impl Default for PrivacyConfig {
+    fn default() -> Self {
+        Self {
+            mode: "balanced".into(),
+            mandatory_sandbox_for_exec: false,
+            require_egress_consent: true,
+        }
+    }
+}
+
 /// Config-driven external coding-agent peer (Claude Code, Cursor, Codex, …).
 ///
 /// Open admission: any name + protocol in `external_peer_agents` mounts as a

@@ -24,7 +24,7 @@ impl SusiRuntimeAdmin {
             let mut last_pulse = std::time::Instant::now();
             loop {
                 // 1. Hardware Load Watchdog (High-Resolution)
-                Self::perform_hardware_watchdog_audit();
+                Self::perform_hardware_watchdog_audit(&home);
 
                 // 2. Periodic host readiness (Every 5 minutes) — not project work
                 if last_pulse.elapsed() > Duration::from_secs(300) {
@@ -39,20 +39,27 @@ impl SusiRuntimeAdmin {
         });
     }
 
-    /// Hardware Watchdog: Autonomously adjusts substrate footprint based on system load.
-    fn perform_hardware_watchdog_audit() {
+    /// Hardware Watchdog: Autonomously adjusts substrate footprint based on
+    /// system load, temperature, and battery state.
+    fn perform_hardware_watchdog_audit(substrate_home: &Path) {
         let profile = HardwareProfiler::get_profile();
-        let load_parts: Vec<&str> = profile.load_avg.split(',').collect();
-        if let Some(load_1m_str) = load_parts.first()
-            && let Ok(load_1m) = load_1m_str.trim().parse::<f32>()
-        {
-            let cpu_threshold = profile.cpus as f32 * 0.85;
-            if load_1m > cpu_threshold {
-                // System is under stress. Ladder down concurrency.
-                susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
-            } else {
-                susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
-            }
+        let snapshot = crate::telemetry::sample_and_record(Some(substrate_home));
+        let load_1m = profile
+            .load_avg
+            .split(',')
+            .next()
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .or(snapshot.load_avg_1m)
+            .unwrap_or(0.0);
+        let cpu_threshold = profile.cpus as f32 * 0.85;
+        let thermal_stress = snapshot.max_temp_c().is_some_and(|t| t > 85.0);
+        let power_stress = snapshot.critical_battery();
+        let load_stress = load_1m > cpu_threshold;
+        if load_stress || thermal_stress || power_stress {
+            // System is under stress. Ladder down concurrency.
+            susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
+        } else {
+            susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
         }
     }
 

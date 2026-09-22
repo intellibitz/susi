@@ -3,6 +3,7 @@
 // Agents must add functionality directly to the susi engine, not simulate
 // results themselves.
 
+use susi_core::context_graph::{ContextGraph, NodeType};
 use susi_error::{EaiError, EaiResult};
 
 use std::path::Path;
@@ -368,8 +369,46 @@ impl GawdAgent for ContextAgent {
     ) -> EaiResult<String> {
         let (files, dirs) = scan_workspace_top_level(workspace);
         let markers = detect_project_markers(workspace);
+
+        // Universal Context Graph: surface recent activity in this workspace so
+        // agents are not operating in isolated silos.
+        let graph = ContextGraph::global();
+        let context_summary = {
+            let subgraph = graph.workspace_subgraph(workspace);
+            if subgraph.nodes.is_empty() {
+                "no prior recorded activity".to_string()
+            } else {
+                let recent_calls = subgraph
+                    .nodes
+                    .iter()
+                    .filter(|n| matches!(n.kind, NodeType::ToolCall))
+                    .take(5)
+                    .map(|n| n.label.chars().take(60).collect::<String>())
+                    .collect::<Vec<_>>();
+                let recent_obs = subgraph
+                    .nodes
+                    .iter()
+                    .filter(|n| matches!(n.kind, NodeType::Observation))
+                    .take(5)
+                    .map(|n| n.label.chars().take(60).collect::<String>())
+                    .collect::<Vec<_>>();
+                let mut parts = Vec::new();
+                if !recent_calls.is_empty() {
+                    parts.push(format!("recent tool calls: {}", recent_calls.join("; ")));
+                }
+                if !recent_obs.is_empty() {
+                    parts.push(format!("recent observations: {}", recent_obs.join("; ")));
+                }
+                if parts.is_empty() {
+                    format!("{} connected context nodes", subgraph.nodes.len())
+                } else {
+                    parts.join(" | ")
+                }
+            }
+        };
+
         let res = format!(
-            "[ContextAgent]: Workspace '{}' — {} top-level file(s), {} top-level subdirectory(ies). Detected project markers: {}.",
+            "[ContextAgent]: Workspace '{}' — {} top-level file(s), {} top-level subdirectory(ies). Detected project markers: {}. Prior context: {}.",
             workspace.display(),
             files,
             dirs,
@@ -377,9 +416,11 @@ impl GawdAgent for ContextAgent {
                 "none".to_string()
             } else {
                 markers.join(", ")
-            }
+            },
+            context_summary
         );
         blackboard.insert(self.name(), res.clone());
+        ContextGraph::global().record_agent_observation(None, &self.name(), &res, workspace);
         Ok(res)
     }
 }
@@ -803,6 +844,21 @@ impl GawdAgent for SelfHealingAgent {
             return Ok(res);
         }
 
+        // Apply-patch-then-test cycle when the goal embeds a PatchRequest JSON
+        // object (must contain a "files" array). Workspace-confined via host hooks.
+        if let Some(patch_json) = extract_patch_request_json(goal) {
+            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+            let outcome = crate::admin_hooks::hooks().apply_patch_cycle(
+                workspace,
+                &patch_json,
+                &cfg.trust_level(),
+            )?;
+            let res = format!("[SelfHealingAgent]: Patch cycle completed. {outcome}");
+            blackboard.insert(self.name(), res.clone());
+            ContextGraph::global().record_agent_observation(None, &self.name(), &res, workspace);
+            return Ok(res);
+        }
+
         let ws = workspace.to_path_buf();
         let audit = crate::admin_hooks::hooks()
             .perform_autonomous_drift_audit(&ws)
@@ -813,6 +869,22 @@ impl GawdAgent for SelfHealingAgent {
         );
         blackboard.insert(self.name(), res.clone());
         Ok(res)
+    }
+}
+
+/// Pull a JSON object containing a `files` array out of free-form goal text.
+fn extract_patch_request_json(goal: &str) -> Option<String> {
+    let start = goal.find('{')?;
+    let end = goal.rfind('}')?;
+    if end <= start {
+        return None;
+    }
+    let candidate = &goal[start..=end];
+    let value: serde_json::Value = serde_json::from_str(candidate).ok()?;
+    if value.get("files").and_then(|f| f.as_array()).is_some() {
+        Some(candidate.to_string())
+    } else {
+        None
     }
 }
 

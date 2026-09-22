@@ -466,6 +466,11 @@
     "system_ram_buffer_gb": 4.0
   },
   "trust_level": "Balanced",
+  "privacy": {
+    "mode": "balanced",
+    "mandatory_sandbox_for_exec": false,
+    "require_egress_consent": true
+  },
   "mcp_registry_url": "https://raw.githubusercontent.com/intellibitz/susi/main/registry.json",
   "reflex_training_threshold": 50,
   "gmcp_port": 9090,

@@ -9,6 +9,7 @@
 //! Crown rule: when a live ledger holds citable receipts, an answer must cite
 //! them. Generated text may select observations; it may never invent them.
 
+use crate::context_graph::ContextGraph;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -136,7 +137,7 @@ impl EvidenceSession {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| EaiError::internal(e.to_string()))?;
-        Ok(Arc::new(Self {
+        let session = Arc::new(Self {
             id: format!(
                 "{}-{}-{}",
                 std::process::id(),
@@ -148,7 +149,14 @@ impl EvidenceSession {
             next: AtomicU64::new(0),
             receipts: DashMap::new(),
             redact,
-        }))
+        });
+        ContextGraph::global().record_mission(
+            &session.id,
+            &session.goal,
+            &session.workspace,
+            std::env::var("USER").ok().as_deref(),
+        );
+        Ok(session)
     }
 
     pub fn current() -> Option<Arc<Self>> {
@@ -249,7 +257,11 @@ impl EvidenceSession {
             &self.goal,
             &receipt,
         );
-        self.receipts.insert(id, receipt);
+        self.receipts.insert(id.clone(), receipt);
+        // Universal Context Graph: every successful tool execution is a node
+        // linked to its mission, workspace, and tool. Arguments are digested,
+        // outputs stay in the live evidence ledger.
+        ContextGraph::global().record_tool_call(&self.id, &id, tool, arguments, &self.workspace);
     }
 
     pub fn receipts(&self) -> Vec<ToolReceipt> {

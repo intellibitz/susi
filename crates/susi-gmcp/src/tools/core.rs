@@ -7,9 +7,12 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use susi_core::broker::{IpcBroker, PermissionScope};
+use susi_core::context_graph::ContextGraph;
 use susi_error::{EaiError, EaiResult};
 use susi_gemi::hardware::HardwareProfiler;
 use susi_gemi::models::ModelManager;
+use susi_gemi::telemetry::sample as sample_telemetry;
 use susi_tools::hooks::hooks as engine_hooks;
 use susi_tools::GmcpClient;
 
@@ -300,6 +303,27 @@ impl CoreTools {
         let clean = arg_s.trim();
         if clean.is_empty() {
             return Err(EaiError::protocol("Usage: exec_command <cmd>"));
+        }
+
+        // Mandatory sandbox: redirect host exec into Docker isolation.
+        if susi_core::mac_policy::MacPolicy::global().mandatory_sandbox()
+            && !susi_core::mac_policy::MacPolicy::global().is_permitted(
+                "susi",
+                susi_core::mac_policy::actions::PROCESS_EXEC,
+                "*",
+            )
+        {
+            engine_hooks().audit_action("sandbox_exec", clean, workspace)?;
+            return Self::shared_runtime()?
+                .block_on(async {
+                    susi_sandbox::manager::SandboxManager::execute_in_docker(clean).await
+                })
+                .map_err(|e| {
+                    EaiError::process(format!(
+                        "[PRIVACY] mandatory sandbox: Docker execution failed: {e}. \
+                     Grant process.exec or ensure Docker is running."
+                    ))
+                });
         }
 
         engine_hooks().audit_action("exec_command", clean, workspace)?;
@@ -1067,6 +1091,403 @@ impl CoreTools {
             ));
         }
         Ok(out)
+    }
+
+    #[tool(
+        name = "context_graph_query",
+        description = "Query the Universal Context Graph for the current workspace or a specific node id"
+    )]
+    pub fn context_graph_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let graph = susi_core::context_graph::ContextGraph::global();
+        let _ = graph.replay();
+        if let Some(node_id) = arg.get("node_id").and_then(|v| v.as_str()) {
+            let depth = arg.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+            let node = susi_core::context_graph::NodeId(node_id.to_string());
+            let subgraph = graph.related(&node, depth);
+            Ok(serde_json::to_string_pretty(&subgraph).unwrap_or_else(|_| "{}".to_string()))
+        } else {
+            let subgraph = graph.workspace_subgraph(workspace);
+            let events: Vec<_> = subgraph
+                .nodes
+                .into_iter()
+                .map(|n| {
+                    serde_json::json!({
+                        "type": "node",
+                        "id": n.id.0,
+                        "kind": format!("{:?}", n.kind),
+                        "label": n.label,
+                        "created_at": n.created_at,
+                    })
+                })
+                .chain(subgraph.edges.into_iter().map(|e| {
+                    serde_json::json!({
+                        "type": "edge",
+                        "id": e.id,
+                        "source": e.source.0,
+                        "target": e.target.0,
+                        "kind": format!("{:?}", e.kind),
+                        "created_at": e.created_at,
+                    })
+                }))
+                .collect();
+            Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "workspace": workspace.display().to_string(),
+                "event_count": events.len(),
+                "events": events,
+            }))
+            .unwrap_or_else(|_| "{}".to_string()))
+        }
+    }
+
+    #[tool(
+        name = "context_graph_ingest",
+        description = "Ingest an external context event into the Universal Context Graph. Args: source (string), label (string), payload (object), optional workspace, optional user."
+    )]
+    pub fn context_graph_ingest(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let source = arg
+            .get("source")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let label = arg
+            .get("label")
+            .and_then(|v| v.as_str())
+            .unwrap_or("external context");
+        let payload = arg.get("payload").unwrap_or(&serde_json::Value::Null);
+        let ws = arg
+            .get("workspace")
+            .and_then(|v| v.as_str())
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| workspace.to_path_buf());
+        let user = arg.get("user").and_then(|v| v.as_str());
+        let id =
+            ContextGraph::global().record_external_context(source, label, payload, Some(&ws), user);
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "ingested": true,
+            "node_id": id.0,
+        }))
+        .unwrap_or_else(|_| "{}".to_string()))
+    }
+
+    #[tool(
+        name = "context_graph_compact",
+        description = "Compact the append-only Universal Context Graph log"
+    )]
+    pub fn context_graph_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let graph = ContextGraph::global();
+        let _ = graph.replay();
+        let (old_lines, new_lines) = graph.compact()?;
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "compacted": true,
+            "old_lines": old_lines,
+            "new_lines": new_lines,
+        }))
+        .unwrap_or_else(|_| "{}".to_string()))
+    }
+
+    #[tool(
+        name = "ipc_grant",
+        description = "Grant an inter-app permission scope. Args: grantor, grantee, resource, action, optional ttl_secs."
+    )]
+    pub fn ipc_grant(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let grantor = arg
+            .get("grantor")
+            .and_then(|v| v.as_str())
+            .unwrap_or("susi");
+        let grantee = arg
+            .get("grantee")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_grant requires grantee"))?;
+        let resource = arg
+            .get("resource")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_grant requires resource"))?;
+        let action = arg
+            .get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_grant requires action"))?;
+        let ttl_secs = arg.get("ttl_secs").and_then(|v| v.as_u64());
+        let scope = PermissionScope::new(resource, action);
+        let grant = IpcBroker::global().grant_and_record(
+            grantor,
+            grantee,
+            scope,
+            ttl_secs,
+            Some(workspace),
+        );
+        Ok(serde_json::to_string_pretty(&grant).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "ipc_request",
+        description = "Request an inter-app permission (opens negotiation). Args: requester, resource, action, optional grantor, optional ttl_secs."
+    )]
+    pub fn ipc_request(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let requester = arg
+            .get("requester")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_request requires requester"))?;
+        let grantor = arg
+            .get("grantor")
+            .and_then(|v| v.as_str())
+            .unwrap_or("susi");
+        let resource = arg
+            .get("resource")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_request requires resource"))?;
+        let action = arg
+            .get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_request requires action"))?;
+        let ttl_secs = arg.get("ttl_secs").and_then(|v| v.as_u64());
+        let scope = PermissionScope::new(resource, action);
+        let req = IpcBroker::global().request(requester, grantor, scope, ttl_secs);
+        Ok(serde_json::to_string_pretty(&req).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "ipc_negotiate",
+        description = "Approve or deny a pending permission request. Args: request_id, actor, approve (bool)."
+    )]
+    pub fn ipc_negotiate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let request_id = arg
+            .get("request_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_negotiate requires request_id"))?;
+        let actor = arg.get("actor").and_then(|v| v.as_str()).unwrap_or("susi");
+        let approve = arg
+            .get("approve")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let resolved = IpcBroker::global()
+            .negotiate(request_id, actor, approve, Some(workspace))
+            .map_err(EaiError::governance)?;
+        Ok(serde_json::to_string_pretty(&resolved).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "ipc_send",
+        description = "Send a broker message (requires dispatch grant unless from=susi). Args: from, to, topic, payload."
+    )]
+    pub fn ipc_send(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let from = arg
+            .get("from")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_send requires from"))?;
+        let to = arg
+            .get("to")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_send requires to"))?;
+        let topic = arg
+            .get("topic")
+            .and_then(|v| v.as_str())
+            .unwrap_or("message");
+        let payload = arg
+            .get("payload")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let msg = IpcBroker::global()
+            .send(from, to, topic, payload)
+            .map_err(EaiError::governance)?;
+        Ok(serde_json::to_string_pretty(&msg).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "ipc_receive",
+        description = "Receive broker messages for an identity. Args: recipient, optional limit."
+    )]
+    pub fn ipc_receive(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let recipient = arg
+            .get("recipient")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("ipc_receive requires recipient"))?;
+        let limit = arg.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
+        let msgs = IpcBroker::global().receive(recipient, limit);
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "recipient": recipient,
+            "messages": msgs,
+        }))
+        .unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "host_telemetry",
+        description = "Sample host thermal, battery, and load telemetry"
+    )]
+    pub fn host_telemetry(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let snapshot = sample_telemetry();
+        ContextGraph::global().record_telemetry(&snapshot, Some(workspace));
+        Ok(serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "apply_patch_cycle",
+        description = "Apply a workspace-confined patch then run tests; revert on failure. Args: files[{path,old,new}], optional test_command, auto_apply, description."
+    )]
+    pub fn apply_patch_cycle(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        if arg
+            .get("files")
+            .and_then(|f| f.as_array())
+            .is_none_or(|a| a.is_empty())
+        {
+            return Err(EaiError::governance("apply_patch_cycle requires files[]"));
+        }
+        let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+        let request_json = serde_json::to_string(arg)
+            .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
+        susi_gawd_agents::admin_hooks::hooks().apply_patch_cycle(
+            workspace,
+            &request_json,
+            &cfg.trust_level(),
+        )
+    }
+
+    #[tool(
+        name = "privacy_status",
+        description = "Report privacy mode, mandatory sandbox, and cryptographic capability grants"
+    )]
+    pub fn privacy_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        Ok(
+            serde_json::to_string_pretty(&susi_core::mac_policy::MacPolicy::global().status_json())
+                .unwrap_or_else(|_| "{}".into()),
+        )
+    }
+
+    #[tool(
+        name = "privacy_consent_egress",
+        description = "Grant time-limited network.egress (+ cloud.inference under local_only). Args: optional subject, optional ttl_secs."
+    )]
+    pub fn privacy_consent_egress(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let subject = arg
+            .get("subject")
+            .and_then(|v| v.as_str())
+            .unwrap_or("susi");
+        let ttl = arg.get("ttl_secs").and_then(|v| v.as_u64()).unwrap_or(3600);
+        let tokens = susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl);
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "consented": true,
+            "tokens": tokens,
+        }))
+        .unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "intent_advertise",
+        description = "Advertise a provider capability. Args: from, intent, optional payload."
+    )]
+    pub fn intent_advertise(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let from = arg.get("from").and_then(|v| v.as_str()).unwrap_or("agent");
+        let intent = arg
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("intent_advertise requires intent"))?;
+        let payload = arg
+            .get("payload")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+        let msg = susi_core::intent_bus::IntentBus::global().advertise(from, intent, payload, None);
+        Ok(serde_json::to_string_pretty(&msg).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "intent_need",
+        description = "Publish a need and match providers. Args: from, intent, optional min_score, limit."
+    )]
+    pub fn intent_need(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let from = arg
+            .get("from")
+            .and_then(|v| v.as_str())
+            .unwrap_or("planner");
+        let intent = arg
+            .get("intent")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("intent_need requires intent"))?;
+        let min_score = arg.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.2) as f32;
+        let limit = arg.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+        let (need, matches) = susi_core::intent_bus::IntentBus::global().need(
+            from,
+            intent,
+            arg.get("payload")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+            None,
+            min_score,
+            limit,
+        );
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "need": need,
+            "matches": matches,
+        }))
+        .unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[cfg(feature = "tools-rich")]
+    #[tool(
+        name = "ambient_pulse",
+        description = "Scan workspace FS changes into context graph and refresh semantic index"
+    )]
+    pub fn ambient_pulse(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let indexed = super::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
+        ContextGraph::global().record_external_context(
+            "ambient_pulse",
+            "manual ambient pulse",
+            &serde_json::json!({"docs_indexed": indexed}),
+            Some(workspace),
+            None,
+        );
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "docs_indexed": indexed,
+        }))
+        .unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "tx_begin",
+        description = "Begin multi-agent transaction. Args: description, files (array of relative paths)."
+    )]
+    pub fn tx_begin(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let description = arg
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("agent tx");
+        let files: Vec<String> = arg
+            .get("files")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let tx = susi_core::agent_tx::TxManager::global().begin(
+            workspace,
+            description,
+            &files,
+            Default::default(),
+        )?;
+        Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(name = "tx_commit", description = "Commit open transaction. Args: id.")]
+    pub fn tx_commit(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let id = arg
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("tx_commit requires id"))?;
+        let tx = susi_core::agent_tx::TxManager::global().commit(id)?;
+        Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
+    }
+
+    #[tool(
+        name = "tx_abort",
+        description = "Abort transaction and restore files. Args: id."
+    )]
+    pub fn tx_abort(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let id = arg
+            .get("id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
+        let tx = susi_core::agent_tx::TxManager::global().abort(id, workspace)?;
+        Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 }
 

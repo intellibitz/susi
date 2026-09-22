@@ -274,6 +274,9 @@ impl GemiEngine {
             .into_iter()
             .filter(|n| n != "Candle (Local)")
             .collect();
+        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            names.retain(|n| !crate::routing::InferenceRouter::is_cloud_provider_name(n));
+        }
         if names.is_empty() {
             return None;
         }

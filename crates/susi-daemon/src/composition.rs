@@ -23,5 +23,10 @@ pub fn wire_cli_substrate(substrate: &Path) {
     let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     susi_gemi::http_provider::apply_cloud_env_file();
     let _ = std::fs::create_dir_all(substrate);
+    susi_core::context_graph::ContextGraph::init_global_storage(
+        substrate.join("context_graph.jsonl"),
+    );
+    crate::privacy::wire_mac_policy(substrate);
+    crate::ambient::start_ambient_indexer(substrate);
     crate::auto_discovery::auto_prime_ecosystem(substrate);
 }

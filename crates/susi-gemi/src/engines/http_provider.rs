@@ -461,6 +461,12 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
 /// `~/.susi/cloud.env`, or `susi keys set <vendor>`).
 pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
+    if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        if std::env::var("SUSI_VERBOSE").is_ok() {
+            eprintln!("[PRIVACY] local_only mode — skipping cloud inference endpoint registration");
+        }
+        return;
+    }
     for endpoint in effective_inference_endpoints() {
         let api_base = endpoint.api_base.trim().to_string();
         if api_base.is_empty() {

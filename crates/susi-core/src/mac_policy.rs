@@ -1,0 +1,530 @@
+//! Mandatory Access Control (MAC) for agent tool I/O and egress.
+//!
+//! Cryptographic capability tokens (HMAC-SHA256) bound to subject / action /
+//! resource / expiry. Composition root loads the host key and privacy mode;
+//! every tool dispatch must pass [`MacPolicy::authorize_tool`].
+
+use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{OnceLock, RwLock};
+use susi_error::{EaiError, EaiResult};
+
+const HMAC_BLOCK: usize = 64;
+
+/// Privacy posture for the substrate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PrivacyMode {
+    /// Read/write/exec allowed for host; network egress still needs a grant.
+    #[default]
+    Balanced,
+    /// No cloud inference, no network egress, host exec forced through sandbox
+    /// unless a capability token explicitly allows otherwise.
+    LocalOnly,
+    /// Permissive: default grants include network.egress (still audited).
+    Open,
+}
+
+impl PrivacyMode {
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "local_only" | "local-only" | "edge" | "strict" => Self::LocalOnly,
+            "open" | "permissive" => Self::Open,
+            _ => Self::Balanced,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Balanced => "balanced",
+            Self::LocalOnly => "local_only",
+            Self::Open => "open",
+        }
+    }
+}
+
+/// Canonical capability actions (align with extension-pack vocabulary).
+pub mod actions {
+    pub const FILESYSTEM_READ: &str = "filesystem.read";
+    pub const FILESYSTEM_WRITE: &str = "filesystem.write";
+    pub const PROCESS_EXEC: &str = "process.exec";
+    pub const SANDBOX_EXEC: &str = "sandbox.exec";
+    pub const NETWORK_EGRESS: &str = "network.egress";
+    pub const TRANSMIT: &str = "transmit";
+    pub const CLOUD_INFERENCE: &str = "cloud.inference";
+}
+
+/// HMAC-signed capability grant.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityToken {
+    pub subject: String,
+    pub action: String,
+    pub resource: String,
+    pub issued_at: u64,
+    pub expires_at: Option<u64>,
+    /// Hex-encoded HMAC-SHA256 over the canonical payload.
+    pub signature: String,
+}
+
+impl CapabilityToken {
+    fn canonical_payload(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.subject,
+            self.action,
+            self.resource,
+            self.issued_at,
+            self.expires_at
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "none".into())
+        )
+    }
+
+    pub fn is_expired(&self, now: u64) -> bool {
+        self.expires_at.is_some_and(|exp| exp <= now)
+    }
+}
+
+fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
+    let mut keyed = [0u8; HMAC_BLOCK];
+    keyed[..32].copy_from_slice(key);
+    let mut ipad = [0x36u8; HMAC_BLOCK];
+    let mut opad = [0x5cu8; HMAC_BLOCK];
+    for i in 0..HMAC_BLOCK {
+        ipad[i] ^= keyed[i];
+        opad[i] ^= keyed[i];
+    }
+    let mut inner = Sha256::new();
+    inner.update(ipad);
+    inner.update(message);
+    let inner_hash = inner.finalize();
+    let mut outer = Sha256::new();
+    outer.update(opad);
+    outer.update(inner_hash);
+    let out = outer.finalize();
+    let mut mac = [0u8; 32];
+    mac.copy_from_slice(&out);
+    mac
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn grant_key(subject: &str, action: &str, resource: &str) -> String {
+    format!("{subject}|{action}|{resource}")
+}
+
+/// Process-wide MAC enforcer.
+pub struct MacPolicy {
+    key: [u8; 32],
+    grants: DashMap<String, CapabilityToken>,
+    mode: RwLock<PrivacyMode>,
+    mandatory_sandbox: AtomicBool,
+    /// When true, every elevated check requires a verified token (always on).
+    enforce: AtomicBool,
+}
+
+static POLICY: OnceLock<MacPolicy> = OnceLock::new();
+
+impl MacPolicy {
+    pub fn new(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> Self {
+        let p = Self {
+            key,
+            grants: DashMap::new(),
+            mode: RwLock::new(mode),
+            mandatory_sandbox: AtomicBool::new(mandatory_sandbox),
+            enforce: AtomicBool::new(true),
+        };
+        p.seed_defaults();
+        p
+    }
+
+    /// Initialize the global policy (first call wins).
+    pub fn init_global(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> &'static Self {
+        POLICY.get_or_init(|| Self::new(key, mode, mandatory_sandbox))
+    }
+
+    pub fn global() -> &'static Self {
+        POLICY.get_or_init(|| {
+            // Ephemeral key for tests / unwired contexts — still enforces MAC.
+            let mut key = [0u8; 32];
+            let seed = format!("susi-mac-ephemeral:{}", std::process::id());
+            let digest = Sha256::digest(seed.as_bytes());
+            key.copy_from_slice(&digest[..32]);
+            Self::new(key, PrivacyMode::Balanced, false)
+        })
+    }
+
+    pub fn mode(&self) -> PrivacyMode {
+        *self.mode.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn set_mode(&self, mode: PrivacyMode) {
+        if let Ok(mut g) = self.mode.write() {
+            *g = mode;
+        }
+        // Drop elevated grants so the new posture is authoritative.
+        self.revoke("susi", actions::NETWORK_EGRESS, "*");
+        self.revoke("susi", actions::CLOUD_INFERENCE, "*");
+        self.revoke("susi", actions::PROCESS_EXEC, "*");
+        self.mandatory_sandbox
+            .store(matches!(mode, PrivacyMode::LocalOnly), Ordering::Relaxed);
+        self.seed_defaults();
+    }
+
+    pub fn mandatory_sandbox(&self) -> bool {
+        self.mandatory_sandbox.load(Ordering::Relaxed)
+            || matches!(self.mode(), PrivacyMode::LocalOnly)
+    }
+
+    pub fn set_mandatory_sandbox(&self, on: bool) {
+        self.mandatory_sandbox.store(on, Ordering::Relaxed);
+    }
+
+    /// True when cloud inference / remote providers must not receive payloads.
+    pub fn blocks_cloud_inference(&self) -> bool {
+        matches!(self.mode(), PrivacyMode::LocalOnly)
+            && !self.is_permitted("susi", actions::CLOUD_INFERENCE, "*")
+    }
+
+    /// True when network egress tools must not run without a grant.
+    pub fn blocks_network_by_default(&self) -> bool {
+        !matches!(self.mode(), PrivacyMode::Open)
+    }
+
+    fn sign(&self, token: &CapabilityToken) -> String {
+        hex::encode(hmac_sha256(&self.key, token.canonical_payload().as_bytes()))
+    }
+
+    pub fn verify(&self, token: &CapabilityToken) -> bool {
+        if token.is_expired(now_secs()) {
+            return false;
+        }
+        let expect = self.sign(token);
+        // Constant-time-ish compare
+        expect.as_bytes().len() == token.signature.as_bytes().len()
+            && expect
+                .as_bytes()
+                .iter()
+                .zip(token.signature.as_bytes())
+                .fold(0u8, |acc, (a, b)| acc | (a ^ b))
+                == 0
+    }
+
+    /// Issue and store a capability token.
+    pub fn grant(
+        &self,
+        subject: &str,
+        action: &str,
+        resource: &str,
+        ttl_secs: Option<u64>,
+    ) -> CapabilityToken {
+        let issued = now_secs();
+        let mut token = CapabilityToken {
+            subject: subject.into(),
+            action: action.into(),
+            resource: resource.into(),
+            issued_at: issued,
+            expires_at: ttl_secs.map(|t| issued + t),
+            signature: String::new(),
+        };
+        token.signature = self.sign(&token);
+        self.grants
+            .insert(grant_key(subject, action, resource), token.clone());
+        token
+    }
+
+    pub fn revoke(&self, subject: &str, action: &str, resource: &str) -> bool {
+        self.grants
+            .remove(&grant_key(subject, action, resource))
+            .is_some()
+    }
+
+    pub fn grants_for(&self, subject: &str) -> Vec<CapabilityToken> {
+        self.grants
+            .iter()
+            .filter(|e| e.value().subject == subject)
+            .map(|e| e.value().clone())
+            .collect()
+    }
+
+    /// Explicit operator consent for network egress (and optionally cloud).
+    pub fn consent_egress(&self, subject: &str, ttl_secs: u64) -> Vec<CapabilityToken> {
+        let mut out = vec![self.grant(subject, actions::NETWORK_EGRESS, "*", Some(ttl_secs))];
+        if matches!(self.mode(), PrivacyMode::LocalOnly) {
+            out.push(self.grant(subject, actions::CLOUD_INFERENCE, "*", Some(ttl_secs)));
+        }
+        out
+    }
+
+    pub fn is_permitted(&self, subject: &str, action: &str, resource: &str) -> bool {
+        if !self.enforce.load(Ordering::Relaxed) {
+            return true;
+        }
+        let now = now_secs();
+        // Exact match
+        if let Some(t) = self.grants.get(&grant_key(subject, action, resource)) {
+            if self.verify(t.value()) && !t.is_expired(now) {
+                return true;
+            }
+        }
+        // Wildcard resource grant
+        if resource != "*" {
+            if let Some(t) = self.grants.get(&grant_key(subject, action, "*")) {
+                if self.verify(t.value()) && !t.is_expired(now) {
+                    return true;
+                }
+            }
+        }
+        // Prefix resource: grant resource is a prefix of requested
+        for entry in self.grants.iter() {
+            let t = entry.value();
+            if t.subject == subject
+                && t.action == action
+                && resource.starts_with(&t.resource)
+                && self.verify(t)
+                && !t.is_expired(now)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn seed_defaults(&self) {
+        let subject = "susi";
+        // Always allow local read of workspace-scoped data.
+        let _ = self.grant(subject, actions::FILESYSTEM_READ, "*", None);
+        let _ = self.grant(subject, actions::FILESYSTEM_WRITE, "*", None);
+        let _ = self.grant(subject, actions::SANDBOX_EXEC, "*", None);
+        let _ = self.grant(subject, actions::TRANSMIT, "app://*", None);
+
+        match self.mode() {
+            PrivacyMode::Open => {
+                let _ = self.grant(subject, actions::PROCESS_EXEC, "*", None);
+                let _ = self.grant(subject, actions::NETWORK_EGRESS, "*", None);
+                let _ = self.grant(subject, actions::CLOUD_INFERENCE, "*", None);
+            }
+            PrivacyMode::Balanced => {
+                let _ = self.grant(subject, actions::PROCESS_EXEC, "*", None);
+                // Signed default egress for host substrate so zero-config MCP
+                // keeps working; revoke or switch to local_only to lock down.
+                let _ = self.grant(subject, actions::NETWORK_EGRESS, "*", None);
+                let _ = self.grant(subject, actions::CLOUD_INFERENCE, "*", None);
+            }
+            PrivacyMode::LocalOnly => {
+                // No host process.exec by default — sandbox only.
+                // No network / cloud without consent_egress.
+            }
+        }
+    }
+
+    /// Map a tool name to required (action, resource) pairs.
+    pub fn requirements_for_tool(tool: &str) -> Vec<(&'static str, &'static str)> {
+        let t = tool.to_ascii_lowercase();
+        // Network / cloud surfaces
+        if t.contains("browser")
+            || t.starts_with("mcp_")
+            || t.starts_with("leading_mcp")
+            || t.contains("scout_model")
+            || t.contains("download")
+            || t == "rag_query"
+            || t.contains("http")
+            || t.contains("fetch")
+            || t.contains("web_search")
+            || t.contains("live_search")
+        {
+            return vec![(actions::NETWORK_EGRESS, "*")];
+        }
+        if t == "exec_command" {
+            return vec![(actions::PROCESS_EXEC, "*")];
+        }
+        if t == "sandbox_exec" {
+            return vec![(actions::SANDBOX_EXEC, "*")];
+        }
+        if t == "write_file" || t == "apply_patch_cycle" {
+            return vec![(actions::FILESYSTEM_WRITE, "*")];
+        }
+        if t == "read_file"
+            || t.starts_with("context_graph")
+            || t == "status"
+            || t == "identity"
+            || t == "host_telemetry"
+            || t == "list_models"
+        {
+            return vec![(actions::FILESYSTEM_READ, "*")];
+        }
+        if t.starts_with("ipc_send") {
+            return vec![(actions::TRANSMIT, "*")];
+        }
+        if t == "reason" || t == "susi_solve" || t.starts_with("agents_") {
+            // Local swarm reasoning — read only at MAC layer; cloud blocked separately.
+            return vec![(actions::FILESYSTEM_READ, "*")];
+        }
+        // Default: treat unknown tools as needing read (fail open-ish within local).
+        vec![(actions::FILESYSTEM_READ, "*")]
+    }
+
+    /// Authorize a tool invocation for `subject` (defaults to `"susi"`).
+    pub fn authorize_tool(
+        &self,
+        tool: &str,
+        _arg: &serde_json::Value,
+        _workspace: &Path,
+        subject: Option<&str>,
+    ) -> EaiResult<()> {
+        let subject = subject.unwrap_or("susi");
+
+        // Local-only / mandatory sandbox: host exec may proceed only with
+        // process.exec, otherwise CoreTools redirects to sandbox_exec — allow
+        // when sandbox.exec is held.
+        if tool == "exec_command" && self.mandatory_sandbox() {
+            if self.is_permitted(subject, actions::PROCESS_EXEC, "*") {
+                return Ok(());
+            }
+            if self.is_permitted(subject, actions::SANDBOX_EXEC, "*") {
+                return Ok(());
+            }
+            return Err(EaiError::governance(format!(
+                "MAC DENY: exec_command blocked under {} — use sandbox_exec or grant {} / {}",
+                self.mode().as_str(),
+                actions::PROCESS_EXEC,
+                actions::SANDBOX_EXEC
+            )));
+        }
+
+        let reqs = Self::requirements_for_tool(tool);
+        for (action, resource) in reqs {
+            if action == actions::NETWORK_EGRESS && self.blocks_network_by_default() {
+                if !self.is_permitted(subject, action, resource) {
+                    return Err(EaiError::governance(format!(
+                        "MAC DENY: `{tool}` needs {action} — run `susi privacy consent --egress` or grant a capability token"
+                    )));
+                }
+            } else if !self.is_permitted(subject, action, resource) {
+                return Err(EaiError::governance(format!(
+                    "MAC DENY: subject `{subject}` lacks {action} on {resource} for tool `{tool}`"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Snapshot for CLI / telemetry.
+    pub fn status_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "mode": self.mode().as_str(),
+            "mandatory_sandbox": self.mandatory_sandbox(),
+            "blocks_cloud_inference": self.blocks_cloud_inference(),
+            "blocks_network_by_default": self.blocks_network_by_default(),
+            "grants": self.grants_for("susi"),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy(mode: PrivacyMode) -> MacPolicy {
+        MacPolicy::new([7u8; 32], mode, matches!(mode, PrivacyMode::LocalOnly))
+    }
+
+    #[test]
+    fn tokens_verify_and_expire() {
+        let p = policy(PrivacyMode::Balanced);
+        let t = p.grant("agent-a", actions::NETWORK_EGRESS, "*", Some(3600));
+        assert!(p.verify(&t));
+        assert!(p.is_permitted("agent-a", actions::NETWORK_EGRESS, "*"));
+        let expired = p.grant("agent-b", actions::NETWORK_EGRESS, "*", Some(0));
+        assert!(!p.is_permitted("agent-b", actions::NETWORK_EGRESS, "*"));
+        assert!(expired.is_expired(now_secs()));
+    }
+
+    #[test]
+    fn local_only_denies_network_without_consent() {
+        let p = policy(PrivacyMode::LocalOnly);
+        let arg = serde_json::json!({"url": "https://example.com"});
+        assert!(p
+            .authorize_tool("browser_automate", &arg, Path::new("."), None)
+            .is_err());
+        let _ = p.consent_egress("susi", 60);
+        assert!(p
+            .authorize_tool("browser_automate", &arg, Path::new("."), None)
+            .is_ok());
+    }
+
+    #[test]
+    fn local_only_blocks_host_exec_without_grant() {
+        let p = policy(PrivacyMode::LocalOnly);
+        // sandbox.exec is seeded — authorize allows redirect path
+        assert!(p
+            .authorize_tool(
+                "exec_command",
+                &serde_json::json!("ls"),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        assert!(p
+            .authorize_tool(
+                "sandbox_exec",
+                &serde_json::json!({"cmd": "echo hi"}),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
+    }
+
+    #[test]
+    fn balanced_allows_read_write_exec() {
+        let p = policy(PrivacyMode::Balanced);
+        assert!(p
+            .authorize_tool("read_file", &serde_json::json!({}), Path::new("."), None)
+            .is_ok());
+        assert!(p
+            .authorize_tool(
+                "exec_command",
+                &serde_json::json!("cargo test"),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        // Balanced seeds signed network.egress for host continuity.
+        assert!(p
+            .authorize_tool(
+                "browser_automate",
+                &serde_json::json!({}),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn switching_to_local_only_revokes_cloud_grants() {
+        let p = policy(PrivacyMode::Balanced);
+        assert!(p.is_permitted("susi", actions::CLOUD_INFERENCE, "*"));
+        p.set_mode(PrivacyMode::LocalOnly);
+        assert!(p.blocks_cloud_inference());
+        assert!(!p.is_permitted("susi", actions::NETWORK_EGRESS, "*"));
+        assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
+        assert!(p.mandatory_sandbox());
+    }
+
+    #[test]
+    fn tampered_token_rejected() {
+        let p = policy(PrivacyMode::Open);
+        let mut t = p.grant("x", actions::FILESYSTEM_READ, "*", None);
+        t.signature = "00".repeat(32);
+        assert!(!p.verify(&t));
+    }
+}
