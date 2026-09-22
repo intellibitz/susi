@@ -1176,6 +1176,16 @@
         "ref": "file://crates/susi-gemi-models/src/catalog_store.rs"
       },
       "proof": "FIXED 2026-09-22: Phase 1 optimization (Mandate 3 + 35). Config: flatten catch-alls on FrontierOverride/OpenWeightOverride/CodingModelOverride/LeadingMcpOverride, ExtensionManifest/ExtensionsState, AgentDefinition; removed deny_unknown_fields on Adapter; kept execution-peers.legacy as exact-builtin migrate helper. Source: shared catalog_store::{private_dir,atomic_json} for frontier/open-weight/coding/openrouter; susi-server json_response no terminal unwrap. Structure: src/cli_json.rs replaces ~24 print_json copies; README documents separate editorial catalog views. Root Cargo.toml: dropped unused direct deps (wasmer/qdrant/fastembed/bollard/tantivy/headless_chrome/hyper/rmcp/…); retained candle for cuda|mkl|metal feature forward. Verified: cargo check -p susi; susi-gemi-models lib tests; leading_mcp + extensions tests; genome test."
+    },
+    {
+      "id": "EV-2022922-112",
+      "type": "CODE",
+      "milestone": "Optimize Phase 2: execution-agent CLI DRY + manager.rs module split",
+      "anchor": {
+        "label": "execution_agent_cli + manager/{json_util,types,config,runtime}",
+        "ref": "file://src/execution_agent_cli.rs"
+      },
+      "proof": "FIXED 2026-09-22: Phase 2. Structure: src/execution_agent_cli.rs shared plane (List/Doctor/Setup/Run/Tasks/Status/Logs/Cancel + launch/worker); thin wrappers for aider/openhands/gemini/swe-agent/openclaw/browser-use/deerflow/openviking (~160→~25 lines each). Source: split crates/susi-sandbox/src/manager.rs (2375) into manager/{json_util,types,config,runtime}.rs with pub use compatibility (susi_sandbox::manager::* unchanged); fixed include_str depth; restored SusiConfig without #[serde(default)] (struct-level default + OnceLock bundled_defaults deadlocks Deserialize). Deferred agents.rs split — native agents call GawdAgentFleet::is_meta_command (circular); needs shared meta helper first. Verified: cargo check -p susi; susi-sandbox manager::runtime::tests::test_* + extensions tests; fmt."
     }
   ]
 }

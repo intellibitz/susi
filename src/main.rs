@@ -14,6 +14,7 @@ mod browser_use_cli;
 mod cli_json;
 mod crown_cli;
 mod deerflow_cli;
+mod execution_agent_cli;
 mod extensions_cli;
 mod framework_cli;
 mod frontier_cli;
