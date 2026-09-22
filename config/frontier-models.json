@@ -1,0 +1,163 @@
+[
+  {
+    "id": "claude-sonnet",
+    "name": "Claude 3.5 / 4 Sonnet",
+    "rank": 1,
+    "documentation": "https://docs.anthropic.com/en/docs/about-claude/models",
+    "family": "Anthropic",
+    "engine": "Anthropic",
+    "model": "claude-sonnet-4-6",
+    "protocol_type": "anthropic",
+    "api_key_env": "ANTHROPIC_API_KEY",
+    "variants": [
+      {
+        "id": "claude-sonnet-4",
+        "model": "claude-sonnet-4-6",
+        "engine": "Anthropic",
+        "protocol_type": "anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      },
+      {
+        "id": "claude-3.5-sonnet",
+        "model": "claude-3-5-sonnet-20241022",
+        "engine": "Anthropic",
+        "protocol_type": "anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      }
+    ],
+    "notes": "Industry standard for agentic execution: superior tool calling, deep context, deterministic file editing."
+  },
+  {
+    "id": "gpt",
+    "name": "GPT-4o / GPT-5",
+    "rank": 2,
+    "documentation": "https://platform.openai.com/docs/models",
+    "family": "OpenAI",
+    "engine": "OpenAI",
+    "model": "gpt-5",
+    "protocol_type": "chat",
+    "api_key_env": "OPENAI_API_KEY",
+    "variants": [
+      {
+        "id": "gpt-5",
+        "model": "gpt-5",
+        "engine": "OpenAI",
+        "protocol_type": "chat",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      {
+        "id": "gpt-4o",
+        "model": "gpt-4o",
+        "engine": "OpenAI",
+        "protocol_type": "chat",
+        "api_key_env": "OPENAI_API_KEY"
+      }
+    ],
+    "notes": "Multimodal powerhouse with high inference speed and strong logical-reasoning benchmarks."
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek-R1 / V3",
+    "rank": 3,
+    "documentation": "https://api-docs.deepseek.com/",
+    "family": "DeepSeek",
+    "engine": "DeepSeek",
+    "model": "deepseek-reasoner",
+    "protocol_type": "chat",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "variants": [
+      {
+        "id": "deepseek-r1",
+        "model": "deepseek-reasoner",
+        "engine": "DeepSeek",
+        "protocol_type": "chat",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      },
+      {
+        "id": "deepseek-v3",
+        "model": "deepseek-chat",
+        "engine": "DeepSeek",
+        "protocol_type": "chat",
+        "api_key_env": "DEEPSEEK_API_KEY"
+      },
+      {
+        "id": "deepseek-r1-local",
+        "model": "deepseek-r1",
+        "engine": "Ollama",
+        "protocol_type": "chat",
+        "api_key_env": ""
+      }
+    ],
+    "notes": "Open-weight breakthrough matching frontier proprietary reasoning at a fraction of token cost. Local via Ollama variant."
+  },
+  {
+    "id": "gemini-pro",
+    "name": "Gemini 1.5 / 2.0 Pro",
+    "rank": 4,
+    "documentation": "https://ai.google.dev/gemini-api/docs/models",
+    "family": "Google",
+    "engine": "GoogleGemini",
+    "model": "gemini-2.0-pro",
+    "protocol_type": "gemini",
+    "api_key_env": "GEMINI_API_KEY",
+    "variants": [
+      {
+        "id": "gemini-2.0-pro",
+        "model": "gemini-2.0-pro",
+        "engine": "GoogleGemini",
+        "protocol_type": "gemini",
+        "api_key_env": "GEMINI_API_KEY"
+      },
+      {
+        "id": "gemini-1.5-pro",
+        "model": "gemini-1.5-pro",
+        "engine": "GoogleGemini",
+        "protocol_type": "gemini",
+        "api_key_env": "GEMINI_API_KEY"
+      },
+      {
+        "id": "gemini-2.5-pro",
+        "model": "gemini-2.5-pro",
+        "engine": "GoogleGemini",
+        "protocol_type": "gemini",
+        "api_key_env": "GEMINI_API_KEY"
+      }
+    ],
+    "notes": "Native multi-million token context for multi-hour video or hundreds of repositories at once."
+  },
+  {
+    "id": "llama",
+    "name": "Llama 3 / 3.1",
+    "rank": 5,
+    "documentation": "https://www.llama.com/models/llama-3/",
+    "family": "Meta",
+    "engine": "Ollama",
+    "model": "llama3.1",
+    "protocol_type": "chat",
+    "api_key_env": "",
+    "variants": [
+      {
+        "id": "llama-3.1",
+        "model": "llama3.1",
+        "engine": "Ollama",
+        "protocol_type": "chat",
+        "api_key_env": ""
+      },
+      {
+        "id": "llama-3",
+        "model": "llama3",
+        "engine": "Ollama",
+        "protocol_type": "chat",
+        "api_key_env": ""
+      },
+      {
+        "id": "llama-3.1-cloud",
+        "model": "meta-llama/llama-3.1-70b-instruct",
+        "engine": "OpenRouter",
+        "protocol_type": "chat",
+        "api_key_env": "OPENROUTER_API_KEY"
+      }
+    ],
+    "notes": "Dominant open-source backbone for secure, entirely local agentic workloads (Ollama/vLLM)."
+  }
+]

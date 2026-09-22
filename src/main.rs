@@ -15,10 +15,12 @@ mod crown_cli;
 mod deerflow_cli;
 mod extensions_cli;
 mod framework_cli;
+mod frontier_cli;
 mod gemini_cli;
 mod langgraph_cli;
 mod mcp_cli;
 mod model_cli;
+mod open_weight_cli;
 mod openai_agents_cli;
 mod openclaw_cli;
 mod openhands_cli;
@@ -125,6 +127,18 @@ enum Commands {
     Models {
         #[command(subcommand)]
         action: Option<model_cli::ModelCommands>,
+    },
+    /// Manage top open-weight frontier models end to end (Ollama/vLLM pull + prefer + probe)
+    #[command(name = "openweight", visible_alias = "ow")]
+    OpenWeight {
+        #[command(subcommand)]
+        action: Option<open_weight_cli::OpenWeightCommands>,
+    },
+    /// Manage top frontier models end to end (Claude / GPT / DeepSeek / Gemini / Llama)
+    #[command(name = "frontier", visible_alias = "fm")]
+    Frontier {
+        #[command(subcommand)]
+        action: Option<frontier_cli::FrontierCommands>,
     },
     /// Manage OpenRouter end to end (keys, prefer, probe, live models)
     #[command(name = "openrouter", visible_alias = "or")]
@@ -371,6 +385,8 @@ fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Agents { .. }
         | Commands::Frameworks { .. }
         | Commands::Models { .. }
+        | Commands::OpenWeight { .. }
+        | Commands::Frontier { .. }
         | Commands::OpenRouter { .. }
         | Commands::OpenHands { .. }
         | Commands::Gemini { .. }
@@ -672,6 +688,32 @@ fn main() -> std::process::ExitCode {
             .map_err(anyhow::Error::from)
             .and_then(|cwd| model_cli::execute(action, &cwd))
         {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::OpenWeight { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+        return match open_weight_cli::execute(action) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Frontier { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        let substrate = susi_paths::SusiDirs::substrate_home();
+        let _ = std::fs::create_dir_all(&substrate);
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+        return match frontier_cli::execute(action) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{}", susi_agents::external::redact(&e.to_string()));
@@ -1204,6 +1246,12 @@ fn main() -> std::process::ExitCode {
             }
             Commands::Models { .. } => {
                 // Control-plane models commands handled before substrate boot.
+            }
+            Commands::OpenWeight { .. } => {
+                // Control-plane open-weight commands handled before substrate boot.
+            }
+            Commands::Frontier { .. } => {
+                // Control-plane frontier commands handled before substrate boot.
             }
             Commands::OpenRouter { .. } => {
                 // Control-plane OpenRouter commands handled before substrate boot.

@@ -74,7 +74,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             print_json(&serde_json::json!({
                 "server": def,
                 "enabled": manager.is_enabled(&def.id)?,
-                "instructions": "Install Node (npx) and/or uv (uvx). Set any env_keys (e.g. BRAVE_API_KEY, GITHUB_PERSONAL_ACCESS_TOKEN, COMPOSIO_API_KEY, POSTGRES_URL). Autonomy MVA: filesystem, bash, browser, brave-search. Run doctor, then enable to write ~/.susi/mcp_config.json. Override argv/runner with configure. No packages or credentials are provisioned implicitly."
+                "instructions": "Install Node (npx), Docker (for GitHub MCP), and/or uv (uvx). Top 5: filesystem, github, context7, browser (Playwright; also chrome-devtools), sentry (SENTRY_ACCESS_TOKEN). Set env_keys as needed (GITHUB_PERSONAL_ACCESS_TOKEN, SENTRY_ACCESS_TOKEN, BRAVE_API_KEY, …). Run doctor, then enable to write ~/.susi/mcp_config.json. Override argv/runner with configure. No packages or credentials are provisioned implicitly."
             }))?;
             Ok(false)
         }

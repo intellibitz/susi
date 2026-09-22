@@ -15,14 +15,14 @@
     "trust_score": 0.85,
     "latency_ms": 50
   },
-  {
-    "name": "github",
-    "description": "MCP server: github",
-    "package": "@modelcontextprotocol/server-github",
-    "category": "vcs",
-    "trust_score": 0.85,
-    "latency_ms": 50
-  },
+    {
+      "name": "github",
+      "description": "MCP server: github (official ghcr.io/github/github-mcp-server)",
+      "package": "ghcr.io/github/github-mcp-server",
+      "category": "vcs",
+      "trust_score": 0.95,
+      "latency_ms": 50
+    },
   {
     "name": "gitlab",
     "description": "MCP server: gitlab",
@@ -111,14 +111,14 @@
     "trust_score": 0.85,
     "latency_ms": 50
   },
-  {
-    "name": "sentry",
-    "description": "MCP server: sentry",
-    "package": "@modelcontextprotocol/server-sentry",
-    "category": "observability",
-    "trust_score": 0.85,
-    "latency_ms": 50
-  },
+    {
+      "name": "sentry",
+      "description": "MCP server: sentry (official @sentry/mcp-server)",
+      "package": "@sentry/mcp-server",
+      "category": "observability",
+      "trust_score": 0.9,
+      "latency_ms": 50
+    },
   {
     "name": "sequential-thinking",
     "description": "MCP server: sequential-thinking",
@@ -735,14 +735,14 @@
     "trust_score": 0.85,
     "latency_ms": 50
   },
-  {
-    "name": "chrome-devtools",
-    "description": "MCP server: chrome-devtools",
-    "package": "chrome-devtools-mcp",
-    "category": "devtools",
-    "trust_score": 0.85,
-    "latency_ms": 50
-  },
+    {
+      "name": "chrome-devtools",
+      "description": "MCP server: chrome-devtools (official Chrome DevTools for agents)",
+      "package": "chrome-devtools-mcp",
+      "category": "devtools",
+      "trust_score": 0.92,
+      "latency_ms": 50
+    },
   {
     "name": "vscode",
     "description": "MCP server: vscode",

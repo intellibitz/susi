@@ -575,6 +575,52 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
             });
         }
     }
+    if let Ok(open_weight) = susi_gemi_models::open_weight::OpenWeightManager::catalog() {
+        for m in open_weight {
+            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                id: m.ollama_tag.clone(),
+                engine: m.engine.clone(),
+                protocol_type: m.protocol_type.clone(),
+                api_key_env: String::new(),
+            });
+            for v in m.variants {
+                if v.ollama_tag != m.ollama_tag {
+                    entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                        id: v.ollama_tag,
+                        engine: m.engine.clone(),
+                        protocol_type: m.protocol_type.clone(),
+                        api_key_env: String::new(),
+                    });
+                }
+            }
+        }
+    }
+    if let Ok(frontier) = susi_gemi_models::frontier::FrontierManager::catalog() {
+        for m in frontier {
+            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                id: m.model.clone(),
+                engine: m.engine.clone(),
+                protocol_type: m.protocol_type.clone(),
+                api_key_env: m.api_key_env.clone(),
+            });
+            for v in m.variants {
+                entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                    id: v.model,
+                    engine: if v.engine.is_empty() {
+                        m.engine.clone()
+                    } else {
+                        v.engine
+                    },
+                    protocol_type: if v.protocol_type.is_empty() {
+                        m.protocol_type.clone()
+                    } else {
+                        v.protocol_type
+                    },
+                    api_key_env: v.api_key_env,
+                });
+            }
+        }
+    }
     entries.extend(
         susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()

@@ -8,12 +8,80 @@
     "runner": "npx",
     "args": ["-y", "@modelcontextprotocol/server-filesystem", "{workspace}"],
     "env_keys": [],
-    "category": "fs"
+    "category": "fs",
+    "notes": "Bedrock server: safely grant agents view/read/modify/delete on specified workspace directories."
+  },
+  {
+    "id": "github",
+    "name": "GitHub MCP",
+    "rank": 2,
+    "documentation": "https://github.com/github/github-mcp-server",
+    "package": "ghcr.io/github/github-mcp-server",
+    "runner": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-e",
+      "GITHUB_PERSONAL_ACCESS_TOKEN",
+      "ghcr.io/github/github-mcp-server"
+    ],
+    "env_keys": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
+    "category": "vcs",
+    "notes": "Primary VCS connector: search repos, track issues, and create pull requests natively."
+  },
+  {
+    "id": "context7",
+    "name": "Context7 MCP",
+    "rank": 3,
+    "documentation": "https://github.com/upstash/context7",
+    "package": "@upstash/context7-mcp",
+    "runner": "npx",
+    "args": ["-y", "@upstash/context7-mcp"],
+    "env_keys": [],
+    "category": "docs",
+    "notes": "Pulls real-time, version-specific library docs into prompts to reduce API hallucinations."
+  },
+  {
+    "id": "browser",
+    "name": "Playwright MCP",
+    "rank": 4,
+    "documentation": "https://github.com/microsoft/playwright-mcp",
+    "package": "@playwright/mcp",
+    "runner": "npx",
+    "args": ["-y", "@playwright/mcp"],
+    "env_keys": [],
+    "category": "browser",
+    "notes": "Core browser protocol: open pages, inspect UIs, simulate interactions. Also enable chrome-devtools for live DevTools."
+  },
+  {
+    "id": "sentry",
+    "name": "Sentry MCP",
+    "rank": 5,
+    "documentation": "https://github.com/getsentry/sentry-mcp",
+    "package": "@sentry/mcp-server",
+    "runner": "npx",
+    "args": ["-y", "@sentry/mcp-server"],
+    "env_keys": ["SENTRY_ACCESS_TOKEN"],
+    "category": "observability",
+    "notes": "Pipes real-time application error logs to the agent for diagnose-and-patch workflows."
+  },
+  {
+    "id": "chrome-devtools",
+    "name": "Chrome DevTools MCP",
+    "rank": 6,
+    "documentation": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+    "package": "chrome-devtools-mcp",
+    "runner": "npx",
+    "args": ["-y", "chrome-devtools-mcp@latest"],
+    "env_keys": [],
+    "category": "browser",
+    "notes": "Companion to Playwright: live Chrome inspection, console/network, and performance traces."
   },
   {
     "id": "bash",
     "name": "Bash / Commands MCP",
-    "rank": 2,
+    "rank": 7,
     "documentation": "https://www.npmjs.com/package/mcp-server-commands",
     "package": "mcp-server-commands",
     "runner": "npx",
@@ -24,7 +92,7 @@
   {
     "id": "docker",
     "name": "Docker MCP",
-    "rank": 3,
+    "rank": 8,
     "documentation": "https://www.npmjs.com/package/mcp-server-docker",
     "package": "mcp-server-docker",
     "runner": "npx",
@@ -33,20 +101,9 @@
     "category": "infra"
   },
   {
-    "id": "browser",
-    "name": "Playwright Browser MCP",
-    "rank": 4,
-    "documentation": "https://github.com/microsoft/playwright-mcp",
-    "package": "@playwright/mcp",
-    "runner": "npx",
-    "args": ["-y", "@playwright/mcp"],
-    "env_keys": [],
-    "category": "browser"
-  },
-  {
     "id": "brave-search",
     "name": "Brave Search MCP",
-    "rank": 5,
+    "rank": 9,
     "documentation": "https://github.com/brave/brave-search-mcp-server",
     "package": "@brave/brave-search-mcp-server",
     "runner": "npx",
@@ -57,7 +114,7 @@
   {
     "id": "git",
     "name": "Git MCP",
-    "rank": 6,
+    "rank": 10,
     "documentation": "https://github.com/modelcontextprotocol/servers",
     "package": "mcp-server-git",
     "runner": "uvx",
@@ -66,20 +123,9 @@
     "category": "vcs"
   },
   {
-    "id": "github",
-    "name": "GitHub MCP",
-    "rank": 7,
-    "documentation": "https://github.com/modelcontextprotocol/servers",
-    "package": "@modelcontextprotocol/server-github",
-    "runner": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-github"],
-    "env_keys": ["GITHUB_PERSONAL_ACCESS_TOKEN"],
-    "category": "vcs"
-  },
-  {
     "id": "fetch",
     "name": "Fetch MCP",
-    "rank": 8,
+    "rank": 11,
     "documentation": "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
     "package": "mcp-server-fetch",
     "runner": "uvx",
@@ -90,7 +136,7 @@
   {
     "id": "crawl4ai",
     "name": "Crawl4AI MCP",
-    "rank": 9,
+    "rank": 12,
     "documentation": "https://www.npmjs.com/package/mcp-crawl4ai",
     "package": "mcp-crawl4ai",
     "runner": "npx",
@@ -99,20 +145,9 @@
     "category": "web"
   },
   {
-    "id": "context7",
-    "name": "Context7 MCP",
-    "rank": 10,
-    "documentation": "https://github.com/upstash/context7",
-    "package": "@upstash/context7-mcp",
-    "runner": "npx",
-    "args": ["-y", "@upstash/context7-mcp"],
-    "env_keys": [],
-    "category": "docs"
-  },
-  {
     "id": "sequential-thinking",
     "name": "Sequential Thinking MCP",
-    "rank": 11,
+    "rank": 13,
     "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-sequential-thinking",
     "package": "@modelcontextprotocol/server-sequential-thinking",
     "runner": "npx",
@@ -123,7 +158,7 @@
   {
     "id": "postgres",
     "name": "PostgreSQL MCP",
-    "rank": 12,
+    "rank": 14,
     "documentation": "https://github.com/modelcontextprotocol/servers",
     "package": "@modelcontextprotocol/server-postgres",
     "runner": "npx",
@@ -134,7 +169,7 @@
   {
     "id": "sqlite",
     "name": "SQLite MCP",
-    "rank": 13,
+    "rank": 15,
     "documentation": "https://pypi.org/project/mcp-server-sqlite/",
     "package": "mcp-server-sqlite",
     "runner": "uvx",
@@ -145,7 +180,7 @@
   {
     "id": "puppeteer",
     "name": "Puppeteer MCP",
-    "rank": 14,
+    "rank": 16,
     "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-puppeteer",
     "package": "@modelcontextprotocol/server-puppeteer",
     "runner": "npx",
@@ -156,7 +191,7 @@
   {
     "id": "memory",
     "name": "Memory MCP",
-    "rank": 15,
+    "rank": 17,
     "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-memory",
     "package": "@modelcontextprotocol/server-memory",
     "runner": "npx",
@@ -167,7 +202,7 @@
   {
     "id": "composio",
     "name": "Composio MCP",
-    "rank": 16,
+    "rank": 18,
     "documentation": "https://www.npmjs.com/package/composio-mcp-server",
     "package": "composio-mcp-server",
     "runner": "npx",
@@ -178,7 +213,7 @@
   {
     "id": "jira",
     "name": "Jira MCP",
-    "rank": 17,
+    "rank": 19,
     "documentation": "https://www.npmjs.com/package/mcp-server-jira",
     "package": "mcp-server-jira",
     "runner": "npx",
@@ -189,7 +224,7 @@
   {
     "id": "linear",
     "name": "Linear MCP",
-    "rank": 18,
+    "rank": 20,
     "documentation": "https://www.npmjs.com/package/mcp-server-linear",
     "package": "mcp-server-linear",
     "runner": "npx",
@@ -200,7 +235,7 @@
   {
     "id": "kubernetes",
     "name": "Kubernetes MCP",
-    "rank": 19,
+    "rank": 21,
     "documentation": "https://www.npmjs.com/package/mcp-server-kubernetes",
     "package": "mcp-server-kubernetes",
     "runner": "npx",
@@ -211,7 +246,7 @@
   {
     "id": "slack",
     "name": "Slack MCP",
-    "rank": 20,
+    "rank": 22,
     "documentation": "https://www.npmjs.com/package/@modelcontextprotocol/server-slack",
     "package": "@modelcontextprotocol/server-slack",
     "runner": "npx",

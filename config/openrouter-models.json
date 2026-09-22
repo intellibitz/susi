@@ -68,5 +68,33 @@
     "rank": 10,
     "model": "mistralai/mistral-small-latest",
     "documentation": "https://openrouter.ai/mistralai/mistral-small"
+  },
+  {
+    "id": "deepseek-r1",
+    "name": "DeepSeek-R1 (via OpenRouter)",
+    "rank": 11,
+    "model": "deepseek/deepseek-r1",
+    "documentation": "https://openrouter.ai/deepseek/deepseek-r1"
+  },
+  {
+    "id": "qwen-coder",
+    "name": "Qwen 2.5 Coder (via OpenRouter)",
+    "rank": 12,
+    "model": "qwen/qwen-2.5-coder-32b-instruct",
+    "documentation": "https://openrouter.ai/qwen/qwen-2.5-coder-32b-instruct"
+  },
+  {
+    "id": "mistral-nemo",
+    "name": "Mistral Nemo (via OpenRouter)",
+    "rank": 13,
+    "model": "mistralai/mistral-nemo",
+    "documentation": "https://openrouter.ai/mistralai/mistral-nemo"
+  },
+  {
+    "id": "phi-4",
+    "name": "Phi-4 (via OpenRouter)",
+    "rank": 14,
+    "model": "microsoft/phi-4",
+    "documentation": "https://openrouter.ai/microsoft/phi-4"
   }
 ]

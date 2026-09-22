@@ -1,0 +1,131 @@
+[
+  {
+    "id": "deepseek-r1",
+    "name": "DeepSeek-R1 / V3",
+    "rank": 1,
+    "documentation": "https://huggingface.co/deepseek-ai/DeepSeek-R1",
+    "family": "DeepSeek",
+    "engine": "Ollama",
+    "ollama_tag": "deepseek-r1",
+    "hf_repo": "deepseek-ai/DeepSeek-R1",
+    "openrouter_model": "deepseek/deepseek-r1",
+    "protocol_type": "chat",
+    "variants": [
+      {
+        "id": "deepseek-r1",
+        "ollama_tag": "deepseek-r1",
+        "hf_repo": "deepseek-ai/DeepSeek-R1",
+        "openrouter_model": "deepseek/deepseek-r1"
+      },
+      {
+        "id": "deepseek-v3",
+        "ollama_tag": "deepseek-v3",
+        "hf_repo": "deepseek-ai/DeepSeek-V3",
+        "openrouter_model": "deepseek/deepseek-chat"
+      }
+    ],
+    "notes": "Open-weight agentic reasoning; strong tool calling and mathematics at a small compute footprint."
+  },
+  {
+    "id": "llama-3",
+    "name": "Llama 3.1 / 3.2",
+    "rank": 2,
+    "documentation": "https://www.llama.com/models/llama-3/",
+    "family": "Meta",
+    "engine": "Ollama",
+    "ollama_tag": "llama3.1",
+    "hf_repo": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "openrouter_model": "meta-llama/llama-3.1-8b-instruct",
+    "protocol_type": "chat",
+    "variants": [
+      {
+        "id": "llama-3.1",
+        "ollama_tag": "llama3.1",
+        "hf_repo": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+        "openrouter_model": "meta-llama/llama-3.1-8b-instruct"
+      },
+      {
+        "id": "llama-3.2",
+        "ollama_tag": "llama3.2",
+        "hf_repo": "meta-llama/Llama-3.2-3B-Instruct",
+        "openrouter_model": "meta-llama/llama-3.2-3b-instruct"
+      }
+    ],
+    "notes": "Enterprise local standard with robust native tool-calling and system-prompt compliance for agents."
+  },
+  {
+    "id": "qwen2.5-coder",
+    "name": "Qwen 2.5-Coder",
+    "rank": 3,
+    "documentation": "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct",
+    "family": "Alibaba",
+    "engine": "Ollama",
+    "ollama_tag": "qwen2.5-coder",
+    "hf_repo": "Qwen/Qwen2.5-Coder-32B-Instruct",
+    "openrouter_model": "qwen/qwen-2.5-coder-32b-instruct",
+    "protocol_type": "chat",
+    "variants": [
+      {
+        "id": "qwen2.5-coder",
+        "ollama_tag": "qwen2.5-coder",
+        "hf_repo": "Qwen/Qwen2.5-Coder-32B-Instruct",
+        "openrouter_model": "qwen/qwen-2.5-coder-32b-instruct"
+      },
+      {
+        "id": "qwen2.5-coder-7b",
+        "ollama_tag": "qwen2.5-coder:7b",
+        "hf_repo": "Qwen/Qwen2.5-Coder-7B-Instruct",
+        "openrouter_model": "qwen/qwen-2.5-coder-7b-instruct"
+      }
+    ],
+    "notes": "Premier open coding backbone for OpenHands, Aider, and other code-synthesis agents."
+  },
+  {
+    "id": "mistral-nemo",
+    "name": "Mistral Large 2 / Nemo",
+    "rank": 4,
+    "documentation": "https://mistral.ai/news/mistral-nemo",
+    "family": "Mistral",
+    "engine": "Ollama",
+    "ollama_tag": "mistral-nemo",
+    "hf_repo": "mistralai/Mistral-Nemo-Instruct-2407",
+    "openrouter_model": "mistralai/mistral-nemo",
+    "protocol_type": "chat",
+    "variants": [
+      {
+        "id": "mistral-nemo",
+        "ollama_tag": "mistral-nemo",
+        "hf_repo": "mistralai/Mistral-Nemo-Instruct-2407",
+        "openrouter_model": "mistralai/mistral-nemo"
+      },
+      {
+        "id": "mistral-large",
+        "ollama_tag": "mistral-large",
+        "hf_repo": "mistralai/Mistral-Large-Instruct-2407",
+        "openrouter_model": "mistralai/mistral-large"
+      }
+    ],
+    "notes": "Multilingual with a clean native function-calling architecture for automated integrations."
+  },
+  {
+    "id": "phi-4",
+    "name": "Phi-4",
+    "rank": 5,
+    "documentation": "https://huggingface.co/microsoft/phi-4",
+    "family": "Microsoft",
+    "engine": "Ollama",
+    "ollama_tag": "phi4",
+    "hf_repo": "microsoft/phi-4",
+    "openrouter_model": "microsoft/phi-4",
+    "protocol_type": "chat",
+    "variants": [
+      {
+        "id": "phi-4",
+        "ollama_tag": "phi4",
+        "hf_repo": "microsoft/phi-4",
+        "openrouter_model": "microsoft/phi-4"
+      }
+    ],
+    "notes": "Compact reasoning model suited to consumer laptops and multi-turn agent scripts."
+  }
+]

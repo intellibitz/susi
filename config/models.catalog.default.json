@@ -299,6 +299,36 @@
       "engine": "Ollama",
       "protocol_type": "chat",
       "api_key_env": ""
+    },
+    {
+      "id": "deepseek-v3",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "qwen2.5-coder",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "mistral-nemo",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "mistral-large",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
+    },
+    {
+      "id": "phi4",
+      "engine": "Ollama",
+      "protocol_type": "chat",
+      "api_key_env": ""
     }
   ]
 }

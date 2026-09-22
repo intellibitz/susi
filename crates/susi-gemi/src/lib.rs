@@ -22,6 +22,8 @@ pub mod acp;
 pub mod benchmark;
 pub mod coding_models_ext;
 pub mod eval;
+pub mod frontier_ext;
+pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod pulse;
 
@@ -34,4 +36,6 @@ pub use engines::{
 };
 
 pub use models::model_cache;
-pub use models::{coding_models, hardware, hf_discovery, intent, openrouter};
+pub use models::{
+    coding_models, frontier, hardware, hf_discovery, intent, open_weight, openrouter,
+};

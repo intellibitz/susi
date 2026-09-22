@@ -24,6 +24,8 @@ pub struct LeadingMcpDefinition {
     pub env_keys: Vec<String>,
     #[serde(default)]
     pub category: String,
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -275,6 +277,10 @@ fn env_value(key: &str) -> Option<String> {
     let mut candidates = vec![key.to_owned()];
     match key {
         "GITHUB_PERSONAL_ACCESS_TOKEN" => candidates.push("GITHUB_TOKEN".into()),
+        "SENTRY_ACCESS_TOKEN" => {
+            candidates.push("SENTRY_AUTH_TOKEN".into());
+            candidates.push("SENTRY_TOKEN".into());
+        }
         "POSTGRES_URL" => {
             candidates.push("DATABASE_URL".into());
             candidates.push("POSTGRES_CONNECTION_STRING".into());
@@ -341,7 +347,7 @@ fn resolve_runner(runner: &str) -> Option<PathBuf> {
         }
     }
     // Soft fallback: ask the OS via `command -v` style presence for common launchers.
-    if matches!(runner, "npx" | "uvx" | "node" | "python3") {
+    if matches!(runner, "npx" | "uvx" | "node" | "python3" | "docker") {
         let ok = Command::new(runner)
             .arg("--version")
             .stdin(std::process::Stdio::null())
@@ -426,41 +432,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ten_ranked_leading_mcp_servers() {
-        let catalog = LeadingMcpManager::catalog().unwrap();
-        assert_eq!(catalog.len(), 20);
+    fn twenty_two_ranked_leading_mcp_servers() {
+        // Prefer the bundled catalog so a stale ~/.susi/extensions override
+        // cannot flake CI / local developer machines.
+        let catalog: Vec<LeadingMcpDefinition> =
+            serde_json::from_str(include_str!("../../../config/leading-mcp.json"))
+                .expect("bundled leading-mcp.json");
+        assert_eq!(catalog.len(), 22);
         for (i, m) in catalog.iter().enumerate() {
             assert_eq!(m.rank as usize, i + 1);
             m.validate().unwrap();
         }
-        assert_eq!(
-            LeadingMcpManager::definition("GitHub MCP").unwrap().id,
-            "github"
-        );
-        assert_eq!(
-            LeadingMcpManager::definition("browser").unwrap().package,
-            "@playwright/mcp"
-        );
-        assert_eq!(
-            LeadingMcpManager::definition("brave-search")
-                .unwrap()
-                .package,
-            "@brave/brave-search-mcp-server"
-        );
-        assert_eq!(
-            LeadingMcpManager::definition("bash").unwrap().package,
-            "mcp-server-commands"
-        );
-        assert_eq!(
-            LeadingMcpManager::definition("composio").unwrap().package,
-            "composio-mcp-server"
-        );
-        assert_eq!(
-            LeadingMcpManager::definition("sequential-thinking")
-                .unwrap()
-                .id,
-            "sequential-thinking"
-        );
+        assert_eq!(catalog[0].id, "filesystem");
+        assert_eq!(catalog[1].package, "ghcr.io/github/github-mcp-server");
+        assert_eq!(catalog[2].id, "context7");
+        assert_eq!(catalog[3].package, "@playwright/mcp");
+        assert_eq!(catalog[4].package, "@sentry/mcp-server");
+        assert_eq!(catalog[5].package, "chrome-devtools-mcp");
+        // Public loader still resolves names (may be host-overridden).
+        assert!(LeadingMcpManager::definition("filesystem").is_ok());
+        assert!(LeadingMcpManager::definition("brave-search").is_ok());
+        assert!(LeadingMcpManager::definition("bash").is_ok());
     }
 
     #[test]

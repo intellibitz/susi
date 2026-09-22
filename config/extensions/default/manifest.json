@@ -11,6 +11,8 @@
     "leading-mcp.json": "../../leading-mcp.json",
     "models.catalog.default.json": "../../models.catalog.default.json",
     "config.default.json": "../../config.default.json",
-    "openrouter-models.json": "../../openrouter-models.json"
+    "openrouter-models.json": "../../openrouter-models.json",
+    "open-weight-models.json": "../../open-weight-models.json",
+    "frontier-models.json": "../../frontier-models.json"
   }
 }

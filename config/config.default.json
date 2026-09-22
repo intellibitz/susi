@@ -174,11 +174,43 @@
     },
     {
       "category": "browser",
-      "description": "Playwright headless browser for UI interaction",
+      "description": "Playwright headless browser for UI interaction (pair with chrome-devtools)",
       "latency_ms": 80,
       "name": "browser",
       "package": "@playwright/mcp",
       "trust_score": 0.92
+    },
+    {
+      "category": "browser",
+      "description": "Chrome DevTools live inspection for agent debugging",
+      "latency_ms": 80,
+      "name": "chrome-devtools",
+      "package": "chrome-devtools-mcp",
+      "trust_score": 0.92
+    },
+    {
+      "category": "docs",
+      "description": "Context7 version-specific library documentation",
+      "latency_ms": 60,
+      "name": "context7",
+      "package": "@upstash/context7-mcp",
+      "trust_score": 0.92
+    },
+    {
+      "category": "vcs",
+      "description": "GitHub official MCP (issues, PRs, repo search)",
+      "latency_ms": 80,
+      "name": "github",
+      "package": "ghcr.io/github/github-mcp-server",
+      "trust_score": 0.95
+    },
+    {
+      "category": "observability",
+      "description": "Sentry error logs for diagnose-and-patch workflows",
+      "latency_ms": 80,
+      "name": "sentry",
+      "package": "@sentry/mcp-server",
+      "trust_score": 0.9
     },
     {
       "category": "search",

@@ -11,11 +11,13 @@
 pub mod cloud;
 pub mod coding_models;
 pub(crate) mod download;
+pub mod frontier;
 pub mod hardware;
 pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
+pub mod open_weight;
 pub mod openrouter;
 
 pub use lifecycle::*;
