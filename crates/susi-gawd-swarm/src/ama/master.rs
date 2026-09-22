@@ -721,7 +721,7 @@ impl SusiMasterAgent {
             "Break the following goal into at most {} concise, ordered steps. \
              Return one step per line starting with a number and a period. \
              Do not add extra commentary.\n\nGoal: {}\n\nSteps:",
-            max_steps.max(1).min(8),
+            max_steps.clamp(1, 8),
             goal
         );
         let response = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
@@ -735,7 +735,7 @@ impl SusiMasterAgent {
                     .map(|(_, rest)| rest.trim().to_string())
                     .filter(|s| !s.is_empty())
             })
-            .take(max_steps.max(1).min(8) as usize)
+            .take(max_steps.clamp(1, 8) as usize)
             .collect();
         if steps.is_empty() {
             vec![goal.to_string()]
