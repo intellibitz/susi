@@ -21,7 +21,7 @@ members = [
 
 [package]
 name = "susi"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "susi: evidence-gated AI agent substrate. Open-admit OpenAI-compat/MCP/protocol peers, consensus swarm, HMAC audit, absolute truth, bearer-authenticated host ports."
