@@ -25,7 +25,7 @@ jobs:
             name: linux-aarch64
             artifact: susi-linux-aarch64
             src: target/dist/susi
-          - os: macos-13
+          - os: macos-15-intel
             name: macos-x86_64
             artifact: susi-macos-x86_64
             src: target/dist/susi
