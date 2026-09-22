@@ -25,10 +25,10 @@ jobs:
             name: linux-aarch64
             artifact: susi-linux-aarch64
             src: target/dist/susi
-          - os: macos-15-intel
-            name: macos-x86_64
-            artifact: susi-macos-x86_64
-            src: target/dist/susi
+          # macos-x86_64 is not published: ort-sys (ONNX Runtime, via
+          # fastembed) no longer ships prebuilt binaries for
+          # x86_64-apple-darwin, so the build fails in the ort-sys build
+          # script. Re-add if the embedder gains a source-build path.
           - os: macos-14
             name: macos-aarch64
             artifact: susi-macos-aarch64
