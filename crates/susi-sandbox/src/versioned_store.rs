@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
+type CacheEntry<T> = (SystemTime, PathBuf, Arc<T>);
+
 /// Generic "versioned JSON config store" abstraction that unifies mtime-cache
 /// and self-healing-merge logic originally hand-rolled in five places.
 ///
 /// The cache holds `Arc<T>` so hot paths can share a snapshot without cloning
 /// the full registry on every `load_*` hit.
 pub struct VersionedJsonStore<T> {
-    cache: RwLock<Option<(SystemTime, PathBuf, Arc<T>)>>,
+    cache: RwLock<Option<CacheEntry<T>>>,
 }
 
 impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonStore<T> {
