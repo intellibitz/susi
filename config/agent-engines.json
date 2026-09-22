@@ -128,5 +128,18 @@
       "import_name": "llama_index",
       "config_env": "SUSI_LLAMAINDEX_CONFIG"
     }
+  },
+  {
+    "id": "smolagents",
+    "name": "smolagents",
+    "peer_name": "SmolAgentsEngine",
+    "rank": 11,
+    "documentation": "https://huggingface.co/docs/smolagents",
+    "adapter": {
+      "kind": "python",
+      "python": "python3",
+      "import_name": "smolagents",
+      "config_env": "SUSI_SMOLAGENTS_CONFIG"
+    }
   }
 ]

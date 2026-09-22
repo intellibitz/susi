@@ -16,5 +16,6 @@ pub mod hf_discovery;
 pub mod intent;
 mod lifecycle;
 pub mod model_cache;
+pub mod openrouter;
 
 pub use lifecycle::*;

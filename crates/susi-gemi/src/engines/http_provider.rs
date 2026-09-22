@@ -118,6 +118,7 @@ impl Provider for HttpProvider {
                     if !api_key.is_empty() {
                         req = req.bearer_auth(&api_key);
                     }
+                    req = apply_openrouter_attribution(req, &api_base);
                     let res = req
                         .send()
                         .await
@@ -219,7 +220,7 @@ async fn generate_openai_chat(
     api_key: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/chat/completions", api_base);
+    let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -229,6 +230,7 @@ async fn generate_openai_chat(
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
     }
+    req = apply_openrouter_attribution(req, api_base);
     let res = req.send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
         let status = res.status();
@@ -253,7 +255,7 @@ async fn generate_openai_completions(
     api_key: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let url = format!("{}/completions", api_base);
+    let url = format!("{}/completions", api_base.trim_end_matches('/'));
     let body = serde_json::json!({
         "model": model,
         "prompt": prompt,
@@ -263,6 +265,7 @@ async fn generate_openai_completions(
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
     }
+    req = apply_openrouter_attribution(req, api_base);
     let res = req.send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
         return Err(format!("HTTP {}", res.status()));
@@ -272,6 +275,17 @@ async fn generate_openai_completions(
         .as_str()
         .unwrap_or_default()
         .to_string())
+}
+
+fn apply_openrouter_attribution(
+    mut req: reqwest::RequestBuilder,
+    api_base: &str,
+) -> reqwest::RequestBuilder {
+    if susi_gemi_models::openrouter::is_openrouter_base(api_base) {
+        let (referer, title) = susi_gemi_models::openrouter::attribution_headers();
+        req = req.header("HTTP-Referer", referer).header("X-Title", title);
+    }
+    req
 }
 
 async fn generate_anthropic(
@@ -478,7 +492,20 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
             continue;
         }
 
-        let model = if endpoint.model.is_empty() {
+        let model = if endpoint.name.eq_ignore_ascii_case("OpenRouter") {
+            // Host pin from `susi openrouter prefer <model>` wins over bundled default.
+            susi_gemi_models::openrouter::OpenRouterManager::new()
+                .ok()
+                .map(|m| m.effective_model())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    if endpoint.model.is_empty() {
+                        susi_gemi_models::openrouter::DEFAULT_MODEL.to_string()
+                    } else {
+                        endpoint.model.clone()
+                    }
+                })
+        } else if endpoint.model.is_empty() {
             match protocol {
                 InferenceProtocol::Anthropic => "claude-3-5-haiku-20241022".to_string(),
                 InferenceProtocol::Gemini => "gemini-3.6-flash".to_string(),

@@ -281,9 +281,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ten_ranked_coding_models() {
+    fn ranked_coding_models_catalog() {
         let catalog = CodingModelManager::catalog().unwrap();
-        assert_eq!(catalog.len(), 10);
+        assert_eq!(catalog.len(), 11);
         for (i, m) in catalog.iter().enumerate() {
             assert_eq!(m.rank as usize, i + 1);
             m.validate().unwrap();
@@ -293,6 +293,10 @@ mod tests {
         assert_eq!(
             CodingModelManager::definition("Claude Opus").unwrap().id,
             "claude-opus"
+        );
+        assert_eq!(
+            CodingModelManager::definition("openrouter").unwrap().engine,
+            "OpenRouter"
         );
         assert_eq!(
             CodingModelManager::definition("llama-4").unwrap().engine,

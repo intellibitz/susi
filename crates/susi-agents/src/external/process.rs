@@ -4,6 +4,25 @@ use std::fs::OpenOptions;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
+/// Resolve `{model}` for adapters that need an LM id (e.g. SWE-agent).
+fn resolve_model_placeholder() -> String {
+    for key in [
+        "SWE_AGENT_MODEL",
+        "AIDER_MODEL",
+        "LLM_MODEL",
+        "ANTHROPIC_MODEL",
+        "OPENAI_MODEL",
+    ] {
+        let v = std::env::var(key).unwrap_or_default();
+        let trimmed = v.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    // Sensible default matching SWE-agent hello-world docs.
+    "claude-sonnet-4-20250514".into()
+}
+
 struct OwnedChild(Child);
 impl Drop for OwnedChild {
     fn drop(&mut self) {
@@ -30,6 +49,7 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
                     match a.as_str() {
                         "{prompt}" | "{goal}" => run.prompt.clone(),
                         "{workspace}" => run.workspace.to_string_lossy().into_owned(),
+                        "{model}" => resolve_model_placeholder(),
                         _ => a.clone(),
                     }
                 })
@@ -69,6 +89,36 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         .stdout(output)
         .stderr(error)
         .env("SUSI_AGENT_PROMPT", &run.prompt);
+    // OpenHands headless banners pollute JSONL capture; suppress when we can.
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openhands") {
+        cmd.env("OPENHANDS_SUPPRESS_BANNER", "1");
+    }
+    // Gemini CLI: isolate from IDE gateway settings when API key auth is available.
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "gemini") {
+        super::gemini_cli::apply_headless_env(&mut cmd, &run.workspace);
+    }
+    // OpenClaw: optional one-shot model override from env.
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openclaw") {
+        if let Ok(model) = std::env::var("OPENCLAW_MODEL") {
+            let trimmed = model.trim();
+            if !trimmed.is_empty() {
+                cmd.arg("--model").arg(trimmed);
+            }
+        }
+        if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
+            cmd.env("SUSI_PROCESS_BANNER", "susi-openclaw");
+        }
+    }
+    // Browser Use: optional model override from env.
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "browser-use") {
+        super::browser_use::apply_model_override(&mut cmd);
+    }
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "ov") {
+        super::openviking::ensure_process_banner(&mut cmd);
+    }
+    if matches!(&run.adapter, Adapter::Command { program, .. } if program == "deerflow") {
+        super::deerflow::apply_process_env(&mut cmd);
+    }
     if let Adapter::Python { config_env, .. } = &run.adapter {
         let path = std::env::var(config_env).context("framework config env missing")?;
         cmd.env("SUSI_FRAMEWORK_CONFIG", path);

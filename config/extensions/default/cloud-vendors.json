@@ -45,7 +45,7 @@
   },
   {
     "id": "openrouter",
-    "aliases": ["openrouter"],
+    "aliases": ["openrouter", "or", "router"],
     "api_key_env": "OPENROUTER_API_KEY"
   },
   {

@@ -31,9 +31,9 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn ten_unique_agents_with_native_adapters() {
+fn curated_execution_agents_with_native_adapters() {
     let catalog = catalog(CatalogKind::Execution).unwrap();
-    assert_eq!(catalog.len(), 10);
+    assert_eq!(catalog.len(), 18);
     let mut ids = std::collections::HashSet::new();
     for (index, agent) in catalog.iter().enumerate() {
         assert!(ids.insert(&agent.id));
@@ -60,12 +60,60 @@ fn ten_unique_agents_with_native_adapters() {
         definition(CatalogKind::Execution, "manus").unwrap().adapter,
         Adapter::Manus { .. }
     ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "kilo-code")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "kilo"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "gemini-cli")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "gemini"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "aider")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "aider"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "swe-agent")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "sweagent"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "openclaw")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "openclaw"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "browser-use")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "browser-use"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "openviking")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "ov"
+    ));
+    assert!(matches!(
+        definition(CatalogKind::Execution, "deerflow")
+            .unwrap()
+            .adapter,
+        Adapter::Command { program, .. } if program == "deerflow"
+    ));
 }
 
 #[test]
 fn ten_unique_frameworks_with_python_adapters() {
     let catalog = catalog(CatalogKind::Framework).unwrap();
-    assert_eq!(catalog.len(), 10);
+    assert_eq!(catalog.len(), 11);
     let mut ids = std::collections::HashSet::new();
     for (index, engine) in catalog.iter().enumerate() {
         assert!(ids.insert(&engine.id));

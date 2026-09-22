@@ -66,6 +66,8 @@
   },
   "gmcp_http_port": 9093,
   "bind_address": "127.0.0.1",
+  "openrouter_http_referer": "https://github.com/intellibitz/susi",
+  "openrouter_app_title": "SUSI",
   "allow_origin": "*",
   "max_rpc_body_bytes": 10485760,
   "rate_limit_per_minute": 120,
@@ -535,7 +537,7 @@
     },
     {
       "name": "OpenHandsAgent",
-      "description": "OpenHands managed executor; setup and task lifecycle via susi agents.",
+      "description": "OpenHands managed executor; setup and task lifecycle via susi openhands / susi agents.",
       "protocol": "managed"
     },
     {
@@ -544,18 +546,58 @@
       "protocol": "managed"
     },
     {
+      "name": "KiloCodeAgent",
+      "description": "Kilo Code managed executor; setup and task lifecycle via susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "GeminiCliAgent",
+      "description": "Gemini CLI managed executor; setup and task lifecycle via susi gemini / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "AiderAgent",
+      "description": "Aider managed executor; setup and task lifecycle via susi aider / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "SweAgent",
+      "description": "SWE-agent managed executor; setup and task lifecycle via susi swe-agent / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "OpenClawAgent",
+      "description": "OpenClaw managed executor; setup and task lifecycle via susi openclaw / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "BrowserUseAgent",
+      "description": "Browser Use managed executor; setup and task lifecycle via susi browser-use / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "OpenVikingAgent",
+      "description": "OpenViking managed context DB; setup and retrieval via susi openviking / susi agents.",
+      "protocol": "managed"
+    },
+    {
+      "name": "DeerFlowAgent",
+      "description": "DeerFlow managed SuperAgent harness; setup and task lifecycle via susi deerflow / susi agents.",
+      "protocol": "managed"
+    },
+    {
       "name": "LangGraphEngine",
-      "description": "LangGraph managed agent framework; setup via susi frameworks.",
+      "description": "LangGraph managed agent framework; setup via susi langgraph (or susi frameworks).",
       "protocol": "managed"
     },
     {
       "name": "OpenAIAgentsEngine",
-      "description": "OpenAI Agents SDK managed framework; setup via susi frameworks.",
+      "description": "OpenAI Agents SDK managed framework; setup via susi openai-agents (or susi frameworks).",
       "protocol": "managed"
     },
     {
       "name": "AutoGenEngine",
-      "description": "AutoGen managed agent framework; setup via susi frameworks.",
+      "description": "AutoGen managed agent framework; setup via susi autogen (or susi frameworks).",
       "protocol": "managed"
     },
     {
@@ -594,19 +636,9 @@
       "protocol": "managed"
     },
     {
-      "name": "AiderAgent",
-      "description": "Aider pair-programming CLI (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "aider"
-      ],
-      "command": "aider",
-      "args": [
-        "--message",
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": null,
-      "protocol": "cli"
+      "name": "SmolAgentsEngine",
+      "description": "Hugging Face smolagents managed framework; setup via susi smolagents (or susi frameworks).",
+      "protocol": "managed"
     },
     {
       "name": "GooseAgent",
@@ -621,20 +653,6 @@
       ],
       "timeout_secs": 600,
       "api_key_env": null,
-      "protocol": "cli"
-    },
-    {
-      "name": "GeminiCliAgent",
-      "description": "Google Gemini CLI agent (pluggable when driver on PATH / configured).",
-      "detect_bins": [
-        "gemini"
-      ],
-      "command": "gemini",
-      "args": [
-        "{goal}"
-      ],
-      "timeout_secs": 600,
-      "api_key_env": "GEMINI_API_KEY",
       "protocol": "cli"
     },
     {

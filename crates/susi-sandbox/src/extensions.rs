@@ -96,6 +96,7 @@ const BUNDLED_AGENT_ENGINES: &str = include_str!("../../../config/agent-engines.
 const BUNDLED_LEADING_MCP: &str = include_str!("../../../config/leading-mcp.json");
 const BUNDLED_MODELS_CATALOG: &str = include_str!("../../../config/models.catalog.default.json");
 const BUNDLED_CONFIG_DEFAULT: &str = include_str!("../../../config/config.default.json");
+const BUNDLED_OPENROUTER_MODELS: &str = include_str!("../../../config/openrouter-models.json");
 
 static CACHE_GEN: AtomicU64 = AtomicU64::new(0);
 static CLOUD_VENDOR_CACHE: Mutex<Option<(u64, Vec<CloudVendorEntry>)>> = Mutex::new(None);
@@ -155,6 +156,7 @@ fn host_seed_manifest() -> ExtensionManifest {
         "leading-mcp.json",
         "models.catalog.default.json",
         "config.default.json",
+        "openrouter-models.json",
     ] {
         files.insert(name.to_string(), name.to_string());
     }
@@ -177,6 +179,7 @@ fn bundled_bytes_for(name: &str) -> Option<&'static str> {
         "leading-mcp.json" => Some(BUNDLED_LEADING_MCP),
         "models.catalog.default.json" => Some(BUNDLED_MODELS_CATALOG),
         "config.default.json" => Some(BUNDLED_CONFIG_DEFAULT),
+        "openrouter-models.json" => Some(BUNDLED_OPENROUTER_MODELS),
         _ => None,
     }
 }

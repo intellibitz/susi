@@ -1,17 +1,94 @@
 //! Durable management of external task executors. Provider output is evidence of
 //! execution, never proof that the requested code change is correct.
+mod aider;
+mod autogen;
+mod browser_use;
 mod catalog;
 mod cloud;
+mod deerflow;
+mod gemini_cli;
+mod langgraph;
+mod openai_agents;
+mod openclaw;
+mod openhands;
+mod openviking;
 mod process;
 mod python_bridge;
+mod smolagents;
+mod swe_agent;
 
+pub use aider::{
+    doctor as aider_doctor, setup as aider_setup, status as aider_status,
+    AGENT_ID as AIDER_AGENT_ID,
+};
 use anyhow::{bail, Context, Result};
+pub use autogen::{
+    bind_workspace_config as autogen_bind_workspace_config,
+    doctor_or_bail as autogen_doctor_or_bail,
+    ensure_process_banner as autogen_ensure_process_banner,
+    init_workspace as autogen_init_workspace, setup_report as autogen_setup_report, AutoGenDoctor,
+    CONFIG_ENV as AUTOGEN_CONFIG_ENV, ENGINE_ID as AUTOGEN_ENGINE_ID,
+};
+pub use browser_use::{
+    doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
+    AGENT_ID as BROWSER_USE_AGENT_ID,
+};
 pub use catalog::{catalog, definition, resolve_managed, Adapter, AgentDefinition, CatalogKind};
+pub use deerflow::{
+    apply_process_env as deerflow_apply_process_env,
+    bind_workspace_config as deerflow_bind_workspace_config, doctor as deerflow_doctor,
+    ensure_process_banner as deerflow_ensure_process_banner,
+    init_workspace as deerflow_init_workspace, setup as deerflow_setup, status as deerflow_status,
+    AGENT_ID as DEERFLOW_AGENT_ID,
+};
+pub use gemini_cli::{
+    doctor as gemini_cli_doctor, setup as gemini_cli_setup, status as gemini_cli_status,
+    AGENT_ID as GEMINI_CLI_AGENT_ID,
+};
+pub use langgraph::{
+    bind_workspace_config as langgraph_bind_workspace_config,
+    doctor_or_bail as langgraph_doctor_or_bail,
+    ensure_process_banner as langgraph_ensure_process_banner,
+    init_workspace as langgraph_init_workspace, setup_report as langgraph_setup_report,
+    LangGraphDoctor, CONFIG_ENV as LANGGRAPH_CONFIG_ENV, ENGINE_ID as LANGGRAPH_ENGINE_ID,
+};
+pub use openai_agents::{
+    bind_workspace_config as openai_agents_bind_workspace_config,
+    doctor_or_bail as openai_agents_doctor_or_bail,
+    ensure_process_banner as openai_agents_ensure_process_banner,
+    init_workspace as openai_agents_init_workspace, setup_report as openai_agents_setup_report,
+    OpenAiAgentsDoctor, CONFIG_ENV as OPENAI_AGENTS_CONFIG_ENV,
+    ENGINE_ID as OPENAI_AGENTS_ENGINE_ID,
+};
+pub use openclaw::{
+    doctor as openclaw_doctor, setup as openclaw_setup, status as openclaw_status,
+    AGENT_ID as OPENCLAW_AGENT_ID,
+};
+pub use openhands::{
+    doctor as openhands_doctor, setup as openhands_setup, status as openhands_status,
+};
+pub use openviking::{
+    doctor as openviking_doctor, ensure_process_banner as openviking_ensure_process_banner,
+    init_local_client as openviking_init_local_client, setup as openviking_setup,
+    status as openviking_status, AGENT_ID as OPENVIKING_AGENT_ID,
+    DEFAULT_LOCAL_URL as OPENVIKING_DEFAULT_LOCAL_URL,
+};
 use serde::{Deserialize, Serialize};
+pub use smolagents::{
+    bind_workspace_config as smolagents_bind_workspace_config,
+    doctor_or_bail as smolagents_doctor_or_bail,
+    ensure_process_banner as smolagents_ensure_process_banner,
+    init_workspace as smolagents_init_workspace, setup_report as smolagents_setup_report,
+    SmolAgentsDoctor, CONFIG_ENV as SMOLAGENTS_CONFIG_ENV, ENGINE_ID as SMOLAGENTS_ENGINE_ID,
+};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+pub use swe_agent::{
+    doctor as swe_agent_doctor, setup as swe_agent_setup, status as swe_agent_status,
+    AGENT_ID as SWE_AGENT_ID,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

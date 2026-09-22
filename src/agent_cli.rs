@@ -7,7 +7,7 @@ use susi_agents::external::{catalog, redact, Adapter, AgentManager, CatalogKind,
 
 #[derive(Debug, Subcommand)]
 pub enum AgentCommands {
-    /// Show the ten executors, native adapters, and installation documentation
+    /// Show curated executors, native adapters, and installation documentation
     List,
     /// Check local prerequisites (does not invoke a paid model)
     Doctor { agent: Option<String> },

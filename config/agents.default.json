@@ -401,7 +401,7 @@
   },
   {
     "name": "OpenHandsAgent",
-    "description": "OpenHands managed executor; setup and task lifecycle via `susi agents`.",
+    "description": "OpenHands managed executor; setup and task lifecycle via `susi openhands` / `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -417,8 +417,27 @@
     "is_core": false
   },
   {
+    "name": "KiloCodeAgent",
+    "description": "Kilo Code managed executor; setup and task lifecycle via `susi agents` (`kilo run --auto`).",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "kilo"
+    ],
+    "semantic_anchors": [
+      "kilo",
+      "kilocode",
+      "kilo-code",
+      "coding-agent",
+      "peer"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
     "name": "AiderAgent",
-    "description": "Aider pair-programming CLI (pluggable when driver on PATH / configured).",
+    "description": "Aider managed executor; setup and task lifecycle via `susi aider` / `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -428,7 +447,102 @@
     "semantic_anchors": [
       "aider",
       "coding-agent",
-      "peer"
+      "peer",
+      "susi-aider"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "SweAgent",
+    "description": "SWE-agent managed executor; setup and task lifecycle via `susi swe-agent` / `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "swe-agent"
+    ],
+    "semantic_anchors": [
+      "swe-agent",
+      "sweagent",
+      "coding-agent",
+      "peer",
+      "susi-swe-agent"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "OpenClawAgent",
+    "description": "OpenClaw managed executor; setup and task lifecycle via `susi openclaw` / `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "openclaw"
+    ],
+    "semantic_anchors": [
+      "openclaw",
+      "coding-agent",
+      "peer",
+      "susi-openclaw"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "BrowserUseAgent",
+    "description": "Browser Use managed executor; setup and task lifecycle via `susi browser-use` / `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "browser-use"
+    ],
+    "semantic_anchors": [
+      "browser-use",
+      "browseruse",
+      "coding-agent",
+      "peer",
+      "susi-browser-use"
+    ],
+    "base_rank": 0.9,
+    "is_core": false
+  },
+  {
+    "name": "OpenVikingAgent",
+    "description": "OpenViking managed context DB; setup and retrieval via `susi openviking` / `susi agents`.",
+    "categories": [
+      "peer",
+      "context",
+      "external",
+      "openviking"
+    ],
+    "semantic_anchors": [
+      "openviking",
+      "viking",
+      "context-db",
+      "peer",
+      "susi-openviking"
+    ],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "DeerFlowAgent",
+    "description": "DeerFlow managed SuperAgent harness; setup and task lifecycle via `susi deerflow` / `susi agents`.",
+    "categories": [
+      "peer",
+      "coding",
+      "external",
+      "deerflow"
+    ],
+    "semantic_anchors": [
+      "deerflow",
+      "deer-flow",
+      "coding-agent",
+      "peer",
+      "susi-deerflow"
     ],
     "base_rank": 0.9,
     "is_core": false
@@ -452,7 +566,7 @@
   },
   {
     "name": "GeminiCliAgent",
-    "description": "Google Gemini CLI agent (pluggable when driver on PATH / configured).",
+    "description": "Gemini CLI managed executor; setup and task lifecycle via `susi gemini` / `susi agents`.",
     "categories": [
       "peer",
       "coding",
@@ -461,8 +575,11 @@
     ],
     "semantic_anchors": [
       "geminicli",
+      "gemini-cli",
+      "gemini",
       "coding-agent",
-      "peer"
+      "peer",
+      "susi-gemini"
     ],
     "base_rank": 0.9,
     "is_core": false
@@ -520,25 +637,25 @@
   },
   {
     "name": "LangGraphEngine",
-    "description": "LangGraph managed agent framework; setup via `susi frameworks`.",
+    "description": "LangGraph managed agent framework; setup via `susi langgraph` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "langgraph"],
-    "semantic_anchors": ["langgraph", "agent-framework", "peer"],
+    "semantic_anchors": ["langgraph", "agent-framework", "peer", "susi-langgraph"],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "OpenAIAgentsEngine",
-    "description": "OpenAI Agents SDK managed framework; setup via `susi frameworks`.",
+    "description": "OpenAI Agents SDK managed framework; setup via `susi openai-agents` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "openai-agents"],
-    "semantic_anchors": ["openai-agents", "agent-framework", "peer"],
+    "semantic_anchors": ["openai-agents", "agent-framework", "peer", "susi-openai-agents"],
     "base_rank": 0.88,
     "is_core": false
   },
   {
     "name": "AutoGenEngine",
-    "description": "AutoGen managed agent framework; setup via `susi frameworks`.",
+    "description": "AutoGen managed agent framework; setup via `susi autogen` (or `susi frameworks`).",
     "categories": ["peer", "framework", "external", "autogen"],
-    "semantic_anchors": ["autogen", "agent-framework", "peer"],
+    "semantic_anchors": ["autogen", "agent-framework", "peer", "susi-autogen"],
     "base_rank": 0.88,
     "is_core": false
   },
@@ -595,6 +712,14 @@
     "description": "LlamaIndex Agent Framework managed engine; setup via `susi frameworks`.",
     "categories": ["peer", "framework", "external", "llamaindex"],
     "semantic_anchors": ["llamaindex", "agent-framework", "peer"],
+    "base_rank": 0.88,
+    "is_core": false
+  },
+  {
+    "name": "SmolAgentsEngine",
+    "description": "Hugging Face smolagents managed framework; setup via `susi smolagents` (or `susi frameworks`).",
+    "categories": ["peer", "framework", "external", "smolagents"],
+    "semantic_anchors": ["smolagents", "agent-framework", "peer", "susi-smolagents"],
     "base_rank": 0.88,
     "is_core": false
   }

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "auto",
+    "name": "OpenRouter Auto",
+    "rank": 1,
+    "model": "openrouter/auto",
+    "documentation": "https://openrouter.ai/docs/features/model-routing"
+  },
+  {
+    "id": "claude-sonnet",
+    "name": "Claude Sonnet (via OpenRouter)",
+    "rank": 2,
+    "model": "anthropic/claude-sonnet-4",
+    "documentation": "https://openrouter.ai/anthropic/claude-sonnet-4"
+  },
+  {
+    "id": "claude-haiku",
+    "name": "Claude Haiku (via OpenRouter)",
+    "rank": 3,
+    "model": "anthropic/claude-3.5-haiku",
+    "documentation": "https://openrouter.ai/anthropic/claude-3.5-haiku"
+  },
+  {
+    "id": "gpt-4o-mini",
+    "name": "GPT-4o mini (via OpenRouter)",
+    "rank": 4,
+    "model": "openai/gpt-4o-mini",
+    "documentation": "https://openrouter.ai/openai/gpt-4o-mini"
+  },
+  {
+    "id": "gpt-4o",
+    "name": "GPT-4o (via OpenRouter)",
+    "rank": 5,
+    "model": "openai/gpt-4o",
+    "documentation": "https://openrouter.ai/openai/gpt-4o"
+  },
+  {
+    "id": "gemini-flash",
+    "name": "Gemini Flash (via OpenRouter)",
+    "rank": 6,
+    "model": "google/gemini-2.0-flash-001",
+    "documentation": "https://openrouter.ai/google/gemini-2.0-flash-001"
+  },
+  {
+    "id": "llama-4",
+    "name": "Llama 4 Maverick (via OpenRouter)",
+    "rank": 7,
+    "model": "meta-llama/llama-4-maverick",
+    "documentation": "https://openrouter.ai/meta-llama/llama-4-maverick"
+  },
+  {
+    "id": "deepseek-chat",
+    "name": "DeepSeek Chat (via OpenRouter)",
+    "rank": 8,
+    "model": "deepseek/deepseek-chat",
+    "documentation": "https://openrouter.ai/deepseek/deepseek-chat"
+  },
+  {
+    "id": "qwen-max",
+    "name": "Qwen Max (via OpenRouter)",
+    "rank": 9,
+    "model": "qwen/qwen-max",
+    "documentation": "https://openrouter.ai/qwen/qwen-max"
+  },
+  {
+    "id": "mistral-small",
+    "name": "Mistral Small (via OpenRouter)",
+    "rank": 10,
+    "model": "mistralai/mistral-small-latest",
+    "documentation": "https://openrouter.ai/mistralai/mistral-small"
+  }
+]

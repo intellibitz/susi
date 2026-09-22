@@ -294,7 +294,43 @@ impl GawdAgent for ExternalPeerAgent {
             let manager = susi_agents::external::AgentManager::for_kind(workspace, kind)
                 .map_err(|e| EaiError::process(e.to_string()))?;
             let setup = match kind {
+                susi_agents::external::CatalogKind::Execution if def.id == "openhands" => {
+                    "susi openhands setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "gemini-cli" => {
+                    "susi gemini setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "aider" => {
+                    "susi aider setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "swe-agent" => {
+                    "susi swe-agent setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "openclaw" => {
+                    "susi openclaw setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "browser-use" => {
+                    "susi browser-use setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "openviking" => {
+                    "susi openviking setup"
+                }
+                susi_agents::external::CatalogKind::Execution if def.id == "deerflow" => {
+                    "susi deerflow setup"
+                }
                 susi_agents::external::CatalogKind::Execution => "susi agents setup",
+                susi_agents::external::CatalogKind::Framework if def.id == "langgraph" => {
+                    "susi langgraph setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "openai-agents" => {
+                    "susi openai-agents setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "autogen" => {
+                    "susi autogen setup"
+                }
+                susi_agents::external::CatalogKind::Framework if def.id == "smolagents" => {
+                    "susi smolagents setup"
+                }
                 susi_agents::external::CatalogKind::Framework => "susi frameworks setup",
             };
             if let Err(e) = manager.adapter(&def.id).and_then(|a| a.preflight()) {
@@ -546,7 +582,13 @@ mod tests {
             "CodexAgent",
             "DevinAgent",
             "OpenHandsAgent",
+            "GeminiCliAgent",
             "AiderAgent",
+            "SweAgent",
+            "OpenClawAgent",
+            "BrowserUseAgent",
+            "OpenVikingAgent",
+            "DeerFlowAgent",
             "RooCodeAgent",
             "ClineAgent",
             "ManusAgent",
@@ -562,6 +604,7 @@ mod tests {
             "LangChainEngine",
             "PydanticAIEngine",
             "LlamaIndexEngine",
+            "SmolAgentsEngine",
         ] {
             assert!(names.contains(&expected), "missing {expected} in {names:?}");
         }

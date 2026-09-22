@@ -122,6 +122,9 @@
       "program": "openhands",
       "args": [
         "--headless",
+        "--json",
+        "--override-with-envs",
+        "--exit-without-confirmation",
         "-t",
         "{prompt}"
       ]
@@ -139,6 +142,149 @@
       "args": [
         "--no-ask-user",
         "-p",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "kilo-code",
+    "name": "Kilo Code",
+    "peer_name": "KiloCodeAgent",
+    "rank": 11,
+    "documentation": "https://kilo.ai/docs/code-with-ai/platforms/cli",
+    "adapter": {
+      "kind": "command",
+      "program": "kilo",
+      "args": [
+        "run",
+        "--auto",
+        "{prompt}"
+      ]
+    }
+  },
+  {
+    "id": "gemini-cli",
+    "name": "Gemini CLI",
+    "peer_name": "GeminiCliAgent",
+    "rank": 12,
+    "documentation": "https://google-gemini.github.io/gemini-cli/docs/cli/headless.html",
+    "adapter": {
+      "kind": "command",
+      "program": "gemini",
+      "args": [
+        "-p",
+        "{prompt}",
+        "--output-format",
+        "json",
+        "--yolo",
+        "--skip-trust"
+      ]
+    }
+  },
+  {
+    "id": "aider",
+    "name": "Aider",
+    "peer_name": "AiderAgent",
+    "rank": 13,
+    "documentation": "https://aider.chat/docs/scripting.html",
+    "adapter": {
+      "kind": "command",
+      "program": "aider",
+      "args": [
+        "--message",
+        "{prompt}",
+        "--yes-always",
+        "--no-pretty",
+        "--no-fancy-input",
+        "--no-suggest-shell-commands"
+      ]
+    }
+  },
+  {
+    "id": "swe-agent",
+    "name": "SWE-agent",
+    "peer_name": "SweAgent",
+    "rank": 14,
+    "documentation": "https://swe-agent.com/latest/usage/hello_world/",
+    "adapter": {
+      "kind": "command",
+      "program": "sweagent",
+      "args": [
+        "run",
+        "--problem_statement.text",
+        "{prompt}",
+        "--env.repo.path",
+        "{workspace}",
+        "--actions.apply_patch_locally=true",
+        "--agent.model.name",
+        "{model}"
+      ]
+    }
+  },
+  {
+    "id": "openclaw",
+    "name": "OpenClaw",
+    "peer_name": "OpenClawAgent",
+    "rank": 15,
+    "documentation": "https://docs.openclaw.ai/cli/agent",
+    "adapter": {
+      "kind": "command",
+      "program": "openclaw",
+      "args": [
+        "agent",
+        "exec",
+        "--cwd",
+        "{workspace}",
+        "--message",
+        "{prompt}",
+        "--json"
+      ]
+    }
+  },
+  {
+    "id": "browser-use",
+    "name": "Browser Use",
+    "peer_name": "BrowserUseAgent",
+    "rank": 16,
+    "documentation": "https://docs.browser-use.com/open-source/browser-use-cli",
+    "adapter": {
+      "kind": "command",
+      "program": "browser-use",
+      "args": [
+        "--prompt",
+        "{prompt}",
+        "--headless"
+      ]
+    }
+  },
+  {
+    "id": "openviking",
+    "name": "OpenViking",
+    "peer_name": "OpenVikingAgent",
+    "rank": 17,
+    "documentation": "https://docs.openviking.ai/en/getting-started/05-cli-setup",
+    "adapter": {
+      "kind": "command",
+      "program": "ov",
+      "args": [
+        "find",
+        "{prompt}",
+        "-o",
+        "json"
+      ]
+    }
+  },
+  {
+    "id": "deerflow",
+    "name": "DeerFlow",
+    "peer_name": "DeerFlowAgent",
+    "rank": 18,
+    "documentation": "https://github.com/bytedance/deer-flow",
+    "adapter": {
+      "kind": "command",
+      "program": "deerflow",
+      "args": [
+        "--json",
         "{prompt}"
       ]
     }

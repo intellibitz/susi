@@ -22,6 +22,7 @@ pub mod acp;
 pub mod benchmark;
 pub mod coding_models_ext;
 pub mod eval;
+pub mod openrouter_ext;
 pub mod pulse;
 
 // ── Flat compatibility re-exports (do not remove without a migration) ─────
@@ -33,4 +34,4 @@ pub use engines::{
 };
 
 pub use models::model_cache;
-pub use models::{coding_models, hardware, hf_discovery, intent};
+pub use models::{coding_models, hardware, hf_discovery, intent, openrouter};

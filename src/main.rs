@@ -6,14 +6,27 @@
 #![allow(missing_docs)]
 
 mod agent_cli;
+mod aider_cli;
 mod auto_cli;
+mod autogen_cli;
 mod blackboard_cli;
+mod browser_use_cli;
 mod crown_cli;
+mod deerflow_cli;
 mod extensions_cli;
 mod framework_cli;
+mod gemini_cli;
+mod langgraph_cli;
 mod mcp_cli;
 mod model_cli;
+mod openai_agents_cli;
+mod openclaw_cli;
+mod openhands_cli;
+mod openrouter_cli;
+mod openviking_cli;
+mod smolagents_cli;
 mod substrate_cli;
+mod swe_agent_cli;
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -111,6 +124,84 @@ enum Commands {
     Models {
         #[command(subcommand)]
         action: Option<model_cli::ModelCommands>,
+    },
+    /// Manage OpenRouter end to end (keys, prefer, probe, live models)
+    #[command(name = "openrouter", visible_alias = "or")]
+    OpenRouter {
+        #[command(subcommand)]
+        action: Option<openrouter_cli::OpenRouterCommands>,
+    },
+    /// Manage OpenHands end to end (CLI executor + LLM env + durable tasks)
+    #[command(name = "openhands", visible_alias = "oh")]
+    OpenHands {
+        #[command(subcommand)]
+        action: Option<openhands_cli::OpenHandsCommands>,
+    },
+    /// Manage Gemini CLI end to end (headless executor + auth + durable tasks)
+    #[command(name = "gemini", visible_alias = "gcli")]
+    Gemini {
+        #[command(subcommand)]
+        action: Option<gemini_cli::GeminiCliCommands>,
+    },
+    /// Manage Aider end to end (headless scripting + LLM env + durable tasks)
+    #[command(name = "aider")]
+    Aider {
+        #[command(subcommand)]
+        action: Option<aider_cli::AiderCommands>,
+    },
+    /// Manage SWE-agent end to end (headless local repo + durable tasks)
+    #[command(name = "swe-agent", visible_alias = "sweagent")]
+    SweAgent {
+        #[command(subcommand)]
+        action: Option<swe_agent_cli::SweAgentCommands>,
+    },
+    /// Manage OpenClaw end to end (agent exec + auth + durable tasks)
+    #[command(name = "openclaw", visible_alias = "oc")]
+    OpenClaw {
+        #[command(subcommand)]
+        action: Option<openclaw_cli::OpenClawCommands>,
+    },
+    /// Manage Browser Use end to end (headless prompt mode + durable tasks)
+    #[command(name = "browser-use", visible_alias = "bu")]
+    BrowserUse {
+        #[command(subcommand)]
+        action: Option<browser_use_cli::BrowserUseCommands>,
+    },
+    /// Manage OpenViking end to end (context DB client + durable find tasks)
+    #[command(name = "openviking", visible_alias = "viking")]
+    OpenViking {
+        #[command(subcommand)]
+        action: Option<openviking_cli::OpenVikingCommands>,
+    },
+    /// Manage DeerFlow end to end (headless harness + durable tasks)
+    #[command(name = "deerflow", visible_alias = "deer")]
+    DeerFlow {
+        #[command(subcommand)]
+        action: Option<deerflow_cli::DeerFlowCommands>,
+    },
+    /// Manage LangGraph end to end (Python engine + config + durable tasks)
+    #[command(name = "langgraph", visible_alias = "lg")]
+    LangGraph {
+        #[command(subcommand)]
+        action: Option<langgraph_cli::LangGraphCommands>,
+    },
+    /// Manage OpenAI Agents SDK end to end (Python engine + config + durable tasks)
+    #[command(name = "openai-agents", visible_alias = "oas")]
+    OpenAiAgents {
+        #[command(subcommand)]
+        action: Option<openai_agents_cli::OpenAiAgentsCommands>,
+    },
+    /// Manage AutoGen end to end (Python AgentChat engine + config + durable tasks)
+    #[command(name = "autogen", visible_alias = "ag")]
+    AutoGen {
+        #[command(subcommand)]
+        action: Option<autogen_cli::AutoGenCommands>,
+    },
+    /// Manage Hugging Face smolagents end to end (Python engine + config + durable tasks)
+    #[command(name = "smolagents", visible_alias = "smol")]
+    SmolAgents {
+        #[command(subcommand)]
+        action: Option<smolagents_cli::SmolAgentsCommands>,
     },
     /// Cloud API keys — list, set, prefer, remove (like `models` for backends)
     #[command(name = "keys", visible_alias = "key")]
@@ -240,7 +331,22 @@ enum AdminCommands {
 /// binary integrity checks or daemon restart.
 fn command_requires_daemon(command: &Commands) -> bool {
     match command {
-        Commands::Agents { .. } | Commands::Frameworks { .. } | Commands::Models { .. }
+        Commands::Agents { .. }
+        | Commands::Frameworks { .. }
+        | Commands::Models { .. }
+        | Commands::OpenRouter { .. }
+        | Commands::OpenHands { .. }
+        | Commands::Gemini { .. }
+        | Commands::Aider { .. }
+        | Commands::SweAgent { .. }
+        | Commands::OpenClaw { .. }
+        | Commands::BrowserUse { .. }
+        | Commands::OpenViking { .. }
+        | Commands::DeerFlow { .. }
+        | Commands::LangGraph { .. }
+        | Commands::OpenAiAgents { .. }
+        | Commands::AutoGen { .. }
+        | Commands::SmolAgents { .. }
             if !matches!(
                 command,
                 Commands::Models {
@@ -530,6 +636,172 @@ fn main() -> std::process::ExitCode {
             }
         };
     }
+    if let Some(Commands::OpenRouter { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match openrouter_cli::execute(action) {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::OpenHands { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| openhands_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Gemini { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| gemini_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::Aider { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| aider_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::SweAgent { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| swe_agent_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::OpenClaw { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| openclaw_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::BrowserUse { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| browser_use_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::OpenViking { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| openviking_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::DeerFlow { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| deerflow_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::LangGraph { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| langgraph_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::OpenAiAgents { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| openai_agents_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::AutoGen { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| autogen_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(Commands::SmolAgents { action }) = cli.command {
+        susi_gemi::http_provider::apply_cloud_env_file();
+        return match env::current_dir()
+            .map_err(anyhow::Error::from)
+            .and_then(|cwd| smolagents_cli::execute(action, &cwd))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{}", susi_agents::external::redact(&e.to_string()));
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(Commands::Mcp {
         action: Some(mcp_cli::McpCommands::Serve) | None,
     }) = &cli.command
@@ -805,6 +1077,45 @@ fn main() -> std::process::ExitCode {
             }
             Commands::Models { .. } => {
                 // Control-plane models commands handled before substrate boot.
+            }
+            Commands::OpenRouter { .. } => {
+                // Control-plane OpenRouter commands handled before substrate boot.
+            }
+            Commands::OpenHands { .. } => {
+                // Control-plane OpenHands commands handled before substrate boot.
+            }
+            Commands::Gemini { .. } => {
+                // Control-plane Gemini CLI commands handled before substrate boot.
+            }
+            Commands::Aider { .. } => {
+                // Control-plane Aider commands handled before substrate boot.
+            }
+            Commands::SweAgent { .. } => {
+                // Control-plane SWE-agent commands handled before substrate boot.
+            }
+            Commands::OpenClaw { .. } => {
+                // Control-plane OpenClaw commands handled before substrate boot.
+            }
+            Commands::BrowserUse { .. } => {
+                // Control-plane Browser Use commands handled before substrate boot.
+            }
+            Commands::OpenViking { .. } => {
+                // Control-plane OpenViking commands handled before substrate boot.
+            }
+            Commands::DeerFlow { .. } => {
+                // Control-plane DeerFlow commands handled before substrate boot.
+            }
+            Commands::LangGraph { .. } => {
+                // Control-plane LangGraph commands handled before substrate boot.
+            }
+            Commands::OpenAiAgents { .. } => {
+                // Control-plane OpenAI Agents SDK commands handled before substrate boot.
+            }
+            Commands::AutoGen { .. } => {
+                // Control-plane AutoGen commands handled before substrate boot.
+            }
+            Commands::SmolAgents { .. } => {
+                // Control-plane smolagents commands handled before substrate boot.
             }
             Commands::SelectModel { model } => {
                 let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);

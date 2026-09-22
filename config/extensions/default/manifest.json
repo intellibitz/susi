@@ -10,6 +10,7 @@
     "agent-engines.json": "../../agent-engines.json",
     "leading-mcp.json": "../../leading-mcp.json",
     "models.catalog.default.json": "../../models.catalog.default.json",
-    "config.default.json": "../../config.default.json"
+    "config.default.json": "../../config.default.json",
+    "openrouter-models.json": "../../openrouter-models.json"
   }
 }

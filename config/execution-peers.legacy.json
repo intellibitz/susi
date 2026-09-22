@@ -64,11 +64,16 @@
     ],
     "command": "openhands",
     "args": [
-      "--task",
+      "--headless",
+      "--json",
+      "--override-with-envs",
+      "--exit-without-confirmation",
+      "-t",
       "{goal}"
     ],
     "timeout_secs": 900,
-    "api_key_env": null
+    "api_key_env": "LLM_API_KEY",
+    "protocol": "cli"
   },
   {
     "name": "GithubCopilotAgent",
@@ -80,6 +85,51 @@
     "args": [
       "copilot",
       "--",
+      "{goal}"
+    ],
+    "timeout_secs": 600,
+    "api_key_env": null,
+    "protocol": "cli"
+  },
+  {
+    "name": "KiloCodeAgent",
+    "description": "Kilo Code peer \u2014 open-source CLI coding agent (pluggable when `kilo` is on PATH).",
+    "detect_bins": [
+      "kilo"
+    ],
+    "command": "kilo",
+    "args": [
+      "run",
+      "--auto",
+      "{goal}"
+    ],
+    "timeout_secs": 900,
+    "api_key_env": null,
+    "protocol": "cli"
+  },
+  {
+    "name": "GeminiCliAgent",
+    "description": "Google Gemini CLI (pluggable when `gemini` is on PATH).",
+    "detect_bins": [
+      "gemini"
+    ],
+    "command": "gemini",
+    "args": [
+      "{goal}"
+    ],
+    "timeout_secs": 600,
+    "api_key_env": "GEMINI_API_KEY",
+    "protocol": "cli"
+  },
+  {
+    "name": "AiderAgent",
+    "description": "Aider pair-programming CLI (pluggable when `aider` is on PATH).",
+    "detect_bins": [
+      "aider"
+    ],
+    "command": "aider",
+    "args": [
+      "--message",
       "{goal}"
     ],
     "timeout_secs": 600,
