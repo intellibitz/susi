@@ -51,7 +51,7 @@
   },
   {
     "name": "TranslationAgent",
-    "description": "High-fidelity linguistic translation across global languages.",
+    "description": "Translation-intent recruitment; executed via DynamicAgent (no separate native TranslationAgent backend).",
     "categories": [
       "translate",
       "language",

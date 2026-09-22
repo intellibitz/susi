@@ -15,6 +15,9 @@
 # Sandboxed SUSI runtime, caches, & local home
 .susi/
 
+# Local AI assistant scratch / session artifacts
+.ai/
+
 # Local properties & secrets
 local.properties
 /local.properties

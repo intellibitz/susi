@@ -10,6 +10,7 @@ mod aider_cli;
 mod auto_cli;
 mod blackboard_cli;
 mod browser_use_cli;
+mod catalog_plane_cli;
 mod cli_json;
 mod crown_cli;
 mod deerflow_cli;

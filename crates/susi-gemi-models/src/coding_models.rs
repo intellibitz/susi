@@ -1,6 +1,15 @@
 //! Durable management of the top developer/agent-focused cloud models.
 //! Catalog ranks are editorial (coding + agents), not chatbot popularity.
 //!
+//! # Where config lives
+//!
+//! - **Catalog list** — extension pack: host
+//!   `~/.susi/extensions/<pack>/coding-models.json` overrides the bundled
+//!   [`config/coding-models.json`](../../../config/coding-models.json)
+//!   (see `config/README.md`).
+//! - **Per-model overrides** — flat host dir `~/.susi/coding-models/<id>.json`
+//!   (engine / model id / api_key_env). Pack files do not replace this path.
+//!
 //! Paid probe / `HttpProvider` construction lives in the engines crate
 //! (`susi_gemi::coding_models_ext`) so this models crate never depends on engines.
 use anyhow::{bail, Context, Result};

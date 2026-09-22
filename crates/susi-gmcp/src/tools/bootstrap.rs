@@ -313,6 +313,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
 
     // SPECIALIST TOOLBOXES: Type 1 (Coding) & Type 2 (Assistant)
+    #[cfg(feature = "tools-rich")]
     ToolRegistry::register_meta_tool(
         registry,
         "ast_analyze",
@@ -320,6 +321,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::CodingSpecialist,
         CoreTools::ast_analyze,
     );
+    #[cfg(feature = "tools-rich")]
     ToolRegistry::register_meta_tool(
         registry,
         "semantic_search",
@@ -334,6 +336,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::CodingSpecialist,
         CoreTools::sandbox_exec,
     );
+    #[cfg(feature = "tools-rich")]
     ToolRegistry::register_meta_tool(
         registry,
         "browser_automate",
@@ -341,6 +344,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
         MetaCategory::AssistantSpecialist,
         CoreTools::browser_automate,
     );
+    #[cfg(feature = "tools-rich")]
     ToolRegistry::register_meta_tool(
         registry,
         "rag_query",

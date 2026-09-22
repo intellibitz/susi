@@ -167,6 +167,14 @@ Close to the modularization goal when:
 - [ ] `SusiConfig` relocated out of sandbox.
 - [ ] Versioned application event schemas beyond the existing bus.
 
+Public boundaries use stable DTOs and versioned events where applicable.
+Configuration authority for bundled JSON is documented in
+[`config/README.md`](config/README.md).
+
+`susi-gmcp` defaults to feature `tools-rich` (browser / tantivy / qdrant /
+fastembed / syn AST tools). Use `--no-default-features` on that crate for
+lighter local checks; shipped binaries keep the default.
+
 ## Migration roadmap (remaining)
 
 1. **Stabilize contracts** — keep expanding ports only at real seams.

@@ -17,12 +17,10 @@ serde_json = { workspace = true }
 tokenizers = "0.23.2"
 indicatif = "0.18.6"
 reqwest = { workspace = true }
-ureq = { version = "3.4.2", features = ["json"] }
 tracing = { workspace = true }
 tokio = { workspace = true }
 rayon = "1.12"
 parking_lot = { workspace = true }
-directories = "6.0.0"
 anyhow = { workspace = true }
 once_cell = { workspace = true }
 dashmap = { workspace = true }

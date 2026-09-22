@@ -1,0 +1,83 @@
+//! Shared launch / worker helpers for catalog control planes
+//! (`susi agents`, `susi frameworks`, and single-agent wrappers).
+
+use anyhow::{bail, Result};
+use std::process::{Command, Stdio};
+use susi_agents::external::{AgentManager, RunStatus};
+
+use crate::cli_json::print_json;
+
+/// Detach a worker subprocess or run in-process when `wait` is set.
+pub fn launch(
+    manager: &AgentManager,
+    id: &str,
+    wait: bool,
+    worker_argv: &[&str],
+    banner: Option<&str>,
+    fail_label: &str,
+) -> Result<()> {
+    print_json(&manager.read(id)?)?;
+    if wait {
+        return run_worker(manager.clone(), id, fail_label);
+    }
+    let mut command = Command::new(std::env::current_exe()?);
+    command
+        .args(worker_argv)
+        .current_dir(&manager.read(id)?.workspace)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(banner) = banner {
+        if std::env::var_os("SUSI_PROCESS_BANNER").is_none() {
+            command.env("SUSI_PROCESS_BANNER", banner);
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x00000008 | 0x00000200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    }
+    match command.spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(e) => {
+            manager.mark_launch_failed(id, &e.to_string())?;
+            return Err(e.into());
+        }
+    }
+    Ok(())
+}
+
+/// Foreground worker with signal-hook shutdown (Unix).
+pub fn run_worker(manager: AgentManager, id: &str, fail_label: &str) -> Result<()> {
+    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    #[cfg(unix)]
+    for signal in [
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+    ] {
+        signal_hook::flag::register(signal, shutdown.clone())?;
+    }
+    let run = manager.with_shutdown(shutdown).execute(id)?;
+    print_json(&run)?;
+    if matches!(
+        run.status,
+        RunStatus::Failed | RunStatus::Unknown | RunStatus::Cancelled
+    ) {
+        bail!(
+            "{fail_label} task {} ended with {:?}; inspect status and logs",
+            run.id,
+            run.status
+        );
+    }
+    Ok(())
+}

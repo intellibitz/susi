@@ -333,6 +333,11 @@ impl SusiConfig {
     }
 
     /// Leading external coding agents mounted as pluggable swarm peers.
+    ///
+    /// `config.default.json` / host `config.json` may list CLI/HTTP/A2A peers and
+    /// optional managed overlays. **Managed** peers are also admitted from the
+    /// execution-agents + agent-engines catalogs (`peer_name`) so adding a
+    /// catalog entry does not require duplicating it under `external_peer_agents`.
     pub fn external_peer_agents(&self) -> Vec<ExternalPeerAgentSpec> {
         let mut peers: Vec<ExternalPeerAgentSpec> =
             self.get_or_bundled_default("external_peer_agents");
@@ -358,6 +363,11 @@ impl SusiConfig {
         for default in defaults.into_iter().filter(|p| p.protocol == "managed") {
             if !peers.iter().any(|p| p.name == default.name) {
                 peers.push(default);
+            }
+        }
+        for catalog_peer in managed_peers_from_catalogs() {
+            if !peers.iter().any(|p| p.name == catalog_peer.name) {
+                peers.push(catalog_peer);
             }
         }
         peers
@@ -520,6 +530,49 @@ impl SusiConfig {
     pub fn model_file_min_bytes(&self) -> u64 {
         self.get_or_bundled_default("model_file_min_bytes")
     }
+}
+
+/// Minimal catalog row used to admit managed swarm peers from extension packs.
+#[derive(Debug, Deserialize)]
+struct CatalogPeerHint {
+    peer_name: String,
+    name: String,
+    #[serde(flatten, default)]
+    _extra: HashMap<String, serde_json::Value>,
+}
+
+fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
+    let mut out = Vec::new();
+    let catalogs = [
+        (
+            "execution-agents.json",
+            include_str!("../../../../config/execution-agents.json"),
+        ),
+        (
+            "agent-engines.json",
+            include_str!("../../../../config/agent-engines.json"),
+        ),
+    ];
+    for (logical, bundled) in catalogs {
+        let entries: Vec<CatalogPeerHint> =
+            crate::extensions::load_json_or_bundled(logical, bundled);
+        for entry in entries {
+            let peer = entry.peer_name.trim();
+            if peer.is_empty() {
+                continue;
+            }
+            out.push(ExternalPeerAgentSpec {
+                name: peer.to_string(),
+                description: format!(
+                    "{} managed executor/framework; setup via susi agents / susi frameworks.",
+                    entry.name
+                ),
+                protocol: "managed".into(),
+                ..Default::default()
+            });
+        }
+    }
+    out
 }
 
 // Compatibility shim for old code that accessed fields directly

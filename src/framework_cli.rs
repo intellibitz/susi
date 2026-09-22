@@ -1,9 +1,9 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
+use crate::catalog_plane_cli::{launch, run_worker};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use susi_agents::external::{catalog, Adapter, AgentManager, CatalogKind, RunStatus};
 
 #[derive(Debug, Subcommand)]
@@ -112,7 +112,14 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             prompt,
         } => {
             let run = manager.prepare(&engine, &prompt)?;
-            launch(&manager, &run.id, wait)?;
+            launch(
+                &manager,
+                &run.id,
+                wait,
+                &["frameworks", "worker", &run.id],
+                None,
+                "framework",
+            )?;
         }
         FrameworkCommands::Retry { task_id, wait } => {
             let old = manager.status(&task_id)?;
@@ -120,9 +127,16 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
                 bail!("resolve the existing task before retrying to avoid duplicate execution");
             }
             let run = manager.prepare(&old.agent, &old.prompt)?;
-            launch(&manager, &run.id, wait)?;
+            launch(
+                &manager,
+                &run.id,
+                wait,
+                &["frameworks", "worker", &run.id],
+                None,
+                "framework",
+            )?;
         }
-        FrameworkCommands::Worker { task_id } => run_worker(manager, &task_id)?,
+        FrameworkCommands::Worker { task_id } => run_worker(manager, &task_id, "framework")?,
         FrameworkCommands::Tasks => print_json(&manager.list()?)?,
         FrameworkCommands::Status { task_id, refresh } => {
             print_json(&if refresh {
@@ -137,67 +151,6 @@ pub fn execute(action: FrameworkCommands, workspace: &Path) -> Result<()> {
             bytes,
         } => print!("{}", manager.logs(&task_id, stderr, bytes)?),
         FrameworkCommands::Cancel { task_id } => print_json(&manager.cancel(&task_id)?)?,
-    }
-    Ok(())
-}
-
-fn launch(manager: &AgentManager, id: &str, wait: bool) -> Result<()> {
-    print_json(&manager.read(id)?)?;
-    if wait {
-        return run_worker(manager.clone(), id);
-    }
-    let mut command = Command::new(std::env::current_exe()?);
-    command
-        .args(["frameworks", "worker", id])
-        .current_dir(&manager.read(id)?.workspace)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x00000008 | 0x00000200);
-    }
-    match command.spawn() {
-        Ok(mut child) => {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
-        Err(e) => {
-            manager.mark_launch_failed(id, &e.to_string())?;
-            return Err(e.into());
-        }
-    }
-    Ok(())
-}
-
-fn run_worker(manager: AgentManager, id: &str) -> Result<()> {
-    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    #[cfg(unix)]
-    for signal in [
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-        signal_hook::consts::SIGHUP,
-    ] {
-        signal_hook::flag::register(signal, shutdown.clone())?;
-    }
-    let run = manager.with_shutdown(shutdown).execute(id)?;
-    print_json(&run)?;
-    if matches!(
-        run.status,
-        RunStatus::Failed | RunStatus::Unknown | RunStatus::Cancelled
-    ) {
-        bail!(
-            "framework task {} ended with {:?}; inspect status and logs",
-            run.id,
-            run.status
-        );
     }
     Ok(())
 }

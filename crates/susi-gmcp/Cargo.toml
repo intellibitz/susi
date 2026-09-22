@@ -22,12 +22,7 @@ jsonschema = { version = "0.56", default-features = false }
 tokio = { workspace = true }
 
 anyhow = { workspace = true }
-headless_chrome = "1.0.22"
-tantivy = "0.26.2"
-qdrant-client = "1.19"
 shlex = "2.0"
-fastembed = "7.0.1"
-syn = { version = "3.0.6", features = ["full", "visit"] }
 bytes = "1.12"
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
@@ -35,17 +30,19 @@ http-body-util = "0.1"
 url = { workspace = true }
 susi-agents = { workspace = true }
 libc = "0.2"
+
+# Heavy specialist tools (browser / tantivy / qdrant / syn AST). Default-on for
+# shipped parity; disable with `--no-default-features` for faster local checks.
+headless_chrome = { version = "1.0.22", optional = true }
+tantivy = { version = "0.26.2", optional = true }
+qdrant-client = { version = "1.19", optional = true }
+fastembed = { version = "7.0.1", optional = true }
+syn = { version = "3.0.6", features = ["full", "visit"], optional = true }
+
+[features]
+default = ["tools-rich"]
+tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:qdrant-client", "dep:fastembed", "dep:syn"]
+
 [dev-dependencies]
 tokio = { workspace = true }
 anyhow = { workspace = true }
-headless_chrome = "1.0.22"
-tantivy = "0.26.2"
-qdrant-client = "1.19"
-shlex = "2.0"
-fastembed = "7.0.1"
-syn = { version = "3.0.6", features = ["full", "visit"] }
-bytes = "1.12"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1"
-url = { workspace = true }

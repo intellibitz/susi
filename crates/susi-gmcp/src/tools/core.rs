@@ -12,14 +12,19 @@ use susi_gemi::hardware::HardwareProfiler;
 use susi_gemi::models::ModelManager;
 use susi_tools::GmcpClient;
 
+#[cfg(feature = "tools-rich")]
 use fastembed::TextEmbedding;
+#[cfg(feature = "tools-rich")]
 use headless_chrome::Browser;
+#[cfg(feature = "tools-rich")]
 use qdrant_client::Qdrant;
+#[cfg(feature = "tools-rich")]
 use tantivy::{collector::TopDocs, query::QueryParser, schema::*, Index, TantivyDocument};
 
+#[cfg(feature = "tools-rich")]
+use super::helpers::secure_external_url;
 use super::helpers::{
-    confine_exec_argv, external_agent_control, read_file_nofollow, secure_external_url,
-    secure_path, tool_string_arg,
+    confine_exec_argv, external_agent_control, read_file_nofollow, secure_path, tool_string_arg,
 };
 
 pub struct CoreTools;
@@ -918,6 +923,7 @@ impl CoreTools {
         Ok(report)
     }
 
+    #[cfg(feature = "tools-rich")]
     #[tool(
         name = "ast_analyze",
         description = "Structural AST code analysis via tree-sitter"
@@ -970,6 +976,7 @@ impl CoreTools {
         Ok(report)
     }
 
+    #[cfg(feature = "tools-rich")]
     #[tool(
         name = "semantic_search",
         description = "Fast embedded search via tantivy"
@@ -1045,6 +1052,7 @@ impl CoreTools {
             .map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Docker execution failed: {}. Ensure Docker daemon is running.", e)))
     }
 
+    #[cfg(feature = "tools-rich")]
     #[tool(
         name = "browser_automate",
         description = "DOM access and web automation via headless_chrome"
@@ -1102,6 +1110,7 @@ impl CoreTools {
         ))
     }
 
+    #[cfg(feature = "tools-rich")]
     #[tool(
         name = "rag_query",
         description = "Semantic memory retrieval via Qdrant/FastEmbed"

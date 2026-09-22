@@ -184,6 +184,7 @@ pub(super) fn confine_exec_argv(workspace: &Path, args: &[String]) -> EaiResult<
 /// does not close a DNS-rebinding variant, where a hostname resolves to a
 /// public IP at check time and a private one when headless_chrome's own,
 /// separate DNS lookup later connects.
+#[cfg_attr(not(feature = "tools-rich"), allow(dead_code))]
 pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
@@ -213,6 +214,7 @@ pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
 /// Validates a user-supplied URL before it's handed to a browser/HTTP client:
 /// only http(s) schemes, and every address the host resolves to must clear
 /// [`is_blocked_ssrf_target`].
+#[cfg_attr(not(feature = "tools-rich"), allow(dead_code))]
 pub(super) fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
     let parsed =
         url::Url::parse(raw_url).map_err(|e| EaiError::protocol(format!("Invalid URL: {}", e)))?;

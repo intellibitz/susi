@@ -1,9 +1,9 @@
 //! Deterministic external-agent control plane, available without inference/daemon boot.
+use crate::catalog_plane_cli::{launch, run_worker};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use susi_agents::external::{catalog, Adapter, AgentManager, CatalogKind, RunStatus};
 
 #[derive(Debug, Subcommand)]
@@ -106,7 +106,14 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
             prompt,
         } => {
             let run = manager.prepare(&agent, &prompt)?;
-            launch(&manager, &run.id, wait)?;
+            launch(
+                &manager,
+                &run.id,
+                wait,
+                &["agents", "worker", &run.id],
+                None,
+                "agent",
+            )?;
         }
         AgentCommands::Retry { task_id, wait } => {
             let old = manager.status(&task_id)?;
@@ -114,11 +121,16 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
                 bail!("resolve the existing task before retrying to avoid duplicate execution");
             }
             let run = manager.prepare(&old.agent, &old.prompt)?;
-            launch(&manager, &run.id, wait)?;
+            launch(
+                &manager,
+                &run.id,
+                wait,
+                &["agents", "worker", &run.id],
+                None,
+                "agent",
+            )?;
         }
-        AgentCommands::Worker { task_id } => {
-            run_worker(manager, &task_id)?;
-        }
+        AgentCommands::Worker { task_id } => run_worker(manager, &task_id, "agent")?,
         AgentCommands::Tasks => print_json(&manager.list()?)?,
         AgentCommands::Status { task_id, refresh } => {
             print_json(&if refresh {
@@ -134,68 +146,6 @@ pub fn execute(action: AgentCommands, workspace: &Path) -> Result<()> {
         } => print!("{}", manager.logs(&task_id, stderr, bytes)?),
         AgentCommands::Cancel { task_id } => print_json(&manager.cancel(&task_id)?)?,
         AgentCommands::Send { task_id, message } => print_json(&manager.send(&task_id, &message)?)?,
-    }
-    Ok(())
-}
-
-fn launch(manager: &AgentManager, id: &str, wait: bool) -> Result<()> {
-    // Always print the durable ID before executing so a second terminal can cancel it.
-    print_json(&manager.read(id)?)?;
-    if wait {
-        return run_worker(manager.clone(), id);
-    }
-    let mut command = Command::new(std::env::current_exe()?);
-    command
-        .args(["agents", "worker", id])
-        .current_dir(&manager.read(id)?.workspace)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x00000008 | 0x00000200); // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    }
-    match command.spawn() {
-        Ok(mut child) => {
-            // Reap if the caller is embedded/long lived; a CLI exit reparents the worker.
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
-        Err(e) => {
-            manager.mark_launch_failed(id, &e.to_string())?;
-            return Err(e.into());
-        }
-    }
-    Ok(())
-}
-fn run_worker(manager: AgentManager, id: &str) -> Result<()> {
-    let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    #[cfg(unix)]
-    for signal in [
-        signal_hook::consts::SIGINT,
-        signal_hook::consts::SIGTERM,
-        signal_hook::consts::SIGHUP,
-    ] {
-        signal_hook::flag::register(signal, shutdown.clone())?;
-    }
-    let run = manager.with_shutdown(shutdown).execute(id)?;
-    print_json(&run)?;
-    if matches!(
-        run.status,
-        RunStatus::Failed | RunStatus::Unknown | RunStatus::Cancelled
-    ) {
-        bail!(
-            "agent task {} ended with {:?}; inspect status and logs",
-            run.id,
-            run.status
-        );
     }
     Ok(())
 }

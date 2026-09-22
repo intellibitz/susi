@@ -105,18 +105,6 @@ console-subscriber = { version = "0.5.0", optional = true }
 rayon = "1.12"
 parking_lot = { workspace = true }
 
-# Candle stays on the root package so `--features cuda|mkl|metal` can forward
-# backend flags; inference code lives in susi-gemi / susi-native.
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-candle-core = { version = "0.11.0" }
-candle-nn = { version = "0.11.0" }
-candle-transformers = { version = "0.11.0" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
-candle-nn = { version = "0.11.0", features = ["metal", "accelerate"] }
-candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
-
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "winerror"] }
 
@@ -133,15 +121,17 @@ candle-transformers = { git = "https://github.com/huggingface/candle", rev = "1b
 candle-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 
+# GPU backends live in susi-gemi (and models). Root only forwards features so
+# `cargo build -p susi --features cuda|mkl|metal` enables the inference stack
+# without the CLI package owning Candle dependencies.
 [features]
 default = []
-cuda = ["susi-gemi/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
-mkl = ["susi-gemi/mkl", "candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
-metal = ["susi-gemi/metal", "candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+cuda = ["susi-gemi/cuda", "susi-daemon/cuda", "susi-server/cuda"]
+mkl = ["susi-gemi/mkl"]
+metal = ["susi-gemi/metal"]
 otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
 tokio-console = ["dep:console-subscriber"]
-
 
 
 [profile.release]

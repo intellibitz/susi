@@ -6916,9 +6916,6 @@ name = "susi"
 version = "0.9.0"
 dependencies = [
  "anyhow",
- "candle-core",
- "candle-nn",
- "candle-transformers",
  "clap",
  "console-subscriber",
  "once_cell",
@@ -7126,7 +7123,6 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "dashmap",
- "directories 6.0.0",
  "flume",
  "hex",
  "hound",
@@ -7151,7 +7147,6 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tracing",
- "ureq 3.4.2",
  "url",
  "uuid",
 ]
