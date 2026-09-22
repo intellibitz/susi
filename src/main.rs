@@ -749,6 +749,9 @@ fn main() -> std::process::ExitCode {
                 // Leading MCP manage commands handled before substrate boot.
             }
             Commands::Gemi => {
+                // Seed bearer before binding so empty-token loopback is not an
+                // unauthenticated open door on the GEMI CLI path.
+                let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
                 // Degrade to bundled defaults rather than panic if
                 // config.json is torn by a concurrent writer.
                 let gemi_cfg =

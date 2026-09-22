@@ -13,12 +13,36 @@ use susi_error::{EaiError, EaiResult};
 
 pub struct ReflexSynthesizer;
 
+/// Basename-only slug for reflex files — rejects `..`, separators, and
+/// non-identifier characters that could escape the reflexes directory.
+fn sanitize_reflex_slug(intent: &str) -> EaiResult<String> {
+    let slug = intent.trim().replace(' ', "_").to_lowercase();
+    if slug.is_empty() {
+        return Err(EaiError::protocol("Reflex intent cannot be empty"));
+    }
+    if slug.contains("..") || slug.contains('/') || slug.contains('\\') {
+        return Err(EaiError::filesystem(
+            "Reflex intent must not contain path separators or '..'",
+        ));
+    }
+    if !slug
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(EaiError::filesystem(
+            "Reflex intent must be alphanumeric/underscore/dash only after normalization",
+        ));
+    }
+    Ok(slug)
+}
+
 impl ReflexSynthesizer {
     /// Writes a boilerplate `SusiTool` stub for `intent` to
     /// `src/gmcp/reflexes/<intent>.rs`. `execute()` just echoes its argument
     /// back in a canned string — this scaffolds a reflex, it doesn't
     /// implement one.
     pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
+        let slug = sanitize_reflex_slug(intent)?;
         let struct_name = intent
             .split_whitespace()
             .map(|s| s.to_string())
@@ -44,11 +68,10 @@ impl ReflexSynthesizer {
                     assert!(true);\n\
                 }}\n\
             }}",
-            intent, struct_name, struct_name, intent.replace(' ', "_"), intent, intent
+            intent, struct_name, struct_name, slug, intent, intent
         );
 
-        let reflex_path =
-            workspace.join(format!("src/gmcp/reflexes/{}.rs", intent.replace(' ', "_")));
+        let reflex_path = workspace.join(format!("src/gmcp/reflexes/{}.rs", slug));
         // Mandate 42: safe - `reflex_path` is `workspace.join("src/gmcp/reflexes/...")`,
         // a join with a non-empty multi-segment relative path, so it always has
         // at least one path component beyond `workspace` and `.parent()` can
@@ -77,7 +100,7 @@ impl ReflexSynthesizer {
     pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
         let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
         let _ = fs::create_dir_all(&reflex_dir);
-        let slug = intent.trim().replace(' ', "_").to_lowercase();
+        let slug = sanitize_reflex_slug(intent)?;
         let wasm_src = reflex_dir.join(format!("{}.rs", slug));
 
         let code = Self::generate_reflex_source(intent);

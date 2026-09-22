@@ -559,7 +559,7 @@ impl SusiDaemon {
         let bind_address = susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .get("bind_address")
-            .unwrap_or_else(|| "0.0.0.0".to_string());
+            .unwrap_or_else(|| "127.0.0.1".to_string());
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);

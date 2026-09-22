@@ -442,33 +442,37 @@ impl SusiSupervisor {
             let _ = std::io::stdout().flush();
         }
 
-        // 3. Broadcast the goal to active peer nodes; their results land on the blackboard
+        // 3. Broadcast the goal only to Explicitly admitted peers. UDP-
+        // Discovered peers must not feed the mission blackboard / quorum —
+        // a spoofed LAN pong would otherwise skew QUORUM_COMMIT without the
+        // host bearer.
         let cluster_nodes = Self::rank_peers_for_goal(goal);
         let active_peers_count = cluster_nodes
             .iter()
             .filter(|n| {
                 n.node_id != "susi-local-master"
-                    && !n.address.starts_with("127.0.0.1")
-                    && !n.address.starts_with("localhost")
                     && n.is_active
+                    && matches!(n.admission, PeerAdmission::Explicit)
             })
             .count();
         if active_peers_count > 0 {
-            eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} active cluster peer nodes...", active_peers_count);
+            eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} explicitly admitted peer nodes...", active_peers_count);
             let _ = std::io::stdout().flush();
-            for node in cluster_nodes.iter().take(2) {
-                if node.node_id != "susi-local-master" && node.is_active {
-                    let addr = node.address.clone();
-                    let node_id = node.node_id.clone();
-                    let g = goal.to_string();
-                    let bb = Arc::clone(&blackboard);
-                    rayon::spawn(move || {
-                        let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
-                        if !remote_res.contains("unreachable") {
-                            bb.insert(format!("PeerNode_{}", node_id), remote_res);
-                        }
-                    });
-                }
+            for node in cluster_nodes.iter().filter(|n| {
+                n.node_id != "susi-local-master"
+                    && n.is_active
+                    && matches!(n.admission, PeerAdmission::Explicit)
+            }) {
+                let addr = node.address.clone();
+                let node_id = node.node_id.clone();
+                let g = goal.to_string();
+                let bb = Arc::clone(&blackboard);
+                rayon::spawn(move || {
+                    let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
+                    if !remote_res.contains("unreachable") {
+                        bb.insert(format!("PeerNode_{}", node_id), remote_res);
+                    }
+                });
             }
         }
 
@@ -744,16 +748,11 @@ impl SusiSupervisor {
     }
 
     /// Whether outbound calls to `addr` may attach this host's bearer token.
-    /// Discovered (UDP) peers never qualify — presenting the token over
-    /// cleartext HTTP to an unauthenticated LAN responder is token theft.
+    /// Only roster peers admitted as Local or Explicit qualify — never
+    /// Discovered peers, and never an arbitrary loopback port (a local
+    /// listener could otherwise steal the token).
     fn peer_allows_host_token(addr: &str) -> bool {
         let addr = addr.trim();
-        if addr.starts_with("127.0.0.1:")
-            || addr.starts_with("[::1]:")
-            || addr.starts_with("localhost:")
-        {
-            return true;
-        }
         Self::list_cluster_nodes().iter().any(|n| {
             n.address == addr
                 && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
@@ -1115,10 +1114,14 @@ mod tests {
 
     #[test]
     fn discovered_peers_never_receive_host_bearer() {
-        assert!(SusiSupervisor::peer_allows_host_token("127.0.0.1:9090"));
-        assert!(SusiSupervisor::peer_allows_host_token("localhost:9093"));
-        // Any non-loopback address that is not Local/Explicit must be denied —
-        // including addresses that happen to match a Discovered roster entry.
+        // Local master is rostered as PeerAdmission::Local on the GMCP port.
+        let local = format!("127.0.0.1:{}", susi_paths::ports::GMCP);
+        assert!(SusiSupervisor::peer_allows_host_token(&local));
+        // Arbitrary loopback ports are not automatic trust — a local listener
+        // must not steal the host bearer just by binding nearby.
+        assert!(!SusiSupervisor::peer_allows_host_token("127.0.0.1:19999"));
+        assert!(!SusiSupervisor::peer_allows_host_token("localhost:9093"));
+        // Any non-roster / Discovered address must be denied.
         assert!(!SusiSupervisor::peer_allows_host_token("10.0.0.99:9093"));
         assert!(!SusiSupervisor::peer_allows_host_token("192.168.1.50:9090"));
     }

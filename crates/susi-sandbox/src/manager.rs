@@ -78,6 +78,41 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
     result.map_err(|error| EaiError::filesystem(error.to_string()))
 }
 
+/// Join `user_path` under `workspace`, rejecting absolutes, `..`, and escapes.
+pub fn confined_workspace_join(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
+    use std::path::Component;
+    let user_path = user_path.trim().trim_matches('"').trim_matches('\'');
+    let path = PathBuf::from(user_path);
+    if path.is_absolute() {
+        return Err(EaiError::filesystem("Absolute paths not allowed"));
+    }
+    for component in path.components() {
+        if matches!(component, Component::ParentDir) {
+            return Err(EaiError::filesystem(
+                "Parent directory traversal not allowed",
+            ));
+        }
+    }
+    let full = workspace.join(&path);
+    let canonical_workspace = workspace
+        .canonicalize()
+        .map_err(|e| EaiError::filesystem(format!("Workspace error: {e}")))?;
+    // For not-yet-existing leaves, canonicalize the parent and re-join the name.
+    let parent = full.parent().unwrap_or(workspace);
+    let canonical_parent = parent
+        .canonicalize()
+        .unwrap_or_else(|_| canonical_workspace.clone());
+    if !canonical_parent.starts_with(&canonical_workspace) {
+        return Err(EaiError::filesystem(format!(
+            "Path escape attempt: {user_path}"
+        )));
+    }
+    let leaf = full
+        .file_name()
+        .ok_or_else(|| EaiError::filesystem(format!("Path has no file name: {user_path}")))?;
+    Ok(canonical_parent.join(leaf))
+}
+
 /// Recursively backfills any key (object) or element (same-length array)
 /// present in `default` but absent from `existing`. Returns whether
 /// `existing` was modified. A value `existing` already has is never
@@ -1118,11 +1153,31 @@ impl SusiConfig {
             }
             hex::encode(raw)
         };
-        let _ = fs::write(&token_path, &token);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let _ = fs::create_dir_all(&global_dir);
+            let _ = fs::set_permissions(&global_dir, fs::Permissions::from_mode(0o700));
+            // Create with 0600 atomically — never write-then-chmod (umask window).
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true).mode(0o600);
+            match options.open(&token_path).and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(token.as_bytes())?;
+                f.sync_all()
+            }) {
+                Ok(()) => {
+                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+                }
+                Err(_) => {
+                    let _ = fs::write(&token_path, &token);
+                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = fs::write(&token_path, &token);
         }
         if cfg.settings.remove("api_auth_token").is_some() {
             let _ = cfg.save(&global_dir);
@@ -1415,9 +1470,9 @@ pub struct SandboxManager;
 impl SandboxManager {
     pub async fn execute_in_docker(cmd: &str) -> EaiResult<String> {
         use bollard::container::LogOutput;
-        use bollard::models::ContainerCreateBody;
+        use bollard::models::{ContainerCreateBody, HostConfig};
         use bollard::query_parameters::{
-            CreateContainerOptions, LogsOptions, StartContainerOptions,
+            CreateContainerOptions, LogsOptions, RemoveContainerOptions, StartContainerOptions,
         };
         use bollard::Docker;
         use futures::stream::StreamExt;
@@ -1428,9 +1483,23 @@ impl SandboxManager {
         let sandbox_image = SusiConfig::load_global()
             .unwrap_or_default()
             .sandbox_image();
+        // Hardened defaults: no network, drop capabilities, read-only rootfs,
+        // memory cap, auto-remove. Authenticated callers still get a shell
+        // inside the image — isolation limits blast radius, not intent.
         let config = ContainerCreateBody {
             image: Some(sandbox_image),
             cmd: Some(vec!["sh".to_string(), "-c".to_string(), cmd.to_string()]),
+            network_disabled: Some(true),
+            host_config: Some(HostConfig {
+                network_mode: Some("none".to_string()),
+                readonly_rootfs: Some(true),
+                cap_drop: Some(vec!["ALL".to_string()]),
+                memory: Some(256 * 1024 * 1024),
+                nano_cpus: Some(500_000_000), // 0.5 CPU
+                auto_remove: Some(true),
+                security_opt: Some(vec!["no-new-privileges:true".to_string()]),
+                ..Default::default()
+            }),
             ..Default::default()
         };
 
@@ -1444,13 +1513,39 @@ impl SandboxManager {
             .await
             .map_err(|e| EaiError::process(format!("Container start failed: {}", e)))?;
 
-        let mut logs = docker.logs(&container.id, None::<LogsOptions>);
+        let mut logs = docker.logs(
+            &container.id,
+            Some(LogsOptions {
+                stdout: true,
+                stderr: true,
+                follow: true,
+                ..Default::default()
+            }),
+        );
         let mut output = String::new();
         while let Some(log) = logs.next().await {
-            if let Ok(LogOutput::StdOut { message }) = log {
-                output.push_str(&String::from_utf8_lossy(&message));
+            match log {
+                Ok(LogOutput::StdOut { message }) | Ok(LogOutput::StdErr { message }) => {
+                    output.push_str(&String::from_utf8_lossy(&message));
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    output.push_str(&format!("\n[docker log error: {e}]"));
+                    break;
+                }
             }
         }
+
+        // Best-effort cleanup if auto_remove did not fire (e.g. never started).
+        let _ = docker
+            .remove_container(
+                &container.id,
+                Some(RemoveContainerOptions {
+                    force: true,
+                    ..Default::default()
+                }),
+            )
+            .await;
 
         Ok(output)
     }
@@ -1675,7 +1770,7 @@ impl IntentBundleManager {
         for bundle in &mut bundles {
             if !bundle.is_applied() {
                 for fix in &bundle.staged_fixes {
-                    let target_path = workspace.join(fix.file_path());
+                    let target_path = confined_workspace_join(workspace, fix.file_path())?;
                     if let Some(parent) = target_path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
@@ -1703,7 +1798,7 @@ impl IntentBundleManager {
         for bundle in &mut bundles {
             if bundle.is_applied() {
                 for fix in &bundle.staged_fixes {
-                    let target_path = workspace.join(fix.file_path());
+                    let target_path = confined_workspace_join(workspace, fix.file_path())?;
                     if !fix.original_content().is_empty() {
                         let _ = fs::write(&target_path, fix.original_content());
                     } else if target_path.exists() {

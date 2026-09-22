@@ -143,6 +143,55 @@ fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBuf> {
     Ok(candidate)
 }
 
+/// Open a workspace path for reading without following a raced-in symlink leaf
+/// (`O_NOFOLLOW` on Unix). Pair with `secure_path` for TOCTOU-safe reads.
+fn read_file_nofollow(path: &Path) -> EaiResult<String> {
+    #[cfg(unix)]
+    {
+        use std::io::Read;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        options.custom_flags(libc::O_NOFOLLOW);
+        let mut file = options
+            .open(path)
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let mut content = String::new();
+        file.read_to_string(&mut content)
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        Ok(content)
+    }
+    #[cfg(not(unix))]
+    {
+        fs::read_to_string(path).map_err(|e| EaiError::filesystem(e.to_string()))
+    }
+}
+
+/// Reject absolute paths, `..`, and path-like argv that escape the workspace
+/// so allowlisted bins (`cat`, `rg`, …) cannot read host FS outside cwd.
+fn confine_exec_argv(workspace: &Path, args: &[String]) -> EaiResult<()> {
+    for arg in args.iter().skip(1) {
+        if arg.starts_with('-') {
+            continue;
+        }
+        let p = Path::new(arg);
+        if p.is_absolute() {
+            return Err(EaiError::filesystem(format!(
+                "Absolute paths not allowed in exec_command: {arg}"
+            )));
+        }
+        if arg.contains("..") {
+            return Err(EaiError::filesystem(format!(
+                "Parent directory traversal not allowed in exec_command: {arg}"
+            )));
+        }
+        if arg.contains('/') || arg.contains('\\') {
+            let _ = secure_path(workspace, arg)?;
+        }
+    }
+    Ok(())
+}
+
 /// Blocks loopback, private, link-local (including the 169.254.169.254 cloud
 /// metadata endpoint), unspecified, and multicast/broadcast targets, plus
 /// their IPv4-mapped IPv6 form. This closes the direct SSRF vector (an
@@ -502,8 +551,7 @@ impl CoreTools {
     pub fn read_file(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let arg_s = tool_string_arg(arg, &["path", "file", "filename"])?;
         let path = secure_path(workspace, &arg_s)?;
-        let content = fs::read_to_string(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        Ok(content)
+        read_file_nofollow(&path)
     }
 
     #[tool(name = "write_file", description = "Write content to workspace file")]
@@ -560,6 +608,10 @@ impl CoreTools {
         if args.is_empty() {
             task_handle.mark_failed("Command cannot be empty");
             return Err(EaiError::protocol("Command cannot be empty"));
+        }
+        if let Err(e) = confine_exec_argv(workspace, &args) {
+            task_handle.mark_failed(&e.to_string());
+            return Err(e);
         }
 
         println!("- [Substrate Operation] Executing: {}", clean);
@@ -659,6 +711,9 @@ impl CoreTools {
             .get("prompt")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
+        let audit = format!("{agent}: {prompt}");
+        susi_gawd::safety::SafetyDetector::audit_action("agents_run", &audit, workspace)?;
+        susi_gawd::security::SecurityDetector::audit_action("agents_run", &audit, workspace)?;
         let manager = susi_agents::external::AgentManager::new(workspace)
             .map_err(|e| EaiError::process(e.to_string()))?;
         let run = manager
@@ -1145,7 +1200,7 @@ impl CoreTools {
             c.to_string()
         } else if let Some(p) = path_s {
             let path = secure_path(workspace, p)?;
-            fs::read_to_string(path).map_err(|e| EaiError::filesystem(e.to_string()))?
+            read_file_nofollow(&path)?
         } else {
             return Err(EaiError::protocol(
                 "Usage: ast_analyze {path: <path>} OR {code: <code>}",
@@ -1246,11 +1301,14 @@ impl CoreTools {
         name = "sandbox_exec",
         description = "Isolated Docker execution via bollard"
     )]
-    pub fn sandbox_exec(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn sandbox_exec(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let cmd = arg
             .get("cmd")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
+
+        susi_gawd::safety::SafetyDetector::audit_action("sandbox_exec", cmd, workspace)?;
+        susi_gawd::security::SecurityDetector::audit_action("sandbox_exec", cmd, workspace)?;
 
         Self::shared_runtime()?
             .block_on(async { susi_sandbox::manager::SandboxManager::execute_in_docker(cmd).await })

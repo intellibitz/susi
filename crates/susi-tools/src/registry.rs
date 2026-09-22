@@ -158,7 +158,18 @@ impl ToolRegistry {
         }
 
         if name.starts_with("reflex_") {
-            let wasm_name = format!("{}.wasm", name.trim_start_matches("reflex_"));
+            let raw = name.trim_start_matches("reflex_");
+            if raw.is_empty()
+                || raw.contains("..")
+                || raw.contains('/')
+                || raw.contains('\\')
+                || !raw
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
+                return "Reflex Error: invalid reflex name".to_string();
+            }
+            let wasm_name = format!("{}.wasm", raw);
             let wasm_path = susi_paths::SusiDirs::data_dir()
                 .join("reflexes")
                 .join(wasm_name);
