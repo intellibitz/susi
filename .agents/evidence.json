@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.9.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-21T19:38:40Z",
+  "last_verification": "2026-09-22T08:15:00Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1196,6 +1196,16 @@
         "ref": "file://crates/susi-gawd-agents/src/goal_shape.rs"
       },
       "proof": "FIXED 2026-09-22: Phase 3. Broke native↔fleet cycle via crate::goal_shape::{is_meta_command,is_meta_or_simple_query}; GawdAgentFleet methods delegate; SearchAgent uses goal_shape. Split agents.rs (2466) into agents/{native,fleet}.rs with pub(super) helpers for cross-module tests. Split lifecycle.rs into lifecycle/{types,model_manager}.rs (report types vs download/controller/ModelManager; crate::hardware/download imports). Verified: susi-gawd-agents lib 60 tests; susi-gemi-models lib 69 tests; cargo check -p susi."
+    },
+    {
+      "id": "EV-2022922-114",
+      "type": "CODE",
+      "milestone": "Optimize Phase 4: ama module split + download controller + framework EngineProfile DRY",
+      "anchor": {
+        "label": "ama/{report,master,hybrid} + download_controller + python_engine profiles",
+        "ref": "file://crates/susi-gawd-swarm/src/ama/mod.rs"
+      },
+      "proof": "FIXED 2026-09-22: Phase 4. Structure: split ama.rs (~1598) into ama/{mod,report,master,hybrid}.rs (mission report + master orchestrator + hybrid routing; helpers/tests colocated). Deepened lifecycle: download_controller.rs (ModelDownloadController/Progress) vs model_manager.rs; pub(crate) progress_path + is_downloading/has_active_downloads accessors. Framework CLI DRY: langgraph/autogen/smolagents/openai-agents reduced to EngineProfile constants (like crewai); deleted four ~180-line CLI modules; main.rs routes all through python_engine_cli; EngineProfile gained example_filename (langgraph keeps graph.py). Verified: cargo check -p susi; clippy -D warnings on touched crates; ama:: 5 tests; lifecycle:: 16 tests; init_writes_config + example_mentions profile tests."
     }
   ]
 }

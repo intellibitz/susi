@@ -38,6 +38,7 @@ if __name__ == "__main__":
     main()
     sys.stdout.flush()
 "#,
+    example_filename: "agent.py",
     credential_envs: &["E2B_API_KEY"],
     credential_hint: "export E2B_API_KEY=… (from https://e2b.dev)",
     process_banner: "susi-e2b",

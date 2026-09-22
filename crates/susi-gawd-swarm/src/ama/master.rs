@@ -1,131 +1,11 @@
-// Top-level mission orchestrator: sanitizes input, dispatches the swarm, and
-// streams results back to the caller.
-// Agents must add functionality directly to the susi engine via ToolRegistry,
-// not simulate or "fake" susi capabilities by performing logic themselves.
+//! Top-level mission orchestrator: sanitizes input, dispatches the swarm.
 
-use super::amas::{A2AMessage, SusiSupervisor};
-use serde::{Deserialize, Serialize};
+use super::report::SusiMissionReport;
+use crate::amas::{A2AMessage, SusiSupervisor};
 use std::io::Write;
 use std::path::Path;
 use susi_error::EaiResult;
-use susi_gawd_agents::agents::GawdAgentInfo;
 use susi_gawd_agents::AxiomSubstrate;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SusiMissionReport {
-    pub goal: String,
-    pub status: String,
-    pub agents: Vec<GawdAgentInfo>,
-    pub interactions: Vec<A2AMessage>,
-    pub final_answer: String,
-}
-
-pub type SusiSwarmReport = SusiMissionReport;
-
-impl SusiMissionReport {
-    /// Only an explicitly successful mission may produce a success exit code.
-    pub fn is_success(&self) -> bool {
-        matches!(self.status.as_str(), "SUCCESS" | "COMPLETE")
-    }
-
-    /// CLI outcome derived from the report, never from generated prose.
-    pub fn exit_code(&self) -> std::process::ExitCode {
-        if self.is_success() {
-            std::process::ExitCode::SUCCESS
-        } else {
-            std::process::ExitCode::FAILURE
-        }
-    }
-
-    /// Human-readable completion marker using the same outcome as the protocol.
-    pub fn completion_message(&self) -> String {
-        if self.is_success() {
-            format!("[MISSION COMPLETE] Status: {}", self.status)
-        } else {
-            format!("[MISSION FAILED] Status: {}", self.status)
-        }
-    }
-
-    pub fn to_protocol_format(&self, _is_ide_environment: bool) -> String {
-        let mut full_thinking_trace = String::new();
-        full_thinking_trace.push_str(&format!(
-            "SUSI Mission Goal: {}\nStatus: {}\nAgents Recruited: {}\n\n",
-            self.goal,
-            self.status,
-            self.agents.len()
-        ));
-
-        for agent in &self.agents {
-            full_thinking_trace
-                .push_str(&format!("- [Agent] {} ({})\n", agent.name, agent.provider));
-        }
-
-        for msg in &self.interactions {
-            full_thinking_trace.push_str(&format!(
-                "- [{}] Action: {} | Payload: {}\n",
-                msg.sender, msg.action, msg.payload
-            ));
-        }
-
-        let primary_step = serde_json::json!({
-            "action": "supervise_mission_swarm",
-            "action_input": { "goal": self.goal },
-            "observation": format!("Mission status: {}", self.status),
-            "thought": full_thinking_trace.trim()
-        });
-
-        let json_str = serde_json::to_string_pretty(&primary_step).unwrap_or_default();
-        let trimmed_answer = self.final_answer.trim();
-
-        if trimmed_answer.is_empty()
-            || trimmed_answer.starts_with("[FAST-PATH COMPLETE]")
-            || trimmed_answer == self.goal
-        {
-            json_str
-        } else {
-            format!("{}\n\n{}", json_str, trimmed_answer)
-        }
-    }
-
-    /// Design principle Traceable reasoning: persist inspectable thought + tool
-    /// provenance under the workspace `.susi/` tree (no secret bodies).
-    pub fn persist_inspectable_trace(&self, workspace: &Path) {
-        let dir = workspace.join(".susi");
-        let _ = std::fs::create_dir_all(&dir);
-        let path = dir.join("last_mission_trace.json");
-        let protocol_raw = self.to_protocol_format(false);
-        // Protocol may append the final answer after a blank line; parse JSON only.
-        let json_part = protocol_raw
-            .split("\n\n")
-            .next()
-            .unwrap_or(protocol_raw.as_str());
-        let protocol: serde_json::Value =
-            serde_json::from_str(json_part).unwrap_or_else(|_| serde_json::json!({}));
-        let body = serde_json::json!({
-            "goal": self.goal,
-            "status": self.status,
-            "agents": self.agents,
-            "interactions": self.interactions,
-            "final_answer": self.final_answer,
-            "protocol": protocol,
-            "protocol_raw": protocol_raw,
-            "blackboard_path": ".susi/last_blackboard.json",
-            "blackboard": load_persisted_blackboard(workspace),
-        });
-        let _ = std::fs::write(
-            path,
-            serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
-        );
-    }
-}
-
-fn load_persisted_blackboard(workspace: &Path) -> serde_json::Value {
-    let path = workspace.join(".susi").join("last_blackboard.json");
-    match std::fs::read_to_string(path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or(serde_json::json!({})),
-        Err(_) => serde_json::json!({ "entries": [], "agent_count": 0 }),
-    }
-}
 
 pub struct SusiMasterAgent;
 
@@ -595,7 +475,7 @@ impl SusiMasterAgent {
 
         // 1. Swarm Supervision
         let (interactions, agents) =
-            super::amas::SusiSupervisor::supervise_mission(&goal, workspace);
+            crate::amas::SusiSupervisor::supervise_mission(&goal, workspace);
 
         for agent in &agents {
             eprintln!("  - [Recruited Agent] Profile: {} | Provider: {} | Status: Recruited for semantic centroid projection overlap.", agent.name, agent.provider);
@@ -614,7 +494,7 @@ impl SusiMasterAgent {
         }
 
         let swarm_context =
-            super::amas::SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
+            crate::amas::SusiSupervisor::gather_weighted_wisdom(&interactions, &agents);
 
         eprintln!("\n[LIVE REASONING TOKENS]");
         eprintln!("- [Truth Convergence] Ingesting model reasoning trace stream:");
@@ -1349,154 +1229,6 @@ impl SusiMasterAgent {
                 // Report gap; pulse intent does NOT trigger Motion Rule
                 Err(e)
             }
-        }
-    }
-}
-
-/// Routes a goal to either the coding toolbox (`ast_analyze`) or the
-/// assistant toolbox (`rag_query`) based on keyword matching.
-pub struct SusiHybridAgent {
-    pub coding_toolbox: Vec<String>,
-    pub assistant_toolbox: Vec<String>,
-}
-
-impl Default for SusiHybridAgent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SusiHybridAgent {
-    pub fn new() -> Self {
-        Self {
-            coding_toolbox: vec![
-                "ast_analyze".to_string(),
-                "semantic_search".to_string(),
-                "sandbox_exec".to_string(),
-                "lsp_proxy".to_string(),
-            ],
-            assistant_toolbox: vec![
-                "browser_automate".to_string(),
-                "rag_query".to_string(),
-                "audio_transcribe".to_string(),
-            ],
-        }
-    }
-
-    pub fn execute_hybrid_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
-        let session = susi_core::capture::EvidenceSession::new(
-            goal,
-            workspace,
-            susi_gawd_agents::security::SecurityDetector::redact,
-        )
-        .ok();
-        let _activation = session
-            .as_ref()
-            .map(susi_core::capture::EvidenceSession::activate);
-        let _scope = susi_core::capture::EvidenceSession::enter(session);
-
-        eprintln!("<thinking>");
-        eprintln!("[SUSI Hybrid Agent] Goal: {}", goal);
-
-        let manifold = susi_core::manifold::IntentManifold::analyze(goal);
-        eprintln!(
-            "- [Intent Manifold] Scope: {:?} | Risk: {:?}",
-            manifold.scope_of_impact, manifold.risk_profile
-        );
-
-        // Specialist Routing
-        let result = if goal.contains("code") || goal.contains("refactor") || goal.contains("fix") {
-            eprintln!("- [Specialist Route] Coding Agent Substrate Active");
-            self.solve_coding_mission(goal, workspace)?
-        } else {
-            eprintln!("- [Specialist Route] General Assistant Substrate Active");
-            self.solve_assistant_mission(goal, workspace)?
-        };
-
-        eprintln!("</thinking>\n");
-        Ok(result)
-    }
-
-    fn solve_coding_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
-        eprintln!("- [Coding Toolbox] Using: {:?}", self.coding_toolbox);
-        let res = susi_tools::ToolRegistry::execute_tool(
-            "ast_analyze",
-            &serde_json::json!({"code": goal}),
-            workspace,
-        );
-        Ok(format!("[HYBRID_CODING] {}", res))
-    }
-
-    fn solve_assistant_mission(&self, goal: &str, workspace: &Path) -> EaiResult<String> {
-        eprintln!("- [Assistant Toolbox] Using: {:?}", self.assistant_toolbox);
-        let res = susi_tools::ToolRegistry::execute_tool(
-            "rag_query",
-            &serde_json::json!({"query": goal}),
-            workspace,
-        );
-        Ok(format!("[HYBRID_ASSISTANT] {}", res))
-    }
-}
-
-#[cfg(test)]
-mod report_tests {
-    use super::*;
-    #[test]
-    fn failure_evidence_controls_banner_and_exit_even_with_optimistic_prose() {
-        for status in ["FAILED", "BLOCKED", "ABORTED", "UNVERIFIED", ""] {
-            let report = SusiMissionReport {
-                goal: "weather".into(),
-                status: status.into(),
-                agents: vec![],
-                interactions: vec![],
-                final_answer: "Mission complete. Everything worked.".into(),
-            };
-            assert!(!report.is_success());
-            assert_eq!(report.exit_code(), std::process::ExitCode::FAILURE);
-            assert!(report.completion_message().starts_with("[MISSION FAILED]"));
-            assert!(!report.completion_message().contains("MISSION COMPLETE"));
-            // The protocol emits its JSON envelope followed by the answer text.
-            let rendered = report.to_protocol_format(false);
-            let protocol = serde_json::Deserializer::from_str(&rendered)
-                .into_iter::<serde_json::Value>()
-                .next()
-                .unwrap()
-                .unwrap();
-            assert_eq!(protocol["observation"], format!("Mission status: {status}"));
-        }
-    }
-
-    #[test]
-    fn explicit_success_reports_have_success_banner_and_exit() {
-        for status in ["SUCCESS", "COMPLETE"] {
-            let report = SusiMissionReport {
-                goal: "inspect".into(),
-                status: status.into(),
-                agents: vec![],
-                interactions: vec![],
-                final_answer: "Observed the requested file.".into(),
-            };
-            assert!(report.is_success());
-            assert_eq!(report.exit_code(), std::process::ExitCode::SUCCESS);
-            assert!(report
-                .completion_message()
-                .starts_with("[MISSION COMPLETE]"));
-        }
-    }
-
-    #[test]
-    fn protocol_preserves_failed_and_blocked_outcomes() {
-        for status in ["FAILED", "BLOCKED", "ABORTED", "COMPLETE"] {
-            let report = SusiMissionReport {
-                goal: "test".into(),
-                status: status.into(),
-                agents: vec![],
-                interactions: vec![],
-                final_answer: String::new(),
-            };
-            let value: serde_json::Value =
-                serde_json::from_str(&report.to_protocol_format(false)).unwrap();
-            assert_eq!(value["observation"], format!("Mission status: {status}"));
         }
     }
 }

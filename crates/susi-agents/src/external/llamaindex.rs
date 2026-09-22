@@ -48,6 +48,7 @@ if __name__ == "__main__":
     main()
     sys.stdout.flush()
 "#,
+    example_filename: "agent.py",
     credential_envs: &["OPENAI_API_KEY", "OPENROUTER_API_KEY"],
     credential_hint: "export OPENAI_API_KEY=… (OpenRouter: OPENROUTER_API_KEY + OPENAI_BASE_URL)",
     process_banner: "susi-llamaindex",

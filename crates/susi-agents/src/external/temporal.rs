@@ -55,6 +55,7 @@ if __name__ == "__main__":
     main()
     sys.stdout.flush()
 "#,
+    example_filename: "agent.py",
     credential_envs: &[],
     credential_hint:
         "optional: TEMPORAL_ADDRESS / TEMPORAL_NAMESPACE (default dry-run without cluster)",

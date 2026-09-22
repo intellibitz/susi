@@ -8,7 +8,6 @@
 mod agent_cli;
 mod aider_cli;
 mod auto_cli;
-mod autogen_cli;
 mod blackboard_cli;
 mod browser_use_cli;
 mod cli_json;
@@ -19,17 +18,14 @@ mod extensions_cli;
 mod framework_cli;
 mod frontier_cli;
 mod gemini_cli;
-mod langgraph_cli;
 mod mcp_cli;
 mod model_cli;
 mod open_weight_cli;
-mod openai_agents_cli;
 mod openclaw_cli;
 mod openhands_cli;
 mod openrouter_cli;
 mod openviking_cli;
 mod python_engine_cli;
-mod smolagents_cli;
 mod substrate_cli;
 mod swe_agent_cli;
 
@@ -200,25 +196,25 @@ enum Commands {
     #[command(name = "langgraph", visible_alias = "lg")]
     LangGraph {
         #[command(subcommand)]
-        action: Option<langgraph_cli::LangGraphCommands>,
+        action: Option<python_engine_cli::EngineCommands>,
     },
     /// Manage OpenAI Agents SDK end to end (Python engine + config + durable tasks)
     #[command(name = "openai-agents", visible_alias = "oas")]
     OpenAiAgents {
         #[command(subcommand)]
-        action: Option<openai_agents_cli::OpenAiAgentsCommands>,
+        action: Option<python_engine_cli::EngineCommands>,
     },
     /// Manage AutoGen end to end (Python AgentChat engine + config + durable tasks)
     #[command(name = "autogen", visible_alias = "ag")]
     AutoGen {
         #[command(subcommand)]
-        action: Option<autogen_cli::AutoGenCommands>,
+        action: Option<python_engine_cli::EngineCommands>,
     },
     /// Manage Hugging Face smolagents end to end (Python engine + config + durable tasks)
     #[command(name = "smolagents", visible_alias = "smol")]
     SmolAgents {
         #[command(subcommand)]
-        action: Option<smolagents_cli::SmolAgentsCommands>,
+        action: Option<python_engine_cli::EngineCommands>,
     },
     /// Manage CrewAI end to end (role-based multi-agent orchestration)
     #[command(name = "crewai")]
@@ -841,8 +837,9 @@ fn main() -> std::process::ExitCode {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
             .map_err(anyhow::Error::from)
-            .and_then(|cwd| langgraph_cli::execute(action, &cwd))
-        {
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::LANGGRAPH_PROFILE, action, &cwd)
+            }) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{}", susi_agents::external::redact(&e.to_string()));
@@ -854,8 +851,13 @@ fn main() -> std::process::ExitCode {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
             .map_err(anyhow::Error::from)
-            .and_then(|cwd| openai_agents_cli::execute(action, &cwd))
-        {
+            .and_then(|cwd| {
+                python_engine_cli::execute(
+                    &susi_agents::external::OPENAI_AGENTS_PROFILE,
+                    action,
+                    &cwd,
+                )
+            }) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{}", susi_agents::external::redact(&e.to_string()));
@@ -867,8 +869,9 @@ fn main() -> std::process::ExitCode {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
             .map_err(anyhow::Error::from)
-            .and_then(|cwd| autogen_cli::execute(action, &cwd))
-        {
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::AUTOGEN_PROFILE, action, &cwd)
+            }) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{}", susi_agents::external::redact(&e.to_string()));
@@ -880,8 +883,9 @@ fn main() -> std::process::ExitCode {
         susi_gemi::http_provider::apply_cloud_env_file();
         return match env::current_dir()
             .map_err(anyhow::Error::from)
-            .and_then(|cwd| smolagents_cli::execute(action, &cwd))
-        {
+            .and_then(|cwd| {
+                python_engine_cli::execute(&susi_agents::external::SMOLAGENTS_PROFILE, action, &cwd)
+            }) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("{}", susi_agents::external::redact(&e.to_string()));

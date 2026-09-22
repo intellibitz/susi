@@ -59,6 +59,7 @@ if __name__ == "__main__":
     main()
     sys.stdout.flush()
 "#,
+    example_filename: "agent.py",
     credential_envs: &["N8N_WEBHOOK_URL", "N8N_API_KEY"],
     credential_hint: "export N8N_WEBHOOK_URL=https://…/webhook/… (optional N8N_API_KEY for REST)",
     process_banner: "susi-n8n",

@@ -29,13 +29,7 @@ pub use aider::{
     AGENT_ID as AIDER_AGENT_ID,
 };
 use anyhow::{bail, Context, Result};
-pub use autogen::{
-    bind_workspace_config as autogen_bind_workspace_config,
-    doctor_or_bail as autogen_doctor_or_bail,
-    ensure_process_banner as autogen_ensure_process_banner,
-    init_workspace as autogen_init_workspace, setup_report as autogen_setup_report, AutoGenDoctor,
-    CONFIG_ENV as AUTOGEN_CONFIG_ENV, ENGINE_ID as AUTOGEN_ENGINE_ID,
-};
+pub use autogen::{ENGINE_ID as AUTOGEN_ENGINE_ID, PROFILE as AUTOGEN_PROFILE};
 pub use browser_use::{
     doctor as browser_use_doctor, setup as browser_use_setup, status as browser_use_status,
     AGENT_ID as BROWSER_USE_AGENT_ID,
@@ -55,23 +49,10 @@ pub use gemini_cli::{
     AGENT_ID as GEMINI_CLI_AGENT_ID,
 };
 pub use haystack::{ENGINE_ID as HAYSTACK_ENGINE_ID, PROFILE as HAYSTACK_PROFILE};
-pub use langgraph::{
-    bind_workspace_config as langgraph_bind_workspace_config,
-    doctor_or_bail as langgraph_doctor_or_bail,
-    ensure_process_banner as langgraph_ensure_process_banner,
-    init_workspace as langgraph_init_workspace, setup_report as langgraph_setup_report,
-    LangGraphDoctor, CONFIG_ENV as LANGGRAPH_CONFIG_ENV, ENGINE_ID as LANGGRAPH_ENGINE_ID,
-};
+pub use langgraph::{ENGINE_ID as LANGGRAPH_ENGINE_ID, PROFILE as LANGGRAPH_PROFILE};
 pub use llamaindex::{ENGINE_ID as LLAMAINDEX_ENGINE_ID, PROFILE as LLAMAINDEX_PROFILE};
 pub use n8n::{ENGINE_ID as N8N_ENGINE_ID, PROFILE as N8N_PROFILE};
-pub use openai_agents::{
-    bind_workspace_config as openai_agents_bind_workspace_config,
-    doctor_or_bail as openai_agents_doctor_or_bail,
-    ensure_process_banner as openai_agents_ensure_process_banner,
-    init_workspace as openai_agents_init_workspace, setup_report as openai_agents_setup_report,
-    OpenAiAgentsDoctor, CONFIG_ENV as OPENAI_AGENTS_CONFIG_ENV,
-    ENGINE_ID as OPENAI_AGENTS_ENGINE_ID,
-};
+pub use openai_agents::{ENGINE_ID as OPENAI_AGENTS_ENGINE_ID, PROFILE as OPENAI_AGENTS_PROFILE};
 pub use openclaw::{
     doctor as openclaw_doctor, setup as openclaw_setup, status as openclaw_status,
     AGENT_ID as OPENCLAW_AGENT_ID,
@@ -87,13 +68,7 @@ pub use openviking::{
 };
 pub use python_engine::{EngineDoctor, EngineProfile};
 use serde::{Deserialize, Serialize};
-pub use smolagents::{
-    bind_workspace_config as smolagents_bind_workspace_config,
-    doctor_or_bail as smolagents_doctor_or_bail,
-    ensure_process_banner as smolagents_ensure_process_banner,
-    init_workspace as smolagents_init_workspace, setup_report as smolagents_setup_report,
-    SmolAgentsDoctor, CONFIG_ENV as SMOLAGENTS_CONFIG_ENV, ENGINE_ID as SMOLAGENTS_ENGINE_ID,
-};
+pub use smolagents::{ENGINE_ID as SMOLAGENTS_ENGINE_ID, PROFILE as SMOLAGENTS_PROFILE};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};

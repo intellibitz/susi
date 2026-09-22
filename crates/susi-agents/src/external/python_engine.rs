@@ -15,6 +15,7 @@ pub struct EngineProfile {
     pub documentation: &'static str,
     pub scaffold_subdir: &'static str,
     pub example_script: &'static str,
+    pub example_filename: &'static str,
     pub credential_envs: &'static [&'static str],
     pub credential_hint: &'static str,
     pub process_banner: &'static str,
@@ -229,7 +230,7 @@ pub fn setup_report(profile: &EngineProfile, adapter: &Adapter) -> Result<serde_
 pub fn init_workspace(profile: &EngineProfile, workspace: &Path) -> Result<serde_json::Value> {
     let dir = workspace.join(".susi").join(profile.scaffold_subdir);
     std::fs::create_dir_all(&dir).with_context(|| format!("mkdir {}", dir.display()))?;
-    let script = dir.join("agent.py");
+    let script = dir.join(profile.example_filename);
     let config = dir.join("config.json");
     if !script.exists() {
         std::fs::write(&script, profile.example_script)
