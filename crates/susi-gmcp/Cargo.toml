@@ -14,13 +14,11 @@ susi-gemi = { workspace = true }
 rmcp = { version = "3.4.0", features = ["server", "client", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-once_cell = { workspace = true }
 parking_lot = { workspace = true }
 tower-service = "0.3"
 jsonschema = { version = "0.56", default-features = false }
 tokio = { workspace = true }
 
-anyhow = { workspace = true }
 shlex = "2.0"
 bytes = "1.12"
 hyper = { version = "1", features = ["full"] }

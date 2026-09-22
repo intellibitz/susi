@@ -7,12 +7,7 @@ publish = false
 
 [dependencies]
 susi-gawd-agents = { workspace = true }
-susi-error = { workspace = true }
 ra2a = { version = "0.10.1", features = ["server", "client"] }
-uuid = { version = "1", features = ["v4"] }
-async-trait = "0.1"
-serde = { workspace = true }
-serde_json = { workspace = true }
 
 [features]
 default = []

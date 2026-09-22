@@ -90,15 +90,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 clap = { version = "4.6", features = ["derive", "env"] }
-reqwest = { workspace = true }
-once_cell = { workspace = true }
 signal-hook = "0.4.4"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
-tracing-opentelemetry = { version = "0.33", optional = true }
-opentelemetry = { version = "0.32", optional = true }
-opentelemetry-otlp = { version = "0.32", optional = true }
 tokio = { workspace = true }
 # Optional: only needed for tokio-console / RUSTFLAGS='--cfg tokio_unstable'.
 # Keeping it off the default graph drops console-subscriber (+ its tonic path)
@@ -131,7 +126,6 @@ default = []
 cuda = ["susi-gemi/cuda", "susi-daemon/cuda", "susi-server/cuda"]
 mkl = ["susi-gemi/mkl"]
 metal = ["susi-gemi/metal"]
-otlp = ["dep:tracing-opentelemetry", "dep:opentelemetry", "dep:opentelemetry-otlp"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console
 tokio-console = ["dep:console-subscriber"]
 

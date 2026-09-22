@@ -4540,76 +4540,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "opentelemetry"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0142c63252a9e054e68a4c61a5778f7b14f576274d593f8ce883d191a099682"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "pin-project-lite",
- "thiserror 2.0.20",
- "tracing",
-]
-
-[[package]]
-name = "opentelemetry-http"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5683015d09e2df236ef005b17f6f196f0d5f6313c4fa43a7b6a53b52776e4331"
-dependencies = [
- "async-trait",
- "bytes",
- "http",
- "opentelemetry",
- "reqwest 0.13.5",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9966929966d17620d7c316c643ba62631826e10021409357772d5eea84f62c35"
-dependencies = [
- "http",
- "opentelemetry",
- "opentelemetry-http",
- "opentelemetry-proto",
- "opentelemetry_sdk",
- "prost",
- "reqwest 0.13.5",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "opentelemetry-proto"
-version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56d658ba1faf63f7b9c492cfbe6e0ec365440a16132d3270c1065f7b33f1b638"
-dependencies = [
- "opentelemetry",
- "opentelemetry_sdk",
- "prost",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.32.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b59f80e1ac4d5ff7a2db8fb6c80badb7f0f3f858211fba08dd9aaec750894f9"
-dependencies = [
- "futures-channel",
- "futures-executor",
- "futures-util",
- "opentelemetry",
- "percent-encoding",
- "portable-atomic",
- "rand 0.9.5",
- "thiserror 2.0.20",
-]
-
-[[package]]
 name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6500,12 +6430,8 @@ dependencies = [
  "anyhow",
  "clap",
  "console-subscriber",
- "once_cell",
- "opentelemetry",
- "opentelemetry-otlp",
  "parking_lot",
  "rayon",
- "reqwest 0.13.5",
  "serde",
  "serde_json",
  "signal-hook",
@@ -6524,7 +6450,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-appender",
- "tracing-opentelemetry",
  "tracing-subscriber",
  "winapi",
 ]
@@ -6584,10 +6509,7 @@ dependencies = [
 name = "susi-daemon"
 version = "0.9.0"
 dependencies = [
- "ciborium",
- "hex",
  "libc",
- "nix",
  "serde_json",
  "signal-hook",
  "susi-agents",
@@ -6618,14 +6540,7 @@ dependencies = [
 name = "susi-gawd"
 version = "0.9.0"
 dependencies = [
- "async-trait",
- "base64 0.23.1",
- "dashmap",
- "flume",
  "log",
- "md5",
- "once_cell",
- "parking_lot",
  "rayon",
  "reqwest 0.13.5",
  "serde",
@@ -6642,63 +6557,46 @@ dependencies = [
  "susi-sandbox",
  "susi-tools",
  "syn 3.0.6",
- "tokio",
- "uuid",
 ]
 
 [[package]]
 name = "susi-gawd-a2a"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "ra2a",
- "serde",
- "serde_json",
- "susi-error",
  "susi-gawd-agents",
- "uuid",
 ]
 
 [[package]]
 name = "susi-gawd-agents"
 version = "0.1.0"
 dependencies = [
- "dashmap",
- "flume",
  "log",
- "once_cell",
- "parking_lot",
  "rayon",
  "reqwest 0.13.5",
- "serde",
  "serde_json",
  "susi-agents",
  "susi-core",
  "susi-error",
  "susi-gemi",
- "susi-native",
  "susi-paths",
  "susi-sandbox",
  "susi-tools",
- "tokio",
 ]
 
 [[package]]
 name = "susi-gawd-swarm"
 version = "0.1.0"
 dependencies = [
- "base64 0.23.1",
  "dashmap",
  "flume",
  "log",
  "md5",
- "once_cell",
  "parking_lot",
  "rayon",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "susi-agents",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -6718,18 +6616,13 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
- "dashmap",
  "flume",
- "hex",
  "indicatif",
- "libc",
  "once_cell",
  "parking_lot",
- "rayon",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "susi-agents",
  "susi-core",
  "susi-error",
@@ -6742,7 +6635,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "uuid",
 ]
 
 [[package]]
@@ -6762,11 +6654,9 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-agents",
- "susi-core",
  "susi-error",
  "susi-paths",
  "susi-sandbox",
- "sysinfo",
  "tokenizers",
  "url",
 ]
@@ -6784,7 +6674,6 @@ dependencies = [
  "hyper-util",
  "jsonschema",
  "libc",
- "once_cell",
  "parking_lot",
  "qdrant-client",
  "rmcp",
@@ -6851,7 +6740,6 @@ dependencies = [
  "rayon",
  "serde_json",
  "susi-agents",
- "susi-error",
  "susi-gawd",
  "susi-gemi",
  "susi-sandbox",
@@ -6867,8 +6755,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
- "libc",
- "parking_lot",
  "reqwest 0.13.5",
  "rmcp",
  "serde",
@@ -7670,22 +7556,6 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
-version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adbc64cba7137545b8044cb1fe9814f7aacf3c6b5f9b45be8bb5db538befdb26"
-dependencies = [
- "js-sys",
- "opentelemetry",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber",
- "web-time",
 ]
 
 [[package]]

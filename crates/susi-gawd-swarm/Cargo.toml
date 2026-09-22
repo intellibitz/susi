@@ -11,7 +11,6 @@ susi-paths = { path = "../susi-paths" }
 susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
-susi-agents = { workspace = true }
 susi-config = { workspace = true }
 susi-tools = { workspace = true }
 susi-gemi = { workspace = true }
@@ -21,11 +20,9 @@ reqwest = { workspace = true }
 rayon = "1.12"
 log = "0.4"
 tokio = { workspace = true }
-once_cell = { workspace = true }
 parking_lot = { workspace = true }
 flume = { workspace = true }
 dashmap = { workspace = true }
-base64 = "0.23"
 md5 = "0.8.1"
 
 [features]

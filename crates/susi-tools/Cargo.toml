@@ -10,8 +10,6 @@ anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
-parking_lot = { workspace = true }
-libc = "0.2"
 susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-paths = { path = "../susi-paths" }

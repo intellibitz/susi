@@ -10,7 +10,6 @@ susi-gawd = { path = "../susi-gawd" }
 susi-gemi = { path = "../susi-gemi" }
 susi-tools = { path = "../susi-tools" }
 susi-sandbox = { path = "../susi-sandbox" }
-susi-error = { path = "../susi-error" }
 
 hyper = { version = "1.0", features = ["full"] }
 http-body-util = "0.1"

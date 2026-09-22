@@ -9,12 +9,7 @@ susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 susi-gawd-a2a = { workspace = true }
 susi-paths = { path = "../susi-paths" }
-md5 = "0.8.1"
 syn = { version = "3.0.6", features = ["full", "visit"] }
-base64 = "0.23"
-parking_lot = { workspace = true }
-flume = { workspace = true }
-dashmap = { workspace = true }
 susi-native = { workspace = true }
 reqwest = { workspace = true }
 susi-error = { workspace = true }
@@ -27,10 +22,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"
 log = "0.4"
-tokio = { workspace = true }
-once_cell = { workspace = true }
-uuid = { version = "1", features = ["v4"] }
-async-trait = "0.1"
 
 [features]
 default = []
