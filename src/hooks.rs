@@ -1,6 +1,6 @@
-//! Engine hooks re-export — implementation lives in `susi-gmcp` so the daemon
-//! composition root can wire hooks without depending on the root package.
+//! Engine hooks re-export — implementation lives in `susi-daemon`, the
+//! composition-root crate that sees gawd + gemi + gmcp.
 
 #![warn(missing_docs)]
 
-pub use susi_gmcp::engine_hooks::SusiEngineHooks;
+pub use susi_daemon::SusiEngineHooks;

@@ -103,6 +103,39 @@ impl AlphaSelf {
     }
 }
 
+/// Substrate identity report: compiled axiom inventory + live brain context.
+/// Was `CoreTools::identity` in susi-gmcp — lives here so the MCP layer never
+/// imports the swarm host.
+pub fn identity_report(workspace: &std::path::Path) -> String {
+    let brain = crate::brain::AlphaBrainContext::initialize(workspace);
+    let mut report = String::new();
+    report.push_str("# susi Substrate - Identity Report\n\n");
+    report.push_str("## 1. CORE CONFIGURATION (Compiled Binary Axiomatic Core)\n");
+    report.push_str(&format!("- Version: {}\n", AlphaSelf::VERSION));
+    report.push_str(&format!("- Core Paradigm: {}\n", AlphaSelf::CORE_PARADIGM));
+    report.push_str(&format!("- Axiom Rules: {}\n", AlphaSelf::RULES.len()));
+    for (label, comps) in [
+        ("AoA Pillar", AlphaSelf::AOA_COMPONENTS),
+        ("Agents Pillar", AlphaSelf::AGENT_COMPONENTS),
+        ("Engines Pillar", AlphaSelf::ENGINE_COMPONENTS),
+        ("Models Pillar", AlphaSelf::MODEL_COMPONENTS),
+        ("MCPs Pillar", AlphaSelf::MCP_COMPONENTS),
+        ("Realized Capabilities", AlphaSelf::REALIZED_COMPONENTS),
+    ] {
+        report.push_str(&AlphaSelf::format_pillar_inventory(label, comps));
+        report.push('\n');
+    }
+    report.push('\n');
+    report.push_str("## 2. SYSTEM ENVIRONMENT\n");
+    report.push_str(&format!(
+        "- CPUs: {}\n- RAM: {}GB\n- Workspace: {}\n",
+        brain.system_cpus,
+        brain.system_ram_gb,
+        brain.workspace_path.display()
+    ));
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

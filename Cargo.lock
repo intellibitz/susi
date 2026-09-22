@@ -7200,7 +7200,6 @@ dependencies = [
  "susi-agents",
  "susi-core",
  "susi-error",
- "susi-gawd",
  "susi-gemi",
  "susi-paths",
  "susi-sandbox",

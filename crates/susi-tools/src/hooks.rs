@@ -5,17 +5,16 @@
 // ToolRegistry, gmcp's CoreTools implements SusiTool). A direct dependency
 // back would recreate exactly the cycle this crate exists to break.
 //
-// Instead, the one real caller in a position to satisfy all of this (gmcp,
-// which already legitimately depends on gawd/gemi) implements EngineHooks
-// (`susi_gmcp::SusiEngineHooks`) and composition roots wire it once via
-// `susi_daemon::composition::wire_engine_hooks` / `wire_cli_substrate`.
-// Everything in this crate that needs one of these capabilities goes through
-// `hooks()`.
+// Instead, the composition root (`susi-daemon`, which legitimately depends on
+// gawd/gemi/gmcp) implements EngineHooks (`susi_daemon::SusiEngineHooks`) and
+// wires it once via `composition::wire_engine_hooks` / `wire_cli_substrate`.
+// Everything in this crate - and the swarm-facing seam used by susi-gmcp's
+// tool handlers - goes through `hooks()`.
 
 use crate::registry::ToolRegistry;
 use std::path::Path;
 use std::sync::OnceLock;
-use susi_error::EaiResult;
+use susi_error::{EaiError, EaiResult};
 
 pub struct HardwareSnapshot {
     pub available_ram_gb: usize,
@@ -37,6 +36,62 @@ pub trait EngineHooks: Send + Sync {
     /// Populate a freshly created registry with every concrete tool
     /// (`CoreTools::*` and synthesized reflexes) - was `ToolRegistry::bootstrap`.
     fn bootstrap_tools(&self, registry: &ToolRegistry);
+
+    // ── Swarm-facing seam ────────────────────────────────────────────────
+    // The following capabilities are owned by the gawd host (safety/security
+    // detectors, SusiMasterAgent, trainers, identity). MCP tool handlers in
+    // susi-gmcp call them through here so gmcp never imports susi-gawd.
+    //
+    // Defaults FAIL CLOSED: these guard action-capable tools (exec_command,
+    // sandbox_exec, agents_run, reason, susi_solve). An unwired context must
+    // never run them unaudited — same behavior as the pre-seam direct calls.
+
+    /// Governance audit pair for an action-capable tool call (was
+    /// `gawd::safety::SafetyDetector` + `gawd::security::SecurityDetector`
+    /// `audit_action`).
+    fn audit_action(&self, _tool: &str, _detail: &str, _workspace: &Path) -> EaiResult<()> {
+        Err(unwired())
+    }
+
+    /// Intent sanitization (was `gawd::ama::SusiMasterAgent::sanitize_input`).
+    fn sanitize_input(&self, _input: &str) -> EaiResult<String> {
+        Err(unwired())
+    }
+
+    /// Full swarm mission solve (was `SusiMasterAgent::new().solve_clean`).
+    fn solve_mission(&self, _intent: &str, _workspace: &Path, _version: &str) -> String {
+        "[CAPABILITY_GAP] swarm substrate unwired: susi_tools::hooks::init was never called."
+            .to_string()
+    }
+
+    /// Rendered bloat-audit report (was `gawd::bloat_audit::BloatAuditor`).
+    fn bloat_audit(&self, _workspace: &Path) -> EaiResult<String> {
+        Err(unwired())
+    }
+
+    /// Substrate identity report (was `AlphaSelf` inventory + `AlphaBrainContext`).
+    fn identity_report(&self, _workspace: &Path) -> EaiResult<String> {
+        Err(unwired())
+    }
+
+    /// Reasoning-substrate audit (was `gawd::reason_trainer::ReasoningTrainer`).
+    fn audit_reasoning_substrate(&self, _workspace: &Path) -> EaiResult<String> {
+        Err(unwired())
+    }
+
+    /// Autonomous self-validation (was `gawd::self_validation`).
+    fn self_validate(&self, _workspace: &Path) -> EaiResult<String> {
+        Err(unwired())
+    }
+
+    /// Reflex distillation (was `gawd::reflex_trainer::ReflexTrainer::force_train`).
+    fn train_reflexes(&self, _workspace: &Path) -> EaiResult<String> {
+        Err(unwired())
+    }
+}
+
+fn unwired() -> EaiError {
+    EaiError::governance("swarm substrate unwired: susi_tools::hooks::init was never called")
 }
 
 static HOOKS: OnceLock<Box<dyn EngineHooks>> = OnceLock::new();
@@ -77,6 +132,8 @@ impl EngineHooks for NoOpHooks {
     fn bootstrap_tools(&self, _registry: &ToolRegistry) {}
 }
 
-pub(crate) fn hooks() -> &'static dyn EngineHooks {
+/// Access the wired hooks. Public so `susi-gmcp` tool handlers can reach the
+/// swarm-facing seam above without importing `susi-gawd`.
+pub fn hooks() -> &'static dyn EngineHooks {
     HOOKS.get_or_init(|| Box::new(NoOpHooks)).as_ref()
 }

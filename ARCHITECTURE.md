@@ -49,7 +49,7 @@ Concrete implementations are assembled only at composition roots.
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | gawd-agents, core, tools, gemi | a2a wire | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | gawd-agents | swarm | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | agents/swarm/a2a + infra | server/daemon | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools + engine hooks impl | MCP surfaces, `SusiEngineHooks` | gawd, gemi, tools, core | daemon | MCP servers | sessions | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces | gemi, tools, agents, sandbox, core | gawd (swarm seam via `EngineHooks`), daemon | MCP servers | sessions | yes |
 | `susi-server` | Hyper HTTP adapters for GEMI/GMCP bind | bind helpers | gawd, gemi, tools | — | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, bootstrap | feature crates + server | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates | — | — | cwd workspace | yes |
@@ -65,7 +65,7 @@ roots — never by stuffing implementations into `susi-core`.
 | `Provider` | `susi-core` | Candle, HTTP OpenAI-compat, MCP-as-provider |
 | `Tool` | `susi-core` | Core tools, MCP tools, observed wrappers |
 | `CapabilityRegistry` | `susi-core` | process-wide catalog (locator today; prefer pass-by-ref in new code) |
-| `EngineHooks` | `susi-tools` | `susi_gmcp::engine_hooks::SusiEngineHooks` |
+| `EngineHooks` | `susi-tools` | `susi_daemon::engine_hooks::SusiEngineHooks` |
 | `AdminHooks` / `HostHooks` | gawd-agents / gawd-swarm | gawd host facades |
 | `ProtocolDispatcher` / `CapabilityResolver` | `susi-gmcp` | MCP protocol |
 

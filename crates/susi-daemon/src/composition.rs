@@ -7,10 +7,11 @@
 
 use std::path::Path;
 
-/// Wire `EngineHooks` so `ToolRegistry` can reach gawd/gemi without crate cycles.
-/// Safe to call more than once; later calls are ignored by `OnceLock`.
+/// Wire `EngineHooks` so `ToolRegistry` and `susi-gmcp` tool handlers can reach
+/// gawd/gemi without crate cycles. Safe to call more than once; later calls
+/// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
-    susi_tools::hooks::init(Box::new(susi_gmcp::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
 
 /// CLI composition root: hooks → extension packs → cloud.env → auto-prime.

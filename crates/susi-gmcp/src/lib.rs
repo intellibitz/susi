@@ -1,13 +1,10 @@
 pub mod catalog;
-pub mod engine_hooks;
 pub mod mcp_wrapper;
 pub mod protocol;
 pub mod reflexes;
 pub mod server;
 mod stdio;
 pub mod tools;
-
-pub use engine_hooks::SusiEngineHooks;
 
 use std::path::Path;
 
