@@ -2,6 +2,9 @@
 
 mod download_controller;
 mod model_manager;
+mod provision;
+mod scan;
+mod selection;
 mod types;
 
 pub use download_controller::*;

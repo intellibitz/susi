@@ -2,7 +2,7 @@
   "schema": "susi/evidence/v1",
   "version": "0.9.0",
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-22T08:15:00Z",
+  "last_verification": "2026-09-22T08:30:00Z",
   "epistemic_score": 1.0,
   "title": "SUSI Evidence Ledger",
   "description": "Agent governance ledger: STAGED mission telemetry and hand-written AUDIT findings. Not end-user documentation.",
@@ -1206,6 +1206,16 @@
         "ref": "file://crates/susi-gawd-swarm/src/ama/mod.rs"
       },
       "proof": "FIXED 2026-09-22: Phase 4. Structure: split ama.rs (~1598) into ama/{mod,report,master,hybrid}.rs (mission report + master orchestrator + hybrid routing; helpers/tests colocated). Deepened lifecycle: download_controller.rs (ModelDownloadController/Progress) vs model_manager.rs; pub(crate) progress_path + is_downloading/has_active_downloads accessors. Framework CLI DRY: langgraph/autogen/smolagents/openai-agents reduced to EngineProfile constants (like crewai); deleted four ~180-line CLI modules; main.rs routes all through python_engine_cli; EngineProfile gained example_filename (langgraph keeps graph.py). Verified: cargo check -p susi; clippy -D warnings on touched crates; ama:: 5 tests; lifecycle:: 16 tests; init_writes_config + example_mentions profile tests."
+    },
+    {
+      "id": "EV-2022922-115",
+      "type": "CODE",
+      "milestone": "Optimize Phase 5: gmcp tools split + lifecycle selection/scan/provision",
+      "anchor": {
+        "label": "tools/{helpers,core,bootstrap} + lifecycle/{selection,scan,provision}",
+        "ref": "file://crates/susi-gmcp/src/tools/mod.rs"
+      },
+      "proof": "FIXED 2026-09-22: Phase 5. Structure: split susi-gmcp tools/mod.rs (~1984) into tools/{mod,helpers,core,bootstrap}.rs (SSRF/path guards; CoreTools handlers; registry bootstrap; tests colocated). Deepened lifecycle model_manager (~1759→~594 core) into selection.rs / scan.rs / provision.rs (+ existing download_controller). Public API unchanged (ModelManager / CoreTools / bootstrap_registry). Verified: cargo check -p susi; clippy -D warnings; lifecycle:: 16 tests; tools:: 14 tests."
     }
   ]
 }
