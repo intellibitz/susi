@@ -317,7 +317,7 @@ impl SusiUnifiedSubstrate {
     const TEXT_OFFSET: usize = 768;
     const TEXT_DIM: usize = 256;
 
-    /// VC-200-003 (roadmap.json): 1024-D multi-signal manifold with real,
+    /// 1024-D multi-signal manifold with real,
     /// non-overlapping per-modality subspaces:
     ///   [0, 512)    vision  — SusiVisionEngine::DIM real neural features
     ///   [512, 768)  audio   — SusiAudioEngine::DIM real neural features
@@ -406,7 +406,7 @@ impl SusiUnifiedSubstrate {
     }
 }
 
-/// VC-200-003 (roadmap.json) remaining gap: real single-head scaled
+/// Real single-head scaled
 /// dot-product self-attention across the three modality subspaces of a
 /// `project_to_unified_space` vector, treating each subspace as one token.
 /// This replaces `cross_modal_reason`'s previous vector-magnitude
