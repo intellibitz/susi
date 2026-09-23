@@ -286,6 +286,12 @@ impl SusiSupervisor {
                                         src.ip(),
                                         crate::susi_paths::ports::GMCP_HTTP
                                     );
+                                    // Operator eviction: a banned member's
+                                    // handshake is cryptographically valid
+                                    // but must not re-enter the roster.
+                                    if peer_registry::is_banned(&node_id, &addr_str) {
+                                        continue;
+                                    }
                                     let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
                                     let mut peers = t_shared.write();
                                     let (entry, is_new, admission_changed) = if let Some(p) =
