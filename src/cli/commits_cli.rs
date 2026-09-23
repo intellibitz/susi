@@ -20,6 +20,12 @@ pub enum CommitsCommands {
         /// Maximum records to show
         #[arg(short = 'n', long, default_value = "20")]
         limit: usize,
+        /// Only records from this coordinator
+        #[arg(long)]
+        coordinator: Option<String>,
+        /// Only records sealed under this consensus term
+        #[arg(long)]
+        term: Option<u64>,
     },
     /// Print the full record (including committed value) for an epoch prefix
     Show {
@@ -41,16 +47,28 @@ pub enum CommitsCommands {
 }
 
 pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()> {
-    match action.unwrap_or(CommitsCommands::List { limit: 20 }) {
-        CommitsCommands::List { limit } => list(limit),
+    match action.unwrap_or(CommitsCommands::List {
+        limit: 20,
+        coordinator: None,
+        term: None,
+    }) {
+        CommitsCommands::List {
+            limit,
+            coordinator,
+            term,
+        } => list(limit, coordinator.as_deref(), term),
         CommitsCommands::Show { epoch } => show(&epoch),
         CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
     }
 }
 
-fn list(limit: usize) -> Result<()> {
-    let records = commit_log::load();
+fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()> {
+    let records: Vec<_> = commit_log::load()
+        .into_iter()
+        .filter(|r| coordinator.is_none_or(|c| r.coordinator == c))
+        .filter(|r| term.is_none_or(|t| r.term == t))
+        .collect();
     println!(
         "{:<14} {:<5} {:<5} {:<18} {:<7} {:<7} {:<12} VERIFIED",
         "EPOCH", "SEQ", "TERM", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
