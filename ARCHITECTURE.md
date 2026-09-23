@@ -324,7 +324,7 @@ operation log, and there is no cross-coordinator term ordering.
 | **Replication** | Coordinator pushes each sealed record to voting peers via the governed `commit_record` GMCP tool; receivers re-verify signature + quorum consistency before appending. | `susi-gmcp::tools::core`, `susi-daemon::gmcp_bootstrap` |
 | **Leader election** | Deterministic bully over the verified roster (max `trust_score`, `node_id` tie-break) — every member converges on the same leader with no election round-trip; records stamp the elected `leader` for audit. | `SusiSupervisor::elect_leader` |
 | **Ordering + anti-entropy** | Per-coordinator monotonic `seq` (signed); a receiver detecting a gap resolves the coordinator via the `gawd.cluster.peers` roster topic and pulls missing records through `commit_log_fetch`, verifying each before append. | `commit_log::missing_seqs`, `repair_commit_gap` |
-| **Audit** | `susi commits` lists the ledger newest-first, re-verifying signatures at display time; `susi commits show <epoch-prefix>` dumps a full record. | `src/cli/commits_cli.rs` |
+| **Audit** | `susi commits` lists the ledger newest-first, re-verifying signatures at display time; `susi commits show <epoch-prefix>` dumps a full record; `susi commits audit` flags invalid signatures, seq gaps, duplicates/equivocation, and non-leader commits. | `src/cli/commits_cli.rs` |
 
 ## Migration roadmap (remaining)
 
