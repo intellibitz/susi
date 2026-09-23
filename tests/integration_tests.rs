@@ -4,6 +4,16 @@
 #![allow(missing_docs)]
 
 use std::fs;
+use std::sync::Once;
+
+fn wire_test_substrate() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        susi_daemon::composition::wire_plane_bus();
+        susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+        let _ = susi_tools::ToolRegistry::global();
+    });
+}
 
 #[test]
 fn test_substrate_bootstrap_and_config() {
@@ -27,12 +37,15 @@ fn test_substrate_bootstrap_and_config() {
 
 #[test]
 fn test_tool_registry_and_execution() {
-    susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+    wire_test_substrate();
     let ws = std::env::current_dir().unwrap();
 
     // Test Status Tool
     let res = susi_gmcp::tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), &ws);
-    assert!(res.contains("SUSI Engine Version"));
+    assert!(
+        res.contains("SUSI Engine Version"),
+        "unexpected status tool output: {res}"
+    );
 
     // Test Read/Write Tool
     let test_file = "susi_substrate_empirical_test.txt";
@@ -44,7 +57,7 @@ fn test_tool_registry_and_execution() {
     });
 
     let write_res = susi_gmcp::tools::ToolRegistry::execute_tool("write_file", &write_arg, &ws);
-    assert!(write_res.contains("Wrote to"));
+    assert!(write_res.contains("Wrote to"), "write_file: {write_res}");
 
     let read_arg = serde_json::json!(test_file);
     let read_res = susi_gmcp::tools::ToolRegistry::execute_tool("read_file", &read_arg, &ws);
@@ -57,12 +70,11 @@ fn test_tool_registry_and_execution() {
 // into the reasoning substrate alongside `susi_solve`, and the exact verb
 // used to dispatch mission intent to LAN peers, so it must carry the same
 // sanitization and governance checks. These run against the real wired
-// `SusiEngineHooks` — every case must be rejected before it ever reaches the
-// model. (Moved from susi-gmcp unit tests: governance now lives behind the
-// EngineHooks seam, wired only at the composition root.)
+// substrate — every case must be rejected before it ever reaches the
+// model.
 
 fn wired_reason(arg: serde_json::Value) -> susi_error::EaiResult<String> {
-    susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+    wire_test_substrate();
     susi_gmcp::tools::CoreTools::reason(&arg, std::path::Path::new("."))
 }
 
