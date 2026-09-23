@@ -46,6 +46,10 @@ fn status(json: bool) -> Result<()> {
             "daemon": daemon.as_ref().map(|d| serde_json::json!({
                 "pid": d.pid, "substrate_home": d.substrate_home,
             })),
+            "storage": disk_free(&susi_paths::SusiDirs::substrate_home())
+                .map(|(avail, total)| serde_json::json!({
+                    "available_bytes": avail, "total_bytes": total,
+                })),
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
                 "restarts": s.restarts, "up": s.up,
@@ -93,6 +97,13 @@ fn status(json: bool) -> Result<()> {
             .map(|d| format!("running (pid {})", d.pid))
             .unwrap_or_else(|| "not running".to_string())
     );
+    if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
+        println!(
+            "storage:     {} free / {} total on substrate_home",
+            human_bytes(avail),
+            human_bytes(total)
+        );
+    }
     println!();
 
     println!(
@@ -143,6 +154,34 @@ fn status(json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Free/total bytes on the filesystem holding `path` — a ledger or roster
+/// write failing on a full disk is a substrate-level fault the OS view
+/// should surface, not hide behind generic IO errors.
+fn disk_free(path: &std::path::Path) -> Option<(u64, u64)> {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    // Longest-mount-point-prefix match (e.g. /home on a separate fs).
+    disks
+        .iter()
+        .filter(|d| path.starts_with(d.mount_point()))
+        .max_by_key(|d| d.mount_point().as_os_str().len())
+        .map(|d| (d.available_space(), d.total_space()))
+}
+
+fn human_bytes(n: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut v = n as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{n} {}", UNITS[i])
+    } else {
+        format!("{v:.1} {}", UNITS[i])
+    }
 }
 
 /// Prefer the persisted term's leader when it is ahead of what the

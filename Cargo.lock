@@ -6572,6 +6572,7 @@ dependencies = [
  "susi-sandbox",
  "susi-server",
  "susi-tools",
+ "sysinfo",
  "tokio",
  "tracing",
  "tracing-appender",
