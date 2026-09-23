@@ -78,9 +78,16 @@ prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
 (`ipc://<addr>/<id>`) so `stream_emit` routes cross-copy; stale endpoint
 files are pruned on connect failure and dead pid dirs swept via `/proc`.
 Per-pid scoping preserves today's per-process bus isolation across daemon,
-CLI, and parallel test binaries. Process-global registries
-(`CapabilityRegistry`, `MacPolicy`, `IpcBroker`, `IntentBus`, …) become
-service- or endpoint-backed the same way when consumers vendor `susi_core`.
+CLI, and parallel test binaries. **`registry_ipc::IpcCapabilityRegistry`**
+applies the same pattern to the capability catalog: `register_tool` keeps
+the trait object local, serves `capability.tool.<name>` on the owner's bus
+(MAC + evidence capture run in the owner-side dispatch handler), and writes
+metadata under `caps/`; lookups in other copies return a `RemoteTool` /
+`RemoteProvider` proxy that forwards `execute`/`generate`/`embed` over the
+bus. Agent capabilities are pure data — `caps/agent/` files only. Process-
+global registries (`MacPolicy` — already file-keyed via
+`~/.susi/mac.hmac.key`, `IpcBroker`, `IntentBus`, …) become service- or
+endpoint-backed the same way when consumers vendor `susi_core`.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →

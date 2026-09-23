@@ -60,6 +60,7 @@ pub mod queue;
 pub mod receipt_archive;
 pub use crate::susi_error::redact;
 pub mod registry;
+pub mod registry_ipc;
 pub mod task_manager;
 pub mod telemetry;
 pub mod truth;

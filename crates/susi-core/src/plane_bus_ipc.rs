@@ -80,9 +80,17 @@ impl IpcPlaneBus {
         }
     }
 
+    /// This copy's rendezvous dir — capability metadata and other
+    /// process-scoped IPC state share the same `<cache>/bus/<pid>` tree.
+    pub fn rendezvous(&self) -> &Path {
+        &self.rendezvous
+    }
+
     /// This copy's callback endpoint; binds the listener on first use.
     /// `None` if loopback bind failed (registrations then stay local-only).
-    fn endpoint(&self) -> Option<SocketAddr> {
+    /// This copy's listener address (bound lazily on first registration or
+    /// stream open). `None` if loopback bind failed.
+    pub fn endpoint(&self) -> Option<SocketAddr> {
         if let Some(a) = self.endpoint.get() {
             return Some(*a);
         }
@@ -193,6 +201,20 @@ impl IpcPlaneBus {
         self.publish_endpoint("prefixes", prefix);
     }
 
+    /// Remove an exact-topic registration made by this copy. The endpoint
+    /// file is only deleted when it points at this copy's listener — another
+    /// copy's registration is left alone.
+    pub fn unregister(&self, topic: &str) -> bool {
+        let removed = self.handlers.remove(topic).is_some();
+        let file = self.rendezvous.join("topics").join(enc(topic));
+        if let Some((ep, _)) = read_endpoint_key(&file) {
+            if self.endpoint.get().is_some_and(|e| *e == ep) {
+                let _ = std::fs::remove_file(&file);
+            }
+        }
+        removed
+    }
+
     pub fn request(&self, topic: &str, payload: Value) -> Result<Value, String> {
         // Fast path: a handler registered in this copy stays in-process.
         if let Some(h) = self.handlers.get(topic).map(|e| Arc::clone(e.value())) {
@@ -285,7 +307,7 @@ fn invoke(h: Arc<dyn PlaneHandler>, topic: &str, payload: Value) -> Result<Value
 }
 
 /// Topic/prefix → filename. Dots are already filename-safe; encode the rest.
-fn enc(key: &str) -> String {
+pub(crate) fn enc(key: &str) -> String {
     let mut out = String::with_capacity(key.len());
     for b in key.bytes() {
         match b {
