@@ -272,7 +272,7 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
             let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
             println!(
                 "Auth: Bearer token in {} (required for HTTP clients)",
-                crate::susi_paths::SusiDirs::config_dir()
+                susi_paths::SusiDirs::config_dir()
                     .join("api_token")
                     .display()
             );
@@ -285,7 +285,7 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
                 let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
                 println!(
                     "Auth: Bearer token in {} (required for HTTP clients)",
-                    crate::susi_paths::SusiDirs::config_dir()
+                    susi_paths::SusiDirs::config_dir()
                         .join("api_token")
                         .display()
                 );

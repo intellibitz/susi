@@ -54,7 +54,7 @@ Concrete implementations are assembled only at composition roots.
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **vendored `susi_core` subset** (`src/susi_core/`): plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; vendored sandbox/config IPC, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **vendored `susi_core` subset** (`src/susi_core/`): plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; vendored sandbox/config/paths/error IPC | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
-| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates | — | — | cwd workspace | yes |
+| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real deps, not vendored) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
 peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`

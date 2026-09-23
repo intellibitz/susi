@@ -22,16 +22,6 @@
 #![allow(unexpected_cfgs)]
 #![allow(missing_docs)]
 
-// Vendored `susi-error` contract + IPC reporter: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-pub mod susi_error;
-
-// Vendored `susi-paths` IPC client: full surface kept identical
-// across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-mod susi_paths;
-
 mod cli;
 mod cli_json;
 
@@ -97,14 +87,14 @@ fn main() -> std::process::ExitCode {
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
     // See ARCHITECTURE.md and susi_daemon::composition.
     susi_sandbox::auto_install::push_to_hardware_if_dev_build();
-    let substrate = crate::susi_paths::SusiDirs::substrate_home();
+    let substrate = susi_paths::SusiDirs::substrate_home();
     susi_daemon::composition::wire_cli_substrate(&substrate);
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
     console_subscriber::init();
 
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let _home = get_home_dir();
-    let global_dir = crate::susi_paths::SusiDirs::config_dir();
+    let global_dir = susi_paths::SusiDirs::config_dir();
     let _ = std::fs::create_dir_all(&global_dir);
 
     let file_appender = tracing_appender::rolling::never(&global_dir, "audit.log");

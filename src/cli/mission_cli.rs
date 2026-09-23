@@ -322,7 +322,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::DaemonStart { workspace: _ } => {
             // Always host-scoped; ignore any project cwd passed for compat.
             SusiDaemon::run_daemon_loop(
-                crate::susi_paths::SusiDirs::substrate_home(),
+                susi_paths::SusiDirs::substrate_home(),
                 global_dir.to_path_buf(),
             );
         }

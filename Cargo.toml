@@ -82,6 +82,8 @@ susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }
+susi-paths = { path = "crates/susi-paths" }
+susi-error = { path = "crates/susi-error" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
@@ -112,6 +114,8 @@ susi-gmcp = { workspace = true }
 susi-gawd = { workspace = true }
 susi-agents = { workspace = true }
 susi-tools = { workspace = true }
+susi-paths = { workspace = true }
+susi-error = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

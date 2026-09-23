@@ -3,12 +3,12 @@
 //! Critical checks must pass for exit 0. Host-gated capabilities report
 //! `ready`/`optional` without failing the crown when the host lacks Docker/daemon.
 use crate::cli_json::print_json;
-use crate::susi_paths::ports;
 use anyhow::{bail, Result};
 use clap::Subcommand;
 use serde::Serialize;
 use std::path::Path;
 use susi_daemon::SusiDaemon;
+use susi_paths::ports;
 
 #[derive(Debug, Subcommand)]
 pub enum CrownCommands {
@@ -111,7 +111,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- Audit ---
-    let audit_file = crate::susi_paths::SusiDirs::substrate_home().join("audit.log");
+    let audit_file = susi_paths::SusiDirs::substrate_home().join("audit.log");
     let audit = match susi_sandbox::audit_chain::verify_chain(&audit_file) {
         Ok(n) => check(
             "audit",
@@ -126,9 +126,8 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     // --- Zero-config Auto ---
     let pack = susi_sandbox::extensions::ensure_extensions_substrate();
     let auto_ok = pack.is_ok();
-    let _ = susi_daemon::auto_discovery::auto_prime_ecosystem(
-        &crate::susi_paths::SusiDirs::substrate_home(),
-    );
+    let _ =
+        susi_daemon::auto_discovery::auto_prime_ecosystem(&susi_paths::SusiDirs::substrate_home());
     out.push(check(
         "zero_config_auto",
         true,
@@ -210,7 +209,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- Reflexes ---
-    let reflex_dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
+    let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
     let wasm_n = std::fs::read_dir(&reflex_dir)
         .ok()
         .map(|entries| {
@@ -272,7 +271,7 @@ fn report(workspace: &Path) -> serde_json::Value {
         "failed_critical": critical_fail,
         "checks": checks,
     });
-    let path = crate::susi_paths::SusiDirs::config_dir().join("last_crown.json");
+    let path = susi_paths::SusiDirs::config_dir().join("last_crown.json");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -292,7 +291,7 @@ fn report(workspace: &Path) -> serde_json::Value {
 pub fn execute(action: Option<CrownCommands>, workspace: &Path) -> Result<()> {
     let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     susi_gemi::http_provider::apply_cloud_env_file();
-    let substrate = crate::susi_paths::SusiDirs::substrate_home();
+    let substrate = susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
 
     match action.unwrap_or(CrownCommands::Verify) {
