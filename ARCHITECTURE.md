@@ -52,7 +52,7 @@ Concrete implementations are assembled only at composition roots.
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | gawd-agents | swarm | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | agents/swarm/a2a + vendored native IPC | server/daemon | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | core, vendored sandbox/config IPC | **peer feature crates**; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | core, vendored sandbox/config/paths/error IPC | **peer feature crates**; GAWD/GEMI via `plane_bus` | no | — | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **vendored `susi_core` subset** (`src/susi_core/`): plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; vendored sandbox/config/paths/error IPC | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates | — | — | cwd workspace | yes |
 
@@ -88,6 +88,18 @@ bus. Agent capabilities are pure data — `caps/agent/` files only. Process-
 global registries (`MacPolicy` — already file-keyed via
 `~/.susi/mac.hmac.key`, `IpcBroker`, `IntentBus`, …) become service- or
 endpoint-backed the same way when consumers vendor `susi_core`.
+
+**First vendored consumer: `susi-server`.** Its `src/susi_core/` tree
+(canonical: `crates/susi-core/vendor_template/susi_core/`) carries the
+subset it needs — `plane_bus` facades with `PlaneBus` delegating to
+`IpcPlaneBus`, `plane_bus_ipc`, a file-backed `IpcBroker` under
+`<cache>/bus/<pid>/broker/` (grants/requests/inbox as JSON files), plus
+`context_graph`/`net_guard`/`telemetry`/`agent_types` with `crate::` paths
+remounted to the vendored tree. `GemiServer::start_http_server` binds the
+vendored `ContextGraph` to `<workspace>/context_graph.jsonl` — the same
+log the daemon's copy uses, and every read path already `replay()`s it.
+Vendored copies carry no `#[cfg(test)]` modules and must remain
+byte-identical across consumers and their template.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →

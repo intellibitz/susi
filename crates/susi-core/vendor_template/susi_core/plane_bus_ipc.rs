@@ -19,7 +19,7 @@
 //! - Stale endpoint files are pruned on connect failure; dead pid dirs are
 //!   swept on init where `/proc` is available.
 
-use crate::plane_bus::PlaneHandler;
+use crate::susi_core::plane_bus::PlaneHandler;
 use crate::susi_paths::SusiDirs;
 use dashmap::DashMap;
 use serde_json::{json, Value};
@@ -39,7 +39,7 @@ type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
 type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
 
 /// Process-scoped IPC plane bus — same method surface as
-/// [`crate::plane_bus::PlaneBus`]. Vendored `susi_core` copies back their
+/// [`crate::susi_core::plane_bus::PlaneBus`]. Vendored `susi_core` copies back their
 /// `PlaneBus` with this so a handler registered through one vendored module
 /// resolves from every other vendored copy in the same process.
 pub struct IpcPlaneBus {
@@ -469,125 +469,3 @@ fn sweep_dead_processes(bus_dir: Option<&Path>) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::AtomicU64;
-
-    struct Echo;
-    impl PlaneHandler for Echo {
-        fn handle(&self, _topic: &str, payload: Value) -> Result<Value, String> {
-            Ok(json!({ "echo": payload }))
-        }
-    }
-
-    struct Reject;
-    impl PlaneHandler for Reject {
-        fn handle(&self, _topic: &str, _payload: Value) -> Result<Value, String> {
-            Err("nope".to_string())
-        }
-    }
-
-    fn tempdir(tag: &str) -> PathBuf {
-        static N: AtomicU64 = AtomicU64::new(0);
-        let d = std::env::temp_dir().join(format!(
-            "susi_bus_ipc_{}_{}_{}",
-            std::process::id(),
-            tag,
-            N.fetch_add(1, Ordering::SeqCst)
-        ));
-        let _ = std::fs::remove_dir_all(&d);
-        d
-    }
-
-    #[test]
-    fn cross_copy_request_reaches_registered_handler() {
-        let dir = tempdir("req");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        a.register("test.echo", Arc::new(Echo));
-        let out = b.request("test.echo", json!({ "n": 1 })).unwrap();
-        assert_eq!(out, json!({ "echo": { "n": 1 } }));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn handler_error_propagates_to_caller() {
-        let dir = tempdir("err");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        a.register("test.reject", Arc::new(Reject));
-        assert_eq!(b.request("test.reject", json!({})).unwrap_err(), "nope");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn prefix_registration_matches_subtopics() {
-        let dir = tempdir("prefix");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        a.register_prefix("gemi.", Arc::new(Echo));
-        let out = b.request("gemi.infer.generate", json!({ "x": 2 })).unwrap();
-        assert_eq!(out, json!({ "echo": { "x": 2 } }));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn same_copy_request_stays_in_process() {
-        let dir = tempdir("local");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        a.register("test.local", Arc::new(Echo));
-        let out = a.request("test.local", json!({ "y": 3 })).unwrap();
-        assert_eq!(out, json!({ "echo": { "y": 3 } }));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn stream_emit_reaches_requesters_receiver() {
-        let dir = tempdir("stream");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        let (sid, rx) = b.open_stream();
-        // Emitting from a different copy routes over loopback into b's flume.
-        a.stream_emit(&sid, json!({ "text": "chunk-1" }));
-        a.stream_emit(&sid, json!("chunk-2"));
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
-            json!({ "text": "chunk-1" })
-        );
-        assert_eq!(
-            rx.recv_timeout(Duration::from_secs(5)).unwrap(),
-            json!("chunk-2")
-        );
-        b.stream_close(&sid);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn stale_endpoint_file_is_pruned() {
-        let dir = tempdir("stale");
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        let tdir = dir.join("topics");
-        std::fs::create_dir_all(&tdir).unwrap();
-        let file = tdir.join(enc("test.dead"));
-        std::fs::write(
-            &file,
-            json!({ "endpoint": "127.0.0.1:1", "key": "test.dead" }).to_string(),
-        )
-        .unwrap();
-        assert!(b.request("test.dead", json!({})).is_err());
-        assert!(!file.exists(), "dead endpoint file must be pruned");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn is_wired_sees_remote_registration() {
-        let dir = tempdir("wired");
-        let a = IpcPlaneBus::with_rendezvous(dir.clone());
-        let b = IpcPlaneBus::with_rendezvous(dir.clone());
-        assert!(!b.is_wired("test.wired"));
-        a.register("test.wired", Arc::new(Echo));
-        assert!(b.is_wired("test.wired"));
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}

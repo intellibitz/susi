@@ -5,8 +5,6 @@ license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
-susi-core = { path = "../susi-core" }
-
 hyper = { version = "1.0", features = ["full"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["full"] }
@@ -22,6 +20,8 @@ parking_lot = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }
+dashmap = { workspace = true }
+flume = { workspace = true }
 
 [features]
 default = []

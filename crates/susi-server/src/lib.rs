@@ -35,6 +35,16 @@ pub mod susi_config;
 #[rustfmt::skip]
 pub mod susi_sandbox;
 
+// Vendored `susi_core` microkernel subset (canonical tree:
+// `susi-core/vendor_template/susi_core/`): plane_bus facades ride
+// `IpcPlaneBus`, broker state is file-backed under the shared rendezvous,
+// so this copy interoperates with the daemon's real `susi_core` in-process.
+// rustfmt::skip: vendored byte-identical across consumers spanning style
+// editions — per-crate formatting would break the invariant.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_core;
+
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
 //
@@ -128,6 +138,11 @@ impl GemiServer {
             "[GEMI Web] UI Interface: http://localhost:{}/app",
             listener.local_addr().map(|a| a.port()).unwrap_or(0)
         );
+
+        // The vendored susi_core copy owns its own ContextGraph::global() —
+        // bind the same workspace JSONL log the daemon binds for its copy so
+        // both sides read/write one shared event log (reads replay() it).
+        ContextGraph::init_global_storage(workspace.join("context_graph.jsonl"));
 
         // Runs on its own daemon thread (caller wraps it in catch_unwind), so
         // a failure here only loses the GEMI HTTP surface, not the whole
