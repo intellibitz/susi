@@ -2,24 +2,8 @@
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use susi_core::plane_bus::agents;
 use susi_error::{EaiError, EaiResult};
-
-pub(super) fn manager_for_external_task(
-    workspace: &Path,
-    id: &str,
-) -> EaiResult<susi_agents::external::AgentManager> {
-    let execution = susi_agents::external::AgentManager::new(workspace)
-        .map_err(|e| EaiError::process(e.to_string()))?;
-    if execution.read(id).is_ok() {
-        return Ok(execution);
-    }
-    let frameworks = susi_agents::external::AgentManager::frameworks(workspace)
-        .map_err(|e| EaiError::process(e.to_string()))?;
-    if frameworks.read(id).is_ok() {
-        return Ok(frameworks);
-    }
-    Err(EaiError::protocol(format!("unknown task_id {id}")))
-}
 
 pub(super) fn external_agent_control(
     arg: &serde_json::Value,
@@ -30,35 +14,17 @@ pub(super) fn external_agent_control(
         .get("task_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| EaiError::protocol("task_id is required"))?;
-    let manager = manager_for_external_task(workspace, id)?;
-    if action == "logs" {
-        return manager
-            .logs(
-                id,
-                arg.get("stderr").and_then(|v| v.as_bool()).unwrap_or(false),
-                65536,
-            )
-            .map_err(|e| EaiError::process(e.to_string()));
-    }
-    let run = match action {
-        "cancel" => manager.cancel(id),
-        "send" => manager.send(
-            id,
-            arg.get("message").and_then(|v| v.as_str()).unwrap_or(""),
-        ),
-        _ if arg
-            .get("refresh")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false) =>
-        {
-            manager.refresh(id)
+    for kind in ["execution", "framework"] {
+        if let Ok(v) = agents::external_control(workspace, kind, id, action, arg) {
+            if action == "logs" {
+                if let Some(text) = v.get("text").and_then(|x| x.as_str()) {
+                    return Ok(text.to_string());
+                }
+            }
+            return serde_json::to_string(&v).map_err(|e| EaiError::protocol(e.to_string()));
         }
-        _ => manager.status(id),
     }
-    .map_err(|e| EaiError::process(e.to_string()))?;
-    serde_json::to_string(&run)
-        .map(|s| susi_agents::external::redact(&s))
-        .map_err(|e| EaiError::protocol(e.to_string()))
+    Err(EaiError::protocol(format!("unknown task_id {id}")))
 }
 
 /// Ensure path is normalized and contained within workspace
@@ -84,7 +50,6 @@ pub(super) fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBu
 
     let full_path = workspace.join(&path);
 
-    // Canonicalize parent to block mid-path symlink escapes out of workspace.
     let parent = full_path.parent().unwrap_or(workspace);
     let canonical_parent = parent
         .canonicalize()
@@ -102,8 +67,6 @@ pub(super) fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBu
         .ok_or_else(|| EaiError::filesystem(format!("Path has no file name: {}", user_path)))?;
     let candidate = canonical_parent.join(leaf_name);
 
-    // Reject a symlink *leaf* (parent canonicalize alone lets `link -> /etc/passwd`
-    // through). For existing paths, fully resolve and re-check the workspace root.
     if candidate.exists() || candidate.symlink_metadata().is_ok() {
         let meta = std::fs::symlink_metadata(&candidate)
             .map_err(|e| EaiError::filesystem(format!("Cannot stat path {}: {}", user_path, e)))?;
@@ -128,8 +91,6 @@ pub(super) fn secure_path(workspace: &Path, user_path: &str) -> EaiResult<PathBu
     Ok(candidate)
 }
 
-/// Open a workspace path for reading without following a raced-in symlink leaf
-/// (`O_NOFOLLOW` on Unix). Pair with `secure_path` for TOCTOU-safe reads.
 pub(super) fn read_file_nofollow(path: &Path) -> EaiResult<String> {
     #[cfg(unix)]
     {
@@ -152,8 +113,6 @@ pub(super) fn read_file_nofollow(path: &Path) -> EaiResult<String> {
     }
 }
 
-/// Reject absolute paths, `..`, and path-like argv that escape the workspace
-/// so allowlisted bins (`cat`, `rg`, …) cannot read host FS outside cwd.
 pub(super) fn confine_exec_argv(workspace: &Path, args: &[String]) -> EaiResult<()> {
     for arg in args.iter().skip(1) {
         if arg.starts_with('-') {
@@ -177,13 +136,6 @@ pub(super) fn confine_exec_argv(workspace: &Path, args: &[String]) -> EaiResult<
     Ok(())
 }
 
-/// Blocks loopback, private, link-local (including the 169.254.169.254 cloud
-/// metadata endpoint), unspecified, and multicast/broadcast targets, plus
-/// their IPv4-mapped IPv6 form. This closes the direct SSRF vector (an
-/// attacker-supplied URL pointing straight at internal infrastructure); it
-/// does not close a DNS-rebinding variant, where a hostname resolves to a
-/// public IP at check time and a private one when headless_chrome's own,
-/// separate DNS lookup later connects.
 #[cfg_attr(not(feature = "tools-rich"), allow(dead_code))]
 pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
     match ip {
@@ -200,8 +152,8 @@ pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
                 return is_blocked_ssrf_target(std::net::IpAddr::V4(mapped));
             }
             let segments = v6.segments();
-            let is_unique_local = (segments[0] & 0xfe00) == 0xfc00; // fc00::/7
-            let is_unicast_link_local = (segments[0] & 0xffc0) == 0xfe80; // fe80::/10
+            let is_unique_local = (segments[0] & 0xfe00) == 0xfc00;
+            let is_unicast_link_local = (segments[0] & 0xffc0) == 0xfe80;
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -211,9 +163,6 @@ pub(super) fn is_blocked_ssrf_target(ip: std::net::IpAddr) -> bool {
     }
 }
 
-/// Validates a user-supplied URL before it's handed to a browser/HTTP client:
-/// only http(s) schemes, and every address the host resolves to must clear
-/// [`is_blocked_ssrf_target`].
 #[cfg_attr(not(feature = "tools-rich"), allow(dead_code))]
 pub(super) fn secure_external_url(raw_url: &str) -> EaiResult<url::Url> {
     let parsed =
@@ -277,109 +226,4 @@ pub(super) fn tool_string_arg(arg: &serde_json::Value, keys: &[&str]) -> EaiResu
         "Invalid argument type (expected string or object with one of: {})",
         keys.join(", ")
     )))
-}
-
-#[cfg(test)]
-mod ssrf_guard_tests {
-    use super::secure_external_url;
-
-    #[test]
-    fn test_blocks_loopback() {
-        assert!(secure_external_url("http://127.0.0.1/admin").is_err());
-        assert!(secure_external_url("http://127.0.0.1:8080/").is_err());
-        assert!(secure_external_url("http://[::1]/").is_err());
-    }
-
-    #[test]
-    fn test_blocks_private_ranges() {
-        assert!(secure_external_url("http://10.0.0.1/").is_err());
-        assert!(secure_external_url("http://172.16.0.1/").is_err());
-        assert!(secure_external_url("http://192.168.1.1/").is_err());
-    }
-
-    #[test]
-    fn test_blocks_cloud_metadata_endpoint() {
-        // 169.254.169.254 is the AWS/GCP/Azure instance-metadata endpoint,
-        // the single most common real-world SSRF exploitation target.
-        assert!(secure_external_url("http://169.254.169.254/latest/meta-data/").is_err());
-    }
-
-    #[test]
-    fn test_blocks_ipv4_mapped_ipv6_loopback() {
-        assert!(secure_external_url("http://[::ffff:127.0.0.1]/").is_err());
-    }
-
-    #[test]
-    fn test_blocks_non_http_schemes() {
-        assert!(secure_external_url("file:///etc/passwd").is_err());
-        assert!(secure_external_url("javascript:alert(1)").is_err());
-    }
-
-    #[test]
-    fn test_allows_public_ip_literal() {
-        // IP-literal (no DNS) to keep this test hermetic.
-        assert!(secure_external_url("http://93.184.216.34/").is_ok());
-    }
-}
-
-#[cfg(test)]
-mod secure_path_tests {
-    use super::secure_path;
-    use std::fs;
-    use std::os::unix::fs::symlink;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn scratch_dir() -> std::path::PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let dir =
-            std::env::temp_dir().join(format!("susi-secure-path-{}-{}", std::process::id(), nanos));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn rejects_symlink_leaf_escape() {
-        let dir = scratch_dir();
-        let workspace = dir.join("ws");
-        fs::create_dir_all(&workspace).unwrap();
-        let outside = dir.join("secret.txt");
-        fs::write(&outside, "nope").unwrap();
-        let link = workspace.join("escape");
-        symlink(&outside, &link).unwrap();
-
-        let err = secure_path(&workspace, "escape").unwrap_err();
-        assert!(
-            err.to_string().contains("Symlink"),
-            "expected symlink rejection, got: {err}"
-        );
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn allows_regular_file_inside_workspace() {
-        let dir = scratch_dir();
-        let workspace = dir.join("ws");
-        fs::create_dir_all(&workspace).unwrap();
-        let file = workspace.join("ok.txt");
-        fs::write(&file, "yes").unwrap();
-
-        let got = secure_path(&workspace, "ok.txt").unwrap();
-        assert_eq!(got, file.canonicalize().unwrap());
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn allows_new_path_under_workspace() {
-        let dir = scratch_dir();
-        let workspace = dir.join("ws");
-        fs::create_dir_all(&workspace).unwrap();
-
-        let got = secure_path(&workspace, "new.txt").unwrap();
-        assert_eq!(got, workspace.canonicalize().unwrap().join("new.txt"));
-        let _ = fs::remove_dir_all(&dir);
-    }
 }

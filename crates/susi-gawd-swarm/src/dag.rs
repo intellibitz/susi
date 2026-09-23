@@ -85,7 +85,8 @@ impl MissionDag {
                     });
 
                     let prompt = format!("Execute task node '{}': {}", node.title, node.goal);
-                    let res = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
+                    let res =
+                        susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws);
 
                     let elapsed = start.elapsed().as_millis() as u64;
                     (idx, Ok(res), elapsed)

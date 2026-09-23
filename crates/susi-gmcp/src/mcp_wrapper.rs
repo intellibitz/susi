@@ -1,5 +1,5 @@
+use crate::tool_registry::GmcpClient;
 use susi_core::registry::{CapabilityRegistry, Tool};
-use susi_tools::GmcpClient;
 
 /// Wraps an MCP tool as a dynamically executable Tool.
 pub struct McpDynamicTool {

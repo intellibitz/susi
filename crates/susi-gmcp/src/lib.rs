@@ -4,11 +4,13 @@ pub mod protocol;
 pub mod reflexes;
 pub mod server;
 mod stdio;
+pub mod tool_registry;
+pub mod tool_types;
 pub mod tools;
 
 use std::path::Path;
 
-pub use susi_tools::{GlobalMcpEntry, McpConfig, McpServerConfig};
+pub use susi_core::plane_bus::tools as plane_tools;
 
 /// GMCP Host: The unified execution entry point for the Meta-Intelligence Substrate.
 pub struct GmcpHost;
@@ -16,7 +18,7 @@ pub struct GmcpHost;
 impl GmcpHost {
     pub fn dispatch(name: &str, arg: &str, workspace: &Path) -> String {
         let val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
-        susi_tools::ToolRegistry::execute_tool(name, &val, workspace)
+        plane_tools::execute_tool(name, &val, workspace).unwrap_or_else(|e| format!("[Error] {e}"))
     }
 }
 

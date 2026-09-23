@@ -198,11 +198,12 @@ impl GemiEngine {
         }
 
         // Fallback Power Reasoning Tool
-        let power_res = susi_tools::ToolRegistry::execute_tool(
+        let power_res = susi_core::plane_bus::tools::execute_tool(
             "power_reason",
             &serde_json::json!(prompt),
             workspace,
-        );
+        )
+        .unwrap_or_default();
         if !power_res.contains("[FAIL]")
             && !power_res.contains("[CAPABILITY_GAP]")
             && !power_res.contains("Inference Error")
@@ -508,7 +509,7 @@ mod tests {
             "local model fixture missing: {}",
             path.display()
         );
-        let task = susi_agents::task_manager::SwarmTaskManager::global()
+        let task = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_load_test", "CPU model loading");
         let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
         let again = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();

@@ -25,7 +25,7 @@ impl SubstrateKernelLoader {
             println!("\n[SUSI KERNEL BOOTLOADER] Initializing Substrate Self-Assembly...");
             let _ = std::io::stdout().flush();
             Self::verify_port_endpoints(workspace)?;
-            let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
+            let profile = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
             println!(
                 "  [Bootloader] Hardware Introspection: {} CPUs | {}GB RAM | Acceleration: {}",
                 profile.cpus, profile.ram_gb, profile.native_acceleration

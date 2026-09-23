@@ -22,6 +22,8 @@ pub use susi_gawd_a2a as a2a;
 pub use susi_gawd_swarm as swarm;
 
 // Host / governance / evolution
+pub mod plane_handler;
+
 pub mod admin;
 pub mod bloat_audit;
 pub mod compliance;
@@ -68,8 +70,8 @@ pub mod ama {
     }
 }
 
-pub use susi_agents::{net_guard, task_manager};
 pub use susi_core::{bus, capture, evidence, manifold, queue, truth};
+pub use susi_core::{net_guard, task_manager};
 
 pub use ama::SusiMasterAgent;
 pub use susi_gawd_agents::AlphaSelf;

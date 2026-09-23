@@ -155,12 +155,13 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
 }
 
 fn run_exec(workspace: &Path, cmd: &str) -> String {
-    if susi_tools::ToolRegistry::exists("exec_command") {
-        let out = susi_tools::ToolRegistry::execute_tool(
+    if susi_core::plane_bus::tools::exists("exec_command") {
+        let out = susi_core::plane_bus::tools::execute_tool(
             "exec_command",
             &serde_json::Value::String(cmd.to_string()),
             workspace,
-        );
+        )
+        .unwrap_or_default();
         if !looks_like_tool_failure(&out) {
             return format!("Command `{cmd}` (via GMCP exec_command):\n{out}");
         }

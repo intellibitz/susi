@@ -35,27 +35,13 @@ impl AgentMetaRegistry {
     }
 
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
-        // Mandate 42: safe - agents.default.json is compiled into the binary
-        // via include_str!, not a user-editable runtime file (same pattern
-        // as SusiConfig::default() in sandbox/manager.rs). Its content is
-        // fixed for any given binary, so this either always succeeds or
-        // always fails for that binary - a failure here is a build/
-        // packaging bug caught by any test run, never a runtime condition
-        // that varies between invocations.
         serde_json::from_str(include_str!("../../../config/agents.default.json"))
             .expect("Fatal: agents.default.json must be valid JSON.")
     }
 
-    /// Caps how many non-core (i.e. Neural-Agent-Synthesis-originated)
-    /// profiles the registry will hold, evicting the lowest-rank one to make
-    /// room. Bounds unbounded registry growth from an attacker (or just
-    /// heavy use) repeatedly triggering synthesis with novel goal text —
-    /// otherwise `agent_registry.json` and the linear scans over it in
-    /// `synthesize_fleet` grow without limit.
     const MAX_NON_CORE_AGENTS: usize = 300;
 
     pub fn register_agent(&self, profile: AgentProfile) {
-        // Mount into the shared capability catalog (providers + tools + agents).
         susi_core::registry::CapabilityRegistry::global().register_agent_capability(
             susi_core::registry::AgentCapability {
                 name: profile.name.clone(),
@@ -150,7 +136,6 @@ impl AgentMetaRegistry {
                 false,
             )
             .unwrap_or_else(|_| self.bootstrap_data());
-        // Keep CapabilityRegistry agent catalog in sync with the meta registry.
         let caps = susi_core::registry::CapabilityRegistry::global();
         for profile in &agents {
             caps.register_agent_capability(susi_core::registry::AgentCapability {

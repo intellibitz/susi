@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-use susi_agents::{AgentMetaRegistry, GawdAgent};
+use susi_core::{AgentMetaRegistry, GawdAgent};
 
 /// How many recent schedule decisions to retain for `recent_decisions`.
 const DECISION_LOG_CAP: usize = 32;
@@ -239,7 +239,7 @@ mod tests {
             &self,
             _goal: &str,
             _workspace: &std::path::Path,
-            _blackboard: &susi_agents::MissionBlackboard,
+            _blackboard: &susi_core::MissionBlackboard,
         ) -> susi_error::EaiResult<String> {
             Ok("ok".into())
         }

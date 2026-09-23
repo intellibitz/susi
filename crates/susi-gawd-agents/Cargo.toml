@@ -10,9 +10,6 @@ susi-paths = { path = "../susi-paths" }
 susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
-susi-agents = { workspace = true }
-susi-tools = { workspace = true }
-susi-gemi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
@@ -25,5 +22,5 @@ serde_json = { workspace = true }
 
 [features]
 default = []
-cuda = ["susi-gemi/cuda"]
-metal = ["susi-gemi/metal"]
+cuda = []
+metal = []

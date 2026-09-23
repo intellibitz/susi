@@ -55,8 +55,17 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
         return;
     }
     let registry = CapabilityRegistry::global();
-    susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
-    let providers = susi_gemi::routing::InferenceRouter::cloud_failover_order(registry);
+    susi_core::plane_bus::gemi::register_configured_cloud_endpoints();
+    let order = susi_core::plane_bus::gemi::cloud_failover_order();
+    let providers: Vec<String> = order
+        .get("order")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
     // A dedicated thread also supports synchronous callers inside Tokio runtimes.
     let outcome = std::thread::scope(|scope| {
         scope
@@ -127,7 +136,8 @@ async fn verify_recovery_answer(
                 "Provider cited receipts that resolve to unusable evidence",
             ));
         }
-        susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)?;
+        susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)
+            .map_err(|e| EaiError::governance(e))?;
         // Already citation-resolved from the live ledger — do not re-enter the
         // crown gate (it would demand citations again on rendered prose).
         TruthTransformer::verify_mission_reality(&report.goal, provider, &rendered, workspace)?;
@@ -156,7 +166,8 @@ async fn verify_recovery_answer(
             "Provider returned empty or failed mission output",
         ));
     }
-    susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)?;
+    susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)
+        .map_err(|e| EaiError::governance(e))?;
     // Absolute gate only — no soft verify_mission_reality + model cross-examine.
     let verified = TruthTransformer::verify_mission_with_cross_examine(
         &report.goal,
@@ -319,7 +330,7 @@ async fn recover_with_providers(
     let workspace_owned = workspace.to_path_buf();
     let local = tokio::time::timeout(timeout, async {
         let raw = tokio::task::spawn_blocking(move || {
-            susi_gemi::engine::GemiEngine::generate_reasoning_deep_with_model(
+            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                 &prompt,
                 &workspace_owned,
                 "local",

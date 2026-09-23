@@ -5,7 +5,7 @@ use super::download_controller::{ModelDownloadController, ModelDownloadProgress}
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_agents::task_manager::TaskHandle;
+use susi_core::task_manager::TaskHandle;
 use susi_sandbox::manager::ModelInfo;
 
 #[derive(Debug, Clone)]

@@ -58,7 +58,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        let task_handle = susi_agents::task_manager::SwarmTaskManager::global()
+        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
         // Fast-path bypass for tests to prevent 31B model load timeouts
@@ -96,7 +96,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         println!("- [Inference Substrate] Requesting exclusive access to model weights...");
         let _ = std::io::stdout().flush();
 
-        let task_handle = susi_agents::task_manager::SwarmTaskManager::global()
+        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
         let mut substrate = substrate_shared.write();

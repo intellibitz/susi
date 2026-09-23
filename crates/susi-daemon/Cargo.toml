@@ -23,7 +23,8 @@ tracing = "0.1"
 signal-hook = "0.4.4"
 
 [features]
-default = []
+default = ["tools-rich"]
+tools-rich = ["susi-gmcp/tools-rich"]
 cuda = ["susi-gemi/cuda"]
 
 [target."cfg(windows)".dependencies]

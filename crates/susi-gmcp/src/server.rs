@@ -180,15 +180,14 @@ async fn handle_request(
     let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
-    } else if !susi_agents::net_guard::NetGuard::is_authorized(
+    } else if !susi_core::net_guard::NetGuard::is_authorized(
         req.headers()
             .get(hyper::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok()),
         peer,
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
-    } else if !susi_agents::net_guard::RateLimiter::global()
-        .check(peer, cfg.rate_limit_per_minute())
+    } else if !susi_core::net_guard::RateLimiter::global().check(peer, cfg.rate_limit_per_minute())
     {
         response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded")
     } else if matches!(req.uri().path(), "/mcp" | "/messages") {

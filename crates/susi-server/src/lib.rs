@@ -25,9 +25,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use susi_core::context_graph::ContextGraph;
-use susi_gawd::ama::SusiMasterAgent;
-use susi_gemi::models::ModelManager;
-use susi_tools::ToolRegistry;
+use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
@@ -172,7 +170,7 @@ async fn handle_gemi_request(
     // world-facing surface is gated below.
     if method != Method::OPTIONS && path != "/health" {
         let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
-        if !susi_agents::net_guard::NetGuard::is_authorized(
+        if !susi_core::net_guard::NetGuard::is_authorized(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok()),
@@ -183,8 +181,7 @@ async fn handle_gemi_request(
                 &json!({"error": "Unauthorized"}),
             ));
         }
-        if !susi_agents::net_guard::RateLimiter::global()
-            .check(peer_ip, cfg.rate_limit_per_minute())
+        if !susi_core::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute())
         {
             return Ok(json_response(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -223,11 +220,21 @@ async fn handle_gemi_request(
         (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
             let payload = tokio::task::spawn_blocking(move || {
-                let models = ModelManager::list_models(&ws);
+                let models = gemi::ModelManager::list_models(&ws);
                 let json_models: Vec<serde_json::Value> = models
-                    .par_iter()
-                    .map(|m| json!({"id": m.model_id(), "object": "model", "owned_by": "susi"}))
-                    .collect();
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| {
+                                let id = m
+                                    .get("model_id")
+                                    .or_else(|| m.get("id"))
+                                    .and_then(|v| v.as_str())?;
+                                Some(json!({"id": id, "object": "model", "owned_by": "susi"}))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 json!({"object": "list", "data": json_models})
             })
             .await
@@ -236,9 +243,19 @@ async fn handle_gemi_request(
         }
         (&Method::GET, "/well-known/susi") => {
             let payload = tokio::task::spawn_blocking(move || {
-                let hardware = susi_gemi::hardware::HardwareProfiler::get_profile();
-                let (engine, model) = ModelManager::get_active_engine_and_model(None);
-                let tools = ToolRegistry::list_tools();
+                let hardware = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+                let (engine, model) = gemi::ModelManager::get_active_engine_and_model(None);
+                let tools = plane_tools::list_tools();
+                let tool_names: Vec<String> = tools
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|t| {
+                                t.get("name").and_then(|v| v.as_str()).map(String::from)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 json!({
                     "version": env!("CARGO_PKG_VERSION"),
                     "identity": "SUSI Intelligence Substrate",
@@ -250,7 +267,7 @@ async fn handle_gemi_request(
                         "acceleration": hardware.acceleration_active,
                         "os": hardware.os_info
                     },
-                    "reflexes": tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                    "reflexes": tool_names
                 })
             })
             .await
@@ -298,10 +315,8 @@ async fn handle_gemi_request(
             };
             let is_streaming = completion.stream;
             let pulse_intent = completion.prompt;
-            let active_model = ModelManager::get_selected_model(Some(
-                susi_gemi::intent::IntentClassifier::classify(&pulse_intent),
-            ))
-            .unwrap_or_else(|| "susi-native-synthesis".to_string());
+            let intent = gemi::IntentClassifier::classify(&pulse_intent);
+            let active_model = gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1;
             susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
@@ -322,9 +337,8 @@ async fn handle_gemi_request(
                 let prompt_for_task = trimmed_prompt.clone();
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let ama = SusiMasterAgent::new();
                     let final_resp =
-                        ama.solve_stream(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"), &|_| {});
+                        gawd::solve_mission(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
                     susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
@@ -490,10 +504,13 @@ async fn handle_gemi_request(
         (&Method::GET, "/telemetry") => {
             let ws = (*workspace).clone();
             let payload = tokio::task::spawn_blocking(move || {
-                let snapshot = susi_gemi::telemetry::sample();
-                ContextGraph::global().record_telemetry(&snapshot, Some(&ws));
-                serde_json::to_value(snapshot)
-                    .unwrap_or_else(|_| json!({"error": "serialization failed"}))
+                let snapshot = susi_core::plane_bus::gemi::sample_telemetry();
+                if let Ok(snap) =
+                    serde_json::from_value::<susi_core::TelemetrySnapshot>(snapshot.clone())
+                {
+                    ContextGraph::global().record_telemetry(&snap, Some(&ws));
+                }
+                snapshot
             })
             .await
             .unwrap_or_else(|_| json!({"error": "telemetry failed"}));
@@ -629,21 +646,16 @@ async fn handle_gemi_request(
             let ws = (*workspace).clone();
             let payload = match read_json_body(req).await {
                 Ok(body) => tokio::task::spawn_blocking(move || {
-                    match serde_json::from_value::<susi_gawd::patch_cycle::PatchRequest>(body) {
-                        Ok(request) => {
-                            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc()
-                                .unwrap_or_default();
-                            match susi_gawd::patch_cycle::apply_patch_cycle(
-                                &ws,
-                                &request,
-                                &cfg.trust_level(),
-                            ) {
-                                Ok(outcome) => serde_json::to_value(outcome)
-                                    .unwrap_or_else(|_| json!({"error": "serialize"})),
-                                Err(e) => json!({"error": e.to_string()}),
-                            }
-                        }
-                        Err(e) => json!({"error": format!("invalid patch request: {e}")}),
+                    let cfg =
+                        susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+                    let mut payload = body;
+                    if let Some(obj) = payload.as_object_mut() {
+                        obj.insert("workspace".into(), json!(ws.display().to_string()));
+                        obj.insert("trust_level".into(), json!(cfg.trust_level()));
+                    }
+                    match gawd::apply_patch(payload) {
+                        Ok(outcome) => outcome,
+                        Err(e) => json!({"error": e}),
                     }
                 })
                 .await
@@ -668,12 +680,9 @@ fn build_streaming_response(
 ) -> Response<BoxBody> {
     let rx = completion_stream(model_name, legacy, move |callback| {
         let _permit = permit;
-        SusiMasterAgent::new().solve_stream(
-            &prompt,
-            &workspace,
-            env!("CARGO_PKG_VERSION"),
-            callback,
-        )
+        gemi::GemiEngine::generate_reasoning_stream(&prompt, &workspace, &|chunk| {
+            callback(chunk);
+        })
     });
     let stream =
         ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));

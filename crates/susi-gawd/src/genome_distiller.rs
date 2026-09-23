@@ -5,7 +5,13 @@ use crate::self_core::AlphaSelf;
 use std::fs;
 use std::path::Path;
 use susi_error::EaiResult;
-use susi_gemi::reasoning::ReasoningSample;
+#[derive(Clone, serde::Serialize)]
+struct ReasoningSample {
+    intent: String,
+    blackboard_context: String,
+    successful_outcome: String,
+    timestamp: u64,
+}
 
 pub struct GenomeDistiller;
 

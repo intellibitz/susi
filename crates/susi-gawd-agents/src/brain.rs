@@ -3,7 +3,7 @@
 
 use crate::self_core::AlphaSelf;
 use std::path::{Path, PathBuf};
-use susi_gemi::hardware::HardwareProfiler;
+use susi_core::plane_bus::gemi::HardwareProfiler;
 use susi_sandbox::manager::SusiConfig;
 
 #[derive(Debug, Clone)]

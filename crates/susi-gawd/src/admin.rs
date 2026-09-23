@@ -324,17 +324,29 @@ impl SusiAdmin {
         }
 
         // 3. Model Integrity & Provenance
-        let model_verifications = susi_gemi::models::ModelManager::verify_local_models(workspace);
-        if model_verifications.is_empty() {
+        let model_verifications =
+            susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
+        if model_verifications
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(true)
+        {
             report.push_str("- [WARNING] Models: No local model substrates found.\n");
-        } else {
-            for v in model_verifications {
-                let status = if v.checksum_verified { "PASS" } else { "FAIL" };
+        } else if let Some(items) = model_verifications.as_array() {
+            for v in items {
+                let verified = v
+                    .get("checksum_verified")
+                    .and_then(|x| x.as_bool())
+                    .unwrap_or(false);
+                let status = if verified { "PASS" } else { "FAIL" };
+                let model_id = v
+                    .get("model_id")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("unknown");
                 report.push_str(&format!(
-                    "- [{}] Model Integrity: {} (Verified: {})\n",
-                    status, v.model_id, v.checksum_verified
+                    "- [{status}] Model Integrity: {model_id} (Verified: {verified})\n"
                 ));
-                if !v.checksum_verified {
+                if !verified {
                     overall_success = false;
                 }
             }
@@ -873,9 +885,12 @@ impl SusiAdmin {
         }
 
         // Tier 0 Neural Reflex Attempt via Local Alpha Model
-        if let Ok(reflex_action) = susi_gemi::pulse::SusiPulse::reason(trimmed, workspace) {
+        {
+            let reflex_action = susi_core::plane_bus::gemi::pulse_reason(trimmed, workspace);
             let reflex_lower = reflex_action.to_lowercase();
-            if reflex_lower.contains("query")
+            if reflex_action.is_empty() {
+                // fall through
+            } else if reflex_lower.contains("query")
                 || reflex_lower.contains("status")
                 || reflex_lower.contains("identity")
             {

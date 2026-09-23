@@ -5,12 +5,10 @@ license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
-susi-agents = { workspace = true }
 susi-core = { path = "../susi-core" }
-susi-gawd = { path = "../susi-gawd" }
-susi-gemi = { path = "../susi-gemi" }
-susi-tools = { path = "../susi-tools" }
 susi-sandbox = { path = "../susi-sandbox" }
+susi-error = { workspace = true }
+susi-paths = { path = "../susi-paths" }
 
 hyper = { version = "1.0", features = ["full"] }
 http-body-util = "0.1"
@@ -24,4 +22,4 @@ tracing = "0.1"
 
 [features]
 default = []
-cuda = ["susi-gemi/cuda"]
+cuda = []

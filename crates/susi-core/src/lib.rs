@@ -12,6 +12,7 @@
 //! sibling crates (`susi-gawd`, `susi-sandbox`, `susi-gmcp`, …).
 
 pub mod agent_tx;
+pub mod agent_types;
 pub mod broker;
 pub mod bus;
 pub mod capture;
@@ -20,24 +21,38 @@ pub mod evidence;
 pub mod intent_bus;
 pub mod mac_policy;
 pub mod manifold;
+pub mod net_guard;
+pub mod plane_bus;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
 pub mod redact;
 pub mod registry;
+pub mod task_manager;
 pub mod telemetry;
 pub mod truth;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
+pub use agent_types::{
+    AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
+    MissionBlackboard, SwarmBlackboard,
+};
 pub use broker::{IpcBroker, IpcMessage, PermissionGrant, PermissionRequest, PermissionScope};
 pub use capture::{EvidenceSession, GroundedAnswer, ReceiptCitation, ToolReceipt};
 pub use context_graph::ContextGraph;
 pub use evidence::{Claim, EvidenceAssessment, EvidenceRecord, EvidenceSource};
 pub use intent_bus::{IntentBus, IntentKind, IntentMatch, IntentMessage};
 pub use mac_policy::{CapabilityToken, MacPolicy, PrivacyMode};
+pub use net_guard::{NetGuard, RateLimiter};
+pub use plane_bus::agents::AgentMetaRegistry;
+pub use plane_bus::{PlaneBus, PlaneHandler};
 pub use provider::Provider;
 pub use receipt_archive::{ArchivedReceipt, ReceiptArchive, ARCHIVE_REL, ARCHIVE_SCHEMA};
 pub use registry::{AgentCapability, CapabilityRegistry, Tool};
+pub use task_manager::{
+    IntentTelemetryProfile, SwarmTaskManager, TaskHandle, TaskRecord, TaskStatus,
+    TelemetryHistoryStore,
+};
 pub use telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
 pub use truth::TruthTransformer;

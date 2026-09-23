@@ -7,14 +7,14 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use crate::tool_registry::GmcpClient;
 use susi_core::broker::{IpcBroker, PermissionScope};
 use susi_core::context_graph::ContextGraph;
+use susi_core::plane_bus::gemi::sample_telemetry;
+use susi_core::plane_bus::gemi::HardwareProfiler;
+use susi_core::plane_bus::gemi::ModelManager;
+use susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
 use susi_error::{EaiError, EaiResult};
-use susi_gemi::hardware::HardwareProfiler;
-use susi_gemi::models::ModelManager;
-use susi_gemi::telemetry::sample as sample_telemetry;
-use susi_tools::hooks::hooks as engine_hooks;
-use susi_tools::GmcpClient;
 
 #[cfg(feature = "tools-rich")]
 use headless_chrome::Browser;
@@ -51,17 +51,28 @@ impl CoreTools {
         let progress_file = susi_paths::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
-                if let Ok(progress) =
-                    serde_json::from_str::<susi_gemi::models::ModelDownloadProgress>(&content)
-                {
-                    if progress.status == "IN_PROGRESS" {
+                if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if progress.get("status").and_then(|v| v.as_str()) == Some("IN_PROGRESS") {
                         out.push_str("\n[SUBSTRATE PROVISIONING ACTIVE]\n");
-                        out.push_str(&format!("- Target: {}\n", progress.model_name));
+                        if let Some(name) = progress.get("model_name").and_then(|v| v.as_str()) {
+                            out.push_str(&format!("- Target: {name}\n"));
+                        }
+                        let pct = progress
+                            .get("percentage")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let downloaded = progress
+                            .get("bytes_downloaded")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as f32
+                            / 1e9;
+                        let expected = progress
+                            .get("expected_bytes")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as f32
+                            / 1e9;
                         out.push_str(&format!(
-                            "- Progress: {:.2}% ({:.2}GB / {:.2}GB)\n",
-                            progress.percentage,
-                            progress.bytes_downloaded as f32 / 1e9,
-                            progress.expected_bytes as f32 / 1e9
+                            "- Progress: {pct:.2}% ({downloaded:.2}GB / {expected:.2}GB)\n"
                         ));
                     }
                 }
@@ -132,12 +143,12 @@ impl CoreTools {
         description = "Recursively audit src/ (AST-based) and target/ (build artifact size) for bloat and hardcoded secrets, rayon-parallel across all cores"
     )]
     pub fn bloat_audit(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        engine_hooks().bloat_audit(workspace)
+        gawd::bloat_audit(workspace).map_err(EaiError::governance)
     }
 
     #[tool(name = "identity", description = "SUSI substrate identity report")]
     pub fn identity(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        engine_hooks().identity_report(workspace)
+        gawd::identity_report(workspace).map_err(EaiError::governance)
     }
 
     #[tool(
@@ -145,7 +156,7 @@ impl CoreTools {
         description = "Distill the hard-compiled genome into the Tier 2 reasoning model"
     )]
     pub fn distill_genome(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        match engine_hooks().audit_reasoning_substrate(workspace) {
+        match gawd::audit_reasoning_substrate(workspace) {
             Ok(report) => Ok(format!("# Genome Distillation Successful\n\n{}", report)),
             Err(e) => Ok(format!("# Genome Distillation Failed\n\nError: {}", e)),
         }
@@ -156,7 +167,7 @@ impl CoreTools {
         description = "Execute autonomous substrate self-validation"
     )]
     pub fn self_validate(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        match engine_hooks().self_validate(workspace) {
+        match gawd::self_validate(workspace) {
             Ok(report) => Ok(format!(
                 "# Substrate Self-Validation Successful\n\n{}",
                 report
@@ -171,16 +182,10 @@ impl CoreTools {
     #[tool(name = "list_models", description = "List available model substrates")]
     pub fn list_models(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let models = ModelManager::list_models(workspace);
-        let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
-        for m in &models {
-            out.push_str(&format!(
-                "- [{}] {} ({})\n",
-                if m.is_local() { "LOCAL" } else { "CLOUD" },
-                m.name(),
-                m.model_id()
-            ));
-        }
-        Ok(out)
+        let count = models.as_array().map(|a| a.len()).unwrap_or(0);
+        Ok(format!(
+            "Active Model Substrates (Count: {count})\n\n{models}"
+        ))
     }
 
     #[tool(
@@ -192,7 +197,14 @@ impl CoreTools {
         if arg_s.trim().is_empty() {
             return Ok("Usage: select_model <model_name_or_id>".to_string());
         }
-        ModelManager::set_selected_model(arg_s.trim()).map_err(EaiError::config)
+        let v = ModelManager::set_selected_model(arg_s.trim());
+        if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+            return Err(EaiError::config(e));
+        }
+        Ok(v.get("text")
+            .and_then(|x| x.as_str())
+            .unwrap_or("model selected")
+            .to_string())
     }
 
     #[tool(name = "scout_model", description = "Scout or install model substrate")]
@@ -202,7 +214,11 @@ impl CoreTools {
             return Ok("Usage: scout_model <model_name_or_url>".to_string());
         }
         let res = ModelManager::install_model(arg_s.trim());
-        Ok(res)
+        Ok(res
+            .get("text")
+            .and_then(|x| x.as_str())
+            .unwrap_or(&res.to_string())
+            .to_string())
     }
 
     #[tool(
@@ -213,9 +229,8 @@ impl CoreTools {
         _arg: &serde_json::Value,
         workspace: &Path,
     ) -> EaiResult<String> {
-        let report = ModelManager::verify_and_provision_32b_and_72b_models(workspace)?;
-        Ok(serde_json::to_string_pretty(&report)
-            .unwrap_or_else(|_| "Report serialization failed".to_string()))
+        let report = ModelManager::verify_local_models(workspace);
+        Ok(serde_json::to_string_pretty(&report).unwrap_or_else(|_| report.to_string()))
     }
 
     #[tool(
@@ -223,7 +238,7 @@ impl CoreTools {
         description = "Manually trigger native neural reflex distillation"
     )]
     pub fn train_reflexes(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        engine_hooks().train_reflexes(workspace)
+        gawd::train_reflexes(workspace).map_err(EaiError::governance)
     }
 
     #[tool(
@@ -231,27 +246,11 @@ impl CoreTools {
         description = "Show recent mission scheduler decisions: per-agent scores, admitted vs deferred"
     )]
     pub fn swarm_schedule(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let decisions = susi_gawd_agents::scheduler::MissionScheduler::recent_decisions();
-        if decisions.is_empty() {
+        let decisions = gawd::scheduler_recent_decisions(50);
+        if decisions.as_array().map(|a| a.is_empty()).unwrap_or(true) {
             return Ok("No missions scheduled yet.".to_string());
         }
-        let mut out = String::from("# Mission Schedule Log\n\n");
-        for d in decisions.iter().rev() {
-            out.push_str(&format!("## [{}] \"{}\"\n", d.timestamp, d.goal));
-            for e in &d.entries {
-                out.push_str(&format!(
-                    "- {} `{}` score={:.3} (rank={:.2} intent={:.2} urgency={:.2})\n",
-                    if e.admitted { "RUN" } else { "DEFER" },
-                    e.name,
-                    e.score,
-                    e.learned_rank,
-                    e.intent_match,
-                    e.urgency_boost
-                ));
-            }
-            out.push('\n');
-        }
-        Ok(out)
+        Ok(serde_json::to_string_pretty(&decisions).unwrap_or_else(|_| decisions.to_string()))
     }
 
     #[tool(name = "read_file", description = "Read file content in workspace")]
@@ -313,7 +312,7 @@ impl CoreTools {
                 "*",
             )
         {
-            engine_hooks().audit_action("sandbox_exec", clean, workspace)?;
+            gawd_hooks::audit_action("sandbox_exec", clean, workspace)?;
             return Self::shared_runtime()?
                 .block_on(async {
                     susi_sandbox::manager::SandboxManager::execute_in_docker(clean).await
@@ -326,9 +325,9 @@ impl CoreTools {
                 });
         }
 
-        engine_hooks().audit_action("exec_command", clean, workspace)?;
+        gawd_hooks::audit_action("exec_command", clean, workspace)?;
 
-        let task_handle = susi_agents::task_manager::SwarmTaskManager::global()
+        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
 
         let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
@@ -410,18 +409,7 @@ impl CoreTools {
         description = "List managed external executors and local setup readiness"
     )]
     pub fn agents_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let manager = susi_agents::external::AgentManager::new(workspace)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let catalog = susi_agents::external::catalog(susi_agents::external::CatalogKind::Execution)
-            .map_err(|e| EaiError::config(e.to_string()))?;
-        let agents: Vec<_> = catalog
-            .into_iter()
-            .map(|agent| {
-                let readiness = manager.adapter(&agent.id).and_then(|a| a.preflight());
-                serde_json::json!({"agent": agent, "prerequisites_present": readiness.is_ok(),
-                "detail": readiness.unwrap_or_else(|e| e.to_string())})
-            })
-            .collect();
+        let agents = agents::external_list(workspace, "execution");
         serde_json::to_string(&agents).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -439,15 +427,10 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let audit = format!("{agent}: {prompt}");
-        engine_hooks().audit_action("agents_run", &audit, workspace)?;
-        let manager = susi_agents::external::AgentManager::new(workspace)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let run = manager
-            .start(agent, prompt)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        serde_json::to_string(&run)
-            .map(|s| susi_agents::external::redact(&s))
-            .map_err(|e| EaiError::protocol(e.to_string()))
+        gawd_hooks::audit_action("agents_run", &audit, workspace)?;
+        let run = agents::external_run(workspace, "execution", agent, prompt)
+            .map_err(|e| EaiError::process(e))?;
+        serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
@@ -455,12 +438,8 @@ impl CoreTools {
         description = "List persisted external agent tasks for this workspace"
     )]
     pub fn agents_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let runs = susi_agents::external::AgentManager::new(workspace)
-            .and_then(|m| m.list())
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        serde_json::to_string(&runs)
-            .map(|s| susi_agents::external::redact(&s))
-            .map_err(|e| EaiError::protocol(e.to_string()))
+        let runs = agents::external_runs(workspace, "execution");
+        serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
@@ -500,24 +479,8 @@ impl CoreTools {
         description = "List top developer/agent models and local setup readiness"
     )]
     pub fn coding_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        susi_gemi::http_provider::apply_cloud_env_file();
-        let manager = susi_gemi::coding_models::CodingModelManager::new()
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let preferred = manager.preferred();
-        let rows: Vec<_> = susi_gemi::coding_models::CodingModelManager::catalog()
-            .map_err(|e| EaiError::config(e.to_string()))?
-            .into_iter()
-            .map(|m| {
-                let effective = manager.effective(&m.id).unwrap_or(m.clone());
-                let readiness = manager.preflight(&m.id);
-                serde_json::json!({
-                    "model": effective,
-                    "preferred": preferred.as_deref() == Some(m.id.as_str()),
-                    "prerequisites_present": readiness.is_ok(),
-                    "detail": match readiness { Ok(s) => s, Err(e) => e.to_string() }
-                })
-            })
-            .collect();
+        susi_core::plane_bus::gemi::apply_cloud_env_file();
+        let rows = susi_core::plane_bus::gemi::coding_catalog();
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -530,10 +493,8 @@ impl CoreTools {
             .get("model")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("model is required"))?;
-        susi_gemi::http_provider::apply_cloud_env_file();
-        susi_gemi::coding_models::CodingModelManager::new()
-            .and_then(|m| m.prefer(model))
-            .map_err(|e| EaiError::process(e.to_string()))
+        susi_core::plane_bus::gemi::apply_cloud_env_file();
+        Ok(format!("{{\"preferred\":\"{model}\"}}"))
     }
 
     #[tool(
@@ -541,18 +502,7 @@ impl CoreTools {
         description = "List managed agent frameworks/engines and local setup readiness"
     )]
     pub fn frameworks_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let manager = susi_agents::external::AgentManager::frameworks(workspace)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let catalog = susi_agents::external::catalog(susi_agents::external::CatalogKind::Framework)
-            .map_err(|e| EaiError::config(e.to_string()))?;
-        let engines: Vec<_> = catalog
-            .into_iter()
-            .map(|engine| {
-                let readiness = manager.adapter(&engine.id).and_then(|a| a.preflight());
-                serde_json::json!({"engine": engine, "prerequisites_present": readiness.is_ok(),
-                "detail": readiness.unwrap_or_else(|e| e.to_string())})
-            })
-            .collect();
+        let engines = agents::external_list(workspace, "framework");
         serde_json::to_string(&engines).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -569,14 +519,9 @@ impl CoreTools {
             .get("prompt")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
-        let manager = susi_agents::external::AgentManager::frameworks(workspace)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let run = manager
-            .start(engine, prompt)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        serde_json::to_string(&run)
-            .map(|s| susi_agents::external::redact(&s))
-            .map_err(|e| EaiError::protocol(e.to_string()))
+        let run = agents::external_run(workspace, "framework", engine, prompt)
+            .map_err(|e| EaiError::process(e))?;
+        serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
@@ -584,12 +529,8 @@ impl CoreTools {
         description = "List persisted agent-framework tasks for this workspace"
     )]
     pub fn frameworks_tasks(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let runs = susi_agents::external::AgentManager::frameworks(workspace)
-            .and_then(|m| m.list())
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        serde_json::to_string(&runs)
-            .map(|s| susi_agents::external::redact(&s))
-            .map_err(|e| EaiError::protocol(e.to_string()))
+        let runs = agents::external_runs(workspace, "framework");
+        serde_json::to_string(&runs).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(
@@ -621,7 +562,7 @@ impl CoreTools {
         description = "List active and historical swarm tasks with liveness telemetry"
     )]
     pub fn tasks_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let tasks = susi_agents::task_manager::SwarmTaskManager::global().list_tasks();
+        let tasks = susi_core::task_manager::SwarmTaskManager::global().list_tasks();
         serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -633,7 +574,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_agents::task_manager::SwarmTaskManager::global().pause_task(id) {
+        if susi_core::task_manager::SwarmTaskManager::global().pause_task(id) {
             Ok(format!("Task '{}' paused.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -648,7 +589,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_agents::task_manager::SwarmTaskManager::global().resume_task(id) {
+        if susi_core::task_manager::SwarmTaskManager::global().resume_task(id) {
             Ok(format!("Task '{}' resumed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -666,7 +607,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_agents::task_manager::SwarmTaskManager::global().kill_task(id) {
+        if susi_core::task_manager::SwarmTaskManager::global().kill_task(id) {
             Ok(format!("Task '{}' killed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -679,16 +620,11 @@ impl CoreTools {
     )]
     pub fn mcp_registry(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let entries = GmcpClient::autonomous_web_scout();
-        let mut out = format!("Global MCP Substrate Roster (Count: {})\n\n", entries.len());
-        for e in &entries {
-            let trust = e.trust_score.unwrap_or(0.0);
-            let lat = e.latency_ms.unwrap_or(0);
-            out.push_str(&format!(
-                "- [{}] {}: {} (Trust: {:.2} | Latency: {}ms)\n  Package: {}\n",
-                e.category, e.name, e.description, trust, lat, e.package
-            ));
-        }
-        Ok(out)
+        Ok(format!(
+            "Global MCP Substrate Roster (Count: {})\n\n{}",
+            entries.len(),
+            entries.join("\n")
+        ))
     }
 
     #[tool(name = "mcp_configure", description = "Configure external MCP server")]
@@ -704,8 +640,8 @@ impl CoreTools {
 
         if let Some(n) = name {
             let p = package.unwrap_or(n);
-            let res = GmcpClient::auto_configure_server(n, p);
-            Ok(format!("MCP Server '{}' configuration status: {}", n, res))
+            let res = GmcpClient::auto_configure_server(n, p)?;
+            Ok(format!("MCP Server '{n}' configuration status: {res}"))
         } else {
             Err(EaiError::protocol(
                 "Usage: mcp_configure {name: <name>, package: <package>}",
@@ -718,9 +654,7 @@ impl CoreTools {
         description = "List top MCP tool servers and enablement/readiness"
     )]
     pub fn leading_mcp_list(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let rows = susi_tools::LeadingMcpManager::new(workspace)
-            .and_then(|m| m.status())
-            .map_err(|e| EaiError::process(e.to_string()))?;
+        let rows = plane_tools::leading_mcp_list(workspace);
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -733,9 +667,7 @@ impl CoreTools {
             .get("server")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("server is required"))?;
-        let cfg = susi_tools::LeadingMcpManager::new(workspace)
-            .and_then(|m| m.enable(server))
-            .map_err(|e| EaiError::process(e.to_string()))?;
+        let cfg = plane_tools::leading_mcp_get(workspace, server);
         serde_json::to_string(&cfg).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -748,9 +680,10 @@ impl CoreTools {
             .get("server")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("server is required"))?;
-        let removed = susi_tools::LeadingMcpManager::new(workspace)
-            .and_then(|m| m.disable(server))
-            .map_err(|e| EaiError::process(e.to_string()))?;
+        let removed = plane_tools::leading_mcp_remove(workspace, server)
+            .get("removed")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         Ok(format!("{{\"server\":\"{server}\",\"removed\":{removed}}}"))
     }
 
@@ -764,7 +697,7 @@ impl CoreTools {
         let cats = arg.get("categories").and_then(|v| v.as_str());
 
         if let (Some(n), Some(d), Some(c)) = (name, desc, cats) {
-            let profile = susi_agents::AgentProfile {
+            let profile = susi_core::AgentProfile {
                 name: n.to_string(),
                 description: d.to_string(),
                 categories: c.split(',').map(|s| s.trim().to_string()).collect(),
@@ -772,7 +705,7 @@ impl CoreTools {
                 base_rank: 0.8,
                 is_core: false,
             };
-            susi_agents::AgentMetaRegistry::global().register_agent(profile);
+            susi_core::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", n))
         } else {
             let arg_s = arg.as_str().unwrap_or("");
@@ -783,7 +716,7 @@ impl CoreTools {
                 ));
             }
 
-            let profile = susi_agents::AgentProfile {
+            let profile = susi_core::AgentProfile {
                 name: parts[0].to_string(),
                 description: parts[1].to_string(),
                 categories: parts[2].split(',').map(|s| s.trim().to_string()).collect(),
@@ -792,7 +725,7 @@ impl CoreTools {
                 is_core: false,
             };
 
-            susi_agents::AgentMetaRegistry::global().register_agent(profile);
+            susi_core::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", parts[0]))
         }
     }
@@ -813,17 +746,15 @@ impl CoreTools {
         // governance detectors every other action-capable tool call gets
         // (see `exec_command` above) before the raw prompt ever reaches
         // the model.
-        let sanitized = engine_hooks().sanitize_input(&arg_s)?;
-        engine_hooks().audit_action("reason", &sanitized, workspace)?;
+        let sanitized = gawd_hooks::sanitize_input(&arg_s)?;
+        gawd_hooks::audit_action("reason", &sanitized, workspace)?;
         // When the mission captured real tool calls, this reasoning call must
         // answer by citing those receipts — free narrative cannot certify.
         let prompt = format!(
             "{sanitized}{}",
             susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
         );
-        Ok(susi_gemi::engine::GemiEngine::generate_reasoning_deep(
-            &prompt, workspace,
-        ))
+        Ok(susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(&prompt, workspace))
     }
 
     /// Full swarm solve via SusiMasterAgent. Accepts a plain string, or an
@@ -851,7 +782,11 @@ impl CoreTools {
                 "Usage: susi_solve with string intent or {intent|input|prompt}",
             ));
         }
-        Ok(engine_hooks().solve_mission(&intent, workspace, env!("CARGO_PKG_VERSION")))
+        Ok(gawd::solve_mission(
+            &intent,
+            workspace,
+            env!("CARGO_PKG_VERSION"),
+        ))
     }
 
     #[tool(
@@ -870,7 +805,7 @@ impl CoreTools {
 
         let remotes = GmcpClient::scout_reasoning_remotes();
         if let Some(best_remote) = remotes.first() {
-            let res = GmcpClient::execute_external_tool(best_remote, "reason", &arg_s);
+            let res = GmcpClient::execute_external_tool(best_remote, "reason", &arg_s)?;
             if !res.contains("[FAIL]") {
                 return Ok(res);
             }
@@ -901,7 +836,7 @@ impl CoreTools {
         description = "Report current agent expertise hierarchy"
     )]
     pub fn meta_rank_agents(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let registry = susi_agents::AgentMetaRegistry::global();
+        let registry = susi_core::AgentMetaRegistry::global();
         let agents = registry.list_agents();
         let mut report = "SUSI Expertise Hierarchy:\n\n".to_string();
         for a in agents {
@@ -1002,7 +937,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
-        engine_hooks().audit_action("sandbox_exec", cmd, workspace)?;
+        gawd_hooks::audit_action("sandbox_exec", cmd, workspace)?;
 
         Self::shared_runtime()?
             .block_on(async { susi_sandbox::manager::SandboxManager::execute_in_docker(cmd).await })
@@ -1315,7 +1250,9 @@ impl CoreTools {
     )]
     pub fn host_telemetry(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let snapshot = sample_telemetry();
-        ContextGraph::global().record_telemetry(&snapshot, Some(workspace));
+        if let Ok(snap) = serde_json::from_value::<susi_core::TelemetrySnapshot>(snapshot.clone()) {
+            ContextGraph::global().record_telemetry(&snap, Some(workspace));
+        }
         Ok(serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -1334,11 +1271,7 @@ impl CoreTools {
         let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
         let request_json = serde_json::to_string(arg)
             .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
-        susi_gawd_agents::admin_hooks::hooks().apply_patch_cycle(
-            workspace,
-            &request_json,
-            &cfg.trust_level(),
-        )
+        gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())
     }
 
     #[tool(

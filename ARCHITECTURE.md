@@ -19,8 +19,9 @@ CLI (susi) / daemon / HTTP servers
 composition roots (wire hooks, packs, discovery, bind)
         ↓
 feature planes: GAWD · GEMI · GMCP · agents · tools
+        ↕  (in-process only: `susi_core::plane_bus` — no Cargo edges between planes)
         ↓
-susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry)
+susi-core (Evidence, Truth, Provider, Tool, CapabilityRegistry, plane_bus)
         ↓
 susi-error · susi-paths
         ↑
@@ -38,26 +39,38 @@ Concrete implementations are assembled only at composition roots.
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
 | `susi-paths` | XDG / substrate paths + host-contract port constants | `SusiDirs`, `ports` | std | everything else | no | no | reads env for XDG |
 | `susi-error` | Stable error model | `EaiError`, `EaiResult` | std, serde_json, `susi-paths` | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
-| `susi-core` | Domain + ports: Evidence, Truth, Provider, Tool, CapabilityRegistry, bus | traits + ledger types | `susi-error`, std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
+| `susi-core` | Domain + ports: Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-error`, `susi-config`, `susi-paths`, std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
 | `susi-native` | Wasmer Wasm host | `WasmHost` | `susi-error`, wasmer | feature planes | Wasm modules | instance | yes |
 | `susi-config` | `SusiConfig` dynamic registry + typed config fragments + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | paths, error, serde, ureq | everything above error/paths | no | config files | yes |
 | `susi-sandbox` | Docker sandbox runtime (re-exports `susi-config` via `manager`) | `SandboxManager`, `manager` | config, core, paths, error, bollard | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
-| `susi-tools` | Tool registry + MCP client adapters + `EngineHooks` port | `ToolRegistry`, `EngineHooks` | core, sandbox, native, rmcp/reqwest | gawd/gemi/gmcp **directly** (use hooks) | tools | registry | yes |
-| `susi-agents` | Agent types + external peer adapters | `GawdAgent`, registries | core, sandbox | gemi engines | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | core, sandbox, agents | gemi engines crate | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines | models, core, tools, agents | gmcp/gawd host | providers | model weights | yes |
-| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors | core, tools, gemi, sandbox | swarm/a2a (use dag/admin hooks) | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | gawd-agents, core, tools, gemi | a2a wire | no | blackboard | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | core, sandbox, native, rmcp/reqwest | **peer feature crates** (use `plane_bus`) | tools | registry | yes |
+| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | core, sandbox | **peer feature crates** | peers | registries | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | core, sandbox | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | models, core, sandbox, paths | **peer planes** (gemi/tools/agents/gawd/gmcp/server); call others via `plane_bus` only | providers | model weights | yes |
+| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | core, sandbox, paths | **peer planes**; within-plane: gawd-* only | agents | mission-local | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | gawd-agents, core, sandbox, config | **peer planes**; within-plane: gawd-agents | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | gawd-agents | swarm | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | agents/swarm/a2a + infra | server/daemon | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces | gemi, tools, agents, sandbox, core | gawd (swarm seam via `EngineHooks`), daemon | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI/GMCP bind | bind helpers | gawd, gemi, tools | — | no | — | yes |
-| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, bootstrap | feature crates + server | — | no | lock/PID | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | core, sandbox, paths | **peer feature crates**; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | core, sandbox, paths, error | **peer feature crates**; GAWD/GEMI via `plane_bus` | no | — | yes |
+| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates | — | — | cwd workspace | yes |
 
-Workspace crate cycles must remain **zero**. Cycles are broken with hook traits
-(`EngineHooks`, `AdminHooks`, `HostHooks`, `dag_hooks`) wired at composition
-roots — never by stuffing implementations into `susi-core`.
+Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
+peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`
+↔ `susi-agents` ↔ `susi-gmcp` ↔ `susi-server` edges). They communicate only
+through **`susi_core::plane_bus`** (topics + JSON DTOs) and shared foundation
+(`susi-paths`, `susi-error`, `susi-core`, `susi-config`, `susi-sandbox`,
+`susi-native`). **`susi-daemon`** and the root **`susi`** package register
+`plane_handler` implementations and may link every plane.
+
+Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
+`susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →
+`susi-gawd-agents`; `susi-gawd-a2a` → `susi-gawd-agents`.
+
+Hook traits (`EngineHooks`, `AdminHooks`, `HostHooks`, `dag_hooks`) remain for
+composition-root wiring alongside the bus — never by stuffing implementations
+into `susi-core` beyond the bus facades.
 
 ## Ports (traits) — create only at real substitution boundaries
 
@@ -68,6 +81,7 @@ roots — never by stuffing implementations into `susi-core`.
 | `CapabilityRegistry` | `susi-core` | process-wide catalog (locator today; prefer pass-by-ref in new code) |
 | `ContextGraph` | `susi-core` | process-wide evidence-backed entity/relation graph; storage path supplied by composition root |
 | `IpcBroker` | `susi-core` | inter-app permission grants, negotiation, and typed message passing |
+| `PlaneBus` | `susi-core` | in-process request/reply between feature planes (topics + JSON); handlers registered at composition roots |
 | `MacPolicy` / `CapabilityToken` | `susi-core` | HMAC-SHA256 capability MAC on every tool dispatch; privacy modes |
 | `IntentBus` | `susi-core` | semantic provider/need matching (Jaccard + hash embeddings) |
 | `TxManager` | `susi-core` | multi-agent file/blackboard transactional snapshots |
@@ -90,14 +104,16 @@ Exactly two process-entry assembly paths:
 
 Sequence (both paths, subset as applicable):
 
-1. Load / seed configuration and extension packs.
-2. Init hook traits (`EngineHooks`, and GAWD hooks on first swarm use).
-3. Apply secrets surface (`~/.susi/cloud.env`) — never log secret bodies.
-4. Construct / discover infrastructure (providers, MCP, peers).
-5. Mount capabilities into `CapabilityRegistry`.
-6. Initialize `ContextGraph` durable storage path (`~/.susi/context_graph.jsonl`).
-7. Attach transports (CLI ack, HTTP, MCP, UDP discovery).
-8. Start / serve.
+1. Register `plane_bus` handlers (`composition::wire_plane_bus`) for every
+   feature plane.
+2. Load / seed configuration and extension packs.
+3. Init hook traits (`EngineHooks`, and GAWD hooks on first swarm use).
+4. Apply secrets surface (`~/.susi/cloud.env`) — never log secret bodies.
+5. Construct / discover infrastructure (providers, MCP, peers).
+6. Mount capabilities into `CapabilityRegistry`.
+7. Initialize `ContextGraph` durable storage path (`~/.susi/context_graph.jsonl`).
+8. Attach transports (CLI ack, HTTP, MCP, UDP discovery).
+9. Start / serve.
 
 Business / domain code must not construct global `HttpClient`, DB pools, or
 plugin managers inside use cases.

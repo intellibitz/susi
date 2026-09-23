@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
-use susi_agents::task_manager::{SwarmTaskManager, TaskHandle};
+use susi_core::task_manager::{SwarmTaskManager, TaskHandle};
 
 use super::model_manager::ModelManager;
 

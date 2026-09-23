@@ -47,7 +47,7 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
     }
 
     fn bootstrap_tools(&self, registry: &susi_tools::ToolRegistry) {
-        susi_gmcp::tools::bootstrap_registry(registry);
+        crate::gmcp_bootstrap::bootstrap_registry(registry);
     }
 
     fn audit_action(&self, tool: &str, detail: &str, workspace: &Path) -> EaiResult<()> {

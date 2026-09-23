@@ -1,9 +1,7 @@
 // SUSI Native Reflexes (Synthesized)
-// Native Integration - this file is autonomously updated by the ReflexSynthesizer.
+// Registration into the real ToolRegistry is wired from `susi-daemon` (composition root).
 
-use crate::tools::ToolRegistry;
-
-pub fn register_synthesized_reflexes(_registry: &ToolRegistry) {
+pub fn register_synthesized_reflexes() {
     // [AUTONOMOUS REGISTRATION START]
     // [AUTONOMOUS REGISTRATION END]
 }

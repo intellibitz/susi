@@ -128,7 +128,7 @@ impl InferenceHost {
     pub fn get_model(
         model_path: &Path,
         device: &candle_core::Device,
-        task_handle: &Arc<susi_agents::task_manager::TaskHandle>,
+        task_handle: &Arc<susi_core::task_manager::TaskHandle>,
     ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
         static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
         if task_handle.is_cancelled() {

@@ -2,10 +2,27 @@
 
 use super::report::SusiMissionReport;
 use crate::amas::{A2AMessage, SusiSupervisor};
+use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
 use susi_error::EaiResult;
 use susi_gawd_agents::AxiomSubstrate;
+
+fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
+    susi_core::plane_bus::tools::execute_tool(name, args, workspace)
+        .unwrap_or_else(|e| format!("[Error] {e}"))
+}
+
+fn mission_plan_goals(plan: &Value) -> Vec<String> {
+    plan.get("goals")
+        .and_then(|g| g.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
 pub struct SusiMasterAgent;
 
@@ -28,7 +45,7 @@ impl SusiMasterAgent {
     pub fn sanitize_input(input: &str) -> EaiResult<String> {
         let trimmed = input.trim();
 
-        let hardware = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let hardware = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
 
         if trimmed.len() > max_len {
@@ -97,16 +114,18 @@ impl SusiMasterAgent {
             .map(susi_core::capture::EvidenceSession::activate);
         let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
 
-        let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
-        let (_engine_type, active_model_id) =
-            susi_gemi::models::ModelManager::get_active_engine_and_model(Some(
-                susi_gemi::intent::IntentClassifier::classify(goal),
-            ));
-        let model_path_str = susi_gemi::models::ModelManager::get_model_path(&active_model_id)
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
-        let device = susi_gemi::hardware::HardwareProfiler::get_candle_device();
-        let local_models_count = susi_gemi::models::ModelManager::list_models(workspace).len();
+        let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+        let (_engine_type, active_model_id) = {
+            let intent = susi_core::plane_bus::gemi::IntentClassifier::classify(goal);
+            susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(&intent))
+        };
+        let model_path_str =
+            susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
+        let device = susi_core::plane_bus::gemi::HardwareProfiler::get_candle_device_label();
+        let local_models_count =
+            susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
 
         eprintln!("<thinking>");
 
@@ -141,7 +160,7 @@ impl SusiMasterAgent {
             hw.hostname, hw.uptime, hw.load_avg
         );
         eprintln!(
-            "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {:?}",
+            "- [Compute Saturation] Native Acceleration: {} | Active Inference Device: {}",
             hw.native_acceleration, device
         );
 
@@ -268,7 +287,7 @@ impl SusiMasterAgent {
                 } else {
                     "ls -la"
                 };
-                susi_tools::ToolRegistry::execute_tool(
+                bus_tool(
                     "exec_command",
                     &serde_json::Value::String(cmd.to_string()),
                     workspace,
@@ -276,7 +295,7 @@ impl SusiMasterAgent {
             } else if susi_gawd_agents::system_observe::looks_like_system_observe_goal(goal) {
                 susi_gawd_agents::system_observe::observe_system(goal, workspace).unwrap_or_else(
                     || {
-                        susi_tools::ToolRegistry::execute_tool(
+                        bus_tool(
                             "exec_command",
                             &serde_json::Value::String(
                                 "df -h -x tmpfs -x devtmpfs -x squashfs --total".into(),
@@ -289,20 +308,12 @@ impl SusiMasterAgent {
                 || lower_goal == "susi dashboard"
                 || lower_goal == "show dashboard"
             {
-                susi_tools::ToolRegistry::execute_tool(
-                    "sovereign_dashboard",
-                    &serde_json::json!(null),
-                    workspace,
-                )
+                bus_tool("sovereign_dashboard", &serde_json::json!(null), workspace)
             } else if lower_goal.trim() == "bloat audit"
                 || lower_goal == "run bloat audit"
                 || lower_goal == "bloat-audit"
             {
-                susi_tools::ToolRegistry::execute_tool(
-                    "bloat_audit",
-                    &serde_json::json!(null),
-                    workspace,
-                )
+                bus_tool("bloat_audit", &serde_json::json!(null), workspace)
             } else if lower_goal.contains("version") {
                 format!("SUSI Engine Version: v{}", version)
             } else if lower_goal.contains("status") {
@@ -314,17 +325,9 @@ impl SusiMasterAgent {
                 || lower_goal == "list models"
                 || lower_goal == "show models"
             {
-                let models = susi_gemi::models::ModelManager::list_models(workspace);
-                let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
-                for m in &models {
-                    out.push_str(&format!(
-                        "- [{}] {} ({})\n",
-                        if m.is_local() { "LOCAL" } else { "CLOUD" },
-                        m.name(),
-                        m.model_id()
-                    ));
-                }
-                out
+                let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+                let count = models.as_array().map(|a| a.len()).unwrap_or(0);
+                format!("Active Model Substrates (Count: {count})\n\n{models}")
             } else {
                 format!("Administrative query result for goal: {}", goal)
             };
@@ -339,25 +342,26 @@ impl SusiMasterAgent {
 
             eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
             let mut verification_failed = false;
-            let final_answer = match susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(
-                &final_answer,
-                workspace,
-            ) {
-                Ok(v) => {
-                    eprintln!(
+            let final_answer =
+                match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+                    &final_answer,
+                    workspace,
+                ) {
+                    Ok(v) => {
+                        eprintln!(
                         "- [Axiomatic Alignment Check] Status: SUCCESS | Fast-Path Read axiomatic alignment verified."
                     );
-                    v
-                }
-                Err(e) => {
-                    verification_failed = true;
-                    eprintln!(
-                        "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
-                        e
-                    );
-                    format!("Axiomatic Violation: {}", e)
-                }
-            };
+                        v
+                    }
+                    Err(e) => {
+                        verification_failed = true;
+                        eprintln!(
+                            "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
+                            e
+                        );
+                        format!("Axiomatic Violation: {}", e)
+                    }
+                };
             // Only exact native identity/version queries have a deterministic
             // completion contract here. Incidental keywords must not turn an
             // unrelated request into a successful identity or version response.
@@ -516,7 +520,7 @@ impl SusiMasterAgent {
             eprintln!("{}", swarm_context);
             swarm_context
         } else {
-            susi_gemi::engine::GemiEngine::generate_reasoning_stream(
+            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
                 &reasoning_prompt,
                 workspace,
                 _callback,
@@ -525,7 +529,7 @@ impl SusiMasterAgent {
 
         eprintln!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
         let mut verification_failed = false;
-        let verified = match susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(
+        let verified = match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
             &final_answer,
             workspace,
         ) {
@@ -724,7 +728,8 @@ impl SusiMasterAgent {
             max_steps.clamp(1, 8),
             goal
         );
-        let response = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
+        let response =
+            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
         let steps: Vec<String> = response
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -795,7 +800,7 @@ impl SusiMasterAgent {
 
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
-            let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
+            let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
             let global_dir = susi_paths::SusiDirs::config_dir();
             let daemon_status = if susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
@@ -820,16 +825,8 @@ impl SusiMasterAgent {
 
         if trimmed_query == "models" || trimmed_query == "susi models" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
-            let models = susi_gemi::models::ModelManager::list_models(workspace);
-            let mut roster = format!("SUSI Substrate Models Roster ({}) :\n", version);
-            for m in models {
-                roster.push_str(&format!(
-                    "- [{}] {} ({})\n",
-                    m.provider(),
-                    m.name(),
-                    m.model_id()
-                ));
-            }
+            let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+            let roster = format!("SUSI Substrate Models Roster ({version}) :\n{models}");
             return Ok(SusiMissionReport {
                 goal: goal.to_string(),
                 status: "COMPLETE".to_string(),
@@ -906,15 +903,16 @@ impl SusiMasterAgent {
 
                 let context_words = reasoning_prompt.split_whitespace().count();
 
-                let min_complexity_for_attempt = match retry_count {
+                let min_complexity_for_attempt: Option<&str> = match retry_count {
                     0 => None,
-                    1 => Some(susi_gemi::intent::TaskComplexity::Moderate),
-                    _ => Some(susi_gemi::intent::TaskComplexity::Complex),
+                    1 => Some("Moderate"),
+                    _ => Some("Complex"),
                 };
+                let _ = context_words;
                 let selected_model =
-                    susi_gemi::models::ModelManager::get_selected_model_for_request_with_min_complexity(
+                    susi_core::plane_bus::gemi::ModelManager::get_selected_model_for_request_with_min_complexity(
                         &current_goal,
-                        Some(context_words),
+                        Some(workspace),
                         min_complexity_for_attempt,
                     );
                 let model_name = selected_model
@@ -922,18 +920,25 @@ impl SusiMasterAgent {
                     .unwrap_or("automatic provisioning");
                 let local_inference = match selected_model.as_deref() {
                     Some(model) => {
-                        susi_gemi::engine::GemiEngine::generate_reasoning_deep_with_model(
+                        susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                             &reasoning_prompt,
                             workspace,
                             model,
                         )
                     }
                     None => {
-                        susi_gemi::engine::GemiEngine::generate_reasoning_deep_with_min_complexity(
-                            &reasoning_prompt,
-                            workspace,
-                            min_complexity_for_attempt,
-                        )
+                        if let Some(c) = min_complexity_for_attempt {
+                            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_min_complexity(
+                                &reasoning_prompt,
+                                workspace,
+                                c,
+                            )
+                        } else {
+                            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                                &reasoning_prompt,
+                                workspace,
+                            )
+                        }
                     }
                 };
                 format!(
@@ -943,7 +948,7 @@ impl SusiMasterAgent {
             };
 
             // 4. Axiomatic Alignment Check
-            match susi_gemi::engine::GemiEngine::verify_axiomatic_alignment(
+            match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
                 &final_answer,
                 workspace,
             ) {
@@ -1029,23 +1034,20 @@ impl SusiMasterAgent {
         version: &str,
         depth: u32,
     ) -> EaiResult<SusiMissionReport> {
-        let plan = susi_gemi::engine::MissionPlanner::partition_mission(goal, workspace)?;
+        let plan_val =
+            susi_core::plane_bus::gemi::MissionPlanner::partition_mission(goal, workspace)
+                .map_err(|e| susi_error::EaiError::governance(e))?;
+        let goals = mission_plan_goals(&plan_val);
 
         // Speculative Parallelism
         // Partitioned tasks are executed in parallel across the multi-threaded substrate.
         use rayon::prelude::*;
 
-        let results: Vec<_> = plan
-            .goals
+        let results: Vec<_> = goals
             .par_iter()
             .enumerate()
             .map(|(i, sub_goal)| {
-                let g = format!(
-                    "[PARALLEL STEP {}/{}]: {}",
-                    i + 1,
-                    plan.goals.len(),
-                    sub_goal
-                );
+                let g = format!("[PARALLEL STEP {}/{}]: {}", i + 1, goals.len(), sub_goal);
                 let w = workspace.to_path_buf();
                 let v = version.to_string();
                 let ama = SusiMasterAgent::new();
@@ -1090,21 +1092,19 @@ impl SusiMasterAgent {
         version: &str,
         depth: u32,
     ) -> EaiResult<SusiMissionReport> {
-        let mut plan = susi_gemi::engine::MissionPlanner::plan_mission(goal, workspace)?;
+        let mut plan_val =
+            susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
+                .map_err(|e| susi_error::EaiError::governance(e))?;
+        let mut goals = mission_plan_goals(&plan_val);
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
         let mut final_responses = Vec::new();
         let mut all_ok = true;
 
         let mut current_step = 0;
-        while current_step < plan.goals.len() {
-            let sub_goal = &plan.goals[current_step];
-            let tagged_goal = format!(
-                "[STEP {}/{}]: {}",
-                current_step + 1,
-                plan.goals.len(),
-                sub_goal
-            );
+        while current_step < goals.len() {
+            let sub_goal = &goals[current_step];
+            let tagged_goal = format!("[STEP {}/{}]: {}", current_step + 1, goals.len(), sub_goal);
             let report = self.solve_internal(&tagged_goal, workspace, version, depth + 1)?;
 
             all_interactions.extend(report.interactions.clone());
@@ -1121,13 +1121,13 @@ impl SusiMasterAgent {
                 );
 
                 let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
-                if let Ok(new_plan) = susi_gemi::engine::MissionPlanner::refine_plan(
+                if let Ok(new_plan) = susi_core::plane_bus::gemi::MissionPlanner::refine_plan(
                     goal,
-                    &blackboard_state,
+                    &serde_json::json!({ "blackboard": blackboard_state }),
                     workspace,
                 ) {
-                    plan = new_plan;
-                    // Reset or adjust steps based on new plan (for now we just continue from next)
+                    plan_val = new_plan;
+                    goals = mission_plan_goals(&plan_val);
                 }
             }
 
@@ -1197,8 +1197,8 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name =
-            susi_gemi::models::ModelManager::get_selected_model(None).unwrap_or_else(|| {
+        let model_name = susi_core::plane_bus::gemi::ModelManager::get_selected_model(None)
+            .unwrap_or_else(|| {
                 let filename = susi_sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename();

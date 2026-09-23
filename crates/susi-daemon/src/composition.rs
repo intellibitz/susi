@@ -7,10 +7,19 @@
 
 use std::path::Path;
 
+/// Register in-process plane-bus handlers for gemi / gawd / tools / agents.
+pub fn wire_plane_bus() {
+    susi_gemi::plane_handler::register();
+    susi_gawd::plane_handler::register();
+    susi_tools::plane_handler::register();
+    susi_agents::plane_handler::register();
+}
+
 /// Wire `EngineHooks` so `ToolRegistry` and `susi-gmcp` tool handlers can reach
 /// gawd/gemi without crate cycles. Safe to call more than once; later calls
 /// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
+    wire_plane_bus();
     susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
 
@@ -19,6 +28,7 @@ pub fn wire_engine_hooks() {
 /// Does not bind host-contract ports (daemon owns those). Call before command
 /// dispatch that may touch tools, catalogs, or inference.
 pub fn wire_cli_substrate(substrate: &Path) {
+    wire_plane_bus();
     wire_engine_hooks();
     let _ = susi_sandbox::extensions::ensure_extensions_substrate();
     susi_gemi::http_provider::apply_cloud_env_file();

@@ -10,8 +10,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::peer_registry;
+use susi_core::plane_bus::gemi::HardwareProfiler;
 use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
-use susi_gemi::hardware::HardwareProfiler;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct A2AMessage {
@@ -99,10 +99,10 @@ impl CapabilityBloom {
     /// with the local ToolRegistry (Registry + Trait + Config pattern: zero
     /// hardcoded capability strings, derived from what's actually loaded).
     pub fn local_snapshot() -> Self {
-        let tokens: Vec<String> = susi_tools::ToolRegistry::global()
-            .tools
-            .iter()
-            .map(|entry| entry.key().to_lowercase())
+        let tokens: Vec<String> = susi_core::registry::CapabilityRegistry::global()
+            .list_tools()
+            .into_iter()
+            .map(|name| name.to_lowercase())
             .collect();
         Self::from_tokens(tokens.iter().map(|s| s.as_str()))
     }
@@ -678,7 +678,7 @@ impl SusiSupervisor {
                         valid_outputs.len()
                     );
                     let _ = std::io::stdout().flush();
-                    let out = susi_gemi::engine::GemiEngine::generate_reasoning_stream(
+                    let out = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
                         &consensus_prompt,
                         workspace,
                         &|token| {

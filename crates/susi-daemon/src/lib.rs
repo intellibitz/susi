@@ -3,6 +3,7 @@ pub mod auto_discovery;
 pub mod composition;
 pub mod context_adapters;
 pub mod engine_hooks;
+pub mod gmcp_bootstrap;
 pub mod privacy;
 pub mod runtime_admin;
 pub mod server;

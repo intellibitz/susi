@@ -2,8 +2,8 @@
 // the configured sample threshold.
 
 use std::path::Path;
+use susi_core::plane_bus::gemi::SusiAlphaModel;
 use susi_error::EaiResult;
-use susi_gemi::alpha::SusiAlphaModel;
 
 pub struct ReflexTrainer;
 

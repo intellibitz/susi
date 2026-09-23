@@ -7,7 +7,8 @@ mod helpers;
 #[cfg(feature = "tools-rich")]
 pub mod semantic_index;
 
-pub use susi_tools::{GmcpClient, McpTool, MetaCategory, SusiTool, ToolRegistry};
+pub use crate::tool_registry::{GmcpClient, ToolRegistry};
+pub use crate::tool_types::{McpTool, MetaCategory, SusiTool};
 
 pub use bootstrap::bootstrap_registry;
 pub use core::CoreTools;

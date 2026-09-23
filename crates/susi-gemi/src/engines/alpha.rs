@@ -86,7 +86,7 @@ impl SusiAlphaModel {
         ];
 
         // Add Registered Agents
-        let registry = susi_agents::AgentMetaRegistry::global();
+        let registry = susi_core::AgentMetaRegistry::global();
         for agent in registry.list_agents() {
             if !intents.contains(&agent.name) {
                 intents.push(agent.name);
@@ -94,10 +94,9 @@ impl SusiAlphaModel {
         }
 
         // Add Installed Tools
-        let tools = susi_tools::ToolRegistry::list_tools();
-        for tool in tools {
-            if !intents.contains(&tool.name) {
-                intents.push(tool.name);
+        for name in susi_core::registry::CapabilityRegistry::global().list_tools() {
+            if !intents.contains(&name) {
+                intents.push(name);
             }
         }
 
@@ -264,7 +263,7 @@ impl SusiAlphaModel {
     /// Optimized for <2ms Instant-Intelligence.
     pub fn semantic_centroid_projection(
         prompt: &str,
-        anchors: Option<&[susi_agents::AgentProfile]>,
+        anchors: Option<&[susi_core::AgentProfile]>,
     ) -> Result<Vec<f32>> {
         let start = std::time::Instant::now();
         let mut vec = vec![0.0f32; Self::DIM];
@@ -299,7 +298,7 @@ impl SusiAlphaModel {
         Ok(vec)
     }
 
-    fn get_semantic_anchor(word: &str, anchors: Option<&[susi_agents::AgentProfile]>) -> Vec<f32> {
+    fn get_semantic_anchor(word: &str, anchors: Option<&[susi_core::AgentProfile]>) -> Vec<f32> {
         let mut anchor = vec![0.0f32; Self::DIM];
 
         // Zero-Lock Anchor Mapping

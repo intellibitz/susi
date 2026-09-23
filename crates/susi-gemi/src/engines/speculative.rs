@@ -55,7 +55,7 @@ use candle_core::quantized::gguf_file;
 use candle_core::{Device, IndexOp, Tensor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use susi_agents::task_manager::TaskHandle;
+use susi_core::task_manager::TaskHandle;
 use susi_error::{EaiError, EaiResult};
 use tokenizers::Tokenizer;
 
@@ -602,7 +602,7 @@ mod tests {
         let max_tokens = 10usize;
         let repeat_penalty = 1.15f32;
         let repeat_last_n = 64usize;
-        let task_handle = susi_agents::task_manager::SwarmTaskManager::global()
+        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("test_speculative_equivalence", prompt);
 
         // Speculative path.

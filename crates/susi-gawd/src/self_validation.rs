@@ -6,8 +6,8 @@
 // `gmcp` to start the GMCP server — a real cycle this avoids).
 
 use std::path::Path;
+use susi_core::plane_bus::gemi::HardwareProfiler;
 use susi_error::EaiResult;
-use susi_gemi::hardware::HardwareProfiler;
 use susi_sandbox::manager::SusiAuditLogger;
 
 pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
@@ -19,8 +19,8 @@ pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String>
     ));
 
     // Test Tensor Substrate
-    let device = HardwareProfiler::get_candle_device();
-    report.push_str(&format!("- **Neural Device**: {:?}\n", device));
+    let device = HardwareProfiler::get_candle_device_label();
+    report.push_str(&format!("- **Neural Device**: {device}\n"));
 
     // Verify Local Genome Integrity
     let genome_integrity = crate::self_core::AlphaSelf::RULES.len();

@@ -8,7 +8,7 @@ use susi_error::{EaiError, EaiResult};
 
 use std::path::Path;
 
-pub use susi_agents::{AgentMetaRegistry, GawdAgent, MissionBlackboard};
+pub use susi_core::{AgentMetaRegistry, GawdAgent, MissionBlackboard};
 
 /// Generic agent that falls back to LLM reasoning when no specialist agent
 /// covers the goal.
@@ -104,10 +104,11 @@ impl GawdAgent for DynamicAgent {
                 "[{}]: Observation integrated into blackboard.",
                 self.agent_name
             )
-        } else if susi_tools::ToolRegistry::exists("reason") {
-            susi_tools::ToolRegistry::execute_tool("reason", &prompt_val, &ws)
+        } else if susi_core::plane_bus::tools::exists("reason") {
+            susi_core::plane_bus::tools::execute_tool("reason", &prompt_val, &ws)
+                .unwrap_or_else(|e| e.to_string())
         } else {
-            susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws)
+            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws)
         };
 
         blackboard.insert(self.agent_name.clone(), res.clone());
@@ -245,21 +246,34 @@ impl GawdAgent for SusiRuntimeAgent {
         let cloud_available = cloud_env_keys.iter().any(|k| std::env::var(k).is_ok());
 
         // 2. Check whether a valid local model is already present
-        let verifications = susi_gemi::models::ModelManager::verify_local_models(workspace);
+        let verifications =
+            susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
         let valid_local_found = verifications
-            .iter()
-            .any(|v| v.is_valid_gguf || v.model_id.contains("native"));
+            .as_array()
+            .map(|arr| {
+                arr.iter().any(|v| {
+                    v.get("is_valid_gguf")
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or(false)
+                        || v.get("model_id")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("")
+                            .contains("native")
+                })
+            })
+            .unwrap_or(false);
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
             let cfg = susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
                 .unwrap_or_default();
-            susi_gemi::models::ModelManager::install_model(&cfg.alpha_weights_url());
-            let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
+            susi_core::plane_bus::gemi::ModelManager::install_model(&cfg.alpha_weights_url());
+            let _ =
+                susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(workspace);
         }
 
         // 4. Link essential MCP servers
-        susi_tools::ToolRegistry::auto_link_essential_mcp_servers();
+        susi_core::plane_bus::tools::auto_link_essential_mcp_servers();
 
         Ok("Runtime environment established and optimized for pulse intent.".into())
     }
@@ -281,7 +295,7 @@ impl GawdAgent for HardwareAgent {
         workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let profile = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let mut report = format!(
             "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
             profile.cpus,
@@ -541,11 +555,16 @@ impl GawdAgent for GmcpAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         // Test Tool Registry endpoints (Internal Reflex)
-        let registry = susi_tools::ToolRegistry::global();
-        let tool_count = registry.tools.len();
+        let tool_count = susi_core::registry::CapabilityRegistry::global()
+            .list_tools()
+            .len();
 
-        let status_res =
-            susi_tools::ToolRegistry::execute_tool("status", &serde_json::json!(null), workspace);
+        let status_res = susi_core::plane_bus::tools::execute_tool(
+            "status",
+            &serde_json::json!(null),
+            workspace,
+        )
+        .unwrap_or_default();
         let healthy = status_res.contains("Operational");
 
         let res = format!(
@@ -709,8 +728,8 @@ impl GawdAgent for ResourceArbitratorAgent {
         _workspace: &Path,
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
-        let oom_risk = susi_gemi::hardware::HardwareProfiler::check_oom_critical();
+        let profile = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+        let oom_risk = susi_core::plane_bus::gemi::HardwareProfiler::check_oom_critical();
         let res = format!(
             "[ResourceArbitratorAgent]: Hardware saturation check passed. CPUs: {} | Available RAM: {}GB | OOM Critical Risk: {}",
             profile.cpus, profile.available_ram_gb, oom_risk
@@ -920,16 +939,22 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         _workspace: &Path,
         _blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
-        let client = susi_tools::GmcpClient::scout_reasoning_remotes();
-        for remote_name in client {
-            if remote_name
-                .to_lowercase()
-                .contains(&self.endpoint_name.to_lowercase())
-            {
-                let res =
-                    susi_tools::GmcpClient::execute_external_tool(&remote_name, "generate", goal);
-                if !res.contains("[FAIL]") {
-                    return Ok(format!("[{} Power-Tier]: {}", self.endpoint_name, res));
+        let client = susi_core::plane_bus::tools::scout_reasoning_remotes();
+        if let Some(remotes) = client.get("remotes").and_then(|v| v.as_array()) {
+            for remote_name in remotes.iter().filter_map(|v| v.as_str()) {
+                if remote_name
+                    .to_lowercase()
+                    .contains(&self.endpoint_name.to_lowercase())
+                {
+                    let res = susi_core::plane_bus::tools::execute_external_tool(
+                        remote_name,
+                        "generate",
+                        goal,
+                    )
+                    .unwrap_or_else(|e| format!("[FAIL] {e}"));
+                    if !res.contains("[FAIL]") {
+                        return Ok(format!("[{} Power-Tier]: {}", self.endpoint_name, res));
+                    }
                 }
             }
         }
@@ -1016,7 +1041,8 @@ impl GawdAgent for LibraryScoutAgent {
         // Enhanced Library Scouting with reasoning and 'cargo add' suggestions
         let prompt = format!("Extract a single dominant keyword (max 1-2 words, lowercase) representing the crate category needed for this goal: '{}'. Output ONLY the keyword, no explanation. Example outputs: async, json, sql, gui, web, inference.", goal);
         let ws = workspace.to_path_buf();
-        let mut query_term = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, &ws);
+        let mut query_term =
+            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws);
         query_term = query_term.trim().to_lowercase().replace(['"', '\''], "");
         if query_term.is_empty() || query_term.contains(' ') {
             query_term = "rust".to_string();
@@ -1074,7 +1100,7 @@ impl GawdAgent for LibraryScoutAgent {
 
         let prompt = format!("Recommend SOTA Rust open-source crates for goal: {}. Include specific reasons and 'cargo add' commands if applicable.", goal);
         let ws = workspace.to_path_buf();
-        Ok(susi_gemi::engine::GemiEngine::generate_reasoning(
+        Ok(susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
             &prompt, &ws,
         ))
     }
@@ -1106,7 +1132,7 @@ impl GawdAgent for AdminAgent {
             Some("verify") => crate::admin_hooks::hooks().verify_version_alignment(workspace),
             Some("release") => crate::admin_hooks::hooks().execute_release(workspace),
             Some("status_health") => {
-                let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
+                let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
                 Ok(format!(
                     "Substrate Status: v{} | Hardware: {} | CPUs: {} | RAM: {}GB | Status: Operational",
                     crate::self_core::AlphaSelf::VERSION,
@@ -1127,21 +1153,21 @@ impl GawdAgent for AdminAgent {
                 ))
             }
             Some("list_models") => {
-                let models = susi_gemi::models::ModelManager::list_models(workspace);
-                let mut out = format!("Active Model Substrates (Count: {})\n\n", models.len());
-                for m in &models {
-                    out.push_str(&format!(
-                        "- [{}] {} ({})\n",
-                        if m.is_local() { "LOCAL" } else { "CLOUD" },
-                        m.name(),
-                        m.model_id()
-                    ));
-                }
-                Ok(out)
+                let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+                let count = models.as_array().map(|a| a.len()).unwrap_or(0);
+                Ok(format!(
+                    "Active Model Substrates (Count: {count})\n\n{models}"
+                ))
             }
             Some("deep_scan") => {
                 let global_dir = Self::global_dir();
-                susi_gemi::models::ModelManager::deep_scan_home_and_register(&global_dir)
+                let v = susi_core::plane_bus::gemi::ModelManager::deep_scan_home_and_register(
+                    &global_dir,
+                );
+                Ok(v.get("text")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or(&v.to_string())
+                    .to_string())
             }
             Some("install") => {
                 let global_dir = Self::global_dir();

@@ -287,101 +287,12 @@ impl GawdAgent for ExternalPeerAgent {
         blackboard: &MissionBlackboard,
     ) -> EaiResult<String> {
         if peer_protocol(&self.spec) == "managed" {
-            let (kind, def) =
-                susi_agents::external::resolve_managed(&self.spec.name).map_err(|e| {
-                    EaiError::governance(format!("[UNAVAILABLE] {}: {e}", self.spec.name))
-                })?;
-            let manager = susi_agents::external::AgentManager::for_kind(workspace, kind)
-                .map_err(|e| EaiError::process(e.to_string()))?;
-            let setup = match kind {
-                susi_agents::external::CatalogKind::Execution if def.id == "openhands" => {
-                    "susi openhands setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "gemini-cli" => {
-                    "susi gemini setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "aider" => {
-                    "susi aider setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "swe-agent" => {
-                    "susi swe-agent setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "openclaw" => {
-                    "susi openclaw setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "browser-use" => {
-                    "susi browser-use setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "openviking" => {
-                    "susi openviking setup"
-                }
-                susi_agents::external::CatalogKind::Execution if def.id == "deerflow" => {
-                    "susi deerflow setup"
-                }
-                susi_agents::external::CatalogKind::Execution => "susi agents setup",
-                susi_agents::external::CatalogKind::Framework if def.id == "langgraph" => {
-                    "susi langgraph setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "openai-agents" => {
-                    "susi openai-agents setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "autogen" => {
-                    "susi autogen setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "smolagents" => {
-                    "susi smolagents setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "crewai" => {
-                    "susi crewai setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "llamaindex" => {
-                    "susi llamaindex setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "temporal" => {
-                    "susi temporal setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "e2b" => {
-                    "susi e2b setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "haystack" => {
-                    "susi haystack setup"
-                }
-                susi_agents::external::CatalogKind::Framework if def.id == "n8n" => {
-                    "susi n8n setup"
-                }
-                susi_agents::external::CatalogKind::Framework => "susi frameworks setup",
-            };
-            if let Err(e) = manager.adapter(&def.id).and_then(|a| a.preflight()) {
-                let msg = format!(
-                    "[UNAVAILABLE] {}: {}. Install/configure via `{setup} {}`.",
-                    self.spec.name, e, def.id
-                );
-                blackboard.insert(self.name(), msg.clone());
-                return Err(EaiError::governance(msg));
-            }
-            let result = EvidenceSession::capture_call(
-                &format!("external_peer:{}", self.spec.name),
-                &serde_json::json!({"agent": self.spec.name, "goal": goal}),
+            let result = susi_core::plane_bus::agents::external_managed_goal(
+                &self.spec.name,
+                goal,
                 workspace,
-                || {
-                    let run = manager
-                        .prepare(&def.id, goal)
-                        .and_then(|run| manager.execute(&run.id))
-                        .map_err(|e| EaiError::process(e.to_string()))?;
-                    let output = manager
-                        .logs(&run.id, false, 1024 * 1024)
-                        .map_err(|e| EaiError::process(e.to_string()))?;
-                    let result = format!("task={} status={:?}\n{}", run.id, run.status, output);
-                    if run.status != susi_agents::external::RunStatus::Succeeded {
-                        return Err(EaiError::process(format!(
-                            "{}\n{}",
-                            result,
-                            run.error.unwrap_or_default()
-                        )));
-                    }
-                    Ok(result)
-                },
-            )?;
+            )
+            .map_err(|e| EaiError::governance(format!("[UNAVAILABLE] {}: {e}", self.spec.name)))?;
             blackboard.insert(self.name(), result.clone());
             return Ok(result);
         }

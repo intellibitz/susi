@@ -271,9 +271,10 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
     }
 
     for tool in ["brave_search", "google_search", "web_search"] {
-        if susi_tools::ToolRegistry::exists(tool) {
+        if susi_core::plane_bus::tools::exists(tool) {
             let args = serde_json::json!({ "query": goal, "q": goal });
-            let out = susi_tools::ToolRegistry::execute_tool(tool, &args, workspace);
+            let out = susi_core::plane_bus::tools::execute_tool(tool, &args, workspace)
+                .unwrap_or_default();
             let lower = out.to_ascii_lowercase();
             if !out.trim().is_empty()
                 && !lower.contains("error")

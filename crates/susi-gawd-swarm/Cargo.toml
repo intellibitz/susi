@@ -12,8 +12,6 @@ susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-config = { workspace = true }
-susi-tools = { workspace = true }
-susi-gemi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
@@ -27,5 +25,5 @@ md5 = "0.8.1"
 
 [features]
 default = []
-cuda = ["susi-gawd-agents/cuda", "susi-gemi/cuda"]
-metal = ["susi-gawd-agents/metal", "susi-gemi/metal"]
+cuda = ["susi-gawd-agents/cuda"]
+metal = ["susi-gawd-agents/metal"]

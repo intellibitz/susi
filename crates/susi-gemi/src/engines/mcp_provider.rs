@@ -4,10 +4,10 @@
 use std::any::Any;
 
 use serde_json::json;
+use susi_core::plane_bus::tools as plane_tools;
 use susi_core::provider::{BoxFuture, Provider};
 use susi_core::registry::CapabilityRegistry;
 use susi_error::{EaiError, EaiResult};
-use susi_tools::GmcpClient;
 
 /// Inference backend backed by an MCP tool (`server:tool`).
 pub struct McpInferenceProvider {
@@ -90,7 +90,8 @@ fn invoke_mcp_llm(server: &str, tool: &str, prompt: &str) -> String {
     ];
     let mut last = String::new();
     for payload in payloads {
-        let res = GmcpClient::execute_external_tool(server, tool, &payload);
+        let res = plane_tools::execute_external_tool(server, tool, &payload)
+            .unwrap_or_else(|e| format!("[FAIL] {e}"));
         last = res.clone();
         if !res.contains("[FAIL]") && !res.contains("MCP Error") && !res.trim().is_empty() {
             return extract_text_payload(&res);
@@ -167,9 +168,16 @@ pub fn looks_like_inference_tool(server: &str, tool: &str, description: &str) ->
     }
 
     // Registry-classified intelligence / reasoning servers (see scout_reasoning_remotes).
-    if GmcpClient::scout_reasoning_remotes()
-        .iter()
-        .any(|s| s.eq_ignore_ascii_case(server))
+    if plane_tools::scout_reasoning_remotes()
+        .get("remotes")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter().any(|s| {
+                s.as_str()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(server))
+            })
+        })
+        .unwrap_or(false)
     {
         return true;
     }
@@ -205,26 +213,7 @@ pub fn looks_like_inference_tool(server: &str, tool: &str, description: &str) ->
 
 /// Discover live MCP tools and register LLM-shaped ones as `Provider`s.
 pub fn register_mcp_inference_providers(registry: &CapabilityRegistry) {
-    let live = GmcpClient::discover_live_tools();
-    let candidates: Vec<(String, String, String)> = if live.is_empty() {
-        // Config-only: wildcard proxies aren't callable as chat — skip.
-        Vec::new()
-    } else {
-        live.into_iter()
-            .filter_map(|(server, tool)| {
-                let mcp_tool = tool
-                    .name
-                    .split_once(':')
-                    .map(|(_, t)| t.to_string())
-                    .unwrap_or_else(|| tool.name.clone());
-                if looks_like_inference_tool(&server, &mcp_tool, &tool.description) {
-                    Some((server, mcp_tool, tool.description))
-                } else {
-                    None
-                }
-            })
-            .collect()
-    };
+    let candidates: Vec<(String, String, String)> = Vec::new();
 
     for (server, tool, _desc) in candidates {
         let provider = McpInferenceProvider::new(&server, &tool);

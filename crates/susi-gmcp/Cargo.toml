@@ -8,9 +8,7 @@ edition = "2021"
 susi-paths = { path = "../susi-paths" }
 susi-error = { workspace = true }
 susi-core = { workspace = true }
-susi-tools = { workspace = true }
 susi-sandbox = { workspace = true }
-susi-gemi = { workspace = true }
 rmcp = { version = "3.4.0", features = ["server", "client", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -25,8 +23,6 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 url = { workspace = true }
-susi-agents = { workspace = true }
-susi-gawd-agents = { path = "../susi-gawd-agents" }
 libc = "0.2"
 
 # Heavy specialist tools (browser / tantivy / syn AST). Default-on for
@@ -43,3 +39,6 @@ tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:fastembed", "dep:syn"]
 [dev-dependencies]
 tokio = { workspace = true }
 anyhow = { workspace = true }
+# Test-only: exercises MCP client connect against an in-process server.
+# Production `susi-gmcp` has zero peer-plane Cargo deps.
+susi-tools = { workspace = true }

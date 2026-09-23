@@ -18,3 +18,5 @@ parking_lot = { workspace = true }
 regex = "1.13"
 tracing = { workspace = true }
 susi-error = { workspace = true }
+susi-paths = { path = "../susi-paths" }
+susi-config = { workspace = true }

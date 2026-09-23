@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use susi_agents::{
+pub use susi_core::{
     AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo,
     HighDensityContextStore, MissionBlackboard, SwarmBlackboard,
 };
@@ -110,7 +110,7 @@ impl NeuralAgentFactory {
         let prompts = susi_sandbox::manager::SusiPrompts::load_global();
         let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
-        let res = susi_gemi::engine::GemiEngine::generate_reasoning(&prompt, workspace);
+        let res = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
             susi_error::EaiError::protocol(format!(
                 "Neural Agent Synthesis Failed: {}. Raw: {}",
@@ -211,7 +211,7 @@ impl GawdAgentFleet {
     }
 
     pub fn get_max_concurrent_agents() -> usize {
-        let hw = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let base_limit = if THROTTLE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -395,10 +395,11 @@ impl GawdAgentFleet {
         let mut max_global_similarity = 0.0f32;
 
         if !lower_goal.contains("admin mission") && !lower_goal.contains("admin pulse") {
-            if let Ok(goal_vec) = susi_gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
-                goal,
-                Some(&available_agents),
-            ) {
+            if let Ok(goal_vec) =
+                susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
+                    goal, workspace,
+                )
+            {
                 for agent in available_agents {
                     if fleet.len() >= max_agents {
                         break;
@@ -413,9 +414,9 @@ impl GawdAgentFleet {
                     agent_corpus.push_str(&agent.description);
 
                     if let Ok(agent_vec) =
-                        susi_gemi::alpha::SusiAlphaModel::semantic_centroid_projection(
+                        susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
                             &agent_corpus,
-                            Some(std::slice::from_ref(&agent)),
+                            workspace,
                         )
                     {
                         let dot_product: f32 = goal_vec
@@ -552,7 +553,7 @@ impl GawdAgentFleet {
 
         let par_results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
             let name = agent.name();
-            let task_handle = susi_agents::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
+            let task_handle = susi_core::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
             let start = std::time::Instant::now();
 
             task_handle.check_pause();
@@ -641,30 +642,6 @@ mod tests {
     /// evidence when the test substrate has no independent verifier.
     #[test]
     fn test_dispatch_explosive_swarm_reports_unverified_dag() {
-        struct DummyHooks;
-        impl susi_tools::EngineHooks for DummyHooks {
-            fn engine_version(&self) -> &'static str {
-                "test"
-            }
-            fn hardware_snapshot(&self) -> susi_tools::HardwareSnapshot {
-                susi_tools::HardwareSnapshot {
-                    available_ram_gb: 0,
-                    acceleration_active: false,
-                }
-            }
-            fn resolve_capability_gap(
-                &self,
-                _s: &str,
-                _w: &std::path::Path,
-            ) -> susi_error::EaiResult<String> {
-                Ok("".into())
-            }
-            fn broadcast_lock_request(&self, _r: &str) -> bool {
-                true
-            }
-            fn bootstrap_tools(&self, _registry: &susi_tools::ToolRegistry) {}
-        }
-        susi_tools::hooks::init(Box::new(DummyHooks));
         // Agents leaf has no MissionDag; register a stub that mirrors swarm failure shape.
         crate::dag_hooks::init(|_goal, _ws, _bb| {
             vec![(

@@ -15,9 +15,6 @@ reqwest = { workspace = true }
 susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
-susi-tools = { workspace = true }
-susi-agents = { workspace = true }
-susi-gemi = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"
@@ -25,5 +22,5 @@ log = "0.4"
 
 [features]
 default = []
-cuda = ["susi-gawd-agents/cuda", "susi-gawd-swarm/cuda", "susi-gawd-a2a/cuda", "susi-gemi/cuda"]
-metal = ["susi-gawd-agents/metal", "susi-gawd-swarm/metal", "susi-gawd-a2a/metal", "susi-gemi/metal"]
+cuda = ["susi-gawd-agents/cuda", "susi-gawd-swarm/cuda", "susi-gawd-a2a/cuda"]
+metal = ["susi-gawd-agents/metal", "susi-gawd-swarm/metal", "susi-gawd-a2a/metal"]
