@@ -83,15 +83,26 @@ fn remove(peer: &str) -> Result<()> {
     if kept.len() == nodes.len() {
         bail!("no verified peer matching `{peer}`");
     }
+    // Name what's being revoked — a broad prefix must not wipe members silently.
+    let removed: Vec<String> = nodes
+        .iter()
+        .filter(|n| !kept.contains(n))
+        .map(|n| {
+            format!(
+                "{} ({})",
+                n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                n.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+            )
+        })
+        .collect();
     let path = registry_path();
     let body = serde_json::to_string_pretty(&kept)?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, body)?;
     std::fs::rename(&tmp, &path)?;
-    println!(
-        "removed {} peer(s); {} verified member(s) remain",
-        nodes.len() - kept.len(),
-        kept.len()
-    );
+    for r in &removed {
+        println!("revoked verified trust: {r}");
+    }
+    println!("{} verified member(s) remain", kept.len());
     Ok(())
 }
