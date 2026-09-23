@@ -648,23 +648,79 @@ impl CoreTools {
 /// address through the gawd cluster-roster topic, pull the missing seqs
 /// via `commit_log_fetch`, verify each record's signature before
 /// appending — a compromised peer can never inject unverifiable history,
-/// it can only fail to answer. Returns the count of records repaired.
+/// it can only fail to answer. The coordinator is tried first, then
+/// every other verified peer: records replicate to all voters, so any
+/// member that held a copy can serve the gap. Returns the count of
+/// records repaired.
 fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String> {
     let peers = gawd::cluster_peers().map_err(|e| format!("cluster roster unavailable: {e}"))?;
-    let Some(addr) = peers
+    if peers.is_empty() {
+        return Err("verified roster is empty".to_string());
+    }
+    // Coordinator first, then every other roster member as fallback.
+    let mut candidates: Vec<&str> = peers
         .iter()
-        .find(|(id, _)| id == coordinator)
-        .map(|(_, a)| a.clone())
-    else {
+        .filter(|(id, _)| id == coordinator)
+        .map(|(_, a)| a.as_str())
+        .collect();
+    candidates.extend(
+        peers
+            .iter()
+            .filter(|(id, _)| id != coordinator)
+            .map(|(_, a)| a.as_str()),
+    );
+    if candidates.is_empty() {
         return Err(format!("coordinator {coordinator} not in verified roster"));
-    };
+    }
+
+    let mut last_err = String::new();
+    let mut repaired_total = 0usize;
+    let mut remaining: Vec<u64> = missing.to_vec();
+    for addr in candidates {
+        if remaining.is_empty() {
+            break;
+        }
+        match fetch_commit_records(addr, coordinator, remaining[0]) {
+            Ok(fetched) => {
+                let mut got = 0usize;
+                for r in fetched {
+                    if r.coordinator == coordinator
+                        && remaining.contains(&r.seq)
+                        && r.verify()
+                        && crate::susi_core::commit_log::append(&r).is_ok()
+                    {
+                        remaining.retain(|s| *s != r.seq);
+                        got += 1;
+                    }
+                }
+                repaired_total += got;
+                if got == 0 {
+                    last_err = format!("{addr} held none of the missing records");
+                }
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    if repaired_total > 0 {
+        return Ok(repaired_total);
+    }
+    Err(last_err)
+}
+
+/// Pull a coordinator's records (seq >= `from_seq`) from one peer's
+/// `commit_log_fetch` tool over the peer JSON-RPC channel.
+fn fetch_commit_records(
+    addr: &str,
+    coordinator: &str,
+    from_seq: u64,
+) -> Result<Vec<crate::susi_core::commit_log::CommitRecord>, String> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "tools/call",
         "params": {
             "name": "commit_log_fetch",
-            "arguments": { "coordinator": coordinator, "from_seq": missing[0] }
+            "arguments": { "coordinator": coordinator, "from_seq": from_seq }
         }
     });
     let text = crate::susi_config::http_agent()
@@ -678,19 +734,7 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
         .and_then(|t| t.as_str())
         .map(str::to_string)
         .ok_or_else(|| "no tool output in fetch response".to_string())?;
-    let fetched: Vec<crate::susi_core::commit_log::CommitRecord> =
-        serde_json::from_str(&text).map_err(|e| format!("bad records: {e}"))?;
-    let mut repaired = 0usize;
-    for r in fetched {
-        if r.coordinator == coordinator
-            && missing.contains(&r.seq)
-            && r.verify()
-            && crate::susi_core::commit_log::append(&r).is_ok()
-        {
-            repaired += 1;
-        }
-    }
-    Ok(repaired)
+    serde_json::from_str(&text).map_err(|e| format!("bad records: {e}"))
 }
 
 impl CoreTools {
