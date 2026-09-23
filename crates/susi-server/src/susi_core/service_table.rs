@@ -97,6 +97,12 @@ pub struct ServiceRecord {
     pub started_at: u64,
     /// How many times the supervisor has restarted it since daemon boot.
     pub restarts: u32,
+    /// Unix seconds until which respawns are suspended — set when the
+    /// service exceeds MAX_RESTARTS so a crash-looping service backs off
+    /// instead of churning, then gets retried (restart counter reset)
+    /// rather than abandoned forever.
+    #[serde(default)]
+    pub disabled_until: Option<u64>,
 }
 
 /// Where the process table lives: shared host state, not per-pid, because
@@ -154,6 +160,7 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         existing.port = port;
         existing.started_at = now;
         existing.restarts = existing.restarts.saturating_add(1);
+        existing.disabled_until = None;
         return existing.clone();
     }
     let rec = ServiceRecord {
@@ -162,6 +169,7 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         port,
         started_at: now,
         restarts: 0,
+        disabled_until: None,
     };
     records.push(rec.clone());
     rec

@@ -25,6 +25,14 @@ const STARTUP_WAIT: Duration = Duration::from_secs(10);
 /// Restarts per daemon boot before the supervisor gives up — a service
 /// that cannot stay up this many times is broken, not unlucky.
 const MAX_RESTARTS: u32 = 10;
+/// After MAX_RESTARTS, respawns are suspended this long rather than
+/// abandoned forever — a crash-looping service backs off, then gets a
+/// fresh restart budget.
+const DISABLE_COOLDOWN_SECS: u64 = 300;
+/// Services absent from the process table (never spawned, e.g. binary
+/// missing at daemon boot) are retried on this slower cadence so a
+/// binary appearing later gets adopted without a daemon restart.
+const MISSING_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 /// SIGTERM → SIGKILL escalation window on shutdown.
 const TERM_GRACE: Duration = Duration::from_secs(2);
 
@@ -159,13 +167,18 @@ pub fn ensure_leaf_services() {
 
 /// Respawn one supervised service after a crash; returns the new record.
 fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
-    if let Some(rec) = table.iter().find(|r| r.name == svc.name) {
+    if let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) {
         if rec.restarts >= MAX_RESTARTS {
+            let until = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+                + DISABLE_COOLDOWN_SECS;
             eprintln!(
-                "[supervisor] {} exceeded {MAX_RESTARTS} restarts; giving up",
-                svc.name
+                "[supervisor] {} exceeded {MAX_RESTARTS} restarts; suspending respawns for {}s",
+                svc.name, DISABLE_COOLDOWN_SECS
             );
-            service_table::remove(table, svc.name);
+            rec.disabled_until = Some(until);
             return;
         }
         // Live pid with a dead port is wedged — terminate before respawn.
@@ -191,13 +204,50 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
 /// Monitor loop: probe every supervised service; respawn on death or
 /// wedged-port. Runs until `shutdown` is raised.
 fn monitor_loop(shutdown: Arc<AtomicBool>) {
+    let mut missing_retry: std::collections::HashMap<&'static str, std::time::Instant> =
+        std::collections::HashMap::new();
     while !shutdown.load(Ordering::Acquire) {
         let mut table = service_table::load();
         let mut changed = false;
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         for svc in LEAF_SERVICES {
-            let Some(rec) = table.iter().find(|r| r.name == svc.name) else {
+            let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) else {
+                // Never supervised (binary missing at boot, or pruned) —
+                // retry on a slow cadence so a binary appearing later is
+                // adopted without a daemon restart.
+                let due = missing_retry
+                    .get(svc.name)
+                    .is_none_or(|t| t.elapsed() >= MISSING_RETRY_INTERVAL);
+                if due {
+                    missing_retry.insert(svc.name, std::time::Instant::now());
+                    if service_table::probe(svc.port()) {
+                        continue;
+                    }
+                    eprintln!("[supervisor] {} not supervised; attempting spawn", svc.name);
+                    if let Some(pid) = spawn_service(svc) {
+                        if wait_for_port(svc.port(), STARTUP_WAIT) {
+                            service_table::record(&mut table, svc.name, pid, svc.port());
+                            eprintln!("[supervisor] adopted {} (pid {})", svc.name, pid);
+                            changed = true;
+                        } else {
+                            let _ = signal(pid, SIGKILL);
+                        }
+                    }
+                }
                 continue;
             };
+            if let Some(until) = rec.disabled_until {
+                if now_secs < until {
+                    continue;
+                }
+                // Cooldown elapsed — re-enable with a fresh restart budget.
+                rec.disabled_until = None;
+                rec.restarts = 0;
+                changed = true;
+            }
             let healthy = service_table::pid_alive(rec.pid) && service_table::probe(rec.port);
             if healthy {
                 continue;
