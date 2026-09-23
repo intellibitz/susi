@@ -510,3 +510,117 @@ fn rand_id() -> u32 {
         % 100000) as u32
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn terminal_tasks_cannot_be_resumed_or_overwritten() {
+        let manager = SwarmTaskManager {
+            tasks: DashMap::new(),
+            cancel_map: DashMap::new(),
+            pause_map: DashMap::new(),
+        };
+        for status in [
+            TaskStatus::Completed,
+            TaskStatus::Failed,
+            TaskStatus::Killed,
+            TaskStatus::Stalled,
+        ] {
+            let handle = manager.register_task("lifecycle_test", "test");
+            assert!(handle.finish(status, "original"));
+            assert!(!manager.pause_task(&handle.task_id));
+            assert!(!manager.resume_task(&handle.task_id));
+            assert!(!manager.kill_task(&handle.task_id));
+            assert!(!handle.finish(TaskStatus::Completed, "replacement"));
+            assert_eq!(handle.status.load(Ordering::Acquire), status as u8);
+            assert_eq!(handle.result.read().as_deref(), Some("original"));
+        }
+    }
+
+    #[test]
+    fn resume_refreshes_idle_lease_and_kill_preserves_cancellation() {
+        let manager = SwarmTaskManager {
+            tasks: DashMap::new(),
+            cancel_map: DashMap::new(),
+            pause_map: DashMap::new(),
+        };
+        let handle = manager.register_task("lifecycle_test", "test");
+        assert!(manager.pause_task(&handle.task_id));
+        handle.last_progress_secs.store(0, Ordering::Release);
+        assert!(manager.resume_task(&handle.task_id));
+        assert!(!handle.pause_flag.load(Ordering::Acquire));
+        assert!(handle.last_progress_secs.load(Ordering::Acquire) > 0);
+        assert!(manager.kill_task(&handle.task_id));
+        assert!(handle.is_cancelled());
+        handle.mark_failed("late error");
+        assert_eq!(
+            handle.status.load(Ordering::Acquire),
+            TaskStatus::Killed as u8
+        );
+        assert_eq!(handle.result.read().as_deref(), Some("Killed by pulse"));
+    }
+
+    #[test]
+    fn paused_task_observes_resume_and_cancellation() {
+        for cancel in [false, true] {
+            let handle = Arc::new(TaskHandle {
+                task_id: "test".into(),
+                cancel_flag: Arc::new(AtomicBool::new(false)),
+                pause_flag: Arc::new(AtomicBool::new(true)),
+                last_progress_secs: Arc::new(AtomicU64::new(0)),
+                progress_count: Arc::new(AtomicU64::new(0)),
+                status: Arc::new(AtomicU8::new(TaskStatus::Paused as u8)),
+                result: Arc::new(parking_lot::RwLock::new(None)),
+                name: "test".into(),
+                start_time: Instant::now(),
+            });
+            let worker_handle = Arc::clone(&handle);
+            let (tx, rx) = std::sync::mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                // An unrelated park token must not bypass the pause.
+                std::thread::current().unpark();
+                worker_handle.check_pause();
+                tx.send(()).unwrap();
+            });
+            assert!(matches!(
+                rx.recv_timeout(Duration::from_millis(200)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+            if cancel {
+                handle.cancel_flag.store(true, Ordering::Release);
+            } else {
+                handle.pause_flag.store(false, Ordering::Release);
+            }
+            rx.recv_timeout(Duration::from_secs(5))
+                .expect("paused task did not wake");
+            worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_record_execution_telemetry_does_not_deadlock_on_repeat_calls() {
+        // Regression: record_execution_telemetry used to call self.save_history()
+        // (which iterates every DashMap shard) while still holding a live
+        // `entry()` guard on this category's own shard, self-deadlocking the
+        // thread since DashMap's shard locks aren't reentrant. This never
+        // surfaced in tests because every real caller (LlamaCppEngine's
+        // generation loop, via TaskHandle::mark_completed) is bypassed under
+        // cfg!(test). Call it directly, twice (so the entry already exists on
+        // the second call, exercising the same guard/iterate interleaving a
+        // real completed inference triggers), off the test-harness thread so
+        // a regression hangs this test instead of the whole suite.
+        let category = format!("test_no_deadlock_{}", rand_id());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let store = TelemetryHistoryStore::global();
+            store.record_execution_telemetry(&category, 10, 5);
+            store.record_execution_telemetry(&category, 20, 5);
+            let _ = tx.send(());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "record_execution_telemetry did not return within 5s - likely deadlocked"
+        );
+    }
+}

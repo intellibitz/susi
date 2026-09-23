@@ -1,15 +1,10 @@
-//! Vendored **plane message bus** — the only allowed control plane between
+//! In-process **plane message bus** — the only allowed control plane between
 //! feature crates (gawd / gemi / gmcp / tools / agents / server).
 //!
 //! Feature planes must not depend on each other in Cargo.toml. They talk only
 //! through this bus (and shared foundation: paths / error / core / config /
 //! sandbox / native). Composition roots (`susi-daemon`, CLI) register handlers
 //! and may still link every plane.
-//!
-//! Vendored copies back `PlaneBus` with
-//! [`crate::susi_core::plane_bus_ipc::IpcPlaneBus`]: same method surface, but
-//! handlers rendezvous through `<cache>/bus/<pid>/` endpoint files so
-//! independent vendored copies in one process interoperate.
 
 use crate::susi_core::plane_bus_ipc::IpcPlaneBus;
 use serde::{Deserialize, Serialize};
@@ -60,7 +55,7 @@ pub mod topics {
     pub const GAWD_CAPABILITY_GAP: &str = "gawd.admin.capability_gap";
     pub const GAWD_LOCK_BROADCAST: &str = "gawd.admin.lock_broadcast";
     pub const GAWD_SCHEDULER_RECENT: &str = "gawd.scheduler.recent";
-    /// Verified cluster roster (node_id <-> address) for commit-ledger
+    /// Verified cluster roster (node_id ↔ address) for commit-ledger
     /// anti-entropy: a receiver that detects a seq gap resolves the
     /// coordinator's address here, then pulls the missing records.
     pub const GAWD_CLUSTER_PEERS: &str = "gawd.cluster.peers";
@@ -96,10 +91,10 @@ pub trait PlaneHandler: Send + Sync {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String>;
 }
 
-/// Process-wide plane bus — vendored facade over [`IpcPlaneBus`]. Every
-/// method delegates to the IPC backend so registrations and requests made
-/// through this copy's `global()` are visible to all other vendored
-/// `susi_core` copies in the same process.
+/// Process-wide plane bus — facade over [`IpcPlaneBus`]. Every method
+/// delegates to the IPC backend so registrations and requests made through
+/// this `global()` are visible to all vendored `susi_core` copies in the
+/// same process (shared `<cache>/bus/<pid>/` rendezvous).
 pub struct PlaneBus {
     inner: Arc<IpcPlaneBus>,
 }
@@ -109,7 +104,7 @@ impl PlaneBus {
         static BUS: OnceLock<PlaneBus> = OnceLock::new();
         BUS.get_or_init(|| PlaneBus {
             // Shared with this crate's registry_ipc/broker/etc. so one
-            // listener serves all vendored modules.
+            // listener serves all modules.
             inner: IpcPlaneBus::global(),
         })
     }
@@ -1001,3 +996,30 @@ pub mod gawd_hooks {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    struct Echo;
+
+    impl PlaneHandler for Echo {
+        fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+            Ok(json!({ "topic": topic, "payload": payload }))
+        }
+    }
+
+    #[test]
+    fn request_round_trip() {
+        // Isolate from other tests mutating the global bus.
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _g = LOCK.lock().unwrap();
+        let bus = PlaneBus::global();
+        bus.register("test.echo", Arc::new(Echo));
+        let v = bus
+            .request("test.echo", json!({ "x": 1 }))
+            .expect("handler");
+        assert_eq!(v["topic"], "test.echo");
+        assert_eq!(v["payload"]["x"], 1);
+    }
+}

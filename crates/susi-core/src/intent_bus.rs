@@ -5,7 +5,7 @@
 //! embedding (no ML runtime in `susi-core`). Real fastembed vectors may be
 //! attached by upper layers when available.
 
-use crate::bus::global_bus;
+use crate::susi_core::bus::global_bus;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -154,7 +154,7 @@ fn shared_dir() -> PathBuf {
 }
 
 fn enc(key: &str) -> String {
-    crate::plane_bus_ipc::enc(key)
+    crate::susi_core::plane_bus_ipc::enc(key)
 }
 
 impl IntentBus {
@@ -226,7 +226,7 @@ impl IntentBus {
             "need"
         };
         let dirs: Vec<PathBuf> = match self.dir.as_ref().and_then(|d| d.parent()) {
-            Some(pid_dir) => crate::plane_bus_ipc::sibling_pid_dirs(pid_dir)
+            Some(pid_dir) => crate::susi_core::plane_bus_ipc::sibling_pid_dirs(pid_dir)
                 .into_iter()
                 .map(|d| d.join("intents").join(leaf))
                 .collect(),

@@ -51,7 +51,7 @@ impl DynamicServiceRegistry {
     }
 }
 
-use crate::provider::Provider;
+use crate::susi_core::provider::Provider;
 
 /// An abstract Tool that can be invoked dynamically.
 pub trait Tool: Send + Sync + 'static {
@@ -67,14 +67,14 @@ pub trait Tool: Send + Sync + 'static {
 /// A specialized registry for managing capabilities (providers, tools, agents)
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
 ///
-/// Delegates to [`crate::registry_ipc::IpcCapabilityRegistry`] so capabilities
+/// Delegates to [`crate::susi_core::registry_ipc::IpcCapabilityRegistry`] so capabilities
 /// registered here are discoverable and invocable from vendored `susi_core`
 /// copies in the same process (shared `<cache>/bus/<pid>/` rendezvous). MAC
 /// authorization + evidence capture are applied once at the tool boundary by
 /// the IPC layer, for local and remote dispatch alike.
 #[derive(Clone)]
 pub struct CapabilityRegistry {
-    ipc: crate::registry_ipc::IpcCapabilityRegistry,
+    ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry,
 }
 
 /// Lightweight agent capability mounted alongside providers and tools.
@@ -96,8 +96,8 @@ impl CapabilityRegistry {
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!("susi-reg-{}-{}", std::process::id(), nanos));
         Self {
-            ipc: crate::registry_ipc::IpcCapabilityRegistry::new(Arc::new(
-                crate::plane_bus_ipc::IpcPlaneBus::with_rendezvous(dir),
+            ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry::new(Arc::new(
+                crate::susi_core::plane_bus_ipc::IpcPlaneBus::with_rendezvous(dir),
             )),
         }
     }
@@ -108,8 +108,8 @@ impl CapabilityRegistry {
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {
-            ipc: crate::registry_ipc::IpcCapabilityRegistry::new(
-                crate::plane_bus_ipc::IpcPlaneBus::global(),
+            ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry::new(
+                crate::susi_core::plane_bus_ipc::IpcPlaneBus::global(),
             ),
         })
     }

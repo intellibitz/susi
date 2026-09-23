@@ -6,7 +6,7 @@
 //! sandbox / native). Composition roots (`susi-daemon`, CLI) register handlers
 //! and may still link every plane.
 
-use crate::plane_bus_ipc::IpcPlaneBus;
+use crate::susi_core::plane_bus_ipc::IpcPlaneBus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -809,7 +809,7 @@ pub mod tools {
 
 pub mod agents {
     use super::*;
-    use crate::agent_types::AgentProfile;
+    use crate::susi_core::agent_types::AgentProfile;
 
     /// Plane-bus facade for agent metadata (backed by `susi-agents` handler).
     pub struct AgentMetaRegistry;

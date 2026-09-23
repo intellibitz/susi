@@ -842,3 +842,161 @@ fn sha256_hex(input: &str) -> String {
     hex::encode(Sha256::digest(input.as_bytes()))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stable_ids_are_deterministic() {
+        let a = NodeId::stable("workspace", "/tmp/foo");
+        let b = NodeId::stable("workspace", "/tmp/foo");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn graph_records_mission_and_tool_call() {
+        let g = ContextGraph::new();
+        let ws = std::env::temp_dir().join("susi-cg-test");
+        let _ = std::fs::create_dir_all(&ws);
+        let mission = g.record_mission("m-1", "refactor auth", &ws, Some("dev"));
+        let call = g.record_tool_call(
+            "m-1",
+            "r-1",
+            "read_file",
+            &serde_json::json!({"path": "src/lib.rs"}),
+            &ws,
+        );
+        assert!(g.node(&mission).is_some());
+        assert!(g.node(&call).is_some());
+        let subgraph = g.workspace_subgraph(&ws);
+        assert!(!subgraph.nodes.is_empty());
+        assert!(!subgraph.edges.is_empty());
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn related_traversal_is_bounded_by_depth() {
+        let g = ContextGraph::new();
+        let a = NodeId::stable("test", "a");
+        let b = NodeId::stable("test", "b");
+        let c = NodeId::stable("test", "c");
+        g.record_node(Node {
+            id: a.clone(),
+            kind: NodeType::Observation,
+            label: "a".into(),
+            created_at: 1,
+            properties: HashMap::new(),
+        });
+        g.record_node(Node {
+            id: b.clone(),
+            kind: NodeType::Observation,
+            label: "b".into(),
+            created_at: 2,
+            properties: HashMap::new(),
+        });
+        g.record_node(Node {
+            id: c.clone(),
+            kind: NodeType::Observation,
+            label: "c".into(),
+            created_at: 3,
+            properties: HashMap::new(),
+        });
+        let e1 = Edge {
+            id: ContextGraph::edge_id(&a, &EdgeType::References, &b, 1),
+            source: a.clone(),
+            target: b.clone(),
+            kind: EdgeType::References,
+            created_at: 1,
+            properties: HashMap::new(),
+        };
+        let e2 = Edge {
+            id: ContextGraph::edge_id(&b, &EdgeType::References, &c, 2),
+            source: b.clone(),
+            target: c.clone(),
+            kind: EdgeType::References,
+            created_at: 2,
+            properties: HashMap::new(),
+        };
+        g.record_edge(e1);
+        g.record_edge(e2);
+        assert_eq!(g.related(&a, 1).nodes.len(), 2);
+        assert_eq!(g.related(&a, 2).nodes.len(), 3);
+    }
+
+    #[test]
+    fn persist_and_replay_roundtrip() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-cg-replay-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("context_graph.jsonl");
+        let g = ContextGraph::with_storage(path.clone());
+        let ws = std::env::temp_dir().join("susi-cg-replay-ws");
+        let _ = std::fs::create_dir_all(&ws);
+        g.record_mission("m-replay", "test roundtrip", &ws, None);
+
+        let g2 = ContextGraph::with_storage(path);
+        let _ = g2.replay();
+        assert!(g2.node(&NodeId::stable("mission", "m-replay")).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn compact_reduces_log_size() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-cg-compact-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("context_graph.jsonl");
+        let g = ContextGraph::with_storage(path.clone());
+        let ws = std::env::temp_dir().join("susi-cg-compact-ws");
+        let _ = std::fs::create_dir_all(&ws);
+        // Record the same mission twice; duplicates are ignored but two events
+        // are appended.
+        g.record_mission("m-compact", "compact test", &ws, None);
+        g.record_mission("m-compact", "compact test", &ws, None);
+        let raw_lines = std::fs::read_to_string(&path).unwrap().lines().count();
+        let (old_lines, new_lines) = g.compact().unwrap();
+        assert_eq!(old_lines, raw_lines);
+        assert!(new_lines <= old_lines);
+        // After replaying into a fresh graph the mission is still present.
+        let g2 = ContextGraph::with_storage(path);
+        let _ = g2.replay();
+        assert!(g2.node(&NodeId::stable("mission", "m-compact")).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn external_context_records_and_links() {
+        let g = ContextGraph::new();
+        let ws = std::env::temp_dir().join(format!(
+            "susi-cg-ext-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        let _ = std::fs::create_dir_all(&ws);
+        let id = g.record_external_context(
+            "test_adapter",
+            "email inbox open",
+            &serde_json::json!({"app": "thunderbird"}),
+            Some(&ws),
+            Some("alice"),
+        );
+        assert!(g.node(&id).is_some());
+        assert!(g
+            .node(&NodeId::stable("external_source", "test_adapter"))
+            .is_some());
+        assert!(g.node(&NodeId::stable("user", "alice")).is_some());
+        assert!(g
+            .node(&NodeId::stable("workspace", &ws.to_string_lossy()))
+            .is_some());
+        let subgraph = g.workspace_subgraph(&ws);
+        assert!(subgraph.nodes.iter().any(|n| n.id == id));
+    }
+}

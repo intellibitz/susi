@@ -1,14 +1,14 @@
 //! Inter-application permission and message broker for agent-of-agents
-//! orchestration — vendored, file-backed variant.
+//! orchestration — file-backed, shared across copies and processes.
 //!
-//! Identical public API to `susi_core::broker`, but state lives under
-//! `<cache>/bus/<pid>/broker/` (the same process-scoped rendezvous as
-//! `IpcPlaneBus`) instead of in-memory maps, so independent vendored
-//! `susi_core` copies and separate processes observe the same grants,
-//! pending requests, and inboxes. Lifetime matches the old in-process
-//! semantics: broker state is process-scoped, not durable across
-//! restarts — reads scan every live pid dir under `bus/`, writes stay
-//! in the owning process's dir so pid-dir sweeping preserves ownership.
+//! Identical public API as before, but state lives under
+//! `<cache>/bus/<pid>/broker/` (the same rendezvous root as
+//! `IpcPlaneBus`) instead of in-memory maps, so vendored `susi_core`
+//! copies and separate processes observe the same grants, pending
+//! requests, and inboxes. Lifetime matches the old in-process semantics:
+//! broker state is process-scoped, not durable across restarts — reads
+//! scan every live pid dir under `bus/`, writes stay in this process's
+//! dir so pid-dir sweeping preserves ownership.
 //!
 //! Layout: `grants/<key>.json`, `requests/<id>.json`,
 //! `inbox/<recipient>/<ordered-name>.json`. Writes are atomic (tmp + rename).
@@ -445,3 +445,106 @@ impl Default for IpcBroker {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broker_grants_and_checks_permissions() {
+        let broker = IpcBroker::new();
+        let scope = PermissionScope::new("app://editor", "read");
+        assert!(!broker.is_permitted("agent-a", &scope));
+        broker.grant("susi", "agent-a", scope.clone(), None);
+        assert!(broker.is_permitted("agent-a", &scope));
+        broker.revoke("agent-a", &scope);
+        assert!(!broker.is_permitted("agent-a", &scope));
+    }
+
+    #[test]
+    fn broker_expires_grants() {
+        let broker = IpcBroker::new();
+        let scope = PermissionScope::new("app://editor", "write");
+        broker.grant("susi", "agent-b", scope.clone(), Some(0));
+        assert!(!broker.is_permitted("agent-b", &scope));
+    }
+
+    #[test]
+    fn broker_requires_dispatch_to_send() {
+        let broker = IpcBroker::new();
+        let payload = serde_json::json!({"x": 1});
+        assert!(broker
+            .send("agent-a", "agent-b", "ping", payload.clone())
+            .is_err());
+        broker.grant(
+            "susi",
+            "agent-a",
+            PermissionScope::new("app://agent-b", "dispatch"),
+            None,
+        );
+        assert!(broker.send("agent-a", "agent-b", "ping", payload).is_ok());
+        let msgs = broker.receive("agent-b", 10);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].topic, "ping");
+    }
+
+    #[test]
+    fn broker_negotiates_permissions() {
+        let broker = IpcBroker::new();
+        let scope = PermissionScope::new("app://editor", "write");
+        let req = broker.request("agent-a", "editor-owner", scope.clone(), Some(3600));
+        assert_eq!(req.status, NegotiationStatus::Pending);
+        assert_eq!(broker.pending_requests(Some("editor-owner")).len(), 1);
+        assert!(broker.negotiate(&req.id, "stranger", true, None).is_err());
+        let resolved = broker
+            .negotiate(&req.id, "editor-owner", true, None)
+            .unwrap();
+        assert_eq!(resolved.status, NegotiationStatus::Granted);
+        assert!(broker.is_permitted("agent-a", &scope));
+        assert!(broker.pending_requests(Some("editor-owner")).is_empty());
+    }
+
+    #[test]
+    fn broker_denies_negotiation() {
+        let broker = IpcBroker::new();
+        let scope = PermissionScope::new("app://vault", "read");
+        let req = broker.request("agent-b", "susi", scope.clone(), None);
+        let resolved = broker.negotiate(&req.id, "susi", false, None).unwrap();
+        assert_eq!(resolved.status, NegotiationStatus::Denied);
+        assert!(!broker.is_permitted("agent-b", &scope));
+    }
+
+    /// Two brokers rooted at different pid dirs under one `bus/` root
+    /// simulate separate processes: grants, requests, and inbox messages
+    /// must cross the boundary.
+    #[test]
+    fn broker_state_crosses_pid_dirs() {
+        let bus_root = std::env::temp_dir()
+            .join(format!(
+                "susi-broker-xproc-{}-{}",
+                std::process::id(),
+                now_nanos()
+            ))
+            .join("bus");
+        let a = IpcBroker::with_dir(bus_root.join("100001").join("broker"));
+        let b = IpcBroker::with_dir(bus_root.join("100002").join("broker"));
+
+        let scope = PermissionScope::new("app://editor", "read");
+        a.grant("susi", "agent-a", scope.clone(), None);
+        assert!(b.is_permitted("agent-a", &scope));
+        assert_eq!(b.grants_for("agent-a").len(), 1);
+
+        let req = a.request("agent-b", "susi", scope.clone(), None);
+        assert_eq!(b.pending_requests(None).len(), 1);
+        let resolved = b.negotiate(&req.id, "susi", true, None).unwrap();
+        assert_eq!(resolved.status, NegotiationStatus::Granted);
+        assert!(a.is_permitted("agent-b", &scope));
+
+        b.send("susi", "agent-a", "ping", serde_json::json!({"x": 1}))
+            .unwrap();
+        let msgs = a.receive("agent-a", 10);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].topic, "ping");
+
+        let _ = std::fs::remove_dir_all(&bus_root);
+    }
+}

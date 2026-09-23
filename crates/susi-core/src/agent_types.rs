@@ -139,7 +139,7 @@ impl HighDensityContextStore {
         let path = dir.join("last_blackboard.json");
         let mut entries = Vec::new();
         for (agent, output) in self.snapshot() {
-            let redacted = crate::redact::redact_patterns(
+            let redacted = crate::susi_core::redact::redact_patterns(
                 &[
                     "sk-".into(),
                     "ghp_".into(),

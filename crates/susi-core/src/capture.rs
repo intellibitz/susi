@@ -9,7 +9,7 @@
 //! Crown rule: when a live ledger holds citable receipts, an answer must cite
 //! them. Generated text may select observations; it may never invent them.
 
-use crate::context_graph::ContextGraph;
+use crate::susi_core::context_graph::ContextGraph;
 use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -99,7 +99,9 @@ fn evidence_rendezvous(workspace: &Path) -> Option<PathBuf> {
             .join("bus")
             .join(std::process::id().to_string())
             .join("evidence")
-            .join(crate::plane_bus_ipc::enc(&canonical.to_string_lossy())),
+            .join(crate::susi_core::plane_bus_ipc::enc(
+                &canonical.to_string_lossy(),
+            )),
     )
 }
 
@@ -269,8 +271,8 @@ impl EvidenceSession {
         let pid_dir = crate::susi_paths::SusiDirs::cache_dir()
             .join("bus")
             .join(std::process::id().to_string());
-        let leaf = crate::plane_bus_ipc::enc(&canonical.to_string_lossy());
-        for base in crate::plane_bus_ipc::sibling_pid_dirs(&pid_dir) {
+        let leaf = crate::susi_core::plane_bus_ipc::enc(&canonical.to_string_lossy());
+        for base in crate::susi_core::plane_bus_ipc::sibling_pid_dirs(&pid_dir) {
             let dir = base.join("evidence").join(&leaf);
             let Ok(text) = std::fs::read_to_string(dir.join("session.json")) else {
                 continue;
@@ -418,7 +420,7 @@ impl EvidenceSession {
             captured_at: Instant::now(),
         };
         // Audit mirror — never feeds verify_answer / resolve / bind_receipt.
-        crate::receipt_archive::ReceiptArchive::append(
+        crate::susi_core::receipt_archive::ReceiptArchive::append(
             &self.workspace,
             &self.id,
             &self.goal,
@@ -632,8 +634,8 @@ impl EvidenceSession {
         &self,
         receipt_id: &str,
         agent_id: &str,
-        claim: crate::evidence::Claim,
-    ) -> EaiResult<crate::evidence::EvidenceRecord> {
+        claim: crate::susi_core::evidence::Claim,
+    ) -> EaiResult<crate::susi_core::evidence::EvidenceRecord> {
         let receipt = self.receipt(receipt_id).ok_or_else(|| {
             EaiError::governance("TRUTH_UNVERIFIED: receipt not captured in this mission")
         })?;
@@ -647,12 +649,12 @@ impl EvidenceSession {
                 "TRUTH_VIOLATION: receipt integrity hash mismatch",
             ));
         }
-        Ok(crate::evidence::EvidenceRecord::new(
+        Ok(crate::susi_core::evidence::EvidenceRecord::new(
             agent_id.into(),
             1.0,
             receipt.observed_at,
             claim,
-            crate::evidence::EvidenceSource::ToolReceipt {
+            crate::susi_core::evidence::EvidenceSource::ToolReceipt {
                 receipt_id: receipt.id,
                 tool: receipt.tool,
                 output_hash: receipt.output_hash,
@@ -976,7 +978,7 @@ mod tests {
             .bind_receipt(
                 &id,
                 "agent",
-                crate::evidence::Claim {
+                crate::susi_core::evidence::Claim {
                     subject: "host".into(),
                     predicate: "observed".into(),
                     value: second.receipts()[0].output_hash.clone(),
@@ -988,7 +990,7 @@ mod tests {
             .bind_receipt(
                 &id,
                 "agent",
-                crate::evidence::Claim {
+                crate::susi_core::evidence::Claim {
                     subject: "host".into(),
                     predicate: "says".into(),
                     value: "invented".into(),

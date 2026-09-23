@@ -23,6 +23,13 @@
 //! Wasm/Docker sandbox, reflex distillation, and MCP provisioning live in
 //! sibling crates (`susi-gawd`, `susi-sandbox`, `susi-gmcp`, …).
 
+// Self-alias: lets every source file reference siblings as
+// `crate::susi_core::<module>` — the same path vendored copies use when
+// they live under `crate::susi_core` in a consumer crate. This keeps
+// vendored files byte-identical to canonical, so drift detection is a
+// plain file comparison.
+pub use self as susi_core;
+
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 #[allow(dead_code)]

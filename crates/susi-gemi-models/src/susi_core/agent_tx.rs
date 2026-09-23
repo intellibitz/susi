@@ -232,3 +232,52 @@ impl Default for TxManager {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_ws() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "susi-tx-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn abort_restores_files() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("a.txt"), "original").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "edit a", &["a.txt".into()], BTreeMap::new())
+            .unwrap();
+        std::fs::write(ws.join("a.txt"), "mutated").unwrap();
+        let aborted = mgr.abort(&tx.id, &ws).unwrap();
+        assert_eq!(aborted.status, TxStatus::Aborted);
+        assert_eq!(
+            std::fs::read_to_string(ws.join("a.txt")).unwrap(),
+            "original"
+        );
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn commit_keeps_mutations() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("b.txt"), "v1").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "edit b", &["b.txt".into()], BTreeMap::new())
+            .unwrap();
+        std::fs::write(ws.join("b.txt"), "v2").unwrap();
+        mgr.commit(&tx.id).unwrap();
+        assert_eq!(std::fs::read_to_string(ws.join("b.txt")).unwrap(), "v2");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+}

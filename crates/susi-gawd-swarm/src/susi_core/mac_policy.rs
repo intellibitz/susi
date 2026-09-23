@@ -200,8 +200,10 @@ impl MacPolicy {
                     .ok()
                     .and_then(|s| serde_json::from_str::<CapabilityToken>(&s).ok())
                 {
-                    self.grants
-                        .insert(grant_key(&token.subject, &token.action, &token.resource), token);
+                    self.grants.insert(
+                        grant_key(&token.subject, &token.action, &token.resource),
+                        token,
+                    );
                 }
             }
         }
@@ -236,10 +238,14 @@ impl MacPolicy {
     }
 
     pub fn global() -> &'static Self {
-        // Vendored copies are always wired: shared substrate key file,
-        // grants dir, and sticky privacy mode — same policy as the daemon's
-        // real susi_core copy.
-        POLICY.get_or_init(Self::wired)
+        POLICY.get_or_init(|| {
+            // Ephemeral key for tests / unwired contexts — still enforces MAC.
+            let mut key = [0u8; 32];
+            let seed = format!("susi-mac-ephemeral:{}", std::process::id());
+            let digest = Sha256::digest(seed.as_bytes());
+            key.copy_from_slice(&digest[..32]);
+            Self::new(key, PrivacyMode::Balanced, false)
+        })
     }
 
     fn grants_dir(&self) -> Option<PathBuf> {
@@ -248,7 +254,11 @@ impl MacPolicy {
 
     fn persist_grant(&self, token: &CapabilityToken) {
         let Some(dir) = self.grants_dir() else { return };
-        let path = dir.join(enc(&grant_key(&token.subject, &token.action, &token.resource)));
+        let path = dir.join(enc(&grant_key(
+            &token.subject,
+            &token.action,
+            &token.resource,
+        )));
         if let Ok(bytes) = serde_json::to_vec(token) {
             let tmp = dir.join(format!(".{}.tmp", now_nanos()));
             if std::fs::write(&tmp, &bytes).is_ok() {
@@ -259,7 +269,12 @@ impl MacPolicy {
 
     /// File-backed grant lookup: exact key, wildcard `*`, then a prefix scan.
     /// Keeps tokens issued by other wired copies visible to this one.
-    fn persisted_grant(&self, subject: &str, action: &str, resource: &str) -> Option<CapabilityToken> {
+    fn persisted_grant(
+        &self,
+        subject: &str,
+        action: &str,
+        resource: &str,
+    ) -> Option<CapabilityToken> {
         let dir = self.grants_dir()?;
         let read = |key: String| -> Option<CapabilityToken> {
             std::fs::read_to_string(dir.join(enc(&key)))
@@ -604,3 +619,102 @@ impl MacPolicy {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn policy(mode: PrivacyMode) -> MacPolicy {
+        MacPolicy::new([7u8; 32], mode, matches!(mode, PrivacyMode::LocalOnly))
+    }
+
+    #[test]
+    fn tokens_verify_and_expire() {
+        let p = policy(PrivacyMode::Balanced);
+        let t = p.grant("agent-a", actions::NETWORK_EGRESS, "*", Some(3600));
+        assert!(p.verify(&t));
+        assert!(p.is_permitted("agent-a", actions::NETWORK_EGRESS, "*"));
+        let expired = p.grant("agent-b", actions::NETWORK_EGRESS, "*", Some(0));
+        assert!(!p.is_permitted("agent-b", actions::NETWORK_EGRESS, "*"));
+        assert!(expired.is_expired(now_secs()));
+    }
+
+    #[test]
+    fn local_only_denies_network_without_consent() {
+        let p = policy(PrivacyMode::LocalOnly);
+        let arg = serde_json::json!({"url": "https://example.com"});
+        assert!(p
+            .authorize_tool("browser_automate", &arg, Path::new("."), None)
+            .is_err());
+        let _ = p.consent_egress("susi", 60);
+        assert!(p
+            .authorize_tool("browser_automate", &arg, Path::new("."), None)
+            .is_ok());
+    }
+
+    #[test]
+    fn local_only_blocks_host_exec_without_grant() {
+        let p = policy(PrivacyMode::LocalOnly);
+        // sandbox.exec is seeded — authorize allows redirect path
+        assert!(p
+            .authorize_tool(
+                "exec_command",
+                &serde_json::json!("ls"),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        assert!(p
+            .authorize_tool(
+                "sandbox_exec",
+                &serde_json::json!({"cmd": "echo hi"}),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
+    }
+
+    #[test]
+    fn balanced_allows_read_write_exec() {
+        let p = policy(PrivacyMode::Balanced);
+        assert!(p
+            .authorize_tool("read_file", &serde_json::json!({}), Path::new("."), None)
+            .is_ok());
+        assert!(p
+            .authorize_tool(
+                "exec_command",
+                &serde_json::json!("cargo test"),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+        // Balanced seeds signed network.egress for host continuity.
+        assert!(p
+            .authorize_tool(
+                "browser_automate",
+                &serde_json::json!({}),
+                Path::new("."),
+                None
+            )
+            .is_ok());
+    }
+
+    #[test]
+    fn switching_to_local_only_revokes_cloud_grants() {
+        let p = policy(PrivacyMode::Balanced);
+        assert!(p.is_permitted("susi", actions::CLOUD_INFERENCE, "*"));
+        p.set_mode(PrivacyMode::LocalOnly);
+        assert!(p.blocks_cloud_inference());
+        assert!(!p.is_permitted("susi", actions::NETWORK_EGRESS, "*"));
+        assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
+        assert!(p.mandatory_sandbox());
+    }
+
+    #[test]
+    fn tampered_token_rejected() {
+        let p = policy(PrivacyMode::Open);
+        let mut t = p.grant("x", actions::FILESYSTEM_READ, "*", None);
+        t.signature = "00".repeat(32);
+        assert!(!p.verify(&t));
+    }
+}

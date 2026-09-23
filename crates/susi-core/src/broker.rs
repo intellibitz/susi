@@ -13,7 +13,7 @@
 //! Layout: `grants/<key>.json`, `requests/<id>.json`,
 //! `inbox/<recipient>/<ordered-name>.json`. Writes are atomic (tmp + rename).
 
-use crate::plane_bus_ipc::{enc, sibling_pid_dirs};
+use crate::susi_core::plane_bus_ipc::{enc, sibling_pid_dirs};
 use crate::susi_paths::SusiDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -245,7 +245,7 @@ impl IpcBroker {
             "permission grant: {} -> {} on {}:{}",
             grantor, grantee, grant.scope.resource, grant.scope.action
         );
-        crate::context_graph::ContextGraph::global().record_external_context(
+        crate::susi_core::context_graph::ContextGraph::global().record_external_context(
             "ipc_broker",
             &label,
             &payload,
@@ -337,7 +337,7 @@ impl IpcBroker {
                 "action": entry.scope.action,
                 "status": "denied",
             });
-            crate::context_graph::ContextGraph::global().record_external_context(
+            crate::susi_core::context_graph::ContextGraph::global().record_external_context(
                 "ipc_broker",
                 &format!("permission denied: {request_id}"),
                 &payload,

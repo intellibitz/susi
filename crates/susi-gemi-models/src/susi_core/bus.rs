@@ -157,3 +157,64 @@ impl TypedEventBus {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn broadcasts_to_every_subscription_across_bus_clones() {
+        let bus = TypedEventBus::new();
+        let first = bus.subscribe::<u32>();
+        let second = bus.clone().subscribe::<u32>();
+        bus.publish(42_u32);
+        assert_eq!(first.try_recv(), Ok(42));
+        assert_eq!(second.try_recv(), Ok(42));
+    }
+
+    #[test]
+    fn isolates_types_and_does_not_replay_old_events() {
+        let bus = TypedEventBus::new();
+        bus.publish(1_u32);
+        let numbers = bus.subscribe::<u32>();
+        let strings = bus.subscribe::<String>();
+        assert!(numbers.try_recv().is_err());
+        bus.publish(2_u32);
+        assert_eq!(numbers.try_recv(), Ok(2));
+        assert!(strings.try_recv().is_err());
+        drop(numbers);
+        bus.publish(3_u32);
+        let replacement = bus.subscribe::<u32>();
+        assert!(replacement.try_recv().is_err());
+        bus.publish(4_u32);
+        assert_eq!(replacement.try_recv(), Ok(4));
+    }
+
+    #[test]
+    fn swarm_event_envelope_carries_schema_version() {
+        let event = SwarmEvent::new(SwarmEventType::AgentStarted {
+            agent_name: "a".into(),
+        });
+        assert_eq!(event.schema_version, SWARM_EVENT_SCHEMA_V1);
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"schema_version\":1"));
+        let decoded = SwarmEvent::decode(&json).unwrap().unwrap();
+        assert!(matches!(
+            decoded.kind,
+            SwarmEventType::AgentStarted { ref agent_name } if agent_name == "a"
+        ));
+    }
+
+    #[test]
+    fn swarm_event_decode_drops_unknown_version_gracefully() {
+        let json = r#"{"schema_version":99,"AgentStarted":{"agent_name":"a"}}"#;
+        assert!(SwarmEvent::decode(json).unwrap().is_none());
+        // Missing version is also unknown — degrade, don't panic.
+        let json = r#"{"AgentStarted":{"agent_name":"a"}}"#;
+        assert!(SwarmEvent::decode(json).unwrap().is_none());
+    }
+
+    #[test]
+    fn swarm_event_decode_errors_on_malformed_json() {
+        assert!(SwarmEvent::decode("not json").is_err());
+    }
+}

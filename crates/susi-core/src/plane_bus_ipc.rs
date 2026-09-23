@@ -19,7 +19,7 @@
 //! - Stale endpoint files are pruned on connect failure; dead pid dirs are
 //!   swept on init where `/proc` is available.
 
-use crate::plane_bus::PlaneHandler;
+use crate::susi_core::plane_bus::PlaneHandler;
 use crate::susi_paths::SusiDirs;
 use dashmap::DashMap;
 use serde_json::{json, Value};
@@ -39,7 +39,7 @@ type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
 type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
 
 /// Process-scoped IPC plane bus — same method surface as
-/// [`crate::plane_bus::PlaneBus`]. Vendored `susi_core` copies back their
+/// [`crate::susi_core::plane_bus::PlaneBus`]. Vendored `susi_core` copies back their
 /// `PlaneBus` with this so a handler registered through one vendored module
 /// resolves from every other vendored copy in the same process.
 pub struct IpcPlaneBus {

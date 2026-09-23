@@ -139,7 +139,7 @@ impl HighDensityContextStore {
         let path = dir.join("last_blackboard.json");
         let mut entries = Vec::new();
         for (agent, output) in self.snapshot() {
-            let redacted = crate::susi_error::redact::redact_patterns(
+            let redacted = crate::susi_core::redact::redact_patterns(
                 &[
                     "sk-".into(),
                     "ghp_".into(),
@@ -183,3 +183,28 @@ pub trait GawdAgent: Send + Sync {
     ) -> EaiResult<String>;
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persist_inspectable_writes_blackboard_file() {
+        let store = HighDensityContextStore::new(8);
+        store.insert("SafetyAgent".into(), "clear".into());
+        let dir = std::env::temp_dir().join(format!(
+            "susi_bb_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = store.persist_inspectable(&dir);
+        assert!(path.is_file());
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("SafetyAgent"));
+        assert!(text.contains("mission_blackboard"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}

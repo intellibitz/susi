@@ -76,6 +76,14 @@ impl RateLimiter {
         })
     }
 
+    #[cfg(test)]
+    fn with_capacity(capacity: usize) -> RateLimiter {
+        RateLimiter {
+            buckets: DashMap::new(),
+            capacity,
+            evictions: AtomicU64::new(0),
+        }
+    }
 
     /// Returns true if `ip` is still within its per-minute request budget.
     /// A `limit` of 0 disables rate limiting entirely.
@@ -118,3 +126,107 @@ impl RateLimiter {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_counter_never_wraps_and_expired_window_resets() {
+        let limiter = RateLimiter::with_capacity(10);
+        let ip = IpAddr::from([127, 0, 0, 1]);
+        limiter.buckets.insert(ip, (Instant::now(), u32::MAX));
+        assert!(!limiter.check(ip, u32::MAX));
+        limiter
+            .buckets
+            .insert(ip, (Instant::now() - RateLimiter::WINDOW, u32::MAX));
+        assert!(limiter.check(ip, 1));
+        assert!(!limiter.check(ip, 1));
+    }
+
+    #[test]
+    fn empty_token_allows_loopback_only() {
+        // When the live host already seeded a token this test observes the
+        // seeded-token path instead — still must not panic.
+        let loopback = IpAddr::from([127, 0, 0, 1]);
+        let remote = IpAddr::from([8, 8, 8, 8]);
+        let token = crate::susi_config::SusiConfig::load_global()
+            .unwrap_or_default()
+            .api_auth_token();
+        if token.is_empty() {
+            assert!(NetGuard::is_authorized(None, loopback));
+            assert!(!NetGuard::is_authorized(None, remote));
+        } else {
+            assert!(!NetGuard::is_authorized(None, loopback));
+            assert!(NetGuard::is_authorized(
+                Some(&format!("Bearer {}", token)),
+                loopback
+            ));
+            assert!(!NetGuard::is_authorized(Some("Bearer wrong"), remote));
+        }
+    }
+
+    #[test]
+    fn test_constant_time_eq_matches_equal_and_unequal_bytes() {
+        assert!(NetGuard::constant_time_eq(b"secret-token", b"secret-token"));
+        assert!(!NetGuard::constant_time_eq(
+            b"secret-token",
+            b"secret-tokeX"
+        ));
+        assert!(!NetGuard::constant_time_eq(
+            b"short",
+            b"a-much-longer-value"
+        ));
+        assert!(NetGuard::constant_time_eq(b"", b""));
+    }
+
+    #[test]
+    fn test_rate_limiter_allows_up_to_limit_then_blocks() {
+        let limiter = RateLimiter::with_capacity(10);
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        for i in 0..3 {
+            assert!(
+                limiter.check(ip, 3),
+                "request {} within limit should pass",
+                i
+            );
+        }
+        assert!(
+            !limiter.check(ip, 3),
+            "4th request over limit should be blocked"
+        );
+    }
+
+    #[test]
+    fn test_rate_limiter_zero_limit_disables_check() {
+        let limiter = RateLimiter::with_capacity(10);
+        let ip: IpAddr = "127.0.0.1".parse().unwrap();
+        for _ in 0..1000 {
+            assert!(limiter.check(ip, 0));
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_tracks_ips_independently() {
+        let limiter = RateLimiter::with_capacity(10);
+        let ip_a: IpAddr = "10.0.0.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.0.2".parse().unwrap();
+        assert!(limiter.check(ip_a, 1));
+        assert!(!limiter.check(ip_a, 1));
+        // A different IP has its own independent budget.
+        assert!(limiter.check(ip_b, 1));
+    }
+
+    #[test]
+    fn test_rate_limiter_evicts_when_over_capacity() {
+        let limiter = RateLimiter::with_capacity(2);
+        let ip_a: IpAddr = "10.0.1.1".parse().unwrap();
+        let ip_b: IpAddr = "10.0.1.2".parse().unwrap();
+        let ip_c: IpAddr = "10.0.1.3".parse().unwrap();
+        assert!(limiter.check(ip_a, 100));
+        assert!(limiter.check(ip_b, 100));
+        // Map is now at capacity; a third distinct IP must evict rather than
+        // grow the map unbounded, and must still be allowed through.
+        assert!(limiter.check(ip_c, 100));
+        assert!(limiter.buckets.len() <= 2);
+    }
+}

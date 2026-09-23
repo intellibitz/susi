@@ -138,7 +138,7 @@ pub struct MacPolicy {
 static POLICY: OnceLock<MacPolicy> = OnceLock::new();
 
 fn enc(key: &str) -> String {
-    crate::plane_bus_ipc::enc(key)
+    crate::susi_core::plane_bus_ipc::enc(key)
 }
 
 fn now_nanos() -> u128 {

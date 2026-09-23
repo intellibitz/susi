@@ -21,7 +21,7 @@ pub enum EvidenceSource {
         tool_name: String,
         raw_response: String,
     },
-    /// Bound to a live [`crate::capture::EvidenceSession`] receipt. Assessment
+    /// Bound to a live [`crate::susi_core::capture::EvidenceSession`] receipt. Assessment
     /// re-resolves the receipt; a copied hash alone never proves execution.
     ToolReceipt {
         receipt_id: String,
@@ -255,7 +255,8 @@ impl EvidenceRecord {
                 {
                     return Rejected("malformed tool receipt binding".into());
                 }
-                let Some(session) = crate::capture::EvidenceSession::for_workspace(workspace)
+                let Some(session) =
+                    crate::susi_core::capture::EvidenceSession::for_workspace(workspace)
                 else {
                     return Unverified("no live evidence session for tool receipt".into());
                 };
@@ -505,9 +506,10 @@ mod tests {
     fn tool_receipt_bindings_require_live_ledger_support() {
         let ws = Workspace::new();
         let session =
-            crate::capture::EvidenceSession::new("mission", &ws.0, |s| s.to_string()).unwrap();
-        let _activation = crate::capture::EvidenceSession::activate(&session);
-        crate::capture::EvidenceSession::capture_call(
+            crate::susi_core::capture::EvidenceSession::new("mission", &ws.0, |s| s.to_string())
+                .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+        crate::susi_core::capture::EvidenceSession::capture_call(
             "open_meteo_weather",
             &serde_json::json!({"place": "Chennai"}),
             &ws.0,

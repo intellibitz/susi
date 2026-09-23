@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::capture::ToolReceipt;
+use crate::susi_core::capture::ToolReceipt;
 
 pub const ARCHIVE_REL: &str = ".susi/receipt_archive.jsonl";
 pub const ARCHIVE_SCHEMA: &str = "susi/receipt_archive/v1";
@@ -94,7 +94,7 @@ fn archive_lock() -> &'static parking_lot::Mutex<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::EvidenceSession;
+    use crate::susi_core::capture::EvidenceSession;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
 

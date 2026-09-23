@@ -91,3 +91,80 @@ fn archive_lock() -> &'static parking_lot::Mutex<()> {
     LOCK.get_or_init(|| parking_lot::Mutex::new(()))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::susi_core::capture::EvidenceSession;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    struct Workspace(PathBuf);
+    impl Workspace {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "susi-archive-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Workspace {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn session(workspace: &Workspace) -> Arc<EvidenceSession> {
+        EvidenceSession::new("archive-mission", &workspace.0, |s| s.to_string()).unwrap()
+    }
+
+    #[test]
+    fn capture_appends_audit_line_without_output_body() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call(
+            "exec_command",
+            &serde_json::json!({"cmd": "uname"}),
+            &ws.0,
+            || Ok("Linux host".to_string()),
+        )
+        .unwrap();
+        let lines = ReceiptArchive::load_audit_lines(&ws.0);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].schema, ARCHIVE_SCHEMA);
+        assert_eq!(lines[0].tool, "exec_command");
+        assert_eq!(lines[0].output_hash.len(), 64);
+        assert!(lines[0].successful);
+        let raw = std::fs::read_to_string(ReceiptArchive::path(&ws.0)).unwrap();
+        assert!(!raw.contains("Linux host"));
+    }
+
+    #[test]
+    fn archive_cannot_satisfy_citation_after_live_session_ends() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || {
+            Ok("observed".into())
+        })
+        .unwrap();
+        let receipt_id = session.receipts()[0].id.clone();
+        assert!(!ReceiptArchive::load_audit_lines(&ws.0).is_empty());
+        drop(activation);
+        drop(session);
+        let cited =
+            format!(r#"{{"citations":[{{"receipt_id":"{receipt_id}","json_pointer":null}}]}}"#);
+        let err = EvidenceSession::verify_answer(&cited, &ws.0)
+            .expect("citation attempt")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("no live mission session") || err.contains("TRUTH_UNVERIFIED"),
+            "archive must not restore authority: {err}"
+        );
+    }
+}

@@ -1,5 +1,5 @@
-use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
-use crate::registry::CapabilityRegistry;
+use crate::susi_core::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
+use crate::susi_core::registry::CapabilityRegistry;
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -46,7 +46,7 @@ impl SusiTruthAgent {
             } else {
                 candidate.as_str()
             };
-            match crate::evidence::confined_file(workspace, Path::new(path)) {
+            match crate::susi_core::evidence::confined_file(workspace, Path::new(path)) {
                 Some(_) => {}
                 _ => violations.push(format!(
                     "Reality Mismatch: Resource '{}' reported as written but is not an existing regular file.", path
@@ -86,7 +86,9 @@ impl TruthTransformer {
         result: &str,
         workspace: &Path,
     ) -> EaiResult<String> {
-        if let Some(resolved) = crate::capture::EvidenceSession::verify_answer(result, workspace) {
+        if let Some(resolved) =
+            crate::susi_core::capture::EvidenceSession::verify_answer(result, workspace)
+        {
             let rendered = resolved?;
             // Resolved ledger text can still claim writes — check the workspace.
             return Self::verify_mission_reality(goal, tool_name, &rendered, workspace)
@@ -107,7 +109,7 @@ impl TruthTransformer {
             agent_id.to_string(),
             1.0,
             now,
-            crate::evidence::Claim {
+            crate::susi_core::evidence::Claim {
                 subject: goal.to_string(),
                 predicate: "mission_completed".to_string(),
                 value: result.to_string(),
@@ -187,7 +189,7 @@ impl TruthTransformer {
     #[cfg(test)]
     fn verifier_providers(
         registry: &CapabilityRegistry,
-    ) -> Vec<std::sync::Arc<dyn crate::provider::Provider>> {
+    ) -> Vec<std::sync::Arc<dyn crate::susi_core::provider::Provider>> {
         let mut names: Vec<String> = registry
             .list_providers()
             .into_iter()
@@ -238,9 +240,10 @@ impl TruthTransformer {
         } = &record.source
         {
             // Citation answers resolve from the live ledger. Narrative never.
-            if let Some(resolved) =
-                crate::capture::EvidenceSession::verify_answer(reasoning_trace, workspace)
-            {
+            if let Some(resolved) = crate::susi_core::capture::EvidenceSession::verify_answer(
+                reasoning_trace,
+                workspace,
+            ) {
                 return resolved.map(|_| ());
             }
             return Err(EaiError::governance(
@@ -255,8 +258,8 @@ impl TruthTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evidence::{Claim, EvidenceRecord, EvidenceSource};
-    use crate::provider::{BoxFuture, Provider};
+    use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
+    use crate::susi_core::provider::{BoxFuture, Provider};
     use sha2::{Digest, Sha256};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -618,10 +621,12 @@ mod tests {
         // Isolated workspace: parallel tests must not share an activated ledger.
         let ws = TempWorkspace::new();
         let session =
-            crate::capture::EvidenceSession::new("inspect the host", &ws.0, |s| s.to_string())
-                .unwrap();
-        let _activation = crate::capture::EvidenceSession::activate(&session);
-        crate::capture::EvidenceSession::capture_call(
+            crate::susi_core::capture::EvidenceSession::new("inspect the host", &ws.0, |s| {
+                s.to_string()
+            })
+            .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+        crate::susi_core::capture::EvidenceSession::capture_call(
             "exec_command",
             &serde_json::json!({"cmd": "hostname"}),
             &ws.0,

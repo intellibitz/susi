@@ -581,7 +581,7 @@ impl ContextGraph {
     /// Record a host telemetry snapshot into the graph.
     pub fn record_telemetry(
         &self,
-        snapshot: &crate::telemetry::TelemetrySnapshot,
+        snapshot: &crate::susi_core::telemetry::TelemetrySnapshot,
         workspace: Option<&Path>,
     ) -> NodeId {
         let payload = serde_json::to_value(snapshot).unwrap_or_default();

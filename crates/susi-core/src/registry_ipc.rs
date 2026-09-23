@@ -1,7 +1,7 @@
 //! IPC backend for `registry` — capability dispatch across vendored copies.
 //!
 //! [`IpcCapabilityRegistry`] keeps the same mental model as
-//! [`crate::registry::CapabilityRegistry`] but each entry lives in exactly one
+//! [`crate::susi_core::registry::CapabilityRegistry`] but each entry lives in exactly one
 //! copy: the registering copy owns the trait object, serves it through a
 //! `capability.tool.<name>` / `capability.provider.<name>` topic on its
 //! [`IpcPlaneBus`], and writes a small metadata file into the shared
@@ -17,12 +17,12 @@
 //! Registrations are process-scoped exactly like the in-proc registry —
 //! daemon, CLI, and each test get their own `<pid>` rendezvous.
 
-use crate::capture::EvidenceSession;
-use crate::mac_policy::MacPolicy;
-use crate::plane_bus::PlaneHandler;
-use crate::plane_bus_ipc::{enc, IpcPlaneBus};
-use crate::provider::{BoxFuture, Provider};
-use crate::registry::{AgentCapability, Tool};
+use crate::susi_core::capture::EvidenceSession;
+use crate::susi_core::mac_policy::MacPolicy;
+use crate::susi_core::plane_bus::PlaneHandler;
+use crate::susi_core::plane_bus_ipc::{enc, IpcPlaneBus};
+use crate::susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::registry::{AgentCapability, Tool};
 use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde_json::{json, Value};

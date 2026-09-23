@@ -434,3 +434,62 @@ impl Default for IntentBus {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jaccard_and_hash_embed_score_related_intents() {
+        let a = IntentMessage {
+            id: "1".into(),
+            from: "coder".into(),
+            kind: IntentKind::Provide,
+            intent: "I can write and patch Rust unit tests".into(),
+            embedding: None,
+            payload: serde_json::Value::Null,
+            created_at: 0,
+        };
+        let b = IntentMessage {
+            id: "2".into(),
+            from: "user".into(),
+            kind: IntentKind::Need,
+            intent: "need help writing Rust unit tests for patches".into(),
+            embedding: None,
+            payload: serde_json::Value::Null,
+            created_at: 0,
+        };
+        let score = intent_similarity(&a, &b);
+        assert!(score > 0.2, "score={score}");
+        let unrelated = IntentMessage {
+            id: "3".into(),
+            from: "x".into(),
+            kind: IntentKind::Provide,
+            intent: "bake sourdough bread recipes".into(),
+            embedding: None,
+            payload: serde_json::Value::Null,
+            created_at: 0,
+        };
+        assert!(intent_similarity(&b, &unrelated) < score);
+    }
+
+    #[test]
+    fn bus_matches_need_to_provider() {
+        let bus = IntentBus::new();
+        bus.advertise(
+            "TestAgent",
+            "run cargo tests and report failures",
+            serde_json::json!({}),
+            None,
+        );
+        let (_need, matches) = bus.need(
+            "planner",
+            "please run the cargo test suite",
+            serde_json::json!({}),
+            None,
+            0.15,
+            5,
+        );
+        assert!(!matches.is_empty());
+        assert_eq!(matches[0].provider, "TestAgent");
+    }
+}

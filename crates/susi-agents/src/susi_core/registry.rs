@@ -1,12 +1,3 @@
-//! Vendored `registry` — same public API as `susi_core::registry`, but
-//! `CapabilityRegistry` delegates to
-//! [`crate::susi_core::registry_ipc::IpcCapabilityRegistry`] so capabilities
-//! registered in one vendored copy are discoverable and invocable from every
-//! other copy in the process. `DynamicServiceRegistry` stays local: TypeId
-//! keys are per-copy types by construction.
-
-use crate::susi_core::plane_bus_ipc::IpcPlaneBus;
-use crate::susi_core::registry_ipc::IpcCapabilityRegistry;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::{Arc, OnceLock};
@@ -76,13 +67,14 @@ pub trait Tool: Send + Sync + 'static {
 /// A specialized registry for managing capabilities (providers, tools, agents)
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
 ///
-/// Vendored: capability state lives in the shared `<cache>/bus/<pid>/`
-/// rendezvous via [`IpcCapabilityRegistry`] — `get_tool` returns a remote
-/// proxy for capabilities owned by other copies, and locally registered
-/// tools are served to remote copies through `capability.tool.<name>` bus
-/// topics with MAC + evidence capture enforced at the owner boundary.
+/// Delegates to [`crate::susi_core::registry_ipc::IpcCapabilityRegistry`] so capabilities
+/// registered here are discoverable and invocable from vendored `susi_core`
+/// copies in the same process (shared `<cache>/bus/<pid>/` rendezvous). MAC
+/// authorization + evidence capture are applied once at the tool boundary by
+/// the IPC layer, for local and remote dispatch alike.
+#[derive(Clone)]
 pub struct CapabilityRegistry {
-    ipc: IpcCapabilityRegistry,
+    ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry,
 }
 
 /// Lightweight agent capability mounted alongside providers and tools.
@@ -104,16 +96,21 @@ impl CapabilityRegistry {
             .unwrap_or(0);
         let dir = std::env::temp_dir().join(format!("susi-reg-{}-{}", std::process::id(), nanos));
         Self {
-            ipc: IpcCapabilityRegistry::new(Arc::new(IpcPlaneBus::with_rendezvous(dir))),
+            ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry::new(Arc::new(
+                crate::susi_core::plane_bus_ipc::IpcPlaneBus::with_rendezvous(dir),
+            )),
         }
     }
 
-    /// Process-wide capability registry — shares the `<cache>/bus/<pid>/`
-    /// rendezvous with every `susi_core` copy in this process.
+    /// Process-wide capability registry used by zero-config substrate
+    /// discovery — shares the `<cache>/bus/<pid>/` rendezvous with every
+    /// vendored `susi_core` copy in this process.
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {
-            ipc: IpcCapabilityRegistry::new(IpcPlaneBus::global()),
+            ipc: crate::susi_core::registry_ipc::IpcCapabilityRegistry::new(
+                crate::susi_core::plane_bus_ipc::IpcPlaneBus::global(),
+            ),
         })
     }
 
@@ -137,9 +134,9 @@ impl CapabilityRegistry {
         self.ipc.unregister_provider(name)
     }
 
-    /// Registers an abstract Tool with the capability registry. The tool is
-    /// wrapped with MAC authorization + evidence capture at registration, so
-    /// both local and remote dispatch enforce the execution boundary.
+    /// Registers an abstract Tool with the capability registry. The IPC layer
+    /// wraps it once with MAC authorization + evidence capture, so both local
+    /// and remote dispatch enforce the execution boundary.
     pub fn register_tool<T: Tool + 'static>(&self, tool: T) {
         self.ipc.register_tool(tool);
     }
@@ -170,11 +167,7 @@ impl CapabilityRegistry {
     }
 
     pub fn list_agents(&self) -> Vec<String> {
-        self.ipc
-            .list_agents()
-            .into_iter()
-            .map(|a| a.name)
-            .collect()
+        self.ipc.list_agents().into_iter().map(|a| a.name).collect()
     }
 
     /// Unified capability inventory: providers + tools + agents.
@@ -196,5 +189,73 @@ impl CapabilityRegistry {
 impl Default for CapabilityRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn agents_tools_and_providers_mount_as_capabilities() {
+        let registry = CapabilityRegistry::new();
+        registry.register_agent_capability(AgentCapability {
+            name: "SafetyAgent".into(),
+            description: "governance".into(),
+            is_core: true,
+        });
+        struct T;
+        impl Tool for T {
+            fn name(&self) -> &str {
+                "probe"
+            }
+            fn description(&self) -> &str {
+                "probe tool"
+            }
+            fn execute(
+                &self,
+                _args: &serde_json::Value,
+                _workspace: &std::path::Path,
+            ) -> crate::susi_error::EaiResult<String> {
+                Ok("ok".into())
+            }
+        }
+        registry.register_tool(T);
+        let all = registry.list_all_capabilities();
+        assert!(all.iter().any(|(n, k)| n == "SafetyAgent" && *k == "agent"));
+        assert!(all.iter().any(|(n, k)| n == "probe" && *k == "tool"));
+        assert!(registry.get_agent("SafetyAgent").unwrap().is_core);
+    }
+
+    #[test]
+    fn factory_can_replace_itself_without_deadlocking() {
+        let registry = Arc::new(DynamicServiceRegistry::new());
+        let weak = Arc::downgrade(&registry);
+        registry.register_factory("number", move || {
+            weak.upgrade()
+                .unwrap()
+                .register_factory("number", || Arc::new(2_u32));
+            Arc::new(1_u32)
+        });
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            assert_eq!(*registry.instantiate::<u32>("number").unwrap(), 1);
+            assert_eq!(*registry.instantiate::<u32>("number").unwrap(), 2);
+            tx.send(()).unwrap();
+        });
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("factory deadlocked");
+    }
+
+    #[test]
+    fn services_and_factories_preserve_type_checks() {
+        let registry = DynamicServiceRegistry::new();
+        registry.register(7_u32);
+        assert_eq!(*registry.get::<u32>().unwrap(), 7);
+        assert!(registry.get::<String>().is_none());
+        registry.register_factory("number", || Arc::new(9_u32));
+        assert!(registry.instantiate::<String>("number").is_none());
+        assert!(registry.instantiate::<u32>("missing").is_none());
     }
 }

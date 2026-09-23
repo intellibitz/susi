@@ -545,3 +545,141 @@ impl IpcCapabilityRegistry {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pair() -> (IpcCapabilityRegistry, IpcCapabilityRegistry) {
+        let dir = std::env::temp_dir().join("susi-caps-test").join(format!(
+            "{}-{}",
+            std::process::id(),
+            unique()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let a = IpcCapabilityRegistry::new(Arc::new(IpcPlaneBus::with_rendezvous(dir.clone())));
+        let b = IpcCapabilityRegistry::new(Arc::new(IpcPlaneBus::with_rendezvous(dir)));
+        (a, b)
+    }
+
+    fn unique() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    }
+
+    struct EchoTool;
+
+    impl Tool for EchoTool {
+        fn name(&self) -> &str {
+            "echo_tool"
+        }
+        fn description(&self) -> &str {
+            "echoes the args"
+        }
+        fn execute(&self, args: &Value, _workspace: &Path) -> EaiResult<String> {
+            Ok(format!("echo:{args}"))
+        }
+    }
+
+    struct EchoProvider;
+
+    impl Provider for EchoProvider {
+        fn name(&self) -> &str {
+            "echo_prov"
+        }
+        fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+            Box::pin(async { Ok(true) })
+        }
+        fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+            let p = prompt.to_string();
+            Box::pin(async move { Ok(format!("gen:{p}")) })
+        }
+        fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+            let t = text.len() as f32;
+            Box::pin(async move { Ok(vec![t, 1.0]) })
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[test]
+    fn remote_tool_registered_and_invoked() {
+        let (a, b) = pair();
+        a.register_tool(EchoTool);
+        // registered copy serves locally
+        assert!(a.get_tool("echo_tool").is_some());
+        // other copy discovers + dispatches remotely
+        let tool = b.get_tool("echo_tool").expect("remote tool");
+        assert_eq!(tool.description(), "echoes the args");
+        let out = tool
+            .execute(&json!({"x": 1}), Path::new("."))
+            .expect("remote execute");
+        assert_eq!(out, "echo:{\"x\":1}");
+        assert!(b.list_tools().contains(&"echo_tool".to_string()));
+    }
+
+    #[test]
+    fn tool_error_propagates_to_remote_caller() {
+        struct FailTool;
+        impl Tool for FailTool {
+            fn name(&self) -> &str {
+                "fail_tool"
+            }
+            fn description(&self) -> &str {
+                "always fails"
+            }
+            fn execute(&self, _args: &Value, _ws: &Path) -> EaiResult<String> {
+                Err(EaiError::process("boom"))
+            }
+        }
+        let (a, b) = pair();
+        a.register_tool(FailTool);
+        let tool = b.get_tool("fail_tool").expect("remote tool");
+        let err = tool.execute(&json!({}), Path::new(".")).unwrap_err();
+        assert!(err.to_string().contains("boom"), "{err}");
+    }
+
+    #[test]
+    fn unregister_tool_removes_remote_visibility() {
+        let (a, b) = pair();
+        a.register_tool(EchoTool);
+        assert!(b.get_tool("echo_tool").is_some());
+        a.unregister_tool("echo_tool");
+        assert!(b.get_tool("echo_tool").is_none());
+        // a stale proxy errors cleanly rather than hanging
+        assert!(a.get_tool("echo_tool").is_none());
+    }
+
+    #[test]
+    fn remote_provider_generate_and_embed() {
+        let (a, b) = pair();
+        a.register_provider(Arc::new(EchoProvider));
+        let prov = b.get_provider("echo_prov").expect("remote provider");
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("rt");
+        let out = rt.block_on(prov.generate("hello")).expect("generate");
+        assert_eq!(out, "gen:hello");
+        let emb = rt.block_on(prov.embed("abcd")).expect("embed");
+        assert_eq!(emb, vec![4.0, 1.0]);
+        assert!(rt.block_on(prov.is_healthy()).expect("health"));
+        assert!(b.list_providers().contains(&"echo_prov".to_string()));
+    }
+
+    #[test]
+    fn agent_capability_visible_across_copies() {
+        let (a, b) = pair();
+        a.register_agent_capability(AgentCapability {
+            name: "scout".into(),
+            description: "recon".into(),
+            is_core: true,
+        });
+        let cap = b.get_agent_capability("scout").expect("agent cap");
+        assert!(cap.is_core);
+        assert!(b.list_agents().iter().any(|c| c.name == "scout"));
+        assert!(b.list_all_capabilities().iter().any(|n| n == "scout"));
+    }
+}
