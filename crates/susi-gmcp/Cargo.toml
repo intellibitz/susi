@@ -5,7 +5,8 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-susi-core = { workspace = true }
+dashmap = { workspace = true }
+flume = { workspace = true }
 rmcp = { version = "3.4.0", features = ["server", "client", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

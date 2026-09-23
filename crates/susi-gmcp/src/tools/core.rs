@@ -7,14 +7,14 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use crate::susi_core::broker::{IpcBroker, PermissionScope};
+use crate::susi_core::context_graph::ContextGraph;
+use crate::susi_core::plane_bus::gemi::sample_telemetry;
+use crate::susi_core::plane_bus::gemi::HardwareProfiler;
+use crate::susi_core::plane_bus::gemi::ModelManager;
+use crate::susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
 use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
-use susi_core::broker::{IpcBroker, PermissionScope};
-use susi_core::context_graph::ContextGraph;
-use susi_core::plane_bus::gemi::sample_telemetry;
-use susi_core::plane_bus::gemi::HardwareProfiler;
-use susi_core::plane_bus::gemi::ModelManager;
-use susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
 
 #[cfg(feature = "tools-rich")]
 use headless_chrome::Browser;
@@ -306,10 +306,10 @@ impl CoreTools {
         }
 
         // Mandatory sandbox: redirect host exec into Docker isolation.
-        if susi_core::mac_policy::MacPolicy::global().mandatory_sandbox()
-            && !susi_core::mac_policy::MacPolicy::global().is_permitted(
+        if crate::susi_core::mac_policy::MacPolicy::global().mandatory_sandbox()
+            && !crate::susi_core::mac_policy::MacPolicy::global().is_permitted(
                 "susi",
-                susi_core::mac_policy::actions::PROCESS_EXEC,
+                crate::susi_core::mac_policy::actions::PROCESS_EXEC,
                 "*",
             )
         {
@@ -332,7 +332,7 @@ impl CoreTools {
         gawd_hooks::audit_action("exec_command", clean, workspace)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
 
-        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
+        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
 
         let args = shlex::split(clean).ok_or_else(|| EaiError::protocol("Invalid shell syntax"))?;
@@ -485,8 +485,8 @@ impl CoreTools {
         description = "List top developer/agent models and local setup readiness"
     )]
     pub fn coding_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        susi_core::plane_bus::gemi::apply_cloud_env_file();
-        let rows = susi_core::plane_bus::gemi::coding_catalog();
+        crate::susi_core::plane_bus::gemi::apply_cloud_env_file();
+        let rows = crate::susi_core::plane_bus::gemi::coding_catalog();
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -499,7 +499,7 @@ impl CoreTools {
             .get("model")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("model is required"))?;
-        susi_core::plane_bus::gemi::apply_cloud_env_file();
+        crate::susi_core::plane_bus::gemi::apply_cloud_env_file();
         Ok(format!("{{\"preferred\":\"{model}\"}}"))
     }
 
@@ -568,7 +568,7 @@ impl CoreTools {
         description = "List active and historical swarm tasks with liveness telemetry"
     )]
     pub fn tasks_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let tasks = susi_core::task_manager::SwarmTaskManager::global().list_tasks();
+        let tasks = crate::susi_core::task_manager::SwarmTaskManager::global().list_tasks();
         serde_json::to_string_pretty(&tasks).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -580,7 +580,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_core::task_manager::SwarmTaskManager::global().pause_task(id) {
+        if crate::susi_core::task_manager::SwarmTaskManager::global().pause_task(id) {
             Ok(format!("Task '{}' paused.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -595,7 +595,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_core::task_manager::SwarmTaskManager::global().resume_task(id) {
+        if crate::susi_core::task_manager::SwarmTaskManager::global().resume_task(id) {
             Ok(format!("Task '{}' resumed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -613,7 +613,7 @@ impl CoreTools {
             .or_else(|| arg.as_str())
             .unwrap_or("")
             .trim();
-        if susi_core::task_manager::SwarmTaskManager::global().kill_task(id) {
+        if crate::susi_core::task_manager::SwarmTaskManager::global().kill_task(id) {
             Ok(format!("Task '{}' killed.", id))
         } else {
             Err(EaiError::protocol(format!("Task '{}' not found.", id)))
@@ -703,7 +703,7 @@ impl CoreTools {
         let cats = arg.get("categories").and_then(|v| v.as_str());
 
         if let (Some(n), Some(d), Some(c)) = (name, desc, cats) {
-            let profile = susi_core::AgentProfile {
+            let profile = crate::susi_core::AgentProfile {
                 name: n.to_string(),
                 description: d.to_string(),
                 categories: c.split(',').map(|s| s.trim().to_string()).collect(),
@@ -711,7 +711,7 @@ impl CoreTools {
                 base_rank: 0.8,
                 is_core: false,
             };
-            susi_core::AgentMetaRegistry::global().register_agent(profile);
+            crate::susi_core::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", n))
         } else {
             let arg_s = arg.as_str().unwrap_or("");
@@ -722,7 +722,7 @@ impl CoreTools {
                 ));
             }
 
-            let profile = susi_core::AgentProfile {
+            let profile = crate::susi_core::AgentProfile {
                 name: parts[0].to_string(),
                 description: parts[1].to_string(),
                 categories: parts[2].split(',').map(|s| s.trim().to_string()).collect(),
@@ -731,7 +731,7 @@ impl CoreTools {
                 is_core: false,
             };
 
-            susi_core::AgentMetaRegistry::global().register_agent(profile);
+            crate::susi_core::AgentMetaRegistry::global().register_agent(profile);
             Ok(format!("Successfully registered agent: {}", parts[0]))
         }
     }
@@ -760,9 +760,13 @@ impl CoreTools {
         // answer by citing those receipts — free narrative cannot certify.
         let prompt = format!(
             "{sanitized}{}",
-            susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
+            crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
         );
-        Ok(susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(&prompt, workspace))
+        Ok(
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                &prompt, workspace,
+            ),
+        )
     }
 
     /// Full swarm solve via SusiMasterAgent. Accepts a plain string, or an
@@ -844,7 +848,7 @@ impl CoreTools {
         description = "Report current agent expertise hierarchy"
     )]
     pub fn meta_rank_agents(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        let registry = susi_core::AgentMetaRegistry::global();
+        let registry = crate::susi_core::AgentMetaRegistry::global();
         let agents = registry.list_agents();
         let mut report = "SUSI Expertise Hierarchy:\n\n".to_string();
         for a in agents {
@@ -1052,11 +1056,11 @@ impl CoreTools {
         description = "Query the Universal Context Graph for the current workspace or a specific node id"
     )]
     pub fn context_graph_query(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let graph = susi_core::context_graph::ContextGraph::global();
+        let graph = crate::susi_core::context_graph::ContextGraph::global();
         let _ = graph.replay();
         if let Some(node_id) = arg.get("node_id").and_then(|v| v.as_str()) {
             let depth = arg.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-            let node = susi_core::context_graph::NodeId(node_id.to_string());
+            let node = crate::susi_core::context_graph::NodeId(node_id.to_string());
             let subgraph = graph.related(&node, depth);
             Ok(serde_json::to_string_pretty(&subgraph).unwrap_or_else(|_| "{}".to_string()))
         } else {
@@ -1271,7 +1275,9 @@ impl CoreTools {
     )]
     pub fn host_telemetry(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let snapshot = sample_telemetry();
-        if let Ok(snap) = serde_json::from_value::<susi_core::TelemetrySnapshot>(snapshot.clone()) {
+        if let Ok(snap) =
+            serde_json::from_value::<crate::susi_core::TelemetrySnapshot>(snapshot.clone())
+        {
             ContextGraph::global().record_telemetry(&snap, Some(workspace));
         }
         Ok(serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".into()))
@@ -1301,10 +1307,10 @@ impl CoreTools {
         description = "Report privacy mode, mandatory sandbox, and cryptographic capability grants"
     )]
     pub fn privacy_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        Ok(
-            serde_json::to_string_pretty(&susi_core::mac_policy::MacPolicy::global().status_json())
-                .unwrap_or_else(|_| "{}".into()),
+        Ok(serde_json::to_string_pretty(
+            &crate::susi_core::mac_policy::MacPolicy::global().status_json(),
         )
+        .unwrap_or_else(|_| "{}".into()))
     }
 
     #[tool(
@@ -1317,7 +1323,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .unwrap_or("susi");
         let ttl = arg.get("ttl_secs").and_then(|v| v.as_u64()).unwrap_or(3600);
-        let tokens = susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl);
+        let tokens = crate::susi_core::mac_policy::MacPolicy::global().consent_egress(subject, ttl);
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "consented": true,
             "tokens": tokens,
@@ -1339,7 +1345,8 @@ impl CoreTools {
             .get("payload")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
-        let msg = susi_core::intent_bus::IntentBus::global().advertise(from, intent, payload, None);
+        let msg = crate::susi_core::intent_bus::IntentBus::global()
+            .advertise(from, intent, payload, None);
         Ok(serde_json::to_string_pretty(&msg).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -1358,7 +1365,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::governance("intent_need requires intent"))?;
         let min_score = arg.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.2) as f32;
         let limit = arg.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
-        let (need, matches) = susi_core::intent_bus::IntentBus::global().need(
+        let (need, matches) = crate::susi_core::intent_bus::IntentBus::global().need(
             from,
             intent,
             arg.get("payload")
@@ -1413,7 +1420,7 @@ impl CoreTools {
                     .collect()
             })
             .unwrap_or_default();
-        let tx = susi_core::agent_tx::TxManager::global()
+        let tx = crate::susi_core::agent_tx::TxManager::global()
             .begin(workspace, description, &files, Default::default())
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
@@ -1425,7 +1432,7 @@ impl CoreTools {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_commit requires id"))?;
-        let tx = susi_core::agent_tx::TxManager::global()
+        let tx = crate::susi_core::agent_tx::TxManager::global()
             .commit(id)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
@@ -1440,7 +1447,7 @@ impl CoreTools {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
-        let tx = susi_core::agent_tx::TxManager::global()
+        let tx = crate::susi_core::agent_tx::TxManager::global()
             .abort(id, workspace)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))

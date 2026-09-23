@@ -6801,7 +6801,9 @@ version = "0.11.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "dashmap",
  "fastembed",
+ "flume",
  "getrandom 0.4.3",
  "headless_chrome",
  "hex",
@@ -6816,7 +6818,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
- "susi-core",
  "susi-tools",
  "syn 3.0.6",
  "tantivy",

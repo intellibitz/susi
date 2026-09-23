@@ -1,9 +1,9 @@
 //! Path/SSRF/argv guards and external-agent task helpers for CoreTools.
 
+use crate::susi_core::plane_bus::agents;
 use crate::susi_error::{EaiError, EaiResult};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use susi_core::plane_bus::agents;
 
 pub(super) fn external_agent_control(
     arg: &serde_json::Value,

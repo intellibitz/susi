@@ -35,6 +35,16 @@ pub mod susi_config;
 #[rustfmt::skip]
 pub mod susi_sandbox;
 
+// Vendored `susi_core` microkernel subset (canonical tree:
+// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac/intent
+// state rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/`
+// + substrate files. Allows keep the tree byte-identical across consumers:
+// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
+// stop edition-2024 style drift against the edition-2021 canonical source.
+#[allow(dead_code, clippy::collapsible_if)]
+#[rustfmt::skip]
+pub mod susi_core;
+
 pub mod catalog;
 pub mod mcp_wrapper;
 pub mod protocol;
@@ -47,7 +57,7 @@ pub mod tools;
 
 use std::path::Path;
 
-pub use susi_core::plane_bus::tools as plane_tools;
+pub use crate::susi_core::plane_bus::tools as plane_tools;
 
 /// GMCP Host: The unified execution entry point for the Meta-Intelligence Substrate.
 pub struct GmcpHost;

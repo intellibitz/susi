@@ -161,6 +161,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -496,6 +497,22 @@ fn susi_tools_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-tools vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_gmcp_must_not_depend_on_workspace_crates() {
+    // susi-gmcp vendors the susi_core subset (`src/susi_core/` from
+    // crates/susi-core/vendor_template/) plus the leaf modules — fourth
+    // consumer converted under the microkernel path. Its dev-dep on
+    // susi-tools is test-only (MCP client round-trip), not a production edge.
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-gmcp/Cargo.toml"))
+        .expect("susi-gmcp Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-gmcp vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
     );
 }
 

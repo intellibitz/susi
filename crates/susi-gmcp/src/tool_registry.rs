@@ -1,9 +1,9 @@
 //! Plane-bus backed tool registry facade (no `susi-tools` dependency).
 
+use crate::susi_core::plane_bus::tools as plane_tools;
 use crate::susi_error::EaiResult;
 use crate::tool_types::McpTool;
 use std::path::Path;
-use susi_core::plane_bus::tools as plane_tools;
 
 pub struct ToolRegistry;
 

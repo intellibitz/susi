@@ -192,8 +192,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             println!("{}", res);
             if res.starts_with("SUCCESS") {
                 // Hot-plug into the live capability registry when possible.
+                // The vendored global is the same catalog as susi_core's —
+                // both ride the shared bus rendezvous.
                 let registry = susi_core::registry::CapabilityRegistry::global();
-                susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
+                susi_gmcp::mcp_wrapper::auto_discover_mcp();
                 susi_gemi::mcp_provider::register_mcp_inference_providers(registry);
             } else {
                 std::process::exit(1);

@@ -94,16 +94,27 @@ pub struct AgentCapability {
 }
 
 impl CapabilityRegistry {
+    /// Fresh isolated catalog — fresh rendezvous dir, same semantics as the
+    /// old per-instance in-memory maps (tests and unwired contexts rely on
+    /// registrations not leaking between `new()` instances).
     pub fn new() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("susi-reg-{}-{}", std::process::id(), nanos));
         Self {
-            ipc: IpcCapabilityRegistry::new(IpcPlaneBus::global()),
+            ipc: IpcCapabilityRegistry::new(Arc::new(IpcPlaneBus::with_rendezvous(dir))),
         }
     }
 
-    /// Process-wide capability registry used by zero-config substrate discovery.
+    /// Process-wide capability registry — shares the `<cache>/bus/<pid>/`
+    /// rendezvous with every `susi_core` copy in this process.
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
-        INSTANCE.get_or_init(Self::new)
+        INSTANCE.get_or_init(|| Self {
+            ipc: IpcCapabilityRegistry::new(IpcPlaneBus::global()),
+        })
     }
 
     /// Registers a model provider with the capability registry.

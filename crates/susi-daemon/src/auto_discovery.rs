@@ -55,7 +55,7 @@ pub async fn bootstrap_zero_config_substrate() {
     susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
 
     // 2. Discover and Provision MCP Tools (any entry in ~/.susi/mcp_config.json).
-    susi_gmcp::mcp_wrapper::auto_discover_mcp(registry);
+    susi_gmcp::mcp_wrapper::auto_discover_mcp();
 
     // 2b. MCP servers that expose chat/LLM tools → inference Providers so they
     // join cloud prefer / slow-local escalation (not tools-only).

@@ -64,43 +64,17 @@ pub trait Tool: Send + Sync + 'static {
     ) -> crate::susi_error::EaiResult<String>;
 }
 
-/// Captures at the actual invocation boundary, including callers that bypass
-/// the string-oriented ToolRegistry facade.
-struct ObservedTool<T>(T);
-impl<T: Tool> Tool for ObservedTool<T> {
-    fn name(&self) -> &str {
-        self.0.name()
-    }
-    fn description(&self) -> &str {
-        self.0.description()
-    }
-    fn execute(
-        &self,
-        args: &serde_json::Value,
-        workspace: &std::path::Path,
-    ) -> crate::susi_error::EaiResult<String> {
-        crate::mac_policy::MacPolicy::global().authorize_tool(
-            self.name(),
-            args,
-            workspace,
-            None,
-        )?;
-        crate::capture::EvidenceSession::capture_call(self.name(), args, workspace, || {
-            self.0.execute(args, workspace)
-        })
-    }
-}
-
 /// A specialized registry for managing capabilities (providers, tools, agents)
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
-#[derive(Default, Clone)]
+///
+/// Delegates to [`crate::registry_ipc::IpcCapabilityRegistry`] so capabilities
+/// registered here are discoverable and invocable from vendored `susi_core`
+/// copies in the same process (shared `<cache>/bus/<pid>/` rendezvous). MAC
+/// authorization + evidence capture are applied once at the tool boundary by
+/// the IPC layer, for local and remote dispatch alike.
+#[derive(Clone)]
 pub struct CapabilityRegistry {
-    /// Maps provider names to their instantiated capabilities
-    providers: Arc<DashMap<String, Arc<dyn Provider>>>,
-    /// Maps tool names to their instantiated capabilities
-    tools: Arc<DashMap<String, Arc<dyn Tool>>>,
-    /// Maps agent names to mounted agent capability descriptors
-    agents: Arc<DashMap<String, AgentCapability>>,
+    ipc: crate::registry_ipc::IpcCapabilityRegistry,
 }
 
 /// Lightweight agent capability mounted alongside providers and tools.
@@ -112,69 +86,88 @@ pub struct AgentCapability {
 }
 
 impl CapabilityRegistry {
+    /// Fresh isolated catalog — fresh rendezvous dir, same semantics as the
+    /// old per-instance in-memory maps (tests and unwired contexts rely on
+    /// registrations not leaking between `new()` instances).
     pub fn new() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!("susi-reg-{}-{}", std::process::id(), nanos));
         Self {
-            providers: Arc::new(DashMap::new()),
-            tools: Arc::new(DashMap::new()),
-            agents: Arc::new(DashMap::new()),
+            ipc: crate::registry_ipc::IpcCapabilityRegistry::new(Arc::new(
+                crate::plane_bus_ipc::IpcPlaneBus::with_rendezvous(dir),
+            )),
         }
     }
 
-    /// Process-wide capability registry used by zero-config substrate discovery.
+    /// Process-wide capability registry used by zero-config substrate
+    /// discovery — shares the `<cache>/bus/<pid>/` rendezvous with every
+    /// vendored `susi_core` copy in this process.
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
-        INSTANCE.get_or_init(Self::new)
+        INSTANCE.get_or_init(|| Self {
+            ipc: crate::registry_ipc::IpcCapabilityRegistry::new(
+                crate::plane_bus_ipc::IpcPlaneBus::global(),
+            ),
+        })
     }
 
     /// Registers a model provider with the capability registry.
     pub fn register_provider<P: Provider + 'static>(&self, provider: P) {
-        let name = provider.name().to_string();
-        self.providers.insert(name, Arc::new(provider));
+        self.ipc.register_provider(Arc::new(provider));
     }
 
-    /// Retrieves a provider by name.
+    /// Retrieves a provider by name (local or remote proxy).
     pub fn get_provider(&self, name: &str) -> Option<Arc<dyn Provider>> {
-        self.providers.get(name).map(|v| v.clone())
+        self.ipc.get_provider(name)
     }
 
     /// Retrieves a list of all registered provider names.
     pub fn list_providers(&self) -> Vec<String> {
-        self.providers.iter().map(|kv| kv.key().clone()).collect()
+        self.ipc.list_providers()
     }
 
     /// Removes a provider by name. Returns true if it was present.
     pub fn unregister_provider(&self, name: &str) -> bool {
-        self.providers.remove(name).is_some()
+        self.ipc.unregister_provider(name)
     }
 
-    /// Registers an abstract Tool with the capability registry.
+    /// Registers an abstract Tool with the capability registry. The IPC layer
+    /// wraps it once with MAC authorization + evidence capture, so both local
+    /// and remote dispatch enforce the execution boundary.
     pub fn register_tool<T: Tool + 'static>(&self, tool: T) {
-        let name = tool.name().to_string();
-        self.tools.insert(name, Arc::new(ObservedTool(tool)));
+        self.ipc.register_tool(tool);
     }
 
-    /// Retrieves a tool by name.
+    /// Retrieves a tool by name (local or remote proxy).
     pub fn get_tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
-        self.tools.get(name).map(|v| v.clone())
+        self.ipc.get_tool(name)
+    }
+
+    /// Removes a tool by name. Returns true if it was present locally.
+    pub fn unregister_tool(&self, name: &str) -> bool {
+        self.ipc.unregister_tool(name)
     }
 
     /// Retrieves a list of all registered tool names.
     pub fn list_tools(&self) -> Vec<String> {
-        self.tools.iter().map(|kv| kv.key().clone()).collect()
+        self.ipc.list_tools()
     }
 
     /// Mount an agent capability (name/description) into the same registry as
     /// providers and tools — one catalog for models, agents, and MCP tools.
     pub fn register_agent_capability(&self, agent: AgentCapability) {
-        self.agents.insert(agent.name.clone(), agent);
+        self.ipc.register_agent_capability(agent);
     }
 
     pub fn get_agent(&self, name: &str) -> Option<AgentCapability> {
-        self.agents.get(name).map(|v| v.clone())
+        self.ipc.get_agent_capability(name)
     }
 
     pub fn list_agents(&self) -> Vec<String> {
-        self.agents.iter().map(|kv| kv.key().clone()).collect()
+        self.ipc.list_agents().into_iter().map(|a| a.name).collect()
     }
 
     /// Unified capability inventory: providers + tools + agents.
@@ -190,6 +183,12 @@ impl CapabilityRegistry {
             out.push((name, "agent"));
         }
         out
+    }
+}
+
+impl Default for CapabilityRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

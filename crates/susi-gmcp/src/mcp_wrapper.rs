@@ -1,5 +1,5 @@
+use crate::susi_core::registry::{CapabilityRegistry, Tool};
 use crate::tool_registry::GmcpClient;
-use susi_core::registry::{CapabilityRegistry, Tool};
 
 /// Wraps an MCP tool as a dynamically executable Tool.
 pub struct McpDynamicTool {
@@ -24,19 +24,23 @@ impl Tool for McpDynamicTool {
         &self,
         args: &serde_json::Value,
         _workspace: &std::path::Path,
-    ) -> susi_core::susi_error::EaiResult<String> {
+    ) -> crate::susi_core::susi_error::EaiResult<String> {
         let args_str = if let Some(s) = args.as_str() {
             s.to_string()
         } else {
             args.to_string()
         };
         GmcpClient::execute_external_tool_result(&self.server_name, &self.mcp_tool_name, &args_str)
-            .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
+            .map_err(|e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 }
 
-/// Probe configured MCP servers and hot-plug their live tools into the registry.
-pub fn register_mcp_servers(registry: &CapabilityRegistry) {
+/// Probe configured MCP servers and hot-plug their live tools into the
+/// shared capability registry. Uses this copy's vendored
+/// `CapabilityRegistry::global()` — one catalog across vendored and linked
+/// `susi_core` copies via the `<cache>/bus/<pid>/` rendezvous.
+pub fn register_mcp_servers() {
+    let registry = CapabilityRegistry::global();
     let live = GmcpClient::discover_live_tools();
     if live.is_empty() {
         // Config-only fallback: advertise wildcard proxies so swarm routing
@@ -78,6 +82,6 @@ pub fn register_mcp_servers(registry: &CapabilityRegistry) {
 
 /// Pillar 8 entrypoint: discover configured MCP servers and hot-plug them
 /// into the capability registry. Alias of [`register_mcp_servers`].
-pub fn auto_discover_mcp(registry: &CapabilityRegistry) {
-    register_mcp_servers(registry);
+pub fn auto_discover_mcp() {
+    register_mcp_servers();
 }

@@ -10,11 +10,14 @@
 //! `susi_native`) are referenced at the consumer's crate root — vendor them
 //! first.
 
+pub mod agent_tx;
 pub mod agent_types;
 pub mod broker;
+pub mod bus;
 pub mod capture;
 pub mod context_graph;
 pub mod evidence;
+pub mod intent_bus;
 pub mod mac_policy;
 pub mod net_guard;
 pub mod plane_bus;
@@ -35,6 +38,7 @@ pub use crate::susi_error::redact;
 // Mirror of `susi_core`'s root re-exports, restricted to modules carried by
 // this vendored tree — keeps `susi_core::{NetGuard, …}` paths stable across
 // consumers.
+pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
 pub use agent_types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
     MissionBlackboard, SwarmBlackboard,
@@ -43,6 +47,7 @@ pub use broker::{IpcBroker, IpcMessage, PermissionGrant, PermissionRequest, Perm
 pub use capture::{EvidenceSession, GroundedAnswer, ReceiptCitation, ToolReceipt};
 pub use context_graph::ContextGraph;
 pub use evidence::{Claim, EvidenceAssessment, EvidenceRecord, EvidenceSource};
+pub use intent_bus::{IntentBus, IntentKind, IntentMatch, IntentMessage};
 pub use mac_policy::{CapabilityToken, MacPolicy, PrivacyMode};
 pub use net_guard::{NetGuard, RateLimiter};
 pub use plane_bus::agents::AgentMetaRegistry;
