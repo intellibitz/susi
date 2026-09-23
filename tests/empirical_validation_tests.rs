@@ -4,10 +4,23 @@
 #![allow(missing_docs)]
 
 use std::path::Path;
+use std::sync::Once;
 use susi_gawd::agents::GawdAgent;
+
+fn wire_test_substrate() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        // Feature planes talk only via plane_bus; integration tests must
+        // register handlers the same way CLI/daemon composition does.
+        susi_daemon::composition::wire_plane_bus();
+        susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+        let _ = susi_tools::ToolRegistry::global();
+    });
+}
 
 #[test]
 fn test_empirical_reflex_classification() {
+    wire_test_substrate();
     std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
@@ -26,6 +39,7 @@ fn test_empirical_reflex_classification() {
 
 #[test]
 fn test_empirical_epistemic_integrity_fictitious() {
+    wire_test_substrate();
     std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
@@ -57,7 +71,7 @@ fn test_empirical_credential_masking() {
 
 #[test]
 fn test_empirical_gmcp_agent_verification() {
-    susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+    wire_test_substrate();
     let ws = std::env::current_dir().unwrap();
     let blackboard: susi_gawd::agents::MissionBlackboard =
         std::sync::Arc::new(susi_gawd::agents::HighDensityContextStore::new(10));
@@ -65,5 +79,8 @@ fn test_empirical_gmcp_agent_verification() {
     let res = agent.execute("verify gmcp endpoints", &ws, &blackboard);
     assert!(res.is_ok());
     let output = res.unwrap();
-    assert!(output.contains("GmcpAgent") && output.contains("OPTIMAL"));
+    assert!(
+        output.contains("GmcpAgent") && output.contains("OPTIMAL"),
+        "unexpected GmcpAgent output: {output}"
+    );
 }
