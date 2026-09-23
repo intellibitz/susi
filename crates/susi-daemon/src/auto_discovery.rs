@@ -310,7 +310,10 @@ mod tests {
         spawn_periodic_rediscovery(0);
     }
 
-    #[tokio::test]
+    // start_paused: tokio auto-advances the clock while idle, so the hung
+    // provider's 5s probe deadline resolves instantly instead of in real
+    // time — the hang-recovery assertion is unchanged.
+    #[tokio::test(start_paused = true)]
     async fn prune_removes_unhealthy_non_candle_providers() {
         use susi_gemi::susi_core::provider::{BoxFuture, Provider};
         use susi_gemi::susi_core::susi_error::EaiResult;

@@ -29,6 +29,10 @@ default = ["tools-rich"]
 tools-rich = ["susi-gmcp/tools-rich"]
 cuda = ["susi-gemi/cuda"]
 
+[dev-dependencies]
+# test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
+tokio = { version = "1.53", features = ["test-util"] }
+
 [target."cfg(windows)".dependencies]
 winapi = { version = "0.3", features = ["fileapi", "minwinbase"] }
 
