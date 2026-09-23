@@ -17,6 +17,7 @@
 
 # Local AI assistant scratch / session artifacts
 .ai/
+.myollamaenhancer/
 
 # Local properties & secrets
 local.properties
