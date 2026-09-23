@@ -28,12 +28,49 @@ pub enum McpCommands {
     Reset { server: String },
     /// Show enablement status for the top MCP servers
     Status,
+    /// Invoke a tool on a peer MCP endpoint (`host:port`) over the
+    /// session-aware channel — the same path cluster replication uses.
+    Call {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Tool name as exposed by the peer's tools/list
+        tool: String,
+        /// JSON arguments object (default {})
+        #[arg(long, default_value = "{}")]
+        args: String,
+        /// Bearer token (default: ~/.susi/api_token)
+        #[arg(long)]
+        token: Option<String>,
+    },
 }
 
 /// Returns `true` when the caller should run the native stdio MCP server.
 pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
     match action.unwrap_or(McpCommands::Serve) {
         McpCommands::Serve => Ok(true),
+        McpCommands::Call {
+            addr,
+            tool,
+            args,
+            token,
+        } => {
+            let arguments: serde_json::Value = serde_json::from_str(&args)
+                .map_err(|e| anyhow::anyhow!("--args must be a JSON object: {e}"))?;
+            let bearer = match token {
+                Some(t) => Some(t),
+                None => {
+                    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
+                        .ok()
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                }
+            };
+            let result =
+                susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(false)
+        }
         McpCommands::List | McpCommands::Status => {
             let manager = LeadingMcpManager::new(workspace)?;
             print_json(&manager.status()?)?;

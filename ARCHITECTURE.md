@@ -137,12 +137,20 @@ leaf services: the `LEAF_SERVICES` registry (binary name, port env var,
 default port), the shared process table at `substrate_home/services.json`
 (atomic temp+rename writes; corrupt reads as empty), `probe` (TCP liveness),
 `pid_alive`, and `status` (registry joined with live probes).
-`susi-daemon::supervisor` is the init half: `run_daemon_loop` spawns any
-leaf service whose port is dead (binary found next to the daemon, then
-`substrate_home/bin`, then `$PATH`), records supervised pids, health-checks
-on a 5s cadence, respawns crashes up to 10 restarts, and SIGTERM→SIGKILLs
-its own children on graceful shutdown — it never kills processes it did
-not spawn. `susi services` (root CLI) prints the joined table/health view
+`susi-daemon::supervisor` is the init half: `ensure_leaf_services` +
+`monitor_loop` spawn any leaf service whose port is dead and record
+supervised pids — resolution order is a sibling `susi-<name>` binary
+(dev/staged layout) then self-reexec of the running `susi` binary in
+`service-run <name>` mode, so a staged `~/.susi/bin/susi` is always able
+to fill every leaf role with a version-matched process. Each leaf crate
+exposes `serve(port)` in its lib; the standalone `susi-<name>` binaries
+are thin shells over the same entry. Health checks run on a 5s cadence;
+services missing from the table are retried every 30s (binary may
+appear after daemon boot); crashes respawn up to 10 restarts then
+suspend for a 5min `disabled_until` cooldown (fresh budget after) —
+never abandoned. SIGTERM→SIGKILL applies to the daemon's own children
+only — it never kills processes it did not spawn.
+`susi services` (root CLI) prints the joined table/health view
 and `susi services restart <name>` SIGTERMs a supervised pid for the
 supervisor to respawn. `susi-gmcp` exposes the same surface to agents as
 governed tools (`os_services`, `os_ps`, `os_sysinfo`, `os_kill`), each
