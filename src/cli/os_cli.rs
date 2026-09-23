@@ -19,9 +19,9 @@ pub enum OsCommands {
     },
 }
 
-pub fn execute(action: Option<OsCommands>, _workspace: &Path) -> Result<()> {
+pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(OsCommands::Status { json: false }) {
-        OsCommands::Status { json } => status(json),
+        OsCommands::Status { json } => status(json || top_json),
     }
 }
 
@@ -52,7 +52,7 @@ fn status(json: bool) -> Result<()> {
             })).collect::<Vec<_>>(),
             "peers": peers.iter().map(|p| serde_json::json!({
                 "node_id": &p.node_id, "address": &p.address,
-                "trust_score": p.trust_score, "is_active": p.is_active,
+                "trust_score": p.trust_score, "fresh": p.fresh(),
                 "reachable": p.probe(),
             })).collect::<Vec<_>>(),
         });
@@ -111,7 +111,7 @@ fn status(json: bool) -> Result<()> {
         println!();
         println!(
             "{:<22} {:<22} {:<7} {:<7} REACHABLE",
-            "PEER", "ADDRESS", "TRUST", "ACTIVE"
+            "PEER", "ADDRESS", "TRUST", "FRESH"
         );
         for p in &peers {
             println!(
@@ -119,7 +119,7 @@ fn status(json: bool) -> Result<()> {
                 p.node_id,
                 p.address,
                 p.trust_score,
-                if p.is_active { "yes" } else { "no" },
+                if p.fresh() { "yes" } else { "stale" },
                 if p.probe() { "yes" } else { "no" }
             );
         }
@@ -156,16 +156,30 @@ fn leader_display<'a>(
 }
 
 /// The persisted roster is `susi_gawd_swarm`'s type; the root crate reads
-/// it structurally (node_id / address / trust_score / is_active) so the
+/// it structurally (node_id / address / trust_score / last_seen_secs) so the
 /// OS view needs no dependency edge into the swarm plane.
 struct PeerView {
     node_id: String,
     address: String,
     trust_score: f64,
-    is_active: bool,
+    last_seen_secs: u64,
 }
 
+/// Mirrors `susi_gawd_swarm::amas::PEER_STALE_SECS` — kept as a literal so
+/// the root crate keeps zero dependency edges into the swarm plane.
+const PEER_STALE_SECS: u64 = 30;
+
 impl PeerView {
+    /// Whether the peer's last signed pong is inside the staleness window —
+    /// the swarm's definition of quorum-eligible liveness.
+    fn fresh(&self) -> bool {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        self.last_seen_secs != 0 && now.saturating_sub(self.last_seen_secs) <= PEER_STALE_SECS
+    }
+
     /// TCP liveness probe — the persisted roster only records who was
     /// verified, not who is reachable right now. 300ms budget: peers
     /// are LAN-adjacent, so a longer wait just stalls the status view.
@@ -199,10 +213,10 @@ fn load_verified_peers() -> Vec<PeerView> {
                 node_id: n.get("node_id")?.as_str()?.to_string(),
                 address: n.get("address")?.as_str()?.to_string(),
                 trust_score: n.get("trust_score").and_then(|t| t.as_f64()).unwrap_or(0.0),
-                is_active: n
-                    .get("is_active")
-                    .and_then(|a| a.as_bool())
-                    .unwrap_or(false),
+                last_seen_secs: n
+                    .get("last_seen_secs")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
             })
         })
         .collect()

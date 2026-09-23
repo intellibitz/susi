@@ -127,9 +127,9 @@ pub(crate) fn dispatch(
             commits_cli::execute(action, cwd)
         }));
     }
-    if let Some(Commands::Os { action }) = command {
+    if let Some(Commands::Os { json, action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
-            os_cli::execute(action, cwd)
+            os_cli::execute(action, json, cwd)
         }));
     }
     if let Some(Commands::Peers { action }) = command {

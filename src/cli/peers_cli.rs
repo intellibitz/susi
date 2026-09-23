@@ -39,6 +39,34 @@ fn load_registry() -> Vec<serde_json::Value> {
     serde_json::from_str(&text).unwrap_or_default()
 }
 
+/// A persisted peer is only "live" if it ponged within the swarm's staleness
+/// window — the on-disk `is_active` flag is last-sweep state and can be hours
+/// stale when the daemon isn't running.
+const PEER_STALE_SECS: u64 = 30;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Liveness for display: only a `last_seen_secs` within the staleness window
+/// counts — anything older (or absent, from a pre-liveness registry) shows
+/// `stale` until the peer re-verifies with a signed pong.
+fn liveness(n: &serde_json::Value) -> &'static str {
+    let now = now_secs();
+    let last_seen = n
+        .get("last_seen_secs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if last_seen != 0 && now.saturating_sub(last_seen) <= PEER_STALE_SECS {
+        "yes"
+    } else {
+        "stale"
+    }
+}
+
 fn list() -> Result<()> {
     let nodes = load_registry();
     if nodes.is_empty() {
@@ -46,7 +74,7 @@ fn list() -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<22} {:<22} {:<7} {:<8} ACTIVE",
+        "{:<22} {:<22} {:<7} {:<8} LIVE",
         "PEER", "ADDRESS", "TRUST", "ADMISSION"
     );
     for n in &nodes {
@@ -56,14 +84,7 @@ fn list() -> Result<()> {
             n.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
             n.get("trust_score").and_then(|v| v.as_f64()).unwrap_or(0.0),
             n.get("admission").and_then(|v| v.as_str()).unwrap_or("?"),
-            if n.get("is_active")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-            {
-                "yes"
-            } else {
-                "no"
-            }
+            liveness(n),
         );
     }
     Ok(())

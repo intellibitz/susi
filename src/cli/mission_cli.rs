@@ -346,9 +346,9 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 return std::process::ExitCode::FAILURE;
             }
         }
-        Commands::Os { action } => {
+        Commands::Os { json, action } => {
             // Same pre-boot-dispatch note as Services above.
-            if let Err(e) = os_cli::execute(action, cwd) {
+            if let Err(e) = os_cli::execute(action, json, cwd) {
                 eprintln!("{e}");
                 return std::process::ExitCode::FAILURE;
             }

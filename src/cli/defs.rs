@@ -180,6 +180,9 @@ pub(crate) enum Commands {
     },
     /// Operating-system view: consensus term/leader, services, verified peers
     Os {
+        /// Emit machine-readable JSON instead of the table view
+        #[arg(long)]
+        json: bool,
         #[command(subcommand)]
         action: Option<os_cli::OsCommands>,
     },
