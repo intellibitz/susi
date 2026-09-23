@@ -95,7 +95,7 @@ impl SusiAdmin {
 
         // 3. Model Integrity & Provenance
         let model_verifications =
-            susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
+            crate::susi_core::plane_bus::gemi::ModelManager::verify_local_models(workspace);
         if model_verifications
             .as_array()
             .map(|a| a.is_empty())
@@ -198,7 +198,7 @@ impl SusiAdmin {
         }
 
         {
-            let reflex_action = susi_core::plane_bus::gemi::pulse_reason(trimmed, workspace);
+            let reflex_action = crate::susi_core::plane_bus::gemi::pulse_reason(trimmed, workspace);
             let reflex_lower = reflex_action.to_lowercase();
             if reflex_action.is_empty() {
                 // fall through

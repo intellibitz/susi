@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::provider::{BoxFuture, Provider};
 
 /// Wire protocol for an HTTP inference backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,7 +70,7 @@ impl Provider for HttpProvider {
         &self.name
     }
 
-    fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
+    fn is_healthy(&self) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>> {
         let api_base = self.api_base.clone();
         let api_key = self.api_key.clone();
         let protocol = self.protocol;
@@ -79,7 +79,7 @@ impl Provider for HttpProvider {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
-                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
 
             match protocol {
                 InferenceProtocol::Anthropic => {
@@ -96,19 +96,15 @@ impl Provider for HttpProvider {
                         model,
                         api_key
                     );
-                    let res = client
-                        .get(&url)
-                        .send()
-                        .await
-                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                    let res = client.get(&url).send().await.map_err(|e| {
+                        crate::susi_core::susi_error::EaiError::network(e.to_string())
+                    })?;
                     Ok(res.status().is_success())
                 }
                 InferenceProtocol::Triton => {
-                    let res = client
-                        .get(&api_base)
-                        .send()
-                        .await
-                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                    let res = client.get(&api_base).send().await.map_err(|e| {
+                        crate::susi_core::susi_error::EaiError::network(e.to_string())
+                    })?;
                     Ok(res.status().is_success() || res.status().as_u16() == 405)
                 }
                 InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
@@ -118,17 +114,19 @@ impl Provider for HttpProvider {
                         req = req.bearer_auth(&api_key);
                     }
                     req = apply_openrouter_attribution(req, &api_base);
-                    let res = req
-                        .send()
-                        .await
-                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                    let res = req.send().await.map_err(|e| {
+                        crate::susi_core::susi_error::EaiError::network(e.to_string())
+                    })?;
                     Ok(res.status().is_success())
                 }
             }
         })
     }
 
-    fn generate(&self, prompt: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
+    fn generate(
+        &self,
+        prompt: &str,
+    ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
         let prompt = prompt.to_string();
         let api_base = self.api_base.trim_end_matches('/').to_string();
         let model = self.model.clone();
@@ -140,7 +138,7 @@ impl Provider for HttpProvider {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
-                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
 
             match protocol {
                 InferenceProtocol::OpenAiChat => {
@@ -158,12 +156,18 @@ impl Provider for HttpProvider {
                 InferenceProtocol::Triton => generate_triton(&client, &api_base, &prompt).await,
             }
             .map_err(|e| {
-                susi_core::susi_error::EaiError::process(format!("Provider '{}': {}", name, e))
+                crate::susi_core::susi_error::EaiError::process(format!(
+                    "Provider '{}': {}",
+                    name, e
+                ))
             })
         })
     }
 
-    fn embed(&self, text: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
+    fn embed(
+        &self,
+        text: &str,
+    ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<Vec<f32>>> {
         let text = text.to_string();
         let api_base = self.api_base.trim_end_matches('/').to_string();
         let model = self.model.clone();
@@ -174,7 +178,7 @@ impl Provider for HttpProvider {
             if protocol != InferenceProtocol::OpenAiChat
                 && protocol != InferenceProtocol::OpenAiCompletions
             {
-                return Err(susi_core::susi_error::EaiError::inference(
+                return Err(crate::susi_core::susi_error::EaiError::inference(
                     "Embeddings only supported on OpenAI-compatible providers",
                 ));
             }
@@ -191,9 +195,9 @@ impl Provider for HttpProvider {
             let res = req
                 .send()
                 .await
-                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
             if !res.status().is_success() {
-                return Err(susi_core::susi_error::EaiError::process(format!(
+                return Err(crate::susi_core::susi_error::EaiError::process(format!(
                     "HTTP Error: {}",
                     res.status()
                 )));
@@ -201,7 +205,7 @@ impl Provider for HttpProvider {
             let json: serde_json::Value = res
                 .json()
                 .await
-                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
+                .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
             let embedding = json["data"][0]["embedding"]
                 .as_array()
                 .unwrap_or(&Vec::new())
@@ -419,14 +423,14 @@ pub use susi_gemi_models::cloud::{
 /// register matching cloud providers (engines-only side effect).
 pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     let (env_name, path) = susi_gemi_models::cloud::register_api_key(vendor, api_key)?;
-    register_configured_cloud_endpoints(susi_core::registry::CapabilityRegistry::global());
+    register_configured_cloud_endpoints(crate::susi_core::registry::CapabilityRegistry::global());
     // Zero-config sticky pick: first registered vendor becomes preferred unless
     // the user already chose one (so a single `keys set` / env key is enough).
     let pref = crate::routing::InferenceRouter::load_preference();
     if pref.preferred_cloud.is_none() {
         let _ = crate::routing::InferenceRouter::set_preferred_cloud(vendor);
     }
-    let registered: Vec<String> = susi_core::registry::CapabilityRegistry::global()
+    let registered: Vec<String> = crate::susi_core::registry::CapabilityRegistry::global()
         .list_providers()
         .into_iter()
         .filter(|n| {
@@ -463,9 +467,11 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
 ///
 /// Zero-config contract: user only sets vendor API keys (shell env,
 /// `~/.susi/cloud.env`, or `susi keys set <vendor>`).
-pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::CapabilityRegistry) {
+pub fn register_configured_cloud_endpoints(
+    registry: &crate::susi_core::registry::CapabilityRegistry,
+) {
     apply_cloud_env_file();
-    if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+    if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
         if std::env::var("SUSI_VERBOSE").is_ok() {
             eprintln!("[PRIVACY] local_only mode — skipping cloud inference endpoint registration");
         }
@@ -568,7 +574,7 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
 /// Each entry mounts when its engine api_base is known and any required API key
 /// is present (local engines with empty api_key_env always admit). Live `/models`
 /// discovery remains unbounded on top of this ladder.
-pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry) {
+pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityRegistry) {
     apply_cloud_env_file();
     let endpoints = effective_inference_endpoints();
     let by_name: std::collections::BTreeMap<String, _> = endpoints
@@ -685,7 +691,7 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
 /// Probe an OpenAI-compatible `/models` listing and register each model id.
 /// Returns how many new providers were registered.
 pub async fn register_openai_compat_models(
-    registry: &susi_core::registry::CapabilityRegistry,
+    registry: &crate::susi_core::registry::CapabilityRegistry,
     engine_label: &str,
     api_base: &str,
     api_key: &str,
@@ -743,7 +749,9 @@ pub async fn register_openai_compat_models(
 /// Zero-Config Autonomous Engine Discovery
 /// Probes well-known local OpenAI-compat ports **and** every configured
 /// `inference_endpoints` base URL — open admission, not a fixed vendor list.
-pub async fn auto_discover_local_engines(registry: &susi_core::registry::CapabilityRegistry) {
+pub async fn auto_discover_local_engines(
+    registry: &crate::susi_core::registry::CapabilityRegistry,
+) {
     let mut endpoints: Vec<(String, String, String)> = vec![
         (
             "Ollama".into(),
@@ -810,7 +818,7 @@ pub async fn auto_discover_local_engines(registry: &susi_core::registry::Capabil
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_core::registry::CapabilityRegistry;
+    use crate::susi_core::registry::CapabilityRegistry;
 
     #[test]
     fn test_universal_engine_registration() {

@@ -3,7 +3,7 @@
 //! Linux reads come from `/sys/class/thermal`, `/sys/class/power_supply`, and
 //! `/proc/loadavg`. Other platforms return an empty snapshot.
 
-use susi_core::telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
+use crate::susi_core::telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
 
 pub fn sample() -> TelemetrySnapshot {
     #[cfg(target_os = "linux")]

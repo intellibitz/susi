@@ -1,9 +1,9 @@
 // Watches distillation_staged.jsonl and kicks off training once it crosses
 // the configured sample threshold.
 
+use crate::susi_core::plane_bus::gemi::SusiAlphaModel;
 use crate::susi_error::EaiResult;
 use std::path::Path;
-use susi_core::plane_bus::gemi::SusiAlphaModel;
 
 pub struct ReflexTrainer;
 

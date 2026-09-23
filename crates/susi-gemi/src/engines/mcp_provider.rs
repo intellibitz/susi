@@ -3,10 +3,10 @@
 
 use std::any::Any;
 
+use crate::susi_core::plane_bus::tools as plane_tools;
+use crate::susi_core::provider::{BoxFuture, Provider};
+use crate::susi_core::registry::CapabilityRegistry;
 use serde_json::json;
-use susi_core::plane_bus::tools as plane_tools;
-use susi_core::provider::{BoxFuture, Provider};
-use susi_core::registry::CapabilityRegistry;
 
 /// Inference backend backed by an MCP tool (`server:tool`).
 pub struct McpInferenceProvider {
@@ -37,20 +37,23 @@ impl Provider for McpInferenceProvider {
         &self.name
     }
 
-    fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
+    fn is_healthy(&self) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>> {
         // Presence in the live MCP catalog is the health signal; probing every
         // generate would be too expensive for the router.
         Box::pin(async move { Ok(true) })
     }
 
-    fn generate(&self, prompt: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
+    fn generate(
+        &self,
+        prompt: &str,
+    ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
         let server = self.server_name.clone();
         let tool = self.tool_name.clone();
         let prompt = prompt.to_string();
         Box::pin(async move {
             let text = invoke_mcp_llm(&server, &tool, &prompt);
             if text.trim().is_empty() || text.contains("[FAIL]") || text.contains("MCP Error") {
-                return Err(susi_core::susi_error::EaiError::inference(format!(
+                return Err(crate::susi_core::susi_error::EaiError::inference(format!(
                     "MCP inference via {}:{} failed: {}",
                     server,
                     tool,
@@ -61,9 +64,12 @@ impl Provider for McpInferenceProvider {
         })
     }
 
-    fn embed(&self, _text: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
+    fn embed(
+        &self,
+        _text: &str,
+    ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<Vec<f32>>> {
         Box::pin(async move {
-            Err(susi_core::susi_error::EaiError::inference(
+            Err(crate::susi_core::susi_error::EaiError::inference(
                 "MCP inference providers do not expose embeddings",
             ))
         })

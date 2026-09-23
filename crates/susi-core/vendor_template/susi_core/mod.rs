@@ -19,15 +19,18 @@ pub mod context_graph;
 pub mod evidence;
 pub mod intent_bus;
 pub mod mac_policy;
+pub mod manifold;
 pub mod net_guard;
 pub mod plane_bus;
 pub mod plane_bus_ipc;
 pub mod provider;
+pub mod queue;
 pub mod receipt_archive;
 pub mod registry;
 pub mod registry_ipc;
 pub mod task_manager;
 pub mod telemetry;
+pub mod truth;
 
 // Leaf modules vendored at the consumer's crate root, re-exported so
 // `susi_core::susi_error::…` / `susi_core::redact::…` call sites resolve
@@ -60,3 +63,4 @@ pub use task_manager::{
     TelemetryHistoryStore,
 };
 pub use telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};
+pub use truth::TruthTransformer;

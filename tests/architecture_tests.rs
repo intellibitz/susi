@@ -197,6 +197,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -213,6 +214,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -241,6 +243,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -292,6 +295,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -513,6 +517,21 @@ fn susi_gmcp_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-gmcp vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_gawd_agents_must_not_depend_on_workspace_crates() {
+    // susi-gawd-agents vendors the susi_core subset — fifth consumer under
+    // the microkernel path. susi-gawd-swarm / susi-gawd / susi-gemi keep
+    // their within-plane edges (allowed) but must not regain susi-core.
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-gawd-agents/Cargo.toml"))
+        .expect("susi-gawd-agents Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-gawd-agents vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
     );
 }
 

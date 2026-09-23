@@ -3,8 +3,8 @@
 //! Catalog / preflight / configure live in [`susi_gemi_models::coding_models`].
 //! Paid probe and provider construction stay here so models never depends on engines.
 
+use crate::susi_core::provider::Provider;
 use anyhow::{bail, Context, Result};
-use susi_core::provider::Provider;
 use susi_gemi_models::coding_models::CodingModelManager;
 
 use crate::http_provider::{HttpProvider, InferenceProtocol};
@@ -47,7 +47,7 @@ fn redact_secrets(text: &str) -> String {
             result = result.replace(&value, "[REDACTED]");
         }
     }
-    susi_core::redact::redact_patterns(
+    crate::susi_core::redact::redact_patterns(
         &["sk-".into(), "ghp_".into(), "github_pat_".into()],
         &result,
     )

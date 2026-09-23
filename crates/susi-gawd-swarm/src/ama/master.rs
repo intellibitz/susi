@@ -9,7 +9,7 @@ use std::path::Path;
 use susi_gawd_agents::AxiomSubstrate;
 
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
-    susi_core::plane_bus::tools::execute_tool(name, args, workspace)
+    crate::susi_core::plane_bus::tools::execute_tool(name, args, workspace)
         .unwrap_or_else(|e| format!("[Error] {e}"))
 }
 
@@ -45,7 +45,7 @@ impl SusiMasterAgent {
     pub fn sanitize_input(input: &str) -> EaiResult<String> {
         let trimmed = input.trim();
 
-        let hardware = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+        let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
 
         if trimmed.len() > max_len {
@@ -103,7 +103,7 @@ impl SusiMasterAgent {
         // Mission-scoped evidence ledger (same contract as `solve`): tool
         // dispatches record receipts here, and citation answers resolve from
         // them at verification and during cloud recovery.
-        let session = susi_core::capture::EvidenceSession::new(
+        let session = crate::susi_core::capture::EvidenceSession::new(
             goal,
             workspace,
             susi_gawd_agents::security::SecurityDetector::redact,
@@ -111,21 +111,23 @@ impl SusiMasterAgent {
         .ok();
         let _activation = session
             .as_ref()
-            .map(susi_core::capture::EvidenceSession::activate);
-        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
+            .map(crate::susi_core::capture::EvidenceSession::activate);
+        let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
 
-        let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+        let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) = {
-            let intent = susi_core::plane_bus::gemi::IntentClassifier::classify(goal);
-            susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(&intent))
+            let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(goal);
+            crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(
+                &intent,
+            ))
         };
         let model_path_str =
-            susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
+            crate::susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "Internal Hard-Compiled Substrate Genome".to_string());
-        let device = susi_core::plane_bus::gemi::HardwareProfiler::get_candle_device_label();
+        let device = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_candle_device_label();
         let local_models_count =
-            susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
+            crate::susi_core::plane_bus::gemi::ModelManager::list_models_len(workspace);
 
         eprintln!("<thinking>");
 
@@ -208,13 +210,13 @@ impl SusiMasterAgent {
         }
 
         // 1. Continuous Intent Manifold Routing
-        let manifold = susi_core::manifold::IntentManifold::analyze(goal);
+        let manifold = crate::susi_core::manifold::IntentManifold::analyze(goal);
         eprintln!(
             "\n[INTENT MANIFOLD ROUTING: {:?} (Risk: {:?})]",
             manifold.scope_of_impact, manifold.risk_profile
         );
 
-        if manifold.scope_of_impact == susi_core::manifold::ScopeOfImpact::Read {
+        if manifold.scope_of_impact == crate::susi_core::manifold::ScopeOfImpact::Read {
             // Glass Box Transparency (Mandate 26): the fast-path used to print
             // these two lines as pure narration with no backing call — the
             // trace claimed governance validation happened when it didn't.
@@ -325,7 +327,8 @@ impl SusiMasterAgent {
                 || lower_goal == "list models"
                 || lower_goal == "show models"
             {
-                let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+                let models =
+                    crate::susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
                 let count = models.as_array().map(|a| a.len()).unwrap_or(0);
                 format!("Active Model Substrates (Count: {count})\n\n{models}")
             } else {
@@ -343,7 +346,7 @@ impl SusiMasterAgent {
             eprintln!("\n[SUBSTRATE VERIFICATION RESULTS]");
             let mut verification_failed = false;
             let final_answer =
-                match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+                match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
                     &final_answer,
                     workspace,
                 ) {
@@ -376,13 +379,12 @@ impl SusiMasterAgent {
                 None => verify_compiled_read(goal, &final_answer),
             };
             let verification = native_verification.unwrap_or_else(|| {
-                susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                     goal,
                     "SUSI_SOLVE",
                     &final_answer,
                     workspace,
                 )
-                .map_err(Into::into)
             });
             let final_answer = match verification {
                 Ok(v) => {
@@ -509,7 +511,8 @@ impl SusiMasterAgent {
         // Captured receipts change the answer contract: with a live ledger the
         // answer must select evidence by citation, so swarm narrative alone can
         // never be the final answer while receipts exist to cite.
-        let evidence_prompt = susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
+        let evidence_prompt =
+            crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
         let reasoning_prompt = format!(
             "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission. Output finalized verified actions.{}",
             goal, swarm_context, evidence_prompt
@@ -524,7 +527,7 @@ impl SusiMasterAgent {
             eprintln!("{}", swarm_context);
             swarm_context
         } else {
-            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
                 &reasoning_prompt,
                 workspace,
                 _callback,
@@ -533,26 +536,29 @@ impl SusiMasterAgent {
 
         eprintln!("\n\n[SUBSTRATE VERIFICATION RESULTS]");
         let mut verification_failed = false;
-        let verified = match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
-            &final_answer,
-            workspace,
-        ) {
-            Ok(v) => {
-                eprintln!("- [Axiomatic Alignment Check] Status: SUCCESS | Alignment verified.");
-                v
-            }
-            Err(e) => {
-                verification_failed = true;
-                eprintln!(
-                    "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
-                    e
-                );
-                format!("Axiomatic Violation: {}", e)
-            }
-        };
+        let verified =
+            match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+                &final_answer,
+                workspace,
+            ) {
+                Ok(v) => {
+                    eprintln!(
+                        "- [Axiomatic Alignment Check] Status: SUCCESS | Alignment verified."
+                    );
+                    v
+                }
+                Err(e) => {
+                    verification_failed = true;
+                    eprintln!(
+                        "- [Axiomatic Alignment Check] Status: VIOLATION | Error: {}",
+                        e
+                    );
+                    format!("Axiomatic Violation: {}", e)
+                }
+            };
 
         let verified_final =
-            match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+            match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                 &goal,
                 "SUSI_SOLVE",
                 &verified,
@@ -599,7 +605,7 @@ impl SusiMasterAgent {
         // Mission-scoped evidence ledger: every real tool dispatch inside this
         // call — swarm agents on rayon workers, MCP calls, recovery attempts —
         // records a receipt. Answers certify only by citing those receipts.
-        let session = susi_core::capture::EvidenceSession::new(
+        let session = crate::susi_core::capture::EvidenceSession::new(
             goal,
             workspace,
             susi_gawd_agents::security::SecurityDetector::redact,
@@ -607,8 +613,8 @@ impl SusiMasterAgent {
         .ok();
         let _activation = session
             .as_ref()
-            .map(susi_core::capture::EvidenceSession::activate);
-        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
+            .map(crate::susi_core::capture::EvidenceSession::activate);
+        let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
         crate::cloud_recovery::recover(&mut report, workspace);
         attach_evidence_ledger(&mut report, session.as_ref(), workspace);
@@ -628,7 +634,7 @@ impl SusiMasterAgent {
         let goal = Self::sanitize_input(goal)?;
         let plan = self.plan_steps(&goal, workspace, max_steps);
 
-        let session = susi_core::capture::EvidenceSession::new(
+        let session = crate::susi_core::capture::EvidenceSession::new(
             &goal,
             workspace,
             susi_gawd_agents::security::SecurityDetector::redact,
@@ -636,14 +642,14 @@ impl SusiMasterAgent {
         .ok();
         let _activation = session
             .as_ref()
-            .map(susi_core::capture::EvidenceSession::activate);
-        let _scope = susi_core::capture::EvidenceSession::enter(session.clone());
+            .map(crate::susi_core::capture::EvidenceSession::activate);
+        let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
 
         let mut step_reports = Vec::new();
         let mut step_summaries = Vec::new();
 
         // Multi-agent transaction boundary for the planning loop.
-        let plan_tx = susi_core::agent_tx::TxManager::global()
+        let plan_tx = crate::susi_core::agent_tx::TxManager::global()
             .begin(
                 workspace,
                 &format!("autonomous plan: {goal}"),
@@ -673,7 +679,7 @@ impl SusiMasterAgent {
             step_summaries.push(summary);
             step_reports.push(report.clone());
 
-            susi_core::context_graph::ContextGraph::global().record_agent_observation(
+            crate::susi_core::context_graph::ContextGraph::global().record_agent_observation(
                 session.as_ref().map(|s| s.id()),
                 "AutonomousPlanner",
                 &format!("{}: {}", step, report.final_answer),
@@ -682,7 +688,8 @@ impl SusiMasterAgent {
 
             if !success {
                 if let Some(ref tx) = plan_tx {
-                    let _ = susi_core::agent_tx::TxManager::global().abort(&tx.id, workspace);
+                    let _ =
+                        crate::susi_core::agent_tx::TxManager::global().abort(&tx.id, workspace);
                 }
                 let mut final_report = SusiMissionReport {
                     goal: goal.clone(),
@@ -702,7 +709,7 @@ impl SusiMasterAgent {
         }
 
         if let Some(ref tx) = plan_tx {
-            let _ = susi_core::agent_tx::TxManager::global().commit(&tx.id);
+            let _ = crate::susi_core::agent_tx::TxManager::global().commit(&tx.id);
         }
 
         // Synthesize final answer from step results.
@@ -733,7 +740,7 @@ impl SusiMasterAgent {
             goal
         );
         let response =
-            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
         let steps: Vec<String> = response
             .lines()
             .filter(|l| !l.trim().is_empty())
@@ -804,7 +811,7 @@ impl SusiMasterAgent {
 
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
-            let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+            let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
             let global_dir = crate::susi_paths::SusiDirs::config_dir();
             let daemon_status = if crate::susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
@@ -829,7 +836,7 @@ impl SusiMasterAgent {
 
         if trimmed_query == "models" || trimmed_query == "susi models" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
-            let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+            let models = crate::susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
             let roster = format!("SUSI Substrate Models Roster ({version}) :\n{models}");
             return Ok(SusiMissionReport {
                 goal: goal.to_string(),
@@ -877,7 +884,7 @@ impl SusiMasterAgent {
             // those receipts — swarm narrative and motion labels are not proof.
             // Force the synthesis step so the model can select citations.
             let evidence_prompt =
-                susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
+                crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace);
 
             let final_answer = if is_motion && evidence_prompt.is_empty() {
                 // Admin/motion goal: label the output accordingly
@@ -914,7 +921,7 @@ impl SusiMasterAgent {
                 };
                 let _ = context_words;
                 let selected_model =
-                    susi_core::plane_bus::gemi::ModelManager::get_selected_model_for_request_with_min_complexity(
+                    crate::susi_core::plane_bus::gemi::ModelManager::get_selected_model_for_request_with_min_complexity(
                         &current_goal,
                         Some(workspace),
                         min_complexity_for_attempt,
@@ -924,7 +931,7 @@ impl SusiMasterAgent {
                     .unwrap_or("automatic provisioning");
                 let local_inference = match selected_model.as_deref() {
                     Some(model) => {
-                        susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+                        crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                             &reasoning_prompt,
                             workspace,
                             model,
@@ -932,13 +939,13 @@ impl SusiMasterAgent {
                     }
                     None => {
                         if let Some(c) = min_complexity_for_attempt {
-                            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_min_complexity(
+                            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_min_complexity(
                                 &reasoning_prompt,
                                 workspace,
                                 c,
                             )
                         } else {
-                            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
                                 &reasoning_prompt,
                                 workspace,
                             )
@@ -952,13 +959,13 @@ impl SusiMasterAgent {
             };
 
             // 4. Axiomatic Alignment Check
-            match susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+            match crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
                 &final_answer,
                 workspace,
             ) {
                 Ok(ans) => {
                     // 5. Reality Verification
-                    match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &current_goal,
                         "SUSI_SOLVE",
                         &ans,
@@ -983,7 +990,7 @@ impl SusiMasterAgent {
                                     "RETRY_LOOP_DETECTED",
                                     &format!("Same error repeated: {}", error_str),
                                 );
-                                return Err(e.into());
+                                return Err(e);
                             }
 
                             previous_errors.insert(error_sig);
@@ -1002,7 +1009,7 @@ impl SusiMasterAgent {
                                 last_error.chars().take(200).collect::<String>()
                             );
                         }
-                        Err(e) => return Err(e.into()),
+                        Err(e) => return Err(e),
                     }
                 }
                 Err(e) => {
@@ -1039,7 +1046,7 @@ impl SusiMasterAgent {
         depth: u32,
     ) -> EaiResult<SusiMissionReport> {
         let plan_val =
-            susi_core::plane_bus::gemi::MissionPlanner::partition_mission(goal, workspace)
+            crate::susi_core::plane_bus::gemi::MissionPlanner::partition_mission(goal, workspace)
                 .map_err(crate::susi_error::EaiError::governance)?;
         let goals = mission_plan_goals(&plan_val);
 
@@ -1097,7 +1104,7 @@ impl SusiMasterAgent {
         depth: u32,
     ) -> EaiResult<SusiMissionReport> {
         let mut plan_val =
-            susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
+            crate::susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
                 .map_err(crate::susi_error::EaiError::governance)?;
         let mut goals = mission_plan_goals(&plan_val);
         let mut all_interactions = Vec::new();
@@ -1125,7 +1132,7 @@ impl SusiMasterAgent {
                 );
 
                 let blackboard_state = format!("LATEST_OUTCOME: {}", report.final_answer);
-                if let Ok(new_plan) = susi_core::plane_bus::gemi::MissionPlanner::refine_plan(
+                if let Ok(new_plan) = crate::susi_core::plane_bus::gemi::MissionPlanner::refine_plan(
                     goal,
                     &serde_json::json!({ "blackboard": blackboard_state }),
                     workspace,
@@ -1166,7 +1173,7 @@ impl SusiMasterAgent {
         if !all_ok {
             return ("FAILED".to_string(), joined);
         }
-        match susi_core::capture::EvidenceSession::verify_answer(&joined, workspace) {
+        match crate::susi_core::capture::EvidenceSession::verify_answer(&joined, workspace) {
             Some(Ok(rendered)) => ("COMPLETE".to_string(), rendered),
             Some(Err(e)) => (
                 "FAILED".to_string(),
@@ -1175,7 +1182,7 @@ impl SusiMasterAgent {
             None => {
                 // No live receipts requiring citation — children already absolute.
                 // Still run the crown gate so fabricated join text cannot slip.
-                match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                     goal,
                     "AGGREGATE_JOIN",
                     &joined,
@@ -1201,7 +1208,7 @@ impl SusiMasterAgent {
 
     pub fn generate_substrate_report(&self, workspace: &Path) -> EaiResult<String> {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
-        let model_name = susi_core::plane_bus::gemi::ModelManager::get_selected_model(None)
+        let model_name = crate::susi_core::plane_bus::gemi::ModelManager::get_selected_model(None)
             .unwrap_or_else(|| {
                 let filename = crate::susi_sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
@@ -1233,7 +1240,7 @@ impl SusiMasterAgent {
 /// trace (Design principle: Traceable reasoning).
 fn attach_evidence_ledger(
     report: &mut SusiMissionReport,
-    session: Option<&std::sync::Arc<susi_core::capture::EvidenceSession>>,
+    session: Option<&std::sync::Arc<crate::susi_core::capture::EvidenceSession>>,
     workspace: &Path,
 ) {
     if let Some(session) = session {

@@ -6,6 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+crossbeam = "0.8"
+regex = "1.13"
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

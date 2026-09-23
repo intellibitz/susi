@@ -49,7 +49,7 @@ impl SecurityDetector {
             Ok(cfg) => cfg.governance().secret_tokens,
             Err(_) => return text.to_string(),
         };
-        susi_core::redact::redact_patterns(&patterns, text)
+        crate::susi_core::redact::redact_patterns(&patterns, text)
     }
 }
 

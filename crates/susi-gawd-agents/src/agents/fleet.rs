@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use susi_core::{
+pub use crate::susi_core::{
     AgentMetaRegistry, AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo,
     HighDensityContextStore, MissionBlackboard, SwarmBlackboard,
 };
@@ -22,8 +22,8 @@ use super::native::*;
 // functions construct concrete agent structs below, so they stay here in
 // `gawd` as free functions rather than methods on the (now cross-crate)
 // `AgentMetaRegistry` type; nothing outside `gawd` ever called them.
+use crate::susi_core::registry::DynamicServiceRegistry;
 use std::sync::OnceLock;
-use susi_core::registry::DynamicServiceRegistry;
 
 pub fn agent_registry() -> &'static DynamicServiceRegistry {
     static REGISTRY: OnceLock<DynamicServiceRegistry> = OnceLock::new();
@@ -110,7 +110,8 @@ impl NeuralAgentFactory {
         let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
-        let res = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
+        let res =
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
             crate::susi_error::EaiError::protocol(format!(
                 "Neural Agent Synthesis Failed: {}. Raw: {}",
@@ -211,7 +212,7 @@ impl GawdAgentFleet {
     }
 
     pub fn get_max_concurrent_agents() -> usize {
-        let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+        let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let base_limit = if THROTTLE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
@@ -338,7 +339,7 @@ impl GawdAgentFleet {
                     (a.name.clone(), desc)
                 })
                 .collect();
-            let bus = susi_core::intent_bus::IntentBus::global();
+            let bus = crate::susi_core::intent_bus::IntentBus::global();
             for (name, desc) in &caps {
                 let _ = bus.advertise(name, desc, serde_json::json!({"agent": name}), None);
             }
@@ -396,7 +397,7 @@ impl GawdAgentFleet {
 
         if !lower_goal.contains("admin mission") && !lower_goal.contains("admin pulse") {
             if let Ok(goal_vec) =
-                susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
+                crate::susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
                     goal, workspace,
                 )
             {
@@ -414,7 +415,7 @@ impl GawdAgentFleet {
                     agent_corpus.push_str(&agent.description);
 
                     if let Ok(agent_vec) =
-                        susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
+                        crate::susi_core::plane_bus::gemi::SusiAlphaModel::semantic_centroid_projection(
                             &agent_corpus,
                             workspace,
                         )
@@ -553,7 +554,7 @@ impl GawdAgentFleet {
 
         let par_results: Vec<(String, String)> = agents.into_par_iter().map(|agent| {
             let name = agent.name();
-            let task_handle = susi_core::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
+            let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global().register_task(&name, &goal);
             let start = std::time::Instant::now();
 
             task_handle.check_pause();
@@ -607,7 +608,7 @@ fn persist_governance_report(workspace: &Path, results: &[(String, String)], cle
     let agents: Vec<serde_json::Value> = results
         .iter()
         .map(|(name, outcome)| {
-            let redacted = susi_core::redact::redact_patterns(
+            let redacted = crate::susi_core::redact::redact_patterns(
                 &[
                     "sk-".into(),
                     "ghp_".into(),
@@ -1108,7 +1109,7 @@ mod tests {
 
     #[test]
     fn test_epistemic_auditor_rejects_unverified_evidence_record() {
-        use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
+        use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
         let blackboard: MissionBlackboard = Arc::new(HighDensityContextStore::new(10));
         let record = EvidenceRecord::new(
             "agent".into(),

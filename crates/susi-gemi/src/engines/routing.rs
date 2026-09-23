@@ -212,7 +212,7 @@ impl InferenceRouter {
     /// LLM tools (`mcp-*`). This is the source of truth for OpenAI-compatible
     /// vendors and MCP-exposed cloud models.
     pub fn list_cloud_providers_from_registry(
-        registry: &susi_core::registry::CapabilityRegistry,
+        registry: &crate::susi_core::registry::CapabilityRegistry,
     ) -> Vec<String> {
         let mut clouds = Vec::new();
         for name in registry.list_providers() {
@@ -238,8 +238,10 @@ impl InferenceRouter {
 
     /// One deterministic recovery pass, honoring local-only policy and the
     /// preferred vendor without changing process-wide routing preferences.
-    pub fn cloud_failover_order(registry: &susi_core::registry::CapabilityRegistry) -> Vec<String> {
-        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+    pub fn cloud_failover_order(
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+    ) -> Vec<String> {
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             return Vec::new();
         }
         let cfg = SusiConfig::load_global()
@@ -306,7 +308,7 @@ impl InferenceRouter {
     pub fn maybe_escalate_to_cloud(available_providers: &[String]) -> Option<CloudEscalation> {
         // Hard edge-privacy gate: local_only MAC mode never escalates unless
         // an explicit cloud.inference capability token was granted.
-        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             return None;
         }
 
@@ -318,7 +320,7 @@ impl InferenceRouter {
         // Prefer registry HTTPS remotes (any OpenAI-compat vendor); fall back
         // to name heuristics when only bare names are supplied (tests).
         let mut clouds = Self::list_cloud_providers_from_registry(
-            susi_core::registry::CapabilityRegistry::global(),
+            crate::susi_core::registry::CapabilityRegistry::global(),
         );
         if clouds.is_empty() {
             clouds = Self::list_cloud_providers(available_providers);
@@ -588,7 +590,7 @@ mod tests {
 
     #[test]
     fn cloud_failover_order_prefers_sticky_vendor_once() {
-        use susi_core::registry::CapabilityRegistry;
+        use crate::susi_core::registry::CapabilityRegistry;
 
         // Serialize against every other test that touches the real
         // preference file or mutates HOME / XDG (see env_test_lock's doc).

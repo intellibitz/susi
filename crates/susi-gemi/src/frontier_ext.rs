@@ -1,6 +1,6 @@
 //! Engines-side frontier model helpers (prefer routing, paid/local probe).
+use crate::susi_core::provider::Provider;
 use anyhow::{bail, Context, Result};
-use susi_core::provider::Provider;
 use susi_gemi_models::frontier::FrontierManager;
 
 use crate::http_provider::{HttpProvider, InferenceProtocol};
@@ -59,7 +59,7 @@ fn redact_secrets(text: &str) -> String {
             result = result.replace(&value, "[REDACTED]");
         }
     }
-    susi_core::redact::redact_patterns(
+    crate::susi_core::redact::redact_patterns(
         &[
             "sk-".into(),
             "sk-or-".into(),

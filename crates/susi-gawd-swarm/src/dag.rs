@@ -1,10 +1,10 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
+use crate::susi_core::evidence::EvidenceRecord;
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::Arc;
-use susi_core::evidence::EvidenceRecord;
 use susi_gawd_agents::agents::MissionBlackboard;
 
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ impl MissionDag {
         &mut self,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-        event_sender: &flume::Sender<susi_core::bus::SwarmEventType>,
+        event_sender: &flume::Sender<crate::susi_core::bus::SwarmEventType>,
     ) -> EaiResult<Vec<EvidenceRecord>> {
         use rayon::prelude::*;
         let mut all_evidence = Vec::new();
@@ -80,13 +80,14 @@ impl MissionDag {
                 .map(|idx| {
                     let node = &self.nodes[idx];
                     let start = std::time::Instant::now();
-                    let _ = tx.send(susi_core::bus::SwarmEventType::AgentStarted {
+                    let _ = tx.send(crate::susi_core::bus::SwarmEventType::AgentStarted {
                         agent_name: node.title.clone(),
                     });
 
                     let prompt = format!("Execute task node '{}': {}", node.title, node.goal);
-                    let res =
-                        susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, &ws);
+                    let res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
+                        &prompt, &ws,
+                    );
 
                     let elapsed = start.elapsed().as_millis() as u64;
                     (idx, Ok(res), elapsed)
@@ -97,7 +98,7 @@ impl MissionDag {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
-                    match susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &self.nodes[idx].goal,
                         &self.nodes[idx].title,
                         &output,
@@ -105,7 +106,7 @@ impl MissionDag {
                     ) {
                         Ok(verified) => {
                             let _ =
-                                event_sender.send(susi_core::bus::SwarmEventType::AgentCompleted {
+                                event_sender.send(crate::susi_core::bus::SwarmEventType::AgentCompleted {
                                     agent_name: self.nodes[idx].title.clone(),
                                     elapsed_ms: elapsed,
                                 });
@@ -116,7 +117,7 @@ impl MissionDag {
                             // Pillar Evidence: only store Claim trails that assess Verified
                             // (ToolReceipt-bound). Naked AgentObservation IR is not a trail.
                             if let Some(session) =
-                                susi_core::capture::EvidenceSession::for_workspace(workspace)
+                                crate::susi_core::capture::EvidenceSession::for_workspace(workspace)
                             {
                                 if let Some(receipt) =
                                     session.receipts().into_iter().find(|r| r.successful)
@@ -124,7 +125,7 @@ impl MissionDag {
                                     if let Ok(record) = session.bind_receipt(
                                         &receipt.id,
                                         &self.nodes[idx].title,
-                                        susi_core::evidence::Claim {
+                                        crate::susi_core::evidence::Claim {
                                             subject: self.nodes[idx].title.clone(),
                                             predicate: "observed".to_string(),
                                             value: receipt.output_hash.clone(),
@@ -140,7 +141,7 @@ impl MissionDag {
                         Err(e) => {
                             let msg = format!("[TRUTH_VIOLATION] {}", e);
                             bb.insert(format!("TaskNode_{}", idx), msg);
-                            return Err(e.into());
+                            return Err(e);
                         }
                     }
                 }
@@ -159,7 +160,7 @@ pub fn dispatch_mission_dag(
 ) -> Vec<(String, String)> {
     let mut results = Vec::new();
     let mut dag = MissionDag::new(goal);
-    let (event_tx, _event_rx) = susi_core::bus::create_swarm_bus();
+    let (event_tx, _event_rx) = crate::susi_core::bus::create_swarm_bus();
     match dag.execute_dag(workspace, blackboard, &event_tx) {
         Ok(evidence_records) => {
             for record in &evidence_records {
@@ -192,7 +193,7 @@ mod tests {
             let mut dag = MissionDag::new("inspect");
             dag.nodes[0].dependencies = vec![dependency];
             let board = Arc::new(HighDensityContextStore::new(1024));
-            let (tx, rx) = susi_core::bus::create_swarm_bus();
+            let (tx, rx) = crate::susi_core::bus::create_swarm_bus();
             assert!(dag.execute_dag(Path::new("."), &board, &tx).is_err());
             assert!(!dag.nodes[0].completed);
             assert!(board.is_empty());
@@ -205,7 +206,7 @@ mod tests {
         let mut dag = MissionDag::new("inspect");
         dag.nodes[0].completed = true;
         let board = Arc::new(HighDensityContextStore::new(1024));
-        let (tx, rx) = susi_core::bus::create_swarm_bus();
+        let (tx, rx) = crate::susi_core::bus::create_swarm_bus();
         assert!(dag
             .execute_dag(Path::new("."), &board, &tx)
             .unwrap()

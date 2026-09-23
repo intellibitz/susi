@@ -41,21 +41,19 @@ pub mod susi_config;
 #[rustfmt::skip]
 pub mod susi_sandbox;
 
-// Vendored-error boundary: `GawdAgent` and susi-core APIs use their own
-// vendored `EaiError`; these conversions preserve the error kind via
-// `rewrap` so `?` keeps working across the vendored boundary. Sandbox
-// now shares this crate's `susi_error` module — no bridge needed.
-impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
-    fn from(e: susi_core::susi_error::EaiError) -> Self {
-        susi_error::rewrap(e.kind_name(), e.to_string())
-    }
-}
+// Vendored `susi_core` microkernel subset (canonical tree:
+// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
+// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
+// substrate files. Allows keep the tree byte-identical across consumers:
+// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
+// stop edition-2024 style drift against the edition-2021 canonical source.
+#[allow(dead_code, clippy::collapsible_if)]
+#[rustfmt::skip]
+pub mod susi_core;
 
-impl From<susi_error::EaiError> for susi_core::susi_error::EaiError {
-    fn from(e: susi_error::EaiError) -> Self {
-        susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-    }
-}
+// The vendored `susi_core` re-exports this crate's `susi_error` module
+// (`susi_core::susi_error` is `crate::susi_error`), so no `From` bridge is
+// needed — `?` converts trivially.
 
 pub mod accountability;
 pub mod admin_hooks;
@@ -91,9 +89,9 @@ pub use self_core::AlphaSelf;
 pub(crate) mod test_plane {
     use std::sync::{Arc, Mutex, Once};
 
+    use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use crate::susi_core::AgentProfile;
     use serde_json::{json, Value};
-    use susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
-    use susi_core::AgentProfile;
 
     struct TestAgentsHandler {
         profiles: Mutex<Vec<AgentProfile>>,

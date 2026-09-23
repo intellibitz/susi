@@ -132,11 +132,13 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
             .current_dir(workspace)
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
-            .map_err(|e| susi_core::susi_error::EaiError::process(format!("Exec failed: {e}")))?;
+            .map_err(|e| {
+                crate::susi_core::susi_error::EaiError::process(format!("Exec failed: {e}"))
+            })?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         if !output.status.success() {
-            return Err(susi_core::susi_error::EaiError::process(
+            return Err(crate::susi_core::susi_error::EaiError::process(
                 if stderr.is_empty() {
                     "Command failed with non-zero exit status".into()
                 } else {
@@ -148,7 +150,7 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
     };
     // Mint a ledger receipt whenever a mission session is live — native reads
     // must not bypass capture just because they skip ToolRegistry.
-    susi_core::capture::EvidenceSession::capture_call(
+    crate::susi_core::capture::EvidenceSession::capture_call(
         "exec_command",
         &serde_json::Value::String(cmd.to_string()),
         workspace,
@@ -158,8 +160,8 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
 }
 
 fn run_exec(workspace: &Path, cmd: &str) -> String {
-    if susi_core::plane_bus::tools::exists("exec_command") {
-        let out = susi_core::plane_bus::tools::execute_tool(
+    if crate::susi_core::plane_bus::tools::exists("exec_command") {
+        let out = crate::susi_core::plane_bus::tools::execute_tool(
             "exec_command",
             &serde_json::Value::String(cmd.to_string()),
             workspace,

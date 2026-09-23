@@ -10,7 +10,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::peer_registry;
-use susi_core::plane_bus::gemi::HardwareProfiler;
+use crate::susi_core::plane_bus::gemi::HardwareProfiler;
 use susi_gawd_agents::agents::{GawdAgentFleet, GawdAgentInfo, MissionBlackboard};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,7 +99,7 @@ impl CapabilityBloom {
     /// with the local ToolRegistry (Registry + Trait + Config pattern: zero
     /// hardcoded capability strings, derived from what's actually loaded).
     pub fn local_snapshot() -> Self {
-        let tokens: Vec<String> = susi_core::registry::CapabilityRegistry::global()
+        let tokens: Vec<String> = crate::susi_core::registry::CapabilityRegistry::global()
             .list_tools()
             .into_iter()
             .map(|name| name.to_lowercase())
@@ -651,46 +651,47 @@ impl SusiSupervisor {
             // Consensus Hardening: quorum-commit first (real majority agreement
             // across whatever independently responded, local or peer), then
             // direct pass-through, then rank-leader, then LLM re-synthesis.
-            let (synthesized, convergence_action) =
-                if is_direct_synthesis || valid_outputs.len() <= 1 {
-                    let out = if valid_outputs.len() == 1 {
-                        valid_outputs[0].1.clone()
-                    } else {
-                        weighted_wisdom.clone()
-                    };
-                    (out, "STATE_CONVERGENCE")
-                } else if let Some(quorum_output) = Self::quorum_majority(&valid_outputs) {
-                    eprintln!(
-                        "- [Consensus Master] Quorum reached: {} agree on the same output.",
-                        valid_outputs.len()
-                    );
-                    let _ = std::io::stdout().flush();
-                    (quorum_output, "QUORUM_COMMIT")
-                } else if let Some(leader_output) =
-                    Self::dominant_rank_leader(&valid_outputs, &fleet_info)
-                {
-                    (leader_output.to_string(), "STATE_CONVERGENCE")
+            let (synthesized, convergence_action) = if is_direct_synthesis
+                || valid_outputs.len() <= 1
+            {
+                let out = if valid_outputs.len() == 1 {
+                    valid_outputs[0].1.clone()
                 } else {
-                    let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
-                    let consensus_prompt = prompts
-                        .consensus_wisdom_prompt()
-                        .replace("{goal}", goal)
-                        .replace("{wisdom}", &weighted_wisdom);
-                    eprintln!(
-                        "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
-                        valid_outputs.len()
-                    );
-                    let _ = std::io::stdout().flush();
-                    let out = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
-                        &consensus_prompt,
-                        workspace,
-                        &|token| {
-                            print!("{}", token);
-                            let _ = std::io::stdout().flush();
-                        },
-                    );
-                    (out, "STATE_CONVERGENCE")
+                    weighted_wisdom.clone()
                 };
+                (out, "STATE_CONVERGENCE")
+            } else if let Some(quorum_output) = Self::quorum_majority(&valid_outputs) {
+                eprintln!(
+                    "- [Consensus Master] Quorum reached: {} agree on the same output.",
+                    valid_outputs.len()
+                );
+                let _ = std::io::stdout().flush();
+                (quorum_output, "QUORUM_COMMIT")
+            } else if let Some(leader_output) =
+                Self::dominant_rank_leader(&valid_outputs, &fleet_info)
+            {
+                (leader_output.to_string(), "STATE_CONVERGENCE")
+            } else {
+                let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
+                let consensus_prompt = prompts
+                    .consensus_wisdom_prompt()
+                    .replace("{goal}", goal)
+                    .replace("{wisdom}", &weighted_wisdom);
+                eprintln!(
+                    "- [Consensus Master] Synthesizing swarm wisdom across {} active agents...",
+                    valid_outputs.len()
+                );
+                let _ = std::io::stdout().flush();
+                let out = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_stream(
+                    &consensus_prompt,
+                    workspace,
+                    &|token| {
+                        print!("{}", token);
+                        let _ = std::io::stdout().flush();
+                    },
+                );
+                (out, "STATE_CONVERGENCE")
+            };
 
             // Measures reported execution outcomes, never factual accuracy.
             let agent_success_ratio = Self::reported_success_ratio(&a2a_logs, &fleet_info);

@@ -139,7 +139,7 @@ pub fn apply_patch_cycle(
     // Snapshot current content so we can restore on failure.
     let mut restore_map: Vec<(PathBuf, Option<String>)> = Vec::new();
     let file_rels: Vec<String> = request.files.iter().map(|f| f.path.clone()).collect();
-    let tx = susi_core::agent_tx::TxManager::global()
+    let tx = crate::susi_core::agent_tx::TxManager::global()
         .begin(
             workspace,
             &request.description,
@@ -215,10 +215,10 @@ pub fn apply_patch_cycle(
         files_changed.clear();
         reverted = true;
         if let Some(ref t) = tx {
-            let _ = susi_core::agent_tx::TxManager::global().abort(&t.id, workspace);
+            let _ = crate::susi_core::agent_tx::TxManager::global().abort(&t.id, workspace);
         }
     } else if let Some(ref t) = tx {
-        let _ = susi_core::agent_tx::TxManager::global().commit(&t.id);
+        let _ = crate::susi_core::agent_tx::TxManager::global().commit(&t.id);
     }
 
     let outcome = PatchOutcome {
@@ -244,7 +244,7 @@ pub fn apply_patch_cycle(
         "reverted": outcome.reverted,
         "error": outcome.error,
     });
-    susi_core::context_graph::ContextGraph::global().record_external_context(
+    crate::susi_core::context_graph::ContextGraph::global().record_external_context(
         "patch_cycle",
         &format!(
             "patch cycle: {} files, test_passed={}, reverted={}",

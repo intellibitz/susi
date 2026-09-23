@@ -254,11 +254,11 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
         match extract_place(goal) {
             Some(place) => {
                 let args = serde_json::json!({ "place": place });
-                match susi_core::capture::EvidenceSession::capture_call(
+                match crate::susi_core::capture::EvidenceSession::capture_call(
                     "open_meteo_weather",
                     &args,
                     workspace,
-                    || fetch_open_meteo_weather(&place).map_err(Into::into),
+                    || fetch_open_meteo_weather(&place),
                 ) {
                     Ok(report) => return report,
                     Err(e) => attempts.push(format!("Open-Meteo({place}): {e}")),
@@ -271,9 +271,9 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
     }
 
     for tool in ["brave_search", "google_search", "web_search"] {
-        if susi_core::plane_bus::tools::exists(tool) {
+        if crate::susi_core::plane_bus::tools::exists(tool) {
             let args = serde_json::json!({ "query": goal, "q": goal });
-            let out = susi_core::plane_bus::tools::execute_tool(tool, &args, workspace)
+            let out = crate::susi_core::plane_bus::tools::execute_tool(tool, &args, workspace)
                 .unwrap_or_default();
             let lower = out.to_ascii_lowercase();
             if !out.trim().is_empty()
@@ -294,11 +294,11 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
         }
     }
 
-    match susi_core::capture::EvidenceSession::capture_call(
+    match crate::susi_core::capture::EvidenceSession::capture_call(
         "duckduckgo_instant",
         &serde_json::json!({ "query": goal }),
         workspace,
-        || fetch_duckduckgo_instant(goal).map_err(Into::into),
+        || fetch_duckduckgo_instant(goal),
     ) {
         Ok(report) => return report,
         Err(e) => attempts.push(format!("DuckDuckGo: {e}")),

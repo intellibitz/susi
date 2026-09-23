@@ -2,14 +2,14 @@
 
 use crate::ama::SusiMissionReport;
 use crate::amas::A2AMessage;
+use crate::susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
+use crate::susi_core::registry::CapabilityRegistry;
+use crate::susi_core::truth::TruthTransformer;
 use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
 use std::time::Duration;
-use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
-use susi_core::registry::CapabilityRegistry;
-use susi_core::truth::TruthTransformer;
 use susi_gawd_agents::security::SecurityDetector;
 
 #[derive(Deserialize)]
@@ -59,8 +59,8 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
         return;
     }
     let registry = CapabilityRegistry::global();
-    susi_core::plane_bus::gemi::register_configured_cloud_endpoints();
-    let order = susi_core::plane_bus::gemi::cloud_failover_order();
+    crate::susi_core::plane_bus::gemi::register_configured_cloud_endpoints();
+    let order = crate::susi_core::plane_bus::gemi::cloud_failover_order();
     let providers: Vec<String> = order
         .get("order")
         .and_then(|v| v.as_array())
@@ -132,7 +132,7 @@ async fn verify_recovery_answer(
     // Crown gate: citations resolve from the ledger; if receipts exist and
     // were not cited, fail — never promote narrative over captured evidence.
     if let Some(resolved) =
-        susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace)
+        crate::susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace)
     {
         let rendered = resolved?;
         if !susi_gawd_agents::accountability::is_usable(&rendered) {
@@ -140,8 +140,10 @@ async fn verify_recovery_answer(
                 "Provider cited receipts that resolve to unusable evidence",
             ));
         }
-        susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)
-            .map_err(EaiError::governance)?;
+        crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+            &rendered, workspace,
+        )
+        .map_err(EaiError::governance)?;
         // Already citation-resolved from the live ledger — do not re-enter the
         // crown gate (it would demand citations again on rendered prose).
         TruthTransformer::verify_mission_reality(&report.goal, provider, &rendered, workspace)?;
@@ -170,8 +172,11 @@ async fn verify_recovery_answer(
             "Provider returned empty or failed mission output",
         ));
     }
-    susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)
-        .map_err(EaiError::governance)?;
+    crate::susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(
+        &answer_text,
+        workspace,
+    )
+    .map_err(EaiError::governance)?;
     // Absolute gate only — no soft verify_mission_reality + model cross-examine.
     let verified = TruthTransformer::verify_mission_with_cross_examine(
         &report.goal,
@@ -278,7 +283,7 @@ async fn recover_with_providers(
     // recovery answer is allowed to stand on.
     let context = format!(
         "{context}{}",
-        susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
+        crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
     );
     let mut attempted = HashSet::new();
     for name in providers {
@@ -334,7 +339,7 @@ async fn recover_with_providers(
     let workspace_owned = workspace.to_path_buf();
     let local = tokio::time::timeout(timeout, async {
         let raw = tokio::task::spawn_blocking(move || {
-            susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                 &prompt,
                 &workspace_owned,
                 "local",
@@ -385,9 +390,9 @@ async fn recover_with_providers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::susi_core::provider::{BoxFuture, Provider};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
-    use susi_core::provider::{BoxFuture, Provider};
 
     /// The real `gemi.infer.verify` handler is a fast risk-pattern guard
     /// wired by the daemon composition root; in this unit-test binary the
@@ -398,7 +403,7 @@ mod tests {
         static ONCE: std::sync::Once = std::sync::Once::new();
         ONCE.call_once(|| {
             struct VerifyStub;
-            impl susi_core::plane_bus::PlaneHandler for VerifyStub {
+            impl crate::susi_core::plane_bus::PlaneHandler for VerifyStub {
                 fn handle(
                     &self,
                     _topic: &str,
@@ -412,8 +417,8 @@ mod tests {
                     Ok(serde_json::json!({ "text": text }))
                 }
             }
-            susi_core::plane_bus::PlaneBus::global().register(
-                susi_core::plane_bus::topics::GEMI_INFER_VERIFY,
+            crate::susi_core::plane_bus::PlaneBus::global().register(
+                crate::susi_core::plane_bus::topics::GEMI_INFER_VERIFY,
                 Arc::new(VerifyStub),
             );
         });
@@ -455,18 +460,18 @@ mod tests {
         fn name(&self) -> &str {
             self.name
         }
-        fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
+        fn is_healthy(&self) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>> {
             Box::pin(async { Ok(true) })
         }
         fn generate(
             &self,
             prompt: &str,
-        ) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
+        ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<String>> {
             let prompt = prompt.to_string();
             Box::pin(async move {
                 if matches!(self.reply, Reply::Error) {
                     self.calls.lock().unwrap().push(self.name.into());
-                    return Err(susi_core::susi_error::EaiError::process(
+                    return Err(crate::susi_core::susi_error::EaiError::process(
                         "HTTP 402 Payment Required",
                     ));
                 }
@@ -494,7 +499,10 @@ mod tests {
                 }
             })
         }
-        fn embed(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
+        fn embed(
+            &self,
+            _: &str,
+        ) -> BoxFuture<'_, crate::susi_core::susi_error::EaiResult<Vec<f32>>> {
             Box::pin(async { Ok(vec![]) })
         }
         fn as_any(&self) -> &dyn std::any::Any {
@@ -674,13 +682,14 @@ mod tests {
     async fn citation_answers_complete_recovery_through_the_ledger() {
         wire_verify_stub();
         let ws = TempWorkspace::new();
-        let session =
-            susi_core::capture::EvidenceSession::new("Explain the observed result", &ws.0, |s| {
-                s.to_string()
-            })
-            .unwrap();
-        let _activation = susi_core::capture::EvidenceSession::activate(&session);
-        susi_core::capture::EvidenceSession::capture_call(
+        let session = crate::susi_core::capture::EvidenceSession::new(
+            "Explain the observed result",
+            &ws.0,
+            |s| s.to_string(),
+        )
+        .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+        crate::susi_core::capture::EvidenceSession::capture_call(
             "open_meteo_weather",
             &serde_json::json!({"place": "Chennai"}),
             &ws.0,

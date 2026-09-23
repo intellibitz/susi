@@ -6,7 +6,9 @@ edition = "2021"
 
 [dependencies]
 susi-gemi-models = { workspace = true }
-susi-core = { workspace = true }
+crossbeam = "0.8"
+regex = "1.13"
+dashmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokenizers = "0.23.2"

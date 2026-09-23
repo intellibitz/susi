@@ -51,12 +51,12 @@ use crate::engine::{apply_repeat_penalty, InferenceHost};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::qwen2_split::ModelWeights as Qwen2Weights;
+use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_error::{EaiError, EaiResult};
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, IndexOp, Tensor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use susi_core::task_manager::TaskHandle;
 use tokenizers::Tokenizer;
 
 /// Rules out llama.cpp's KB-scale `ggml-vocab-*.gguf` test fixtures (found
@@ -603,7 +603,7 @@ mod tests {
         let max_tokens = 10usize;
         let repeat_penalty = 1.15f32;
         let repeat_last_n = 64usize;
-        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
+        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("test_speculative_equivalence", prompt);
 
         // Speculative path.

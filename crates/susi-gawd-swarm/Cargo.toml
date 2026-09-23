@@ -7,7 +7,8 @@ publish = false
 
 [dependencies]
 susi-gawd-agents = { workspace = true }
-susi-core = { workspace = true }
+crossbeam = "0.8"
+regex = "1.13"
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }

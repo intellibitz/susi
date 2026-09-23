@@ -5,10 +5,10 @@
 // call it without `gmcp` depending on `daemon` (which itself depends on
 // `gmcp` to start the GMCP server — a real cycle this avoids).
 
+use crate::susi_core::plane_bus::gemi::HardwareProfiler;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
-use susi_core::plane_bus::gemi::HardwareProfiler;
 
 pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
     let profile = HardwareProfiler::get_profile();

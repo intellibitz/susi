@@ -1,12 +1,12 @@
 //! Plane-bus handler for all `gemi.*` topics (real GEMI / models APIs).
 
+use crate::susi_core::plane_bus::topics;
+use crate::susi_core::plane_bus::{HardwareProfileDto, PlaneBus, PlaneHandler};
+use crate::susi_core::registry::CapabilityRegistry;
 use crate::susi_error::EaiResult;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use susi_core::plane_bus::topics;
-use susi_core::plane_bus::{HardwareProfileDto, PlaneBus, PlaneHandler};
-use susi_core::registry::CapabilityRegistry;
 
 use crate::engine::{GemiEngine, MissionPlanner};
 use crate::hardware::HardwareProfiler;

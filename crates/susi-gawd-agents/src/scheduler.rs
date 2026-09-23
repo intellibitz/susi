@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
-use susi_core::{AgentMetaRegistry, GawdAgent};
+use crate::susi_core::{AgentMetaRegistry, GawdAgent};
 
 /// How many recent schedule decisions to retain for `recent_decisions`.
 const DECISION_LOG_CAP: usize = 32;
@@ -209,7 +209,7 @@ impl MissionScheduler {
             }
             log.push_back(decision.clone());
         }
-        susi_core::bus::global_bus().publish(decision.clone());
+        crate::susi_core::bus::global_bus().publish(decision.clone());
 
         (admitted, decision)
     }
@@ -244,8 +244,8 @@ mod tests {
             &self,
             _goal: &str,
             _workspace: &std::path::Path,
-            _blackboard: &susi_core::MissionBlackboard,
-        ) -> susi_core::susi_error::EaiResult<String> {
+            _blackboard: &crate::susi_core::MissionBlackboard,
+        ) -> crate::susi_core::susi_error::EaiResult<String> {
             Ok("ok".into())
         }
     }
@@ -285,7 +285,7 @@ mod tests {
 
     #[test]
     fn schedule_records_and_publishes_decision() {
-        let rx = susi_core::bus::global_bus().subscribe::<ScheduleDecision>();
+        let rx = crate::susi_core::bus::global_bus().subscribe::<ScheduleDecision>();
         let before = MissionScheduler::recent_decisions().len();
         let _ = MissionScheduler::schedule("a goal", vec![agent("X", 0.5)], 1);
         assert!(MissionScheduler::recent_decisions().len() > before);

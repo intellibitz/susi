@@ -10,7 +10,11 @@ susi-gawd-swarm = { workspace = true }
 susi-gawd-a2a = { workspace = true }
 syn = { version = "3.0.6", features = ["full", "visit"] }
 reqwest = { workspace = true }
-susi-core = { workspace = true }
+crossbeam = "0.8"
+regex = "1.13"
+dashmap = { workspace = true }
+flume = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"

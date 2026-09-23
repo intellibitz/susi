@@ -85,6 +85,16 @@ pub mod susi_sandbox;
 #[rustfmt::skip]
 pub mod susi_native;
 
+// Vendored `susi_core` microkernel subset (canonical tree:
+// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
+// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
+// substrate files. Allows keep the tree byte-identical across consumers:
+// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
+// stop edition-2024 style drift against the edition-2021 canonical source.
+#[allow(dead_code, clippy::collapsible_if)]
+#[rustfmt::skip]
+pub mod susi_core;
+
 pub mod plane_handler;
 
 pub mod admin;
@@ -133,8 +143,8 @@ pub mod ama {
     }
 }
 
-pub use susi_core::{bus, capture, evidence, manifold, queue, truth};
-pub use susi_core::{net_guard, task_manager};
+pub use crate::susi_core::{bus, capture, evidence, manifold, queue, truth};
+pub use crate::susi_core::{net_guard, task_manager};
 
 pub use ama::SusiMasterAgent;
 pub use susi_gawd_agents::AlphaSelf;

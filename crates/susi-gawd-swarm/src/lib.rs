@@ -20,15 +20,11 @@
 #[allow(dead_code)]
 pub mod susi_error;
 
-// Vendored-error boundary: susi-core/susi-gawd-agents APIs return their own
-// vendored `EaiError`; these conversions preserve the error kind via
-// `rewrap` so `?` keeps working across the vendored boundary.
-impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
-    fn from(e: susi_core::susi_error::EaiError) -> Self {
-        susi_error::rewrap(e.kind_name(), e.to_string())
-    }
-}
-
+// Vendored-error boundary: `susi_gawd_agents` carries its own vendored
+// `susi_error` (a distinct type); this conversion preserves the error kind
+// via `rewrap` so `?` keeps working across the vendored boundary. The
+// vendored `susi_core` in this crate re-exports this crate's `susi_error`
+// module — no bridge needed there.
 impl From<susi_gawd_agents::susi_error::EaiError> for susi_error::EaiError {
     fn from(e: susi_gawd_agents::susi_error::EaiError) -> Self {
         susi_error::rewrap(e.kind_name(), e.to_string())
@@ -54,6 +50,16 @@ pub mod susi_config;
 #[allow(dead_code)]
 #[rustfmt::skip]
 pub mod susi_sandbox;
+
+// Vendored `susi_core` microkernel subset (canonical tree:
+// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
+// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
+// substrate files. Allows keep the tree byte-identical across consumers:
+// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
+// stop edition-2024 style drift against the edition-2021 canonical source.
+#[allow(dead_code, clippy::collapsible_if)]
+#[rustfmt::skip]
+pub mod susi_core;
 
 pub mod ama;
 pub mod amas;

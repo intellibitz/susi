@@ -5,6 +5,8 @@ license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
+crossbeam = "0.8"
+regex = "1.13"
 hyper = { version = "1.0", features = ["full"] }
 http-body-util = "0.1"
 hyper-util = { version = "0.1", features = ["full"] }

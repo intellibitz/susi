@@ -6,13 +6,11 @@
 //! sandbox / native). Composition roots (`susi-daemon`, CLI) register handlers
 //! and may still link every plane.
 
-use dashmap::DashMap;
+use crate::plane_bus_ipc::IpcPlaneBus;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Topic namespaces owned by each feature plane.
 pub mod topics {
@@ -89,83 +87,55 @@ pub trait PlaneHandler: Send + Sync {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String>;
 }
 
-type HandlerMap = DashMap<String, Arc<dyn PlaneHandler>>;
-type StreamMap = DashMap<String, flume::Sender<Value>>;
-
-/// Process-wide plane bus.
-#[derive(Default)]
+/// Process-wide plane bus — facade over [`IpcPlaneBus`]. Every method
+/// delegates to the IPC backend so registrations and requests made through
+/// this `global()` are visible to all vendored `susi_core` copies in the
+/// same process (shared `<cache>/bus/<pid>/` rendezvous).
 pub struct PlaneBus {
-    /// Exact topic → handler.
-    handlers: HandlerMap,
-    /// Prefix (e.g. `"gemi."`) → handler fallback when no exact match.
-    prefixes: HandlerMap,
-    streams: StreamMap,
-    stream_seq: AtomicU64,
+    inner: Arc<IpcPlaneBus>,
 }
 
 impl PlaneBus {
     pub fn global() -> &'static PlaneBus {
         static BUS: OnceLock<PlaneBus> = OnceLock::new();
-        BUS.get_or_init(PlaneBus::default)
+        BUS.get_or_init(|| PlaneBus {
+            // Shared with this crate's registry_ipc/broker/etc. so one
+            // listener serves all modules.
+            inner: IpcPlaneBus::global(),
+        })
     }
 
     pub fn register(&self, topic: &str, handler: Arc<dyn PlaneHandler>) {
-        self.handlers.insert(topic.to_string(), handler);
+        self.inner.register(topic, handler);
     }
 
     pub fn register_prefix(&self, prefix: &str, handler: Arc<dyn PlaneHandler>) {
-        self.prefixes.insert(prefix.to_string(), handler);
+        self.inner.register_prefix(prefix, handler);
     }
 
     pub fn request(&self, topic: &str, payload: Value) -> Result<Value, String> {
-        if let Some(h) = self.handlers.get(topic) {
-            return h.handle(topic, payload);
-        }
-        for entry in self.prefixes.iter() {
-            if topic.starts_with(entry.key().as_str()) {
-                return entry.value().handle(topic, payload);
-            }
-        }
-        Err(format!(
-            "plane bus: no handler for topic '{topic}' (composition root must register planes)"
-        ))
+        self.inner.request(topic, payload)
     }
 
     pub fn publish(&self, topic: &str, payload: Value) {
-        let _ = self.request(topic, payload);
+        self.inner.publish(topic, payload);
     }
 
     /// Allocate a stream channel; handler emits via [`Self::stream_emit`].
     pub fn open_stream(&self) -> (String, flume::Receiver<Value>) {
-        let id = format!(
-            "stream-{}-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0),
-            self.stream_seq.fetch_add(1, Ordering::Relaxed)
-        );
-        let (tx, rx) = flume::unbounded();
-        self.streams.insert(id.clone(), tx);
-        (id, rx)
+        self.inner.open_stream()
     }
 
     pub fn stream_emit(&self, stream_id: &str, chunk: Value) {
-        if let Some(tx) = self.streams.get(stream_id) {
-            let _ = tx.send(chunk);
-        }
+        self.inner.stream_emit(stream_id, chunk);
     }
 
     pub fn stream_close(&self, stream_id: &str) {
-        self.streams.remove(stream_id);
+        self.inner.stream_close(stream_id);
     }
 
     pub fn is_wired(&self, topic: &str) -> bool {
-        self.handlers.contains_key(topic)
-            || self
-                .prefixes
-                .iter()
-                .any(|e| topic.starts_with(e.key().as_str()))
+        self.inner.is_wired(topic)
     }
 }
 

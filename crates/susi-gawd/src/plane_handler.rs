@@ -1,11 +1,11 @@
 //! Plane-bus handler for all `gawd.*` topics.
 
+use crate::susi_core::plane_bus::topics;
+use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
 use crate::susi_error::EaiResult;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use susi_core::plane_bus::topics;
-use susi_core::plane_bus::{PlaneBus, PlaneHandler};
 
 struct GawdPlaneHandler;
 

@@ -3,7 +3,10 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use susi_core::registry::CapabilityRegistry;
+// The vendored `susi_core` inside susi-gemi shares the process capability
+// catalog with the real `susi_core` (bus rendezvous), so its global() is the
+// same registry — and it is the type susi_gemi's discovery entrypoints take.
+use susi_gemi::susi_core::registry::CapabilityRegistry;
 
 /// Universal Autonomous Substrate Bootstrapper
 /// Implements Pillar 8 (Autonomous Provisioning) by triggering zero-config
@@ -309,7 +312,8 @@ mod tests {
 
     #[tokio::test]
     async fn prune_removes_unhealthy_non_candle_providers() {
-        use susi_core::provider::{BoxFuture, Provider};
+        use susi_gemi::susi_core::provider::{BoxFuture, Provider};
+        use susi_gemi::susi_core::susi_error::EaiResult;
 
         struct Unhealthy {
             hang: bool,
@@ -322,7 +326,7 @@ mod tests {
                     "ollama-dead"
                 }
             }
-            fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
+            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
                 Box::pin(async move {
                     if self.hang {
                         std::future::pending::<()>().await;
@@ -330,10 +334,10 @@ mod tests {
                     Ok(false)
                 })
             }
-            fn generate(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
+            fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
                 Box::pin(async { Ok(String::new()) })
             }
-            fn embed(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
+            fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
                 Box::pin(async { Ok(vec![]) })
             }
             fn as_any(&self) -> &dyn std::any::Any {

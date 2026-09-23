@@ -21,7 +21,13 @@ pub fn sample_and_record(workspace: Option<&Path>) -> TelemetrySnapshot {
 
 /// Sample host telemetry via the GEMI hardware/telemetry layer.
 pub fn sample() -> TelemetrySnapshot {
-    susi_gemi::telemetry::sample()
+    // Vendored-type boundary: susi-gemi's TelemetrySnapshot is its vendored
+    // copy's type; identical schema, so bridge through JSON.
+    let snap = susi_gemi::telemetry::sample();
+    serde_json::to_string(&snap)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(TelemetrySnapshot::empty)
 }
 
 #[cfg(test)]

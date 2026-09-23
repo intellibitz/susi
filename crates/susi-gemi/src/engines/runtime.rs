@@ -87,7 +87,7 @@ impl GemiEngine {
 
         // Ensure configured cloud endpoints are registered before routing.
         crate::http_provider::register_configured_cloud_endpoints(
-            susi_core::registry::CapabilityRegistry::global(),
+            crate::susi_core::registry::CapabilityRegistry::global(),
         );
 
         // Latency / CPU-only gate: escalate to cloud when local is known-slow
@@ -96,7 +96,7 @@ impl GemiEngine {
             .map(|m| !crate::routing::InferenceRouter::is_cloud_provider_name(m))
             .unwrap_or(false);
         if !explicit_local_request {
-            let names = susi_core::registry::CapabilityRegistry::global().list_providers();
+            let names = crate::susi_core::registry::CapabilityRegistry::global().list_providers();
             if let Some(esc) = crate::routing::InferenceRouter::maybe_escalate_to_cloud(&names) {
                 crate::routing::InferenceRouter::announce(&esc);
                 callback(format!(
@@ -199,7 +199,7 @@ impl GemiEngine {
         }
 
         // Fallback Power Reasoning Tool
-        let power_res = susi_core::plane_bus::tools::execute_tool(
+        let power_res = crate::susi_core::plane_bus::tools::execute_tool(
             "power_reason",
             &serde_json::json!(prompt),
             workspace,
@@ -258,7 +258,7 @@ impl GemiEngine {
         callback: &dyn Fn(String),
     ) -> Option<String> {
         Self::try_providers(
-            susi_core::registry::CapabilityRegistry::global(),
+            crate::susi_core::registry::CapabilityRegistry::global(),
             prompt,
             requested_model,
             callback,
@@ -266,7 +266,7 @@ impl GemiEngine {
     }
 
     fn try_providers(
-        registry: &susi_core::registry::CapabilityRegistry,
+        registry: &crate::susi_core::registry::CapabilityRegistry,
         prompt: &str,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
@@ -276,7 +276,7 @@ impl GemiEngine {
             .into_iter()
             .filter(|n| n != "Candle (Local)")
             .collect();
-        if susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             names.retain(|n| !crate::routing::InferenceRouter::is_cloud_provider_name(n));
         }
         if names.is_empty() {
@@ -510,7 +510,7 @@ mod tests {
             "local model fixture missing: {}",
             path.display()
         );
-        let task = susi_core::task_manager::SwarmTaskManager::global()
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_load_test", "CPU model loading");
         let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
         let again = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();
@@ -696,23 +696,27 @@ mod tests {
         reply: &'static str,
     }
 
-    impl susi_core::provider::Provider for MockRouteProvider {
+    impl crate::susi_core::provider::Provider for MockRouteProvider {
         fn name(&self) -> &str {
             self.name
         }
         fn is_healthy(
             &self,
-        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
+        ) -> crate::susi_core::provider::BoxFuture<'_, crate::susi_core::susi_error::EaiResult<bool>>
+        {
             Box::pin(async { Ok(true) })
         }
         fn generate(
             &self,
             _prompt: &str,
-        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
+        ) -> crate::susi_core::provider::BoxFuture<
+            '_,
+            crate::susi_core::susi_error::EaiResult<String>,
+        > {
             let reply = self.reply.to_string();
             Box::pin(async move {
                 if reply.starts_with("ERR:") {
-                    return Err(susi_core::susi_error::EaiError::process(reply));
+                    return Err(crate::susi_core::susi_error::EaiError::process(reply));
                 }
                 Ok(reply)
             })
@@ -720,8 +724,10 @@ mod tests {
         fn embed(
             &self,
             _text: &str,
-        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>>
-        {
+        ) -> crate::susi_core::provider::BoxFuture<
+            '_,
+            crate::susi_core::susi_error::EaiResult<Vec<f32>>,
+        > {
             Box::pin(async { Ok(vec![]) })
         }
         fn as_any(&self) -> &dyn std::any::Any {
@@ -731,7 +737,7 @@ mod tests {
 
     #[test]
     fn test_try_providers_fails_over_after_provider_error() {
-        let registry = susi_core::registry::CapabilityRegistry::new();
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "openai-primary",
             reply: "ERR:402 billing",
@@ -747,7 +753,7 @@ mod tests {
 
     #[test]
     fn test_try_providers_prefers_ollama_over_generic_and_skips_candle() {
-        let registry = susi_core::registry::CapabilityRegistry::new();
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "Candle (Local)",
             reply: "from-candle",
@@ -767,7 +773,7 @@ mod tests {
 
     #[test]
     fn test_try_providers_honors_requested_model_name_match() {
-        let registry = susi_core::registry::CapabilityRegistry::new();
+        let registry = crate::susi_core::registry::CapabilityRegistry::new();
         registry.register_provider(MockRouteProvider {
             name: "ollama-llama3",
             reply: "llama3",

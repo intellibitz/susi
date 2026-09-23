@@ -1,6 +1,6 @@
 //! Engines-side OpenRouter helpers (live `/models`, paid probe).
+use crate::susi_core::provider::Provider;
 use anyhow::{bail, Context, Result};
-use susi_core::provider::Provider;
 use susi_gemi_models::openrouter::{
     attribution_headers, is_openrouter_base, OpenRouterManager, API_BASE,
 };
@@ -114,5 +114,8 @@ fn redact_secrets(text: &str) -> String {
             result = result.replace(&value, "[REDACTED]");
         }
     }
-    susi_core::redact::redact_patterns(&["sk-".into(), "sk-or-".into(), "ghp_".into()], &result)
+    crate::susi_core::redact::redact_patterns(
+        &["sk-".into(), "sk-or-".into(), "ghp_".into()],
+        &result,
+    )
 }

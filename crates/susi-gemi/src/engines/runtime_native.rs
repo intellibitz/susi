@@ -4,10 +4,10 @@ use super::runtime_substrate::{apply_repeat_penalty, InferenceHost};
 use super::GemiEngine;
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
+use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
 use std::io::Write;
 use std::sync::{Arc, OnceLock};
-use susi_core::registry::DynamicServiceRegistry;
 use tokenizers::Tokenizer;
 
 pub trait NativeInferenceEngine: Send + Sync {
@@ -58,7 +58,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         callback: &dyn Fn(String),
         selected_model: Option<&str>,
     ) -> EaiResult<String> {
-        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
+        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
         // Fast-path bypass for tests to prevent 31B model load timeouts
@@ -96,7 +96,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         println!("- [Inference Substrate] Requesting exclusive access to model weights...");
         let _ = std::io::stdout().flush();
 
-        let task_handle = susi_core::task_manager::SwarmTaskManager::global()
+        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
         let mut substrate = substrate_shared.write();
@@ -292,7 +292,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         // Prefer CapabilityRegistry cloud/local HTTP providers (keys + protocols
         // already resolved by zero-config / config registration).
         crate::http_provider::register_configured_cloud_endpoints(
-            susi_core::registry::CapabilityRegistry::global(),
+            crate::susi_core::registry::CapabilityRegistry::global(),
         );
         if let Some(text) = GemiEngine::try_discovered_providers(prompt, None, callback) {
             return Ok(text);
@@ -347,7 +347,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         let runtime = GemiEngine::provider_runtime().ok_or_else(|| {
             crate::susi_error::EaiError::inference("Failed to start federated inference runtime")
         })?;
-        match runtime.block_on(susi_core::Provider::generate(&provider, prompt)) {
+        match runtime.block_on(crate::susi_core::Provider::generate(&provider, prompt)) {
             Ok(content) if !content.trim().is_empty() => {
                 callback(content.clone());
                 Ok(content)
