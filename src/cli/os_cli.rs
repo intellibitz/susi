@@ -33,6 +33,8 @@ fn status(json: bool) -> Result<()> {
     let up = services.iter().filter(|s| s.up).count();
 
     if json {
+        let daemon =
+            susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
         let body = serde_json::json!({
             "consensus": {
                 "term": state.term.max(term.term),
@@ -41,6 +43,9 @@ fn status(json: bool) -> Result<()> {
                 "anomalies": state.anomalies,
                 "coordinators": state.coordinators,
             },
+            "daemon": daemon.as_ref().map(|d| serde_json::json!({
+                "pid": d.pid, "substrate_home": d.substrate_home,
+            })),
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
                 "restarts": s.restarts, "up": s.up,
@@ -70,6 +75,14 @@ fn status(json: bool) -> Result<()> {
     );
     println!("services:    {}/{} leaf services up", up, services.len());
     println!("peers:       {} verified cluster member(s)", peers.len());
+    let daemon = susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
+    println!(
+        "daemon:      {}",
+        daemon
+            .as_ref()
+            .map(|d| format!("running (pid {})", d.pid))
+            .unwrap_or_else(|| "not running".to_string())
+    );
     println!();
 
     println!(
