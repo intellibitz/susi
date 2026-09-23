@@ -59,17 +59,27 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
         return;
     }
     let registry = CapabilityRegistry::global();
-    crate::susi_core::plane_bus::gemi::register_configured_cloud_endpoints();
-    let order = crate::susi_core::plane_bus::gemi::cloud_failover_order();
-    let providers: Vec<String> = order
-        .get("order")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|x| x.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    // Cloud recovery egresses mission context, so it must honor the same
+    // gates as primary routing: MAC cloud block (LocalOnly / revoked grant)
+    // and the mock-inference test seam honored by runtime_native. Either
+    // drops the provider list to empty; the local fallback still runs.
+    let cloud_blocked = crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
+        || std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true";
+    let providers: Vec<String> = if cloud_blocked {
+        Vec::new()
+    } else {
+        crate::susi_core::plane_bus::gemi::register_configured_cloud_endpoints();
+        let order = crate::susi_core::plane_bus::gemi::cloud_failover_order();
+        order
+            .get("order")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     // A dedicated thread also supports synchronous callers inside Tokio runtimes.
     let outcome = std::thread::scope(|scope| {
         scope

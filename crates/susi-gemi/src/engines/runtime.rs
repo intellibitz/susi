@@ -257,6 +257,12 @@ impl GemiEngine {
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
     ) -> Option<String> {
+        // Mock-inference seam: under test the env opts out of *all* real
+        // provider calls — discovered HTTP endpoints included — not just the
+        // native engine path (runtime_native honors the same flag).
+        if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
+            return None;
+        }
         Self::try_providers(
             crate::susi_core::registry::CapabilityRegistry::global(),
             prompt,

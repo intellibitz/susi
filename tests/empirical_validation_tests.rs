@@ -17,6 +17,16 @@ use susi_gawd::agents::GawdAgent;
 fn wire_test_substrate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
+        // Isolate HOME before any substrate wiring: the vendored MacPolicy /
+        // EvidenceSession / cloud.env readers all resolve real ~/.susi state
+        // otherwise, leaking host credentials and receipts into tests.
+        let tmp = std::env::temp_dir().join(format!("susi_empirical_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        unsafe {
+            std::env::set_var("HOME", &tmp);
+            std::env::set_var("USERPROFILE", &tmp);
+            std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+        }
         // Feature planes talk only via plane_bus; integration tests must
         // register handlers the same way CLI/daemon composition does.
         susi_daemon::composition::wire_plane_bus();
