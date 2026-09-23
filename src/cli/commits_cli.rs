@@ -44,6 +44,10 @@ pub enum CommitsCommands {
     /// per-coordinator high-water marks) — the state machine is a pure
     /// function of the log
     Replay,
+    /// Proactively pull records this node is missing from verified peers —
+    /// the receive-path repair only fires when a *push* arrives, so a node
+    /// that was offline during replication needs this to catch up
+    Sync,
 }
 
 pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()> {
@@ -60,7 +64,91 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
         CommitsCommands::Show { epoch } => show(&epoch),
         CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
+        CommitsCommands::Sync => sync(),
     }
+}
+
+/// Pull every record each verified peer holds, verify + append locally.
+/// `commit_log::append` is idempotent — records already held are skipped
+/// safely, and anything failing signature verification is rejected.
+fn sync() -> Result<()> {
+    let peers_path = susi_paths::SusiDirs::config_dir().join("peers.json");
+    let Ok(text) = std::fs::read_to_string(&peers_path) else {
+        println!("no verified peers — nothing to sync from");
+        return Ok(());
+    };
+    let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
+        println!("peers.json is unreadable — nothing to sync from");
+        return Ok(());
+    };
+    let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
+    let token = std::fs::read_to_string(token_path).unwrap_or_default();
+    let bearer = (!token.trim().is_empty()).then(|| token.trim().to_string());
+
+    // Snapshot held records once — append() is idempotent on duplicates,
+    // so "new" is determined by membership before the write, not the
+    // write's outcome.
+    let mut held: std::collections::HashSet<String> = commit_log::load()
+        .iter()
+        .filter_map(|r| serde_json::to_string(r).ok())
+        .collect();
+
+    let mut total_new = 0usize;
+    let mut total_dup = 0usize;
+    let mut total_bad = 0usize;
+    for n in &nodes {
+        if n.get("admission").and_then(|a| a.as_str()) != Some("explicit") {
+            continue;
+        }
+        let Some(addr) = n.get("address").and_then(|a| a.as_str()) else {
+            continue;
+        };
+        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
+        match susi_core::mcp_client::call_tool(
+            addr,
+            "commit_log_fetch",
+            &serde_json::json!({ "limit": 1000 }),
+            bearer.as_deref(),
+        ) {
+            Ok(result) => {
+                let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
+                    println!("{id} ({addr}): no tool output");
+                    continue;
+                };
+                let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
+                else {
+                    println!("{id} ({addr}): malformed fetch payload");
+                    continue;
+                };
+                let (mut new, mut dup, mut bad) = (0usize, 0usize, 0usize);
+                for r in records {
+                    if !r.verify() {
+                        bad += 1;
+                        continue;
+                    }
+                    let key = serde_json::to_string(&r).unwrap_or_default();
+                    if held.contains(&key) {
+                        dup += 1;
+                        continue;
+                    }
+                    match commit_log::append(&r) {
+                        Ok(()) => {
+                            held.insert(key);
+                            new += 1;
+                        }
+                        Err(_) => bad += 1,
+                    }
+                }
+                println!("{id} ({addr}): +{new} new, {dup} already held, {bad} rejected");
+                total_new += new;
+                total_dup += dup;
+                total_bad += bad;
+            }
+            Err(e) => println!("{id} ({addr}): unreachable — {e}"),
+        }
+    }
+    println!("sync: {total_new} new record(s), {total_dup} already held, {total_bad} rejected");
+    Ok(())
 }
 
 fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()> {
