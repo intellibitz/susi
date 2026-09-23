@@ -51,6 +51,12 @@ use susi_daemon::SusiDaemon;
 pub(crate) fn dispatch(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {
+    // Leaf-service mode: the daemon re-execs this binary as
+    // `service-run <name>`; it must serve before anything else touches
+    // the substrate (no daemon ensure, no mission pipeline).
+    if let Some(Commands::ServiceRun { name, port }) = command {
+        return Ok(run_plane(PlanePrep::None, || service_run(&name, port)));
+    }
     if let Some(Commands::Extensions { action }) = command {
         return Ok(run_plane(PlanePrep::None, || {
             extensions_cli::execute(action)
@@ -328,4 +334,38 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
             std::process::exit(1);
         }
     }
+}
+
+/// Leaf-service dispatch for `susi service-run <name>` — the daemon's
+/// spawn mode. Each arm is the same `serve` entry the standalone
+/// `susi-<name>` binary calls, so the staged `susi` binary can fill any
+/// leaf role without sibling binaries on disk.
+fn service_run(name: &str, port: Option<u16>) -> anyhow::Result<()> {
+    let Some(svc) = susi_core::service_table::LEAF_SERVICES
+        .iter()
+        .find(|s| s.name == name)
+    else {
+        return Err(anyhow::anyhow!(
+            "unknown leaf service '{name}' — expected one of {}",
+            susi_core::service_table::LEAF_SERVICES
+                .iter()
+                .map(|s| s.name)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
+    let port = port.unwrap_or_else(|| svc.port());
+    match name {
+        "susi-paths" => susi_paths::serve(port),
+        "susi-error" => susi_error::serve(port),
+        "susi-config" => susi_config::serve(port),
+        "susi-sandbox" => susi_sandbox::serve(port),
+        "susi-native" => susi_native::serve(port),
+        // `find` above already guarantees membership in LEAF_SERVICES.
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("leaf service '{name}' has no embedded serve entry"),
+        )),
+    }
+    .map_err(anyhow::Error::from)
 }

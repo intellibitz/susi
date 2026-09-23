@@ -360,6 +360,12 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 return std::process::ExitCode::FAILURE;
             }
         }
+        Commands::ServiceRun { .. } => {
+            // Consumed by the pre-boot dispatch before substrate boot —
+            // a leaf service process must never reach mission dispatch.
+            eprintln!("service-run is dispatched before substrate boot");
+            return std::process::ExitCode::FAILURE;
+        }
     }
     std::process::ExitCode::SUCCESS
 }

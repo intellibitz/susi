@@ -191,6 +191,18 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         action: Option<peers_cli::PeersCommands>,
     },
+    /// Run one leaf service in-process — the daemon's spawn mode: the
+    /// staged `susi` binary re-execs itself as `service-run <name>` so
+    /// supervised services need no sibling binaries on disk.
+    #[command(name = "service-run", hide = true)]
+    ServiceRun {
+        /// Leaf service name: susi-paths | susi-error | susi-config |
+        /// susi-sandbox | susi-native
+        name: String,
+        /// Port override (defaults to the service's contract port env var)
+        #[arg(long)]
+        port: Option<u16>,
+    },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
     /// Recursively audit src/ (AST-based) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores

@@ -249,6 +249,75 @@ impl_from_err!(std::num::ParseIntError, Protocol);
 
 pub type EaiResult<T> = Result<T, EaiError>;
 
+/// Embedded REST service mode: accepts error events over HTTP and appends
+/// them to the shared `error_metrics.jsonl` sink. Shared by the standalone
+/// `susi-error` binary and the root `susi` binary's `service-run` dispatch.
+pub fn serve(port: u16) -> std::io::Result<()> {
+    use axum::{http::StatusCode, routing::post, Json, Router};
+    use serde::Deserialize;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    #[derive(Deserialize)]
+    struct ErrorEvent {
+        variant: Option<String>,
+        message: Option<String>,
+        kind: Option<String>,
+        code: Option<String>,
+        retryable: Option<bool>,
+        ts: Option<u64>,
+        error: Option<String>,
+    }
+
+    async fn log_error(Json(event): Json<ErrorEvent>) -> StatusCode {
+        let ts = event.ts.unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        });
+        let kind = event
+            .kind
+            .or(event.variant)
+            .unwrap_or_else(|| "External".to_string());
+        let message = event.error.or(event.message).unwrap_or_default();
+        let code = event
+            .code
+            .unwrap_or_else(|| format!("susi.{}", kind.to_lowercase()));
+
+        let entry = serde_json::json!({
+            "ts": ts,
+            "error": message,
+            "kind": kind,
+            "code": code,
+            "retryable": event.retryable.unwrap_or(false),
+        });
+
+        let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(error_metrics_path())
+        else {
+            return StatusCode::INTERNAL_SERVER_ERROR;
+        };
+        use std::io::Write;
+        match writeln!(f, "{entry}") {
+            Ok(()) => StatusCode::NO_CONTENT,
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        }
+    }
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(async {
+            let app = Router::new().route("/log_error", post(log_error));
+            let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            eprintln!("susi-error service listening on {addr}");
+            axum::serve(listener, app).await
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

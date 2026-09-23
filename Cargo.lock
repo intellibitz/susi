@@ -6561,6 +6561,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "susi-agents",
+ "susi-config",
  "susi-core",
  "susi-daemon",
  "susi-error",

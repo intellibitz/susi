@@ -1100,6 +1100,16 @@
       "milestone": "Optimize Phase 5: gmcp tools split + lifecycle selection/scan/provision",
       "proof": "FIXED 2026-09-22: Phase 5. Structure: split susi-gmcp tools/mod.rs (~1984) into tools/{mod,helpers,core,bootstrap}.rs (SSRF/path guards; CoreTools handlers; registry bootstrap; tests colocated). Deepened lifecycle model_manager (~1759→~594 core) into selection.rs / scan.rs / provision.rs (+ existing download_controller). Public API unchanged (ModelManager / CoreTools / bootstrap_registry). Verified: cargo check -p susi; clippy -D warnings; lifecycle:: 16 tests; tools:: 14 tests.",
       "type": "CODE"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022924-116",
+      "milestone": "daemon --help",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

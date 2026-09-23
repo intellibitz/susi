@@ -87,23 +87,28 @@ impl SusiAlphaModel {
             "reason".into(),
         ];
 
-        // Add Registered Agents
+        // Add Registered Agents — dynamic entries fill remaining DIM
+        // capacity after the foundational intents, so truncation can
+        // never evict a base intent when the registry is crowded.
+        let mut dynamic = Vec::new();
         let registry = crate::susi_core::AgentMetaRegistry::global();
         for agent in registry.list_agents() {
-            if !intents.contains(&agent.name) {
-                intents.push(agent.name);
+            if !intents.contains(&agent.name) && !dynamic.contains(&agent.name) {
+                dynamic.push(agent.name);
             }
         }
 
         // Add Installed Tools
         for name in crate::susi_core::registry::CapabilityRegistry::global().list_tools() {
-            if !intents.contains(&name) {
-                intents.push(name);
+            if !intents.contains(&name) && !dynamic.contains(&name) {
+                dynamic.push(name);
             }
         }
 
+        dynamic.sort();
+        dynamic.truncate(Self::DIM.saturating_sub(intents.len()));
+        intents.extend(dynamic);
         intents.sort();
-        intents.truncate(Self::DIM); // Cap at output dimension
         intents
     }
 

@@ -72,8 +72,20 @@ fn locate_binary(name: &str) -> Option<PathBuf> {
 
 /// Spawn a leaf service detached, with stdout/stderr appended to
 /// `substrate_home/logs/<name>.log` instead of the daemon's own stderr.
+///
+/// Resolution order: a sibling standalone `susi-<name>` binary (dev
+/// layout, staged installs), then self-reexec — the running `susi`
+/// binary's `service-run <name>` mode, which is always present and
+/// version-matched wherever the daemon was installed.
 fn spawn_service(svc: &LeafService) -> Option<u32> {
-    let bin = locate_binary(svc.binary)?;
+    let mut cmd = if let Some(bin) = locate_binary(svc.binary) {
+        Command::new(bin)
+    } else {
+        let exe = std::env::current_exe().ok()?;
+        let mut c = Command::new(exe);
+        c.args(["service-run", svc.name]);
+        c
+    };
     let log_dir = crate::susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let open_log = || {
@@ -86,8 +98,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         (Ok(o), Ok(e)) => (Stdio::from(o), Stdio::from(e)),
         _ => (Stdio::null(), Stdio::null()),
     };
-    Command::new(bin)
-        .stdin(Stdio::null())
+    cmd.stdin(Stdio::null())
         .stdout(out)
         .stderr(err)
         .spawn()
