@@ -244,6 +244,8 @@ impl SusiSupervisor {
                     let mut pending_nonce: Option<String> = None;
                     // Roster write throttle — see the persist call below.
                     let mut last_persist = std::time::Instant::now();
+                    // Ban-list re-read throttle — see the sweep below.
+                    let mut last_ban_check = std::time::Instant::now();
 
                     loop {
                         let registry_checksum =
@@ -263,6 +265,21 @@ impl SusiSupervisor {
                             if p.is_stale(now) {
                                 p.is_active = false;
                             }
+                        }
+                        // Operator eviction applies to the live roster too —
+                        // re-read the ban file every ~10s (not every probe)
+                        // and drop banned members promptly.
+                        if last_ban_check.elapsed().as_secs() >= 10 {
+                            let banned = peer_registry::load_banned_peers();
+                            if !banned.is_empty() {
+                                peers.retain(|p| {
+                                    matches!(p.admission, PeerAdmission::Local)
+                                        || !banned.iter().any(|b| {
+                                            b.node_id == p.node_id || b.address == p.address
+                                        })
+                                });
+                            }
+                            last_ban_check = std::time::Instant::now();
                         }
                         drop(peers);
 
