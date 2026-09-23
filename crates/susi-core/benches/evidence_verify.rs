@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use susi_core::truth::TruthTransformer;

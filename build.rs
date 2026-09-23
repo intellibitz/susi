@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Build scripts are not production runtime modules: a failed invariant must
+// abort the build loudly, so panic-on-error is the intended failure mode here.
 #![allow(missing_docs)]
 //! Root package build script: GPU feature warning + agent-ledger version sync.
 use serde_json::Value;

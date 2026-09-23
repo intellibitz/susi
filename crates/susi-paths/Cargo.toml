@@ -7,3 +7,6 @@ publish = false
 
 [dependencies]
 directories = "6.0.0"
+
+[lints]
+workspace = true

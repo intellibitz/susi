@@ -25,6 +25,7 @@ fn resolve_model_placeholder() -> String {
 
 struct OwnedChild(Child);
 impl Drop for OwnedChild {
+    #[allow(unsafe_code)]
     fn drop(&mut self) {
         // A separate group isolates cancellation from susi and other agents.
         #[cfg(unix)]
@@ -39,6 +40,7 @@ impl Drop for OwnedChild {
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)]
 pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     let (program, args) = match &run.adapter {
         Adapter::Command { program, args } => (

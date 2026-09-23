@@ -52,6 +52,7 @@ pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
 
 /// Load `~/.susi/cloud.env` into the process environment for any key not
 /// already set. Idempotent; safe to call from CLI and daemon boot.
+#[allow(unsafe_code)]
 pub fn apply_cloud_env_file() {
     let path = cloud_env_path();
     let Ok(content) = std::fs::read_to_string(&path) else {
@@ -126,6 +127,7 @@ pub fn known_cloud_vendors() -> Vec<(String, String)> {
 /// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix) and apply
 /// into the current process. Does **not** register HTTP providers — that stays
 /// in the engines crate (`susi_gemi::http_provider::register_api_key`).
+#[allow(unsafe_code)]
 pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf), String> {
     let key = api_key.trim();
     if key.is_empty() {
@@ -143,6 +145,7 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
 }
 
 /// Remove a vendor key from `~/.susi/cloud.env` and the current process env.
+#[allow(unsafe_code)]
 pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     let env_name = resolve_vendor_env_name(vendor)
         .ok_or_else(|| "vendor name must not be empty".to_string())?;

@@ -426,6 +426,7 @@ pub(crate) enum AdminCommands {
 /// Mandate 32: only ensure the daemon for commands that need the background
 /// substrate. Local-only admin/workspace ops must return without blocking on
 /// binary integrity checks or daemon restart.
+#[allow(clippy::wildcard_enum_match_arm)]
 pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
     match command {
         Commands::Agents { .. }

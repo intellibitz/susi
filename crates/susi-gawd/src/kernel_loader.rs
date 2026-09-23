@@ -59,7 +59,7 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        use std::net::{TcpStream, UdpSocket};
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
         use std::time::Duration;
         use susi_paths::ports;
 
@@ -73,7 +73,7 @@ impl SubstrateKernelLoader {
         for (name, port, tcp) in checks {
             let ok = if *tcp {
                 TcpStream::connect_timeout(
-                    &format!("127.0.0.1:{}", port).parse().unwrap(),
+                    &SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), *port),
                     Duration::from_millis(400),
                 )
                 .is_ok()

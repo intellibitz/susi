@@ -19,3 +19,6 @@ susi-native = { workspace = true }
 tokio = { workspace = true }
 rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }
 reqwest = { workspace = true }
+
+[lints]
+workspace = true

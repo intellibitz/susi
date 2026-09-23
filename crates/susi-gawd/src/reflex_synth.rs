@@ -41,6 +41,7 @@ impl ReflexSynthesizer {
     /// `src/gmcp/reflexes/<intent>.rs`. `execute()` just echoes its argument
     /// back in a canned string — this scaffolds a reflex, it doesn't
     /// implement one.
+    #[allow(clippy::unwrap_used)]
     pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
         let slug = sanitize_reflex_slug(intent)?;
         let struct_name = intent

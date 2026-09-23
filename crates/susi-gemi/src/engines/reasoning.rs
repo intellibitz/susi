@@ -27,6 +27,7 @@ pub struct SusiReasoningModel {
 impl SusiReasoningModel {
     pub const DIM: usize = 256;
 
+    #[allow(unsafe_code)]
     pub fn load(global_dir: &Path) -> Result<Self> {
         let weights_path = global_dir.join("models/susi-reason.safetensors");
         if !weights_path.exists() {

@@ -103,7 +103,9 @@ fn path_escapes_pack_root(rel: &str) -> bool {
                 depth -= 1;
             }
             std::path::Component::Normal(_) => depth += 1,
-            _ => {}
+            std::path::Component::Prefix(_)
+            | std::path::Component::RootDir
+            | std::path::Component::CurDir => {}
         }
     }
     false
@@ -456,6 +458,7 @@ pub fn list_packs() -> Vec<PackStatus> {
 
 /// Create a minimal pack shell under `~/.susi/extensions/<id>/` (idempotent).
 /// Does not activate; call [`load_pack`] to make it active.
+#[allow(clippy::expect_used)]
 pub fn create_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     if id.is_empty() {
@@ -508,6 +511,7 @@ pub fn create_pack(id: &str) -> Result<PackStatus, String> {
 }
 
 /// Load (activate + mark loaded) a pack. Seeds `default` if needed.
+#[allow(clippy::expect_used)]
 pub fn load_pack(id: &str) -> Result<PackStatus, String> {
     let id = id.trim();
     if id.is_empty() {
@@ -646,6 +650,7 @@ fn resolve_pack_path(pack: &ExtensionPack, name: &str) -> Option<PathBuf> {
 }
 
 /// Load JSON from the host pack file when present; otherwise parse `bundled`.
+#[allow(clippy::panic)]
 pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &str) -> T {
     let _ = ensure_extensions_substrate();
     if let Some(path) = pack_file(pack_relative) {
@@ -668,6 +673,7 @@ pub fn load_json_or_bundled<T: DeserializeOwned>(pack_relative: &str, bundled: &
 }
 
 /// Bundled default-pack manifest (compile-time source tree layout).
+#[allow(clippy::expect_used)]
 pub fn bundled_manifest() -> ExtensionManifest {
     // Mandate 42: safe - BUNDLED_MANIFEST is compiled in via include_str!,
     // see the comment on load_json_or_bundled above.

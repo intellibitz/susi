@@ -44,6 +44,7 @@ pub enum EngineCommands {
     },
 }
 
+#[allow(clippy::wildcard_enum_match_arm)]
 pub fn execute(
     profile: &EngineProfile,
     action: Option<EngineCommands>,

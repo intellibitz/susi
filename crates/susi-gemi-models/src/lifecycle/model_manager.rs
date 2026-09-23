@@ -326,7 +326,9 @@ impl ModelManager {
         status: &str,
     ) {
         let progress_file = Self::progress_path(target_url);
-        let _ = fs::create_dir_all(progress_file.parent().unwrap());
+        if let Some(dir) = progress_file.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
         let previous: Option<ModelDownloadProgress> = fs::read(&progress_file)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok());

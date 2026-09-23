@@ -1,3 +1,16 @@
+#![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        unsafe_code,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! GAWD **A2A** tier: Agent2Agent wire protocol (`ra2a`).
 //!
 //! Depends on [`susi_gawd_agents`] only (`GawdAgentFleet`). Must not depend on

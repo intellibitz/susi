@@ -88,6 +88,7 @@ pub struct DaemonLock {
 }
 
 impl DaemonLock {
+    #[allow(unsafe_code)]
     fn acquire(path: &Path) -> Result<Self, String> {
         let file = fs::OpenOptions::new()
             .read(true)
@@ -246,6 +247,7 @@ impl SusiDaemon {
         lines.next().map(PathBuf::from)
     }
 
+    #[allow(unsafe_code)]
     pub fn check_status_path(lock_file_path: &Path) -> Option<u32> {
         if !lock_file_path.exists() {
             return None;
@@ -276,6 +278,7 @@ impl SusiDaemon {
         None
     }
 
+    #[allow(unsafe_code)]
     fn is_process_alive(lock_file_path: &Path) -> bool {
         if let Ok(content) = fs::read_to_string(lock_file_path)
             && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<u32>()
@@ -326,6 +329,7 @@ impl SusiDaemon {
     /// Ensure the single host daemon is running, bound to
     /// [`susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
     /// irrelevant here — work context is attached per intent, not to the daemon.
+    #[allow(unsafe_code)]
     pub fn ensure_daemon_running(_caller_cwd: &Path, global_dir: &Path) {
         let substrate_home = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&substrate_home);
@@ -774,6 +778,7 @@ impl SusiDaemon {
     }
 
     /// Aggressive Port Reclaim: Interrogates the process holding a port and evicts it if it's a susi instance.
+    #[allow(unsafe_code)]
     fn attempt_port_reclaim(port: u16, global_dir: &Path) -> bool {
         #[cfg(unix)]
         {
@@ -912,6 +917,7 @@ impl SusiDaemon {
     }
 
     #[allow(dead_code)]
+    #[allow(unsafe_code)]
     pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
         let global_lock = Self::get_lock_file(global_dir);
         let target_lock = &global_lock;
@@ -937,6 +943,7 @@ impl SusiDaemon {
     /// but left the daemon running). Used by `susi uninstall`, which must
     /// leave zero running daemons behind so a later reinstall starts clean.
     /// Returns how many daemon processes were signalled.
+    #[allow(unsafe_code)]
     pub fn stop_all_daemons(global_dir: &Path) -> usize {
         let mut killed = 0usize;
 

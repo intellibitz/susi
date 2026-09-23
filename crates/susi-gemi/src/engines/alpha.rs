@@ -23,6 +23,7 @@ pub struct SusiAlphaModel {
 impl SusiAlphaModel {
     pub const DIM: usize = 128;
 
+    #[allow(clippy::unwrap_used)]
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
@@ -37,6 +38,7 @@ impl SusiAlphaModel {
         })
     }
 
+    #[allow(unsafe_code)]
     pub fn load(global_dir: &Path) -> Result<Self> {
         let alpha_filename = susi_sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()

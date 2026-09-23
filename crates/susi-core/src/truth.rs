@@ -10,6 +10,7 @@ pub struct SusiTruthAgent;
 impl SusiTruthAgent {
     /// Preflight for explicit write claims, not proof of mission completion.
     /// Existence alone does not establish who wrote a file or what changed.
+    #[allow(clippy::expect_used)]
     pub fn verify_mission_reality(
         _goal: &str,
         _tool_name: &str,

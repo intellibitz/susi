@@ -167,7 +167,7 @@ impl InferenceHost {
         pb.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
-                .unwrap(),
+                .unwrap_or_else(|_| ProgressStyle::default_spinner()),
         );
         pb.set_message("Loading weights...");
         pb.enable_steady_tick(std::time::Duration::from_millis(100));

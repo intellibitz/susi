@@ -35,3 +35,6 @@ default = []
 # Mirrored for HardwareProfiler device selection; engines crate owns full candle-nn CUDA.
 cuda = ["candle-core/cuda"]
 metal = ["candle-core/metal"]
+
+[lints]
+workspace = true

@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+// Build scripts are not production runtime modules: a failed invariant must
+// abort the build loudly, so panic-on-error is the intended failure mode here.
+
 //! Compile `.agents/{identity,roadmap,evidence}.json` into static axiom tables.
 use serde_json::Value;
 use std::env;

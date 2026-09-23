@@ -515,7 +515,9 @@ pub fn register_configured_cloud_endpoints(registry: &susi_core::registry::Capab
             match protocol {
                 InferenceProtocol::Anthropic => "claude-3-5-haiku-20241022".to_string(),
                 InferenceProtocol::Gemini => "gemini-3.6-flash".to_string(),
-                _ => "gpt-4o-mini".to_string(),
+                InferenceProtocol::OpenAiChat
+                | InferenceProtocol::OpenAiCompletions
+                | InferenceProtocol::Triton => "gpt-4o-mini".to_string(),
             }
         } else {
             endpoint.model.clone()

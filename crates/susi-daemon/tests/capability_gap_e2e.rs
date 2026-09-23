@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! VC-200-002 e2e: an unregistered tool name flows through the real
 //! `ToolRegistry::execute_tool` → `resolve_capability_gap` → wired
 //! `SusiEngineHooks` → `ReflexSynthesizer::synthesize_wasm_reflex` path, and the

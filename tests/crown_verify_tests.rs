@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! Integration smoke for `susi crown verify` (Tier S USP gate).
 
 #![allow(missing_docs)]

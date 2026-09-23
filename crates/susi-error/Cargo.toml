@@ -9,3 +9,9 @@ publish = false
 serde_json = { workspace = true }
 susi-paths = { path = "../susi-paths" }
 regex = "1.13"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+proptest = "1.11.0"

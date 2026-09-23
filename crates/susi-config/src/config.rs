@@ -33,6 +33,7 @@ const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
 ];
 
 impl SusiConfig {
+    #[allow(clippy::expect_used)]
     fn bundled_defaults() -> &'static Self {
         static DEFAULTS: std::sync::OnceLock<SusiConfig> = std::sync::OnceLock::new();
         DEFAULTS.get_or_init(|| {
@@ -402,6 +403,7 @@ impl SusiConfig {
 
     /// Leading models catalog (~50 curated); live `/models` discovery remains
     /// unbounded. Override via config key `model_catalog`.
+    #[allow(clippy::expect_used)]
     pub fn model_catalog(&self) -> Vec<ModelCatalogEntry> {
         if let Some(cfg) = self.get::<ModelCatalogConfig>("model_catalog") {
             if !cfg.models.is_empty() {

@@ -203,7 +203,7 @@ impl MissionScheduler {
         };
 
         {
-            let mut log = decision_log().lock().unwrap();
+            let mut log = decision_log().lock().unwrap_or_else(|e| e.into_inner());
             if log.len() >= DECISION_LOG_CAP {
                 log.pop_front();
             }
@@ -216,7 +216,12 @@ impl MissionScheduler {
 
     /// Most recent dispatch decisions (newest last), for status/inspection.
     pub fn recent_decisions() -> Vec<ScheduleDecision> {
-        decision_log().lock().unwrap().iter().cloned().collect()
+        decision_log()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect()
     }
 }
 
@@ -271,6 +276,7 @@ mod tests {
     fn urgency_boost_promotes_affinity_agent() {
         // SelfHealingAgent's learned rank is lower, but a "crash" goal should
         // push it ahead of a higher-ranked unrelated agent.
+        crate::test_plane::wire();
         let agents = vec![agent("UnrelatedAgent", 0.9), agent("SelfHealingAgent", 0.5)];
         let plan = MissionScheduler::plan("the daemon crash keeps failing, urgent fix", &agents);
         assert_eq!(plan[0].name, "SelfHealingAgent");

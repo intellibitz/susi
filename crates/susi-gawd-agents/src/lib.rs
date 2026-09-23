@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! GAWD **agents** tier: fleet primitives, native agents, peers, governance detectors.
 //!
 //! Leaf crate in the GAWD DAG — must not depend on `susi-gawd-swarm`,
@@ -27,3 +39,75 @@ pub use agents::{
 pub use axiom::AxiomSubstrate;
 pub use brain::AlphaBrainContext;
 pub use self_core::AlphaSelf;
+
+/// In-memory `agents.` plane handler for unit tests. The concrete meta
+/// registry lives in `susi-agents` — a crate this leaf cannot depend on — so
+/// without this stub `AgentMetaRegistry` facade calls hit an unwired bus and
+/// silently no-op. Seeded with the single profile the scheduler tests need;
+/// `is_core` is deliberately false so the seed never auto-recruits itself
+/// into `synthesize_fleet` results for unrelated goals.
+#[cfg(test)]
+pub(crate) mod test_plane {
+    use std::sync::{Arc, Mutex, Once};
+
+    use serde_json::{json, Value};
+    use susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use susi_core::AgentProfile;
+
+    struct TestAgentsHandler {
+        profiles: Mutex<Vec<AgentProfile>>,
+    }
+
+    impl PlaneHandler for TestAgentsHandler {
+        fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
+            let mut profiles = self.profiles.lock().unwrap_or_else(|e| e.into_inner());
+            match topic {
+                topics::AGENTS_META_LIST => {
+                    serde_json::to_value(&*profiles).map_err(|e| e.to_string())
+                }
+                topics::AGENTS_META_REGISTER => {
+                    let profile: AgentProfile = if let Some(p) = payload.get("profile") {
+                        serde_json::from_value(p.clone()).map_err(|e| e.to_string())?
+                    } else {
+                        serde_json::from_value(payload.clone()).map_err(|e| e.to_string())?
+                    };
+                    if !profiles.iter().any(|a| a.name == profile.name) {
+                        profiles.push(profile);
+                    }
+                    Ok(json!({ "ok": true }))
+                }
+                topics::AGENTS_META_UPDATE_RANK => {
+                    let name = payload
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .ok_or("name required")?;
+                    let delta = payload.get("delta").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    if let Some(agent) = profiles.iter_mut().find(|a| a.name == name) {
+                        agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
+                    }
+                    Ok(json!({ "ok": true }))
+                }
+                other => Err(format!("test agents handler: unhandled topic '{other}'")),
+            }
+        }
+    }
+
+    pub(crate) fn wire() {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            PlaneBus::global().register_prefix(
+                "agents.",
+                Arc::new(TestAgentsHandler {
+                    profiles: Mutex::new(vec![AgentProfile {
+                        name: "SelfHealingAgent".into(),
+                        description: "Autonomous repairing.".into(),
+                        categories: vec!["heal".into(), "fix".into()],
+                        semantic_anchors: vec!["repair".into(), "test".into()],
+                        base_rank: 1.0,
+                        is_core: false,
+                    }]),
+                }),
+            );
+        });
+    }
+}

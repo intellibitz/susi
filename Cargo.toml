@@ -35,11 +35,37 @@ publish = false
 rust-version = "1.98"
 
 [lints.rust]
-unsafe_op_in_unsafe_fn = "warn"
+unsafe_op_in_unsafe_fn = "deny"
 missing_docs = "warn"
-[workspace.lints.clippy]
 
-unwrap_used = "warn"
+[lints.clippy]
+# Root package mirrors the workspace deny set (it keeps its own
+# `missing_docs` rust lint, which is intentionally not workspace-wide).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+wildcard_enum_match_arm = "deny"
+too_many_arguments = "warn"
+complexity = { level = "warn", priority = -1 }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+# Hard-denied: production code returns typed `EaiResult`s; panic-capable
+# macros require an inline `#[allow]` + justification comment (the audit
+# trail), same pattern as `#[allow(unsafe_code)]` on justified FFI sites.
+# Test code is exempt via `#![cfg_attr(test, allow(...))]` crate shims.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+wildcard_enum_match_arm = "deny"
 too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 

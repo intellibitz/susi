@@ -24,3 +24,6 @@ log = "0.4"
 default = []
 cuda = ["susi-gawd-agents/cuda", "susi-gawd-swarm/cuda", "susi-gawd-a2a/cuda"]
 metal = ["susi-gawd-agents/metal", "susi-gawd-swarm/metal", "susi-gawd-a2a/metal"]
+
+[lints]
+workspace = true

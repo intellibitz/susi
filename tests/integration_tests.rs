@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! SUSI Substrate Integration Tests
 //! 100% Rust-Native Validation of GAWD, GEMI & GMCP Pillars
 

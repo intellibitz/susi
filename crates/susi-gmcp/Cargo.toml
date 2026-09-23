@@ -42,3 +42,6 @@ anyhow = { workspace = true }
 # Test-only: exercises MCP client connect against an in-process server.
 # Production `susi-gmcp` has zero peer-plane Cargo deps.
 susi-tools = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! Architecture boundary tests — see `ARCHITECTURE.md`.
 //!
 //! Parses workspace `Cargo.toml` files (no network) and asserts:

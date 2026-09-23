@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! SUSI Empirical Validation Test Suite
 //! Implements automated checks based on the architectural test plan
 

@@ -147,6 +147,7 @@ impl HardwareProfiler {
     }
 
     #[cfg(unix)]
+    #[allow(unsafe_code)]
     fn get_disk_stats() -> (usize, u8) {
         use std::ffi::CString;
         if let Ok(c_path) = CString::new("/") {
@@ -184,6 +185,7 @@ impl HardwareProfiler {
     /// rather than a rounded GB figure, so `get_progressive_model_ladder`
     /// can gate tier selection on real available space, not just RAM.
     #[cfg(unix)]
+    #[allow(unsafe_code)]
     pub fn get_free_disk_bytes(path: &std::path::Path) -> u64 {
         use std::ffi::CString;
         let probe_path = if path.exists() {
@@ -442,6 +444,7 @@ impl HardwareProfiler {
         (cpus, gpu_info)
     }
 
+    #[allow(unsafe_code)]
     pub fn determine_total_ram_gb() -> usize {
         if cfg!(target_os = "linux") {
             if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {

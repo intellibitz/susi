@@ -235,7 +235,7 @@ fn compile_schema(schema: &Value) -> Result<Arc<jsonschema::Validator>, ErrorDat
         match value {
             Value::Object(map) => map.values().all(|v| bounded(v, depth + 1, remaining)),
             Value::Array(array) => array.iter().all(|v| bounded(v, depth + 1, remaining)),
-            _ => true,
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => true,
         }
     }
     if !bounded(schema, 0, &mut 10000) {

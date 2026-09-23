@@ -1,3 +1,16 @@
+#![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        unsafe_code,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! GEMI **models** tier: catalog, ladder, download, hardware fit, coding-model control plane.
 //!
 //! This crate decides *which* weights/endpoints are available. It must not depend on

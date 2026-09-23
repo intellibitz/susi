@@ -39,3 +39,6 @@ default = []
 cuda = ["susi-gemi-models/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
 metal = ["susi-gemi-models/metal", "candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+
+[lints]
+workspace = true

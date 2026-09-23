@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 pub mod redact;
 
 use std::backtrace::Backtrace;
@@ -161,7 +173,19 @@ impl StdError for EaiError {
     fn source(&self) -> Option<&(dyn StdError + 'static)> {
         match self {
             Self::Unknown(e, _) => Some(e.as_ref()),
-            _ => None,
+            Self::Governance(..)
+            | Self::Hardware(..)
+            | Self::Protocol(..)
+            | Self::Inference(..)
+            | Self::Sandbox(..)
+            | Self::Config(..)
+            | Self::Io(..)
+            | Self::Network(..)
+            | Self::Filesystem(..)
+            | Self::Process(..)
+            | Self::Authentication(..)
+            | Self::Authorization(..)
+            | Self::Internal(..) => None,
         }
     }
 }

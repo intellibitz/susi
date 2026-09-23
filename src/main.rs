@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! SUSI Engine CLI
 //!
 //! Command-line interface for the susi local-first AI orchestration system.

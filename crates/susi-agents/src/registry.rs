@@ -34,6 +34,7 @@ impl AgentMetaRegistry {
         susi_paths::SusiDirs::data_dir().join("agent_registry.json")
     }
 
+    #[allow(clippy::expect_used)]
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
         serde_json::from_str(include_str!("../../../config/agents.default.json"))
             .expect("Fatal: agents.default.json must be valid JSON.")

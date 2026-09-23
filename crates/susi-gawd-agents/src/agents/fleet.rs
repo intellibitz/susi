@@ -771,6 +771,7 @@ mod tests {
 
     #[test]
     fn test_fleet_synthesis() {
+        crate::test_plane::wire();
         let registry = AgentMetaRegistry::global();
         registry.register_agent(AgentProfile {
             name: "CustomDomainAgent".into(),
@@ -808,6 +809,7 @@ mod tests {
 
     #[test]
     fn test_semantic_anchors() {
+        crate::test_plane::wire();
         let registry = AgentMetaRegistry::global();
         registry.register_agent(AgentProfile {
             name: "AnchorAgent".into(),

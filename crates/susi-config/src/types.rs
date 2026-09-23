@@ -247,6 +247,7 @@ pub struct ChatTemplateConfig {
 }
 
 impl Default for ChatTemplateConfig {
+    #[allow(clippy::expect_used)]
     fn default() -> Self {
         // Deserialize directly into the flattened map type, not `Self` — the
         // container's #[serde(default)] makes Self's Deserialize impl call
@@ -359,6 +360,7 @@ impl SusiPrompts {
         prompts
     }
 
+    #[allow(clippy::expect_used)]
     fn default_dynamic() -> Self {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.
@@ -476,6 +478,7 @@ impl SusiMessages {
             .unwrap_or_else(|_| Self::default_dynamic())
     }
 
+    #[allow(clippy::expect_used)]
     fn default_dynamic() -> Self {
         // Mandate 42: safe - see ChatTemplateConfig::default's comment
         // above; same compile-time include_str! pattern.

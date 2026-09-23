@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! susi: a local-first Rust substrate for orchestrating AI agents and models.
 //! Local Candle inference loads llama/qwen2 **GGUF** weights; remote models
 //! mount via OpenAI-compatible (and Anthropic/Gemini/Triton) engines. Work

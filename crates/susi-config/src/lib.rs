@@ -1,3 +1,16 @@
+#![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        unsafe_code,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! SUSI configuration substrate: `SusiConfig` dynamic registry, typed config
 //! fragments, and shared self-healing JSON load/merge/save helpers.
 //!

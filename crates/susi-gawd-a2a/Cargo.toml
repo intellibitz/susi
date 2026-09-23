@@ -13,3 +13,6 @@ ra2a = { version = "0.10.1", features = ["server", "client"] }
 default = []
 cuda = ["susi-gawd-agents/cuda"]
 metal = ["susi-gawd-agents/metal"]
+
+[lints]
+workspace = true

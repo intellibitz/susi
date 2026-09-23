@@ -30,7 +30,11 @@ struct CloudAnswer {
 fn answer_text(answer: &serde_json::Value) -> String {
     match answer {
         serde_json::Value::String(s) => s.clone(),
-        other => other.to_string(),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => answer.to_string(),
     }
 }
 
@@ -385,6 +389,36 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use susi_core::provider::{BoxFuture, Provider};
 
+    /// The real `gemi.infer.verify` handler is a fast risk-pattern guard
+    /// wired by the daemon composition root; in this unit-test binary the
+    /// bus is unwired, so the governance check fails every recovery attempt
+    /// before the truth gates under test ever run. Stub it as a pass-through
+    /// (what the guard returns for text without risk patterns).
+    fn wire_verify_stub() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            struct VerifyStub;
+            impl susi_core::plane_bus::PlaneHandler for VerifyStub {
+                fn handle(
+                    &self,
+                    _topic: &str,
+                    payload: serde_json::Value,
+                ) -> Result<serde_json::Value, String> {
+                    let text = payload
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    Ok(serde_json::json!({ "text": text }))
+                }
+            }
+            susi_core::plane_bus::PlaneBus::global().register(
+                susi_core::plane_bus::topics::GEMI_INFER_VERIFY,
+                Arc::new(VerifyStub),
+            );
+        });
+    }
+
     struct TempWorkspace(std::path::PathBuf);
     impl TempWorkspace {
         fn new() -> Self {
@@ -520,6 +554,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_malformed_and_ungrounded_answers_advance_to_next_provider() {
+        wire_verify_stub();
         let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[
             (
@@ -632,6 +667,7 @@ mod tests {
 
     #[tokio::test]
     async fn citation_answers_complete_recovery_through_the_ledger() {
+        wire_verify_stub();
         let ws = TempWorkspace::new();
         let session =
             susi_core::capture::EvidenceSession::new("Explain the observed result", &ws.0, |s| {

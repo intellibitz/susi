@@ -882,6 +882,9 @@ impl CoreTools {
                     file.items.len()
                 ));
                 for item in file.items.iter().take(5) {
+                    // Only the headline item kinds are reported; every other
+                    // syn::Item variant is intentionally skipped.
+                    #[allow(clippy::wildcard_enum_match_arm)]
                     match item {
                         syn::Item::Fn(f) => {
                             report.push_str(&format!("  - Function: {}\n", f.sig.ident))
@@ -976,8 +979,8 @@ impl CoreTools {
         let _ = fs::create_dir_all(&screenshot_dir);
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let screenshot_path = screenshot_dir.join(format!("screenshot_{}.png", ts));
 
         let png_data = tab

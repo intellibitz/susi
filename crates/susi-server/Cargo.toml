@@ -21,3 +21,6 @@ tracing = "0.1"
 [features]
 default = []
 cuda = []
+
+[lints]
+workspace = true

@@ -16,3 +16,6 @@ wasmer-wasix = { version = "0.704.2", features = ["sys"] }
 [target.'cfg(windows)'.dependencies]
 wasmer = { version = "7.4.2", features = ["singlepass", "sys"] }
 wasmer-wasix = { version = "0.704.2", features = ["sys"] }
+
+[lints]
+workspace = true

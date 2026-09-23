@@ -29,3 +29,6 @@ tempfile = "3"
 name = "evidence_verify"
 harness = false
 path = "benches/evidence_verify.rs"
+
+[lints]
+workspace = true

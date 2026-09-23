@@ -275,6 +275,7 @@ impl SpeculativeDecoder {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::unwrap_used)]
     fn run(
         target: &mut Qwen2Weights,
         draft: &mut Qwen2Weights,

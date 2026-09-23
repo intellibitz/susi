@@ -1,3 +1,15 @@
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
 //
@@ -155,6 +167,7 @@ impl GemiServer {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
@@ -670,6 +683,7 @@ async fn handle_gemi_request(
     }
 }
 
+#[allow(clippy::unwrap_used)]
 fn build_streaming_response(
     prompt: String,
     model_name: String,

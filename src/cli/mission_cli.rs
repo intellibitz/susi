@@ -127,9 +127,17 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             let bind_address: String = gemi_cfg
                 .get("bind_address")
                 .unwrap_or_else(|| "127.0.0.1".to_string());
-            let listener =
-                std::net::TcpListener::bind(format!("{}:{}", bind_address, gemi_cfg.gemi_port()))
-                    .expect("Failed to bind GEMI port");
+            let listener = match std::net::TcpListener::bind(format!(
+                "{}:{}",
+                bind_address,
+                gemi_cfg.gemi_port()
+            )) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("[GEMI] Failed to bind port {}: {e}", gemi_cfg.gemi_port());
+                    return std::process::ExitCode::FAILURE;
+                }
+            };
             GemiServer::start_http_server((*cwd).to_path_buf(), listener);
         }
         Commands::Status => {

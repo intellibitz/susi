@@ -21,8 +21,8 @@ impl GenomeDistiller {
         let mut samples = Vec::new();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
         // 1. Distill identity.json (Governance Axiom Rules)
         for rule in AlphaSelf::RULES {

@@ -1,3 +1,10 @@
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic,
+    clippy::unreachable
+)]
+
 //! Stable CI smoke for parser boundaries exercised by `fuzz/` targets (no nightly).
 
 #![allow(missing_docs)]

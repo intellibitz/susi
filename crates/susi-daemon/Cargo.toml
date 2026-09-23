@@ -29,3 +29,6 @@ cuda = ["susi-gemi/cuda"]
 
 [target."cfg(windows)".dependencies]
 winapi = { version = "0.3", features = ["fileapi", "minwinbase"] }
+
+[lints]
+workspace = true

@@ -113,6 +113,7 @@ impl TypedEventBus {
         Self::default()
     }
 
+    #[allow(clippy::expect_used)]
     pub fn publish<E: Send + Sync + Clone + 'static>(&self, event: E) {
         let subscribers = self
             .channels
@@ -132,6 +133,7 @@ impl TypedEventBus {
         }
     }
 
+    #[allow(clippy::expect_used)]
     pub fn subscribe<E: Send + Sync + Clone + 'static>(&self) -> flume::Receiver<E> {
         let subscribers = {
             let entry = self

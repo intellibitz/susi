@@ -17,6 +17,7 @@ struct Cloud {
 }
 
 impl Cloud {
+    #[allow(clippy::wildcard_enum_match_arm)]
     fn new(adapter: &Adapter) -> Result<Self> {
         let (base, env, manus, org_env) = match adapter {
             Adapter::Devin {

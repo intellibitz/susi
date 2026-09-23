@@ -1,3 +1,16 @@
+#![deny(unsafe_code)]
+#![cfg_attr(
+    test,
+    allow(
+        unsafe_code,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable,
+        clippy::wildcard_enum_match_arm
+    )
+)]
+
 //! GAWD **swarm** tier: AMA / AMAS orchestration, MissionDag, cloud recovery.
 //!
 //! Depends on [`susi_gawd_agents`] only. Must not import `ra2a` or `susi-gawd`.

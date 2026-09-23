@@ -27,3 +27,6 @@ md5 = "0.8.1"
 default = []
 cuda = ["susi-gawd-agents/cuda"]
 metal = ["susi-gawd-agents/metal"]
+
+[lints]
+workspace = true
