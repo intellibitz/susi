@@ -684,7 +684,7 @@ impl CoreTools {
 
     #[tool(
         name = "commit_log_fetch",
-        description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators)."
+        description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N, offset?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators), skipping `offset` matches for pagination."
     )]
     pub fn commit_log_fetch(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let coordinator = arg.get("coordinator").and_then(|v| v.as_str());
@@ -694,10 +694,12 @@ impl CoreTools {
             .and_then(|v| v.as_u64())
             .unwrap_or(500)
             .min(1000) as usize;
+        let offset = arg.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let records: Vec<crate::susi_core::commit_log::CommitRecord> =
             crate::susi_core::commit_log::load()
                 .into_iter()
                 .filter(|r| coordinator.is_none_or(|c| r.coordinator == c) && r.seq >= from_seq)
+                .skip(offset)
                 .take(limit)
                 .collect();
         serde_json::to_string(&records)

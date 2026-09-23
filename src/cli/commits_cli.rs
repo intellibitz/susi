@@ -104,48 +104,62 @@ fn sync() -> Result<()> {
             continue;
         };
         let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
-        match susi_core::mcp_client::call_tool(
-            addr,
-            "commit_log_fetch",
-            &serde_json::json!({ "limit": 1000 }),
-            bearer.as_deref(),
-        ) {
-            Ok(result) => {
-                let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
-                    println!("{id} ({addr}): no tool output");
-                    continue;
-                };
-                let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
-                else {
-                    println!("{id} ({addr}): malformed fetch payload");
-                    continue;
-                };
-                let (mut new, mut dup, mut bad) = (0usize, 0usize, 0usize);
-                for r in records {
-                    if !r.verify() {
-                        bad += 1;
-                        continue;
-                    }
-                    let key = serde_json::to_string(&r).unwrap_or_default();
-                    if held.contains(&key) {
-                        dup += 1;
-                        continue;
-                    }
-                    match commit_log::append(&r) {
-                        Ok(()) => {
-                            held.insert(key);
-                            new += 1;
+        // Paginate until a short page — a ledger past the fetch cap must
+        // still converge instead of truncating at the first 1000 records.
+        let mut offset = 0usize;
+        let (mut new, mut dup, mut bad) = (0usize, 0usize, 0usize);
+        loop {
+            match susi_core::mcp_client::call_tool(
+                addr,
+                "commit_log_fetch",
+                &serde_json::json!({ "limit": 1000, "offset": offset }),
+                bearer.as_deref(),
+            ) {
+                Ok(result) => {
+                    let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str())
+                    else {
+                        println!("{id} ({addr}): no tool output");
+                        break;
+                    };
+                    let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
+                    else {
+                        println!("{id} ({addr}): malformed fetch payload");
+                        break;
+                    };
+                    let page = records.len();
+                    offset += page;
+                    for r in records {
+                        if !r.verify() {
+                            bad += 1;
+                            continue;
                         }
-                        Err(_) => bad += 1,
+                        let key = serde_json::to_string(&r).unwrap_or_default();
+                        if held.contains(&key) {
+                            dup += 1;
+                            continue;
+                        }
+                        match commit_log::append(&r) {
+                            Ok(()) => {
+                                held.insert(key);
+                                new += 1;
+                            }
+                            Err(_) => bad += 1,
+                        }
+                    }
+                    if page < 1000 {
+                        break;
                     }
                 }
-                println!("{id} ({addr}): +{new} new, {dup} already held, {bad} rejected");
-                total_new += new;
-                total_dup += dup;
-                total_bad += bad;
+                Err(e) => {
+                    println!("{id} ({addr}): unreachable — {e}");
+                    break;
+                }
             }
-            Err(e) => println!("{id} ({addr}): unreachable — {e}"),
         }
+        println!("{id} ({addr}): +{new} new, {dup} already held, {bad} rejected");
+        total_new += new;
+        total_dup += dup;
+        total_bad += bad;
     }
     println!("sync: {total_new} new record(s), {total_dup} already held, {total_bad} rejected");
     Ok(())
