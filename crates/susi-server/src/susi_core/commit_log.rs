@@ -29,7 +29,7 @@
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
@@ -318,10 +318,77 @@ pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
 
 /// Serializes term read-modify-write sequences (claim + adopt) within
 /// the process — two threads claiming leadership concurrently must not
-/// interleave a lost bump. Cross-process writers can't be locked; both
-/// write *valid* states and the next observe converges, so the file
-/// stays last-writer-wins rather than corrupt.
+/// interleave a lost bump.
 static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Cross-process mutual exclusion for file read-modify-write. The
+/// in-process mutexes (TERM_LOCK, APPEND_LOCK) cover threads; this
+/// lockfile covers sibling processes sharing a config dir (daemon + CLI
+/// + a second node) — without it, two processes could both read state N
+/// and each write N+1, forking the term sequence or interleaving torn
+/// JSONL lines into the ledger. Acquisition is `O_CREAT|O_EXCL` on
+/// `<name>.lock` inside `dir`; the file records the holder pid for
+/// stale detection.
+struct FileLock {
+    path: PathBuf,
+}
+
+impl FileLock {
+    /// ~3s of 10ms retries — the guarded sections are millisecond-scale,
+    /// so a longer wait means a wedged holder, not contention.
+    fn acquire(dir: &Path, name: &str) -> Option<Self> {
+        // The guarded file may not exist yet — the lockfile lives in the
+        // same directory, so it must be created before O_EXCL can succeed.
+        fs::create_dir_all(dir).ok()?;
+        let lock = dir.join(format!("{name}.lock"));
+        for _ in 0..300 {
+            match fs::OpenOptions::new().write(true).create_new(true).open(&lock) {
+                Ok(mut f) => {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{}", std::process::id());
+                    return Some(Self { path: lock });
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    if Self::is_stale(&lock) {
+                        let _ = fs::remove_file(&lock);
+                        continue;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    /// A lockfile is stale when its recorded pid no longer exists
+    /// (Linux `/proc`), or it has sat unclaimed for over a minute —
+    /// either means the holder died mid-claim.
+    fn is_stale(lock: &Path) -> bool {
+        if let Ok(body) = fs::read_to_string(lock) {
+            if let Ok(pid) = body.trim().parse::<u32>() {
+                #[cfg(target_os = "linux")]
+                {
+                    if !std::path::Path::new(&format!("/proc/{pid}")).exists() {
+                        return true;
+                    }
+                }
+            }
+        }
+        fs::metadata(lock)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|e| e.as_secs() > 60)
+            .unwrap_or(false)
+    }
+}
+
+impl Drop for FileLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
 
 /// Called by a coordinator before sealing a commit: records the elected
 /// leader and bumps the term when leadership changed, returning the
@@ -334,6 +401,13 @@ pub fn claim_leadership(leader: &str) -> u64 {
 /// Test seam: claim leadership against an explicit term file.
 pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Serialize the read-modify-write across processes. On lock failure we
+    // skip the write entirely rather than race it — a skipped claim leaves
+    // the file consistent (the next claim retries), while a racing write
+    // is exactly the lost-bump this lock exists to prevent.
+    let _file_lock = path
+        .parent()
+        .and_then(|dir| FileLock::acquire(dir, "term"));
     let mut state = load_term_from(path);
     if state.leader != leader {
         state.term += 1;
@@ -342,9 +416,11 @@ pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        // Best-effort: a node that can't persist term state still seals
-        // with the in-memory value; the next load re-reads the file.
-        let _ = save_term_to(path, &state);
+        if _file_lock.is_some() {
+            // Best-effort beyond the lock: a transient IO error still
+            // seals with the in-memory value; the next load re-reads.
+            let _ = save_term_to(path, &state);
+        }
     }
     state.term
 }
@@ -378,6 +454,11 @@ pub fn check_term(record: &CommitRecord) -> TermVerdict {
 /// Test seam: `check_term` against an explicit term file.
 pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Same cross-process serialization as claim_leadership_at — term
+    // adoption is a read-modify-write and must not interleave a claim.
+    let _file_lock = path
+        .parent()
+        .and_then(|dir| FileLock::acquire(dir, "term"));
     let state = load_term_from(path);
     if record.term > state.term {
         let next = TermState {
@@ -388,7 +469,9 @@ pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
         };
-        let _ = save_term_to(path, &next);
+        if _file_lock.is_some() {
+            let _ = save_term_to(path, &next);
+        }
         return TermVerdict::Adopted(next);
     }
     if record.term < state.term {
@@ -515,6 +598,14 @@ pub fn append(record: &CommitRecord) -> EaiResult<()> {
 /// (pre-sequencing records) dedups on full-record equality only.
 pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // Cross-process: two nodes sharing the config dir must not interleave
+    // the check+write — without the lockfile, both can pass the
+    // equivocation check and both append, and JSONL writes can tear.
+    // On lock failure we still proceed: a skipped lock risks a torn line
+    // (which load skips) while blocking forever is worse.
+    let _file_lock = path
+        .parent()
+        .and_then(|dir| FileLock::acquire(dir, "commit_log"));
     if !record.verify() {
         return Err(EaiError::protocol(
             "refusing to append a commit record that fails signature or consistency verification",
@@ -919,5 +1010,35 @@ mod tests {
             "node-a seq4 term1 regression must be flagged: {:?}",
             state.anomalies
         );
+    }
+
+    #[test]
+    fn file_lock_excludes_second_holder_and_releases_on_drop() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_locktest_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        {
+            let _a = FileLock::acquire(&dir, "term").expect("first acquire");
+            // A second acquire while the first is held must not steal —
+            // it should either time out or fail fast.
+            assert!(FileLock::acquire(&dir, "term").is_none());
+            // A different lock name in the same dir is independent.
+            let _b = FileLock::acquire(&dir, "commit_log").expect("independent name");
+        }
+        // Both dropped — reacquisition succeeds.
+        let _c = FileLock::acquire(&dir, "term").expect("reacquire after drop");
+        drop(_c);
+        // Stale detection: a lockfile naming a dead pid is reclaimed.
+        let stale = dir.join("term.lock");
+        fs::write(&stale, "999999\n").unwrap();
+        let _d = FileLock::acquire(&dir, "term").expect("stale pid reclaim");
+        drop(_d);
+        let _ = fs::remove_dir_all(&dir);
     }
 }
