@@ -12,21 +12,48 @@ use susi_core::{commit_log, service_table};
 #[derive(Debug, clap::Subcommand)]
 pub enum OsCommands {
     /// Full substrate status: consensus, services, peers (default)
-    Status,
+    Status {
+        /// Emit machine-readable JSON instead of the table view
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn execute(action: Option<OsCommands>, _workspace: &Path) -> Result<()> {
-    match action.unwrap_or(OsCommands::Status) {
-        OsCommands::Status => status(),
+    match action.unwrap_or(OsCommands::Status { json: false }) {
+        OsCommands::Status { json } => status(json),
     }
 }
 
-fn status() -> Result<()> {
+fn status(json: bool) -> Result<()> {
     let state = commit_log::replay();
     let term = commit_log::load_term();
     let services = service_table::status();
     let peers = load_verified_peers();
     let up = services.iter().filter(|s| s.up).count();
+
+    if json {
+        let body = serde_json::json!({
+            "consensus": {
+                "term": state.term.max(term.term),
+                "leader": leader_display(&state, &term),
+                "decisions": state.decisions,
+                "anomalies": state.anomalies,
+                "coordinators": state.coordinators,
+            },
+            "services": services.iter().map(|s| serde_json::json!({
+                "name": s.name, "port": s.port, "pid": s.pid,
+                "restarts": s.restarts, "up": s.up,
+            })).collect::<Vec<_>>(),
+            "peers": peers.iter().map(|p| serde_json::json!({
+                "node_id": &p.node_id, "address": &p.address,
+                "trust_score": p.trust_score, "is_active": p.is_active,
+                "reachable": p.probe(),
+            })).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
 
     println!("SUSI OS — substrate status");
     println!(
