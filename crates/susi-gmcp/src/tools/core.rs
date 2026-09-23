@@ -735,6 +735,13 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
         return Err(format!("coordinator {coordinator} not in verified roster"));
     }
 
+    // Roster candidates are verified members — entitled to the host bearer
+    // for the tools/call channel (same contract as dispatch_peer_task).
+    let token = crate::susi_sandbox::manager::SusiConfig::load_global()
+        .unwrap_or_default()
+        .api_auth_token();
+    let bearer = (!token.is_empty()).then_some(token.as_str());
+
     let mut last_err = String::new();
     let mut repaired_total = 0usize;
     let mut remaining: Vec<u64> = missing.to_vec();
@@ -742,7 +749,7 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
         if remaining.is_empty() {
             break;
         }
-        match fetch_commit_records(addr, coordinator, remaining[0]) {
+        match fetch_commit_records(addr, coordinator, remaining[0], bearer) {
             Ok(fetched) => {
                 let mut got = 0usize;
                 for r in fetched {
@@ -770,33 +777,26 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
 }
 
 /// Pull a coordinator's records (seq >= `from_seq`) from one peer's
-/// `commit_log_fetch` tool over the peer JSON-RPC channel.
+/// `commit_log_fetch` tool over the MCP peer channel (`mcp_client` runs
+/// the session handshake — a bare POST to `/` is rejected by the server).
 fn fetch_commit_records(
     addr: &str,
     coordinator: &str,
     from_seq: u64,
+    bearer: Option<&str>,
 ) -> Result<Vec<crate::susi_core::commit_log::CommitRecord>, String> {
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "tools/call",
-        "params": {
-            "name": "commit_log_fetch",
-            "arguments": { "coordinator": coordinator, "from_seq": from_seq }
-        }
-    });
-    let text = crate::susi_config::http_agent()
-        .post(format!("http://{addr}"))
-        .send_json(&body)
-        .map_err(|e| format!("fetch from {addr}: {e}"))?
-        .body_mut()
-        .read_json::<serde_json::Value>()
-        .map_err(|e| format!("parse fetch response: {e}"))?
-        .pointer("/result/content/0/text")
+    let result = crate::susi_core::mcp_client::call_tool(
+        addr,
+        "commit_log_fetch",
+        &serde_json::json!({ "coordinator": coordinator, "from_seq": from_seq }),
+        bearer,
+    )
+    .map_err(|e| format!("fetch from {addr}: {e}"))?;
+    let text = result
+        .pointer("/content/0/text")
         .and_then(|t| t.as_str())
-        .map(str::to_string)
         .ok_or_else(|| "no tool output in fetch response".to_string())?;
-    serde_json::from_str(&text).map_err(|e| format!("bad records: {e}"))
+    serde_json::from_str(text).map_err(|e| format!("bad records: {e}"))
 }
 
 impl CoreTools {

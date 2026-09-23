@@ -996,47 +996,38 @@ impl SusiSupervisor {
         })
     }
 
+    /// Invoke a governed tool on a verified peer over the MCP Streamable
+    /// HTTP channel (`susi_core::mcp_client` runs the full session
+    /// handshake — a bare POST to `/` is a 404 and was silently swallowed
+    /// by the old implementation).
     pub fn dispatch_peer_task(addr: &str, tool_name: &str, arg: &str) -> String {
         let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
-        let req_val = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 99,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arg_val
-            }
-        });
-
-        let url = format!("http://{}", addr);
-        static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
-        let client = HTTP_CLIENT.get_or_init(|| {
-            reqwest::blocking::Client::builder()
-                .timeout(Duration::from_millis(1500))
-                .build()
-                .unwrap_or_else(|_| reqwest::blocking::Client::new())
-        });
 
         // Only Local / Explicit peers may receive the host bearer. UDP-
         // discovered peers stay unauthenticated on purpose: a fleet that
         // needs mutual auth must admit peers via an explicit allowlist
         // (PeerAdmission::Explicit), not via an open LAN ping.
-        let mut req = client.post(&url).json(&req_val);
-        if Self::peer_allows_host_token(addr) {
+        let bearer = if Self::peer_allows_host_token(addr) {
             let token = crate::susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .api_auth_token();
-            if !token.is_empty() {
-                req = req.bearer_auth(token);
-            }
-        }
+            (!token.is_empty()).then_some(token)
+        } else {
+            None
+        };
 
-        if let Ok(resp) = req.send() {
-            if let Ok(text) = resp.text() {
-                return format!("[A2A Flux ({})]: {}", addr, text.trim());
+        match crate::susi_core::mcp_client::call_tool(addr, tool_name, &arg_val, bearer.as_deref())
+        {
+            Ok(result) => {
+                let text = result
+                    .pointer("/content/0/text")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+                    .unwrap_or_else(|| result.to_string());
+                format!("[A2A Flux ({})]: {}", addr, text.trim())
             }
+            Err(e) => format!("[A2A Fallback]: Node '{}' unreachable ({e}).", addr),
         }
-        format!("[A2A Fallback]: Node '{}' unreachable.", addr)
     }
 
     pub fn broadcast_lock_request(resource_id: &str) -> bool {
