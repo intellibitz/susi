@@ -31,6 +31,7 @@ use super::openrouter_cli;
 use super::openviking_cli;
 use super::os_cli;
 use super::patch_cli;
+use super::peers_cli;
 use super::plan_cli;
 use super::privacy_cli;
 use super::python_engine_cli;
@@ -181,6 +182,11 @@ pub(crate) enum Commands {
     Os {
         #[command(subcommand)]
         action: Option<os_cli::OsCommands>,
+    },
+    /// Verified cluster roster: list peers, revoke a member's trust
+    Peers {
+        #[command(subcommand)]
+        action: Option<peers_cli::PeersCommands>,
     },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
@@ -496,7 +502,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Crown { .. }
         | Commands::Services { .. }
         | Commands::Commits { .. }
-        | Commands::Os { .. } => false,
+        | Commands::Os { .. }
+        | Commands::Peers { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

@@ -29,6 +29,7 @@ use super::openrouter_cli;
 use super::openviking_cli;
 use super::os_cli;
 use super::patch_cli;
+use super::peers_cli;
 use super::plan_cli;
 use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
 use super::privacy_cli;
@@ -129,6 +130,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Os { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             os_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Peers { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            peers_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Agents { action }) = command {
