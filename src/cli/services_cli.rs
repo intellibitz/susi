@@ -67,6 +67,13 @@ fn restart(name: &str) -> Result<()> {
              (start the daemon with `susi start` to put it under supervision)"
         );
     };
+    if susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_none() {
+        bail!(
+            "the daemon is not running — killing {name} (pid {}) would leave it \
+             dead with nothing to respawn it; start the daemon with `susi start` first",
+            rec.pid
+        );
+    }
     #[cfg(unix)]
     {
         let ok = std::process::Command::new("kill")
@@ -96,15 +103,34 @@ fn logs(name: &str, lines: usize) -> Result<()> {
     let path = susi_paths::SusiDirs::substrate_home()
         .join("logs")
         .join(format!("{}.log", svc.name));
-    let text = match std::fs::read_to_string(&path) {
-        Ok(t) => t,
+    let file = match std::fs::File::open(&path) {
+        Ok(f) => f,
         Err(_) => bail!(
             "no log at {} — the service may never have been spawned under supervision",
             path.display()
         ),
     };
+    // Tail-bounded read: logs can grow unboundedly under supervision, so seek
+    // to the last TAIL_BYTES instead of loading the whole file.
+    const TAIL_BYTES: u64 = 512 * 1024;
+    use std::io::{Read, Seek, SeekFrom};
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut file = file;
+    let truncated = size > TAIL_BYTES;
+    if truncated {
+        file.seek(SeekFrom::End(-(TAIL_BYTES as i64)))
+            .map_err(|e| anyhow::anyhow!("seek log: {e}"))?;
+    }
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf)
+        .map_err(|e| anyhow::anyhow!("read log: {e}"))?;
+    let text = String::from_utf8_lossy(&buf);
     let all: Vec<&str> = text.lines().collect();
-    let start = all.len().saturating_sub(lines);
+    // Drop the first partial line when we started mid-file.
+    let start = all.len().saturating_sub(lines).max(usize::from(truncated));
+    if truncated {
+        println!("… (showing last {TAIL_BYTES} bytes of {})", path.display());
+    }
     for line in &all[start..] {
         println!("{line}");
     }

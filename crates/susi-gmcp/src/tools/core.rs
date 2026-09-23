@@ -565,15 +565,33 @@ impl CoreTools {
         let path = crate::susi_paths::SusiDirs::substrate_home()
             .join("logs")
             .join(format!("{}.log", svc.name));
-        let text = std::fs::read_to_string(&path).map_err(|_| {
+        // Tail-bounded read: a governed tool must not block on arbitrarily
+        // large logs — cap at the last 512 KiB and drop the partial head line.
+        const TAIL_BYTES: u64 = 512 * 1024;
+        use std::io::{Read, Seek, SeekFrom};
+        let mut file = std::fs::File::open(&path).map_err(|_| {
             EaiError::filesystem(format!(
                 "no log at {} — service may never have been supervised",
                 path.display()
             ))
         })?;
+        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let truncated = size > TAIL_BYTES;
+        if truncated {
+            file.seek(SeekFrom::End(-(TAIL_BYTES as i64)))
+                .map_err(|e| EaiError::filesystem(format!("seek log: {e}")))?;
+        }
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .map_err(|e| EaiError::filesystem(format!("read log: {e}")))?;
+        let text = String::from_utf8_lossy(&buf);
         let all: Vec<&str> = text.lines().collect();
-        let start = all.len().saturating_sub(lines);
-        Ok(all[start..].join("\n"))
+        let start = all.len().saturating_sub(lines).max(usize::from(truncated));
+        let mut out = all[start..].join("\n");
+        if truncated {
+            out.insert_str(0, "… (log truncated to last 512 KiB)\n");
+        }
+        Ok(out)
     }
 
     #[tool(
