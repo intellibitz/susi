@@ -3,7 +3,7 @@ use crate::registry::CapabilityRegistry;
 use std::path::Path;
 use std::sync::OnceLock;
 
-use susi_error::{EaiError, EaiResult};
+use crate::susi_error::{EaiError, EaiResult};
 
 pub struct SusiTruthAgent;
 

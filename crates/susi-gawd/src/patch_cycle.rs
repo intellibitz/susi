@@ -5,9 +5,9 @@
 //! keeps backups, runs the project test command, and restores backups when
 //! tests fail. Autonomous application is gated by `trust_level`.
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FilePatch {

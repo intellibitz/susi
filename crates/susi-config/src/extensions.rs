@@ -223,7 +223,7 @@ static CACHE_GEN: AtomicU64 = AtomicU64::new(0);
 static CLOUD_VENDOR_CACHE: Mutex<Option<(u64, Vec<CloudVendorEntry>)>> = Mutex::new(None);
 
 fn extensions_root() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("extensions")
+    crate::susi_paths::SusiDirs::config_dir().join("extensions")
 }
 
 fn state_path() -> PathBuf {
@@ -743,7 +743,7 @@ mod tests {
                 .as_nanos()
         ));
         let _ = std::fs::create_dir_all(&tmp);
-        // Pre-create the legacy base so `SusiDirs::use_xdg()` cannot flip
+        // Pre-create the legacy base so `crate::susi_paths::SusiDirs::use_xdg()` cannot flip
         // mid-test if a concurrent test creates it under the swapped HOME.
         let _ = std::fs::create_dir_all(tmp.join(".susi"));
         let prev_home = std::env::var_os("HOME");

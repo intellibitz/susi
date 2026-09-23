@@ -12,9 +12,9 @@
 
 use crate::engine::{LlamaCppEngine, NativeInferenceEngine};
 use crate::models::ModelBenchmarkResult;
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::time::Instant;
-use susi_error::{EaiError, EaiResult};
 use sysinfo::System;
 
 /// Small, fixed prompt set so repeated runs are comparable to each other.

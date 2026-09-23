@@ -31,7 +31,7 @@ impl AgentMetaRegistry {
     }
 
     fn registry_path() -> std::path::PathBuf {
-        susi_paths::SusiDirs::data_dir().join("agent_registry.json")
+        crate::susi_paths::SusiDirs::data_dir().join("agent_registry.json")
     }
 
     #[allow(clippy::expect_used)]
@@ -97,7 +97,7 @@ impl AgentMetaRegistry {
                         name_owned, old_rank, agent.base_rank, source_owned
                     );
                     susi_sandbox::manager::SusiAuditLogger::log(
-                        &susi_paths::SusiDirs::config_dir(),
+                        &crate::susi_paths::SusiDirs::config_dir(),
                         susi_sandbox::manager::LogLevel::Info,
                         "AGENT_MUTATION",
                         &log_msg,

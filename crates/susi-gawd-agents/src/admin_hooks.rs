@@ -4,9 +4,9 @@
 //! The host crate (`susi-gawd`) implements and registers them at startup
 //! (same pattern as `susi_tools::EngineHooks`).
 
+use crate::susi_error::EaiResult;
 use std::path::Path;
 use std::sync::OnceLock;
-use susi_error::EaiResult;
 
 pub trait AdminHooks: Send + Sync {
     fn enforce_version_consistency(&self, workspace: &Path) -> EaiResult<String>;

@@ -51,7 +51,7 @@ impl LeadingMcpManager {
             .canonicalize()
             .context("MCP workspace does not exist")?;
         Ok(Self {
-            config: susi_paths::SusiDirs::config_dir().join("leading-mcp"),
+            config: crate::susi_paths::SusiDirs::config_dir().join("leading-mcp"),
             workspace,
         })
     }

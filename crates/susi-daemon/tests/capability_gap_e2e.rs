@@ -16,6 +16,10 @@
 //! absent the test reports a skip instead of claiming a pass it didn't earn —
 //! same convention as `reflex_synth::tests::test_wasm_reflex_hot_patch_end_to_end`.
 
+#[allow(dead_code)]
+#[path = "../src/susi_paths.rs"]
+mod susi_paths;
+
 #[test]
 fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
     // Isolate HOME so the synthesized reflex lands under a temp substrate and

@@ -245,7 +245,7 @@ mod tests {
             _goal: &str,
             _workspace: &std::path::Path,
             _blackboard: &susi_core::MissionBlackboard,
-        ) -> susi_error::EaiResult<String> {
+        ) -> susi_core::susi_error::EaiResult<String> {
             Ok("ok".into())
         }
     }

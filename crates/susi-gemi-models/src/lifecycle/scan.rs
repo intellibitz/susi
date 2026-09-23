@@ -1,8 +1,8 @@
 //! Filesystem discovery and verification of local model artifacts.
 
+use crate::susi_error::EaiResult;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_error::EaiResult;
 use susi_sandbox::manager::ModelInfo;
 
 use super::types::*;
@@ -218,14 +218,15 @@ impl ModelManager {
     }
 
     pub fn deep_scan_home_and_register(global_dir: &Path) -> EaiResult<String> {
-        let home = susi_paths::SusiDirs::home_dir();
+        let home = crate::susi_paths::SusiDirs::home_dir();
         if !home.is_dir() {
-            return Err(susi_error::EaiError::filesystem(
+            return Err(crate::susi_error::EaiError::filesystem(
                 "User home directory not detected",
             ));
         }
 
-        let mut cfg = susi_sandbox::manager::SusiConfig::load(global_dir)?;
+        let mut cfg = susi_sandbox::manager::SusiConfig::load(global_dir)
+            .map_err(|e| crate::susi_error::EaiError::config(e.to_string()))?;
         let home_scan_root_exclude_dirs = cfg.home_scan_root_exclude_dirs();
         let rules = std::sync::Arc::new(ModelScanRules {
             exclude_dirs: cfg.model_discovery_exclude_dirs(),
@@ -301,7 +302,8 @@ impl ModelManager {
         cfg.settings
             .insert("local_scan_paths".to_string(), serde_json::json!(paths));
 
-        cfg.save(global_dir)?;
+        cfg.save(global_dir)
+            .map_err(|e| crate::susi_error::EaiError::config(e.to_string()))?;
 
         Ok(format!("Deep scan complete. Discovered and registered {} new local model directories to substrate configuration.", new_paths_added))
     }

@@ -1,8 +1,8 @@
 use super::{SusiAdmin, VersionBump};
+use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::path::Path;
 use std::process::Command;
-use susi_error::{EaiError, EaiResult};
 
 impl SusiAdmin {
     pub fn execute_release(workspace: &Path, cut: Option<VersionBump>) -> EaiResult<String> {

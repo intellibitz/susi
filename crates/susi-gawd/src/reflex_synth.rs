@@ -6,10 +6,10 @@
 // called this one "Motion Rule Protocol" too, exactly the collision
 // Mandate 20's own note warns about.
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use susi_error::{EaiError, EaiResult};
 
 pub struct ReflexSynthesizer;
 
@@ -52,7 +52,7 @@ impl ReflexSynthesizer {
         let code = format!(
             "// SUSI Native Reflex: {}\n\
             use susi_tools::SusiTool;\n\
-            use susi_error::EaiResult;\n\n\
+            use crate::susi_error::EaiResult;\n\n\
             pub struct {}Reflex;\n\n\
             impl SusiTool for {}Reflex {{\n\
                 fn name(&self) -> String {{ \"{}\".to_string() }}\n\
@@ -99,7 +99,7 @@ impl ReflexSynthesizer {
     /// silently swallowed, so callers can tell a real patch from a missing
     /// toolchain component.
     pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
-        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
+        let reflex_dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
         let _ = fs::create_dir_all(&reflex_dir);
         let slug = sanitize_reflex_slug(intent)?;
         let wasm_src = reflex_dir.join(format!("{}.rs", slug));
@@ -236,12 +236,12 @@ mod tests {
         let intent = format!("test_hot_patch_reflex_{}", std::process::id());
         match ReflexSynthesizer::synthesize_wasm_reflex(&intent, Path::new(".")) {
             Ok(wasm_path) => {
-                let _home = susi_paths::SusiDirs::home_dir();
+                let _home = crate::susi_paths::SusiDirs::home_dir();
                 let result =
                     susi_native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
                 let _ = std::fs::remove_file(
-                    susi_paths::SusiDirs::data_dir()
+                    crate::susi_paths::SusiDirs::data_dir()
                         .join("reflexes")
                         .join(format!("{}.rs", intent)),
                 );

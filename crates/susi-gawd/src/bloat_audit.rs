@@ -4,10 +4,10 @@
 // and the recursive src/+target/ audit missions with real evidence instead
 // of LLM narration (Mandate 8: Epistemic Chain of Truth).
 
+use crate::susi_error::EaiResult;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use susi_error::EaiResult;
 use syn::visit::{self, Visit};
 
 const MAX_STATEMENTS_PER_FN: usize = 60;
@@ -150,7 +150,7 @@ impl BloatAuditor {
     }
 
     fn load_secret_patterns() -> Vec<String> {
-        susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
+        susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
             .map(|c| c.governance().secret_tokens)
             .unwrap_or_default()
     }

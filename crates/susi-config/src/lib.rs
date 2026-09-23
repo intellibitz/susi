@@ -15,8 +15,18 @@
 //! fragments, and shared self-healing JSON load/merge/save helpers.
 //!
 //! Layered below `susi-sandbox` (which re-exports this surface through
-//! `susi_sandbox::manager` for back-compat) — this crate may only depend on
-//! `susi-error` and `susi-paths`, never on feature crates above it.
+//! `susi_sandbox::manager` for back-compat) — this crate reaches the
+//! foundational `susi-error`/`susi-paths` services through the vendored
+//! IPC-client modules below, never on feature crates above it.
+
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
 
 pub mod cluster_key;
 mod config;

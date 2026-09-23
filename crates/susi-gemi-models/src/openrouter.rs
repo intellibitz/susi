@@ -38,7 +38,7 @@ pub struct OpenRouterManager {
 impl OpenRouterManager {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            root: susi_paths::SusiDirs::config_dir().join("openrouter"),
+            root: crate::susi_paths::SusiDirs::config_dir().join("openrouter"),
         })
     }
 

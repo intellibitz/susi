@@ -1,6 +1,6 @@
+use crate::susi_error::EaiResult;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use susi_error::EaiResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpTool {

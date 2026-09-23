@@ -1,7 +1,7 @@
+use crate::susi_error::EaiResult;
 use dashmap::DashMap;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
-use susi_error::EaiResult;
 
 use crate::client::GmcpClient;
 use crate::hooks::hooks;
@@ -53,8 +53,13 @@ impl ToolRegistry {
             fn description(&self) -> &str {
                 &self.desc
             }
-            fn execute(&self, args: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+            fn execute(
+                &self,
+                args: &serde_json::Value,
+                workspace: &Path,
+            ) -> susi_core::susi_error::EaiResult<String> {
                 (self.handler)(args, workspace)
+                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
             }
         }
         susi_core::registry::CapabilityRegistry::global().register_tool(CapTool {
@@ -89,7 +94,7 @@ impl ToolRegistry {
             }
         }
 
-        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
+        let reflex_dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
         if let Ok(entries) = std::fs::read_dir(&reflex_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -157,6 +162,7 @@ impl ToolRegistry {
             };
             return susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
                 GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str)
+                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
             })
             .unwrap_or_else(|error| error.to_string());
         }
@@ -174,7 +180,7 @@ impl ToolRegistry {
                 return "Reflex Error: invalid reflex name".to_string();
             }
             let wasm_name = format!("{}.wasm", raw);
-            let wasm_path = susi_paths::SusiDirs::data_dir()
+            let wasm_path = crate::susi_paths::SusiDirs::data_dir()
                 .join("reflexes")
                 .join(wasm_name);
             if wasm_path.exists() {
@@ -187,7 +193,12 @@ impl ToolRegistry {
                     name,
                     arg,
                     workspace,
-                    || susi_native::wasm::WasmHost::execute_untrusted_wasm(&wasm_path, &arg_str),
+                    || {
+                        susi_native::wasm::WasmHost::execute_untrusted_wasm(&wasm_path, &arg_str)
+                            .map_err(|e| {
+                                susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
+                            })
+                    },
                 ) {
                     Ok(res) => return res,
                     Err(e) => return format!("Reflex Error: {}", e),
@@ -203,6 +214,7 @@ impl ToolRegistry {
         if let Some(tool) = tool {
             match susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
                 tool.execute(arg, workspace)
+                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
             }) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),
@@ -298,7 +310,11 @@ mod tests {
         fn description(&self) -> &str {
             "test tool"
         }
-        fn execute(&self, _args: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        fn execute(
+            &self,
+            _args: &serde_json::Value,
+            _workspace: &Path,
+        ) -> susi_core::susi_error::EaiResult<String> {
             Ok("from-capability-registry".to_string())
         }
     }

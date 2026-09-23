@@ -84,7 +84,7 @@ fn now() -> u64 {
         .as_secs()
 }
 fn cache_path() -> std::path::PathBuf {
-    susi_paths::SusiDirs::data_dir().join("model-discovery.json")
+    crate::susi_paths::SusiDirs::data_dir().join("model-discovery.json")
 }
 
 /// The ladder to actually use: whatever `cfg` explicitly configures, or the

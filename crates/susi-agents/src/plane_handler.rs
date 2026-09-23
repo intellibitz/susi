@@ -9,7 +9,6 @@ use std::sync::Arc;
 use susi_core::capture::EvidenceSession;
 use susi_core::plane_bus::topics;
 use susi_core::plane_bus::{PlaneBus, PlaneHandler};
-use susi_error::EaiError;
 
 struct AgentsPlaneHandler;
 
@@ -208,13 +207,13 @@ impl PlaneHandler for AgentsPlaneHandler {
                         let run = manager
                             .prepare(&def.id, goal)
                             .and_then(|run| manager.execute(&run.id))
-                            .map_err(|e| EaiError::process(e.to_string()))?;
+                            .map_err(|e| susi_core::susi_error::EaiError::process(e.to_string()))?;
                         let output = manager
                             .logs(&run.id, false, 1024 * 1024)
-                            .map_err(|e| EaiError::process(e.to_string()))?;
+                            .map_err(|e| susi_core::susi_error::EaiError::process(e.to_string()))?;
                         let result = format!("task={} status={:?}\n{}", run.id, run.status, output);
                         if run.status != external::RunStatus::Succeeded {
-                            return Err(EaiError::process(format!(
+                            return Err(susi_core::susi_error::EaiError::process(format!(
                                 "{}\n{}",
                                 result,
                                 run.error.unwrap_or_default()

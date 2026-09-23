@@ -3,9 +3,9 @@
 //! Distillation audit (`ReflexTrainer`) stays in the host crate; AMAS kicks it
 //! off through this seam.
 
+use crate::susi_error::EaiResult;
 use std::path::Path;
 use std::sync::OnceLock;
-use susi_error::EaiResult;
 
 pub trait HostHooks: Send + Sync {
     fn audit_distillation_state(&self, workspace: &Path) -> EaiResult<String>;

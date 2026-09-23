@@ -38,11 +38,11 @@ pub struct InferenceRouter;
 
 impl InferenceRouter {
     fn preference_path() -> PathBuf {
-        susi_paths::SusiDirs::config_dir().join("routing_preference.json")
+        crate::susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
 
     fn stats_path() -> PathBuf {
-        susi_paths::SusiDirs::config_dir().join("local_inference_stats.json")
+        crate::susi_paths::SusiDirs::config_dir().join("local_inference_stats.json")
     }
 
     pub fn load_preference() -> RoutingPreference {

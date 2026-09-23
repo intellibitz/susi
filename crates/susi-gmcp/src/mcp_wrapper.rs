@@ -24,13 +24,14 @@ impl Tool for McpDynamicTool {
         &self,
         args: &serde_json::Value,
         _workspace: &std::path::Path,
-    ) -> susi_error::EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let args_str = if let Some(s) = args.as_str() {
             s.to_string()
         } else {
             args.to_string()
         };
         GmcpClient::execute_external_tool_result(&self.server_name, &self.mcp_tool_name, &args_str)
+            .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 }
 

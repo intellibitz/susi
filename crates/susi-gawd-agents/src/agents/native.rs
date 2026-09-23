@@ -4,7 +4,6 @@
 // results themselves.
 
 use susi_core::context_graph::{ContextGraph, NodeType};
-use susi_error::{EaiError, EaiResult};
 
 use std::path::Path;
 
@@ -30,7 +29,7 @@ impl GawdAgent for DynamicAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower = goal.to_lowercase();
         let trimmed = lower.trim();
 
@@ -138,7 +137,7 @@ impl GawdAgent for DevOpsAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower = goal.to_lowercase();
         let is_code_review_goal = ["review", "audit", "bloat", "lint"]
             .iter()
@@ -193,7 +192,7 @@ impl GawdAgent for SearchAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         // Meta/admin pulses must not trigger outbound HTTP.
         if crate::goal_shape::is_meta_command(goal) {
             let res = format!("[{}]: Observation integrated into blackboard.", self.name());
@@ -232,7 +231,7 @@ impl GawdAgent for SusiRuntimeAgent {
         goal: &str,
         workspace: &Path,
         _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower = goal.to_lowercase();
         if lower.contains("identity")
             || lower.contains("status")
@@ -265,8 +264,9 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
-            let cfg = susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
-                .unwrap_or_default();
+            let cfg =
+                susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
+                    .unwrap_or_default();
             susi_core::plane_bus::gemi::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ =
                 susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(workspace);
@@ -294,7 +294,7 @@ impl GawdAgent for HardwareAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let profile = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let mut report = format!(
             "Hardware Saturated: {} CPUs ({}) | {}GB RAM | {}. Acceleration: {}.",
@@ -380,7 +380,7 @@ impl GawdAgent for ContextAgent {
         _goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let (files, dirs) = scan_workspace_top_level(workspace);
         let markers = detect_project_markers(workspace);
 
@@ -454,7 +454,7 @@ impl GawdAgent for SafetyAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         // "SUSI_SOLVE" (not an arbitrary label): SafetyDetector's critical-system-path
         // check is gated on this exact tool_name literal alongside "write_file"/
         // "exec_command" (src/gawd/safety.rs) — using anything else here means a
@@ -481,7 +481,7 @@ impl GawdAgent for SecurityAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         crate::security::SecurityDetector::audit_action("SUSI_SOLVE", goal, workspace)?;
         let res =
             "Security audit passed. No secret leaks or exfiltration vectors detected.".to_string();
@@ -505,7 +505,7 @@ impl GawdAgent for EvolutionAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower = goal.to_lowercase();
         if lower.contains("identity")
             || lower.contains("status")
@@ -553,7 +553,7 @@ impl GawdAgent for GmcpAgent {
         _goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         // Test Tool Registry endpoints (Internal Reflex)
         let tool_count = susi_core::registry::CapabilityRegistry::global()
             .list_tools()
@@ -633,7 +633,7 @@ impl GawdAgent for EpistemicAuditorAgent {
         _goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         use susi_core::evidence::{EvidenceAssessment, EvidenceRecord};
 
         let mut total = 0usize;
@@ -680,7 +680,7 @@ impl GawdAgent for EpistemicAuditorAgent {
                 total, grounded, ungrounded, hallucinated_paths.len(), hallucinated_paths
             );
             blackboard.insert(self.name(), res.clone());
-            return Err(EaiError::governance(res));
+            return Err(susi_core::susi_error::EaiError::governance(res));
         }
         if !ir_failed.is_empty() {
             let res = format!(
@@ -688,7 +688,7 @@ impl GawdAgent for EpistemicAuditorAgent {
                 total, ir_verified, ir_failed.len(), ir_failed
             );
             blackboard.insert(self.name(), res.clone());
-            return Err(EaiError::governance(res));
+            return Err(susi_core::susi_error::EaiError::governance(res));
         }
 
         let res = if ir_verified > 0 {
@@ -727,7 +727,7 @@ impl GawdAgent for ResourceArbitratorAgent {
         _goal: &str,
         _workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let profile = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let oom_risk = susi_core::plane_bus::gemi::HardwareProfiler::check_oom_critical();
         let res = format!(
@@ -799,7 +799,7 @@ impl GawdAgent for ConsensusMediatorAgent {
         _goal: &str,
         _workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let (critical, healthy) = summarize_swarm_signals(blackboard, &self.name());
         let total = critical.len() + healthy.len();
 
@@ -814,14 +814,14 @@ impl GawdAgent for ConsensusMediatorAgent {
                 total, critical.len(), critical
             );
             blackboard.insert(self.name(), res.clone());
-            return Err(EaiError::governance(res));
+            return Err(susi_core::susi_error::EaiError::governance(res));
         } else {
             let res = format!(
                 "[ConsensusMediatorAgent]: Analyzed {} active agent contributions. CONFLICT: {} agent(s) report critical/problem signals ({:?}) while {} agent(s) report routine status ({:?}). Consensus not reached.",
                 total, critical.len(), critical, healthy.len(), healthy
             );
             blackboard.insert(self.name(), res.clone());
-            return Err(EaiError::governance(res));
+            return Err(susi_core::susi_error::EaiError::governance(res));
         };
         blackboard.insert(self.name(), res.clone());
         Ok(res)
@@ -843,7 +843,7 @@ impl GawdAgent for SelfHealingAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower = goal.to_lowercase();
         let trimmed = lower.trim();
         if trimmed == "ls"
@@ -938,7 +938,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         goal: &str,
         _workspace: &Path,
         _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let client = susi_core::plane_bus::tools::scout_reasoning_remotes();
         if let Some(remotes) = client.get("remotes").and_then(|v| v.as_array()) {
             for remote_name in remotes.iter().filter_map(|v| v.as_str()) {
@@ -996,7 +996,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
                     .unwrap_or_else(|_| "output empty".into());
                 Ok(format!("[{} Proxy]: {}", self.endpoint_name, text))
             }
-            Err(_) => Err(susi_error::EaiError::inference(format!(
+            Err(_) => Err(susi_core::susi_error::EaiError::inference(format!(
                 "{} proxy endpoint unreachable at {}",
                 self.endpoint_name, self.api_base_url
             ))),
@@ -1019,7 +1019,7 @@ impl GawdAgent for LibraryScoutAgent {
         goal: &str,
         workspace: &Path,
         _blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower_goal = goal.to_lowercase();
         let trimmed = lower_goal.trim();
 
@@ -1122,7 +1122,7 @@ impl GawdAgent for AdminAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         let lower_goal = goal.to_lowercase();
         let action = Self::match_action(&lower_goal);
 
@@ -1171,7 +1171,8 @@ impl GawdAgent for AdminAgent {
             }
             Some("install") => {
                 let global_dir = Self::global_dir();
-                susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)?;
+                susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)
+                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))?;
                 Ok("SUSI runtime initialized and sandboxed.".to_string())
             }
             Some("uninstall") => {
@@ -1189,7 +1190,7 @@ impl GawdAgent for AdminAgent {
 
 impl AdminAgent {
     fn global_dir() -> std::path::PathBuf {
-        susi_paths::SusiDirs::config_dir()
+        crate::susi_paths::SusiDirs::config_dir()
     }
 
     /// Command-trigger keywords are config-driven (Mandate 35: Registry + Trait +

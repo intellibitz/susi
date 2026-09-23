@@ -1,8 +1,8 @@
 // SUSI Wasm Host Substrate
 // Native Integration - High-performance reflex execution environment
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use susi_error::{EaiError, EaiResult};
 use wasmer::{Engine, Module};
 use wasmer_types::ModuleHash;
 use wasmer_wasix::runners::wasi::{RuntimeOrEngine, WasiRunner};

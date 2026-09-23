@@ -6,8 +6,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+serde_json = { workspace = true }
 wasmer-types = "7.4.2"
-susi-error = { workspace = true }
 
 [target.'cfg(not(windows))'.dependencies]
 wasmer = { version = "7.4.2", features = ["cranelift", "sys"] }

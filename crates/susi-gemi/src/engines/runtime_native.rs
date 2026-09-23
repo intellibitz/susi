@@ -4,10 +4,10 @@ use super::runtime_substrate::{apply_repeat_penalty, InferenceHost};
 use super::GemiEngine;
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
+use crate::susi_error::{EaiError, EaiResult};
 use std::io::Write;
 use std::sync::{Arc, OnceLock};
 use susi_core::registry::DynamicServiceRegistry;
-use susi_error::{EaiError, EaiResult};
 use tokenizers::Tokenizer;
 
 pub trait NativeInferenceEngine: Send + Sync {
@@ -313,7 +313,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
             })
             .or_else(|| endpoints.endpoints.first())
             .ok_or_else(|| {
-                susi_error::EaiError::inference(
+                crate::susi_error::EaiError::inference(
                     "No active federated endpoints provisioned in config.default.json.",
                 )
             })?;
@@ -345,17 +345,17 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         };
 
         let runtime = GemiEngine::provider_runtime().ok_or_else(|| {
-            susi_error::EaiError::inference("Failed to start federated inference runtime")
+            crate::susi_error::EaiError::inference("Failed to start federated inference runtime")
         })?;
         match runtime.block_on(susi_core::Provider::generate(&provider, prompt)) {
             Ok(content) if !content.trim().is_empty() => {
                 callback(content.clone());
                 Ok(content)
             }
-            Ok(_) => Err(susi_error::EaiError::inference(
+            Ok(_) => Err(crate::susi_error::EaiError::inference(
                 "Federated swarm endpoint returned empty consensus payload.",
             )),
-            Err(e) => Err(susi_error::EaiError::inference(format!(
+            Err(e) => Err(crate::susi_error::EaiError::inference(format!(
                 "Federated edge connection refused: {}",
                 e
             ))),

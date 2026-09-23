@@ -1,10 +1,10 @@
 // Parses the built-in list of core module manifests at startup and checks
 // that the configured GMCP/GEMI/UDP ports are set.
 
+use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::Path;
-use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubstrateModuleManifest {
@@ -59,9 +59,9 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
+        use crate::susi_paths::ports;
         use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
         use std::time::Duration;
-        use susi_paths::ports;
 
         let checks: &[(&str, u16, bool)] = &[
             ("GMCP/MCP HTTP", ports::GMCP, true),

@@ -7,6 +7,7 @@
 
 use crate::agents::{GawdAgent, MissionBlackboard};
 use crate::security::SecurityDetector;
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -15,7 +16,6 @@ use std::time::Duration;
 use std::time::Instant;
 use susi_core::capture::EvidenceSession;
 use susi_core::registry::{AgentCapability, CapabilityRegistry};
-use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::{ExternalPeerAgentSpec, SusiConfig};
 
 /// Resolve the live driver binary for a CLI peer spec.
@@ -285,14 +285,19 @@ impl GawdAgent for ExternalPeerAgent {
         goal: &str,
         workspace: &Path,
         blackboard: &MissionBlackboard,
-    ) -> EaiResult<String> {
+    ) -> susi_core::susi_error::EaiResult<String> {
         if peer_protocol(&self.spec) == "managed" {
             let result = susi_core::plane_bus::agents::external_managed_goal(
                 &self.spec.name,
                 goal,
                 workspace,
             )
-            .map_err(|e| EaiError::governance(format!("[UNAVAILABLE] {}: {e}", self.spec.name)))?;
+            .map_err(|e| {
+                susi_core::susi_error::EaiError::governance(format!(
+                    "[UNAVAILABLE] {}: {e}",
+                    self.spec.name
+                ))
+            })?;
             blackboard.insert(self.name(), result.clone());
             return Ok(result);
         }
@@ -303,7 +308,7 @@ impl GawdAgent for ExternalPeerAgent {
                 self.spec.name
             );
             blackboard.insert(self.name(), msg.clone());
-            return Err(EaiError::governance(msg));
+            return Err(susi_core::susi_error::EaiError::governance(msg));
         }
 
         let protocol = peer_protocol(&self.spec).to_ascii_lowercase();
@@ -323,13 +328,15 @@ impl GawdAgent for ExternalPeerAgent {
             "openai_chat" | "openai" | "chat" => {
                 EvidenceSession::capture_call(&tool, &arguments, workspace, || {
                     invoke_openai_chat(&self.spec, goal)
+                        .map_err(susi_core::susi_error::EaiError::from)
                 })?
             }
             "http" | "json" => EvidenceSession::capture_call(&tool, &arguments, workspace, || {
                 invoke_http_json(&self.spec, goal, workspace)
+                    .map_err(susi_core::susi_error::EaiError::from)
             })?,
             "a2a" => EvidenceSession::capture_call(&tool, &arguments, workspace, || {
-                invoke_a2a(&self.spec, goal)
+                invoke_a2a(&self.spec, goal).map_err(susi_core::susi_error::EaiError::from)
             })?,
             _ => {
                 // cli (default)
@@ -339,12 +346,13 @@ impl GawdAgent for ExternalPeerAgent {
                         self.spec.name, self.spec.command, self.spec.detect_bins
                     );
                     blackboard.insert(self.name(), msg.clone());
-                    return Err(EaiError::governance(msg));
+                    return Err(susi_core::susi_error::EaiError::governance(msg));
                 };
                 let args = render_args(&self.spec, goal, workspace);
                 let bin_clone = bin.clone();
                 let out = EvidenceSession::capture_call(&tool, &arguments, workspace, || {
                     run_peer_process(&bin_clone, &args, workspace, timeout)
+                        .map_err(susi_core::susi_error::EaiError::from)
                 })?;
                 let rendered = format!(
                     "[{}]: peer driver `{}` completed.\n{}",

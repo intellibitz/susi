@@ -417,16 +417,15 @@ fn susi_core_must_not_depend_on_infra_or_features() {
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }
-    // Foundation only among workspace crates (paths/config needed for plane_bus
-    // facades, net_guard, and agent domain types). Must not pull feature planes.
+    // Foundation only among workspace crates: susi-config is the remaining
+    // Cargo edge (plane_bus facades, net_guard, agent domain types).
+    // susi-paths/susi-error are vendored as local IPC-client modules
+    // (`susi_paths`/`susi_error` under src/) that reach the standalone
+    // services over HTTP — they no longer appear as workspace deps.
     let deps = parse_workspace_deps(&text);
     assert_eq!(
         deps,
-        HashSet::from([
-            "susi-error".to_string(),
-            "susi-paths".to_string(),
-            "susi-config".to_string(),
-        ]),
+        HashSet::from(["susi-config".to_string()]),
         "susi-core workspace deps drifted: {deps:?}"
     );
 }

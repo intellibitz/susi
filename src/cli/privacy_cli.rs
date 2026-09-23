@@ -42,7 +42,7 @@ pub enum PrivacyCommands {
 
 pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
     // Ensure policy is wired from host config/key.
-    let substrate = susi_paths::SusiDirs::substrate_home();
+    let substrate = crate::susi_paths::SusiDirs::substrate_home();
     susi_daemon::privacy::wire_mac_policy(&substrate);
 
     match action.unwrap_or(PrivacyCommands::Status) {

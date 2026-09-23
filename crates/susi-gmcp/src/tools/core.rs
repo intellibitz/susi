@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
 
+use crate::susi_error::{EaiError, EaiResult};
 use crate::tool_registry::GmcpClient;
 use susi_core::broker::{IpcBroker, PermissionScope};
 use susi_core::context_graph::ContextGraph;
@@ -14,7 +15,6 @@ use susi_core::plane_bus::gemi::sample_telemetry;
 use susi_core::plane_bus::gemi::HardwareProfiler;
 use susi_core::plane_bus::gemi::ModelManager;
 use susi_core::plane_bus::{agents, gawd, gawd_hooks, tools as plane_tools};
-use susi_error::{EaiError, EaiResult};
 
 #[cfg(feature = "tools-rich")]
 use headless_chrome::Browser;
@@ -48,7 +48,7 @@ impl CoreTools {
         ));
 
         // Report Background Provisioning Progress
-        let progress_file = susi_paths::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file = crate::susi_paths::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -312,7 +312,8 @@ impl CoreTools {
                 "*",
             )
         {
-            gawd_hooks::audit_action("sandbox_exec", clean, workspace)?;
+            gawd_hooks::audit_action("sandbox_exec", clean, workspace)
+                .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
             return Self::shared_runtime()?
                 .block_on(async {
                     susi_sandbox::manager::SandboxManager::execute_in_docker(clean).await
@@ -325,7 +326,8 @@ impl CoreTools {
                 });
         }
 
-        gawd_hooks::audit_action("exec_command", clean, workspace)?;
+        gawd_hooks::audit_action("exec_command", clean, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
 
         let task_handle = susi_core::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
@@ -427,7 +429,8 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let audit = format!("{agent}: {prompt}");
-        gawd_hooks::audit_action("agents_run", &audit, workspace)?;
+        gawd_hooks::audit_action("agents_run", &audit, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         let run = agents::external_run(workspace, "execution", agent, prompt)
             .map_err(EaiError::process)?;
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
@@ -746,8 +749,10 @@ impl CoreTools {
         // governance detectors every other action-capable tool call gets
         // (see `exec_command` above) before the raw prompt ever reaches
         // the model.
-        let sanitized = gawd_hooks::sanitize_input(&arg_s)?;
-        gawd_hooks::audit_action("reason", &sanitized, workspace)?;
+        let sanitized = gawd_hooks::sanitize_input(&arg_s)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("reason", &sanitized, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         // When the mission captured real tool calls, this reasoning call must
         // answer by citing those receipts — free narrative cannot certify.
         let prompt = format!(
@@ -940,7 +945,8 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
-        gawd_hooks::audit_action("sandbox_exec", cmd, workspace)?;
+        gawd_hooks::audit_action("sandbox_exec", cmd, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
 
         Self::shared_runtime()?
             .block_on(async { susi_sandbox::manager::SandboxManager::execute_in_docker(cmd).await })
@@ -1113,7 +1119,9 @@ impl CoreTools {
     pub fn context_graph_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let graph = ContextGraph::global();
         let _ = graph.replay();
-        let (old_lines, new_lines) = graph.compact()?;
+        let (old_lines, new_lines) = graph
+            .compact()
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "compacted": true,
             "old_lines": old_lines,
@@ -1275,6 +1283,7 @@ impl CoreTools {
         let request_json = serde_json::to_string(arg)
             .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
         gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     #[tool(
@@ -1394,12 +1403,9 @@ impl CoreTools {
                     .collect()
             })
             .unwrap_or_default();
-        let tx = susi_core::agent_tx::TxManager::global().begin(
-            workspace,
-            description,
-            &files,
-            Default::default(),
-        )?;
+        let tx = susi_core::agent_tx::TxManager::global()
+            .begin(workspace, description, &files, Default::default())
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -1409,7 +1415,9 @@ impl CoreTools {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_commit requires id"))?;
-        let tx = susi_core::agent_tx::TxManager::global().commit(id)?;
+        let tx = susi_core::agent_tx::TxManager::global()
+            .commit(id)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -1422,7 +1430,9 @@ impl CoreTools {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
-        let tx = susi_core::agent_tx::TxManager::global().abort(id, workspace)?;
+        let tx = susi_core::agent_tx::TxManager::global()
+            .abort(id, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 }

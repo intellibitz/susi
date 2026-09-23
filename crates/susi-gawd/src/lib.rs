@@ -26,14 +26,44 @@
 
 use std::path::Path;
 use std::sync::Once;
-use susi_error::{EaiError, EaiResult};
 use susi_gawd_agents::admin_hooks::AdminHooks;
 use susi_gawd_swarm::host_hooks::HostHooks;
+
+// Vendored-error boundary: hook traits and downstream tiers use their own
+// vendored `EaiError`; these conversions preserve the error kind via
+// `rewrap` so `?` keeps working across the vendored boundary.
+impl From<susi_error::EaiError> for susi_gawd_agents::susi_error::EaiError {
+    fn from(e: susi_error::EaiError) -> Self {
+        susi_gawd_agents::susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+impl From<susi_error::EaiError> for susi_gawd_swarm::susi_error::EaiError {
+    fn from(e: susi_error::EaiError) -> Self {
+        susi_gawd_swarm::susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+impl From<susi_gawd_swarm::susi_error::EaiError> for susi_error::EaiError {
+    fn from(e: susi_gawd_swarm::susi_error::EaiError) -> Self {
+        susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
 
 pub use susi_gawd_a2a as a2a;
 pub use susi_gawd_swarm as swarm;
 
 // Host / governance / evolution
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
 pub mod plane_handler;
 
 pub mod admin;
@@ -60,7 +90,7 @@ pub use susi_gawd_swarm::{amas, dag};
 /// Compatibility `ama` facade: wires host hooks on [`SusiMasterAgent::new`].
 pub mod ama {
     use super::init_hooks;
-    use susi_error::EaiResult;
+    use crate::susi_error::EaiResult;
 
     pub use susi_gawd_swarm::ama::{SusiMissionReport, SusiSwarmReport};
 
@@ -77,7 +107,7 @@ pub mod ama {
 
         pub fn sanitize_input(input: &str) -> EaiResult<String> {
             init_hooks();
-            susi_gawd_swarm::ama::SusiMasterAgent::sanitize_input(input)
+            susi_gawd_swarm::ama::SusiMasterAgent::sanitize_input(input).map_err(Into::into)
         }
     }
 }
@@ -90,44 +120,70 @@ pub use susi_gawd_agents::AlphaSelf;
 
 struct GawdAdminHooks;
 impl AdminHooks for GawdAdminHooks {
-    fn enforce_version_consistency(&self, workspace: &Path) -> EaiResult<String> {
-        admin::SusiAdmin::enforce_version_consistency(workspace)
+    fn enforce_version_consistency(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        admin::SusiAdmin::enforce_version_consistency(workspace).map_err(Into::into)
     }
-    fn audit_compliance(&self, workspace: &Path) -> EaiResult<String> {
-        admin::SusiAdmin::audit_compliance(workspace, None)
+    fn audit_compliance(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        admin::SusiAdmin::audit_compliance(workspace, None).map_err(Into::into)
     }
-    fn verify_version_alignment(&self, workspace: &Path) -> EaiResult<String> {
+    fn verify_version_alignment(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
         admin::SusiAdmin::verify_version_alignment(workspace)
             .map(|_| "Version alignment verified.".to_string())
+            .map_err(Into::into)
     }
-    fn execute_release(&self, workspace: &Path) -> EaiResult<String> {
-        admin::SusiAdmin::execute_release(workspace, None)
+    fn execute_release(&self, workspace: &Path) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        admin::SusiAdmin::execute_release(workspace, None).map_err(Into::into)
     }
-    fn bloat_audit_workspace(&self, workspace: &Path) -> EaiResult<String> {
+    fn bloat_audit_workspace(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
         let report = bloat_audit::BloatAuditor::audit_workspace(workspace)?;
         Ok(bloat_audit::BloatAuditor::render_report(&report))
     }
-    fn perform_autonomous_drift_audit(&self, workspace: &Path) -> EaiResult<String> {
-        evolution::EvolutionManager::perform_autonomous_drift_audit(workspace)
+    fn perform_autonomous_drift_audit(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        evolution::EvolutionManager::perform_autonomous_drift_audit(workspace).map_err(Into::into)
     }
     fn apply_patch_cycle(
         &self,
         workspace: &Path,
         request_json: &str,
         trust_level: &str,
-    ) -> EaiResult<String> {
-        let request: patch_cycle::PatchRequest = serde_json::from_str(request_json)
-            .map_err(|e| EaiError::governance(format!("invalid patch request JSON: {e}")))?;
+    ) -> susi_gawd_agents::susi_error::EaiResult<String> {
+        let request: patch_cycle::PatchRequest =
+            serde_json::from_str(request_json).map_err(|e| {
+                susi_gawd_agents::susi_error::EaiError::governance(format!(
+                    "invalid patch request JSON: {e}"
+                ))
+            })?;
         let outcome = patch_cycle::apply_patch_cycle(workspace, &request, trust_level)?;
-        serde_json::to_string_pretty(&outcome)
-            .map_err(|e| EaiError::governance(format!("serialize patch outcome: {e}")))
+        serde_json::to_string_pretty(&outcome).map_err(|e| {
+            susi_gawd_agents::susi_error::EaiError::governance(format!(
+                "serialize patch outcome: {e}"
+            ))
+        })
     }
 }
 
 struct GawdHostHooks;
 impl HostHooks for GawdHostHooks {
-    fn audit_distillation_state(&self, workspace: &Path) -> EaiResult<String> {
-        reflex_trainer::ReflexTrainer::audit_distillation_state(workspace)
+    fn audit_distillation_state(
+        &self,
+        workspace: &Path,
+    ) -> susi_gawd_swarm::susi_error::EaiResult<String> {
+        reflex_trainer::ReflexTrainer::audit_distillation_state(workspace).map_err(Into::into)
     }
 }
 

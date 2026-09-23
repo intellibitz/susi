@@ -51,12 +51,12 @@ use crate::engine::{apply_repeat_penalty, InferenceHost};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::qwen2_split::ModelWeights as Qwen2Weights;
+use crate::susi_error::{EaiError, EaiResult};
 use candle_core::quantized::gguf_file;
 use candle_core::{Device, IndexOp, Tensor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use susi_core::task_manager::TaskHandle;
-use susi_error::{EaiError, EaiResult};
 use tokenizers::Tokenizer;
 
 /// Rules out llama.cpp's KB-scale `ggml-vocab-*.gguf` test fixtures (found
@@ -583,7 +583,7 @@ mod tests {
             Some(h) => std::path::PathBuf::from(h),
             None => return,
         };
-        let models_dir = susi_paths::SusiDirs::data_dir().join("models");
+        let models_dir = crate::susi_paths::SusiDirs::data_dir().join("models");
         let target_path = models_dir.join("qwen2.5-1.5b-instruct-q4_k_m.gguf");
         let draft_path = models_dir.join("qwen2.5-0.5b-instruct-q4_k_m.gguf");
         let tokenizer_path = models_dir.join("tokenizer.json");

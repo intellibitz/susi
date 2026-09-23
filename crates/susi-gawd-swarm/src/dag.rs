@@ -1,10 +1,10 @@
 // Dependency-ordered task graph: agents can spawn sub-tasks with
 // dependencies on parent tasks, executed in ready-batches via rayon.
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::Arc;
 use susi_core::evidence::EvidenceRecord;
-use susi_error::{EaiError, EaiResult};
 use susi_gawd_agents::agents::MissionBlackboard;
 
 #[derive(Debug, Clone)]
@@ -140,7 +140,7 @@ impl MissionDag {
                         Err(e) => {
                             let msg = format!("[TRUTH_VIOLATION] {}", e);
                             bb.insert(format!("TaskNode_{}", idx), msg);
-                            return Err(e);
+                            return Err(e.into());
                         }
                     }
                 }

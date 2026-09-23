@@ -4,13 +4,13 @@
 //! resource / expiry. Composition root loads the host key and privacy mode;
 //! every tool dispatch must pass [`MacPolicy::authorize_tool`].
 
+use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
-use susi_error::{EaiError, EaiResult};
 
 const HMAC_BLOCK: usize = 64;
 

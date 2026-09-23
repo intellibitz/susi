@@ -2,10 +2,10 @@
 
 use super::report::SusiMissionReport;
 use crate::amas::{A2AMessage, SusiSupervisor};
+use crate::susi_error::EaiResult;
 use serde_json::Value;
 use std::io::Write;
 use std::path::Path;
-use susi_error::EaiResult;
 use susi_gawd_agents::AxiomSubstrate;
 
 fn bus_tool(name: &str, args: &serde_json::Value, workspace: &Path) -> String {
@@ -49,14 +49,14 @@ impl SusiMasterAgent {
         let max_len = (hardware.available_ram_gb * 1024 * 1024).max(4096); // Scale with RAM, min 4KB
 
         if trimmed.len() > max_len {
-            return Err(susi_error::EaiError::governance(format!(
+            return Err(crate::susi_error::EaiError::governance(format!(
                 "Input exceeds hardware-scaled limit ({} characters).",
                 max_len
             )));
         }
 
         if trimmed.is_empty() {
-            return Err(susi_error::EaiError::governance(
+            return Err(crate::susi_error::EaiError::governance(
                 "Input goal cannot be empty.",
             ));
         }
@@ -65,7 +65,7 @@ impl SusiMasterAgent {
         let risk_patterns = ["$(", "`", "> /dev/", "| nc ", "| netcat ", "0xCC", "\\x"];
         for pattern in risk_patterns {
             if trimmed.contains(pattern) {
-                return Err(susi_error::EaiError::governance(format!("High-risk sequence '{}' detected in input. Potential injection attempt blocked.", pattern)));
+                return Err(crate::susi_error::EaiError::governance(format!("High-risk sequence '{}' detected in input. Potential injection attempt blocked.", pattern)));
             }
         }
 
@@ -165,7 +165,7 @@ impl SusiMasterAgent {
         );
 
         eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
@@ -366,8 +366,11 @@ impl SusiMasterAgent {
             // completion contract here. Incidental keywords must not turn an
             // unrelated request into a successful identity or version response.
             let native_verification = match &system_read {
-                Some(Ok(read)) => Some(read.verify(goal, &final_answer, workspace)),
-                Some(Err(error)) => Some(Err(susi_error::EaiError::governance(format!(
+                Some(Ok(read)) => Some(
+                    read.verify(goal, &final_answer, workspace)
+                        .map_err(Into::into),
+                ),
+                Some(Err(error)) => Some(Err(crate::susi_error::EaiError::governance(format!(
                     "TRUTH_UNVERIFIED: {error}"
                 )))),
                 None => verify_compiled_read(goal, &final_answer),
@@ -379,6 +382,7 @@ impl SusiMasterAgent {
                     &final_answer,
                     workspace,
                 )
+                .map_err(Into::into)
             });
             let final_answer = match verification {
                 Ok(v) => {
@@ -801,7 +805,7 @@ impl SusiMasterAgent {
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
-            let global_dir = susi_paths::SusiDirs::config_dir();
+            let global_dir = crate::susi_paths::SusiDirs::config_dir();
             let daemon_status = if susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
                 &global_dir,
@@ -979,7 +983,7 @@ impl SusiMasterAgent {
                                     "RETRY_LOOP_DETECTED",
                                     &format!("Same error repeated: {}", error_str),
                                 );
-                                return Err(e);
+                                return Err(e.into());
                             }
 
                             previous_errors.insert(error_sig);
@@ -998,7 +1002,7 @@ impl SusiMasterAgent {
                                 last_error.chars().take(200).collect::<String>()
                             );
                         }
-                        Err(e) => return Err(e),
+                        Err(e) => return Err(e.into()),
                     }
                 }
                 Err(e) => {
@@ -1021,7 +1025,7 @@ impl SusiMasterAgent {
             };
         }
 
-        Err(susi_error::EaiError::governance(format!(
+        Err(crate::susi_error::EaiError::governance(format!(
             "Recursive reasoning failed after 3 attempts. Last violation: {}",
             last_error
         )))
@@ -1036,7 +1040,7 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let plan_val =
             susi_core::plane_bus::gemi::MissionPlanner::partition_mission(goal, workspace)
-                .map_err(susi_error::EaiError::governance)?;
+                .map_err(crate::susi_error::EaiError::governance)?;
         let goals = mission_plan_goals(&plan_val);
 
         // Speculative Parallelism
@@ -1094,7 +1098,7 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let mut plan_val =
             susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
-                .map_err(susi_error::EaiError::governance)?;
+                .map_err(crate::susi_error::EaiError::governance)?;
         let mut goals = mission_plan_goals(&plan_val);
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();
@@ -1247,7 +1251,7 @@ fn attach_evidence_ledger(
 
 /// Verify only outputs whose complete source is the running binary. No model,
 /// caller-supplied version, or untrusted tool text can certify these responses.
-fn verify_compiled_read(goal: &str, answer: &str) -> Option<susi_error::EaiResult<String>> {
+fn verify_compiled_read(goal: &str, answer: &str) -> Option<crate::susi_error::EaiResult<String>> {
     let expected = match goal.trim().to_ascii_lowercase().as_str() {
         "identity" | "susi identity" => {
             susi_gawd_agents::self_core::AlphaSelf::inspect_compiled_binary_instructions()
@@ -1261,7 +1265,7 @@ fn verify_compiled_read(goal: &str, answer: &str) -> Option<susi_error::EaiResul
     Some(if answer == expected {
         Ok(answer.to_string())
     } else {
-        Err(susi_error::EaiError::governance(
+        Err(crate::susi_error::EaiError::governance(
             "TRUTH_VIOLATION: output differs from compiled source",
         ))
     })

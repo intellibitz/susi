@@ -4,8 +4,8 @@
 // depending on all of gawd, which is where the concrete agent
 // implementations that call into gemi/gmcp/daemon still live.
 
+use crate::susi_error::EaiResult;
 use dashmap::DashMap;
-use susi_error::EaiResult;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

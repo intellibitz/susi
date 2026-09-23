@@ -1,8 +1,8 @@
 //! Hardware-optimal model provisioning and download-agent status reports.
 
+use crate::susi_error::EaiResult;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_error::EaiResult;
 
 use crate::hardware::HardwareProfiler;
 
@@ -207,7 +207,7 @@ impl ModelManager {
                 }
             }
         }
-        Err(susi_error::EaiError::inference(format!(
+        Err(crate::susi_error::EaiError::inference(format!(
             "Tokenizer for {}: {error}",
             step.hf_repo
         )))
@@ -229,7 +229,7 @@ impl ModelManager {
         }
         let ladder = HardwareProfiler::get_progressive_model_ladder();
         if ladder.is_empty() {
-            return Err(susi_error::EaiError::inference(
+            return Err(crate::susi_error::EaiError::inference(
                 "No discovered model fits current available memory and disk",
             ));
         }
@@ -276,13 +276,13 @@ impl ModelManager {
                 );
                 ModelDownloadController::global()
                     .start_download(&url)
-                    .map_err(susi_error::EaiError::inference)?;
+                    .map_err(crate::susi_error::EaiError::inference)?;
                 remaining = remaining.saturating_sub(needed);
                 queued += 1;
             }
         }
         if queued == 0 && !errors.is_empty() {
-            return Err(susi_error::EaiError::inference(errors.join("; ")));
+            return Err(crate::susi_error::EaiError::inference(errors.join("; ")));
         }
         Ok(format!("Automatic ladder ready: {queued} downloads queued"))
     }

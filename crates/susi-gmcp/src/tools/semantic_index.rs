@@ -31,7 +31,7 @@ use tantivy::{
     collector::TopDocs, doc, query::QueryParser, schema::*, Index, TantivyDocument, Term,
 };
 
-use susi_error::{EaiError, EaiResult};
+use crate::susi_error::{EaiError, EaiResult};
 
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 const FILE_EXTS: &[&str] = &["rs", "md", "txt", "toml", "json", "py", "ts"];

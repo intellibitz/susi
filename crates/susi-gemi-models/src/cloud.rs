@@ -17,7 +17,7 @@ use susi_sandbox::extensions::{load_cloud_vendors, CloudVendorEntry};
 /// Shell / process env always wins; this file only fills missing keys so an
 /// always-on systemd daemon still sees API keys without editing config.json.
 pub fn cloud_env_path() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("cloud.env")
+    crate::susi_paths::SusiDirs::config_dir().join("cloud.env")
 }
 
 /// Parse a dotenv-style file into key/value pairs (no side effects).

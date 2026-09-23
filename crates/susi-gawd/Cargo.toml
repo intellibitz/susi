@@ -8,11 +8,9 @@ edition = "2021"
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 susi-gawd-a2a = { workspace = true }
-susi-paths = { path = "../susi-paths" }
 syn = { version = "3.0.6", features = ["full", "visit"] }
 susi-native = { workspace = true }
 reqwest = { workspace = true }
-susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 serde = { workspace = true }

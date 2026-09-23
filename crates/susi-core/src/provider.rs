@@ -1,7 +1,7 @@
+use crate::susi_error::EaiResult;
 use std::any::Any;
 use std::future::Future;
 use std::pin::Pin;
-use susi_error::EaiResult;
 
 /// A type alias for boxed futures to maintain object safety for the Provider trait.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

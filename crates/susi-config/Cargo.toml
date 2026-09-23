@@ -9,8 +9,6 @@ publish = false
 serde = { workspace = true }
 serde_json = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
-susi-error = { workspace = true }
-susi-paths = { path = "../susi-paths" }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }

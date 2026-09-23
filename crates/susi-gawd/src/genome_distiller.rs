@@ -2,9 +2,9 @@
 // Q&A training samples for the local Tier 2 reasoning model.
 
 use crate::self_core::AlphaSelf;
+use crate::susi_error::EaiResult;
 use std::fs;
 use std::path::Path;
-use susi_error::EaiResult;
 #[derive(Clone, serde::Serialize)]
 struct ReasoningSample {
     intent: String,
@@ -64,7 +64,7 @@ impl GenomeDistiller {
         }
 
         // 4. Append to reasoning_experience.jsonl for later training
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         if !global_dir.exists() {
             fs::create_dir_all(&global_dir)?;
         }

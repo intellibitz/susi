@@ -1,16 +1,16 @@
 // Watches distillation_staged.jsonl and kicks off training once it crosses
 // the configured sample threshold.
 
+use crate::susi_error::EaiResult;
 use std::path::Path;
 use susi_core::plane_bus::gemi::SusiAlphaModel;
-use susi_error::EaiResult;
 
 pub struct ReflexTrainer;
 
 impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let staged_file = global_dir.join("distillation_staged.jsonl");
 
         if staged_file.exists() {
@@ -35,8 +35,8 @@ impl ReflexTrainer {
     }
 
     pub fn force_train(_workspace: &Path) -> EaiResult<String> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         SusiAlphaModel::train_on_staged_data(&global_dir)
-            .map_err(|e| susi_error::EaiError::inference(e.to_string()))
+            .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))
     }
 }

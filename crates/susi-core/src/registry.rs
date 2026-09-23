@@ -61,7 +61,7 @@ pub trait Tool: Send + Sync + 'static {
         &self,
         args: &serde_json::Value,
         workspace: &std::path::Path,
-    ) -> susi_error::EaiResult<String>;
+    ) -> crate::susi_error::EaiResult<String>;
 }
 
 /// Captures at the actual invocation boundary, including callers that bypass
@@ -78,7 +78,7 @@ impl<T: Tool> Tool for ObservedTool<T> {
         &self,
         args: &serde_json::Value,
         workspace: &std::path::Path,
-    ) -> susi_error::EaiResult<String> {
+    ) -> crate::susi_error::EaiResult<String> {
         crate::mac_policy::MacPolicy::global().authorize_tool(
             self.name(),
             args,
@@ -218,7 +218,7 @@ mod tests {
                 &self,
                 _args: &serde_json::Value,
                 _workspace: &std::path::Path,
-            ) -> susi_error::EaiResult<String> {
+            ) -> crate::susi_error::EaiResult<String> {
                 Ok("ok".into())
             }
         }

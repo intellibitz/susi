@@ -332,7 +332,7 @@ pub struct SusiPrompts {
 
 impl SusiPrompts {
     pub fn load_global() -> Self {
-        let prompts_file = susi_paths::SusiDirs::config_dir().join("prompts.json");
+        let prompts_file = crate::susi_paths::SusiDirs::config_dir().join("prompts.json");
 
         static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiPrompts>> =
             std::sync::OnceLock::new();
@@ -352,7 +352,8 @@ impl SusiPrompts {
 
         // User-editable chat-template override, hot-reloaded on every load (Mandate 15:
         // Registry Hot-Reload) independent of prompts.json's persisted snapshot.
-        let templates_override = susi_paths::SusiDirs::config_dir().join("chat_templates.json");
+        let templates_override =
+            crate::susi_paths::SusiDirs::config_dir().join("chat_templates.json");
         if templates_override.is_file() {
             prompts.chat_templates =
                 ChatTemplateConfig::from_file(templates_override.to_str().unwrap_or_default());
@@ -448,7 +449,7 @@ pub struct SusiMessages {
 
 impl SusiMessages {
     pub fn load_global() -> Self {
-        let msgs_file = susi_paths::SusiDirs::config_dir().join("messages.json");
+        let msgs_file = crate::susi_paths::SusiDirs::config_dir().join("messages.json");
 
         static STORE: std::sync::OnceLock<
             crate::versioned_store::VersionedJsonStore<SusiMessages>,

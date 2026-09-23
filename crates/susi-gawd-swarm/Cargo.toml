@@ -7,8 +7,6 @@ publish = false
 
 [dependencies]
 susi-gawd-agents = { workspace = true }
-susi-paths = { path = "../susi-paths" }
-susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-config = { workspace = true }

@@ -663,7 +663,7 @@ impl HardwareProfiler {
 
     pub fn audit_os_environment_care() -> OsCareReport {
         let os_name = Self::get_os_info();
-        let home = susi_paths::SusiDirs::home_dir();
+        let home = crate::susi_paths::SusiDirs::home_dir();
 
         let mut reclaimable = 0u64;
         let mut recommendations = Vec::new();
@@ -726,7 +726,7 @@ impl HardwareProfiler {
             return "OS environment is already clean and optimal.".to_string();
         }
 
-        let home = susi_paths::SusiDirs::home_dir();
+        let home = crate::susi_paths::SusiDirs::home_dir();
         let user_cache = home.join(".cache");
         if user_cache.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&user_cache) {

@@ -2,14 +2,14 @@
 // if empty), then trains the local Tier 2 reasoning model from it.
 
 use crate::genome_distiller::GenomeDistiller;
+use crate::susi_error::EaiResult;
 use std::path::Path;
-use susi_error::EaiResult;
 
 pub struct ReasoningTrainer;
 
 impl ReasoningTrainer {
     pub fn audit_reasoning_substrate(workspace: &Path) -> EaiResult<String> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let experience_file = global_dir.join("reasoning_experience.jsonl");
 
         // Ensure the experience buffer has data if it's currently empty

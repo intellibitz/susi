@@ -16,6 +16,37 @@
 //! `susi-gawd-a2a`, or `susi-gawd`. Host admin actions and MissionDag execution
 //! reach this crate only through [`admin_hooks`] / [`dag_hooks`].
 
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
+// Vendored-error boundary: `GawdAgent` and susi-core/susi-sandbox APIs use
+// their own vendored `EaiError`; these conversions preserve the error kind
+// via `rewrap` so `?` keeps working across the vendored boundary.
+impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
+    fn from(e: susi_core::susi_error::EaiError) -> Self {
+        susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+impl From<susi_error::EaiError> for susi_core::susi_error::EaiError {
+    fn from(e: susi_error::EaiError) -> Self {
+        susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+impl From<susi_sandbox::susi_error::EaiError> for susi_error::EaiError {
+    fn from(e: susi_sandbox::susi_error::EaiError) -> Self {
+        susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
 pub mod accountability;
 pub mod admin_hooks;
 pub mod agents;

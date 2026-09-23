@@ -1,15 +1,15 @@
 // Flags/redacts secret-token and exfiltration patterns loaded from config.
 // Mandate 10: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
 
 pub struct SecurityDetector;
 
 impl SecurityDetector {
     pub fn audit_action(_tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 
@@ -44,7 +44,7 @@ impl SecurityDetector {
     /// persist to telemetry/audit logs — no reliance on an LLM's output happening
     /// to mention a sentinel word.
     pub fn redact(text: &str) -> String {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let patterns = match SusiConfig::load(&global_dir) {
             Ok(cfg) => cfg.governance().secret_tokens,
             Err(_) => return text.to_string(),

@@ -26,11 +26,23 @@
 #![warn(missing_docs)]
 
 /// Engine hooks for extension points
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+// missing_docs is waived because the file is vendored byte-identical —
+// doc additions here would diverge it from every other crate's copy.
+#[allow(dead_code, missing_docs)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
 pub mod hooks;
 
 /// Error types and handling
 pub mod error {
-    pub use susi_error::*;
+    pub use crate::susi_error::*;
 }
 
 /// Native execution primitives
@@ -43,7 +55,7 @@ pub mod sandbox {
     pub use susi_sandbox::*;
     /// XDG directory specifications
     pub mod xdg {
-        pub use susi_paths::SusiDirs;
+        pub use crate::susi_paths::SusiDirs;
     }
 }
 

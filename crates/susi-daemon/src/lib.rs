@@ -11,6 +11,16 @@
     )
 )]
 
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
 pub mod ambient;
 pub mod auto_discovery;
 pub mod composition;

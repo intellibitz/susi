@@ -70,7 +70,6 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
-susi-error = { path = "crates/susi-error" }
 susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
 susi-config = { path = "crates/susi-config" }
@@ -106,8 +105,6 @@ serde_json = { workspace = true }
 [dependencies]
 susi-daemon = { path = "crates/susi-daemon" }
 susi-server = { path = "crates/susi-server" }
-susi-paths = { path = "crates/susi-paths" }
-susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-native = { workspace = true }
 susi-sandbox = { workspace = true }

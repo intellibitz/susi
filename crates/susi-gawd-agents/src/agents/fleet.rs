@@ -3,7 +3,7 @@
 // Agents must add functionality directly to the susi engine, not simulate
 // results themselves.
 
-use susi_error::EaiResult;
+use crate::susi_error::EaiResult;
 
 use rayon::prelude::*;
 use std::path::{Path, PathBuf};
@@ -112,7 +112,7 @@ impl NeuralAgentFactory {
 
         let res = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
         let profile: AgentProfile = serde_json::from_str(&res).map_err(|e| {
-            susi_error::EaiError::protocol(format!(
+            crate::susi_error::EaiError::protocol(format!(
                 "Neural Agent Synthesis Failed: {}. Raw: {}",
                 e, res
             ))
@@ -142,7 +142,7 @@ impl NeuralAgentFactory {
             .retain(|c| c.is_ascii_alphanumeric() || c == '_');
         profile.name.truncate(Self::MAX_NAME_LEN);
         if profile.name.is_empty() {
-            return Err(susi_error::EaiError::protocol(
+            return Err(crate::susi_error::EaiError::protocol(
                 "Neural Agent Synthesis rejected: empty/invalid agent name after sanitization"
                     .to_string(),
             ));
@@ -168,7 +168,7 @@ impl NeuralAgentFactory {
             workspace,
         )
         .map_err(|e| {
-            susi_error::EaiError::governance(format!(
+            crate::susi_error::EaiError::governance(format!(
                 "Neural Agent Synthesis rejected by SafetyAgent: {}",
                 e
             ))
@@ -179,7 +179,7 @@ impl NeuralAgentFactory {
             workspace,
         )
         .map_err(|e| {
-            susi_error::EaiError::governance(format!(
+            crate::susi_error::EaiError::governance(format!(
                 "Neural Agent Synthesis rejected by SecurityAgent: {}",
                 e
             ))

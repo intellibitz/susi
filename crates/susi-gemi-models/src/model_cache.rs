@@ -1,12 +1,12 @@
 //! Serializes loads of each canonical file without blocking unrelated models.
 
+use crate::susi_error::{EaiError, EaiResult};
 use candle_core::Device;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
-use susi_error::{EaiError, EaiResult};
 
 #[derive(Debug, PartialEq, Eq)]
 struct FileVersion {

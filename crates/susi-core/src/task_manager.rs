@@ -139,7 +139,7 @@ impl TelemetryHistoryStore {
     }
 
     fn get_history_file() -> PathBuf {
-        susi_paths::SusiDirs::data_dir().join("telemetry_history.json")
+        crate::susi_paths::SusiDirs::data_dir().join("telemetry_history.json")
     }
 
     fn load_history(&self) {
@@ -228,7 +228,7 @@ impl TelemetryHistoryStore {
         if profile.sample_count < 3 {
             return u64::MAX;
         }
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let cfg = susi_config::SusiConfig::load(&global_dir).unwrap_or_default();
         let floor_ms = cfg.execution_lease_secs().saturating_mul(1000);
         profile.p99_idle_interval_ms.saturating_mul(5).max(floor_ms)

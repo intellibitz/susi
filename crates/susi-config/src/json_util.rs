@@ -2,11 +2,11 @@
 // Pattern used by Astral (ruff) and Claude Code: Registry + HashMap + Value
 // Add new model, prompt, message, endpoint without touching Rust
 
+use crate::susi_error::{EaiError, EaiResult};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_error::{EaiError, EaiResult};
 
 // === CORE DYNAMIC TYPES ===
 // Everything is a registry. No struct fields are hardcoded.
@@ -59,7 +59,7 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
         match options.open(&tmp_path) {
             Ok(file) => break (tmp_path, file),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(EaiError::filesystem(error.to_string())),
+            Err(error) => return Err(EaiError::config(error.to_string())),
         }
     };
     let result = file
@@ -75,7 +75,7 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
-    result.map_err(|error| EaiError::filesystem(error.to_string()))
+    result.map_err(|error| EaiError::config(error.to_string()))
 }
 
 /// Join `user_path` under `workspace`, rejecting absolutes, `..`, and escapes.
@@ -84,32 +84,30 @@ pub fn confined_workspace_join(workspace: &Path, user_path: &str) -> EaiResult<P
     let user_path = user_path.trim().trim_matches('"').trim_matches('\'');
     let path = PathBuf::from(user_path);
     if path.is_absolute() {
-        return Err(EaiError::filesystem("Absolute paths not allowed"));
+        return Err(EaiError::config("Absolute paths not allowed"));
     }
     for component in path.components() {
         if matches!(component, Component::ParentDir) {
-            return Err(EaiError::filesystem(
-                "Parent directory traversal not allowed",
-            ));
+            return Err(EaiError::config("Parent directory traversal not allowed"));
         }
     }
     let full = workspace.join(&path);
     let canonical_workspace = workspace
         .canonicalize()
-        .map_err(|e| EaiError::filesystem(format!("Workspace error: {e}")))?;
+        .map_err(|e| EaiError::config(format!("Workspace error: {e}")))?;
     // For not-yet-existing leaves, canonicalize the parent and re-join the name.
     let parent = full.parent().unwrap_or(workspace);
     let canonical_parent = parent
         .canonicalize()
         .unwrap_or_else(|_| canonical_workspace.clone());
     if !canonical_parent.starts_with(&canonical_workspace) {
-        return Err(EaiError::filesystem(format!(
+        return Err(EaiError::config(format!(
             "Path escape attempt: {user_path}"
         )));
     }
     let leaf = full
         .file_name()
-        .ok_or_else(|| EaiError::filesystem(format!("Path has no file name: {user_path}")))?;
+        .ok_or_else(|| EaiError::config(format!("Path has no file name: {user_path}")))?;
     Ok(canonical_parent.join(leaf))
 }
 

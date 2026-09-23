@@ -1,9 +1,9 @@
 use super::SusiAdmin;
+use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use susi_error::{EaiError, EaiResult};
 
 /// How much to bump the engine's own semver when cutting a release (see
 /// `SusiAdmin::execute_release`'s `cut` parameter). Plain `FromStr`, not

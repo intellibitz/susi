@@ -2,6 +2,7 @@
 
 use crate::ama::SusiMissionReport;
 use crate::amas::A2AMessage;
+use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
@@ -9,7 +10,6 @@ use std::time::Duration;
 use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};
 use susi_core::registry::CapabilityRegistry;
 use susi_core::truth::TruthTransformer;
-use susi_error::{EaiError, EaiResult};
 use susi_gawd_agents::security::SecurityDetector;
 
 #[derive(Deserialize)]
@@ -455,15 +455,20 @@ mod tests {
         fn name(&self) -> &str {
             self.name
         }
-        fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+        fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
             Box::pin(async { Ok(true) })
         }
-        fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+        fn generate(
+            &self,
+            prompt: &str,
+        ) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
             let prompt = prompt.to_string();
             Box::pin(async move {
                 if matches!(self.reply, Reply::Error) {
                     self.calls.lock().unwrap().push(self.name.into());
-                    return Err(EaiError::process("HTTP 402 Payment Required"));
+                    return Err(susi_core::susi_error::EaiError::process(
+                        "HTTP 402 Payment Required",
+                    ));
                 }
                 // Model review prompts are never absolute proof — ignore them.
                 if prompt.starts_with("You are the SUSI Truth Transformer") {
@@ -489,7 +494,7 @@ mod tests {
                 }
             })
         }
-        fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+        fn embed(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
             Box::pin(async { Ok(vec![]) })
         }
         fn as_any(&self) -> &dyn std::any::Any {

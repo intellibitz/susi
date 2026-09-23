@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::amas::{ClusterPeerNode, PeerAdmission};
 
 fn registry_path() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("peers.json")
+    crate::susi_paths::SusiDirs::config_dir().join("peers.json")
 }
 
 /// Persisted verified peers — filtered to `Explicit` on read so a

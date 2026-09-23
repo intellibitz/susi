@@ -133,7 +133,7 @@ impl AgentManager {
         Self::with_config(
             workspace,
             kind,
-            susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
+            crate::susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
         )
     }
 
@@ -368,7 +368,7 @@ impl AgentManager {
                 }
             }
         }
-        let status_path = susi_paths::SusiDirs::config_dir()
+        let status_path = crate::susi_paths::SusiDirs::config_dir()
             .join(self.kind.config_subdir())
             .join("ready.json");
         if let Some(parent) = status_path.parent() {
@@ -562,7 +562,7 @@ pub fn redact(text: &str) -> String {
 }
 fn tracing_failure(id: &str, error: &str) {
     susi_sandbox::manager::SusiAuditLogger::log(
-        &susi_paths::SusiDirs::config_dir(),
+        &crate::susi_paths::SusiDirs::config_dir(),
         susi_sandbox::manager::LogLevel::Info,
         "EXTERNAL_AGENT",
         &format!("{id}: {}", redact(error)),

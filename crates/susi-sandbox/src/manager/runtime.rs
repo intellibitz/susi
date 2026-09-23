@@ -1,8 +1,8 @@
 //! Sandbox runtime helpers: docker exec, audit, backup, intent bundles, memory.
+use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_error::{EaiError, EaiResult};
 
 use susi_config::confined_workspace_join;
 use susi_config::SusiConfig;
@@ -182,11 +182,11 @@ impl SusiAuditLogger {
         // config and redacts locally (rather than calling into
         // `gawd::security::SecurityDetector::redact`) so `sandbox` doesn't
         // depend on `gawd` just to reach a pure text-transform primitive.
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let secret_patterns = SusiConfig::load(&global_dir)
             .map(|cfg| cfg.governance().secret_tokens)
             .unwrap_or_default();
-        let details = susi_error::redact::redact_patterns(&secret_patterns, details);
+        let details = crate::susi_error::redact::redact_patterns(&secret_patterns, details);
         let details = details.as_str();
 
         tracing::info!(
@@ -314,7 +314,8 @@ impl IntentBundleManager {
         for bundle in &mut bundles {
             if !bundle.is_applied() {
                 for fix in &bundle.staged_fixes {
-                    let target_path = confined_workspace_join(workspace, fix.file_path())?;
+                    let target_path = confined_workspace_join(workspace, fix.file_path())
+                        .map_err(|e| EaiError::filesystem(e.to_string()))?;
                     if let Some(parent) = target_path.parent() {
                         let _ = fs::create_dir_all(parent);
                     }
@@ -342,7 +343,8 @@ impl IntentBundleManager {
         for bundle in &mut bundles {
             if bundle.is_applied() {
                 for fix in &bundle.staged_fixes {
-                    let target_path = confined_workspace_join(workspace, fix.file_path())?;
+                    let target_path = confined_workspace_join(workspace, fix.file_path())
+                        .map_err(|e| EaiError::filesystem(e.to_string()))?;
                     if !fix.original_content().is_empty() {
                         let _ = fs::write(&target_path, fix.original_content());
                     } else if target_path.exists() {
@@ -455,7 +457,7 @@ mod tests {
     /// Every scalar accessor's only fallback is config.default.json itself
     /// (via get_or_bundled_default) — there is no second, Rust-literal copy
     /// of any default that could drift out of sync with it. Host-contract
-    /// ports are an exception: accessors always return `susi_paths::ports`
+    /// ports are an exception: accessors always return `crate::susi_paths::ports`
     /// (JSON port fields are documentation-only and are not heal-merged into
     /// host `config.json`).
     #[test]
@@ -465,28 +467,31 @@ mod tests {
             serde_json::from_str(include_str!("../../../../config/config.default.json")).unwrap();
 
         // Host contract: accessors ignore JSON; bundled docs must still match constants.
-        assert_eq!(default.gmcp_port(), susi_paths::ports::GMCP);
+        assert_eq!(default.gmcp_port(), crate::susi_paths::ports::GMCP);
         assert_eq!(
             raw["gmcp_port"].as_u64().unwrap() as u16,
-            susi_paths::ports::GMCP
+            crate::susi_paths::ports::GMCP
         );
-        assert_eq!(default.gmcp_http_port(), susi_paths::ports::GMCP_HTTP);
+        assert_eq!(
+            default.gmcp_http_port(),
+            crate::susi_paths::ports::GMCP_HTTP
+        );
         assert_eq!(
             raw["gmcp_http_port"].as_u64().unwrap() as u16,
-            susi_paths::ports::GMCP_HTTP
+            crate::susi_paths::ports::GMCP_HTTP
         );
-        assert_eq!(default.gemi_port(), susi_paths::ports::GEMI);
+        assert_eq!(default.gemi_port(), crate::susi_paths::ports::GEMI);
         assert_eq!(
             raw["gemi_port"].as_u64().unwrap() as u16,
-            susi_paths::ports::GEMI
+            crate::susi_paths::ports::GEMI
         );
         assert_eq!(
             default.udp_discovery_port(),
-            susi_paths::ports::UDP_DISCOVERY
+            crate::susi_paths::ports::UDP_DISCOVERY
         );
         assert_eq!(
             raw["udp_discovery_port"].as_u64().unwrap() as u16,
-            susi_paths::ports::UDP_DISCOVERY
+            crate::susi_paths::ports::UDP_DISCOVERY
         );
         assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());
         assert_eq!(
@@ -658,7 +663,7 @@ mod tests {
         let cfg = SusiConfig::load(dir).expect("Failed to load stale config");
 
         // Public ports are a hard contract — polluted values cannot override them.
-        assert_eq!(cfg.gmcp_port(), susi_paths::ports::GMCP);
+        assert_eq!(cfg.gmcp_port(), crate::susi_paths::ports::GMCP);
         // User's customized non-port scalar survives the merge untouched.
         assert_eq!(cfg.trust_level(), "paranoid");
 

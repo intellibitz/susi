@@ -71,7 +71,7 @@ pub struct OpenWeightManager {
 impl OpenWeightManager {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            root: susi_paths::SusiDirs::config_dir().join("open-weight"),
+            root: crate::susi_paths::SusiDirs::config_dir().join("open-weight"),
         })
     }
 

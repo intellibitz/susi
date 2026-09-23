@@ -6,17 +6,17 @@ mod version;
 
 pub use version::VersionBump;
 
+use crate::susi_error::{EaiError, EaiResult};
 use rayon::prelude::*;
 use std::env;
 use std::fs;
 use std::path::Path;
-use susi_error::{EaiError, EaiResult};
 
 pub struct SusiAdmin;
 
 impl SusiAdmin {
     pub fn get_global_susi_dir() -> std::path::PathBuf {
-        susi_paths::SusiDirs::config_dir()
+        crate::susi_paths::SusiDirs::config_dir()
     }
 
     /// Full Compliance Audit

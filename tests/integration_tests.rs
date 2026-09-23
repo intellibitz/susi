@@ -80,7 +80,7 @@ fn test_tool_registry_and_execution() {
 // substrate — every case must be rejected before it ever reaches the
 // model.
 
-fn wired_reason(arg: serde_json::Value) -> susi_error::EaiResult<String> {
+fn wired_reason(arg: serde_json::Value) -> susi_gmcp::susi_error::EaiResult<String> {
     wire_test_substrate();
     susi_gmcp::tools::CoreTools::reason(&arg, std::path::Path::new("."))
 }

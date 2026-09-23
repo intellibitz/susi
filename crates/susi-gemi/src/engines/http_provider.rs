@@ -1,7 +1,6 @@
 use std::any::Any;
 
 use susi_core::provider::{BoxFuture, Provider};
-use susi_error::{EaiError, EaiResult};
 
 /// Wire protocol for an HTTP inference backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +70,7 @@ impl Provider for HttpProvider {
         &self.name
     }
 
-    fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+    fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
         let api_base = self.api_base.clone();
         let api_key = self.api_key.clone();
         let protocol = self.protocol;
@@ -80,7 +79,7 @@ impl Provider for HttpProvider {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
-                .map_err(|e| EaiError::network(e.to_string()))?;
+                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
 
             match protocol {
                 InferenceProtocol::Anthropic => {
@@ -101,7 +100,7 @@ impl Provider for HttpProvider {
                         .get(&url)
                         .send()
                         .await
-                        .map_err(|e| EaiError::network(e.to_string()))?;
+                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
                     Ok(res.status().is_success())
                 }
                 InferenceProtocol::Triton => {
@@ -109,7 +108,7 @@ impl Provider for HttpProvider {
                         .get(&api_base)
                         .send()
                         .await
-                        .map_err(|e| EaiError::network(e.to_string()))?;
+                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
                     Ok(res.status().is_success() || res.status().as_u16() == 405)
                 }
                 InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
@@ -122,14 +121,14 @@ impl Provider for HttpProvider {
                     let res = req
                         .send()
                         .await
-                        .map_err(|e| EaiError::network(e.to_string()))?;
+                        .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
                     Ok(res.status().is_success())
                 }
             }
         })
     }
 
-    fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+    fn generate(&self, prompt: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
         let prompt = prompt.to_string();
         let api_base = self.api_base.trim_end_matches('/').to_string();
         let model = self.model.clone();
@@ -141,7 +140,7 @@ impl Provider for HttpProvider {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .build()
-                .map_err(|e| EaiError::network(e.to_string()))?;
+                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
 
             match protocol {
                 InferenceProtocol::OpenAiChat => {
@@ -158,11 +157,13 @@ impl Provider for HttpProvider {
                 }
                 InferenceProtocol::Triton => generate_triton(&client, &api_base, &prompt).await,
             }
-            .map_err(|e| EaiError::process(format!("Provider '{}': {}", name, e)))
+            .map_err(|e| {
+                susi_core::susi_error::EaiError::process(format!("Provider '{}': {}", name, e))
+            })
         })
     }
 
-    fn embed(&self, text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+    fn embed(&self, text: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
         let text = text.to_string();
         let api_base = self.api_base.trim_end_matches('/').to_string();
         let model = self.model.clone();
@@ -173,7 +174,7 @@ impl Provider for HttpProvider {
             if protocol != InferenceProtocol::OpenAiChat
                 && protocol != InferenceProtocol::OpenAiCompletions
             {
-                return Err(EaiError::inference(
+                return Err(susi_core::susi_error::EaiError::inference(
                     "Embeddings only supported on OpenAI-compatible providers",
                 ));
             }
@@ -190,14 +191,17 @@ impl Provider for HttpProvider {
             let res = req
                 .send()
                 .await
-                .map_err(|e| EaiError::network(e.to_string()))?;
+                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
             if !res.status().is_success() {
-                return Err(EaiError::process(format!("HTTP Error: {}", res.status())));
+                return Err(susi_core::susi_error::EaiError::process(format!(
+                    "HTTP Error: {}",
+                    res.status()
+                )));
             }
             let json: serde_json::Value = res
                 .json()
                 .await
-                .map_err(|e| EaiError::network(e.to_string()))?;
+                .map_err(|e| susi_core::susi_error::EaiError::network(e.to_string()))?;
             let embedding = json["data"][0]["embedding"]
                 .as_array()
                 .unwrap_or(&Vec::new())

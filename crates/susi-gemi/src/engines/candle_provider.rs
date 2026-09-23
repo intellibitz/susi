@@ -2,7 +2,6 @@ use crate::engine::GemiEngine;
 use std::any::Any;
 
 use susi_core::provider::{BoxFuture, Provider};
-use susi_error::EaiResult;
 
 pub struct CandleProvider;
 
@@ -11,14 +10,14 @@ impl Provider for CandleProvider {
         "Candle (Local)"
     }
 
-    fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+    fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
         Box::pin(async {
             // Check hardware/candle status
             Ok(true)
         })
     }
 
-    fn generate(&self, prompt: &str) -> BoxFuture<'_, EaiResult<String>> {
+    fn generate(&self, prompt: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
         let prompt = prompt.to_string();
         Box::pin(async move {
             // `Provider::generate` (susi-core/src/provider.rs) has no workspace
@@ -32,14 +31,14 @@ impl Provider for CandleProvider {
                 GemiEngine::generate_reasoning_deep(&prompt, &workspace)
             })
             .await
-            .map_err(|e| susi_error::EaiError::process(e.to_string()))?;
+            .map_err(|e| susi_core::susi_error::EaiError::process(e.to_string()))?;
             Ok(res)
         })
     }
 
-    fn embed(&self, _text: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+    fn embed(&self, _text: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
         Box::pin(async move {
-            Err(susi_error::EaiError::inference(
+            Err(susi_core::susi_error::EaiError::inference(
                 "Embedding not implemented natively in CandleProvider yet",
             ))
         })

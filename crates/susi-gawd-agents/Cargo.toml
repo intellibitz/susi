@@ -6,8 +6,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-susi-paths = { path = "../susi-paths" }
-susi-error = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
 serde = { workspace = true }

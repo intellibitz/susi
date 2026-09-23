@@ -16,7 +16,7 @@ const GENESIS: &str = "SUSI_AUDIT_GENESIS_v1";
 static CHAIN_LOCK: Mutex<()> = Mutex::new(());
 
 fn key_path() -> PathBuf {
-    susi_paths::SusiDirs::substrate_home().join("audit.hmac.key")
+    crate::susi_paths::SusiDirs::substrate_home().join("audit.hmac.key")
 }
 
 fn tip_path(audit_file: &Path) -> PathBuf {

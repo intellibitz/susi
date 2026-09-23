@@ -5,6 +5,7 @@
 // into an in-memory index. Storage path is supplied by the composition root;
 // when none is set, the graph stays in-memory only.
 
+use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -12,7 +13,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
-use susi_error::{EaiError, EaiResult};
 
 /// Stable identifier for a node in the context graph.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

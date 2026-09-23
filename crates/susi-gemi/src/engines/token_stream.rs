@@ -1,5 +1,5 @@
 //! Incremental text decoding shared by standard and speculative generation.
-use susi_error::{EaiError, EaiResult};
+use crate::susi_error::{EaiError, EaiResult};
 use tokenizers::Tokenizer;
 
 pub(crate) struct TokenStream<'a> {

@@ -17,9 +17,9 @@ pub use runtime_substrate::{
 };
 
 use crate::models::ModelManager;
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::sync::OnceLock;
-use susi_error::{EaiError, EaiResult};
 
 #[cfg(test)]
 use candle_core::quantized::gguf_file;
@@ -502,8 +502,8 @@ mod tests {
     #[test]
     #[ignore = "requires the local Qwen2.5 0.5B GGUF fixture"]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
-        let path =
-            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let path = crate::susi_paths::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         assert!(
             path.is_file(),
             "local model fixture missing: {}",
@@ -699,17 +699,19 @@ mod tests {
         fn name(&self) -> &str {
             self.name
         }
-        fn is_healthy(&self) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<bool>> {
+        fn is_healthy(
+            &self,
+        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
             Box::pin(async { Ok(true) })
         }
         fn generate(
             &self,
             _prompt: &str,
-        ) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<String>> {
+        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
             let reply = self.reply.to_string();
             Box::pin(async move {
                 if reply.starts_with("ERR:") {
-                    return Err(susi_error::EaiError::process(reply));
+                    return Err(susi_core::susi_error::EaiError::process(reply));
                 }
                 Ok(reply)
             })
@@ -717,7 +719,8 @@ mod tests {
         fn embed(
             &self,
             _text: &str,
-        ) -> susi_core::provider::BoxFuture<'_, susi_error::EaiResult<Vec<f32>>> {
+        ) -> susi_core::provider::BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>>
+        {
             Box::pin(async { Ok(vec![]) })
         }
         fn as_any(&self) -> &dyn std::any::Any {
@@ -779,8 +782,8 @@ mod tests {
 
     #[test]
     fn test_native_tokenization() {
-        let _home = susi_paths::SusiDirs::home_dir();
-        let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
+        let _home = crate::susi_paths::SusiDirs::home_dir();
+        let tokenizer_path = crate::susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
             assert!(tokenizer.is_ok());

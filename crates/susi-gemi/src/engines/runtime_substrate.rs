@@ -4,13 +4,13 @@
 
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
+use crate::susi_error::{EaiError, EaiResult};
 use indicatif::{ProgressBar, ProgressStyle};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
-use susi_error::{EaiError, EaiResult};
 
 use crate::qwen2_split as qwen2gguf;
 use candle_core::quantized::gguf_file;
@@ -141,14 +141,21 @@ impl InferenceHost {
             .get_or_init(Default::default)
             .get_or_load(model_path, device, kv_capacity, |path| {
                 if task_handle.is_cancelled() {
-                    return Err(EaiError::inference("Model loading cancelled"));
+                    return Err(susi_gemi_models::susi_error::EaiError::inference(
+                        "Model loading cancelled",
+                    ));
                 }
-                let model = Self::load_model(path, device, kv_capacity)?;
+                let model = Self::load_model(path, device, kv_capacity).map_err(|e| {
+                    susi_gemi_models::susi_error::rewrap(e.kind_name(), e.to_string())
+                })?;
                 if task_handle.is_cancelled() {
-                    return Err(EaiError::inference("Model loading cancelled"));
+                    return Err(susi_gemi_models::susi_error::EaiError::inference(
+                        "Model loading cancelled",
+                    ));
                 }
                 Ok(model)
             })
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     fn load_model(
@@ -173,7 +180,8 @@ impl InferenceHost {
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         // Integrity Verification
-        ModelManager::verify_model_integrity(model_path)?;
+        ModelManager::verify_model_integrity(model_path)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
 
         let mut file = std::fs::File::open(model_path).map_err(|e| {
             EaiError::inference(format!(

@@ -68,14 +68,14 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
         .and_then(|m| m.preferred());
 
     let agents_ready = load_json_file(
-        &susi_paths::SusiDirs::config_dir()
+        &crate::susi_paths::SusiDirs::config_dir()
             .join("execution-agents")
             .join("ready.json"),
     )
     .and_then(|v| v.as_array().map(|a| a.len()))
     .unwrap_or(0);
     let frameworks_ready = load_json_file(
-        &susi_paths::SusiDirs::config_dir()
+        &crate::susi_paths::SusiDirs::config_dir()
             .join("agent-engines")
             .join("ready.json"),
     )
@@ -83,7 +83,7 @@ fn collect_status(workspace: &Path) -> Result<AutoStatus> {
     .unwrap_or(0);
 
     let last_auto_prime =
-        load_json_file(&susi_paths::SusiDirs::config_dir().join("last_auto_prime.json"));
+        load_json_file(&crate::susi_paths::SusiDirs::config_dir().join("last_auto_prime.json"));
     let last_blackboard = load_json_file(&workspace.join(".susi").join("last_blackboard.json"));
 
     Ok(AutoStatus {
@@ -109,7 +109,7 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
             print_json(&collect_status(workspace)?)?;
         }
         AutoCommands::Prime => {
-            let substrate = susi_paths::SusiDirs::substrate_home();
+            let substrate = crate::susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             susi_gemi::http_provider::apply_cloud_env_file();

@@ -1,11 +1,11 @@
 //! Tier S substrate status: Pluggable, Sandbox, Governance, Host-contract, Reflexes.
 use crate::cli_json::print_json;
+use crate::susi_paths::ports;
 use anyhow::Result;
 use clap::Subcommand;
 use std::path::Path;
 use std::process::Command;
 use susi_daemon::SusiDaemon;
-use susi_paths::ports;
 
 #[derive(Debug, Subcommand)]
 pub enum SubstrateCommands {
@@ -31,7 +31,7 @@ fn docker_available() -> bool {
 }
 
 fn count_wasm_reflexes() -> usize {
-    let dir = susi_paths::SusiDirs::data_dir().join("reflexes");
+    let dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
     };
@@ -93,7 +93,7 @@ fn collect(workspace: &Path) -> serde_json::Value {
         },
         "reflexes": {
             "wasm_count": count_wasm_reflexes(),
-            "reflex_dir": susi_paths::SusiDirs::data_dir().join("reflexes"),
+            "reflex_dir": crate::susi_paths::SusiDirs::data_dir().join("reflexes"),
             "training_threshold": cfg.reflex_training_threshold(),
         },
         "concurrency": {
@@ -109,7 +109,7 @@ pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()
         SubstrateCommands::Status => {
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             susi_gemi::http_provider::apply_cloud_env_file();
-            let substrate = susi_paths::SusiDirs::substrate_home();
+            let substrate = crate::susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             let _ = susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
             print_json(&collect(workspace))?;

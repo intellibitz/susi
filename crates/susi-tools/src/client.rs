@@ -13,7 +13,7 @@ pub struct GmcpClient;
 
 impl GmcpClient {
     pub fn get_config_path() -> PathBuf {
-        let susi_dir = susi_paths::SusiDirs::config_dir();
+        let susi_dir = crate::susi_paths::SusiDirs::config_dir();
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
@@ -78,7 +78,7 @@ impl GmcpClient {
     }
 
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");
         let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
@@ -278,22 +278,22 @@ impl GmcpClient {
         server_name: &str,
         tool_name: &str,
         args: &str,
-    ) -> susi_error::EaiResult<String> {
+    ) -> crate::susi_error::EaiResult<String> {
         let config_content = fs::read_to_string(Self::get_config_path())
-            .map_err(|e| susi_error::EaiError::filesystem(e.to_string()))?;
+            .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
         let config: McpConfig = serde_json::from_str(&config_content)
-            .map_err(|e| susi_error::EaiError::protocol(e.to_string()))?;
+            .map_err(|e| crate::susi_error::EaiError::protocol(e.to_string()))?;
         let srv = config
             .mcp_servers
             .get(server_name)
-            .ok_or_else(|| susi_error::EaiError::protocol("MCP server not configured"))?;
+            .ok_or_else(|| crate::susi_error::EaiError::protocol("MCP server not configured"))?;
         let arguments = if tool_name == "reason" {
             json!({"intent": args, "workspace_context": Self::gather_workspace_context()})
         } else {
             serde_json::from_str(args).unwrap_or_else(|_| json!({"input":args}))
         };
         crate::connection::call_blocking_result(srv.clone(), tool_name.to_owned(), arguments)
-            .map_err(susi_error::EaiError::protocol)
+            .map_err(crate::susi_error::EaiError::protocol)
     }
 
     pub fn scout_reasoning_remotes() -> Vec<String> {
@@ -338,7 +338,7 @@ impl GmcpClient {
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
     pub fn autonomous_web_scout() -> Vec<GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
-        let home = susi_paths::SusiDirs::home_dir();
+        let home = crate::susi_paths::SusiDirs::home_dir();
         let registry_path = home.join(".susi/mcp_web_registry.json");
 
         // Benchmark and Rank each entry

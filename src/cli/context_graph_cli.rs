@@ -42,7 +42,7 @@ pub enum ContextGraphCommands {
 }
 
 pub fn execute(action: Option<ContextGraphCommands>, workspace: &Path) -> Result<()> {
-    let substrate = susi_paths::SusiDirs::substrate_home();
+    let substrate = crate::susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
     susi_core::context_graph::ContextGraph::init_global_storage(
         substrate.join("context_graph.jsonl"),

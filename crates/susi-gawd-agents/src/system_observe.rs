@@ -66,13 +66,13 @@ impl VerifiedSystemRead {
         goal: &str,
         answer: &str,
         workspace: &Path,
-    ) -> susi_error::EaiResult<String> {
+    ) -> crate::susi_error::EaiResult<String> {
         if goal.trim().to_ascii_lowercase() != self.goal
             || answer != self.answer
             || workspace.canonicalize().ok().as_ref() != Some(&self.workspace)
             || self.captured_at.elapsed() > std::time::Duration::from_secs(60)
         {
-            return Err(susi_error::EaiError::governance("TRUTH_VIOLATION: native read receipt does not match answer, intent, workspace or freshness"));
+            return Err(crate::susi_error::EaiError::governance("TRUTH_VIOLATION: native read receipt does not match answer, intent, workspace or freshness"));
         }
         Ok(self.answer.clone())
     }
@@ -83,7 +83,7 @@ impl VerifiedSystemRead {
 pub fn capture_verified_read(
     goal: &str,
     workspace: &Path,
-) -> Option<susi_error::EaiResult<VerifiedSystemRead>> {
+) -> Option<crate::susi_error::EaiResult<VerifiedSystemRead>> {
     let normalized = goal.trim().to_ascii_lowercase();
     let command = match normalized.as_str() {
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
@@ -96,17 +96,18 @@ pub fn capture_verified_read(
     Some((|| {
         let workspace = workspace
             .canonicalize()
-            .map_err(|e| susi_error::EaiError::filesystem(e.to_string()))?;
+            .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
         let captured_at = std::time::Instant::now();
-        let output = run_exec_direct(&workspace, command).map_err(susi_error::EaiError::process)?;
+        let output =
+            run_exec_direct(&workspace, command).map_err(crate::susi_error::EaiError::process)?;
         if output.trim().is_empty() {
-            return Err(susi_error::EaiError::governance(
+            return Err(crate::susi_error::EaiError::governance(
                 "TRUTH_UNVERIFIED: command produced no observation",
             ));
         }
         let observed_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| susi_error::EaiError::process(e.to_string()))?
+            .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?
             .as_secs();
         Ok(VerifiedSystemRead {
             goal: normalized, workspace, captured_at,
@@ -131,15 +132,17 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
             .current_dir(workspace)
             .env("GIT_TERMINAL_PROMPT", "0")
             .output()
-            .map_err(|e| susi_error::EaiError::process(format!("Exec failed: {e}")))?;
+            .map_err(|e| susi_core::susi_error::EaiError::process(format!("Exec failed: {e}")))?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         if !output.status.success() {
-            return Err(susi_error::EaiError::process(if stderr.is_empty() {
-                "Command failed with non-zero exit status".into()
-            } else {
-                stderr
-            }));
+            return Err(susi_core::susi_error::EaiError::process(
+                if stderr.is_empty() {
+                    "Command failed with non-zero exit status".into()
+                } else {
+                    stderr
+                },
+            ));
         }
         Ok(stdout)
     };

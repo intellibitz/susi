@@ -6,7 +6,10 @@ edition = "2021"
 publish = false
 
 [dependencies]
+axum = "0.8.9"
 directories = "6.0.0"
+serde = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 
 [lints]
 workspace = true

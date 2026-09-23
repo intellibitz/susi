@@ -1,15 +1,15 @@
 // Blocks destructive commands and writes to critical system paths, using
 // patterns loaded from config plus a hardcoded exec_command allowlist.
 
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use susi_error::{EaiError, EaiResult};
 use susi_sandbox::manager::SusiConfig;
 
 pub struct SafetyDetector;
 
 impl SafetyDetector {
     pub fn audit_action(tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 

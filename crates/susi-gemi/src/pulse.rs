@@ -22,7 +22,7 @@ impl SusiPulse {
     pub fn reason(prompt: &str, workspace: &Path) -> Result<String> {
         let prompt_trimmed = prompt.trim();
 
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
 
         // Neural Synchronization (Cache Invalidation)
         {
@@ -46,7 +46,7 @@ impl SusiPulse {
             }
         }
 
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
 
         // Neural Reflex Attempt
         if let Ok(model) = SusiAlphaModel::load(&global_dir) {

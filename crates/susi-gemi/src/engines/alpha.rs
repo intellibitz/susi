@@ -27,7 +27,7 @@ impl SusiAlphaModel {
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
-            Self::load(&susi_paths::SusiDirs::config_dir()).unwrap_or_else(|_| {
+            Self::load(&crate::susi_paths::SusiDirs::config_dir()).unwrap_or_else(|_| {
                 let device = crate::hardware::HardwareProfiler::get_candle_device();
                 let varmap = VarMap::new();
                 let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);

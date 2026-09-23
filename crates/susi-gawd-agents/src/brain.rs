@@ -23,7 +23,7 @@ pub struct AlphaBrainContext {
 impl AlphaBrainContext {
     pub fn initialize(workspace: &Path) -> Self {
         let hardware = HardwareProfiler::get_profile();
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         // Reachable on every `identity` query during normal operation, not
         // just boot: degrade to bundled defaults rather than panic this
         // request's thread if config.json is torn by a concurrent writer.

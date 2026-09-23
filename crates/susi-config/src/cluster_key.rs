@@ -22,7 +22,7 @@ const PROTO: &str = "susi-peer-v1";
 
 /// Path to the shared cluster membership key.
 pub fn cluster_key_path() -> PathBuf {
-    susi_paths::SusiDirs::config_dir().join("cluster.key")
+    crate::susi_paths::SusiDirs::config_dir().join("cluster.key")
 }
 
 /// Load the cluster key, creating a fresh 32-byte key (0600, hex-encoded) on
@@ -46,7 +46,7 @@ pub fn cluster_key() -> Option<[u8; 32]> {
         );
         return None;
     }
-    let dir = susi_paths::SusiDirs::config_dir();
+    let dir = crate::susi_paths::SusiDirs::config_dir();
     let _ = fs::create_dir_all(&dir);
     let mut raw = [0u8; 32];
     getrandom::fill(&mut raw).ok()?;

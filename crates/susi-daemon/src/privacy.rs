@@ -5,7 +5,7 @@ use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 use susi_sandbox::manager::SusiConfig;
 
 fn mac_key_path() -> std::path::PathBuf {
-    susi_paths::SusiDirs::substrate_home().join("mac.hmac.key")
+    crate::susi_paths::SusiDirs::substrate_home().join("mac.hmac.key")
 }
 
 fn load_or_create_mac_key() -> [u8; 32] {
@@ -49,7 +49,7 @@ pub fn wire_mac_policy(_substrate: &Path) {
     let key = load_or_create_mac_key();
     let policy = MacPolicy::init_global(key, mode, mandatory);
     policy.set_mandatory_sandbox(mandatory);
-    let sticky = susi_paths::SusiDirs::substrate_home().join("privacy_mode");
+    let sticky = crate::susi_paths::SusiDirs::substrate_home().join("privacy_mode");
     if let Ok(text) = std::fs::read_to_string(&sticky) {
         let m = PrivacyMode::parse(text.trim());
         policy.set_mode(m);
@@ -61,7 +61,7 @@ pub fn wire_mac_policy(_substrate: &Path) {
 
 /// Persist privacy mode for subsequent boots.
 pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
-    let path = susi_paths::SusiDirs::substrate_home().join("privacy_mode");
+    let path = crate::susi_paths::SusiDirs::substrate_home().join("privacy_mode");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

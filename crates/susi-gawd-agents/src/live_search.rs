@@ -1,7 +1,7 @@
 //! Zero-config live evidence fetch for SearchAgent.
 //! Uses public HTTP APIs (Open-Meteo, DuckDuckGo) — no vendor keys required.
 
-use susi_error::{EaiError, EaiResult};
+use crate::susi_error::{EaiError, EaiResult};
 
 const HTTP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
 
@@ -258,7 +258,7 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
                     "open_meteo_weather",
                     &args,
                     workspace,
-                    || fetch_open_meteo_weather(&place),
+                    || fetch_open_meteo_weather(&place).map_err(Into::into),
                 ) {
                     Ok(report) => return report,
                     Err(e) => attempts.push(format!("Open-Meteo({place}): {e}")),
@@ -298,7 +298,7 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
         "duckduckgo_instant",
         &serde_json::json!({ "query": goal }),
         workspace,
-        || fetch_duckduckgo_instant(goal),
+        || fetch_duckduckgo_instant(goal).map_err(Into::into),
     ) {
         Ok(report) => return report,
         Err(e) => attempts.push(format!("DuckDuckGo: {e}")),

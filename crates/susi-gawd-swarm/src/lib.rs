@@ -15,6 +15,31 @@
 //!
 //! Depends on [`susi_gawd_agents`] only. Must not import `ra2a` or `susi-gawd`.
 
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored-error boundary: susi-core/susi-gawd-agents APIs return their own
+// vendored `EaiError`; these conversions preserve the error kind via
+// `rewrap` so `?` keeps working across the vendored boundary.
+impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
+    fn from(e: susi_core::susi_error::EaiError) -> Self {
+        susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+impl From<susi_gawd_agents::susi_error::EaiError> for susi_error::EaiError {
+    fn from(e: susi_gawd_agents::susi_error::EaiError) -> Self {
+        susi_error::rewrap(e.kind_name(), e.to_string())
+    }
+}
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
 pub mod ama;
 pub mod amas;
 pub(crate) mod cloud_recovery;

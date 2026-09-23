@@ -6,7 +6,7 @@
 //! - **9092** A2A UDP discovery
 //! - **9093** GMCP HTTP (streamable / SSE alias)
 
-use susi_paths::ports;
+use crate::susi_paths::ports;
 
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
@@ -32,7 +32,7 @@ use std::sync::{
 };
 use tracing::{info, warn};
 
-use susi_error::EaiError;
+use crate::susi_error::EaiError;
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gawd::queue::SubstratePulseQueue;
 use susi_gmcp::server::GmcpServer;
@@ -75,7 +75,7 @@ impl DaemonContext {
     }
 }
 
-/// A running host daemon. Always bound to [`susi_paths::SusiDirs::substrate_home`];
+/// A running host daemon. Always bound to [`crate::susi_paths::SusiDirs::substrate_home`];
 /// project context is per-request cwd, never the daemon's boot path.
 pub struct RunningDaemon {
     pub pid: u32,
@@ -232,7 +232,7 @@ impl SusiDaemon {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock).map(|pid| {
             let substrate_home = Self::read_recorded_substrate_home(&global_lock)
-                .unwrap_or_else(susi_paths::SusiDirs::substrate_home);
+                .unwrap_or_else(crate::susi_paths::SusiDirs::substrate_home);
             RunningDaemon {
                 pid,
                 substrate_home,
@@ -327,11 +327,11 @@ impl SusiDaemon {
     /// comment) is untouched; a cache miss or parse failure always falls
     /// back to a real, fresh hash.
     /// Ensure the single host daemon is running, bound to
-    /// [`susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
+    /// [`crate::susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
     /// irrelevant here — work context is attached per intent, not to the daemon.
     #[allow(unsafe_code)]
     pub fn ensure_daemon_running(_caller_cwd: &Path, global_dir: &Path) {
-        let substrate_home = susi_paths::SusiDirs::substrate_home();
+        let substrate_home = crate::susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&substrate_home);
 
         let current_exe = std::env::current_exe().ok();
@@ -503,7 +503,7 @@ impl SusiDaemon {
         }
         // Daemon is always bound to substrate home — ignore any stale
         // project-cwd passed via --workspace for backwards compatibility.
-        let workspace = susi_paths::SusiDirs::substrate_home();
+        let workspace = crate::susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&workspace);
         // Zero-trust: seed host bearer token before opening world-facing ports.
         let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();

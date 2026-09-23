@@ -161,7 +161,7 @@ pub struct SusiSupervisor;
 
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
-        susi_paths::ports::UDP_DISCOVERY
+        crate::susi_paths::ports::UDP_DISCOVERY
     }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
@@ -169,7 +169,7 @@ impl SusiSupervisor {
         let peers_lock = DISCOVERED_PEERS.get_or_init(|| {
             let initial = vec![ClusterPeerNode {
                 node_id: "susi-local-master".to_string(),
-                address: format!("127.0.0.1:{}", susi_paths::ports::GMCP),
+                address: format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
                 capabilities: vec![
@@ -239,8 +239,11 @@ impl SusiSupervisor {
                                 if let Some((node_id, checksum, bloom_hex)) =
                                     susi_config::cluster_key::verify_signed_pong(&msg, nonce)
                                 {
-                                    let addr_str =
-                                        format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
+                                    let addr_str = format!(
+                                        "{}:{}",
+                                        src.ip(),
+                                        crate::susi_paths::ports::GMCP_HTTP
+                                    );
                                     let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
                                     let mut peers = t_shared.write();
                                     let entry = if let Some(p) =
@@ -307,7 +310,7 @@ impl SusiSupervisor {
 
                                 let mut peers = t_shared.write();
                                 let addr_str =
-                                    format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
+                                    format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
                                 if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
                                     p.trust_score = (p.trust_score + 0.05).min(1.0);
                                     p.is_active = true;
@@ -1003,7 +1006,7 @@ mod tests {
     #[test]
     fn discovered_peers_never_receive_host_bearer() {
         // Local master is rostered as PeerAdmission::Local on the GMCP port.
-        let local = format!("127.0.0.1:{}", susi_paths::ports::GMCP);
+        let local = format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP);
         assert!(SusiSupervisor::peer_allows_host_token(&local));
         // Arbitrary loopback ports are not automatic trust — a local listener
         // must not steal the host bearer just by binding nearby.
@@ -1140,9 +1143,11 @@ mod tests {
         // While the host-contract discovery port is held (as the daemon would),
         // listing cluster nodes must still succeed — scouts bind ephemeral ports.
         // If the live daemon already owns 9092, that is the same precondition.
-        let _holder =
-            std::net::UdpSocket::bind(format!("127.0.0.1:{}", susi_paths::ports::UDP_DISCOVERY))
-                .ok();
+        let _holder = std::net::UdpSocket::bind(format!(
+            "127.0.0.1:{}",
+            crate::susi_paths::ports::UDP_DISCOVERY
+        ))
+        .ok();
         let nodes = SusiSupervisor::list_cluster_nodes();
         assert!(
             nodes.iter().any(|n| n.node_id == "susi-local-master"),

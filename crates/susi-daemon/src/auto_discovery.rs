@@ -11,7 +11,7 @@ use susi_core::registry::CapabilityRegistry;
 /// and local engines are primed when host prerequisites are already present.
 pub async fn bootstrap_zero_config_substrate() {
     let registry = CapabilityRegistry::global();
-    let substrate = susi_paths::SusiDirs::substrate_home();
+    let substrate = crate::susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
 
     if std::env::var("SUSI_VERBOSE").is_ok() {
@@ -170,7 +170,7 @@ pub fn auto_prime_ecosystem(substrate: &Path) -> serde_json::Value {
         "agents_ready": agents_ready,
         "frameworks_ready": frameworks_ready,
     });
-    let path = susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
+    let path = crate::susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -310,7 +310,6 @@ mod tests {
     #[tokio::test]
     async fn prune_removes_unhealthy_non_candle_providers() {
         use susi_core::provider::{BoxFuture, Provider};
-        use susi_error::EaiResult;
 
         struct Unhealthy {
             hang: bool,
@@ -323,7 +322,7 @@ mod tests {
                     "ollama-dead"
                 }
             }
-            fn is_healthy(&self) -> BoxFuture<'_, EaiResult<bool>> {
+            fn is_healthy(&self) -> BoxFuture<'_, susi_core::susi_error::EaiResult<bool>> {
                 Box::pin(async move {
                     if self.hang {
                         std::future::pending::<()>().await;
@@ -331,10 +330,10 @@ mod tests {
                     Ok(false)
                 })
             }
-            fn generate(&self, _: &str) -> BoxFuture<'_, EaiResult<String>> {
+            fn generate(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<String>> {
                 Box::pin(async { Ok(String::new()) })
             }
-            fn embed(&self, _: &str) -> BoxFuture<'_, EaiResult<Vec<f32>>> {
+            fn embed(&self, _: &str) -> BoxFuture<'_, susi_core::susi_error::EaiResult<Vec<f32>>> {
                 Box::pin(async { Ok(vec![]) })
             }
             fn as_any(&self) -> &dyn std::any::Any {

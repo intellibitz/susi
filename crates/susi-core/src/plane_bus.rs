@@ -714,7 +714,7 @@ pub mod gawd {
 
 pub mod tools {
     use super::*;
-    use susi_error::{EaiError, EaiResult};
+    use crate::susi_error::{EaiError, EaiResult};
 
     pub fn exists(name: &str) -> bool {
         req_ok(topics::TOOLS_EXISTS, json!({ "name": name }))
@@ -962,7 +962,7 @@ pub mod agents {
 
 pub mod gawd_hooks {
     use super::*;
-    use susi_error::{EaiError, EaiResult};
+    use crate::susi_error::{EaiError, EaiResult};
 
     pub fn audit_action(tool: &str, detail: &str, workspace: &Path) -> EaiResult<()> {
         gawd::audit_action(tool, detail, workspace).map_err(EaiError::governance)

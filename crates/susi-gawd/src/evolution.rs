@@ -7,9 +7,9 @@
 // Mandate 20's own note warns about.
 
 use crate::reflex_synth::ReflexSynthesizer;
+use crate::susi_error::EaiResult;
 use std::collections::HashMap;
 use std::path::Path;
-use susi_error::EaiResult;
 use susi_sandbox::manager::SusiAuditLogger;
 
 pub struct EvolutionManager;

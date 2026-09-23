@@ -1,9 +1,9 @@
 //! Root `SusiConfig` dynamic registry and accessors.
+use crate::susi_error::EaiResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_error::EaiResult;
 
 use crate::json_util::{
     atomic_write_json_pretty, merge_missing_registry_defaults, DynamicRegistry,
@@ -22,7 +22,7 @@ impl Default for SusiConfig {
     }
 }
 
-/// Host-contract ports live in `susi_paths::ports` (compile-time). Bundled
+/// Host-contract ports live in `crate::susi_paths::ports` (compile-time). Bundled
 /// JSON may still list them for documentation; they must not be backfilled
 /// into `~/.susi/config.json` on heal.
 const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
@@ -112,12 +112,12 @@ impl SusiConfig {
     }
 
     pub fn load_global() -> EaiResult<Self> {
-        Self::load(&susi_paths::SusiDirs::config_dir())
+        Self::load(&crate::susi_paths::SusiDirs::config_dir())
     }
 
     /// Process-global config snapshot shared across hot request paths.
     pub fn load_global_arc() -> EaiResult<std::sync::Arc<Self>> {
-        Self::load_arc(&susi_paths::SusiDirs::config_dir())
+        Self::load_arc(&crate::susi_paths::SusiDirs::config_dir())
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct
@@ -158,19 +158,19 @@ impl SusiConfig {
     // randomization) and always return the canonical ports.
     pub fn gmcp_port(&self) -> u16 {
         let _ = self; // keep method signature; value is not user-overridable
-        susi_paths::ports::GMCP
+        crate::susi_paths::ports::GMCP
     }
     pub fn gmcp_http_port(&self) -> u16 {
         let _ = self;
-        susi_paths::ports::GMCP_HTTP
+        crate::susi_paths::ports::GMCP_HTTP
     }
     pub fn gemi_port(&self) -> u16 {
         let _ = self;
-        susi_paths::ports::GEMI
+        crate::susi_paths::ports::GEMI
     }
     pub fn udp_discovery_port(&self) -> u16 {
         let _ = self;
-        susi_paths::ports::UDP_DISCOVERY
+        crate::susi_paths::ports::UDP_DISCOVERY
     }
     pub fn execution_lease_secs(&self) -> u64 {
         self.get_or_bundled_default("execution_lease_secs")
@@ -194,7 +194,7 @@ impl SusiConfig {
     /// REST). Prefer the dedicated `~/.susi/api_token` file (0600); fall back to
     /// a legacy `settings.api_auth_token` value only for migration.
     pub fn api_auth_token(&self) -> String {
-        let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
+        let token_path = crate::susi_paths::SusiDirs::config_dir().join("api_token");
         if let Ok(from_file) = fs::read_to_string(&token_path) {
             let trimmed = from_file.trim().to_string();
             if !trimmed.is_empty() {
@@ -208,7 +208,7 @@ impl SusiConfig {
     /// 32-byte hex secret on first run, persists it **only** to
     /// `~/.susi/api_token` (0600) — never into world-readable `config.json`.
     pub fn ensure_api_auth_token_seeded() -> String {
-        let global_dir = susi_paths::SusiDirs::config_dir();
+        let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let token_path = global_dir.join("api_token");
         if let Ok(existing) = fs::read_to_string(&token_path) {
             let trimmed = existing.trim().to_string();

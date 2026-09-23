@@ -26,7 +26,7 @@ pub(crate) fn apply_plane_prep(prep: PlanePrep) {
         }
         PlanePrep::CloudSubstrate | PlanePrep::CloudEcosystem => {
             susi_gemi::http_provider::apply_cloud_env_file();
-            let substrate = susi_paths::SusiDirs::substrate_home();
+            let substrate = crate::susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             if matches!(prep, PlanePrep::CloudEcosystem) {
                 susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);

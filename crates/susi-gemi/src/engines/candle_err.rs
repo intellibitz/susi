@@ -1,6 +1,6 @@
 //! Convert Candle errors at the GEMI adapter edge (not in `susi-error`).
 
-use susi_error::EaiError;
+use crate::susi_error::EaiError;
 
 /// Map a Candle error into [`EaiError::Inference`].
 #[inline]

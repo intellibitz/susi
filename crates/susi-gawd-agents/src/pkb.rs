@@ -1,8 +1,8 @@
 // Builds/exports the training data (reflex records) used by the local
 // Tier 0 model: bootstrap examples plus ones mined from the audit log.
 
+use crate::susi_error::EaiResult;
 use std::path::Path;
-use susi_error::EaiResult;
 
 pub struct ProtocolKnowledgeBase;
 

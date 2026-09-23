@@ -23,6 +23,16 @@
 //! Wasm/Docker sandbox, reflex distillation, and MCP provisioning live in
 //! sibling crates (`susi-gawd`, `susi-sandbox`, `susi-gmcp`, …).
 
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
 pub mod agent_tx;
 pub mod agent_types;
 pub mod broker;
@@ -38,7 +48,7 @@ pub mod plane_bus;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
-pub use susi_error::redact;
+pub use crate::susi_error::redact;
 pub mod registry;
 pub mod task_manager;
 pub mod telemetry;

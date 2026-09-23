@@ -1,9 +1,9 @@
 //! Plane-bus backed tool registry facade (no `susi-tools` dependency).
 
+use crate::susi_error::EaiResult;
 use crate::tool_types::McpTool;
 use std::path::Path;
 use susi_core::plane_bus::tools as plane_tools;
-use susi_error::EaiResult;
 
 pub struct ToolRegistry;
 
@@ -54,6 +54,7 @@ impl GmcpClient {
 
     pub fn execute_external_tool(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
         plane_tools::execute_external_tool(remote, tool, goal)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     pub fn execute_external_tool_result(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
@@ -61,7 +62,7 @@ impl GmcpClient {
     }
 
     pub fn list_external_tools() -> Vec<McpTool> {
-        let config_path = susi_paths::SusiDirs::config_dir().join("mcp_config.json");
+        let config_path = crate::susi_paths::SusiDirs::config_dir().join("mcp_config.json");
         let mut tools = Vec::new();
         if let Ok(content) = std::fs::read_to_string(&config_path) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {

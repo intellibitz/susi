@@ -27,9 +27,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> susi_error::EaiResult<T>
+    ) -> crate::susi_error::EaiResult<T>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         Ok((*self.load_arc_with_healing(path, on_missing, heal_fn, strict_parse)?).clone())
@@ -43,9 +43,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> susi_error::EaiResult<Arc<T>>
+    ) -> crate::susi_error::EaiResult<Arc<T>>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         let current_modified = std::fs::metadata(path)
@@ -97,9 +97,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> susi_error::EaiResult<T>
+    ) -> crate::susi_error::EaiResult<T>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         Ok((*self.reload_arc_with_healing(path, on_missing, heal_fn, strict_parse)?).clone())
@@ -111,9 +111,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> susi_error::EaiResult<Arc<T>>
+    ) -> crate::susi_error::EaiResult<Arc<T>>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         let mut guard = self.cache.write();
@@ -137,9 +137,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         heal_fn: H,
         strict_parse: bool,
         mut_fn: M,
-    ) -> susi_error::EaiResult<T>
+    ) -> crate::susi_error::EaiResult<T>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
         M: FnOnce(&mut T),
     {
@@ -184,9 +184,9 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         on_missing: F,
         heal_fn: H,
         strict_parse: bool,
-    ) -> susi_error::EaiResult<T>
+    ) -> crate::susi_error::EaiResult<T>
     where
-        F: FnOnce() -> susi_error::EaiResult<T>,
+        F: FnOnce() -> crate::susi_error::EaiResult<T>,
         H: FnOnce(&mut T) -> bool,
     {
         let mut loaded_opt = None;
@@ -196,7 +196,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                     Ok(val) => loaded_opt = Some(val),
                     Err(e) => {
                         if strict_parse {
-                            return Err(susi_error::EaiError::config(format!(
+                            return Err(crate::susi_error::EaiError::config(format!(
                                 "Malformed configuration {}: {}",
                                 path.display(),
                                 e
@@ -206,7 +206,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
                 },
                 Err(e) => {
                     if strict_parse {
-                        return Err(susi_error::EaiError::config(format!(
+                        return Err(crate::susi_error::EaiError::config(format!(
                             "Failed to read {}: {}",
                             path.display(),
                             e
@@ -315,11 +315,11 @@ mod tests {
         // Public ports ignore polluted values; custom keys still round-trip.
         assert_eq!(
             SusiConfig::reload(&nested).unwrap().gmcp_port(),
-            susi_paths::ports::GMCP
+            crate::susi_paths::ports::GMCP
         );
         assert_eq!(
             SusiConfig::load(&nested).unwrap().gmcp_port(),
-            susi_paths::ports::GMCP
+            crate::susi_paths::ports::GMCP
         );
         assert_eq!(
             SusiConfig::load(&nested)

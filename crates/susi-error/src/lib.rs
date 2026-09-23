@@ -15,6 +15,44 @@ pub mod redact;
 use std::backtrace::Backtrace;
 use std::error::Error as StdError;
 use std::fmt;
+use std::path::PathBuf;
+
+/// Substrate data dir, resolved locally so this crate stays a self-contained
+/// leaf service. Mirrors `susi-paths`' XDG/legacy rule: `~/.susi` wins when it
+/// already exists unless `SUSI_XDG=1|true`; otherwise the platform data dir.
+fn data_dir() -> PathBuf {
+    let legacy = home_dir().join(".susi");
+    let use_xdg = if legacy.is_dir() {
+        std::env::var("SUSI_XDG")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+    } else {
+        true
+    };
+    if use_xdg {
+        if let Some(p) = directories::ProjectDirs::from("", "intellibitz", "susi") {
+            return p.data_local_dir().to_path_buf();
+        }
+    }
+    legacy
+}
+
+fn home_dir() -> PathBuf {
+    directories::BaseDirs::new()
+        .map(|d| d.home_dir().to_path_buf())
+        .unwrap_or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("."))
+        })
+}
+
+/// JSONL sink every error event (local and REST-reported) is appended to.
+#[must_use]
+pub fn error_metrics_path() -> PathBuf {
+    data_dir().join("error_metrics.jsonl")
+}
 
 #[derive(Debug)]
 pub enum EaiError {
@@ -61,7 +99,7 @@ impl EaiError {
     impl_eai_err!(internal, Internal);
 
     fn log_to_metrics(&self) {
-        let metrics_file = susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl");
+        let metrics_file = error_metrics_path();
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

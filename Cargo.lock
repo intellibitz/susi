@@ -6563,12 +6563,10 @@ dependencies = [
  "susi-agents",
  "susi-core",
  "susi-daemon",
- "susi-error",
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
  "susi-native",
- "susi-paths",
  "susi-sandbox",
  "susi-server",
  "susi-tools",
@@ -6592,8 +6590,6 @@ dependencies = [
  "serde",
  "serde_json",
  "susi-core",
- "susi-error",
- "susi-paths",
  "susi-sandbox",
 ]
 
@@ -6607,8 +6603,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "susi-error",
- "susi-paths",
  "ureq 3.4.2",
 ]
 
@@ -6627,8 +6621,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-config",
- "susi-error",
- "susi-paths",
  "tempfile",
  "tokio",
  "tracing",
@@ -6644,11 +6636,9 @@ dependencies = [
  "susi-agents",
  "susi-config",
  "susi-core",
- "susi-error",
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
- "susi-paths",
  "susi-sandbox",
  "susi-server",
  "susi-tools",
@@ -6661,10 +6651,13 @@ dependencies = [
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "directories 6.0.0",
  "proptest",
  "regex",
+ "serde",
  "serde_json",
- "susi-paths",
+ "tokio",
 ]
 
 [[package]]
@@ -6677,12 +6670,10 @@ dependencies = [
  "serde",
  "serde_json",
  "susi-core",
- "susi-error",
  "susi-gawd-a2a",
  "susi-gawd-agents",
  "susi-gawd-swarm",
  "susi-native",
- "susi-paths",
  "susi-sandbox",
  "syn 3.0.6",
 ]
@@ -6705,8 +6696,6 @@ dependencies = [
  "serde",
  "serde_json",
  "susi-core",
- "susi-error",
- "susi-paths",
  "susi-sandbox",
 ]
 
@@ -6725,9 +6714,7 @@ dependencies = [
  "serde_json",
  "susi-config",
  "susi-core",
- "susi-error",
  "susi-gawd-agents",
- "susi-paths",
  "susi-sandbox",
  "tokio",
 ]
@@ -6748,9 +6735,7 @@ dependencies = [
  "serde",
  "serde_json",
  "susi-core",
- "susi-error",
  "susi-gemi-models",
- "susi-paths",
  "susi-sandbox",
  "sysinfo",
  "tokenizers",
@@ -6776,8 +6761,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-core",
- "susi-error",
- "susi-paths",
  "susi-sandbox",
  "tokenizers",
  "url",
@@ -6802,8 +6785,6 @@ dependencies = [
  "serde_json",
  "shlex 2.0.1",
  "susi-core",
- "susi-error",
- "susi-paths",
  "susi-sandbox",
  "susi-tools",
  "syn 3.0.6",
@@ -6817,7 +6798,7 @@ dependencies = [
 name = "susi-native"
 version = "0.1.0"
 dependencies = [
- "susi-error",
+ "serde_json",
  "wasmer",
  "wasmer-types",
  "wasmer-wasix",
@@ -6827,7 +6808,10 @@ dependencies = [
 name = "susi-paths"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "directories 6.0.0",
+ "serde",
+ "tokio",
 ]
 
 [[package]]
@@ -6842,8 +6826,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-config",
- "susi-error",
- "susi-paths",
  "tracing",
 ]
 
@@ -6875,9 +6857,7 @@ dependencies = [
  "serde",
  "serde_json",
  "susi-core",
- "susi-error",
  "susi-native",
- "susi-paths",
  "susi-sandbox",
  "tokio",
 ]

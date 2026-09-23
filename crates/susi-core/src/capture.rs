@@ -10,6 +10,7 @@
 //! them. Generated text may select observations; it may never invent them.
 
 use crate::context_graph::ContextGraph;
+use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use susi_error::{EaiError, EaiResult};
 
 const MAX_RECEIPTS: u64 = 128;
 const MAX_OUTPUT: usize = 64 * 1024;
