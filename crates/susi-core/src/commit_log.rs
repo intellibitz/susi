@@ -58,10 +58,44 @@ pub struct CommitRecord {
     pub value: String,
     /// Unix seconds when the coordinator committed.
     pub committed_at: u64,
+    /// Per-coordinator monotonic sequence (1-based): the count of records
+    /// this coordinator has committed before this one, plus one. Receivers
+    /// detect replication gaps when a record's `seq` skips ahead of what
+    /// they hold — the signature covers it, so a dropped or forged seq is
+    /// detectable rather than silent.
+    #[serde(default)]
+    pub seq: u64,
+    /// The elected cluster leader's `node_id` as the coordinator saw it at
+    /// commit time (`SusiSupervisor::elect_leader` — bully over the
+    /// verified roster). Audit context: a commit from a coordinator that
+    /// isn't the elected leader is an anomaly worth flagging, not a
+    /// protocol violation — per-node missions are legitimately coordinated
+    /// by their initiator.
+    #[serde(default)]
+    pub leader: String,
     /// HMAC-SHA256 hex over `signed_payload()` under `cluster.key`.
     /// Empty until `seal` runs; a record with an empty signature never
     /// verifies.
     pub signature: String,
+}
+
+/// Inputs for `CommitRecord::seal` — the decision fields a coordinator
+/// knows at commit time. `seq` and `signature` are derived by `seal`.
+#[derive(Debug)]
+pub struct CommitInput<'a> {
+    /// `node_id` of the coordinator that ran the vote.
+    pub coordinator: &'a str,
+    /// Elected cluster leader the coordinator observed (`elect_leader`);
+    /// audit context, see `CommitRecord::leader`.
+    pub leader: &'a str,
+    /// Pinned voter set (will be sorted before signing).
+    pub electorate: Vec<String>,
+    /// How many pinned voters agreed on `value`.
+    pub tally: usize,
+    /// `electorate.len() / 2 + 1` at commit time.
+    pub quorum_threshold: usize,
+    /// The committed output.
+    pub value: &'a str,
 }
 
 /// Everything the signature covers — the record minus the signature
@@ -78,39 +112,39 @@ struct SignedFields<'a> {
     value_hash: &'a str,
     value: &'a str,
     committed_at: u64,
+    seq: u64,
+    leader: &'a str,
 }
 
 impl CommitRecord {
     /// Build and seal a record for a freshly committed quorum decision.
-    /// Returns `None` when the cluster key is absent — a node outside the
-    /// cluster cannot mint commit records.
-    pub fn seal(
-        coordinator: &str,
-        electorate: Vec<String>,
-        tally: usize,
-        quorum_threshold: usize,
-        value: &str,
-    ) -> Option<Self> {
+    /// `seq` is assigned from the local ledger — the count of this
+    /// coordinator's existing records plus one — so per-coordinator
+    /// ordering survives restarts. Returns `None` when the cluster key is
+    /// absent — a node outside the cluster cannot mint commit records.
+    pub fn seal(input: CommitInput<'_>) -> Option<Self> {
         let key = crate::susi_config::cluster_key::cluster_key()?;
         let committed_at = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let mut sorted = electorate;
+        let mut sorted = input.electorate;
         sorted.sort();
         let epoch = hex::encode(Sha256::digest(
             format!("{}|{}", sorted.join(","), committed_at).as_bytes(),
         ));
-        let value_hash = hex::encode(Sha256::digest(value.as_bytes()));
+        let value_hash = hex::encode(Sha256::digest(input.value.as_bytes()));
         let mut rec = CommitRecord {
             epoch,
-            coordinator: coordinator.to_string(),
+            coordinator: input.coordinator.to_string(),
             electorate: sorted,
-            tally,
-            quorum_threshold,
+            tally: input.tally,
+            quorum_threshold: input.quorum_threshold,
             value_hash,
-            value: value.to_string(),
+            value: input.value.to_string(),
             committed_at,
+            seq: next_seq_for(&load(), input.coordinator),
+            leader: input.leader.to_string(),
             signature: String::new(),
         };
         rec.signature =
@@ -131,6 +165,8 @@ impl CommitRecord {
             value_hash: &self.value_hash,
             value: &self.value,
             committed_at: self.committed_at,
+            seq: self.seq,
+            leader: &self.leader,
         })
         .unwrap_or_default()
     }
@@ -172,6 +208,29 @@ impl CommitRecord {
 /// consumer crate's own tests.
 #[doc(hidden)]
 pub static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Next sequence number for `coordinator` in `records` — the count of
+/// that coordinator's existing entries plus one.
+pub fn next_seq_for(records: &[CommitRecord], coordinator: &str) -> u64 {
+    records
+        .iter()
+        .filter(|r| r.coordinator == coordinator)
+        .count() as u64
+        + 1
+}
+
+/// Sequence numbers from `coordinator` that a holder of `records` is
+/// missing below `incoming_seq` — non-empty when a replicated record
+/// arrives with gaps (dropped replication, or a forged seq that slipped
+/// past nothing). `incoming_seq` is the seq of a record about to append.
+pub fn missing_seqs(records: &[CommitRecord], coordinator: &str, incoming_seq: u64) -> Vec<u64> {
+    let held: std::collections::BTreeSet<u64> = records
+        .iter()
+        .filter(|r| r.coordinator == coordinator)
+        .map(|r| r.seq)
+        .collect();
+    (1..incoming_seq).filter(|s| !held.contains(s)).collect()
+}
 
 /// Where the ledger lives: `~/.susi/commit_log.jsonl` — one JSON record
 /// per line, append-only, shared with peers under the same cluster key.
@@ -238,13 +297,14 @@ mod tests {
     #[test]
     fn sealed_record_verifies_and_tampering_fails() {
         let _g = test_key_guard();
-        let Some(rec) = CommitRecord::seal(
-            "node-a",
-            vec!["AgentA".into(), "AgentB".into(), "PeerNode_1".into()],
-            2,
-            2,
-            "the answer is 42",
-        ) else {
+        let Some(rec) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["AgentA".into(), "AgentB".into(), "PeerNode_1".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "the answer is 42",
+        }) else {
             eprintln!("skip: no cluster.key on this host");
             return;
         };
@@ -266,13 +326,14 @@ mod tests {
     #[test]
     fn verify_rejects_tally_below_quorum() {
         let _g = test_key_guard();
-        let Some(mut rec) = CommitRecord::seal(
-            "node-a",
-            vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
-            2, // below the threshold of 3
-            3,
-            "v",
-        ) else {
+        let Some(mut rec) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into()],
+            tally: 2, // below the threshold of 3
+            quorum_threshold: 3,
+            value: "v",
+        }) else {
             eprintln!("skip: no cluster.key on this host");
             return;
         };
@@ -294,8 +355,14 @@ mod tests {
         let path = dir.join("commit_log.jsonl");
         let _ = fs::remove_dir_all(&dir);
 
-        let Some(rec) = CommitRecord::seal("node-a", vec!["A".into(), "B".into()], 2, 2, "v1")
-        else {
+        let Some(rec) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v1",
+        }) else {
             eprintln!("skip: no cluster.key on this host");
             return;
         };
@@ -325,9 +392,50 @@ mod tests {
             value_hash: "h".into(),
             value: "v".into(),
             committed_at: 0,
+            seq: 0,
+            leader: String::new(),
             signature: String::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn seq_advances_per_coordinator_and_gaps_are_detected() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_seq_{}", std::process::id()));
+        let path = dir.join("commit_log.jsonl");
+        let _ = fs::remove_dir_all(&dir);
+
+        // Seal reads the shared ledger path for seq — bypass it in the
+        // test by asserting on next_seq_for/missing_seqs directly, then
+        // append two records under the test path.
+        assert_eq!(next_seq_for(&[], "node-a"), 1);
+        let Some(mut r1) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v1",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        r1.seq = 1;
+        if let Some(key) = crate::susi_config::cluster_key::cluster_key() {
+            r1.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &key,
+                r1.signed_payload().as_bytes(),
+            );
+        }
+        append_to(&path, &r1).unwrap();
+        let held = load_from(&path);
+        assert_eq!(next_seq_for(&held, "node-a"), 2);
+        assert_eq!(next_seq_for(&held, "node-b"), 1);
+        // Receiving seq 4 while holding only seq 1 → missing 2 and 3.
+        assert_eq!(missing_seqs(&held, "node-a", 4), vec![2, 3]);
+        assert!(missing_seqs(&held, "node-a", 2).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 }

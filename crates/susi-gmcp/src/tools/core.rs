@@ -557,13 +557,27 @@ impl CoreTools {
                 "commit record failed cluster-key signature or quorum consistency checks",
             ));
         }
+        // Replication-gap check BEFORE append: a seq that skips ahead of
+        // what this node holds means commits from this coordinator were
+        // lost in transit — surfaced in the tool response, never hidden.
+        let held = crate::susi_core::commit_log::load();
+        let missing =
+            crate::susi_core::commit_log::missing_seqs(&held, &record.coordinator, record.seq);
         crate::susi_core::commit_log::append(&record)?;
-        Ok(format!(
-            "commit {} accepted ({} / {} voters)",
+        let mut out = format!(
+            "commit {} accepted ({} / {} voters, seq {})",
             &record.epoch[..12.min(record.epoch.len())],
             record.tally,
-            record.electorate.len()
-        ))
+            record.electorate.len(),
+            record.seq
+        );
+        if !missing.is_empty() {
+            out.push_str(&format!(
+                " — WARNING: replication gap, missing seq {:?} from {}",
+                missing, record.coordinator
+            ));
+        }
+        Ok(out)
     }
 
     #[tool(
@@ -1804,11 +1818,14 @@ mod os_tools_wired_tests {
         wire_permissive_audit();
         let (_env, dir) = isolate_config();
         let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
-            "susi-local-master",
-            vec!["AgentA".into(), "AgentB".into(), "PeerNode_1".into()],
-            2,
-            2,
-            "committed answer",
+            crate::susi_core::commit_log::CommitInput {
+                coordinator: "susi-local-master",
+                leader: "susi-local-master",
+                electorate: vec!["AgentA".into(), "AgentB".into(), "PeerNode_1".into()],
+                tally: 2,
+                quorum_threshold: 2,
+                value: "committed answer",
+            },
         ) else {
             eprintln!("skip: cluster key unavailable");
             return;
@@ -1843,11 +1860,14 @@ mod os_tools_wired_tests {
         assert!(CoreTools::commit_record(&forged, Path::new(".")).is_err());
         // And a correctly-shaped record whose value was tampered post-signing.
         if let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
-            "susi-local-master",
-            vec!["A".into(), "B".into()],
-            2,
-            2,
-            "honest",
+            crate::susi_core::commit_log::CommitInput {
+                coordinator: "susi-local-master",
+                leader: "susi-local-master",
+                electorate: vec!["A".into(), "B".into()],
+                tally: 2,
+                quorum_threshold: 2,
+                value: "honest",
+            },
         ) {
             let mut tampered = serde_json::to_value(&rec).expect("json");
             tampered["value"] = serde_json::json!("forged payload");

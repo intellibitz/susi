@@ -702,11 +702,14 @@ impl SusiSupervisor {
                 // that voted — a coordinator crash no longer loses the
                 // committed value, and each voter holds an auditable copy.
                 if let Some(record) = crate::susi_core::commit_log::CommitRecord::seal(
-                    "susi-local-master",
-                    electorate.iter().cloned().collect(),
-                    tally,
-                    electorate.len() / 2 + 1,
-                    &quorum_output,
+                    crate::susi_core::commit_log::CommitInput {
+                        coordinator: "susi-local-master",
+                        leader: &Self::elect_leader(&cluster_nodes).unwrap_or_default(),
+                        electorate: electorate.iter().cloned().collect(),
+                        tally,
+                        quorum_threshold: electorate.len() / 2 + 1,
+                        value: &quorum_output,
+                    },
                 ) {
                     if let Err(e) = crate::susi_core::commit_log::append(&record) {
                         eprintln!("- [Consensus Master] commit ledger append failed: {e}");
@@ -823,6 +826,33 @@ impl SusiSupervisor {
                 wisdom.join("\n")
             }
         })
+    }
+
+    /// Deterministic leader election over the verified roster (bully
+    /// algorithm): the active `Local`/`Explicit` node with the highest
+    /// trust score wins, ties broken by lexicographic `node_id`. Every
+    /// member computing this over the same roster converges on the same
+    /// leader without an election round-trip — appropriate for a cluster
+    /// whose membership is already cluster-key authenticated. `Discovered`
+    /// and inactive nodes can never lead.
+    ///
+    /// The leader is the canonical coordinator for cluster-level state:
+    /// commit records stamp who the coordinator believed the leader was,
+    /// so receivers auditing `~/.susi/commit_log.jsonl` can flag decisions
+    /// that came from a non-leader as anomalies worth investigating.
+    pub fn elect_leader(nodes: &[ClusterPeerNode]) -> Option<String> {
+        nodes
+            .iter()
+            .filter(|n| {
+                n.is_active && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
+            })
+            .max_by(|a, b| {
+                a.trust_score
+                    .partial_cmp(&b.trust_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.node_id.cmp(&b.node_id))
+            })
+            .map(|n| n.node_id.clone())
     }
 
     /// Cluster Intent Routing: Prioritizes peers with semantically relevant capabilities.
@@ -1051,6 +1081,60 @@ mod tests {
         let first = bloom.contains("totally_unrelated_xyz");
         let second = bloom.contains("totally_unrelated_xyz");
         assert_eq!(first, second);
+    }
+
+    fn peer_node(id: &str, trust: f32, active: bool, admission: PeerAdmission) -> ClusterPeerNode {
+        ClusterPeerNode {
+            node_id: id.into(),
+            address: format!("10.0.0.1:9{id:0>3}"),
+            node_type: "PEER".into(),
+            is_active: active,
+            capabilities: vec!["CORE".into()],
+            registry_checksum: 0,
+            latency_ms: 0,
+            uptime_secs: 0,
+            trust_score: trust,
+            capability_bloom: CapabilityBloom::default(),
+            admission,
+        }
+    }
+
+    #[test]
+    fn test_elect_leader_picks_highest_trust_verified_node() {
+        let roster = vec![
+            peer_node("n1", 0.9, true, PeerAdmission::Explicit),
+            peer_node("n2", 0.6, true, PeerAdmission::Explicit),
+            peer_node("susi-local-master", 1.0, true, PeerAdmission::Local),
+        ];
+        assert_eq!(
+            SusiSupervisor::elect_leader(&roster),
+            Some("susi-local-master".to_string())
+        );
+    }
+
+    #[test]
+    fn test_elect_leader_deterministic_tie_break_and_exclusions() {
+        // Equal trust: lexicographically greatest node_id wins — every
+        // member computing over the same roster must converge.
+        let roster = vec![
+            peer_node("peer-b", 0.8, true, PeerAdmission::Explicit),
+            peer_node("peer-a", 0.8, true, PeerAdmission::Explicit),
+        ];
+        assert_eq!(
+            SusiSupervisor::elect_leader(&roster),
+            Some("peer-b".to_string())
+        );
+        // Discovered and inactive nodes can never lead, however trusted.
+        let untrusted = vec![
+            peer_node("disc", 1.0, true, PeerAdmission::Discovered),
+            peer_node("dead", 1.0, false, PeerAdmission::Explicit),
+            peer_node("ok", 0.1, true, PeerAdmission::Explicit),
+        ];
+        assert_eq!(
+            SusiSupervisor::elect_leader(&untrusted),
+            Some("ok".to_string())
+        );
+        assert_eq!(SusiSupervisor::elect_leader(&[]), None);
     }
 
     #[test]

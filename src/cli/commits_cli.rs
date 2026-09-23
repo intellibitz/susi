@@ -34,13 +34,14 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
 fn list(limit: usize) -> Result<()> {
     let records = commit_log::load();
     println!(
-        "{:<14} {:<18} {:<7} {:<7} {:<12} VERIFIED",
-        "EPOCH", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
+        "{:<14} {:<5} {:<18} {:<7} {:<7} {:<12} VERIFIED",
+        "EPOCH", "SEQ", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
     );
     for r in records.iter().rev().take(limit.min(500)) {
         println!(
-            "{:<14} {:<18} {:<7} {:<7} {:<12} {}",
+            "{:<14} {:<5} {:<18} {:<7} {:<7} {:<12} {}",
             &r.epoch[..12.min(r.epoch.len())],
+            r.seq,
             r.coordinator,
             r.tally,
             r.quorum_threshold,
