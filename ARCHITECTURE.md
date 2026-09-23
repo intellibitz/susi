@@ -40,17 +40,17 @@ Concrete implementations are assembled only at composition roots.
 | `susi-paths` | Leaf REST (`:18080`): XDG / substrate paths + host-contract ports | `SusiDirs`, `ports` | std | everything else | no | no | reads env for XDG |
 | `susi-error` | Leaf REST (`:18081`): stable error model + metrics sink | `EaiError`, `EaiResult` | std, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports: Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | vendored paths/error/config IPC; std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
-| `susi-native` | Wasmer Wasm host | `WasmHost` | vendored error IPC; wasmer | feature planes | Wasm modules | instance | yes |
+| `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | `WasmHost` | vendored error IPC; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | vendored paths/error IPC; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | vendored paths/error/config IPC; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | core, native, vendored sandbox/config IPC, rmcp/reqwest | **peer feature crates** (use `plane_bus`) | tools | registry | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | core, vendored sandbox/config/native IPC, rmcp/reqwest | **peer feature crates** (use `plane_bus`) | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | core, vendored sandbox/config IPC | **peer feature crates** | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | core, vendored sandbox/config IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | models, core, vendored sandbox/config IPC | **peer planes** (gemi/tools/agents/gawd/gmcp/server); call others via `plane_bus` only | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | core, vendored sandbox/config IPC | **peer planes**; within-plane: gawd-* only | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | gawd-agents, core, vendored sandbox/config IPC | **peer planes**; within-plane: gawd-agents | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | gawd-agents | swarm | transport | tasks | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | agents/swarm/a2a + infra | server/daemon | no | genome/reflexes | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | agents/swarm/a2a + vendored native IPC | server/daemon | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | core, vendored sandbox/config IPC | **peer feature crates**; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | core, vendored sandbox/config/paths/error IPC | **peer feature crates**; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
@@ -60,12 +60,12 @@ Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
 peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`
 ↔ `susi-agents` ↔ `susi-gmcp` ↔ `susi-server` edges). They communicate only
 through **`susi_core::plane_bus`** (topics + JSON DTOs) and shared foundation
-(`susi-core`, `susi-native`, plus vendored IPC clients for the leaf REST
-services `susi-paths` / `susi-error` / `susi-config` / `susi-sandbox` on
-`127.0.0.1:18080–18083`). **`susi-daemon`** and the root **`susi`** package
+(`susi-core`, plus vendored IPC clients for the leaf REST services
+`susi-paths` / `susi-error` / `susi-config` / `susi-sandbox` / `susi-native`
+on `127.0.0.1:18080–18084`). **`susi-daemon`** and the root **`susi`** package
 register `plane_handler` implementations and may link every plane; the root
-package may still Cargo-depend on `susi-sandbox` as a composition-root
-re-export.
+package may still Cargo-depend on `susi-sandbox` / `susi-native` as
+composition-root re-exports.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →

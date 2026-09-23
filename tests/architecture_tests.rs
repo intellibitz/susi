@@ -160,6 +160,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -176,6 +177,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -192,6 +194,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -207,6 +210,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -220,6 +224,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -233,6 +238,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -249,6 +255,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -265,6 +272,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -280,6 +288,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
         (
@@ -296,9 +305,10 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-sandbox",
+                "susi-native",
             ],
         ),
-        ("susi-daemon", &["susi-sandbox"]),
+        ("susi-daemon", &["susi-sandbox", "susi-native"]),
         (
             "susi-sandbox",
             &[
@@ -453,6 +463,18 @@ fn susi_sandbox_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-sandbox is a leaf REST service; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_native_must_not_depend_on_workspace_crates() {
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-native/Cargo.toml"))
+        .expect("susi-native Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-native is a leaf REST service; workspace deps drifted: {deps:?}"
     );
 }
 

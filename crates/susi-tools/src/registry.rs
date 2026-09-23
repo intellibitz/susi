@@ -194,10 +194,10 @@ impl ToolRegistry {
                     arg,
                     workspace,
                     || {
-                        susi_native::wasm::WasmHost::execute_untrusted_wasm(&wasm_path, &arg_str)
-                            .map_err(|e| {
-                                susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-                            })
+                        crate::susi_native::wasm::WasmHost::execute_untrusted_wasm(
+                            &wasm_path, &arg_str,
+                        )
+                        .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
                     },
                 ) {
                     Ok(res) => return res,

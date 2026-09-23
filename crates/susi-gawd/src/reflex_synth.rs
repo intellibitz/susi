@@ -237,8 +237,11 @@ mod tests {
         match ReflexSynthesizer::synthesize_wasm_reflex(&intent, Path::new(".")) {
             Ok(wasm_path) => {
                 let _home = crate::susi_paths::SusiDirs::home_dir();
+                // `::susi_native` is the real crate (dev-dependency): tests
+                // exercise the in-process Wasmer host, not the vendored IPC
+                // client, so no susi-native service has to be running.
                 let result =
-                    susi_native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
+                    ::susi_native::wasm::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
                 let _ = std::fs::remove_file(
                     crate::susi_paths::SusiDirs::data_dir()

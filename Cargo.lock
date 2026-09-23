@@ -6830,7 +6830,10 @@ dependencies = [
 name = "susi-native"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "serde",
  "serde_json",
+ "tokio",
  "wasmer",
  "wasmer-types",
  "wasmer-wasix",
@@ -6901,7 +6904,6 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-core",
- "susi-native",
  "tokio",
  "tracing",
  "ureq 3.4.2",
