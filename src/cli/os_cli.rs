@@ -73,17 +73,18 @@ fn status(json: bool) -> Result<()> {
     println!();
 
     println!(
-        "{:<14} {:<6} {:<8} {:<9} UP",
-        "SERVICE", "PORT", "PID", "RESTARTS"
+        "{:<14} {:<6} {:<8} {:<9} {:<8} UP",
+        "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME"
     );
     for s in &services {
         let pid = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
         println!(
-            "{:<14} {:<6} {:<8} {:<9} {}",
+            "{:<14} {:<6} {:<8} {:<9} {:<8} {}",
             s.name,
             s.port,
             pid,
             s.restarts,
+            s.uptime(),
             if s.up { "yes" } else { "no" }
         );
     }

@@ -219,8 +219,35 @@ pub struct ServiceStatus {
     pub pid: Option<u32>,
     /// Restart count while supervised.
     pub restarts: u32,
+    /// Unix seconds the supervised process was spawned at, when known.
+    pub started_at: Option<u64>,
     /// Live TCP probe result.
     pub up: bool,
+}
+
+impl ServiceStatus {
+    /// Human uptime for a supervised process ("3d2h", "4h12m", "90s");
+    /// "-" when the service was never supervised or `started_at` is in
+    /// the future (clock skew — never panic on timestamps).
+    pub fn uptime(&self) -> String {
+        let Some(start) = self.started_at else {
+            return "-".to_string();
+        };
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let secs = now.saturating_sub(start);
+        if secs >= 86400 {
+            format!("{}d{}h", secs / 86400, (secs % 86400) / 3600)
+        } else if secs >= 3600 {
+            format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
+        } else if secs >= 60 {
+            format!("{}m{}s", secs / 60, secs % 60)
+        } else {
+            format!("{secs}s")
+        }
+    }
 }
 
 /// Snapshot all leaf services: probe each port, join with table records.
@@ -236,6 +263,7 @@ pub fn status() -> Vec<ServiceStatus> {
                 port: svc.port(),
                 pid: rec.map(|r| r.pid),
                 restarts: rec.map(|r| r.restarts).unwrap_or(0),
+                started_at: rec.map(|r| r.started_at),
                 up: probe(svc.port()),
             }
         })
