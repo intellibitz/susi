@@ -31,7 +31,12 @@ pub struct BannedPeer {
 }
 
 pub fn load_banned_peers() -> Vec<BannedPeer> {
-    let text = match std::fs::read_to_string(banned_path()) {
+    load_banned_peers_from(&banned_path())
+}
+
+/// Path-seamed loader — same rationale as `load_persisted_peers_from`.
+pub fn load_banned_peers_from(path: &PathBuf) -> Vec<BannedPeer> {
+    let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
     };
@@ -42,7 +47,13 @@ pub fn load_banned_peers() -> Vec<BannedPeer> {
 /// signed-pong handler drops admissions for banned peers even though
 /// the cryptographic handshake itself succeeds.
 pub fn is_banned(node_id: &str, address: &str) -> bool {
-    load_banned_peers()
+    is_banned_in(&load_banned_peers(), node_id, address)
+}
+
+/// Pure membership check — the rule `susi peers remove` and this module
+/// agree on: either field matching blocks admission.
+pub fn is_banned_in(banned: &[BannedPeer], node_id: &str, address: &str) -> bool {
+    banned
         .iter()
         .any(|b| b.node_id == node_id || b.address == address)
 }
@@ -51,26 +62,27 @@ pub fn is_banned(node_id: &str, address: &str) -> bool {
 /// what `susi peers remove` writes structurally; this function keeps the
 /// swarm-side view consistent when called from inside the daemon.
 pub fn ban_peer(node_id: &str, address: &str) {
-    let mut banned = load_banned_peers();
-    if !banned
-        .iter()
-        .any(|b| b.node_id == node_id || b.address == address)
-    {
+    ban_peer_at(node_id, address, &banned_path(), &registry_path());
+}
+
+/// Path-seamed variant of `ban_peer`.
+pub fn ban_peer_at(node_id: &str, address: &str, banned_path: &PathBuf, registry_path: &PathBuf) {
+    let mut banned = load_banned_peers_from(banned_path);
+    if !is_banned_in(&banned, node_id, address) {
         banned.push(BannedPeer {
             node_id: node_id.to_string(),
             address: address.to_string(),
             banned_at: crate::amas::now_secs(),
         });
-        let _ = crate::susi_config::atomic_write_json_pretty(&banned_path(), &banned);
+        let _ = crate::susi_config::atomic_write_json_pretty(banned_path, &banned);
     }
     // Drop the roster entry so the ban takes effect immediately, not on
     // the next restart.
-    let path = registry_path();
-    let kept: Vec<_> = load_persisted_peers_from(&path)
+    let kept: Vec<_> = load_persisted_peers_from(registry_path)
         .into_iter()
         .filter(|n| n.node_id != node_id && n.address != address)
         .collect();
-    let _ = crate::susi_config::atomic_write_json_pretty(&path, &kept);
+    let _ = crate::susi_config::atomic_write_json_pretty(registry_path, &kept);
 }
 
 /// Persisted verified peers — filtered to `Explicit` on read so a
