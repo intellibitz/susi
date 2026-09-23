@@ -1,5 +1,8 @@
 [alias]
 xb = "run --package xtask -- build"
+# Faster test runner: per-test process isolation, better scheduling than
+# libtest's per-binary thread pools. Requires `cargo install cargo-nextest`.
+xn = "nextest run --workspace --locked"
 
 # Fast linkers for Linux (mold → lld → cc). See .cargo/fast-linker.
 # Does not change macOS/Windows linkers. Safe on hosts without mold/lld:

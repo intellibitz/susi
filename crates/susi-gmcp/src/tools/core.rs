@@ -1481,13 +1481,30 @@ mod unwired_governance_tests {
     // model. Real rejection semantics are covered by wired integration tests
     // in `tests/integration_tests.rs`.
 
+    /// The bus rendezvous is cross-process (`<cache>/bus/*/`), so a sibling
+    /// test process — or a live daemon on this host — could satisfy the
+    /// `gawd.*` topics and defeat the "unwired" premise. Point the cache dir
+    /// at a private temp root before the vendored `IpcPlaneBus` binds. Under
+    /// nextest each test is its own process; under `cargo test` the env swap
+    /// races with peers but only shrinks the visible rendezvous, which is
+    /// the conservative direction for a fail-closed assertion.
+    fn isolate_bus_root() {
+        let dir = std::env::temp_dir()
+            .join("susi-unwired")
+            .join(std::process::id().to_string());
+        std::env::set_var("SUSI_XDG", "1");
+        std::env::set_var("XDG_CACHE_HOME", &dir);
+    }
+
     #[test]
     fn test_reason_fails_closed_when_unwired() {
+        isolate_bus_root();
         assert!(CoreTools::reason(&serde_json::json!("hi"), Path::new(".")).is_err());
     }
 
     #[test]
     fn test_exec_command_fails_closed_when_unwired() {
+        isolate_bus_root();
         assert!(CoreTools::exec_command(&serde_json::json!("ls"), Path::new(".")).is_err());
     }
 }

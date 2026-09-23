@@ -177,6 +177,10 @@ lto = "fat"
 codegen-units = 1
 
 [profile.dev]
+# Line-tables-only debug info: panic backtraces and test failures still get
+# file:line, but DWARF emission and link I/O drop sharply on this dep tree
+# (candle/wasmer/ort are multi-hundred-MB debug payloads).
+debug = "line-tables-only"
 # Optimize dependencies in debug builds. This greatly improves runtime performance of
 # non-release builds without significantly slowing down compilation of the core code!
 [profile.dev.package."*"]
