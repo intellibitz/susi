@@ -629,15 +629,21 @@ impl CoreTools {
 
     #[tool(
         name = "commit_log_fetch",
-        description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N} — records with seq >= from_seq from that coordinator (or all coordinators)."
+        description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators)."
     )]
     pub fn commit_log_fetch(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let coordinator = arg.get("coordinator").and_then(|v| v.as_str());
         let from_seq = arg.get("from_seq").and_then(|v| v.as_u64()).unwrap_or(1);
+        let limit = arg
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(500)
+            .min(1000) as usize;
         let records: Vec<crate::susi_core::commit_log::CommitRecord> =
             crate::susi_core::commit_log::load()
                 .into_iter()
                 .filter(|r| coordinator.is_none_or(|c| r.coordinator == c) && r.seq >= from_seq)
+                .take(limit)
                 .collect();
         serde_json::to_string(&records)
             .map_err(|e| EaiError::internal(format!("serialize commit records: {e}")))
@@ -2074,6 +2080,17 @@ mod os_tools_wired_tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].seq, 2);
         assert_eq!(got[0].value, "v2");
+
+        // limit bounds the pull even when more records match.
+        let out = CoreTools::commit_log_fetch(
+            &serde_json::json!({"coordinator": "c", "limit": 1}),
+            Path::new("."),
+        )
+        .expect("fetch limited");
+        let got: Vec<crate::susi_core::commit_log::CommitRecord> =
+            serde_json::from_str(&out).expect("records json");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].value, "v1");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
