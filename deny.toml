@@ -72,3 +72,8 @@ multiple-versions = "allow"
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# Pinned candle git rev (workspace Cargo.toml) — crates.io candle lags the
+# kernels/API surface we need; allow only this upstream, not arbitrary git deps.
+allow-git = [
+    "https://github.com/huggingface/candle",
+]
