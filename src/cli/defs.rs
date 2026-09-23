@@ -13,6 +13,7 @@ use super::auto_cli;
 use super::blackboard_cli;
 use super::broker_cli;
 use super::browser_use_cli;
+use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
 use super::deerflow_cli;
@@ -169,6 +170,11 @@ pub(crate) enum Commands {
     Services {
         #[command(subcommand)]
         action: Option<services_cli::ServicesCommands>,
+    },
+    /// Audit the replicated quorum-commit ledger (signature-verified)
+    Commits {
+        #[command(subcommand)]
+        action: Option<commits_cli::CommitsCommands>,
     },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
@@ -482,7 +488,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Tx { .. }
         | Commands::Substrate { .. }
         | Commands::Crown { .. }
-        | Commands::Services { .. } => false,
+        | Commands::Services { .. }
+        | Commands::Commits { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

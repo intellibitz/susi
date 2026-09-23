@@ -3,6 +3,7 @@
 //! that still needs the daemon/tracing/boot sequence from `main`.
 
 use super::admin_cli;
+use super::commits_cli;
 use super::control_plane_cli::{control_plane_start, control_plane_stop};
 use super::defs::Commands;
 use super::keys_cli;
@@ -332,6 +333,13 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             // this arm keeps the match exhaustive and covers any path that
             // reaches post-boot dispatch with the command intact.
             if let Err(e) = services_cli::execute(action, cwd) {
+                eprintln!("{e}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+        Commands::Commits { action } => {
+            // Same pre-boot-dispatch note as Services above.
+            if let Err(e) = commits_cli::execute(action, cwd) {
                 eprintln!("{e}");
                 return std::process::ExitCode::FAILURE;
             }

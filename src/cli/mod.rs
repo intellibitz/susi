@@ -8,6 +8,7 @@ pub mod blackboard_cli;
 pub mod broker_cli;
 pub mod browser_use_cli;
 pub mod catalog_plane_cli;
+pub mod commits_cli;
 pub mod context_graph_cli;
 pub mod control_plane_cli;
 pub mod crown_cli;

@@ -10,6 +10,7 @@ use super::auto_cli;
 use super::blackboard_cli;
 use super::broker_cli;
 use super::browser_use_cli;
+use super::commits_cli;
 use super::context_graph_cli;
 use super::crown_cli;
 use super::deerflow_cli;
@@ -117,6 +118,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Services { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             services_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Commits { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            commits_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Agents { action }) = command {

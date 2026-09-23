@@ -17,12 +17,22 @@ pub enum ServicesCommands {
         /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
         name: String,
     },
+    /// Tail a supervised service's log file (the daemon redirects each
+    /// spawned service's stderr to `substrate_home/logs/<name>.log`)
+    Logs {
+        /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
+        name: String,
+        /// Number of trailing lines to print
+        #[arg(short = 'n', long, default_value = "50")]
+        lines: usize,
+    },
 }
 
 pub fn execute(action: Option<ServicesCommands>, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(ServicesCommands::Status) {
         ServicesCommands::Status => status(),
         ServicesCommands::Restart { name } => restart(&name),
+        ServicesCommands::Logs { name, lines } => logs(&name, lines),
     }
 }
 
@@ -74,6 +84,28 @@ fn restart(name: &str) -> Result<()> {
     #[cfg(not(unix))]
     {
         bail!("restart is unix-only for now (pid {})", rec.pid);
+    }
+    Ok(())
+}
+
+fn logs(name: &str, lines: usize) -> Result<()> {
+    let Some(svc) = service_table::leaf_service(name) else {
+        bail!("unknown service `{name}` (expected one of the leaf services)");
+    };
+    let path = susi_paths::SusiDirs::substrate_home()
+        .join("logs")
+        .join(format!("{}.log", svc.name));
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => bail!(
+            "no log at {} — the service may never have been spawned under supervision",
+            path.display()
+        ),
+    };
+    let all: Vec<&str> = text.lines().collect();
+    let start = all.len().saturating_sub(lines);
+    for line in &all[start..] {
+        println!("{line}");
     }
     Ok(())
 }
