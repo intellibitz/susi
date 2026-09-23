@@ -2,13 +2,13 @@
 
 use crate::external::{self, redact, AgentManager, CatalogKind};
 use crate::registry::AgentMetaRegistry;
+use crate::susi_core::capture::EvidenceSession;
+use crate::susi_core::plane_bus::topics;
+use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
 use crate::types::AgentProfile;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use susi_core::capture::EvidenceSession;
-use susi_core::plane_bus::topics;
-use susi_core::plane_bus::{PlaneBus, PlaneHandler};
 
 struct AgentsPlaneHandler;
 
@@ -207,13 +207,15 @@ impl PlaneHandler for AgentsPlaneHandler {
                         let run = manager
                             .prepare(&def.id, goal)
                             .and_then(|run| manager.execute(&run.id))
-                            .map_err(|e| susi_core::susi_error::EaiError::process(e.to_string()))?;
-                        let output = manager
-                            .logs(&run.id, false, 1024 * 1024)
-                            .map_err(|e| susi_core::susi_error::EaiError::process(e.to_string()))?;
+                            .map_err(|e| {
+                                crate::susi_core::susi_error::EaiError::process(e.to_string())
+                            })?;
+                        let output = manager.logs(&run.id, false, 1024 * 1024).map_err(|e| {
+                            crate::susi_core::susi_error::EaiError::process(e.to_string())
+                        })?;
                         let result = format!("task={} status={:?}\n{}", run.id, run.status, output);
                         if run.status != external::RunStatus::Succeeded {
-                            return Err(susi_core::susi_error::EaiError::process(format!(
+                            return Err(crate::susi_core::susi_error::EaiError::process(format!(
                                 "{}\n{}",
                                 result,
                                 run.error.unwrap_or_default()

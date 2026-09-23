@@ -23,6 +23,7 @@ pub mod provider;
 pub mod receipt_archive;
 pub mod registry;
 pub mod registry_ipc;
+pub mod task_manager;
 pub mod telemetry;
 
 // Leaf modules vendored at the consumer's crate root, re-exported so
@@ -31,4 +32,26 @@ pub mod telemetry;
 pub use crate::susi_error;
 pub use crate::susi_error::redact;
 
-pub use telemetry::TelemetrySnapshot;
+// Mirror of `susi_core`'s root re-exports, restricted to modules carried by
+// this vendored tree — keeps `susi_core::{NetGuard, …}` paths stable across
+// consumers.
+pub use agent_types::{
+    AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
+    MissionBlackboard, SwarmBlackboard,
+};
+pub use broker::{IpcBroker, IpcMessage, PermissionGrant, PermissionRequest, PermissionScope};
+pub use capture::{EvidenceSession, GroundedAnswer, ReceiptCitation, ToolReceipt};
+pub use context_graph::ContextGraph;
+pub use evidence::{Claim, EvidenceAssessment, EvidenceRecord, EvidenceSource};
+pub use mac_policy::{CapabilityToken, MacPolicy, PrivacyMode};
+pub use net_guard::{NetGuard, RateLimiter};
+pub use plane_bus::agents::AgentMetaRegistry;
+pub use plane_bus::{PlaneBus, PlaneHandler};
+pub use provider::Provider;
+pub use receipt_archive::{ArchivedReceipt, ReceiptArchive, ARCHIVE_REL, ARCHIVE_SCHEMA};
+pub use registry::{AgentCapability, CapabilityRegistry, Tool};
+pub use task_manager::{
+    IntentTelemetryProfile, SwarmTaskManager, TaskHandle, TaskRecord, TaskStatus,
+    TelemetryHistoryStore,
+};
+pub use telemetry::{BatteryInfo, TelemetrySnapshot, ThermalZone};

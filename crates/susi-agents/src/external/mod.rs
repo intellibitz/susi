@@ -334,7 +334,7 @@ impl AgentManager {
     /// ready and advertised on the capability registry.
     pub fn auto_prime_ready(&self) -> Result<Vec<serde_json::Value>> {
         let mut ready = Vec::new();
-        let caps = susi_core::registry::CapabilityRegistry::global();
+        let caps = crate::susi_core::registry::CapabilityRegistry::global();
         let mut catalog = catalog(self.kind)?;
         catalog.sort_by_key(|a| a.rank);
         for def in catalog {
@@ -344,7 +344,7 @@ impl AgentManager {
             };
             match adapter.preflight() {
                 Ok(detail) => {
-                    caps.register_agent_capability(susi_core::registry::AgentCapability {
+                    caps.register_agent_capability(crate::susi_core::registry::AgentCapability {
                         name: def.peer_name.clone(),
                         description: format!(
                             "Managed {} `{}` (auto-ready)",
@@ -550,7 +550,7 @@ pub fn redact(text: &str) -> String {
             result = result.replace(&value, "[REDACTED]");
         }
     }
-    susi_core::redact::redact_patterns(
+    crate::susi_core::redact::redact_patterns(
         &[
             format!("{}-", "sk"),
             format!("{}_", "ghp"),

@@ -43,8 +43,8 @@ impl AgentMetaRegistry {
     const MAX_NON_CORE_AGENTS: usize = 300;
 
     pub fn register_agent(&self, profile: AgentProfile) {
-        susi_core::registry::CapabilityRegistry::global().register_agent_capability(
-            susi_core::registry::AgentCapability {
+        crate::susi_core::registry::CapabilityRegistry::global().register_agent_capability(
+            crate::susi_core::registry::AgentCapability {
                 name: profile.name.clone(),
                 description: profile.description.clone(),
                 is_core: profile.is_core,
@@ -137,9 +137,9 @@ impl AgentMetaRegistry {
                 false,
             )
             .unwrap_or_else(|_| self.bootstrap_data());
-        let caps = susi_core::registry::CapabilityRegistry::global();
+        let caps = crate::susi_core::registry::CapabilityRegistry::global();
         for profile in &agents {
-            caps.register_agent_capability(susi_core::registry::AgentCapability {
+            caps.register_agent_capability(crate::susi_core::registry::AgentCapability {
                 name: profile.name.clone(),
                 description: profile.description.clone(),
                 is_core: profile.is_core,

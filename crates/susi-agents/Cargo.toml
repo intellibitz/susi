@@ -14,7 +14,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
 parking_lot = { workspace = true }
-susi-core = { workspace = true }
+flume = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
