@@ -67,3 +67,40 @@ fn vendored_susi_core_files_are_byte_identical_to_canonical() {
         drift.join("\n")
     );
 }
+
+/// Leaf vendored modules (`susi_config`, `susi_error`, `susi_paths`) are
+/// single-file subsets — not byte-identical to the real leaf crates — but
+/// every copy across consumers must match susi-core's canonical vendored
+/// copy exactly.
+#[test]
+fn vendored_leaf_modules_are_byte_identical_to_susi_core_copies() {
+    let root = workspace_root();
+    let mut drift = Vec::new();
+
+    for leaf in ["susi_config", "susi_error", "susi_paths"] {
+        let canon = root.join(format!("crates/susi-core/src/{leaf}.rs"));
+        let canonical = std::fs::read(&canon).expect("read canonical leaf");
+        let mut checked = 0usize;
+        for entry in std::fs::read_dir(root.join("crates")).expect("read crates/") {
+            let path = entry
+                .expect("dir entry")
+                .path()
+                .join("src")
+                .join(format!("{leaf}.rs"));
+            if path == canon || !path.exists() {
+                continue;
+            }
+            checked += 1;
+            if std::fs::read(&path).expect("read vendored leaf") != canonical {
+                drift.push(format!("{}: differs from canonical {leaf}", path.display()));
+            }
+        }
+        assert!(checked > 5, "expected several {leaf} copies, got {checked}");
+    }
+
+    assert!(
+        drift.is_empty(),
+        "vendored leaf-module drift detected — re-sync from crates/susi-core/src:\n{}",
+        drift.join("\n")
+    );
+}
