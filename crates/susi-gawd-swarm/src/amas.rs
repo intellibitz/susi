@@ -397,26 +397,44 @@ impl SusiSupervisor {
     }
 
     /// VC-200-001 (roadmap.json) quorum-commit primitive: when a strict
-    /// majority of independently-produced blackboard entries (local agents
-    /// *and* dispatched peer nodes, which land on the same blackboard via
-    /// `PeerNode_<id>` keys — see step 3 of `supervise_mission`) agree on the
-    /// same normalized output, commit that value directly rather than
-    /// deferring to a single rank leader or LLM re-synthesis. This is real
-    /// majority voting across whatever currently responded, not a rank/trust
-    /// heuristic — but it is intentionally not a full Raft/Paxos protocol:
-    /// there's no persistent authenticated membership, no leader election,
-    /// and no log replication, so it can't tolerate a peer set that changes
-    /// between the request and the vote. Exact-match agreement after
+    /// majority of the **pinned electorate** — the voter set snapshotted at
+    /// broadcast time (local fleet names plus `PeerNode_<id>` keys for every
+    /// Explicit peer actually dispatched, see step 3 of `supervise_mission`)
+    /// — agrees on the same normalized output, commit that value directly
+    /// rather than deferring to a single rank leader or LLM re-synthesis.
+    ///
+    /// Pinning the electorate is the Raft configuration-entry concept applied
+    /// to a single consensus round: the quorum threshold is computed against
+    /// *who was sent the mission*, not *who happened to respond*. That is
+    /// what makes the vote safe under mid-vote churn — a peer that dies
+    /// between dispatch and counting shrinks the response set instead of
+    /// silently lowering the bar, and a blackboard entry from outside the
+    /// pinned set can never inflate a "majority". Exact-match agreement after
     /// trimming/whitespace/case normalization is deliberately strict (no
     /// semantic similarity) so a "majority" can't be claimed from outputs
     /// that merely look similar.
-    fn quorum_majority(valid_outputs: &[(String, String)]) -> Option<String> {
-        if valid_outputs.len() < 2 {
+    ///
+    /// Still intentionally not a full Raft/Paxos protocol: the electorate is
+    /// pinned per mission rather than via replicated configuration log
+    /// entries, there is no leader election, and committed values are not
+    /// replicated back to voters — so a vote cannot be recovered if the
+    /// coordinator itself dies mid-round.
+    fn quorum_majority(
+        electorate: &std::collections::BTreeSet<String>,
+        valid_outputs: &[(String, String)],
+    ) -> Option<String> {
+        if electorate.len() < 2 {
             return None;
         }
         let mut counts: std::collections::HashMap<String, (usize, &str)> =
             std::collections::HashMap::new();
-        for (_, output) in valid_outputs {
+        for (voter, output) in valid_outputs {
+            // Churn guard: only pinned members vote. A peer admitted after
+            // the broadcast (or a blackboard key no mission dispatched) can
+            // never tilt the count.
+            if !electorate.contains(voter) {
+                continue;
+            }
             let trimmed = output.trim();
             let normalized = trimmed
                 .to_lowercase()
@@ -430,7 +448,10 @@ impl SusiSupervisor {
             let entry = counts.entry(normalized).or_insert((0, trimmed));
             entry.0 += 1;
         }
-        let quorum_threshold = valid_outputs.len() / 2 + 1;
+        // Threshold is against the electorate, not the respondents: with 5
+        // dispatched voters, 2 agreeing respondents are a plurality, not a
+        // quorum.
+        let quorum_threshold = electorate.len() / 2 + 1;
         counts
             .into_values()
             .filter(|(count, _)| *count >= quorum_threshold)
@@ -517,22 +538,30 @@ impl SusiSupervisor {
         // a spoofed LAN pong would otherwise skew QUORUM_COMMIT without the
         // host bearer.
         let cluster_nodes = Self::rank_peers_for_goal(goal);
-        let active_peers_count = cluster_nodes
+        // Pin this mission's electorate BEFORE dispatch (Raft-style
+        // configuration entry for one consensus round): local fleet agent
+        // names + the blackboard keys of every Explicit peer actually
+        // dispatched. quorum_majority counts votes only from this set and
+        // thresholds against its full size, so peer churn mid-vote shrinks
+        // the response set instead of corrupting the quorum bar.
+        let mut electorate: std::collections::BTreeSet<String> =
+            fleet_info.iter().map(|i| i.name.clone()).collect();
+        let dispatched_peers: Vec<&ClusterPeerNode> = cluster_nodes
             .iter()
             .filter(|n| {
                 n.node_id != "susi-local-master"
                     && n.is_active
                     && matches!(n.admission, PeerAdmission::Explicit)
             })
-            .count();
+            .collect();
+        for node in &dispatched_peers {
+            electorate.insert(format!("PeerNode_{}", node.node_id));
+        }
+        let active_peers_count = dispatched_peers.len();
         if active_peers_count > 0 {
             eprintln!("- [Distributed Swarm] Broadcasting mission intent to {} explicitly admitted peer nodes...", active_peers_count);
             let _ = std::io::stdout().flush();
-            for node in cluster_nodes.iter().filter(|n| {
-                n.node_id != "susi-local-master"
-                    && n.is_active
-                    && matches!(n.admission, PeerAdmission::Explicit)
-            }) {
+            for node in &dispatched_peers {
                 let addr = node.address.clone();
                 let node_id = node.node_id.clone();
                 let g = goal.to_string();
@@ -648,9 +677,9 @@ impl SusiSupervisor {
                 })
                 .collect();
 
-            // Consensus Hardening: quorum-commit first (real majority agreement
-            // across whatever independently responded, local or peer), then
-            // direct pass-through, then rank-leader, then LLM re-synthesis.
+            // Consensus Hardening: quorum-commit first (strict majority of
+            // the electorate pinned at broadcast), then direct pass-through,
+            // then rank-leader, then LLM re-synthesis.
             let (synthesized, convergence_action) = if is_direct_synthesis
                 || valid_outputs.len() <= 1
             {
@@ -660,10 +689,10 @@ impl SusiSupervisor {
                     weighted_wisdom.clone()
                 };
                 (out, "STATE_CONVERGENCE")
-            } else if let Some(quorum_output) = Self::quorum_majority(&valid_outputs) {
+            } else if let Some(quorum_output) = Self::quorum_majority(&electorate, &valid_outputs) {
                 eprintln!(
-                    "- [Consensus Master] Quorum reached: {} agree on the same output.",
-                    valid_outputs.len()
+                    "- [Consensus Master] Quorum reached: majority of {} pinned voters agree on the same output.",
+                    electorate.len()
                 );
                 let _ = std::io::stdout().flush();
                 (quorum_output, "QUORUM_COMMIT")
@@ -910,6 +939,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
+    fn electorate(names: &[&str]) -> std::collections::BTreeSet<String> {
+        names.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
     fn test_quorum_majority_commits_on_agreement() {
         let outputs = vec![
@@ -920,7 +953,8 @@ mod tests {
                 "something totally different".to_string(),
             ),
         ];
-        let quorum = SusiSupervisor::quorum_majority(&outputs);
+        let voters = electorate(&["AgentA", "PeerNode_1", "AgentB"]);
+        let quorum = SusiSupervisor::quorum_majority(&voters, &outputs);
         assert_eq!(quorum, Some("The answer is 42.".to_string()));
     }
 
@@ -931,13 +965,52 @@ mod tests {
             ("AgentB".to_string(), "answer two".to_string()),
             ("AgentC".to_string(), "answer three".to_string()),
         ];
-        assert_eq!(SusiSupervisor::quorum_majority(&outputs), None);
+        let voters = electorate(&["AgentA", "AgentB", "AgentC"]);
+        assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
     }
 
     #[test]
     fn test_quorum_majority_requires_at_least_two_outputs() {
         let outputs = vec![("AgentA".to_string(), "solo answer".to_string())];
-        assert_eq!(SusiSupervisor::quorum_majority(&outputs), None);
+        let voters = electorate(&["AgentA"]);
+        assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
+    }
+
+    #[test]
+    fn test_quorum_majority_thresholds_against_pinned_electorate_not_respondents() {
+        // 5 voters were dispatched; 2 responded and agree. Under the old
+        // respondent-threshold rule that claimed a "quorum" of 40% of the
+        // voter set — the mid-vote-churn hole. Pinned electorate: 2 < 3.
+        let outputs = vec![
+            ("AgentA".to_string(), "agreed".to_string()),
+            ("PeerNode_1".to_string(), "agreed".to_string()),
+        ];
+        let voters = electorate(&["AgentA", "AgentB", "AgentC", "PeerNode_1", "PeerNode_2"]);
+        assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
+
+        // 3 of the same 5 agree → real quorum.
+        let mut three = outputs.clone();
+        three.push(("AgentB".to_string(), "agreed".to_string()));
+        assert_eq!(
+            SusiSupervisor::quorum_majority(&voters, &three),
+            Some("agreed".to_string())
+        );
+    }
+
+    #[test]
+    fn test_quorum_majority_ignores_votes_outside_the_pinned_electorate() {
+        // A peer verified AFTER the broadcast was never dispatched; its
+        // blackboard entry (or any stray key) must not tilt the count.
+        let outputs = vec![
+            ("AgentA".to_string(), "late-joiner answer".to_string()),
+            (
+                "PeerNode_late".to_string(),
+                "late-joiner answer".to_string(),
+            ),
+            ("AgentB".to_string(), "other".to_string()),
+        ];
+        let voters = electorate(&["AgentA", "AgentB"]);
+        assert_eq!(SusiSupervisor::quorum_majority(&voters, &outputs), None);
     }
 
     #[test]
