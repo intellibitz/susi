@@ -68,8 +68,20 @@ jobs:
       - name: Install wasm32-wasip1 target
         run: rustup target add wasm32-wasip1
 
-      - name: cargo test
-        run: cargo test --workspace --locked
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.146
+
+      # nextest schedules each test as its own process (~40% faster than
+      # libtest's per-binary pools on this suite) and isolates cross-process
+      # IPC state the way the microkernel intends.
+      - name: cargo nextest
+        run: cargo nextest run --workspace --locked
+
+      # nextest does not run doc-tests; keep the door open for them.
+      - name: cargo test --doc
+        run: cargo test --workspace --locked --doc
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
