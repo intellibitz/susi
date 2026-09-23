@@ -17,8 +17,14 @@ fn registry_path() -> PathBuf {
 /// Persisted verified peers — filtered to `Explicit` on read so a
 /// hand-edited registry cannot smuggle in unverified admission.
 pub fn load_persisted_peers() -> Vec<ClusterPeerNode> {
-    let path = registry_path();
-    let text = match std::fs::read_to_string(&path) {
+    load_persisted_peers_from(&registry_path())
+}
+
+/// Path-seamed loader — tests exercise the real filter logic against a
+/// temp file without mutating process env (which races parallel tests
+/// resolving the cluster key through the same variables).
+pub fn load_persisted_peers_from(path: &PathBuf) -> Vec<ClusterPeerNode> {
+    let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(_) => return Vec::new(),
     };
@@ -32,11 +38,16 @@ pub fn load_persisted_peers() -> Vec<ClusterPeerNode> {
 /// Insert or update `node` in the persisted registry. Only `Explicit`
 /// peers are written; the call is a no-op otherwise.
 pub fn persist_verified_peer(node: &ClusterPeerNode) {
+    persist_verified_peer_to(node, &registry_path());
+}
+
+/// Path-seamed variant of `persist_verified_peer` — same rationale as
+/// `load_persisted_peers_from`.
+pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &PathBuf) {
     if !matches!(node.admission, PeerAdmission::Explicit) {
         return;
     }
-    let path = registry_path();
-    let mut nodes = load_persisted_peers();
+    let mut nodes = load_persisted_peers_from(path);
     if let Some(existing) = nodes.iter_mut().find(|n| n.address == node.address) {
         *existing = node.clone();
     } else {
@@ -45,7 +56,7 @@ pub fn persist_verified_peer(node: &ClusterPeerNode) {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = crate::susi_config::atomic_write_json_pretty(&path, &nodes);
+    let _ = crate::susi_config::atomic_write_json_pretty(path, &nodes);
 }
 
 #[cfg(test)]
@@ -53,24 +64,15 @@ mod tests {
     use super::*;
     use crate::amas::CapabilityBloom;
 
-    fn temp_home() -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
-        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let tmp = std::env::temp_dir().join(format!(
-            "susi_peers_{}_{}",
+    fn temp_registry() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "susi_peers_{}_{}.json",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
-        let _ = std::fs::create_dir_all(tmp.join(".susi"));
-        unsafe {
-            std::env::set_var("HOME", &tmp);
-            std::env::set_var("USERPROFILE", &tmp);
-            std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
-        }
-        (guard, tmp)
+        ))
     }
 
     fn node(addr: &str, admission: PeerAdmission) -> ClusterPeerNode {
@@ -86,16 +88,17 @@ mod tests {
             trust_score: 0.8,
             capability_bloom: CapabilityBloom::default(),
             admission,
+            last_seen_secs: crate::amas::now_secs(),
         }
     }
 
     #[test]
     fn persists_only_explicit_peers_and_rehydrates_them() {
-        let (_guard, tmp) = temp_home();
-        persist_verified_peer(&node("10.0.0.1:9093", PeerAdmission::Explicit));
+        let path = temp_registry();
+        persist_verified_peer_to(&node("10.0.0.1:9093", PeerAdmission::Explicit), &path);
         // A Discovered peer must never be written or rehydrated.
-        persist_verified_peer(&node("10.0.0.9:9093", PeerAdmission::Discovered));
-        let loaded = load_persisted_peers();
+        persist_verified_peer_to(&node("10.0.0.9:9093", PeerAdmission::Discovered), &path);
+        let loaded = load_persisted_peers_from(&path);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].address, "10.0.0.1:9093");
         assert!(matches!(loaded[0].admission, PeerAdmission::Explicit));
@@ -103,14 +106,9 @@ mod tests {
         // A hand-edited registry that downgrades admission is dropped on read.
         let mut forged = node("10.0.0.2:9093", PeerAdmission::Explicit);
         forged.admission = PeerAdmission::Discovered;
-        std::fs::write(
-            registry_path(),
-            serde_json::to_string(&vec![forged]).unwrap(),
-        )
-        .unwrap();
-        assert!(load_persisted_peers().is_empty());
+        std::fs::write(&path, serde_json::to_string(&vec![forged]).unwrap()).unwrap();
+        assert!(load_persisted_peers_from(&path).is_empty());
 
-        drop(_guard);
-        let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::remove_file(&path);
     }
 }

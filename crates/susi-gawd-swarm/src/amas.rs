@@ -155,6 +155,32 @@ pub struct ClusterPeerNode {
     pub capability_bloom: CapabilityBloom,
     #[serde(default)]
     pub admission: PeerAdmission,
+    /// Unix seconds of the last pong received from this peer. `0` means the
+    /// peer was rehydrated from disk but has not re-verified since boot —
+    /// such entries start inactive and must pong before they vote or lead.
+    #[serde(default)]
+    pub last_seen_secs: u64,
+}
+
+/// A peer that has not ponged within this window is marked inactive by the
+/// scout sweep — dead members lose quorum weight and election eligibility
+/// until they re-verify with a fresh signed pong.
+pub const PEER_STALE_SECS: u64 = 30;
+
+impl ClusterPeerNode {
+    /// True when this peer has not ponged within `PEER_STALE_SECS`. Local
+    /// nodes are exempt — the loopback entry is always live.
+    pub fn is_stale(&self, now_secs: u64) -> bool {
+        !matches!(self.admission, PeerAdmission::Local)
+            && now_secs.saturating_sub(self.last_seen_secs) > PEER_STALE_SECS
+    }
+}
+
+pub(crate) fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 pub struct SusiSupervisor;
@@ -183,6 +209,7 @@ impl SusiSupervisor {
                 trust_score: 1.0,
                 capability_bloom: CapabilityBloom::local_snapshot(),
                 admission: PeerAdmission::Local,
+                last_seen_secs: now_secs(),
             }];
 
             // Rehydrate cluster-key-verified peers from the persistent
@@ -224,6 +251,19 @@ impl SusiSupervisor {
                             last_registry_checksum = registry_checksum;
                         }
 
+                        // Liveness sweep first so it runs even on the signed-pong
+                        // fast path (which `continue`s before the ping sends):
+                        // a peer silent for PEER_STALE_SECS loses quorum weight
+                        // and election eligibility until it re-verifies.
+                        let now = now_secs();
+                        let mut peers = t_shared.write();
+                        for p in peers.iter_mut() {
+                            if p.is_stale(now) {
+                                p.is_active = false;
+                            }
+                        }
+                        drop(peers);
+
                         let ping_msg = format!(
                             "SUSI_PING:{}:{}:{}",
                             local_caps,
@@ -254,6 +294,7 @@ impl SusiSupervisor {
                                         p.registry_checksum = checksum;
                                         p.capability_bloom = peer_bloom;
                                         p.admission = PeerAdmission::Explicit;
+                                        p.last_seen_secs = now_secs();
                                         p.clone()
                                     } else {
                                         let node = ClusterPeerNode {
@@ -270,6 +311,7 @@ impl SusiSupervisor {
                                             // Cluster-key handshake verified —
                                             // may receive the host bearer.
                                             admission: PeerAdmission::Explicit,
+                                            last_seen_secs: now_secs(),
                                         };
                                         peers.push(node.clone());
                                         node
@@ -316,6 +358,7 @@ impl SusiSupervisor {
                                     p.is_active = true;
                                     p.registry_checksum = checksum;
                                     p.capability_bloom = peer_bloom;
+                                    p.last_seen_secs = now_secs();
                                 } else {
                                     peers.push(ClusterPeerNode {
                                         node_id: format!("susi-peer-{}", src.ip()),
@@ -335,6 +378,7 @@ impl SusiSupervisor {
                                         // UDP answers are unauthenticated — never present
                                         // the host bearer token to these addresses.
                                         admission: PeerAdmission::Discovered,
+                                        last_seen_secs: now_secs(),
                                     });
                                 }
                             }
@@ -849,10 +893,15 @@ impl SusiSupervisor {
     /// so receivers auditing `~/.susi/commit_log.jsonl` can flag decisions
     /// that came from a non-leader as anomalies worth investigating.
     pub fn elect_leader(nodes: &[ClusterPeerNode]) -> Option<String> {
+        // Staleness is checked here as well as in the scout sweep — a peer
+        // that died between sweeps must not lead a mission's quorum round.
+        let now = now_secs();
         nodes
             .iter()
             .filter(|n| {
-                n.is_active && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
+                n.is_active
+                    && !n.is_stale(now)
+                    && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
             })
             .max_by(|a, b| {
                 a.trust_score
@@ -1104,6 +1153,7 @@ mod tests {
             trust_score: trust,
             capability_bloom: CapabilityBloom::default(),
             admission,
+            last_seen_secs: now_secs(),
         }
     }
 
@@ -1146,6 +1196,29 @@ mod tests {
     }
 
     #[test]
+    fn test_elect_leader_skips_stale_peers() {
+        // A peer whose last pong predates PEER_STALE_SECS cannot lead even
+        // if its persisted is_active flag was never swept.
+        let mut stale = peer_node("stale", 1.0, true, PeerAdmission::Explicit);
+        stale.last_seen_secs = now_secs().saturating_sub(PEER_STALE_SECS + 1);
+        let fresh = peer_node("fresh", 0.1, true, PeerAdmission::Explicit);
+        assert_eq!(
+            SusiSupervisor::elect_leader(&[stale.clone(), fresh]),
+            Some("fresh".to_string())
+        );
+        // A roster of only stale non-local nodes elects nobody.
+        assert_eq!(SusiSupervisor::elect_leader(&[stale]), None);
+        // The local node is never stale — loopback is always live.
+        let mut local = peer_node("local", 0.0, true, PeerAdmission::Local);
+        local.last_seen_secs = 0;
+        assert!(!local.is_stale(now_secs()));
+        assert_eq!(
+            SusiSupervisor::elect_leader(&[local]),
+            Some("local".to_string())
+        );
+    }
+
+    #[test]
     fn test_capability_bloom_hex_roundtrip() {
         let bloom = CapabilityBloom::from_tokens(["deep_scan", "mcp_scout"]);
         let hex = bloom.to_hex();
@@ -1170,6 +1243,7 @@ mod tests {
             trust_score: 0.9,
             capability_bloom: CapabilityBloom::from_tokens(["status", "version"]),
             admission: PeerAdmission::Discovered,
+            last_seen_secs: now_secs(),
         };
 
         let capability_match = ClusterPeerNode {
@@ -1184,6 +1258,7 @@ mod tests {
             trust_score: 0.6,
             capability_bloom: CapabilityBloom::from_tokens(["bloat_audit"]),
             admission: PeerAdmission::Discovered,
+            last_seen_secs: now_secs(),
         };
 
         let a_score = SusiSupervisor::score_peer_for_goal(&generic_high_trust, &goal_tokens);
