@@ -152,7 +152,10 @@ impl PlaneHandler for GawdPlaneHandler {
                                     | crate::amas::PeerAdmission::Explicit
                             )
                     })
-                    .map(|n| json!({ "node_id": n.node_id, "address": n.address }))
+                    .map(|n| {
+                        json!({ "node_id": n.node_id, "address": n.address,
+                                "trust_score": n.trust_score })
+                    })
                     .collect();
                 Ok(json!({ "peers": peers }))
             }

@@ -608,8 +608,18 @@ pub mod gawd {
     /// Verified cluster roster as `(node_id, address)` pairs — used by
     /// commit-ledger anti-entropy to resolve a coordinator's address.
     pub fn cluster_peers() -> Result<Vec<(String, String)>, String> {
+        Ok(cluster_roster()?
+            .into_iter()
+            .map(|(id, addr, _)| (id, addr))
+            .collect())
+    }
+
+    /// Verified roster with trust scores, sorted most-trusted first —
+    /// anti-entropy repair tries candidates in this order so the most
+    /// reliable replica is asked before fallbacks.
+    pub fn cluster_roster() -> Result<Vec<(String, String, f64)>, String> {
         let v = req(topics::GAWD_CLUSTER_PEERS, json!({}))?;
-        let peers = v
+        let mut peers: Vec<(String, String, f64)> = v
             .get("peers")
             .and_then(|p| p.as_array())
             .map(|a| {
@@ -617,11 +627,13 @@ pub mod gawd {
                     .filter_map(|p| {
                         let id = p.get("node_id")?.as_str()?.to_string();
                         let addr = p.get("address")?.as_str()?.to_string();
-                        Some((id, addr))
+                        let trust = p.get("trust_score").and_then(|t| t.as_f64()).unwrap_or(0.0);
+                        Some((id, addr, trust))
                     })
                     .collect()
             })
             .unwrap_or_default();
+        peers.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
         Ok(peers)
     }
 

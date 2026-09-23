@@ -696,21 +696,22 @@ impl CoreTools {
 /// member that held a copy can serve the gap. Returns the count of
 /// records repaired.
 fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String> {
-    let peers = gawd::cluster_peers().map_err(|e| format!("cluster roster unavailable: {e}"))?;
+    // Trust-sorted roster: coordinator first, then the most-trusted
+    // fallbacks — every voter holds a replica of what it voted on.
+    let peers = gawd::cluster_roster().map_err(|e| format!("cluster roster unavailable: {e}"))?;
     if peers.is_empty() {
         return Err("verified roster is empty".to_string());
     }
-    // Coordinator first, then every other roster member as fallback.
     let mut candidates: Vec<&str> = peers
         .iter()
-        .filter(|(id, _)| id == coordinator)
-        .map(|(_, a)| a.as_str())
+        .filter(|(id, _, _)| id == coordinator)
+        .map(|(_, a, _)| a.as_str())
         .collect();
     candidates.extend(
         peers
             .iter()
-            .filter(|(id, _)| id != coordinator)
-            .map(|(_, a)| a.as_str()),
+            .filter(|(id, _, _)| id != coordinator)
+            .map(|(_, a, _)| a.as_str()),
     );
     if candidates.is_empty() {
         return Err(format!("coordinator {coordinator} not in verified roster"));
