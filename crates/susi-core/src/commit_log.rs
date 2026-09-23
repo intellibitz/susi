@@ -492,6 +492,11 @@ pub fn ledger_path() -> PathBuf {
     SusiDirs::config_dir().join("commit_log.jsonl")
 }
 
+/// Serializes the verify→dedup-check→write sequence in-process: two
+/// threads appending different records for the same `(coordinator, seq)`
+/// must not both pass the equivocation check and both write.
+static APPEND_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Append one record. Verifies the signature first — nothing unsigned or
 /// forged is ever written to the ledger.
 pub fn append(record: &CommitRecord) -> EaiResult<()> {
@@ -509,6 +514,7 @@ pub fn append(record: &CommitRecord) -> EaiResult<()> {
 /// and is refused rather than silently ordering both. `seq == 0`
 /// (pre-sequencing records) dedups on full-record equality only.
 pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
+    let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if !record.verify() {
         return Err(EaiError::protocol(
             "refusing to append a commit record that fails signature or consistency verification",
