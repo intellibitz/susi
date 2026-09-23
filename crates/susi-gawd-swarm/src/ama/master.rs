@@ -1036,7 +1036,7 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let plan_val =
             susi_core::plane_bus::gemi::MissionPlanner::partition_mission(goal, workspace)
-                .map_err(|e| susi_error::EaiError::governance(e))?;
+                .map_err(susi_error::EaiError::governance)?;
         let goals = mission_plan_goals(&plan_val);
 
         // Speculative Parallelism
@@ -1094,7 +1094,7 @@ impl SusiMasterAgent {
     ) -> EaiResult<SusiMissionReport> {
         let mut plan_val =
             susi_core::plane_bus::gemi::MissionPlanner::plan_mission(goal, workspace)
-                .map_err(|e| susi_error::EaiError::governance(e))?;
+                .map_err(susi_error::EaiError::governance)?;
         let mut goals = mission_plan_goals(&plan_val);
         let mut all_interactions = Vec::new();
         let mut all_agents = Vec::new();

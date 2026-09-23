@@ -137,7 +137,7 @@ async fn verify_recovery_answer(
             ));
         }
         susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&rendered, workspace)
-            .map_err(|e| EaiError::governance(e))?;
+            .map_err(EaiError::governance)?;
         // Already citation-resolved from the live ledger — do not re-enter the
         // crown gate (it would demand citations again on rendered prose).
         TruthTransformer::verify_mission_reality(&report.goal, provider, &rendered, workspace)?;
@@ -167,7 +167,7 @@ async fn verify_recovery_answer(
         ));
     }
     susi_core::plane_bus::gemi::GemiEngine::verify_axiomatic_alignment(&answer_text, workspace)
-        .map_err(|e| EaiError::governance(e))?;
+        .map_err(EaiError::governance)?;
     // Absolute gate only — no soft verify_mission_reality + model cross-examine.
     let verified = TruthTransformer::verify_mission_with_cross_examine(
         &report.goal,
