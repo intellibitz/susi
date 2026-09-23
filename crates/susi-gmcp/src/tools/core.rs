@@ -540,6 +540,43 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "os_logs",
+        description = "Tail a supervised leaf service's log (substrate_home/logs/<name>.log); args: {name: string, lines?: N (default 50, max 500)}"
+    )]
+    pub fn os_logs(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let name = arg
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("Usage: os_logs {name: <service>}"))?;
+        let lines = arg
+            .get("lines")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50)
+            .min(500) as usize;
+        gawd_hooks::audit_action("os_logs", name, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        // Only registered leaf services — a free-form name would read
+        // arbitrary logs under substrate_home.
+        let Some(svc) = crate::susi_core::service_table::leaf_service(name) else {
+            return Err(EaiError::protocol(format!(
+                "unknown service `{name}` (expected a leaf service name)"
+            )));
+        };
+        let path = crate::susi_paths::SusiDirs::substrate_home()
+            .join("logs")
+            .join(format!("{}.log", svc.name));
+        let text = std::fs::read_to_string(&path).map_err(|_| {
+            EaiError::filesystem(format!(
+                "no log at {} — service may never have been supervised",
+                path.display()
+            ))
+        })?;
+        let all: Vec<&str> = text.lines().collect();
+        let start = all.len().saturating_sub(lines);
+        Ok(all[start..].join("\n"))
+    }
+
+    #[tool(
         name = "commit_record",
         description = "Accept a replicated swarm commit record. Args: the CommitRecord JSON object. Verifies the coordinator's cluster-key signature and internal consistency before appending to the local ledger — unsigned/forged records fail closed."
     )]
@@ -1924,6 +1961,21 @@ mod os_tools_wired_tests {
             CoreTools::os_ps(&serde_json::json!({"limit": 500}), Path::new(".")).expect("os_ps");
         assert!(out.contains("PID\tNAME\tRSS_KB"));
         assert!(out.contains(&std::process::id().to_string()));
+    }
+
+    #[test]
+    fn os_logs_rejects_unknown_service_and_missing_log() {
+        wire_permissive_audit();
+        let err = CoreTools::os_logs(&serde_json::json!({"name": "not-a-svc"}), Path::new("."));
+        assert!(err.is_err(), "unknown service must fail");
+
+        // A real leaf name with no supervised log must error cleanly.
+        let err = CoreTools::os_logs(&serde_json::json!({"name": "susi-paths"}), Path::new("."));
+        // Either a missing log error or — if the host actually has a log —
+        // content; never a panic or wrong-service read.
+        if let Err(e) = err {
+            assert!(e.to_string().contains("no log"), "got: {e}");
+        }
     }
 
     #[test]

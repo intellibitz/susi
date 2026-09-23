@@ -156,6 +156,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "os_logs",
+        "Tail a supervised leaf service's log file",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_logs),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "commit_record",
         "Accept a cluster-key-signed swarm quorum commit record into the local ledger",
         MetaCategory::WorkspaceIo,
