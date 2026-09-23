@@ -894,12 +894,15 @@ impl SusiDaemon {
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
             // host still gets legacy discovery but never roster admission.
             if let Some((_caps, _checksum, _bloom, nonce)) =
-                susi_config::cluster_key::verify_signed_ping(&msg)
+                crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
                 let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
-                if let Some(pong) =
-                    susi_config::cluster_key::signed_pong("susi-daemon-node", 0, &bloom, &nonce)
-                {
+                if let Some(pong) = crate::susi_config::cluster_key::signed_pong(
+                    "susi-daemon-node",
+                    0,
+                    &bloom,
+                    &nonce,
+                ) {
                     let _ = socket.send_to(pong.as_bytes(), src);
                 }
                 continue;

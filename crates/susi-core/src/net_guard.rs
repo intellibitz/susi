@@ -21,7 +21,7 @@ impl NetGuard {
     /// - Token configured → bearer required for every peer (zero-trust).
     /// - Token empty (pre-seed) → loopback only; remote peers denied.
     pub fn is_authorized(auth_header: Option<&str>, peer: IpAddr) -> bool {
-        let token = susi_config::SusiConfig::load_global()
+        let token = crate::susi_config::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
         if token.is_empty() {
@@ -149,7 +149,7 @@ mod tests {
         // seeded-token path instead — still must not panic.
         let loopback = IpAddr::from([127, 0, 0, 1]);
         let remote = IpAddr::from([8, 8, 8, 8]);
-        let token = susi_config::SusiConfig::load_global()
+        let token = crate::susi_config::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
         if token.is_empty() {

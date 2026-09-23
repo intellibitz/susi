@@ -72,7 +72,6 @@ complexity = { level = "warn", priority = -1 }
 [workspace.dependencies]
 susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
-susi-config = { path = "crates/susi-config" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }

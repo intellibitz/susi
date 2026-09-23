@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use susi_config::confined_workspace_join;
-use susi_config::SusiConfig;
-use susi_config::*;
+use crate::susi_config::confined_workspace_join;
+use crate::susi_config::SusiConfig;
+use crate::susi_config::*;
 
 // === SANDBOX MANAGER ===
 pub struct SandboxManager;
@@ -429,8 +429,8 @@ impl SusiMemory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::susi_config::{merge_missing_registry_defaults, DynamicRegistry, DynamicValue};
     use std::collections::HashMap;
-    use susi_config::{merge_missing_registry_defaults, DynamicRegistry, DynamicValue};
 
     #[test]
     fn test_checkpoint_lifecycle() {

@@ -11,7 +11,8 @@ serde_json = { workspace = true }
 bollard = "0.21.1"
 futures = "0.3"
 tracing = { workspace = true }
-susi-config = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+parking_lot = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }

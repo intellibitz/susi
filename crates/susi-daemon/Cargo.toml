@@ -6,12 +6,17 @@ edition = "2024"
 
 [dependencies]
 libc = "0.2"
+serde = { workspace = true }
 serde_json = { workspace = true }
 susi-core = { workspace = true }
 susi-gawd = { path = "../susi-gawd" }
 susi-gmcp = { path = "../susi-gmcp" }
 susi-sandbox = { path = "../susi-sandbox" }
-susi-config = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+parking_lot = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
 susi-gemi = { path = "../susi-gemi" }
 susi-server = { path = "../susi-server" }
 susi-tools = { path = "../susi-tools" }

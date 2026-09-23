@@ -48,10 +48,10 @@ pub fn load_or_create_hmac_key() -> std::io::Result<[u8; 32]> {
     Ok(key)
 }
 
-/// HMAC-SHA256 — shared implementation lives in `susi_config::cluster_key`
+/// HMAC-SHA256 — shared implementation lives in `crate::susi_config::cluster_key`
 /// (also used by the cluster-key peer handshake).
 fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
-    susi_config::cluster_key::hmac_sha256(key, message)
+    crate::susi_config::cluster_key::hmac_sha256(key, message)
 }
 
 fn last_hash(audit_file: &Path) -> String {

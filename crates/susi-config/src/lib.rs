@@ -14,10 +14,14 @@
 //! SUSI configuration substrate: `SusiConfig` dynamic registry, typed config
 //! fragments, and shared self-healing JSON load/merge/save helpers.
 //!
-//! Layered below `susi-sandbox` (which re-exports this surface through
-//! `susi_sandbox::manager` for back-compat) — this crate reaches the
-//! foundational `susi-error`/`susi-paths` services through the vendored
-//! IPC-client modules below, never on feature crates above it.
+//! Runs as a standalone REST service (`127.0.0.1:18082`, see `main.rs`) — the
+//! canonical reader/writer for the shared `~/.susi/config.json` while the
+//! substrate is up. Consumer crates vendor the byte-identical `susi_config`
+//! module (surface + IPC client) instead of depending on this crate;
+//! `susi-sandbox` re-exports its vendored copy through `susi_sandbox::manager`
+//! for back-compat. This crate reaches the foundational `susi-error`/
+//! `susi-paths` services through the vendored IPC-client modules below,
+//! never on feature crates above it.
 
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
@@ -25,8 +29,10 @@
 pub mod susi_error;
 // Vendored `susi-paths` IPC client: full surface kept identical
 // across crates; per-crate dead_code allowance is the audit trail.
+// `pub` so the standalone service binary (main.rs) can resolve the
+// global config dir through the same contract as every consumer.
 #[allow(dead_code)]
-mod susi_paths;
+pub mod susi_paths;
 
 pub mod cluster_key;
 mod config;

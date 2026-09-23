@@ -20,14 +20,23 @@ pub mod susi_error;
 #[allow(dead_code)]
 mod susi_paths;
 
+// Vendored `susi-config` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+// rustfmt::skip: the file is vendored byte-identical while consumers span
+// edition 2021/2024 whose style editions sort imports and indent format!
+// args differently — formatting it per-crate would break the invariant.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_config;
+
 pub mod audit_chain;
 pub mod auto_install;
 pub mod daemon_state;
-pub use susi_config::extensions;
+pub use crate::susi_config::extensions;
 pub mod manager;
+pub use crate::susi_config::versioned_store;
+pub use crate::susi_config::VersionedJsonStore;
 pub use manager::SandboxManager;
-pub use susi_config::versioned_store;
-pub use susi_config::VersionedJsonStore;
 
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock

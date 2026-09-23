@@ -229,7 +229,7 @@ impl TelemetryHistoryStore {
             return u64::MAX;
         }
         let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let cfg = susi_config::SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = crate::susi_config::SusiConfig::load(&global_dir).unwrap_or_default();
         let floor_ms = cfg.execution_lease_secs().saturating_mul(1000);
         profile.p99_idle_interval_ms.saturating_mul(5).max(floor_ms)
     }

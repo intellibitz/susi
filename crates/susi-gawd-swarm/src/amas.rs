@@ -237,7 +237,7 @@ impl SusiSupervisor {
                             // echoed our nonce — promote to Explicit + persist.
                             if let Some(nonce) = pending_nonce.as_deref() {
                                 if let Some((node_id, checksum, bloom_hex)) =
-                                    susi_config::cluster_key::verify_signed_pong(&msg, nonce)
+                                    crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
                                 {
                                     let addr_str = format!(
                                         "{}:{}",
@@ -345,7 +345,7 @@ impl SusiSupervisor {
                         // Cluster-key handshake (VC-200-001): only nodes that
                         // can HMAC-sign a pong echoing this nonce may become
                         // Explicit roster members.
-                        if let Some((signed, nonce)) = susi_config::cluster_key::signed_ping(
+                        if let Some((signed, nonce)) = crate::susi_config::cluster_key::signed_ping(
                             &local_caps,
                             registry_checksum,
                             &local_bloom.to_hex(),

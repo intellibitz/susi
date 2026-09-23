@@ -9,7 +9,10 @@ publish = false
 susi-gawd-agents = { workspace = true }
 susi-core = { workspace = true }
 susi-sandbox = { workspace = true }
-susi-config = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }

@@ -6597,12 +6597,14 @@ dependencies = [
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "getrandom 0.4.3",
  "hex",
  "parking_lot",
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tokio",
  "ureq 3.4.2",
 ]
 
@@ -6614,27 +6616,32 @@ dependencies = [
  "crossbeam",
  "dashmap",
  "flume",
+ "getrandom 0.4.3",
  "hex",
  "parking_lot",
  "regex",
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "susi-config",
  "tempfile",
  "tokio",
  "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]
 name = "susi-daemon"
 version = "0.11.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hex",
  "libc",
+ "parking_lot",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
  "signal-hook",
  "susi-agents",
- "susi-config",
  "susi-core",
  "susi-gawd",
  "susi-gemi",
@@ -6644,6 +6651,7 @@ dependencies = [
  "susi-tools",
  "tokio",
  "tracing",
+ "ureq 3.4.2",
  "winapi",
 ]
 
@@ -6705,6 +6713,8 @@ version = "0.1.0"
 dependencies = [
  "dashmap",
  "flume",
+ "getrandom 0.4.3",
+ "hex",
  "log",
  "md5",
  "parking_lot",
@@ -6712,11 +6722,12 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "susi-config",
+ "sha2 0.11.0",
  "susi-core",
  "susi-gawd-agents",
  "susi-sandbox",
  "tokio",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6822,11 +6833,12 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "hex",
+ "parking_lot",
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "susi-config",
  "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]

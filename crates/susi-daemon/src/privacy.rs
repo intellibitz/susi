@@ -18,8 +18,8 @@ fn load_or_create_mac_key() -> [u8; 32] {
         return key;
     }
     // Two 128-bit nonces → 32 bytes of key material.
-    let a = susi_config::cluster_key::random_nonce_hex();
-    let b = susi_config::cluster_key::random_nonce_hex();
+    let a = crate::susi_config::cluster_key::random_nonce_hex();
+    let b = crate::susi_config::cluster_key::random_nonce_hex();
     let combined = format!("{a}{b}");
     let mut key = [0u8; 32];
     for (i, chunk) in combined.as_bytes().chunks(2).take(32).enumerate() {
