@@ -1052,4 +1052,56 @@ mod tests {
         drop(_d);
         let _ = fs::remove_dir_all(&dir);
     }
+
+    /// Real multi-process serialization proof: spawn copies of this test
+    /// binary as workers that race `claim_leadership_at` on one term file.
+    /// Every claim names a distinct leader, so each is a genuine
+    /// read-modify-write — the file lock must deliver exactly
+    /// WORKERS × CLAIMS bumps. Without it, two workers can both read
+    /// term N and each write N+1, losing bumps.
+    #[test]
+    fn cross_process_term_claims_serialize_through_file_lock() {
+        const WORKERS: usize = 4;
+        const CLAIMS: usize = 8;
+        let dir = std::env::temp_dir().join(format!("susi-flock-e2e-{}", std::process::id()));
+        if let Ok(worker) = std::env::var("SUSI_FLOCK_WORKER") {
+            // Worker mode — dir arrives via env so all processes share it.
+            let dir = PathBuf::from(std::env::var("SUSI_FLOCK_DIR").expect("worker dir"));
+            let term = dir.join("term.json");
+            for i in 0..CLAIMS {
+                claim_leadership_at(&term, &format!("{worker}-{i}"));
+            }
+            return;
+        }
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let exe = std::env::current_exe().expect("test binary path");
+        let mut children = Vec::new();
+        for w in 0..WORKERS {
+            children.push(
+                std::process::Command::new(&exe)
+                    // Substring filter, not --exact: the test's full name
+                    // differs between canonical (commit_log::tests::…) and
+                    // vendored binaries (susi_core::commit_log::tests::…).
+                    .args([
+                        "cross_process_term_claims_serialize_through_file_lock",
+                        "--nocapture",
+                    ])
+                    .env("SUSI_FLOCK_WORKER", format!("worker-{w}"))
+                    .env("SUSI_FLOCK_DIR", &dir)
+                    .spawn()
+                    .expect("spawn worker"),
+            );
+        }
+        for mut c in children {
+            assert!(c.wait().expect("wait worker").success(), "worker failed");
+        }
+        let state = load_term_from(&dir.join("term.json"));
+        assert_eq!(
+            state.term,
+            (WORKERS * CLAIMS) as u64,
+            "file lock must serialize every cross-process claim"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

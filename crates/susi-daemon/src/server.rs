@@ -1077,7 +1077,8 @@ mod tests {
         let third = DaemonLock::acquire(&global_lock_path);
         assert!(
             third.is_ok(),
-            "once the first daemon releases the lock, a new one must be able to acquire it"
+            "once the first daemon releases the lock, a new one must be able to acquire it — got {:?}",
+            third.as_ref().err()
         );
 
         let _ = std::fs::remove_dir_all(&global_dir);
