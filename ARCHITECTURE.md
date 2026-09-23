@@ -174,10 +174,14 @@ import paths keep resolving.
 `tests/architecture_tests.rs` asserts:
 
 - No workspace crate dependency cycles.
-- Forbidden edges (notably `susi-core` and `susi-error` purity).
+- Forbidden edges (notably `susi-core` / `susi-error` purity and **zero
+  peer deps between feature planes** — communication via `plane_bus` only).
 - Layer matrix from this document.
+- `ARCHITECTURE.md` documents `plane_bus`.
 
 CI runs the full workspace test suite (includes these tests) and `cargo deny`.
+Criterion benches live under `crates/susi-core/benches/`; nightly fuzz targets
+under `fuzz/` (stable smoke in `tests/fuzz_smoke.rs`).
 
 ## Definition of done (SUSI)
 

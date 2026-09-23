@@ -1,7 +1,7 @@
 //! `susi keys` — cloud API key lifecycle (set / list / prefer / remove).
 //! Never prints secret material; `set` accepts a piped key on stdin or prompts.
 
-use crate::cli_defs::KeyCommands;
+use super::defs::KeyCommands;
 
 use std::io::{self, IsTerminal, Read, Write};
 

@@ -13,22 +13,35 @@ fn workspace_root() -> PathBuf {
 
 fn parse_workspace_deps(toml: &str) -> HashSet<String> {
     let mut deps = HashSet::new();
+    let mut in_deps = false;
     for line in toml.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("susi-") {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            // Production edges only — ignore [dev-dependencies] / [target.*.dev-dependencies].
+            in_deps = trimmed == "[dependencies]"
+                || trimmed.starts_with("[dependencies.")
+                || (trimmed.starts_with("[target.")
+                    && trimmed.contains("dependencies]")
+                    && !trimmed.contains("dev-dependencies]"));
+            continue;
+        }
+        if !in_deps {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("susi-") {
             if let Some(name_end) = rest.find([' ', '=', '{']) {
                 let name = format!("susi-{}", &rest[..name_end]);
                 deps.insert(name);
             }
         }
-        if let Some(idx) = line.find("path = \"crates/") {
-            let rest = &line[idx + "path = \"crates/".len()..];
+        if let Some(idx) = trimmed.find("path = \"crates/") {
+            let rest = &trimmed[idx + "path = \"crates/".len()..];
             if let Some(end) = rest.find('"') {
                 deps.insert(rest[..end].to_string());
             }
         }
-        if let Some(idx) = line.find("path = \"../") {
-            let rest = &line[idx + "path = \"../".len()..];
+        if let Some(idx) = trimmed.find("path = \"../") {
+            let rest = &trimmed[idx + "path = \"../".len()..];
             if let Some(end) = rest.find('"') {
                 let name = rest[..end].to_string();
                 if name.starts_with("susi-") {
@@ -126,7 +139,21 @@ fn layer_matrix_forbidden_edges() {
     // ARCHITECTURE.md "must not import" column, enforced per crate.
     // Each entry: (crate, workspace crates it may not depend on).
     let forbidden: &[(&str, &[&str])] = &[
-        ("susi-gmcp", &["susi-gawd", "susi-daemon", "susi-server"]),
+        (
+            "susi-gmcp",
+            &[
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-tools",
+                "susi-agents",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
         (
             "susi-tools",
             &[
@@ -135,6 +162,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gawd-swarm",
                 "susi-gawd-a2a",
                 "susi-gemi",
+                "susi-gemi-models",
                 "susi-gmcp",
                 "susi-agents",
                 "susi-daemon",
@@ -147,7 +175,11 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gawd",
                 "susi-gawd-swarm",
                 "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gemi-models",
                 "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
                 "susi-daemon",
                 "susi-server",
             ],
@@ -157,24 +189,50 @@ fn layer_matrix_forbidden_edges() {
             &[
                 "susi-gawd",
                 "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gemi-models",
                 "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
                 "susi-daemon",
                 "susi-server",
             ],
         ),
         (
             "susi-gawd-a2a",
-            &["susi-gawd", "susi-gmcp", "susi-daemon", "susi-server"],
+            &[
+                "susi-gawd",
+                "susi-gemi",
+                "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
+                "susi-daemon",
+                "susi-server",
+            ],
+        ),
+        (
+            "susi-gawd",
+            &[
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
+                "susi-daemon",
+                "susi-server",
+            ],
         ),
         (
             "susi-agents",
             &[
                 "susi-gemi",
+                "susi-gemi-models",
                 "susi-gmcp",
                 "susi-gawd",
                 "susi-gawd-agents",
                 "susi-gawd-swarm",
                 "susi-gawd-a2a",
+                "susi-tools",
                 "susi-daemon",
                 "susi-server",
             ],
@@ -188,6 +246,8 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gawd-agents",
                 "susi-gawd-swarm",
                 "susi-gawd-a2a",
+                "susi-tools",
+                "susi-agents",
                 "susi-daemon",
                 "susi-server",
             ],
@@ -200,8 +260,25 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gawd-agents",
                 "susi-gawd-swarm",
                 "susi-gawd-a2a",
+                "susi-tools",
+                "susi-agents",
                 "susi-daemon",
                 "susi-server",
+            ],
+        ),
+        (
+            "susi-server",
+            &[
+                "susi-gawd",
+                "susi-gawd-agents",
+                "susi-gawd-swarm",
+                "susi-gawd-a2a",
+                "susi-gemi",
+                "susi-gemi-models",
+                "susi-gmcp",
+                "susi-tools",
+                "susi-agents",
+                "susi-daemon",
             ],
         ),
         (
@@ -333,11 +410,16 @@ fn susi_core_must_not_depend_on_infra_or_features() {
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }
-    // Only susi-error among workspace crates.
+    // Foundation only among workspace crates (paths/config needed for plane_bus
+    // facades, net_guard, and agent domain types). Must not pull feature planes.
     let deps = parse_workspace_deps(&text);
     assert_eq!(
         deps,
-        HashSet::from(["susi-error".to_string()]),
+        HashSet::from([
+            "susi-error".to_string(),
+            "susi-paths".to_string(),
+            "susi-config".to_string(),
+        ]),
         "susi-core workspace deps drifted: {deps:?}"
     );
 }
@@ -353,6 +435,10 @@ fn architecture_md_exists() {
     let text = std::fs::read_to_string(&path).expect("read");
     assert!(text.contains("Composition roots"));
     assert!(text.contains("susi-core"));
+    assert!(
+        text.contains("plane_bus"),
+        "ARCHITECTURE.md must document plane_bus as the feature-plane control plane"
+    );
 }
 
 #[test]
@@ -380,7 +466,7 @@ fn reachability_from_core_stays_downward() {
             reverse.entry(to.clone()).or_default().insert(from.clone());
         }
     }
-    // Forward: core's transitive deps must only be error (and paths via error).
+    // Forward: core's transitive workspace deps stay in foundation only.
     let mut seen = HashSet::new();
     let mut q = VecDeque::new();
     q.push_back("susi-core".to_string());
@@ -395,7 +481,16 @@ fn reachability_from_core_stays_downward() {
         }
     }
     seen.remove("susi-core");
-    for forbidden in ["susi-gemi", "susi-gmcp", "susi-gawd", "susi-sandbox"] {
+    for forbidden in [
+        "susi-gemi",
+        "susi-gmcp",
+        "susi-gawd",
+        "susi-sandbox",
+        "susi-tools",
+        "susi-agents",
+        "susi-server",
+        "susi-daemon",
+    ] {
         assert!(
             !seen.contains(forbidden),
             "susi-core transitive workspace deps include `{forbidden}`: {seen:?}"

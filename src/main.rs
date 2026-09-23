@@ -2,57 +2,21 @@
 //!
 //! Command-line interface for the susi local-first AI orchestration system.
 //!
-//! Module map: `cli_defs` holds the clap surface; `control_plane_cli`
-//! dispatches pre-boot commands; `mission_cli` dispatches post-boot commands;
-//! `plane_cli`/`shell_cli`/`keys_cli`/`admin_cli` hold shared plumbing; the
-//! remaining `*_cli` modules own per-domain subcommands.
+//! Module map: `cli::defs` holds the clap surface; `cli::control_plane_cli`
+//! dispatches pre-boot commands; `cli::mission_cli` dispatches post-boot commands;
+//! `cli::plane_cli`/`cli::shell_cli`/`cli::keys_cli`/`cli::admin_cli` hold shared plumbing; the
+//! remaining `cli::*_cli` modules own per-domain subcommands.
 
 #![allow(unexpected_cfgs)]
 #![allow(missing_docs)]
 
-mod admin_cli;
-mod agent_cli;
-mod aider_cli;
-mod ambient_cli;
-mod auto_cli;
-mod blackboard_cli;
-mod broker_cli;
-mod browser_use_cli;
-mod catalog_plane_cli;
-mod cli_defs;
+mod cli;
 mod cli_json;
-mod context_graph_cli;
-mod control_plane_cli;
-mod crown_cli;
-mod deerflow_cli;
-mod execution_agent_cli;
-mod extensions_cli;
-mod framework_cli;
-mod frontier_cli;
-mod gemini_cli;
-mod intent_cli;
-mod keys_cli;
-mod mcp_cli;
-mod mission_cli;
-mod model_cli;
-mod open_weight_cli;
-mod openclaw_cli;
-mod openhands_cli;
-mod openrouter_cli;
-mod openviking_cli;
-mod patch_cli;
-mod plan_cli;
-mod plane_cli;
-mod privacy_cli;
-mod python_engine_cli;
-mod shell_cli;
-mod substrate_cli;
-mod swe_agent_cli;
-mod telemetry_cli;
-mod tx_cli;
 
-use cli_defs::{command_requires_daemon, Cli};
-use shell_cli::{glass_box_callback, run_shell, MissionHost};
+use cli::control_plane_cli::{dispatch, dispatch_mcp};
+use cli::defs::{command_requires_daemon, Cli};
+use cli::mission_cli::dispatch as dispatch_mission;
+use cli::shell_cli::{glass_box_callback, run_shell, MissionHost};
 
 use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
@@ -99,11 +63,11 @@ fn get_home_dir() -> PathBuf {
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     // Control-plane planes return early; Models::Local and Mcp serve fall through.
-    let command = match control_plane_cli::dispatch(cli.command) {
+    let command = match dispatch(cli.command) {
         Ok(code) => return code,
         Err(command) => command,
     };
-    let command = match control_plane_cli::dispatch_mcp(command) {
+    let command = match dispatch_mcp(command) {
         Ok(code) => return code,
         Err(command) => command,
     };
@@ -179,7 +143,7 @@ fn main() -> std::process::ExitCode {
             ama: &ama,
             cfg: &cfg,
         };
-        exit_code = mission_cli::dispatch(command, &host);
+        exit_code = dispatch_mission(command, &host);
     } else if !cli.intent.is_empty() {
         let goal = cli.intent.join(" ");
 

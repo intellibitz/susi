@@ -1,5 +1,5 @@
 //! Deterministic SWE-agent control plane (no daemon required).
-use crate::execution_agent_cli::{self, ExecutionAgentPlane};
+use super::execution_agent_cli::{self, ExecutionAgentPlane};
 use anyhow::Result;
 use std::path::Path;
 use susi_agents::external::{swe_agent_doctor, swe_agent_setup, swe_agent_status, SWE_AGENT_ID};

@@ -2,12 +2,12 @@
 //! point either drives the swarm (AMA solve) or runs a substrate-local op
 //! that still needs the daemon/tracing/boot sequence from `main`.
 
-use crate::admin_cli;
-use crate::cli_defs::Commands;
-use crate::control_plane_cli::{control_plane_start, control_plane_stop};
-use crate::keys_cli;
-use crate::mcp_cli;
-use crate::shell_cli::{glass_box_callback, run_shell, MissionHost};
+use super::admin_cli;
+use super::control_plane_cli::{control_plane_start, control_plane_stop};
+use super::defs::Commands;
+use super::keys_cli;
+use super::mcp_cli;
+use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
 
 use std::env;
 use std::fs;
@@ -70,7 +70,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         | Commands::Haystack { .. }
         | Commands::N8n { .. } => {}
         Commands::Models {
-            action: Some(crate::model_cli::ModelCommands::Local),
+            action: Some(super::model_cli::ModelCommands::Local),
         } => {
             let answer = ama.solve_clean("models", cwd, SUSI_VERSION);
             println!("{}", answer);

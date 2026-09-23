@@ -1,0 +1,33 @@
+# cargo-fuzz workspace — run with nightly, e.g.:
+#   cargo +nightly fuzz run fuzz_evidence -- -max_total_time=5
+#   cargo +nightly fuzz run fuzz_swarm_event -- -max_total_time=5
+#
+# CI uses `tests/fuzz_smoke.rs` for stable malformed-input coverage.
+
+[package]
+name = "susi-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+susi-core = { path = "../crates/susi-core" }
+serde_json = "1"
+
+[[bin]]
+name = "fuzz_evidence"
+path = "fuzz_targets/fuzz_evidence.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_swarm_event"
+path = "fuzz_targets/fuzz_swarm_event.rs"
+test = false
+doc = false
+bench = false

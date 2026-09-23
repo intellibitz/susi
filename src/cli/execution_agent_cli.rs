@@ -1,6 +1,6 @@
 //! Shared clap control plane for execution agents (aider, openhands, …).
 
-use crate::catalog_plane_cli::{launch, LaunchOpts};
+use super::catalog_plane_cli::{launch, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;

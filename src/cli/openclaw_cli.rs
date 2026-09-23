@@ -1,5 +1,5 @@
 //! Deterministic OpenClaw control plane (no daemon required).
-use crate::execution_agent_cli::{self, ExecutionAgentPlane};
+use super::execution_agent_cli::{self, ExecutionAgentPlane};
 use anyhow::Result;
 use std::path::Path;
 use susi_agents::external::{openclaw_doctor, openclaw_setup, openclaw_status, OPENCLAW_AGENT_ID};

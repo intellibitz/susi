@@ -1,5 +1,5 @@
 //! Deterministic agent-framework control plane (LangGraph, CrewAI, …), no daemon required.
-use crate::catalog_plane_cli::{launch, run_worker, LaunchOpts};
+use super::catalog_plane_cli::{launch, run_worker, LaunchOpts};
 use crate::cli_json::print_json;
 use anyhow::{bail, Result};
 use clap::Subcommand;

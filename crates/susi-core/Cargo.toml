@@ -20,3 +20,12 @@ tracing = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { path = "../susi-paths" }
 susi-config = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["html_reports"] }
+tempfile = "3"
+
+[[bench]]
+name = "evidence_verify"
+harness = false
+path = "benches/evidence_verify.rs"

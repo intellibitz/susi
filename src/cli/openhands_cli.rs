@@ -1,5 +1,5 @@
 //! Deterministic OpenHands control plane (no daemon required).
-use crate::execution_agent_cli::{self, ExecutionAgentPlane};
+use super::execution_agent_cli::{self, ExecutionAgentPlane};
 use anyhow::Result;
 use std::path::Path;
 use susi_agents::external::{openhands_doctor, openhands_setup, openhands_status};

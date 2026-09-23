@@ -1,8 +1,8 @@
 //! `susi admin` — version sync, compliance audit, release orchestration,
 //! config hot-reload, and the admin-pulse commands.
 
-use crate::cli_defs::AdminCommands;
-use crate::shell_cli::MissionHost;
+use super::defs::AdminCommands;
+use super::shell_cli::MissionHost;
 
 use susi::SUSI_VERSION;
 
