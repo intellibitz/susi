@@ -16,7 +16,6 @@ use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as AutoBuilder;
-use rayon::prelude::*;
 use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;

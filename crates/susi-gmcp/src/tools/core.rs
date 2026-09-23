@@ -429,7 +429,7 @@ impl CoreTools {
         let audit = format!("{agent}: {prompt}");
         gawd_hooks::audit_action("agents_run", &audit, workspace)?;
         let run = agents::external_run(workspace, "execution", agent, prompt)
-            .map_err(|e| EaiError::process(e))?;
+            .map_err(EaiError::process)?;
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -520,7 +520,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let run = agents::external_run(workspace, "framework", engine, prompt)
-            .map_err(|e| EaiError::process(e))?;
+            .map_err(EaiError::process)?;
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
