@@ -26,7 +26,7 @@ pub mod plane_bus;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
-pub mod redact;
+pub use susi_error::redact;
 pub mod registry;
 pub mod task_manager;
 pub mod telemetry;

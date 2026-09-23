@@ -1,3 +1,5 @@
+pub mod redact;
+
 use std::backtrace::Backtrace;
 use std::error::Error as StdError;
 use std::fmt;

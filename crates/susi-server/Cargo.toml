@@ -7,8 +7,6 @@ edition = "2024"
 [dependencies]
 susi-core = { path = "../susi-core" }
 susi-sandbox = { path = "../susi-sandbox" }
-susi-error = { workspace = true }
-susi-paths = { path = "../susi-paths" }
 
 hyper = { version = "1.0", features = ["full"] }
 http-body-util = "0.1"

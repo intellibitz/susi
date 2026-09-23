@@ -186,7 +186,7 @@ impl SusiAuditLogger {
         let secret_patterns = SusiConfig::load(&global_dir)
             .map(|cfg| cfg.governance().secret_tokens)
             .unwrap_or_default();
-        let details = susi_core::redact::redact_patterns(&secret_patterns, details);
+        let details = susi_error::redact::redact_patterns(&secret_patterns, details);
         let details = details.as_str();
 
         tracing::info!(
