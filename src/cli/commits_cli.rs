@@ -28,7 +28,12 @@ pub enum CommitsCommands {
     },
     /// Whole-ledger consistency check: signature failures, sequence gaps,
     /// equivocation, and commits from non-elected coordinators
-    Audit,
+    Audit {
+        /// Exit nonzero when anomalies are found — lets CI and operators
+        /// gate on ledger health instead of eyeballing output
+        #[arg(long)]
+        strict: bool,
+    },
     /// Fold the ledger into the cluster's consensus view (term, leader,
     /// per-coordinator high-water marks) — the state machine is a pure
     /// function of the log
@@ -39,7 +44,7 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
     match action.unwrap_or(CommitsCommands::List { limit: 20 }) {
         CommitsCommands::List { limit } => list(limit),
         CommitsCommands::Show { epoch } => show(&epoch),
-        CommitsCommands::Audit => audit(),
+        CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
     }
 }
@@ -90,7 +95,7 @@ fn show(epoch_prefix: &str) -> Result<()> {
 /// never disagree. Adds the audit-only non-leader-commit check:
 /// `coordinator != leader` is legitimate for per-node missions, so it is
 /// reported as an anomaly, not a violation.
-fn audit() -> Result<()> {
+fn audit(strict: bool) -> Result<()> {
     let records = commit_log::load();
     let state = commit_log::replay_records(&records);
     let mut anomalies = state.anomalies.len();
@@ -121,6 +126,12 @@ fn audit() -> Result<()> {
         records.len(),
         state.decisions
     );
+    if strict && anomalies > 0 {
+        anyhow::bail!(
+            "{anomalies} ledger anomal{} found",
+            if anomalies == 1 { "y" } else { "ies" }
+        );
+    }
     Ok(())
 }
 
