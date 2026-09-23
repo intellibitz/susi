@@ -249,11 +249,37 @@ pub fn append(record: &CommitRecord) -> EaiResult<()> {
 }
 
 /// Test seam: append to an explicit path.
+///
+/// Delivery is idempotent: re-appending a record the ledger already
+/// holds is a no-op success, so replication retries and anti-entropy
+/// re-fetches can never duplicate an entry (which would corrupt the
+/// count-based `next_seq_for` assignment). A *different* record claiming
+/// the same `(coordinator, seq)` slot is equivocation — two
+/// cluster-signed records cannot legitimately share a sequence number —
+/// and is refused rather than silently ordering both. `seq == 0`
+/// (pre-sequencing records) dedups on full-record equality only.
 pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     if !record.verify() {
         return Err(EaiError::protocol(
             "refusing to append a commit record that fails signature or consistency verification",
         ));
+    }
+    let held = load_from(path);
+    if record.seq > 0 {
+        if let Some(existing) = held
+            .iter()
+            .find(|r| r.coordinator == record.coordinator && r.seq == record.seq)
+        {
+            if existing == record {
+                return Ok(());
+            }
+            return Err(EaiError::protocol(format!(
+                "commit equivocation: {} seq {} already held with different content",
+                record.coordinator, record.seq
+            )));
+        }
+    } else if held.iter().any(|r| r == record) {
+        return Ok(());
     }
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)
@@ -440,6 +466,59 @@ mod tests {
         // Receiving seq 4 while holding only seq 1 → missing 2 and 3.
         assert_eq!(missing_seqs(&held, "node-a", 4), vec![2, 3]);
         assert!(missing_seqs(&held, "node-a", 2).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn append_is_idempotent_and_detects_equivocation() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_equiv_{}", std::process::id()));
+        let path = dir.join("commit_log.jsonl");
+        let _ = fs::remove_dir_all(&dir);
+
+        let Some(r1) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v1",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        append_to(&path, &r1).unwrap();
+        // Re-delivery of the identical record is a no-op, not a dup.
+        append_to(&path, &r1).unwrap();
+        assert_eq!(load_from(&path).len(), 1);
+
+        // A *different* signed record claiming the same (coordinator, seq)
+        // slot is equivocation — refuse it rather than ordering both.
+        let Some(mut conflict) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "a different decision",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        conflict.seq = r1.seq;
+        if let Some(key) = crate::susi_config::cluster_key::cluster_key() {
+            conflict.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &key,
+                conflict.signed_payload().as_bytes(),
+            );
+        }
+        let err = append_to(&path, &conflict);
+        assert!(err.is_err(), "equivocating record must be refused");
+        assert!(err.unwrap_err().to_string().contains("equivocation"));
+        // The original record still stands alone.
+        let held = load_from(&path);
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].value, "v1");
         let _ = fs::remove_dir_all(&dir);
     }
 }

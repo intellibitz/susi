@@ -310,6 +310,22 @@ evidence-gated, not a kernel IPC or power-management daemon:
 | **Ambient context sync** | `susi ambient`, daemon ambient indexer | FS mtime poll → ContextGraph + SemanticIndex refresh |
 | **Multi-agent transactions** | `susi tx`, MCP `tx_*`, patch/plan loops | File (+ optional blackboard) snapshots with commit/abort restore |
 
+## Federation & consensus
+
+Cross-node quorum decisions are durable, signed, and replicated — but this is
+**not Raft/Paxos**: the ledger records signed *decisions*, not a replayable
+operation log, and there is no cross-coordinator term ordering.
+
+| Layer | Mechanism | Location |
+|-------|-----------|----------|
+| **Cluster membership** | HMAC-SHA256 signed ping/pong (`susi-peer-v1`) keyed by `~/.susi/cluster.key` (0600); verified peers persist to `~/.susi/peers.json` and rehydrate as `PeerAdmission::Explicit`. `Discovered` peers can never vote or lead. | `susi-gawd-swarm::peer_registry`, `susi_config::cluster_key` |
+| **Quorum** | Pinned electorate per round: `supervise_mission` snapshots local fleet + dispatched `PeerNode_<id>` keys at broadcast; `quorum_majority` thresholds against the electorate, not respondents — mid-vote churn shrinks responses instead of lowering the bar. | `susi-gawd-swarm::amas` |
+| **Commit ledger** | `CommitRecord` (epoch, coordinator, seq, leader, electorate, tally, quorum, value hash, HMAC signature) appended to `~/.susi/commit_log.jsonl` after verification; torn lines skipped on load. Kernel ABI — vendored to all consumers. | `susi-core::commit_log` |
+| **Replication** | Coordinator pushes each sealed record to voting peers via the governed `commit_record` GMCP tool; receivers re-verify signature + quorum consistency before appending. | `susi-gmcp::tools::core`, `susi-daemon::gmcp_bootstrap` |
+| **Leader election** | Deterministic bully over the verified roster (max `trust_score`, `node_id` tie-break) — every member converges on the same leader with no election round-trip; records stamp the elected `leader` for audit. | `SusiSupervisor::elect_leader` |
+| **Ordering + anti-entropy** | Per-coordinator monotonic `seq` (signed); a receiver detecting a gap resolves the coordinator via the `gawd.cluster.peers` roster topic and pulls missing records through `commit_log_fetch`, verifying each before append. | `commit_log::missing_seqs`, `repair_commit_gap` |
+| **Audit** | `susi commits` lists the ledger newest-first, re-verifying signatures at display time; `susi commits show <epoch-prefix>` dumps a full record. | `src/cli/commits_cli.rs` |
+
 ## Migration roadmap (remaining)
 
 1. **Stabilize contracts** — keep expanding ports only at real seams.
