@@ -1992,7 +1992,9 @@ mod os_tools_wired_tests {
 
     /// Wires `PermitAudit` and holds the audit-test lock until drop —
     /// serialized against the unwired fail-closed tests.
-    struct AuditPermitGuard(std::sync::MutexGuard<'static, ()>);
+    struct AuditPermitGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
 
     impl Drop for AuditPermitGuard {
         fn drop(&mut self) {
@@ -2009,7 +2011,7 @@ mod os_tools_wired_tests {
         PlaneBus::global().register(topics::GAWD_AUDIT_ACTION, Arc::new(PermitAudit));
         super::unwired_governance_tests::AUDIT_PERMIT
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        AuditPermitGuard(guard)
+        AuditPermitGuard { _lock: guard }
     }
 
     #[test]
