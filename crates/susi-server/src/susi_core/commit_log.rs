@@ -321,14 +321,14 @@ pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
 /// interleave a lost bump.
 static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Cross-process mutual exclusion for file read-modify-write. The
-/// in-process mutexes (TERM_LOCK, APPEND_LOCK) cover threads; this
-/// lockfile covers sibling processes sharing a config dir (daemon + CLI
-/// + a second node) — without it, two processes could both read state N
-/// and each write N+1, forking the term sequence or interleaving torn
-/// JSONL lines into the ledger. Acquisition is `O_CREAT|O_EXCL` on
-/// `<name>.lock` inside `dir`; the file records the holder pid for
-/// stale detection.
+/// Cross-process mutual exclusion for file read-modify-write.
+///
+/// The in-process mutexes (TERM_LOCK, APPEND_LOCK) cover threads; this
+/// lockfile covers sibling processes sharing a config dir — without it,
+/// two processes could both read state N and each write N+1, forking the
+/// term sequence or interleaving torn JSONL lines into the ledger.
+/// Acquisition is `O_CREAT|O_EXCL` on `<name>.lock` inside `dir`; the
+/// file records the holder pid for stale detection.
 struct FileLock {
     path: PathBuf,
 }
@@ -342,7 +342,11 @@ impl FileLock {
         fs::create_dir_all(dir).ok()?;
         let lock = dir.join(format!("{name}.lock"));
         for _ in 0..300 {
-            match fs::OpenOptions::new().write(true).create_new(true).open(&lock) {
+            match fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&lock)
+            {
                 Ok(mut f) => {
                     use std::io::Write;
                     let _ = writeln!(f, "{}", std::process::id());
@@ -405,9 +409,7 @@ pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
     // skip the write entirely rather than race it — a skipped claim leaves
     // the file consistent (the next claim retries), while a racing write
     // is exactly the lost-bump this lock exists to prevent.
-    let _file_lock = path
-        .parent()
-        .and_then(|dir| FileLock::acquire(dir, "term"));
+    let _file_lock = path.parent().and_then(|dir| FileLock::acquire(dir, "term"));
     let mut state = load_term_from(path);
     if state.leader != leader {
         state.term += 1;
@@ -456,9 +458,7 @@ pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Same cross-process serialization as claim_leadership_at — term
     // adoption is a read-modify-write and must not interleave a claim.
-    let _file_lock = path
-        .parent()
-        .and_then(|dir| FileLock::acquire(dir, "term"));
+    let _file_lock = path.parent().and_then(|dir| FileLock::acquire(dir, "term"));
     let state = load_term_from(path);
     if record.term > state.term {
         let next = TermState {

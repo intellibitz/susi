@@ -321,14 +321,14 @@ pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
 /// interleave a lost bump.
 static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Cross-process mutual exclusion for file read-modify-write. The
-/// in-process mutexes (TERM_LOCK, APPEND_LOCK) cover threads; this
-/// lockfile covers sibling processes sharing a config dir (daemon + CLI
-/// + a second node) — without it, two processes could both read state N
-/// and each write N+1, forking the term sequence or interleaving torn
-/// JSONL lines into the ledger. Acquisition is `O_CREAT|O_EXCL` on
-/// `<name>.lock` inside `dir`; the file records the holder pid for
-/// stale detection.
+/// Cross-process mutual exclusion for file read-modify-write.
+///
+/// The in-process mutexes (TERM_LOCK, APPEND_LOCK) cover threads; this
+/// lockfile covers sibling processes sharing a config dir — without it,
+/// two processes could both read state N and each write N+1, forking the
+/// term sequence or interleaving torn JSONL lines into the ledger.
+/// Acquisition is `O_CREAT|O_EXCL` on `<name>.lock` inside `dir`; the
+/// file records the holder pid for stale detection.
 struct FileLock {
     path: PathBuf,
 }
