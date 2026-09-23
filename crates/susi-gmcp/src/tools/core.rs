@@ -540,6 +540,58 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "commit_record",
+        description = "Accept a replicated swarm commit record. Args: the CommitRecord JSON object. Verifies the coordinator's cluster-key signature and internal consistency before appending to the local ledger — unsigned/forged records fail closed."
+    )]
+    pub fn commit_record(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("commit_record", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let record: crate::susi_core::commit_log::CommitRecord =
+            serde_json::from_value(arg.clone())
+                .map_err(|e| EaiError::protocol(format!("bad commit record: {e}")))?;
+        // verify() runs again inside append(); call it here so the error
+        // names the failure (forgery vs. ledger IO) rather than the generic
+        // append refusal.
+        if !record.verify() {
+            return Err(EaiError::authorization(
+                "commit record failed cluster-key signature or quorum consistency checks",
+            ));
+        }
+        crate::susi_core::commit_log::append(&record)?;
+        Ok(format!(
+            "commit {} accepted ({} / {} voters)",
+            &record.epoch[..12.min(record.epoch.len())],
+            record.tally,
+            record.electorate.len()
+        ))
+    }
+
+    #[tool(
+        name = "commit_log",
+        description = "List quorum commit records in the local ledger, newest first. Args: {limit?: N}"
+    )]
+    pub fn commit_log(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let limit = arg
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20)
+            .min(500) as usize;
+        let records = crate::susi_core::commit_log::load();
+        let mut lines = vec!["EPOCH\tCOORDINATOR\tTALLY\tQUORUM\tAT".to_string()];
+        for r in records.iter().rev().take(limit) {
+            lines.push(format!(
+                "{}\t{}\t{}\t{}\t{}",
+                &r.epoch[..12.min(r.epoch.len())],
+                r.coordinator,
+                r.tally,
+                r.quorum_threshold,
+                r.committed_at
+            ));
+        }
+        Ok(lines.join("\n"))
+    }
+
+    #[tool(
         name = "agents_list",
         description = "List managed external executors and local setup readiness"
     )]
@@ -1645,6 +1697,7 @@ mod unwired_governance_tests {
         assert!(CoreTools::os_sysinfo(&serde_json::json!({}), Path::new(".")).is_err());
         assert!(CoreTools::os_services(&serde_json::json!({}), Path::new(".")).is_err());
         assert!(CoreTools::os_kill(&serde_json::json!({"pid": 1}), Path::new(".")).is_err());
+        assert!(CoreTools::commit_record(&serde_json::json!({}), Path::new(".")).is_err());
     }
 }
 
@@ -1656,6 +1709,7 @@ mod os_tools_wired_tests {
     use super::unwired_governance_tests::isolate_bus_root;
     use super::*;
     use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     struct PermitAudit;
@@ -1725,5 +1779,80 @@ mod os_tools_wired_tests {
             Path::new("."),
         )
         .is_err());
+    }
+
+    /// Isolated config dir so `cluster.key` and `commit_log.jsonl` are
+    /// created/read under a temp root, never the real `~/.susi`. Holds the
+    /// shared env lock for the returned guard's lifetime — `cluster_key()`
+    /// resolves through XDG env vars and other tests seal/verify against
+    /// it, so the mutation must be exclusive for the whole test.
+    fn isolate_config() -> (std::sync::MutexGuard<'static, ()>, PathBuf) {
+        let guard = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir()
+            .join("susi-commit-test")
+            .join(std::process::id().to_string());
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp config dir");
+        std::env::set_var("XDG_CONFIG_HOME", &dir);
+        (guard, dir)
+    }
+
+    #[test]
+    fn commit_record_accepts_signed_record_and_appends_to_ledger() {
+        wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
+            "susi-local-master",
+            vec!["AgentA".into(), "AgentB".into(), "PeerNode_1".into()],
+            2,
+            2,
+            "committed answer",
+        ) else {
+            eprintln!("skip: cluster key unavailable");
+            return;
+        };
+        let out = CoreTools::commit_record(
+            &serde_json::to_value(&rec).expect("record to json"),
+            Path::new("."),
+        )
+        .expect("signed record must be accepted");
+        assert!(out.contains("accepted"));
+
+        let ledger = crate::susi_core::commit_log::load();
+        assert_eq!(ledger.len(), 1);
+        assert_eq!(ledger[0].value, "committed answer");
+
+        let list =
+            CoreTools::commit_log(&serde_json::json!({}), Path::new(".")).expect("commit_log list");
+        assert!(list.contains("susi-local-master"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_record_rejects_forged_and_unsigned_records() {
+        wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        // Forged: no valid signature.
+        let forged = serde_json::json!({
+            "epoch": "aa", "coordinator": "evil-peer", "electorate": ["A", "B"],
+            "tally": 2, "quorum_threshold": 2, "value_hash": "h",
+            "value": "v", "committed_at": 0, "signature": "deadbeef"
+        });
+        assert!(CoreTools::commit_record(&forged, Path::new(".")).is_err());
+        // And a correctly-shaped record whose value was tampered post-signing.
+        if let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
+            "susi-local-master",
+            vec!["A".into(), "B".into()],
+            2,
+            2,
+            "honest",
+        ) {
+            let mut tampered = serde_json::to_value(&rec).expect("json");
+            tampered["value"] = serde_json::json!("forged payload");
+            assert!(CoreTools::commit_record(&tampered, Path::new(".")).is_err());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

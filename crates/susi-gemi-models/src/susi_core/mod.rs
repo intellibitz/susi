@@ -15,6 +15,7 @@ pub mod agent_types;
 pub mod broker;
 pub mod bus;
 pub mod capture;
+pub mod commit_log;
 pub mod context_graph;
 pub mod evidence;
 pub mod intent_bus;

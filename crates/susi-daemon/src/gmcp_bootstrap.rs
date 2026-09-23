@@ -156,6 +156,20 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "commit_record",
+        "Accept a cluster-key-signed swarm quorum commit record into the local ledger",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::commit_record),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "commit_log",
+        "List quorum commit records in the local ledger, newest first",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::commit_log),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "agents_list",
         "List managed external executors and setup readiness",
         MetaCategory::IntelligenceBridge,

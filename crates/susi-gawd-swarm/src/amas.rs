@@ -422,7 +422,7 @@ impl SusiSupervisor {
     fn quorum_majority(
         electorate: &std::collections::BTreeSet<String>,
         valid_outputs: &[(String, String)],
-    ) -> Option<String> {
+    ) -> Option<(String, usize)> {
         if electorate.len() < 2 {
             return None;
         }
@@ -456,7 +456,7 @@ impl SusiSupervisor {
             .into_values()
             .filter(|(count, _)| *count >= quorum_threshold)
             .max_by_key(|(count, _)| *count)
-            .map(|(_, representative)| representative.to_string())
+            .map(|(tally, representative)| (representative.to_string(), tally))
     }
 
     /// When one agent's rank is a clear outlier above the
@@ -689,12 +689,39 @@ impl SusiSupervisor {
                     weighted_wisdom.clone()
                 };
                 (out, "STATE_CONVERGENCE")
-            } else if let Some(quorum_output) = Self::quorum_majority(&electorate, &valid_outputs) {
+            } else if let Some((quorum_output, tally)) =
+                Self::quorum_majority(&electorate, &valid_outputs)
+            {
                 eprintln!(
                     "- [Consensus Master] Quorum reached: majority of {} pinned voters agree on the same output.",
                     electorate.len()
                 );
                 let _ = std::io::stdout().flush();
+                // VC-200-001 log replication: seal the decision with the
+                // cluster key, persist locally, and push it to every peer
+                // that voted — a coordinator crash no longer loses the
+                // committed value, and each voter holds an auditable copy.
+                if let Some(record) = crate::susi_core::commit_log::CommitRecord::seal(
+                    "susi-local-master",
+                    electorate.iter().cloned().collect(),
+                    tally,
+                    electorate.len() / 2 + 1,
+                    &quorum_output,
+                ) {
+                    if let Err(e) = crate::susi_core::commit_log::append(&record) {
+                        eprintln!("- [Consensus Master] commit ledger append failed: {e}");
+                    }
+                    for node in &dispatched_peers {
+                        let addr = node.address.clone();
+                        let body = serde_json::to_string(&record).unwrap_or_default();
+                        rayon::spawn(move || {
+                            // Best-effort: an unreachable voter just misses
+                            // this entry — the ledger is a recovery aid, not
+                            // the commit itself.
+                            let _ = Self::dispatch_peer_task(&addr, "commit_record", &body);
+                        });
+                    }
+                }
                 (quorum_output, "QUORUM_COMMIT")
             } else if let Some(leader_output) =
                 Self::dominant_rank_leader(&valid_outputs, &fleet_info)
@@ -955,7 +982,7 @@ mod tests {
         ];
         let voters = electorate(&["AgentA", "PeerNode_1", "AgentB"]);
         let quorum = SusiSupervisor::quorum_majority(&voters, &outputs);
-        assert_eq!(quorum, Some("The answer is 42.".to_string()));
+        assert_eq!(quorum, Some(("The answer is 42.".to_string(), 2)));
     }
 
     #[test]
@@ -993,7 +1020,7 @@ mod tests {
         three.push(("AgentB".to_string(), "agreed".to_string()));
         assert_eq!(
             SusiSupervisor::quorum_majority(&voters, &three),
-            Some("agreed".to_string())
+            Some(("agreed".to_string(), 3))
         );
     }
 
