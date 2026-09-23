@@ -39,7 +39,7 @@ Concrete implementations are assembled only at composition roots.
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
 | `susi-paths` | Leaf REST (`:18080`): XDG / substrate paths + host-contract ports | `SusiDirs`, `ports` | std | everything else | no | no | reads env for XDG |
 | `susi-error` | Leaf REST (`:18081`): stable error model + metrics sink | `EaiError`, `EaiResult` | std, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
-| `susi-core` | Domain + ports: Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | vendored paths/error/config IPC; std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
+| `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | vendored paths/error/config IPC; std, serde, concurrency libs | gemi/gmcp/gawd/sandbox/native/daemon/server/reqwest/hyper/candle/wasmer/bollard/rmcp | providers/tools via registry | process registry | receipt archive paths |
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | `WasmHost` | vendored error IPC; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | vendored paths/error IPC; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | vendored paths/error/config IPC; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
@@ -66,6 +66,21 @@ on `127.0.0.1:18080–18084`). **`susi-daemon`** and the root **`susi`** package
 register `plane_handler` implementations and may link every plane; the root
 package may still Cargo-depend on `susi-sandbox` / `susi-native` as
 composition-root re-exports.
+
+`susi-core` is the final leaf-service conversion (`127.0.0.1:18085`,
+`SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`
+copies cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
+statics (each vendored module is a distinct type), so vendored trees back
+`plane_bus` with **`plane_bus_ipc::IpcPlaneBus`**: a per-process filesystem
+rendezvous under `<cache>/bus/<pid>/` (endpoint files for exact topics and
+prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
+`POST /handle` and `POST /stream`. Stream ids embed the opener's endpoint
+(`ipc://<addr>/<id>`) so `stream_emit` routes cross-copy; stale endpoint
+files are pruned on connect failure and dead pid dirs swept via `/proc`.
+Per-pid scoping preserves today's per-process bus isolation across daemon,
+CLI, and parallel test binaries. Process-global registries
+(`CapabilityRegistry`, `MacPolicy`, `IpcBroker`, `IntentBus`, …) become
+service- or endpoint-backed the same way when consumers vendor `susi_core`.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →

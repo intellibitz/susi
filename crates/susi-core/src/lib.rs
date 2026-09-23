@@ -54,6 +54,7 @@ pub mod mac_policy;
 pub mod manifold;
 pub mod net_guard;
 pub mod plane_bus;
+pub mod plane_bus_ipc;
 pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
