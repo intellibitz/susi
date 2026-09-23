@@ -36,12 +36,12 @@ pub mod susi_config;
 pub mod susi_sandbox;
 
 // Vendored `susi_core` microkernel subset (canonical tree:
-// `susi-core/vendor_template/susi_core/`): plane_bus facades ride
-// `IpcPlaneBus`, broker state is file-backed under the shared rendezvous,
-// so this copy interoperates with the daemon's real `susi_core` in-process.
-// rustfmt::skip: vendored byte-identical across consumers spanning style
-// editions — per-crate formatting would break the invariant.
-#[allow(dead_code)]
+// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
+// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
+// substrate files. Allows keep the tree byte-identical across consumers:
+// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
+// stop edition-2024 style drift against the edition-2021 canonical source.
+#[allow(dead_code, clippy::collapsible_if)]
 #[rustfmt::skip]
 pub mod susi_core;
 

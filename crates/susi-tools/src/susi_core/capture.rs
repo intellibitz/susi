@@ -9,7 +9,7 @@
 //! Crown rule: when a live ledger holds citable receipts, an answer must cite
 //! them. Generated text may select observations; it may never invent them.
 
-use crate::context_graph::ContextGraph;
+use crate::susi_core::context_graph::ContextGraph;
 use crate::susi_error::{EaiError, EaiResult};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
@@ -99,7 +99,7 @@ fn evidence_rendezvous(workspace: &Path) -> Option<PathBuf> {
             .join("bus")
             .join(std::process::id().to_string())
             .join("evidence")
-            .join(crate::plane_bus_ipc::enc(&canonical.to_string_lossy())),
+            .join(crate::susi_core::plane_bus_ipc::enc(&canonical.to_string_lossy())),
     )
 }
 
@@ -254,10 +254,11 @@ impl EvidenceSession {
     /// Default redaction for sessions reconstituted cross-copy: configured
     /// secret-token patterns, same as the SecurityDetector path.
     fn default_redact(s: &str) -> String {
-        let patterns =
-            crate::susi_config::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
-                .map(|c| c.governance().secret_tokens)
-                .unwrap_or_default();
+        let patterns = crate::susi_config::SusiConfig::load(
+            &crate::susi_paths::SusiDirs::config_dir(),
+        )
+        .map(|c| c.governance().secret_tokens)
+        .unwrap_or_default();
         crate::susi_error::redact::redact_patterns(&patterns, s)
     }
 
@@ -403,7 +404,7 @@ impl EvidenceSession {
             captured_at: Instant::now(),
         };
         // Audit mirror — never feeds verify_answer / resolve / bind_receipt.
-        crate::receipt_archive::ReceiptArchive::append(
+        crate::susi_core::receipt_archive::ReceiptArchive::append(
             &self.workspace,
             &self.id,
             &self.goal,
@@ -617,8 +618,8 @@ impl EvidenceSession {
         &self,
         receipt_id: &str,
         agent_id: &str,
-        claim: crate::evidence::Claim,
-    ) -> EaiResult<crate::evidence::EvidenceRecord> {
+        claim: crate::susi_core::evidence::Claim,
+    ) -> EaiResult<crate::susi_core::evidence::EvidenceRecord> {
         let receipt = self.receipt(receipt_id).ok_or_else(|| {
             EaiError::governance("TRUTH_UNVERIFIED: receipt not captured in this mission")
         })?;
@@ -632,12 +633,12 @@ impl EvidenceSession {
                 "TRUTH_VIOLATION: receipt integrity hash mismatch",
             ));
         }
-        Ok(crate::evidence::EvidenceRecord::new(
+        Ok(crate::susi_core::evidence::EvidenceRecord::new(
             agent_id.into(),
             1.0,
             receipt.observed_at,
             claim,
-            crate::evidence::EvidenceSource::ToolReceipt {
+            crate::susi_core::evidence::EvidenceSource::ToolReceipt {
                 receipt_id: receipt.id,
                 tool: receipt.tool,
                 output_hash: receipt.output_hash,
@@ -721,273 +722,3 @@ impl GroundedAnswer {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    struct Workspace(PathBuf);
-    impl Workspace {
-        fn new() -> Self {
-            static NEXT: AtomicU64 = AtomicU64::new(0);
-            let path = std::env::temp_dir().join(format!(
-                "susi-capture-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for Workspace {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-
-    fn session(workspace: &Workspace) -> Arc<EvidenceSession> {
-        EvidenceSession::new("mission", &workspace.0, |s| s.to_string()).unwrap()
-    }
-
-    fn first_receipt_id(session: &EvidenceSession) -> String {
-        session.receipts()[0].id.clone()
-    }
-
-    #[test]
-    fn dispatch_records_arguments_outcome_and_time() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        let out = EvidenceSession::capture_call(
-            "exec_command",
-            &serde_json::json!({"cmd": "uname"}),
-            &ws.0,
-            || Ok("Linux host".to_string()),
-        )
-        .unwrap();
-        assert_eq!(out, "Linux host");
-        let receipt = &session.receipts()[0];
-        assert_eq!(receipt.tool, "exec_command");
-        assert!(receipt.arguments.contains("uname"));
-        assert!(receipt.successful && receipt.observed_at > 0);
-        assert_eq!(receipt.output_hash.len(), 64);
-    }
-
-    #[test]
-    fn rayon_workers_record_into_the_mission_session() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        let path = ws.0.clone();
-        std::thread::spawn(move || {
-            EvidenceSession::capture_call("mcp_tool", &serde_json::json!(null), &path, || {
-                Ok("observation".to_string())
-            })
-            .unwrap();
-        })
-        .join()
-        .unwrap();
-        assert_eq!(session.receipts()[0].output, "observation");
-    }
-
-    #[test]
-    fn no_scope_and_wrong_workspace_record_nothing() {
-        let ws = Workspace::new();
-        let other = Workspace::new();
-        let session = session(&ws);
-        EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("x".into()))
-            .unwrap();
-        assert!(session.receipts().is_empty());
-        let _activation = EvidenceSession::activate(&session);
-        EvidenceSession::capture_call("t", &serde_json::json!(null), &other.0, || Ok("x".into()))
-            .unwrap();
-        assert!(session.receipts().is_empty());
-        // Errors are captured as unsuccessful, never as citable success.
-        EvidenceSession::capture_call("bad", &serde_json::json!(null), &ws.0, || {
-            Err(EaiError::process("boom"))
-        })
-        .unwrap_err();
-        let receipt = &session.receipts()[0];
-        assert!(!receipt.successful && receipt.output.contains("boom"));
-    }
-
-    #[test]
-    fn parse_accepts_exact_json_and_embedded_object_only() {
-        let expected = GroundedAnswer {
-            citations: vec![ReceiptCitation {
-                receipt_id: "s:0".into(),
-                json_pointer: None,
-            }],
-        };
-        assert_eq!(
-            GroundedAnswer::parse(r#"{"citations":[{"receipt_id":"s:0"}]}"#)
-                .unwrap()
-                .citations[0]
-                .receipt_id,
-            expected.citations[0].receipt_id
-        );
-        let embedded = format!(
-            "narrative {} trailing",
-            r#"{"citations":[{"receipt_id":"s:0"}]}"#
-        );
-        assert!(GroundedAnswer::parse(&embedded).is_some());
-        for rejected in [
-            "plain narrative",
-            r#"{"other":{"citations":"not the answer shape"}}"#,
-            r#"{"citations":[{"receipt_id":"s:0","extra":1}]}"#,
-            r#"{"citations":"unclosed""#,
-        ] {
-            assert!(GroundedAnswer::parse(rejected).is_none(), "{rejected}");
-        }
-    }
-
-    #[test]
-    fn resolve_renders_receipts_and_rejects_forged_or_stale_citations() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        EvidenceSession::capture_call(
-            "open_meteo_weather",
-            &serde_json::json!({"place": "Chennai"}),
-            &ws.0,
-            || Ok(r#"{"current":{"temperature_2m":24.8}}"#.to_string()),
-        )
-        .unwrap();
-        let id = first_receipt_id(&session);
-        let answer = format!(
-            r#"{{"citations":[{{"receipt_id":"{id}","json_pointer":"/current/temperature_2m"}}]}}"#
-        );
-        let rendered = EvidenceSession::resolve_citations(&answer, &ws.0)
-            .unwrap()
-            .unwrap();
-        assert!(rendered.contains("open_meteo_weather") && rendered.contains("24.8"));
-        assert!(rendered.contains("observed at Unix"));
-
-        let forged = r#"{"citations":[{"receipt_id":"attacker:0"}]}"#;
-        assert!(EvidenceSession::resolve_citations(forged, &ws.0)
-            .unwrap()
-            .is_err());
-        let empty = r#"{"citations":[]}"#;
-        assert!(EvidenceSession::resolve_citations(empty, &ws.0)
-            .unwrap()
-            .is_err());
-        let duplicate =
-            format!(r#"{{"citations":[{{"receipt_id":"{id}"}},{{"receipt_id":"{id}"}}]}}"#);
-        assert!(EvidenceSession::resolve_citations(&duplicate, &ws.0)
-            .unwrap()
-            .is_err());
-        let other = Workspace::new();
-        assert!(EvidenceSession::resolve_citations(&answer, &other.0)
-            .unwrap()
-            .is_err());
-        // Non-citation text returns None so callers can apply normal checks.
-        assert!(EvidenceSession::resolve_citations("a narrative", &ws.0).is_none());
-    }
-
-    #[test]
-    fn citations_outlive_their_session_never() {
-        let ws = Workspace::new();
-        let answer;
-        {
-            let session = session(&ws);
-            let _activation = EvidenceSession::activate(&session);
-            EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("x".into()))
-                .unwrap();
-            answer = format!(
-                r#"{{"citations":[{{"receipt_id":"{}"}}]}}"#,
-                first_receipt_id(&session)
-            );
-        }
-        // Session dropped: persisted receipt text cannot mint authority.
-        assert!(EvidenceSession::resolve_citations(&answer, &ws.0)
-            .unwrap()
-            .is_err());
-    }
-
-    #[test]
-    fn evidence_prompt_lists_receipts_only_when_present() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        assert!(EvidenceSession::evidence_prompt_for(&ws.0).is_empty());
-        EvidenceSession::capture_call("mcp", &serde_json::json!(null), &ws.0, || Ok("data".into()))
-            .unwrap();
-        let prompt = EvidenceSession::evidence_prompt_for(&ws.0);
-        assert!(prompt.contains("CAPTURED_TOOL_EVIDENCE"));
-        assert!(prompt.contains(&first_receipt_id(&session)));
-    }
-
-    #[test]
-    fn narrative_is_rejected_when_citable_receipts_exist() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        EvidenceSession::capture_call(
-            "exec_command",
-            &serde_json::json!({"cmd": "hostname"}),
-            &ws.0,
-            || Ok("susi-host".into()),
-        )
-        .unwrap();
-        let err = EvidenceSession::verify_answer("The hostname is invent.example", &ws.0)
-            .unwrap()
-            .unwrap_err();
-        assert!(err.to_string().contains("must be cited"));
-        let cited = format!(
-            r#"{{"citations":[{{"receipt_id":"{}"}}]}}"#,
-            first_receipt_id(&session)
-        );
-        let rendered = EvidenceSession::verify_answer(&cited, &ws.0)
-            .unwrap()
-            .unwrap();
-        assert!(rendered.contains("susi-host") && rendered.contains("output_hash"));
-    }
-
-    #[test]
-    fn workspace_activation_is_exclusive_and_bind_receipt_works() {
-        let ws = Workspace::new();
-        let first = session(&ws);
-        let second = EvidenceSession::new("other", &ws.0, |s| s.to_string()).unwrap();
-        let _a = EvidenceSession::activate(&first);
-        EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("one".into()))
-            .unwrap();
-        let _b = EvidenceSession::activate(&second);
-        EvidenceSession::capture_call("t", &serde_json::json!(null), &ws.0, || Ok("two".into()))
-            .unwrap();
-        // Only the currently activated session receives new receipts.
-        assert!(first.receipts().iter().all(|r| r.output == "one"));
-        assert_eq!(second.receipts()[0].output, "two");
-        let id = first_receipt_id(&second);
-        let record = second
-            .bind_receipt(
-                &id,
-                "agent",
-                crate::evidence::Claim {
-                    subject: "host".into(),
-                    predicate: "observed".into(),
-                    value: second.receipts()[0].output_hash.clone(),
-                },
-            )
-            .unwrap();
-        assert!(record.verify_reality(&ws.0));
-        let forged = second
-            .bind_receipt(
-                &id,
-                "agent",
-                crate::evidence::Claim {
-                    subject: "host".into(),
-                    predicate: "says".into(),
-                    value: "invented".into(),
-                },
-            )
-            .unwrap();
-        assert!(!forged.verify_reality(&ws.0));
-    }
-
-    #[test]
-    fn without_receipts_narrative_is_not_a_citation_attempt() {
-        let ws = Workspace::new();
-        let session = session(&ws);
-        let _activation = EvidenceSession::activate(&session);
-        assert!(EvidenceSession::verify_answer("plain narrative", &ws.0).is_none());
-    }
-}

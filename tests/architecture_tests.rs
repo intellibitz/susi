@@ -178,6 +178,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -479,6 +480,21 @@ fn susi_server_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-server vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_tools_must_not_depend_on_workspace_crates() {
+    // susi-tools vendors the susi_core subset (`src/susi_core/` from
+    // crates/susi-core/vendor_template/) plus the leaf modules — the second
+    // consumer converted under the microkernel path.
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-tools/Cargo.toml"))
+        .expect("susi-tools Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-tools vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
     );
 }
 

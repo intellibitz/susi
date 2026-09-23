@@ -66,6 +66,14 @@ impl IpcPlaneBus {
         Self::with_rendezvous(dir)
     }
 
+    /// The shared bus for this copy: all vendored modules in one consumer
+    /// crate route through it, so a registration from `registry_ipc` is
+    /// reachable via `plane_bus` lookups and vice versa.
+    pub fn global() -> Arc<Self> {
+        static BUS: OnceLock<Arc<IpcPlaneBus>> = OnceLock::new();
+        Arc::clone(BUS.get_or_init(|| Arc::new(Self::new())))
+    }
+
     /// Explicit rendezvous dir — tests give each "process" its own dir tree
     /// without mutating process env.
     pub fn with_rendezvous(rendezvous: PathBuf) -> Self {

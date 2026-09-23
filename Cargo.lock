@@ -6896,6 +6896,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
+ "flume",
  "getrandom 0.4.3",
  "hex",
  "parking_lot",
@@ -6904,7 +6905,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "susi-core",
  "tokio",
  "tracing",
  "ureq 3.4.2",

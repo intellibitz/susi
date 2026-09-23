@@ -97,14 +97,16 @@ pub trait PlaneHandler: Send + Sync {
 /// through this copy's `global()` are visible to all other vendored
 /// `susi_core` copies in the same process.
 pub struct PlaneBus {
-    inner: IpcPlaneBus,
+    inner: Arc<IpcPlaneBus>,
 }
 
 impl PlaneBus {
     pub fn global() -> &'static PlaneBus {
         static BUS: OnceLock<PlaneBus> = OnceLock::new();
         BUS.get_or_init(|| PlaneBus {
-            inner: IpcPlaneBus::new(),
+            // Shared with this crate's registry_ipc/broker/etc. so one
+            // listener serves all vendored modules.
+            inner: IpcPlaneBus::global(),
         })
     }
 

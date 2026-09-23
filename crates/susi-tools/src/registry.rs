@@ -46,7 +46,7 @@ impl ToolRegistry {
             desc: String,
             handler: crate::types::MetaToolHandler,
         }
-        impl susi_core::registry::Tool for CapTool {
+        impl crate::susi_core::registry::Tool for CapTool {
             fn name(&self) -> &str {
                 &self.name
             }
@@ -57,12 +57,12 @@ impl ToolRegistry {
                 &self,
                 args: &serde_json::Value,
                 workspace: &Path,
-            ) -> susi_core::susi_error::EaiResult<String> {
+            ) -> crate::susi_core::susi_error::EaiResult<String> {
                 (self.handler)(args, workspace)
-                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
+                    .map_err(|e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
             }
         }
-        susi_core::registry::CapabilityRegistry::global().register_tool(CapTool {
+        crate::susi_core::registry::CapabilityRegistry::global().register_tool(CapTool {
             name: name.to_string(),
             desc: desc.to_string(),
             handler: tool.handler.clone(),
@@ -84,7 +84,7 @@ impl ToolRegistry {
         tools.extend(GmcpClient::list_external_tools());
 
         // Pillar 8: surface live-discovered MCP tools from CapabilityRegistry
-        let caps = susi_core::registry::CapabilityRegistry::global();
+        let caps = crate::susi_core::registry::CapabilityRegistry::global();
         for name in caps.list_tools() {
             if let Some(tool) = caps.get_tool(&name) {
                 tools.push(McpTool {
@@ -119,7 +119,7 @@ impl ToolRegistry {
         if registry.tools.contains_key(name) {
             return true;
         }
-        if susi_core::registry::CapabilityRegistry::global()
+        if crate::susi_core::registry::CapabilityRegistry::global()
             .get_tool(name)
             .is_some()
         {
@@ -138,15 +138,16 @@ impl ToolRegistry {
     }
 
     pub fn execute_tool(name: &str, arg: &serde_json::Value, workspace: &Path) -> String {
-        if let Err(e) =
-            susi_core::mac_policy::MacPolicy::global().authorize_tool(name, arg, workspace, None)
+        if let Err(e) = crate::susi_core::mac_policy::MacPolicy::global()
+            .authorize_tool(name, arg, workspace, None)
         {
             return format!("{e}");
         }
 
         // Prefer CapabilityRegistry for discovered MCP tools so swarm dispatch
         // uses the same hot-plugged catalog as zero-config bootstrap.
-        if let Some(tool) = susi_core::registry::CapabilityRegistry::global().get_tool(name) {
+        if let Some(tool) = crate::susi_core::registry::CapabilityRegistry::global().get_tool(name)
+        {
             return match tool.execute(arg, workspace) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),
@@ -160,10 +161,16 @@ impl ToolRegistry {
             } else {
                 arg.to_string()
             };
-            return susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
-                GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str)
-                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
-            })
+            return crate::susi_core::capture::EvidenceSession::capture_call(
+                name,
+                arg,
+                workspace,
+                || {
+                    GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str).map_err(
+                        |e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()),
+                    )
+                },
+            )
             .unwrap_or_else(|error| error.to_string());
         }
 
@@ -189,7 +196,7 @@ impl ToolRegistry {
                 } else {
                     arg.to_string()
                 };
-                match susi_core::capture::EvidenceSession::capture_call(
+                match crate::susi_core::capture::EvidenceSession::capture_call(
                     name,
                     arg,
                     workspace,
@@ -197,7 +204,9 @@ impl ToolRegistry {
                         crate::susi_native::wasm::WasmHost::execute_untrusted_wasm(
                             &wasm_path, &arg_str,
                         )
-                        .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
+                        .map_err(|e| {
+                            crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
+                        })
                     },
                 ) {
                     Ok(res) => return res,
@@ -212,10 +221,16 @@ impl ToolRegistry {
             .get(name)
             .map(|entry| Arc::clone(entry.value()));
         if let Some(tool) = tool {
-            match susi_core::capture::EvidenceSession::capture_call(name, arg, workspace, || {
-                tool.execute(arg, workspace)
-                    .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
-            }) {
+            match crate::susi_core::capture::EvidenceSession::capture_call(
+                name,
+                arg,
+                workspace,
+                || {
+                    tool.execute(arg, workspace).map_err(|e| {
+                        crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
+                    })
+                },
+            ) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),
             }
@@ -303,7 +318,7 @@ mod tests {
 
     struct MockCapabilityTool;
 
-    impl susi_core::registry::Tool for MockCapabilityTool {
+    impl crate::susi_core::registry::Tool for MockCapabilityTool {
         fn name(&self) -> &str {
             "mock_mcp:echo"
         }
@@ -314,14 +329,14 @@ mod tests {
             &self,
             _args: &serde_json::Value,
             _workspace: &Path,
-        ) -> susi_core::susi_error::EaiResult<String> {
+        ) -> crate::susi_core::susi_error::EaiResult<String> {
             Ok("from-capability-registry".to_string())
         }
     }
 
     #[test]
     fn execute_tool_routes_discovered_mcp_via_capability_registry() {
-        susi_core::registry::CapabilityRegistry::global().register_tool(MockCapabilityTool);
+        crate::susi_core::registry::CapabilityRegistry::global().register_tool(MockCapabilityTool);
         assert!(ToolRegistry::exists("mock_mcp:echo"));
         let out =
             ToolRegistry::execute_tool("mock_mcp:echo", &serde_json::json!({}), Path::new("."));

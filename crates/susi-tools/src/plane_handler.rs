@@ -1,10 +1,10 @@
 //! Plane-bus handler for all `tools.*` topics.
 
+use crate::susi_core::plane_bus::topics;
+use crate::susi_core::plane_bus::{PlaneBus, PlaneHandler};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
-use susi_core::plane_bus::topics;
-use susi_core::plane_bus::{PlaneBus, PlaneHandler};
 
 use crate::client::GmcpClient;
 use crate::registry::ToolRegistry;

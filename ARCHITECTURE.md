@@ -43,7 +43,7 @@ Concrete implementations are assembled only at composition roots.
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | `WasmHost` | vendored error IPC; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | vendored paths/error IPC; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | vendored paths/error/config IPC; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | core, vendored sandbox/config/native IPC, rmcp/reqwest | **peer feature crates** (use `plane_bus`) | tools | registry | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **vendored `susi_core` subset** (`src/susi_core/`): registry/capture/mac_policy over the bus rendezvous; vendored sandbox/config/native/error IPC, rmcp/reqwest | **all workspace crates** (zero-dep consumer); peers via vendored `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | core, vendored sandbox/config IPC | **peer feature crates** | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | core, vendored sandbox/config IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | models, core, vendored sandbox/config IPC | **peer planes** (gemi/tools/agents/gawd/gmcp/server); call others via `plane_bus` only | providers | model weights | yes |
@@ -89,13 +89,19 @@ global registries (`MacPolicy` — already file-keyed via
 `~/.susi/mac.hmac.key`, `IpcBroker`, `IntentBus`, …) become service- or
 endpoint-backed the same way when consumers vendor `susi_core`.
 
-**First vendored consumer: `susi-server`.** Its `src/susi_core/` tree
-(canonical: `crates/susi-core/vendor_template/susi_core/`) carries the
-subset it needs — `plane_bus` facades with `PlaneBus` delegating to
-`IpcPlaneBus`, `plane_bus_ipc`, a file-backed `IpcBroker` under
-`<cache>/bus/<pid>/broker/` (grants/requests/inbox as JSON files), plus
-`context_graph`/`net_guard`/`telemetry`/`agent_types` with `crate::` paths
-remounted to the vendored tree. `GemiServer::start_http_server` binds the
+**Vendored consumers: `susi-server`, `susi-tools`.** Each carries a
+`src/susi_core/` tree (canonical:
+`crates/susi-core/vendor_template/susi_core/`) — `plane_bus` facades with
+`PlaneBus` delegating to `IpcPlaneBus`, `plane_bus_ipc`, a file-backed
+`IpcBroker` under `<cache>/bus/<pid>/broker/` (grants/requests/inbox as
+JSON files), `registry` delegating to `IpcCapabilityRegistry` (so tools
+registered in one copy dispatch cross-copy), `capture`/`evidence`/
+`receipt_archive` with a receipts inbox drained by the owning session,
+file-backed `mac_policy` sharing `~/.susi/mac.hmac.key`, plus
+`context_graph`/`net_guard`/`telemetry`/`agent_types`/`provider` with
+`crate::` paths remounted to the vendored tree. `mod.rs` re-exports the
+crate-root leaf modules (`susi_core::susi_error`, `susi_core::redact`) so
+call sites resolve unchanged. `GemiServer::start_http_server` binds the
 vendored `ContextGraph` to `<workspace>/context_graph.jsonl` — the same
 log the daemon's copy uses, and every read path already `replay()`s it.
 Vendored copies carry no `#[cfg(test)]` modules and must remain
