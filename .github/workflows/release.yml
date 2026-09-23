@@ -175,3 +175,23 @@ jobs:
           files: |
             susi-linux-x86_64-cuda.tar.gz
             susi-linux-x86_64-cuda.tar.gz.sha256
+
+  # Retention: keep rolling `dev` (other workflow) + newest 2 semver Releases.
+  # Older GitHub Release *objects* (and their ~700MB assets) are deleted;
+  # git tags are never removed so history stays intact.
+  prune-old-releases:
+    name: Prune old GitHub Releases
+    needs: [build, build-cuda]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Prune semver releases beyond retention
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_SEMVER_RELEASES: "2"
+        run: |
+          chmod +x scripts/prune-old-github-releases.sh
+          ./scripts/prune-old-github-releases.sh

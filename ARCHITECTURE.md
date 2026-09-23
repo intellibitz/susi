@@ -236,3 +236,9 @@ evidence-gated, not a kernel IPC or power-management daemon:
    execute-time network/process grants (`network.egress`, `process.exec`) are
    declared vocabulary reserved for Wasm/exec surfaces.
 5. **CI** — reject layer violations (architecture tests already fail the build).
+
+## Release retention
+
+Semver GitHub Releases keep the newest **two** `vX.Y.Z` entries (assets).
+The rolling `dev` pre-release is managed by `dev-release.yml` and is never pruned.
+Older GitHub Release objects are deleted by `scripts/prune-old-github-releases.sh` after each tagged release build (`release.yml` job `prune-old-releases`); **git tags are retained**.
