@@ -55,6 +55,10 @@ pub mod topics {
     pub const GAWD_CAPABILITY_GAP: &str = "gawd.admin.capability_gap";
     pub const GAWD_LOCK_BROADCAST: &str = "gawd.admin.lock_broadcast";
     pub const GAWD_SCHEDULER_RECENT: &str = "gawd.scheduler.recent";
+    /// Verified cluster roster (node_id ↔ address) for commit-ledger
+    /// anti-entropy: a receiver that detects a seq gap resolves the
+    /// coordinator's address here, then pulls the missing records.
+    pub const GAWD_CLUSTER_PEERS: &str = "gawd.cluster.peers";
 
     pub const TOOLS_EXISTS: &str = "tools.registry.exists";
     pub const TOOLS_EXECUTE: &str = "tools.registry.execute";
@@ -594,6 +598,26 @@ pub mod gawd {
 
     pub fn apply_patch(payload: Value) -> Result<Value, String> {
         req(topics::GAWD_PATCH, payload)
+    }
+
+    /// Verified cluster roster as `(node_id, address)` pairs — used by
+    /// commit-ledger anti-entropy to resolve a coordinator's address.
+    pub fn cluster_peers() -> Result<Vec<(String, String)>, String> {
+        let v = req(topics::GAWD_CLUSTER_PEERS, json!({}))?;
+        let peers = v
+            .get("peers")
+            .and_then(|p| p.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|p| {
+                        let id = p.get("node_id")?.as_str()?.to_string();
+                        let addr = p.get("address")?.as_str()?.to_string();
+                        Some((id, addr))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(peers)
     }
 
     pub fn bloat_audit(workspace: &Path) -> Result<String, String> {

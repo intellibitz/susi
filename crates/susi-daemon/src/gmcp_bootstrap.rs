@@ -170,6 +170,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "commit_log_fetch",
+        "Return commit-ledger records for peer anti-entropy pulls",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::commit_log_fetch),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "agents_list",
         "List managed external executors and setup readiness",
         MetaCategory::IntelligenceBridge,

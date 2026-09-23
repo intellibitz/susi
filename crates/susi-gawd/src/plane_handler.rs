@@ -138,6 +138,24 @@ impl PlaneHandler for GawdPlaneHandler {
                 decisions.truncate(limit);
                 serde_json::to_value(decisions).map_err(|e| e.to_string())
             }
+            topics::GAWD_CLUSTER_PEERS => {
+                // Verified roster for commit-ledger anti-entropy: only
+                // active Local/Explicit members are useful replication
+                // targets — a Discovered node's address is untrusted.
+                let peers: Vec<Value> = crate::amas::SusiSupervisor::list_cluster_nodes()
+                    .into_iter()
+                    .filter(|n| {
+                        n.is_active
+                            && matches!(
+                                n.admission,
+                                crate::amas::PeerAdmission::Local
+                                    | crate::amas::PeerAdmission::Explicit
+                            )
+                    })
+                    .map(|n| json!({ "node_id": n.node_id, "address": n.address }))
+                    .collect();
+                Ok(json!({ "peers": peers }))
+            }
             other => Err(format!("gawd handler: unhandled topic '{other}'")),
         }
     }

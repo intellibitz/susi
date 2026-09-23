@@ -155,7 +155,11 @@ impl CommitRecord {
     /// The exact bytes the signature covers (compact JSON of
     /// `SignedFields` — serde emits struct fields in declaration order,
     /// so this is stable across processes and vendored copies).
-    fn signed_payload(&self) -> String {
+    /// `pub(crate)` so consumer-crate tests can re-sign a record after
+    /// mutating fields (e.g. fabricating a seq gap); production callers
+    /// go through `seal`.
+    #[doc(hidden)]
+    pub(crate) fn signed_payload(&self) -> String {
         serde_json::to_string(&SignedFields {
             epoch: &self.epoch,
             coordinator: &self.coordinator,

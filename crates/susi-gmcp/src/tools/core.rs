@@ -559,7 +559,8 @@ impl CoreTools {
         }
         // Replication-gap check BEFORE append: a seq that skips ahead of
         // what this node holds means commits from this coordinator were
-        // lost in transit — surfaced in the tool response, never hidden.
+        // lost in transit — repair by pulling the missing records from
+        // the coordinator's own ledger (anti-entropy), then report.
         let held = crate::susi_core::commit_log::load();
         let missing =
             crate::susi_core::commit_log::missing_seqs(&held, &record.coordinator, record.seq);
@@ -572,14 +573,97 @@ impl CoreTools {
             record.seq
         );
         if !missing.is_empty() {
-            out.push_str(&format!(
-                " — WARNING: replication gap, missing seq {:?} from {}",
-                missing, record.coordinator
-            ));
+            match repair_commit_gap(&record.coordinator, &missing) {
+                Ok(repaired) if repaired == missing.len() => {
+                    out.push_str(&format!(
+                        " — repaired {} missing record(s) from {}",
+                        repaired, record.coordinator
+                    ));
+                }
+                Ok(repaired) => {
+                    out.push_str(&format!(
+                        " — WARNING: replication gap, missing seq {:?} from {} (repaired {})",
+                        missing, record.coordinator, repaired
+                    ));
+                }
+                Err(e) => {
+                    out.push_str(&format!(
+                        " — WARNING: replication gap, missing seq {:?} from {} (repair failed: {})",
+                        missing, record.coordinator, e
+                    ));
+                }
+            }
         }
         Ok(out)
     }
 
+    #[tool(
+        name = "commit_log_fetch",
+        description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N} — records with seq >= from_seq from that coordinator (or all coordinators)."
+    )]
+    pub fn commit_log_fetch(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let coordinator = arg.get("coordinator").and_then(|v| v.as_str());
+        let from_seq = arg.get("from_seq").and_then(|v| v.as_u64()).unwrap_or(1);
+        let records: Vec<crate::susi_core::commit_log::CommitRecord> =
+            crate::susi_core::commit_log::load()
+                .into_iter()
+                .filter(|r| coordinator.is_none_or(|c| r.coordinator == c) && r.seq >= from_seq)
+                .collect();
+        serde_json::to_string(&records)
+            .map_err(|e| EaiError::internal(format!("serialize commit records: {e}")))
+    }
+}
+
+/// Anti-entropy repair for the commit ledger: resolve `coordinator`'s
+/// address through the gawd cluster-roster topic, pull the missing seqs
+/// via `commit_log_fetch`, verify each record's signature before
+/// appending — a compromised peer can never inject unverifiable history,
+/// it can only fail to answer. Returns the count of records repaired.
+fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String> {
+    let peers = gawd::cluster_peers().map_err(|e| format!("cluster roster unavailable: {e}"))?;
+    let Some(addr) = peers
+        .iter()
+        .find(|(id, _)| id == coordinator)
+        .map(|(_, a)| a.clone())
+    else {
+        return Err(format!("coordinator {coordinator} not in verified roster"));
+    };
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "commit_log_fetch",
+            "arguments": { "coordinator": coordinator, "from_seq": missing[0] }
+        }
+    });
+    let text = crate::susi_config::http_agent()
+        .post(format!("http://{addr}"))
+        .send_json(&body)
+        .map_err(|e| format!("fetch from {addr}: {e}"))?
+        .body_mut()
+        .read_json::<serde_json::Value>()
+        .map_err(|e| format!("parse fetch response: {e}"))?
+        .pointer("/result/content/0/text")
+        .and_then(|t| t.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "no tool output in fetch response".to_string())?;
+    let fetched: Vec<crate::susi_core::commit_log::CommitRecord> =
+        serde_json::from_str(&text).map_err(|e| format!("bad records: {e}"))?;
+    let mut repaired = 0usize;
+    for r in fetched {
+        if r.coordinator == coordinator
+            && missing.contains(&r.seq)
+            && r.verify()
+            && crate::susi_core::commit_log::append(&r).is_ok()
+        {
+            repaired += 1;
+        }
+    }
+    Ok(repaired)
+}
+
+impl CoreTools {
     #[tool(
         name = "commit_log",
         description = "List quorum commit records in the local ledger, newest first. Args: {limit?: N}"
@@ -1873,6 +1957,81 @@ mod os_tools_wired_tests {
             tampered["value"] = serde_json::json!("forged payload");
             assert!(CoreTools::commit_record(&tampered, Path::new(".")).is_err());
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_log_fetch_filters_by_coordinator_and_seq() {
+        wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        let seal = |value: &str| {
+            crate::susi_core::commit_log::CommitRecord::seal(
+                crate::susi_core::commit_log::CommitInput {
+                    coordinator: "c",
+                    leader: "c",
+                    electorate: vec!["A".into(), "B".into()],
+                    tally: 2,
+                    quorum_threshold: 2,
+                    value,
+                },
+            )
+        };
+        let (Some(r1), ..) = (seal("v1"),) else {
+            return;
+        };
+        crate::susi_core::commit_log::append(&r1).expect("append r1");
+        // seq is assigned from the ledger at seal time — append first so
+        // the second record gets seq 2.
+        let Some(r2) = seal("v2") else { return };
+        assert_eq!(r2.seq, 2);
+        crate::susi_core::commit_log::append(&r2).expect("append r2");
+
+        let out = CoreTools::commit_log_fetch(
+            &serde_json::json!({"coordinator": "c", "from_seq": 2}),
+            Path::new("."),
+        )
+        .expect("fetch");
+        let got: Vec<crate::susi_core::commit_log::CommitRecord> =
+            serde_json::from_str(&out).expect("records json");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].seq, 2);
+        assert_eq!(got[0].value, "v2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_record_reports_gap_when_repair_unreachable() {
+        wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        let seal = |value: &str| {
+            crate::susi_core::commit_log::CommitRecord::seal(
+                crate::susi_core::commit_log::CommitInput {
+                    coordinator: "ghost-coordinator",
+                    leader: "ghost-coordinator",
+                    electorate: vec!["A".into(), "B".into()],
+                    tally: 2,
+                    quorum_threshold: 2,
+                    value,
+                },
+            )
+        };
+        let (Some(r3),) = (seal("v3"),) else { return };
+        // seq 3 arrives with nothing held for this coordinator → gap
+        // [1,2]; repair can't resolve "ghost-coordinator" in the roster
+        // (no gawd.cluster.peers handler on the test bus), so the
+        // response must surface the warning, not swallow it.
+        let mut r3 = r3;
+        r3.seq = 3;
+        if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
+            r3.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &k,
+                r3.signed_payload().as_bytes(),
+            );
+        }
+        let out =
+            CoreTools::commit_record(&serde_json::to_value(&r3).expect("json"), Path::new("."))
+                .expect("gap record still commits");
+        assert!(out.contains("WARNING: replication gap"), "got: {out}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
