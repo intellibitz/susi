@@ -6550,7 +6550,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "susi"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -6637,7 +6637,7 @@ dependencies = [
 
 [[package]]
 name = "susi-daemon"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "getrandom 0.4.3",
  "hex",
@@ -6675,7 +6675,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gawd"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "crossbeam",
  "dashmap",
@@ -6756,7 +6756,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gemi"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "candle-core",
@@ -6813,7 +6813,7 @@ dependencies = [
 
 [[package]]
 name = "susi-gmcp"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -6889,7 +6889,7 @@ dependencies = [
 
 [[package]]
 name = "susi-server"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "bytes",
  "crossbeam",

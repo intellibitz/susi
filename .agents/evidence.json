@@ -1107,5 +1107,5 @@
   "last_verification": "2026-09-22T08:30:00Z",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
-  "version": "0.11.0"
+  "version": "0.12.0"
 }
