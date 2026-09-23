@@ -65,14 +65,21 @@ fn status() -> Result<()> {
     if peers.is_empty() {
         println!("no verified peers (peers.json empty — this node runs standalone)");
     } else {
-        println!("{:<22} {:<22} {:<7} ACTIVE", "PEER", "ADDRESS", "TRUST");
+        let live = peers.iter().filter(|p| p.probe()).count();
+        println!("peers live:  {}/{} reachable", live, peers.len());
+        println!();
+        println!(
+            "{:<22} {:<22} {:<7} {:<7} REACHABLE",
+            "PEER", "ADDRESS", "TRUST", "ACTIVE"
+        );
         for p in &peers {
             println!(
-                "{:<22} {:<22} {:<7.2} {}",
+                "{:<22} {:<22} {:<7.2} {:<7} {}",
                 p.node_id,
                 p.address,
                 p.trust_score,
-                if p.is_active { "yes" } else { "no" }
+                if p.is_active { "yes" } else { "no" },
+                if p.probe() { "yes" } else { "no" }
             );
         }
     }
@@ -115,6 +122,24 @@ struct PeerView {
     address: String,
     trust_score: f64,
     is_active: bool,
+}
+
+impl PeerView {
+    /// TCP liveness probe — the persisted roster only records who was
+    /// verified, not who is reachable right now. 300ms budget: peers
+    /// are LAN-adjacent, so a longer wait just stalls the status view.
+    fn probe(&self) -> bool {
+        use std::net::ToSocketAddrs;
+        let Some(addr) = self
+            .address
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut i| i.next())
+        else {
+            return false;
+        };
+        std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
+    }
 }
 
 fn load_verified_peers() -> Vec<PeerView> {
