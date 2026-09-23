@@ -73,6 +73,15 @@ pub struct CommitRecord {
     /// by their initiator.
     #[serde(default)]
     pub leader: String,
+    /// Consensus term the record was sealed under (Raft's term concept):
+    /// persisted cluster-wide in `~/.susi/term.json` and bumped by
+    /// `claim_leadership` whenever the elected leader changes. A *pushed*
+    /// record whose term is older than the receiver's current term is
+    /// rejected — the coordinator is working from stale leadership — while
+    /// older-term records fetched to fill history are kept (terms gate
+    /// new writes, not the log's past). `0` marks pre-term records.
+    #[serde(default)]
+    pub term: u64,
     /// HMAC-SHA256 hex over `signed_payload()` under `cluster.key`.
     /// Empty until `seal` runs; a record with an empty signature never
     /// verifies.
@@ -114,6 +123,7 @@ struct SignedFields<'a> {
     committed_at: u64,
     seq: u64,
     leader: &'a str,
+    term: u64,
 }
 
 impl CommitRecord {
@@ -145,6 +155,7 @@ impl CommitRecord {
             committed_at,
             seq: next_seq_for(&load(), input.coordinator),
             leader: input.leader.to_string(),
+            term: load_term().term,
             signature: String::new(),
         };
         rec.signature =
@@ -171,6 +182,7 @@ impl CommitRecord {
             committed_at: self.committed_at,
             seq: self.seq,
             leader: &self.leader,
+            term: self.term,
         })
         .unwrap_or_default()
     }
@@ -234,6 +246,232 @@ pub fn missing_seqs(records: &[CommitRecord], coordinator: &str, incoming_seq: u
         .map(|r| r.seq)
         .collect();
     (1..incoming_seq).filter(|s| !held.contains(s)).collect()
+}
+
+/// Persisted consensus term state (`~/.susi/term.json`). Raft's
+/// `currentTerm`/`votedFor` analog simplified for susi's deterministic
+/// bully election: `leader` is the last elected leader this node
+/// observed, and `term` bumps every time leadership changes. Signed
+/// into every `CommitRecord`, so a node that fell behind can adopt the
+/// newer term from any replicated record.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TermState {
+    /// Monotonic consensus term — `0` until the first leadership claim.
+    pub term: u64,
+    /// `node_id` of the leader elected under `term`.
+    pub leader: String,
+    /// Unix seconds of the last term update.
+    pub updated_at: u64,
+}
+
+/// Where term state lives.
+pub fn term_path() -> PathBuf {
+    SusiDirs::config_dir().join("term.json")
+}
+
+/// Current term state; defaults to `term 0, no leader` when the file is
+/// absent or unreadable — a node with no term state has never observed
+/// an election, which is a valid starting point.
+pub fn load_term() -> TermState {
+    load_term_from(&term_path())
+}
+
+/// Test seam: load term state from an explicit path.
+pub fn load_term_from(path: &PathBuf) -> TermState {
+    let Ok(text) = fs::read_to_string(path) else {
+        return TermState {
+            term: 0,
+            leader: String::new(),
+            updated_at: 0,
+        };
+    };
+    serde_json::from_str(&text).unwrap_or(TermState {
+        term: 0,
+        leader: String::new(),
+        updated_at: 0,
+    })
+}
+
+/// Persist term state atomically (temp + rename — a crash mid-write
+/// must never corrupt the term file into a state a peer could adopt).
+pub fn save_term(state: &TermState) -> EaiResult<()> {
+    save_term_to(&term_path(), state)
+}
+
+/// Test seam: persist term state to an explicit path.
+pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)
+            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let body = serde_json::to_string(state)
+        .map_err(|e| EaiError::internal(format!("serialize term state: {e}")))?;
+    fs::write(&tmp, body)
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", tmp.display())))?;
+    fs::rename(&tmp, path)
+        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", path.display())))
+}
+
+/// Called by a coordinator before sealing a commit: records the elected
+/// leader and bumps the term when leadership changed, returning the
+/// term to stamp on the record. Same-leader re-elections reuse the
+/// current term — terms move only on real leadership transitions.
+pub fn claim_leadership(leader: &str) -> u64 {
+    claim_leadership_at(&term_path(), leader)
+}
+
+/// Test seam: claim leadership against an explicit term file.
+pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
+    let mut state = load_term_from(path);
+    if state.leader != leader {
+        state.term += 1;
+        state.leader = leader.to_string();
+        state.updated_at = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Best-effort: a node that can't persist term state still seals
+        // with the in-memory value; the next load re-reads the file.
+        let _ = save_term_to(path, &state);
+    }
+    state.term
+}
+
+/// What a receiver should do with an incoming record's term.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TermVerdict {
+    /// Record is current-term — accept normally.
+    Current,
+    /// Record carries a newer term — adopted into `term.json` (returns
+    /// the adopted state). Raft's step-down rule: observe a higher term,
+    /// update your own.
+    Adopted(TermState),
+    /// Record's term is behind the local term — the coordinator is
+    /// working from stale leadership. Reject pushes; anti-entropy
+    /// history fills bypass this check by calling `append` directly.
+    Stale,
+    /// Same term but a different leader than persisted — two leaders
+    /// cannot legitimately share a term (split-brain evidence). The
+    /// record is still appended (it is validly signed history), but the
+    /// verdict surfaces the anomaly for the tool response.
+    LeaderConflict,
+}
+
+/// Evaluate an incoming record's term against persisted state, adopting
+/// higher terms. Call before `append` on the push path.
+pub fn check_term(record: &CommitRecord) -> TermVerdict {
+    check_term_at(&term_path(), record)
+}
+
+/// Test seam: `check_term` against an explicit term file.
+pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
+    let state = load_term_from(path);
+    if record.term > state.term {
+        let next = TermState {
+            term: record.term,
+            leader: record.leader.clone(),
+            updated_at: std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        };
+        let _ = save_term_to(path, &next);
+        return TermVerdict::Adopted(next);
+    }
+    if record.term < state.term {
+        return TermVerdict::Stale;
+    }
+    if !state.leader.is_empty() && !record.leader.is_empty() && record.leader != state.leader {
+        return TermVerdict::LeaderConflict;
+    }
+    TermVerdict::Current
+}
+
+/// The cluster's consensus view reconstructed by folding the whole
+/// ledger — the honest "state-machine replay": this struct is a pure
+/// function of `commit_log.jsonl`, so any node holding the same records
+/// derives the same view.
+#[derive(Debug, Clone, Default)]
+pub struct ClusterState {
+    /// Highest term observed in the ledger.
+    pub term: u64,
+    /// Leader stamped on the highest-term records.
+    pub leader: String,
+    /// Per-coordinator high-water sequence number.
+    pub coordinators: std::collections::BTreeMap<String, u64>,
+    /// Total records that passed signature + consistency verification.
+    pub decisions: usize,
+    /// Anomalies found while replaying (signature failures, seq
+    /// regressions, term regressions, equivocation).
+    pub anomalies: Vec<String>,
+}
+
+/// Fold `records` into a `ClusterState`. File order is NOT the
+/// authoritative order — anti-entropy legitimately appends repaired
+/// history after newer records — so invariants are checked along each
+/// coordinator's `seq` order instead:
+///
+/// - same `(coordinator, seq)` twice: identical → duplicate, different
+///   content → equivocation
+/// - term decreasing along a coordinator's seq order → term regression
+/// - holes in a coordinator's seq range → sequence gap
+pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
+    let mut state = ClusterState::default();
+    let mut by_coord: std::collections::BTreeMap<String, Vec<&CommitRecord>> =
+        std::collections::BTreeMap::new();
+    for r in records {
+        if !r.verify() {
+            state.anomalies.push(format!(
+                "invalid signature: {} seq {}",
+                r.coordinator, r.seq
+            ));
+            continue;
+        }
+        state.decisions += 1;
+        if r.term > state.term {
+            state.term = r.term;
+            state.leader = r.leader.clone();
+        }
+        by_coord.entry(r.coordinator.clone()).or_default().push(r);
+    }
+    for (coord, mut recs) in by_coord {
+        recs.sort_by_key(|r| r.seq);
+        for w in recs.windows(2) {
+            if w[0].seq == w[1].seq {
+                state.anomalies.push(if w[0] == w[1] {
+                    format!("duplicate: {coord} seq {} appended twice", w[0].seq)
+                } else {
+                    format!(
+                        "equivocation: {coord} seq {} has two different signed records",
+                        w[0].seq
+                    )
+                });
+            }
+            if w[1].term < w[0].term && w[1].seq > w[0].seq {
+                state.anomalies.push(format!(
+                    "term regression: {coord} seq {} carries term {} below seq {}'s term {}",
+                    w[1].seq, w[1].term, w[0].seq, w[0].term
+                ));
+            }
+        }
+        if let Some(high) = recs.iter().map(|r| r.seq).max() {
+            let held: std::collections::BTreeSet<u64> = recs.iter().map(|r| r.seq).collect();
+            let missing: Vec<u64> = (1..high).filter(|s| !held.contains(s)).collect();
+            if !missing.is_empty() {
+                state
+                    .anomalies
+                    .push(format!("sequence gap: {coord} missing seq {missing:?}"));
+            }
+            state.coordinators.insert(coord, high);
+        }
+    }
+    state
+}
+
+/// Replay the local ledger into the cluster's consensus view.
+pub fn replay() -> ClusterState {
+    replay_records(&load())
 }
 
 /// Where the ledger lives: `~/.susi/commit_log.jsonl` — one JSON record
@@ -424,6 +662,7 @@ mod tests {
             committed_at: 0,
             seq: 0,
             leader: String::new(),
+            term: 0,
             signature: String::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
@@ -520,5 +759,147 @@ mod tests {
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].value, "v1");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn resign(rec: &mut CommitRecord) {
+        if let Some(key) = crate::susi_config::cluster_key::cluster_key() {
+            rec.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &key,
+                rec.signed_payload().as_bytes(),
+            );
+        }
+    }
+
+    #[test]
+    fn claim_leadership_bumps_term_and_check_term_classifies() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_term_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let tpath = dir.join("term.json");
+
+        // First claim establishes term 1; same leader keeps it; a real
+        // transition bumps it.
+        assert_eq!(claim_leadership_at(&tpath, "node-a"), 1);
+        assert_eq!(load_term_from(&tpath).leader, "node-a");
+        assert_eq!(claim_leadership_at(&tpath, "node-a"), 1);
+        assert_eq!(claim_leadership_at(&tpath, "node-b"), 2);
+        assert_eq!(load_term_from(&tpath).term, 2);
+
+        let Some(rec) = CommitRecord::seal(CommitInput {
+            coordinator: "node-b",
+            leader: "node-b",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        let mut cur = rec.clone();
+        cur.term = 2;
+        cur.leader = "node-b".into();
+        resign(&mut cur);
+        assert_eq!(check_term_at(&tpath, &cur), TermVerdict::Current);
+
+        // Older term → stale push.
+        let mut stale = rec.clone();
+        stale.term = 1;
+        resign(&mut stale);
+        assert_eq!(check_term_at(&tpath, &stale), TermVerdict::Stale);
+
+        // Newer term → adopted into the term file.
+        let mut ahead = rec.clone();
+        ahead.term = 5;
+        ahead.leader = "node-c".into();
+        resign(&mut ahead);
+        match check_term_at(&tpath, &ahead) {
+            TermVerdict::Adopted(s) => {
+                assert_eq!(s.term, 5);
+                assert_eq!(s.leader, "node-c");
+            }
+            v => panic!("expected Adopted, got {v:?}"),
+        }
+        assert_eq!(load_term_from(&tpath).term, 5);
+
+        // Same term, different leader → split-brain evidence.
+        let mut conflict = rec.clone();
+        conflict.term = 5;
+        conflict.leader = "node-d".into();
+        resign(&mut conflict);
+        assert_eq!(
+            check_term_at(&tpath, &conflict),
+            TermVerdict::LeaderConflict
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn replay_reconstructs_cluster_state_and_flags_anomalies() {
+        let _g = test_key_guard();
+
+        let seal_at = |coord: &str, leader: &str, seq: u64, term: u64, value: &str| {
+            let mut r = CommitRecord::seal(CommitInput {
+                coordinator: coord,
+                leader,
+                electorate: vec!["A".into(), "B".into()],
+                tally: 2,
+                quorum_threshold: 2,
+                value,
+            })?;
+            r.seq = seq;
+            r.term = term;
+            resign(&mut r);
+            Some(r)
+        };
+
+        // node-a seq 1..3 across terms 1→2, node-b seq 1..2 at term 2,
+        // plus a node-a seq-1 equivocation and a term regression.
+        let Some(records_base) = (|| {
+            Some(vec![
+                seal_at("node-a", "node-a", 1, 1, "a1")?,
+                seal_at("node-a", "node-a", 2, 1, "a2")?,
+                seal_at("node-a", "node-b", 3, 2, "a3")?,
+                seal_at("node-b", "node-b", 1, 2, "b1")?,
+                seal_at("node-b", "node-b", 3, 2, "b3")?, // seq 2 missing → gap
+                seal_at("node-a", "node-a", 4, 1, "a4-old-term")?, // term regression
+            ])
+        })() else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        let mut records = records_base;
+        let mut equivocating = records[0].clone();
+        equivocating.value = "a1-forked".into();
+        equivocating.value_hash = hex::encode(Sha256::digest(equivocating.value.as_bytes()));
+        resign(&mut equivocating);
+        records.push(equivocating);
+
+        let state = replay_records(&records);
+        assert_eq!(state.term, 2);
+        assert_eq!(state.leader, "node-b");
+        assert_eq!(state.decisions, 7);
+        assert_eq!(state.coordinators.get("node-a"), Some(&4));
+        assert_eq!(state.coordinators.get("node-b"), Some(&3));
+        assert!(
+            state.anomalies.iter().any(|a| a.contains("equivocation")),
+            "equivocation must be flagged: {:?}",
+            state.anomalies
+        );
+        assert!(
+            state.anomalies.iter().any(|a| a.contains("sequence gap")),
+            "node-b seq gap must be flagged: {:?}",
+            state.anomalies
+        );
+        assert!(
+            state
+                .anomalies
+                .iter()
+                .any(|a| a.contains("term regression")),
+            "node-a seq4 term1 regression must be flagged: {:?}",
+            state.anomalies
+        );
     }
 }

@@ -701,16 +701,24 @@ impl SusiSupervisor {
                 // cluster key, persist locally, and push it to every peer
                 // that voted — a coordinator crash no longer loses the
                 // committed value, and each voter holds an auditable copy.
-                if let Some(record) = crate::susi_core::commit_log::CommitRecord::seal(
-                    crate::susi_core::commit_log::CommitInput {
-                        coordinator: "susi-local-master",
-                        leader: &Self::elect_leader(&cluster_nodes).unwrap_or_default(),
-                        electorate: electorate.iter().cloned().collect(),
-                        tally,
-                        quorum_threshold: electorate.len() / 2 + 1,
-                        value: &quorum_output,
-                    },
-                ) {
+                if let Some(record) = {
+                    // Term semantics (VC-200-001): claim leadership before
+                    // sealing — a leader transition bumps the persisted
+                    // cluster term, and the record stamps the current term
+                    // so receivers can reject stale-term coordinators.
+                    let leader = Self::elect_leader(&cluster_nodes).unwrap_or_default();
+                    crate::susi_core::commit_log::claim_leadership(&leader);
+                    crate::susi_core::commit_log::CommitRecord::seal(
+                        crate::susi_core::commit_log::CommitInput {
+                            coordinator: "susi-local-master",
+                            leader: &leader,
+                            electorate: electorate.iter().cloned().collect(),
+                            tally,
+                            quorum_threshold: electorate.len() / 2 + 1,
+                            value: &quorum_output,
+                        },
+                    )
+                } {
                     if let Err(e) = crate::susi_core::commit_log::append(&record) {
                         eprintln!("- [Consensus Master] commit ledger append failed: {e}");
                     }

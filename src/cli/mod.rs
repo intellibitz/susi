@@ -29,6 +29,7 @@ pub mod openclaw_cli;
 pub mod openhands_cli;
 pub mod openrouter_cli;
 pub mod openviking_cli;
+pub mod os_cli;
 pub mod patch_cli;
 pub mod plan_cli;
 pub mod plane_cli;

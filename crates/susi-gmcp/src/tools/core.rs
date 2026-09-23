@@ -557,6 +557,34 @@ impl CoreTools {
                 "commit record failed cluster-key signature or quorum consistency checks",
             ));
         }
+        // Term gate BEFORE append (VC-200-001): a pushed record from a
+        // stale term means the coordinator is working from superseded
+        // leadership — reject it (Raft's AppendEntries term check).
+        // History fills via repair_commit_gap bypass this gate by
+        // calling append() directly — terms gate new writes, not the
+        // log's past.
+        let term_note = match crate::susi_core::commit_log::check_term(&record) {
+            crate::susi_core::commit_log::TermVerdict::Stale => {
+                return Err(EaiError::protocol(format!(
+                    "stale term {} (current {}): coordinator {} is working from superseded leadership",
+                    record.term,
+                    crate::susi_core::commit_log::load_term().term,
+                    record.coordinator
+                )));
+            }
+            crate::susi_core::commit_log::TermVerdict::Adopted(s) => {
+                format!(" — adopted term {} (leader {})", s.term, s.leader)
+            }
+            crate::susi_core::commit_log::TermVerdict::LeaderConflict => {
+                format!(
+                    " — WARNING: term {} leader conflict ({} vs persisted {})",
+                    record.term,
+                    record.leader,
+                    crate::susi_core::commit_log::load_term().leader
+                )
+            }
+            crate::susi_core::commit_log::TermVerdict::Current => String::new(),
+        };
         // Replication-gap check BEFORE append: a seq that skips ahead of
         // what this node holds means commits from this coordinator were
         // lost in transit — repair by pulling the missing records from
@@ -566,12 +594,14 @@ impl CoreTools {
             crate::susi_core::commit_log::missing_seqs(&held, &record.coordinator, record.seq);
         crate::susi_core::commit_log::append(&record)?;
         let mut out = format!(
-            "commit {} accepted ({} / {} voters, seq {})",
+            "commit {} accepted ({} / {} voters, seq {}, term {})",
             &record.epoch[..12.min(record.epoch.len())],
             record.tally,
             record.electorate.len(),
-            record.seq
+            record.seq,
+            record.term
         );
+        out.push_str(&term_note);
         if !missing.is_empty() {
             match repair_commit_gap(&record.coordinator, &missing) {
                 Ok(repaired) if repaired == missing.len() => {
@@ -1894,6 +1924,10 @@ mod os_tools_wired_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create temp config dir");
         std::env::set_var("XDG_CONFIG_HOME", &dir);
+        // susi_paths only honors XDG vars under SUSI_XDG when a legacy
+        // ~/.susi exists — without this the tests would write the real
+        // host's term.json/commit_log.jsonl.
+        std::env::set_var("SUSI_XDG", "1");
         (guard, dir)
     }
 
@@ -2032,6 +2066,53 @@ mod os_tools_wired_tests {
             CoreTools::commit_record(&serde_json::to_value(&r3).expect("json"), Path::new("."))
                 .expect("gap record still commits");
         assert!(out.contains("WARNING: replication gap"), "got: {out}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_record_rejects_stale_term_and_adopts_newer() {
+        wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        // Establish term 1 under leader-a, seal a record there, then move
+        // the cluster to term 2 — the term-1 push must now be rejected.
+        crate::susi_core::commit_log::claim_leadership("leader-a");
+        let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
+            crate::susi_core::commit_log::CommitInput {
+                coordinator: "leader-a",
+                leader: "leader-a",
+                electorate: vec!["A".into(), "B".into()],
+                tally: 2,
+                quorum_threshold: 2,
+                value: "term-1 decision",
+            },
+        ) else {
+            eprintln!("skip: cluster key unavailable");
+            return;
+        };
+        assert_eq!(rec.term, 1);
+        crate::susi_core::commit_log::claim_leadership("leader-b");
+        assert_eq!(crate::susi_core::commit_log::load_term().term, 2);
+
+        let err =
+            CoreTools::commit_record(&serde_json::to_value(&rec).expect("json"), Path::new("."));
+        assert!(err.is_err(), "stale-term push must be rejected");
+        assert!(err.unwrap_err().to_string().contains("stale term"));
+
+        // A record from a newer term is accepted AND adopts the term.
+        let mut ahead = rec.clone();
+        ahead.term = 7;
+        ahead.leader = "leader-c".into();
+        if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
+            ahead.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &k,
+                ahead.signed_payload().as_bytes(),
+            );
+        }
+        let out =
+            CoreTools::commit_record(&serde_json::to_value(&ahead).expect("json"), Path::new("."))
+                .expect("newer-term record accepted");
+        assert!(out.contains("adopted term 7"), "got: {out}");
+        assert_eq!(crate::susi_core::commit_log::load_term().term, 7);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -8,6 +8,7 @@ use super::control_plane_cli::{control_plane_start, control_plane_stop};
 use super::defs::Commands;
 use super::keys_cli;
 use super::mcp_cli;
+use super::os_cli;
 use super::services_cli;
 use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
 
@@ -340,6 +341,13 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Commits { action } => {
             // Same pre-boot-dispatch note as Services above.
             if let Err(e) = commits_cli::execute(action, cwd) {
+                eprintln!("{e}");
+                return std::process::ExitCode::FAILURE;
+            }
+        }
+        Commands::Os { action } => {
+            // Same pre-boot-dispatch note as Services above.
+            if let Err(e) = os_cli::execute(action, cwd) {
                 eprintln!("{e}");
                 return std::process::ExitCode::FAILURE;
             }

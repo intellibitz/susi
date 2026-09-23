@@ -29,6 +29,7 @@ use super::openclaw_cli;
 use super::openhands_cli;
 use super::openrouter_cli;
 use super::openviking_cli;
+use super::os_cli;
 use super::patch_cli;
 use super::plan_cli;
 use super::privacy_cli;
@@ -175,6 +176,11 @@ pub(crate) enum Commands {
     Commits {
         #[command(subcommand)]
         action: Option<commits_cli::CommitsCommands>,
+    },
+    /// Operating-system view: consensus term/leader, services, verified peers
+    Os {
+        #[command(subcommand)]
+        action: Option<os_cli::OsCommands>,
     },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
@@ -489,7 +495,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Substrate { .. }
         | Commands::Crown { .. }
         | Commands::Services { .. }
-        | Commands::Commits { .. } => false,
+        | Commands::Commits { .. }
+        | Commands::Os { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

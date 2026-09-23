@@ -29,6 +29,10 @@ pub enum CommitsCommands {
     /// Whole-ledger consistency check: signature failures, sequence gaps,
     /// equivocation, and commits from non-elected coordinators
     Audit,
+    /// Fold the ledger into the cluster's consensus view (term, leader,
+    /// per-coordinator high-water marks) — the state machine is a pure
+    /// function of the log
+    Replay,
 }
 
 pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()> {
@@ -36,20 +40,22 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
         CommitsCommands::List { limit } => list(limit),
         CommitsCommands::Show { epoch } => show(&epoch),
         CommitsCommands::Audit => audit(),
+        CommitsCommands::Replay => replay_view(),
     }
 }
 
 fn list(limit: usize) -> Result<()> {
     let records = commit_log::load();
     println!(
-        "{:<14} {:<5} {:<18} {:<7} {:<7} {:<12} VERIFIED",
-        "EPOCH", "SEQ", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
+        "{:<14} {:<5} {:<5} {:<18} {:<7} {:<7} {:<12} VERIFIED",
+        "EPOCH", "SEQ", "TERM", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
     );
     for r in records.iter().rev().take(limit.min(500)) {
         println!(
-            "{:<14} {:<5} {:<18} {:<7} {:<7} {:<12} {}",
+            "{:<14} {:<5} {:<5} {:<18} {:<7} {:<7} {:<12} {}",
             &r.epoch[..12.min(r.epoch.len())],
             r.seq,
+            r.term,
             r.coordinator,
             r.tally,
             r.quorum_threshold,
@@ -77,37 +83,23 @@ fn show(epoch_prefix: &str) -> Result<()> {
     Ok(())
 }
 
-/// Cross-checks the whole ledger for the anomalies the protocol defines:
-///
-/// - **signature failure** — forged or tampered entry that landed in the file
-/// - **sequence gap** — a coordinator's `seq` skips values (lost replication
-///   that anti-entropy could not repair)
-/// - **equivocation** — two different records claiming the same
-///   `(coordinator, seq)` slot (refused at append since the idempotency fix,
-///   but a ledger written earlier or corrupted out-of-band can still hold them)
-/// - **non-leader commit** — `coordinator != leader`: per-node missions are
-///   legitimately coordinated by their initiator, so this is reported as an
-///   anomaly for audit, not a violation.
+/// Cross-checks the whole ledger for the anomalies the protocol defines.
+/// Structural checks (signature failures, sequence gaps, duplicates,
+/// equivocation, term regressions) come from `commit_log::replay` — the
+/// same fold that reconstructs consensus state, so audit and replay can
+/// never disagree. Adds the audit-only non-leader-commit check:
+/// `coordinator != leader` is legitimate for per-node missions, so it is
+/// reported as an anomaly, not a violation.
 fn audit() -> Result<()> {
     let records = commit_log::load();
-    let mut anomalies = 0usize;
+    let state = commit_log::replay_records(&records);
+    let mut anomalies = state.anomalies.len();
 
-    let mut by_coordinator: std::collections::BTreeMap<&str, Vec<&commit_log::CommitRecord>> =
-        std::collections::BTreeMap::new();
+    for a in &state.anomalies {
+        println!("{}", a.to_uppercase());
+    }
     for r in &records {
-        if !r.verify() {
-            anomalies += 1;
-            println!(
-                "INVALID SIGNATURE  {} seq {} ({})",
-                r.coordinator,
-                r.seq,
-                &r.epoch[..12.min(r.epoch.len())]
-            );
-        }
-        if r.seq > 0 {
-            by_coordinator.entry(&r.coordinator).or_default().push(r);
-        }
-        if !r.leader.is_empty() && r.leader != r.coordinator {
+        if r.verify() && !r.leader.is_empty() && r.leader != r.coordinator {
             anomalies += 1;
             println!(
                 "NON-LEADER COMMIT  {} seq {} — elected leader was {} ({})",
@@ -119,44 +111,53 @@ fn audit() -> Result<()> {
         }
     }
 
-    for (coordinator, mut recs) in by_coordinator {
-        recs.sort_by_key(|r| r.seq);
-        // Same seq appearing twice: identical lines are pre-idempotency
-        // duplicates; different content is equivocation.
-        for w in recs.windows(2) {
-            if w[0].seq == w[1].seq {
-                anomalies += 1;
-                if w[0] == w[1] {
-                    println!(
-                        "DUPLICATE  {coordinator} seq {} — identical record appended twice",
-                        w[0].seq
-                    );
-                } else {
-                    println!(
-                        "EQUIVOCATION  {coordinator} seq {} — two different signed records",
-                        w[0].seq
-                    );
-                }
-            }
-        }
-        let held: Vec<u64> = recs.iter().map(|r| r.seq).collect();
-        if let Some(&max) = held.iter().max() {
-            let missing = commit_log::missing_seqs(&records, coordinator, max + 1);
-            if !missing.is_empty() {
-                anomalies += 1;
-                println!("SEQUENCE GAP  {coordinator} — missing seq {missing:?}");
-            }
-        }
-    }
-
     println!(
-        "{} — {} record(s) checked",
+        "{} — {} record(s) checked, {} verified",
         if anomalies == 0 {
             "OK"
         } else {
             "ANOMALIES FOUND"
         },
-        records.len()
+        records.len(),
+        state.decisions
     );
+    Ok(())
+}
+
+/// Print the consensus view reconstructed from the ledger — current term,
+/// leader, and each coordinator's high-water sequence mark. Two nodes
+/// holding the same records derive the same view.
+fn replay_view() -> Result<()> {
+    let state = commit_log::replay();
+    let persisted = commit_log::load_term();
+    println!("term:          {}", state.term);
+    println!(
+        "leader:        {}",
+        if state.leader.is_empty() {
+            "(none)"
+        } else {
+            &state.leader
+        }
+    );
+    println!(
+        "persisted:     term {} / leader {}",
+        persisted.term,
+        if persisted.leader.is_empty() {
+            "(none)".to_string()
+        } else {
+            persisted.leader.clone()
+        }
+    );
+    println!("decisions:     {}", state.decisions);
+    println!("coordinators:");
+    for (coord, high) in &state.coordinators {
+        println!("  {coord:<20} high-water seq {high}");
+    }
+    if !state.anomalies.is_empty() {
+        println!("anomalies:");
+        for a in &state.anomalies {
+            println!("  - {a}");
+        }
+    }
     Ok(())
 }

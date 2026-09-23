@@ -27,6 +27,7 @@ use super::openclaw_cli;
 use super::openhands_cli;
 use super::openrouter_cli;
 use super::openviking_cli;
+use super::os_cli;
 use super::patch_cli;
 use super::plan_cli;
 use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
@@ -123,6 +124,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Commits { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             commits_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Os { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            os_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Agents { action }) = command {
