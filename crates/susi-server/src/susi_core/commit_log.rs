@@ -337,6 +337,13 @@ impl FileLock {
     /// ~3s of 10ms retries — the guarded sections are millisecond-scale,
     /// so a longer wait means a wedged holder, not contention.
     fn acquire(dir: &Path, name: &str) -> Option<Self> {
+        // A bare filename's parent is the empty path — normalize it to
+        // the current directory so lock placement is well-defined.
+        let dir = if dir.as_os_str().is_empty() {
+            Path::new(".")
+        } else {
+            dir
+        };
         // The guarded file may not exist yet — the lockfile lives in the
         // same directory, so it must be created before O_EXCL can succeed.
         fs::create_dir_all(dir).ok()?;
@@ -406,10 +413,13 @@ pub fn claim_leadership(leader: &str) -> u64 {
 pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Serialize the read-modify-write across processes. On lock failure we
-    // skip the write entirely rather than race it — a skipped claim leaves
-    // the file consistent (the next claim retries), while a racing write
-    // is exactly the lost-bump this lock exists to prevent.
-    let _file_lock = path.parent().and_then(|dir| FileLock::acquire(dir, "term"));
+    // decline the claim entirely and return the persisted term — the
+    // caller then seals under current leadership, which receivers flag as
+    // a conflict, rather than minting a phantom term that was never
+    // durably claimed.
+    let Some(_file_lock) = path.parent().and_then(|dir| FileLock::acquire(dir, "term")) else {
+        return load_term_from(path).term;
+    };
     let mut state = load_term_from(path);
     if state.leader != leader {
         state.term += 1;
@@ -418,11 +428,7 @@ pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        if _file_lock.is_some() {
-            // Best-effort beyond the lock: a transient IO error still
-            // seals with the in-memory value; the next load re-reads.
-            let _ = save_term_to(path, &state);
-        }
+        let _ = save_term_to(path, &state);
     }
     state.term
 }
@@ -600,12 +606,17 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Cross-process: two nodes sharing the config dir must not interleave
     // the check+write — without the lockfile, both can pass the
-    // equivocation check and both append, and JSONL writes can tear.
-    // On lock failure we still proceed: a skipped lock risks a torn line
-    // (which load skips) while blocking forever is worse.
-    let _file_lock = path
+    // equivocation check and both append. Failing closed here is correct:
+    // >3s of contention on a millisecond-scale section means a wedged
+    // holder, and surfacing the error beats silently forking history.
+    let Some(_file_lock) = path
         .parent()
-        .and_then(|dir| FileLock::acquire(dir, "commit_log"));
+        .and_then(|dir| FileLock::acquire(dir, "commit_log"))
+    else {
+        return Err(EaiError::filesystem(
+            "commit ledger lock unavailable — possible wedged holder or extreme contention",
+        ));
+    };
     if !record.verify() {
         return Err(EaiError::protocol(
             "refusing to append a commit record that fails signature or consistency verification",
