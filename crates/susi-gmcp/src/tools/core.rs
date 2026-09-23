@@ -1905,6 +1905,12 @@ mod unwired_governance_tests {
     /// races with peers but only shrinks the visible rendezvous, which is
     /// the conservative direction for a fail-closed assertion.
     pub(super) fn isolate_bus_root() {
+        // Hold the shared env lock while mutating: `SUSI_XDG` flips the whole
+        // config-dir resolution mode, and a concurrent commit_log test's
+        // seal→verify must observe one consistent env for both key reads.
+        let _env = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir()
             .join("susi-unwired")
             .join(std::process::id().to_string());
@@ -1912,20 +1918,37 @@ mod unwired_governance_tests {
         std::env::set_var("XDG_CACHE_HOME", &dir);
     }
 
+    /// Serializes wired vs. unwired audit-gate tests inside this process:
+    /// `PlaneBus::global()` is shared, so a `PermitAudit` registration from
+    /// a wired test would otherwise stay live and let a later unwired test's
+    /// governed call succeed — a false pass. Every test that either wires
+    /// the permit or asserts fail-closed holds this lock for its duration.
+    pub(super) static AUDIT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// `PermitAudit` consults this flag — registered once process-wide, it
+    /// only answers "permit" while a wired test holds `AUDIT_TEST_LOCK`.
+    /// When clear it denies, so `audit_action` fails closed exactly as the
+    /// truly-unwired path does.
+    pub(super) static AUDIT_PERMIT: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
     #[test]
     fn test_reason_fails_closed_when_unwired() {
+        let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         assert!(CoreTools::reason(&serde_json::json!("hi"), Path::new(".")).is_err());
     }
 
     #[test]
     fn test_exec_command_fails_closed_when_unwired() {
+        let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         assert!(CoreTools::exec_command(&serde_json::json!("ls"), Path::new(".")).is_err());
     }
 
     #[test]
     fn test_os_tools_fail_closed_when_unwired() {
+        let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         assert!(CoreTools::os_ps(&serde_json::json!({}), Path::new(".")).is_err());
         assert!(CoreTools::os_sysinfo(&serde_json::json!({}), Path::new(".")).is_err());
@@ -1954,18 +1977,44 @@ mod os_tools_wired_tests {
             _topic: &str,
             _payload: serde_json::Value,
         ) -> Result<serde_json::Value, String> {
-            Ok(serde_json::json!({}))
+            if super::unwired_governance_tests::AUDIT_PERMIT
+                .load(std::sync::atomic::Ordering::SeqCst)
+            {
+                Ok(serde_json::json!({}))
+            } else {
+                // Registered process-wide on the shared bus — must deny
+                // whenever no wired test holds the permit, or an unwired
+                // fail-closed assertion running concurrently would pass.
+                Err("audit gate closed — no active permissive test".to_string())
+            }
         }
     }
 
-    fn wire_permissive_audit() {
+    /// Wires `PermitAudit` and holds the audit-test lock until drop —
+    /// serialized against the unwired fail-closed tests.
+    struct AuditPermitGuard(std::sync::MutexGuard<'static, ()>);
+
+    impl Drop for AuditPermitGuard {
+        fn drop(&mut self) {
+            super::unwired_governance_tests::AUDIT_PERMIT
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    fn wire_permissive_audit() -> AuditPermitGuard {
+        let guard = super::unwired_governance_tests::AUDIT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         PlaneBus::global().register(topics::GAWD_AUDIT_ACTION, Arc::new(PermitAudit));
+        super::unwired_governance_tests::AUDIT_PERMIT
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        AuditPermitGuard(guard)
     }
 
     #[test]
     fn os_services_lists_all_five_leaf_services() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let out = CoreTools::os_services(&serde_json::json!({}), Path::new("."))
             .expect("os_services status");
         let statuses: serde_json::Value = serde_json::from_str(&out).expect("json array");
@@ -1975,7 +2024,7 @@ mod os_tools_wired_tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn os_ps_lists_this_test_process() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let out =
             CoreTools::os_ps(&serde_json::json!({"limit": 500}), Path::new(".")).expect("os_ps");
         assert!(out.contains("PID\tNAME\tRSS_KB"));
@@ -1984,7 +2033,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn os_logs_rejects_unknown_service_and_missing_log() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let err = CoreTools::os_logs(&serde_json::json!({"name": "not-a-svc"}), Path::new("."));
         assert!(err.is_err(), "unknown service must fail");
 
@@ -2000,7 +2049,7 @@ mod os_tools_wired_tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn os_sysinfo_reports_kernel_and_memory() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let out =
             CoreTools::os_sysinfo(&serde_json::json!({}), Path::new(".")).expect("os_sysinfo");
         assert!(out.contains("kernel: Linux"));
@@ -2009,7 +2058,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn os_kill_fails_closed_on_unsupervised_pid() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         // Audit passes, but the pid gate must still refuse: pid 4_000_000
         // is never in the substrate process table.
         let err = CoreTools::os_kill(
@@ -2022,7 +2071,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn os_kill_rejects_non_whitelisted_signals() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         assert!(CoreTools::os_kill(
             &serde_json::json!({"pid": 1, "signal": "STOP"}),
             Path::new("."),
@@ -2054,7 +2103,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn commit_record_accepts_signed_record_and_appends_to_ledger() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
         let Some(rec) = crate::susi_core::commit_log::CommitRecord::seal(
             crate::susi_core::commit_log::CommitInput {
@@ -2088,7 +2137,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn commit_record_rejects_forged_and_unsigned_records() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
         // Forged: no valid signature.
         let forged = serde_json::json!({
@@ -2117,7 +2166,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn commit_log_fetch_filters_by_coordinator_and_seq() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
         let seal = |value: &str| {
             crate::susi_core::commit_log::CommitRecord::seal(
@@ -2167,7 +2216,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn commit_record_reports_gap_when_repair_unreachable() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
         let seal = |value: &str| {
             crate::susi_core::commit_log::CommitRecord::seal(
@@ -2203,7 +2252,7 @@ mod os_tools_wired_tests {
 
     #[test]
     fn commit_record_rejects_stale_term_and_adopts_newer() {
-        wire_permissive_audit();
+        let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
         // Establish term 1 under leader-a, seal a record there, then move
         // the cluster to term 2 — the term-1 push must now be rejected.

@@ -242,6 +242,8 @@ impl SusiSupervisor {
                     // Outstanding signed-handshake nonce: a SUSI_PONG_SIG must
                     // echo it to prove the peer holds `~/.susi/cluster.key`.
                     let mut pending_nonce: Option<String> = None;
+                    // Roster write throttle — see the persist call below.
+                    let mut last_persist = std::time::Instant::now();
 
                     loop {
                         let registry_checksum =
@@ -286,16 +288,18 @@ impl SusiSupervisor {
                                     );
                                     let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
                                     let mut peers = t_shared.write();
-                                    let entry = if let Some(p) =
+                                    let (entry, is_new, admission_changed) = if let Some(p) =
                                         peers.iter_mut().find(|p| p.address == addr_str)
                                     {
+                                        let changed =
+                                            !matches!(p.admission, PeerAdmission::Explicit);
                                         p.trust_score = (p.trust_score + 0.05).min(1.0);
                                         p.is_active = true;
                                         p.registry_checksum = checksum;
                                         p.capability_bloom = peer_bloom;
                                         p.admission = PeerAdmission::Explicit;
                                         p.last_seen_secs = now_secs();
-                                        p.clone()
+                                        (p.clone(), false, changed)
                                     } else {
                                         let node = ClusterPeerNode {
                                             node_id,
@@ -314,10 +318,21 @@ impl SusiSupervisor {
                                             last_seen_secs: now_secs(),
                                         };
                                         peers.push(node.clone());
-                                        node
+                                        (node, true, false)
                                     };
                                     drop(peers);
-                                    peer_registry::persist_verified_peer(&entry);
+                                    // Persist immediately for a new member or
+                                    // an admission upgrade; throttle refresh
+                                    // writes — a pong every ~600ms must not
+                                    // rewrite the roster each time.
+                                    const PERSIST_INTERVAL_SECS: u64 = 60;
+                                    if is_new
+                                        || admission_changed
+                                        || last_persist.elapsed().as_secs() >= PERSIST_INTERVAL_SECS
+                                    {
+                                        peer_registry::persist_verified_peer(&entry);
+                                        last_persist = std::time::Instant::now();
+                                    }
                                     continue;
                                 }
                             }

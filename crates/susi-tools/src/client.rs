@@ -397,9 +397,15 @@ impl GmcpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    static HOME_LOCK: Mutex<()> = Mutex::new(());
+    /// Shared env-mutation guard: `HOME`/`XDG_CONFIG_HOME` flip the same
+    /// config-dir resolution `cluster_key()` reads, so this serializes
+    /// against the vendored commit_log tests' seal→verify windows too.
+    fn home_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
 
     #[test]
     fn bundled_leading_mcp_registry_is_curated() {
@@ -421,7 +427,7 @@ mod tests {
 
     #[test]
     fn admit_mcp_server_writes_http_and_stdio() {
-        let _guard = HOME_LOCK.lock().unwrap();
+        let _guard = home_lock();
         let dir = std::env::temp_dir().join(format!(
             "susi_mcp_admit_{}_{}",
             std::process::id(),

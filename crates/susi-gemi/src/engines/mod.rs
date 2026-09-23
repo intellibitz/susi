@@ -29,12 +29,14 @@ pub(crate) mod token_stream;
 /// that each use their own private lock (as `routing.rs` and
 /// `http_provider.rs` used to) can still race against each other, since
 /// `cargo test` runs all of a crate's tests in one process by default.
-/// Both files' env-mutating tests hold this single lock instead.
+///
+/// The lock is the vendored `commit_log::ENV_LOCK`: `cluster_key()` resolves
+/// through the same env vars, so commit-ledger tests' seal→verify sequences
+/// must serialize against env mutation too — a private lock would leave
+/// that interleaving unprotected.
 #[cfg(test)]
 pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
-    use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    crate::susi_core::commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner())
 }
