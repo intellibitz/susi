@@ -823,7 +823,6 @@ mod tests {
     /// CPU-only by construction (`cpu_device == gpu_device == Cpu`), so it
     /// runs without a GPU; only needs the small local model present.
     #[test]
-    #[ignore = "requires the local qwen2.5-0.5b model fixture (absent in CI) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_batched_verify_matches_sequential_one_token_at_a_time() {
         let _home = crate::susi_paths::SusiDirs::home_dir();
         let model_path = crate::susi_paths::SusiDirs::data_dir()
@@ -923,7 +922,6 @@ mod tests {
     /// that a subsequent forward call produces bit-identical logits to the
     /// same instance's pre-growth state at that prefix.
     #[test]
-    #[ignore = "requires the local qwen2.5-0.5b model fixture (absent in CI) - run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_truncate_kv_cache_restores_state_bit_identical_to_never_having_grown() {
         let _home = crate::susi_paths::SusiDirs::home_dir();
         let model_path = crate::susi_paths::SusiDirs::data_dir()

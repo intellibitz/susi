@@ -507,15 +507,13 @@ mod tests {
     use std::thread;
 
     #[test]
-    #[ignore = "requires the local Qwen2.5 0.5B GGUF fixture"]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
         let path = crate::susi_paths::SusiDirs::data_dir()
             .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
-        assert!(
-            path.is_file(),
-            "local model fixture missing: {}",
-            path.display()
-        );
+        if !path.is_file() {
+            eprintln!("skipping: {} not present on this host", path.display());
+            return;
+        }
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_load_test", "CPU model loading");
         let model = InferenceHost::get_model(&path, &candle_core::Device::Cpu, &task).unwrap();

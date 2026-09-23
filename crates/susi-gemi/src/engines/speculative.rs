@@ -587,7 +587,6 @@ mod tests {
     /// without a GPU and stays fully deterministic; skips honestly when
     /// the local models aren't present on this host.
     #[test]
-    #[ignore = "real tensor computation against two local models, ~12s solo. Run via `cargo test -- --ignored` or the scheduled slow-tests CI workflow"]
     fn test_speculative_output_matches_plain_greedy_decoding() {
         let _home = match std::env::var_os("HOME") {
             Some(h) => std::path::PathBuf::from(h),
