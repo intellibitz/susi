@@ -1,10 +1,10 @@
 //! Background model download controller (pause / resume / stop).
 
+use crate::susi_core::task_manager::{SwarmTaskManager, TaskHandle};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::sync::Arc;
-use susi_core::task_manager::{SwarmTaskManager, TaskHandle};
 
 use super::model_manager::ModelManager;
 

@@ -279,6 +279,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
+                "susi-core",
             ],
         ),
         (
@@ -532,6 +533,21 @@ fn susi_gawd_agents_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-gawd-agents vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_gemi_models_must_not_depend_on_workspace_crates() {
+    // susi-gemi-models vendors the susi_core subset (`src/susi_core/` from
+    // crates/susi-core/vendor_template/) plus the leaf modules. The
+    // susi-gemi -> susi-gemi-models edge is within-plane and stays.
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-gemi-models/Cargo.toml"))
+        .expect("susi-gemi-models Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-gemi-models vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
     );
 }
 

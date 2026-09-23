@@ -2,11 +2,11 @@
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
 use super::download_controller::{ModelDownloadController, ModelDownloadProgress};
+use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_core::task_manager::TaskHandle;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
