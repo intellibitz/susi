@@ -170,4 +170,29 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn ban_peer_records_ban_and_drops_roster_entry() {
+        let reg = temp_registry();
+        let ban = temp_registry();
+        let peer = node("10.0.0.5:9093", PeerAdmission::Explicit);
+        persist_verified_peer_to(&peer, &reg);
+        assert_eq!(load_persisted_peers_from(&reg).len(), 1);
+
+        ban_peer_at(&peer.node_id, &peer.address, &ban, &reg);
+        let banned = load_banned_peers_from(&ban);
+        assert_eq!(banned.len(), 1);
+        assert!(is_banned_in(&banned, &peer.node_id, "unrelated:1"));
+        assert!(is_banned_in(&banned, "unrelated", &peer.address));
+        assert!(!is_banned_in(&banned, "unrelated", "unrelated:1"));
+        // The roster entry is dropped immediately — eviction is not deferred.
+        assert!(load_persisted_peers_from(&reg).is_empty());
+
+        // Banning twice does not duplicate the entry.
+        ban_peer_at(&peer.node_id, &peer.address, &ban, &reg);
+        assert_eq!(load_banned_peers_from(&ban).len(), 1);
+
+        let _ = std::fs::remove_file(&reg);
+        let _ = std::fs::remove_file(&ban);
+    }
 }
