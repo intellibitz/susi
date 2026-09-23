@@ -316,6 +316,13 @@ pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
         .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", path.display())))
 }
 
+/// Serializes term read-modify-write sequences (claim + adopt) within
+/// the process — two threads claiming leadership concurrently must not
+/// interleave a lost bump. Cross-process writers can't be locked; both
+/// write *valid* states and the next observe converges, so the file
+/// stays last-writer-wins rather than corrupt.
+static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Called by a coordinator before sealing a commit: records the elected
 /// leader and bumps the term when leadership changed, returning the
 /// term to stamp on the record. Same-leader re-elections reuse the
@@ -326,6 +333,7 @@ pub fn claim_leadership(leader: &str) -> u64 {
 
 /// Test seam: claim leadership against an explicit term file.
 pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
+    let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut state = load_term_from(path);
     if state.leader != leader {
         state.term += 1;
@@ -369,6 +377,7 @@ pub fn check_term(record: &CommitRecord) -> TermVerdict {
 
 /// Test seam: `check_term` against an explicit term file.
 pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
+    let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let state = load_term_from(path);
     if record.term > state.term {
         let next = TermState {
