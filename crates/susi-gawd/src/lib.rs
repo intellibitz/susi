@@ -64,6 +64,21 @@ pub mod susi_error;
 #[allow(dead_code)]
 mod susi_paths;
 
+// Vendored `susi-config` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+// rustfmt::skip: the file is vendored byte-identical while consumers span
+// edition 2021/2024 whose style editions sort imports and indent format!
+// args differently — formatting it per-crate would break the invariant.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_config;
+
+// Vendored `susi-sandbox` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_sandbox;
+
 pub mod plane_handler;
 
 pub mod admin;

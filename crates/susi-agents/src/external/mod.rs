@@ -561,9 +561,9 @@ pub fn redact(text: &str) -> String {
     )
 }
 fn tracing_failure(id: &str, error: &str) {
-    susi_sandbox::manager::SusiAuditLogger::log(
+    crate::susi_sandbox::manager::SusiAuditLogger::log(
         &crate::susi_paths::SusiDirs::config_dir(),
-        susi_sandbox::manager::LogLevel::Info,
+        crate::susi_sandbox::manager::LogLevel::Info,
         "EXTERNAL_AGENT",
         &format!("{id}: {}", redact(error)),
     );

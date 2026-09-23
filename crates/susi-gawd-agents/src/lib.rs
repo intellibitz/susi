@@ -26,9 +26,25 @@ pub mod susi_error;
 #[allow(dead_code)]
 mod susi_paths;
 
-// Vendored-error boundary: `GawdAgent` and susi-core/susi-sandbox APIs use
-// their own vendored `EaiError`; these conversions preserve the error kind
-// via `rewrap` so `?` keeps working across the vendored boundary.
+// Vendored `susi-config` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+// rustfmt::skip: the file is vendored byte-identical while consumers span
+// edition 2021/2024 whose style editions sort imports and indent format!
+// args differently — formatting it per-crate would break the invariant.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_config;
+
+// Vendored `susi-sandbox` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_sandbox;
+
+// Vendored-error boundary: `GawdAgent` and susi-core APIs use their own
+// vendored `EaiError`; these conversions preserve the error kind via
+// `rewrap` so `?` keeps working across the vendored boundary. Sandbox
+// now shares this crate's `susi_error` module — no bridge needed.
 impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
     fn from(e: susi_core::susi_error::EaiError) -> Self {
         susi_error::rewrap(e.kind_name(), e.to_string())
@@ -38,12 +54,6 @@ impl From<susi_core::susi_error::EaiError> for susi_error::EaiError {
 impl From<susi_error::EaiError> for susi_core::susi_error::EaiError {
     fn from(e: susi_error::EaiError) -> Self {
         susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-    }
-}
-
-impl From<susi_sandbox::susi_error::EaiError> for susi_error::EaiError {
-    fn from(e: susi_sandbox::susi_error::EaiError) -> Self {
-        susi_error::rewrap(e.kind_name(), e.to_string())
     }
 }
 

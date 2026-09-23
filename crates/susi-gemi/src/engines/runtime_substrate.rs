@@ -134,7 +134,7 @@ impl InferenceHost {
         if task_handle.is_cancelled() {
             return Err(EaiError::inference("Model loading cancelled"));
         }
-        let kv_capacity = susi_sandbox::manager::SusiConfig::load_global()
+        let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
         CACHE

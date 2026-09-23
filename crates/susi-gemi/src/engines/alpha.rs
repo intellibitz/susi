@@ -40,7 +40,7 @@ impl SusiAlphaModel {
 
     #[allow(unsafe_code)]
     pub fn load(global_dir: &Path) -> Result<Self> {
-        let alpha_filename = susi_sandbox::manager::SusiConfig::load(global_dir)
+        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()
             .alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
@@ -167,7 +167,7 @@ impl SusiAlphaModel {
         }
 
         // Atomic Model Save
-        let alpha_filename = susi_sandbox::manager::SusiConfig::load(global_dir)
+        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()
             .alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
@@ -179,7 +179,7 @@ impl SusiAlphaModel {
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
-        let alpha_filename = susi_sandbox::manager::SusiConfig::load(global_dir)
+        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
             .unwrap_or_default()
             .alpha_weights_filename();
         let weights_path = global_dir.join("models").join(alpha_filename);

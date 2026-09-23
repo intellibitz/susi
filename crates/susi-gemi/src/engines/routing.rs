@@ -6,7 +6,7 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use susi_sandbox::manager::{InferenceRoutingConfig, SusiConfig};
+use crate::susi_sandbox::manager::{InferenceRoutingConfig, SusiConfig};
 
 /// Sticky user choice under `~/.susi/routing_preference.json`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

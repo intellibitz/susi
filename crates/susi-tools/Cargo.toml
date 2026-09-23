@@ -11,8 +11,13 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
 susi-native = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+parking_lot = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
+tracing = { workspace = true }
 
 tokio = { workspace = true }
 rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }

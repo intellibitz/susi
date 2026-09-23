@@ -6584,13 +6584,16 @@ dependencies = [
  "anyhow",
  "dashmap",
  "getrandom 0.4.3",
+ "hex",
  "libc",
  "parking_lot",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
- "susi-sandbox",
+ "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6646,7 +6649,6 @@ dependencies = [
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
- "susi-sandbox",
  "susi-server",
  "susi-tools",
  "tokio",
@@ -6672,18 +6674,23 @@ dependencies = [
 name = "susi-gawd"
 version = "0.11.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hex",
  "log",
+ "parking_lot",
  "rayon",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
  "susi-gawd-a2a",
  "susi-gawd-agents",
  "susi-gawd-swarm",
  "susi-native",
- "susi-sandbox",
  "syn 3.0.6",
+ "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6698,13 +6705,18 @@ dependencies = [
 name = "susi-gawd-agents"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hex",
  "log",
+ "parking_lot",
  "rayon",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
- "susi-sandbox",
+ "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6725,8 +6737,8 @@ dependencies = [
  "sha2 0.11.0",
  "susi-core",
  "susi-gawd-agents",
- "susi-sandbox",
  "tokio",
+ "tracing",
  "ureq 3.4.2",
 ]
 
@@ -6739,19 +6751,22 @@ dependencies = [
  "candle-nn",
  "candle-transformers",
  "flume",
+ "getrandom 0.4.3",
+ "hex",
  "indicatif",
  "once_cell",
  "parking_lot",
  "reqwest 0.13.5",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
  "susi-gemi-models",
- "susi-sandbox",
  "sysinfo",
  "tokenizers",
  "tokio",
  "tracing",
+ "ureq 3.4.2",
  "url",
 ]
 
@@ -6762,6 +6777,7 @@ dependencies = [
  "anyhow",
  "candle-core",
  "dashmap",
+ "getrandom 0.4.3",
  "hex",
  "libc",
  "once_cell",
@@ -6772,8 +6788,9 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-core",
- "susi-sandbox",
  "tokenizers",
+ "tracing",
+ "ureq 3.4.2",
  "url",
 ]
 
@@ -6784,7 +6801,9 @@ dependencies = [
  "anyhow",
  "bytes",
  "fastembed",
+ "getrandom 0.4.3",
  "headless_chrome",
+ "hex",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -6794,14 +6813,16 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-core",
- "susi-sandbox",
  "susi-tools",
  "syn 3.0.6",
  "tantivy",
  "tokio",
  "tower-service",
+ "tracing",
+ "ureq 3.4.2",
  "url",
 ]
 
@@ -6829,6 +6850,7 @@ dependencies = [
 name = "susi-sandbox"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "bollard",
  "futures",
  "getrandom 0.4.3",
@@ -6837,6 +6859,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "tokio",
  "tracing",
  "ureq 3.4.2",
 ]
@@ -6846,16 +6869,21 @@ name = "susi-server"
 version = "0.11.0"
 dependencies = [
  "bytes",
+ "getrandom 0.4.3",
+ "hex",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "parking_lot",
  "rayon",
+ "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
- "susi-sandbox",
  "tokio",
  "tokio-stream",
  "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6864,14 +6892,19 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
+ "getrandom 0.4.3",
+ "hex",
+ "parking_lot",
  "reqwest 0.13.5",
  "rmcp",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "susi-core",
  "susi-native",
- "susi-sandbox",
  "tokio",
+ "tracing",
+ "ureq 3.4.2",
 ]
 
 [[package]]

@@ -10,6 +10,31 @@
     )
 )]
 
+// Vendored `susi-error` contract + IPC reporter: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+pub mod susi_error;
+
+// Vendored `susi-paths` IPC client: full surface kept identical
+// across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+mod susi_paths;
+
+// Vendored `susi-config` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+// rustfmt::skip: the file is vendored byte-identical while consumers span
+// edition 2021/2024 whose style editions sort imports and indent format!
+// args differently — formatting it per-crate would break the invariant.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_config;
+
+// Vendored `susi-sandbox` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_sandbox;
+
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
 //
@@ -70,7 +95,7 @@ async fn read_json_body(req: Request<Incoming>) -> Result<serde_json::Value, Res
 }
 
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
-    let allow_origin = susi_sandbox::manager::SusiConfig::load_global_arc()
+    let allow_origin = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
         .unwrap_or_default()
         .get("allow_origin")
         .unwrap_or_else(|| "*".to_string());
@@ -132,7 +157,7 @@ impl GemiServer {
                 }
             };
             let workspace = Arc::new(workspace);
-            let capacity = susi_sandbox::manager::SusiConfig::load_global_arc()
+            let capacity = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default().gemi_max_concurrent_requests();
             let admission = Arc::new(tokio::sync::Semaphore::new(capacity.min(tokio::sync::Semaphore::MAX_PERMITS)));
 
@@ -181,7 +206,7 @@ async fn handle_gemi_request(
     // conventional unauthenticated liveness probe — everything else on this
     // world-facing surface is gated below.
     if method != Method::OPTIONS && path != "/health" {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
         if !susi_core::net_guard::NetGuard::is_authorized(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
@@ -329,7 +354,7 @@ async fn handle_gemi_request(
             let pulse_intent = completion.prompt;
             let intent = gemi::IntentClassifier::classify(&pulse_intent);
             let active_model = gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1;
-            susi_sandbox::manager::SusiAuditLogger::log_event(
+            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
                 &pulse_intent,
@@ -351,7 +376,7 @@ async fn handle_gemi_request(
                     let _permit = permit;
                     let final_resp =
                         gawd::solve_mission(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
-                    susi_sandbox::manager::SusiMemory::save_interaction(
+                    crate::susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
                         &final_resp,
@@ -377,7 +402,8 @@ async fn handle_gemi_request(
             }
         }
         (&Method::OPTIONS, _) => {
-            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+            let cfg =
+                crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
             let allow_origin = cfg.get("allow_origin").unwrap_or_else(|| "*".to_string());
             Ok(Response::builder()
                 .status(StatusCode::OK)
@@ -658,8 +684,8 @@ async fn handle_gemi_request(
             let ws = (*workspace).clone();
             let payload = match read_json_body(req).await {
                 Ok(body) => tokio::task::spawn_blocking(move || {
-                    let cfg =
-                        susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+                    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
+                        .unwrap_or_default();
                     let mut payload = body;
                     if let Some(obj) = payload.as_object_mut() {
                         obj.insert("workspace".into(), json!(ws.display().to_string()));
@@ -709,7 +735,7 @@ fn build_streaming_response(
         .header(
             "Access-Control-Allow-Origin",
             HeaderValue::from_str(
-                &susi_sandbox::manager::SusiConfig::load_global_arc()
+                &crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                     .unwrap_or_default()
                     .get("allow_origin")
                     .unwrap_or_else(|| "*".to_string()),

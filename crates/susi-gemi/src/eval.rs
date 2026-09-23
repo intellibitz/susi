@@ -87,7 +87,7 @@ impl EvalRunner {
                 });
 
                 let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-                let mut req = susi_sandbox::manager::http_agent()
+                let mut req = crate::susi_sandbox::manager::http_agent()
                     .post(&url)
                     .header("Content-Type", "application/json");
                 if !api_key.is_empty() {

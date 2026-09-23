@@ -22,7 +22,7 @@ impl ModelManager {
         let workspace = workspace.to_path_buf();
         std::thread::spawn(move || loop {
             let _ = Self::ensure_hardware_optimal_models(&workspace);
-            let policy = susi_sandbox::manager::SusiConfig::load_global()
+            let policy = crate::susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .model_lifecycle();
             std::thread::sleep(std::time::Duration::from_secs(
@@ -40,7 +40,7 @@ impl ModelManager {
             );
         }
         let start = std::time::Instant::now();
-        let hf_base_url = susi_sandbox::manager::SusiConfig::load_global()
+        let hf_base_url = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .hf_base_url();
         let client = match reqwest::blocking::Client::builder()
@@ -82,7 +82,7 @@ impl ModelManager {
     ) -> EaiResult<ModelAgentReport> {
         let models_dir = Self::get_models_dir();
         let _ = fs::create_dir_all(&models_dir);
-        let hf_base_url = susi_sandbox::manager::SusiConfig::load_global()
+        let hf_base_url = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .hf_base_url();
 
@@ -165,7 +165,7 @@ impl ModelManager {
     pub(crate) fn ensure_ladder_tokenizer(
         step: &crate::hardware::ModelLadderStep,
         models_dir: &Path,
-        cfg: &susi_sandbox::manager::SusiConfig,
+        cfg: &crate::susi_sandbox::manager::SusiConfig,
     ) -> EaiResult<()> {
         let path = models_dir
             .join(&step.hf_file)
@@ -218,7 +218,7 @@ impl ModelManager {
         let Ok(_planning) = PLANNING.try_lock() else {
             return Ok("Automatic provisioning already active".into());
         };
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if cfg
             .settings
             .get("auto_download_models")

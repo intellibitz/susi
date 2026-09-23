@@ -1,9 +1,9 @@
 //! Filesystem discovery and verification of local model artifacts.
 
 use crate::susi_error::EaiResult;
+use crate::susi_sandbox::manager::ModelInfo;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_sandbox::manager::ModelInfo;
 
 use super::types::*;
 use super::{ModelManager, ModelScanRules, MODEL_SCAN_GENERATION};
@@ -13,7 +13,7 @@ impl ModelManager {
         let models = Self::list_models(workspace);
         let managed_minimum_bytes: std::collections::HashMap<String, u64> =
             crate::hf_discovery::resolve_model_ladder(
-                &susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default(),
+                &crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default(),
             )
             .into_iter()
             .map(|step| (step.hf_file, step.min_bytes))
@@ -108,7 +108,7 @@ impl ModelManager {
         // Loaded once per scan (cached 60s below) rather than per recursive
         // call — a deep filesystem walk can hit this hundreds of times, and
         // each SusiConfig::load_global() is a file read + JSON parse.
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let rules = ModelScanRules {
             exclude_dirs: cfg.model_scan_exclude_dirs(),
             extensions: cfg.model_file_extensions(),
@@ -225,7 +225,7 @@ impl ModelManager {
             ));
         }
 
-        let mut cfg = susi_sandbox::manager::SusiConfig::load(global_dir)
+        let mut cfg = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
             .map_err(|e| crate::susi_error::EaiError::config(e.to_string()))?;
         let home_scan_root_exclude_dirs = cfg.home_scan_root_exclude_dirs();
         let rules = std::sync::Arc::new(ModelScanRules {

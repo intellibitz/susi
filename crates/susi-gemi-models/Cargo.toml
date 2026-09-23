@@ -6,7 +6,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-susi-sandbox = { workspace = true }
 susi-core = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -17,6 +16,9 @@ parking_lot = { workspace = true }
 once_cell = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+getrandom = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+tracing = { workspace = true }
 url = { workspace = true }
 tokenizers = "0.23.2"
 rayon = "1.12"

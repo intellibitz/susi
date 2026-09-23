@@ -1,8 +1,8 @@
 //! Host MAC / privacy policy bootstrap (HMAC key + config mode).
 
+use crate::susi_sandbox::manager::SusiConfig;
 use std::path::Path;
 use susi_core::mac_policy::{MacPolicy, PrivacyMode};
-use susi_sandbox::manager::SusiConfig;
 
 fn mac_key_path() -> std::path::PathBuf {
     crate::susi_paths::SusiDirs::substrate_home().join("mac.hmac.key")

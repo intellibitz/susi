@@ -2,8 +2,8 @@
 // patterns loaded from config plus a hardcoded exec_command allowlist.
 
 use crate::susi_error::{EaiError, EaiResult};
+use crate::susi_sandbox::manager::SusiConfig;
 use std::path::Path;
-use susi_sandbox::manager::SusiConfig;
 
 pub struct SafetyDetector;
 

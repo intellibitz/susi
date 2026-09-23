@@ -166,7 +166,7 @@ impl SusiMasterAgent {
 
         eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
         let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
             cfg.gmcp_port(),
@@ -430,9 +430,9 @@ impl SusiMasterAgent {
         eprintln!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
         if elapsed.as_millis() > 2 {
-            susi_sandbox::manager::SusiAuditLogger::log(
+            crate::susi_sandbox::manager::SusiAuditLogger::log(
                 workspace,
-                susi_sandbox::manager::LogLevel::Axiomatic,
+                crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "LATENCY_VIOLATION",
                 &format!(
                     "Reflex operation exceeded 2ms mandate: {:?} (Goal: {})",
@@ -806,7 +806,7 @@ impl SusiMasterAgent {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
             let global_dir = crate::susi_paths::SusiDirs::config_dir();
-            let daemon_status = if susi_sandbox::daemon_state::SusiDaemonState::check_status(
+            let daemon_status = if crate::susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
                 &global_dir,
             ) {
@@ -978,7 +978,7 @@ impl SusiMasterAgent {
                             let error_sig = format!("{:x}", md5::compute(error_str.as_bytes()));
 
                             if previous_errors.contains(&error_sig) {
-                                susi_sandbox::manager::SusiAuditLogger::log_event(
+                                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                                     workspace,
                                     "RETRY_LOOP_DETECTED",
                                     &format!("Same error repeated: {}", error_str),
@@ -989,7 +989,7 @@ impl SusiMasterAgent {
                             previous_errors.insert(error_sig);
                             retry_count += 1;
                             last_error = error_str;
-                            susi_sandbox::manager::SusiAuditLogger::log_event(
+                            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                                 workspace,
                                 "HALLUCINATION_DETECTED",
                                 &format!("Retry {}/3: {}", retry_count, last_error),
@@ -1007,7 +1007,7 @@ impl SusiMasterAgent {
                 }
                 Err(e) => {
                     retry_count += 1;
-                    susi_sandbox::manager::SusiAuditLogger::log_event(
+                    crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                         workspace,
                         "AXIOMATIC_VIOLATION",
                         &e.to_string(),
@@ -1118,7 +1118,7 @@ impl SusiMasterAgent {
 
             // Dynamic Plan Mutation: Check for failure or gap in the last step
             if report.final_answer.contains("FAILURE") || report.final_answer.contains("GAP") {
-                susi_sandbox::manager::SusiAuditLogger::log_event(
+                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                     workspace,
                     "PLAN_MUTATION",
                     &format!("Refining plan due to step {} failure.", current_step + 1),
@@ -1203,7 +1203,7 @@ impl SusiMasterAgent {
         let (axiom_summary, topology_summary) = AxiomSubstrate::ingest_constitution(workspace);
         let model_name = susi_core::plane_bus::gemi::ModelManager::get_selected_model(None)
             .unwrap_or_else(|| {
-                let filename = susi_sandbox::manager::SusiConfig::load_global()
+                let filename = crate::susi_sandbox::manager::SusiConfig::load_global()
                     .unwrap_or_default()
                     .alpha_weights_filename();
                 format!("{} (Local Neural Substrate)", filename)

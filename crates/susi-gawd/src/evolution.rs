@@ -8,9 +8,9 @@
 
 use crate::reflex_synth::ReflexSynthesizer;
 use crate::susi_error::EaiResult;
+use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::collections::HashMap;
 use std::path::Path;
-use susi_sandbox::manager::SusiAuditLogger;
 
 pub struct EvolutionManager;
 

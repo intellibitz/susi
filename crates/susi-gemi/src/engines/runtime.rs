@@ -128,7 +128,8 @@ impl GemiEngine {
         callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
 
         // Primary Federated vs Native Inference Routing Edge
-        let global_config = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let global_config =
+            crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let active_engine_identifier = crate::models::ModelManager::get_selected_engine()
             .unwrap_or(global_config.default_engine());
 
@@ -355,7 +356,7 @@ impl GemiEngine {
         callback(
             "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),
         );
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if cfg
             .settings
             .get("auto_download_models")
@@ -421,7 +422,7 @@ impl GemiEngine {
 
     pub fn verify_axiomatic_alignment(reasoning: &str, _workspace: &Path) -> EaiResult<String> {
         // Fast Rust-Native Axiomatic Alignment Guard (<2ms Reflex Mandate)
-        let risk_patterns = susi_sandbox::manager::SusiConfig::load_global()
+        let risk_patterns = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .axiomatic_risk_patterns();
         for pattern in &risk_patterns {
@@ -444,7 +445,7 @@ pub struct MissionPlanner;
 
 impl MissionPlanner {
     pub fn plan_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
-        let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+        let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let plan_prompt = prompts.intent_planner_prompt().replace("{goal}", goal);
         let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
         let mut goals = Vec::new();
@@ -462,7 +463,7 @@ impl MissionPlanner {
     }
 
     pub fn partition_mission(goal: &str, workspace: &Path) -> EaiResult<MissionPlan> {
-        let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+        let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let plan_prompt = prompts.mission_partition_prompt().replace("{goal}", goal);
         let plan_str = GemiEngine::generate_reasoning(&plan_prompt, workspace);
         let mut goals = Vec::new();
@@ -484,7 +485,7 @@ impl MissionPlanner {
         blackboard_state: &str,
         workspace: &Path,
     ) -> EaiResult<MissionPlan> {
-        let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+        let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let refine_prompt = prompts
             .mission_refine_prompt()
             .replace("{original_goal}", original_goal)
@@ -795,7 +796,8 @@ mod tests {
     /// that ordinary reasoning output isn't blocked.
     #[test]
     fn test_verify_axiomatic_alignment_uses_configured_risk_patterns() {
-        let patterns = susi_sandbox::manager::SusiConfig::default().axiomatic_risk_patterns();
+        let patterns =
+            crate::susi_sandbox::manager::SusiConfig::default().axiomatic_risk_patterns();
         assert!(!patterns.is_empty());
 
         let workspace = Path::new(".");

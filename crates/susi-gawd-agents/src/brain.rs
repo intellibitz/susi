@@ -2,9 +2,9 @@
 // config into one status snapshot.
 
 use crate::self_core::AlphaSelf;
+use crate::susi_sandbox::manager::SusiConfig;
 use std::path::{Path, PathBuf};
 use susi_core::plane_bus::gemi::HardwareProfiler;
-use susi_sandbox::manager::SusiConfig;
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]

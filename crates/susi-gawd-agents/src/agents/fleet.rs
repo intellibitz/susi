@@ -107,7 +107,7 @@ impl NeuralAgentFactory {
     const MAX_KEYWORDS: usize = 8;
 
     pub fn synthesize_specialist(goal: &str, workspace: &Path) -> EaiResult<AgentProfile> {
-        let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+        let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
         let res = susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(&prompt, workspace);
@@ -212,7 +212,7 @@ impl GawdAgentFleet {
 
     pub fn get_max_concurrent_agents() -> usize {
         let hw = susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let base_limit = if THROTTLE_ACTIVE.load(std::sync::atomic::Ordering::Relaxed) {
             // Load Shedding: Reduce to 25% capacity if system is under stress
@@ -282,7 +282,7 @@ impl GawdAgentFleet {
 
         let is_query_or_admin = Self::is_meta_or_simple_query(goal);
 
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.agent_routing();
 
         let max_agents = Self::get_max_concurrent_agents();

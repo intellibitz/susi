@@ -9,7 +9,7 @@ use crate::types::AgentProfile;
 use std::sync::OnceLock;
 
 pub struct AgentMetaRegistry {
-    store: susi_sandbox::VersionedJsonStore<Vec<AgentProfile>>,
+    store: crate::susi_sandbox::VersionedJsonStore<Vec<AgentProfile>>,
 }
 
 impl Default for AgentMetaRegistry {
@@ -21,7 +21,7 @@ impl Default for AgentMetaRegistry {
 impl AgentMetaRegistry {
     pub fn new() -> Self {
         AgentMetaRegistry {
-            store: susi_sandbox::VersionedJsonStore::new(),
+            store: crate::susi_sandbox::VersionedJsonStore::new(),
         }
     }
 
@@ -96,9 +96,9 @@ impl AgentMetaRegistry {
                         "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
                         name_owned, old_rank, agent.base_rank, source_owned
                     );
-                    susi_sandbox::manager::SusiAuditLogger::log(
+                    crate::susi_sandbox::manager::SusiAuditLogger::log(
                         &crate::susi_paths::SusiDirs::config_dir(),
-                        susi_sandbox::manager::LogLevel::Info,
+                        crate::susi_sandbox::manager::LogLevel::Info,
                         "AGENT_MUTATION",
                         &log_msg,
                     );

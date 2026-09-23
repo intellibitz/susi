@@ -150,7 +150,7 @@ impl BloatAuditor {
     }
 
     fn load_secret_patterns() -> Vec<String> {
-        susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
+        crate::susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
             .map(|c| c.governance().secret_tokens)
             .unwrap_or_default()
     }

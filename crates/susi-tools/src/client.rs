@@ -80,7 +80,7 @@ impl GmcpClient {
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
         let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");
-        let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
         let mtime = std::fs::metadata(&registry_path)
             .and_then(|m| m.modified())
@@ -89,9 +89,10 @@ impl GmcpClient {
             .map(|t| t.elapsed().unwrap_or_default().as_secs() > 86400)
             .unwrap_or(true);
 
-        static STORE: std::sync::OnceLock<susi_sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>> =
-            std::sync::OnceLock::new();
-        let store = STORE.get_or_init(susi_sandbox::VersionedJsonStore::new);
+        static STORE: std::sync::OnceLock<
+            crate::susi_sandbox::VersionedJsonStore<Vec<GlobalMcpEntry>>,
+        > = std::sync::OnceLock::new();
+        let store = STORE.get_or_init(crate::susi_sandbox::VersionedJsonStore::new);
 
         let entries = store
             .load_with_healing(
@@ -117,7 +118,7 @@ impl GmcpClient {
                         }
                     }
                     let _guard = FetchGuard;
-                    if let Ok(resp) = susi_sandbox::manager::http_agent()
+                    if let Ok(resp) = crate::susi_sandbox::manager::http_agent()
                         .get(&url)
                         .header("User-Agent", "SUSI/0.1")
                         .call()
@@ -148,11 +149,13 @@ impl GmcpClient {
         static BUNDLED: std::sync::OnceLock<Vec<GlobalMcpEntry>> = std::sync::OnceLock::new();
         BUNDLED
             .get_or_init(|| {
-                serde_json::from_str(susi_sandbox::manager::SusiConfig::leading_mcp_registry_json())
-                    .unwrap_or_else(|_| {
-                        susi_sandbox::manager::SusiConfig::default()
-                            .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
-                    })
+                serde_json::from_str(
+                    crate::susi_sandbox::manager::SusiConfig::leading_mcp_registry_json(),
+                )
+                .unwrap_or_else(|_| {
+                    crate::susi_sandbox::manager::SusiConfig::default()
+                        .bootstrap_mcp_servers::<Vec<GlobalMcpEntry>>()
+                })
             })
             .clone()
     }

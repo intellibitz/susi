@@ -6,10 +6,12 @@ edition = "2021"
 publish = false
 
 [dependencies]
+axum = "0.8.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 bollard = "0.21.1"
 futures = "0.3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
 tracing = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 parking_lot = { workspace = true }

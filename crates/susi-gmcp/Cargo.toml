@@ -6,7 +6,6 @@ edition = "2021"
 
 [dependencies]
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
 rmcp = { version = "3.4.0", features = ["server", "client", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -14,6 +13,11 @@ parking_lot = { workspace = true }
 tower-service = "0.3"
 jsonschema = { version = "0.56", default-features = false }
 tokio = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
+tracing = { workspace = true }
 
 shlex = "2.0"
 bytes = "1.12"

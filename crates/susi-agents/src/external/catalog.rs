@@ -99,7 +99,7 @@ pub fn catalog(kind: CatalogKind) -> Result<Vec<AgentDefinition>> {
         CatalogKind::Execution => "execution-agents.json",
         CatalogKind::Framework => "agent-engines.json",
     };
-    Ok(susi_sandbox::extensions::load_json_or_bundled(
+    Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
         name,
         kind.bundled(),
     ))

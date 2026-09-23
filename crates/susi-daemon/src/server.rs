@@ -33,10 +33,10 @@ use std::sync::{
 use tracing::{info, warn};
 
 use crate::susi_error::EaiError;
+use crate::susi_sandbox::manager::SusiConfig;
 use susi_gawd::ama::SusiMasterAgent;
 use susi_gawd::queue::SubstratePulseQueue;
 use susi_gmcp::server::GmcpServer;
-use susi_sandbox::manager::SusiConfig;
 use susi_server::GemiServer;
 
 pub struct SusiDaemon;
@@ -59,7 +59,7 @@ impl DaemonContext {
         thread::spawn(move || {
             if let Ok(mut signals) = Signals::new([SIGTERM, SIGINT]) {
                 for sig in signals.forever() {
-                    let msgs = susi_sandbox::manager::SusiMessages::load_global();
+                    let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
                     let def_msg = "[SusiDaemon] Received signal: {}".to_string();
                     let msg = msgs.get("daemon", "signal_received").unwrap_or(&def_msg);
                     eprintln!("{}", msg.replace("{}", &sig.to_string()));
@@ -354,12 +354,14 @@ impl SusiDaemon {
             })
         };
 
-        let msgs = susi_sandbox::manager::SusiMessages::load_global();
+        let msgs = crate::susi_sandbox::manager::SusiMessages::load_global();
         if let Some(running) = Self::find_running_daemon(global_dir) {
-            if let Ok(false) = susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
-                &bin_to_run,
-                global_dir,
-            ) {
+            if let Ok(false) =
+                crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+                    &bin_to_run,
+                    global_dir,
+                )
+            {
                 // Daemon is always home-scoped, so any CLI may safely
                 // restart a stale binary — there is no foreign workspace
                 // ownership to protect.
@@ -376,7 +378,7 @@ impl SusiDaemon {
         }
 
         // Binary Integrity Check
-        match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+        match crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
             &bin_to_run,
             global_dir,
         ) {
@@ -506,7 +508,7 @@ impl SusiDaemon {
         let workspace = crate::susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&workspace);
         // Zero-trust: seed host bearer token before opening world-facing ports.
-        let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+        let _ = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
         // Composition root: EngineHooks before any ToolRegistry / MCP dispatch.
         crate::composition::wire_engine_hooks();
         susi_core::context_graph::ContextGraph::init_global_storage(
@@ -567,7 +569,7 @@ impl SusiDaemon {
         Self::force_canonical_ports(&mut cfg);
         let _ = cfg.save(&global_dir);
 
-        let bind_address = susi_sandbox::manager::SusiConfig::load_global()
+        let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .get("bind_address")
             .unwrap_or_else(|| "127.0.0.1".to_string());
@@ -868,7 +870,7 @@ impl SusiDaemon {
             Ok(h) => h.trim().to_string(),
             Err(_) => return false,
         };
-        susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&exe_path)
+        crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&exe_path)
             .map(|h| h.trim() == trusted_hash)
             .unwrap_or(false)
     }
@@ -1119,9 +1121,10 @@ mod tests {
         std::fs::write(&bin_path, b"version one content").unwrap();
 
         let direct_hash =
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path).unwrap();
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path)
+                .unwrap();
         let cached_hash_1 =
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
                 &bin_path,
                 &global_dir,
             )
@@ -1143,7 +1146,7 @@ mod tests {
         std::fs::write(&cache_path, format!("{}:{}:deadbeef", mtime, size)).unwrap();
 
         let cached_hash_2 =
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
                 &bin_path,
                 &global_dir,
             )
@@ -1160,7 +1163,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(5));
         std::fs::write(&bin_path, b"version two, genuinely different content").unwrap();
         let cached_hash_3 =
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash_cached(
                 &bin_path,
                 &global_dir,
             )
@@ -1171,7 +1174,8 @@ mod tests {
         );
         assert_eq!(
             cached_hash_3,
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path).unwrap()
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&bin_path)
+                .unwrap()
         );
 
         let _ = std::fs::remove_dir_all(&global_dir);
@@ -1222,7 +1226,8 @@ mod tests {
 
         // Trust anchor matches the real binary's hash: now trusted.
         let real_hash =
-            susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&fake_bin).unwrap();
+            crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&fake_bin)
+                .unwrap();
         std::fs::write(SusiDaemon::get_hash_file(&global_dir), &real_hash).unwrap();
         assert!(SusiDaemon::is_trusted_susi_process(pid, &global_dir));
 

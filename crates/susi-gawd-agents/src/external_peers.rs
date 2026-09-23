@@ -8,6 +8,7 @@
 use crate::agents::{GawdAgent, MissionBlackboard};
 use crate::security::SecurityDetector;
 use crate::susi_error::{EaiError, EaiResult};
+use crate::susi_sandbox::manager::{ExternalPeerAgentSpec, SusiConfig};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
@@ -16,7 +17,6 @@ use std::time::Duration;
 use std::time::Instant;
 use susi_core::capture::EvidenceSession;
 use susi_core::registry::{AgentCapability, CapabilityRegistry};
-use susi_sandbox::manager::{ExternalPeerAgentSpec, SusiConfig};
 
 /// Resolve the live driver binary for a CLI peer spec.
 pub fn resolve_driver(spec: &ExternalPeerAgentSpec) -> Option<PathBuf> {
@@ -156,7 +156,7 @@ fn invoke_openai_chat(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<Str
         "messages": [{"role": "user", "content": goal}],
         "max_tokens": 2048
     });
-    let mut req = susi_sandbox::manager::http_agent()
+    let mut req = crate::susi_sandbox::manager::http_agent()
         .post(&url)
         .header("Content-Type", "application/json");
     let bearer = resolve_bearer(spec);
@@ -203,7 +203,7 @@ fn invoke_http_json(
         "goal": goal,
         "workspace": workspace.display().to_string(),
     });
-    let mut req = susi_sandbox::manager::http_agent()
+    let mut req = crate::susi_sandbox::manager::http_agent()
         .post(url)
         .header("Content-Type", "application/json");
     let bearer = resolve_bearer(spec);
@@ -246,7 +246,7 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
             "parts": [{"type": "text", "text": goal}]
         }
     });
-    let mut req = susi_sandbox::manager::http_agent()
+    let mut req = crate::susi_sandbox::manager::http_agent()
         .post(&url)
         .header("Content-Type", "application/json");
     let bearer = resolve_bearer(spec);

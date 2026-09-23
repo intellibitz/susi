@@ -8,7 +8,6 @@ publish = false
 [dependencies]
 susi-gawd-agents = { workspace = true }
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
@@ -23,6 +22,7 @@ parking_lot = { workspace = true }
 flume = { workspace = true }
 dashmap = { workspace = true }
 md5 = "0.8.1"
+tracing = { workspace = true }
 
 [features]
 default = []

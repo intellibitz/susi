@@ -6,9 +6,9 @@
 // `gmcp` to start the GMCP server — a real cycle this avoids).
 
 use crate::susi_error::EaiResult;
+use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
 use susi_core::plane_bus::gemi::HardwareProfiler;
-use susi_sandbox::manager::SusiAuditLogger;
 
 pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String> {
     let profile = HardwareProfiler::get_profile();

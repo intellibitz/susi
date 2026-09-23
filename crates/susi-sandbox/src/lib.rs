@@ -10,6 +10,14 @@
     )
 )]
 
+//! # susi-sandbox
+//!
+//! Leaf REST service for sandbox ensure / Docker exec / daemon integrity
+//! helpers. Default bind: `127.0.0.1:18083` (`SUSI_SANDBOX_PORT`). Feature
+//! crates vendor a byte-identical `susi_sandbox` module and reach this
+//! process over a thin HTTP IPC client (with local filesystem fallback where
+//! safe). Audit HMAC key ops are never exposed over HTTP.
+
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 #[allow(dead_code)]

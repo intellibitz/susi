@@ -95,7 +95,7 @@ pub(crate) fn call_blocking_result(
         Ok(rt) => rt,
         Err(e) => return Err(format!("MCP runtime: {e}")),
     };
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let lease = Duration::from_secs(cfg.execution_lease_secs());
     let handshake = Duration::from_secs(cfg.cloud_scout_timeout_secs());
     let (send, receive) = std::sync::mpsc::sync_channel(1);
@@ -120,7 +120,7 @@ pub(crate) fn list_tools_blocking(
         Ok(rt) => rt,
         Err(e) => return Err(format!("MCP runtime: {e}")),
     };
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let lease = Duration::from_secs(cfg.execution_lease_secs().min(30));
     let handshake = Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10));
     let (send, receive) = std::sync::mpsc::sync_channel(1);

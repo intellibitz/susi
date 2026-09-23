@@ -74,9 +74,14 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 );
                 println!("- Engine: {}", reloaded.default_engine());
                 println!("- Model: {}", reloaded.default_model());
+                // Ladder resolution lives in gemi-models and takes that crate's
+                // vendored `SusiConfig` (same JSON on disk as the sandbox service).
+                let ladder_cfg =
+                    susi_gemi::models::susi_sandbox::manager::SusiConfig::load(global_dir)
+                        .unwrap_or_default();
                 println!(
                     "- Model Ladder Steps: {}",
-                    susi_gemi::hf_discovery::resolve_model_ladder(&reloaded).len()
+                    susi_gemi::hf_discovery::resolve_model_ladder(&ladder_cfg).len()
                 );
                 println!(
                     "- MCP Bootstrap Servers: {}",

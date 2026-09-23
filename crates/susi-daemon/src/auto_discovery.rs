@@ -22,7 +22,7 @@ pub async fn bootstrap_zero_config_substrate() {
     susi_gemi::http_provider::apply_cloud_env_file();
 
     // 0. Extension packs: seed ~/.susi/extensions/default, auto-discover packs.
-    match susi_sandbox::extensions::ensure_extensions_substrate() {
+    match crate::susi_sandbox::extensions::ensure_extensions_substrate() {
         Ok(pack) => {
             if std::env::var("SUSI_VERBOSE").is_ok() {
                 eprintln!(
@@ -160,7 +160,7 @@ pub fn auto_prime_ecosystem(substrate: &Path) -> serde_json::Value {
         }
     }
 
-    let pack = susi_sandbox::extensions::active_pack();
+    let pack = crate::susi_sandbox::extensions::active_pack();
     let report = serde_json::json!({
         "kind": "auto_prime",
         "active_pack": pack.id,

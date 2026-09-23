@@ -16,7 +16,7 @@ impl ReflexTrainer {
         if staged_file.exists() {
             let content = std::fs::read_to_string(&staged_file).unwrap_or_default();
             let count = content.lines().count();
-            let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+            let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
             if count >= cfg.reflex_training_threshold() {
                 eprintln!("[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...", count);

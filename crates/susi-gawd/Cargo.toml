@@ -12,11 +12,16 @@ syn = { version = "3.0.6", features = ["full", "visit"] }
 susi-native = { workspace = true }
 reqwest = { workspace = true }
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"
 log = "0.4"
+ureq = { version = "3.4.2", features = ["json"] }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
 
 [features]
 default = []

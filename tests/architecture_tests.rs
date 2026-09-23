@@ -159,6 +159,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -174,6 +175,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -189,6 +191,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -203,6 +206,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -215,6 +219,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -227,6 +232,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -242,6 +248,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-tools",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -257,6 +264,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -271,6 +279,7 @@ fn layer_matrix_forbidden_edges() {
                 "susi-agents",
                 "susi-daemon",
                 "susi-server",
+                "susi-sandbox",
             ],
         ),
         (
@@ -286,8 +295,10 @@ fn layer_matrix_forbidden_edges() {
                 "susi-tools",
                 "susi-agents",
                 "susi-daemon",
+                "susi-sandbox",
             ],
         ),
+        ("susi-daemon", &["susi-sandbox"]),
         (
             "susi-sandbox",
             &[
@@ -302,6 +313,11 @@ fn layer_matrix_forbidden_edges() {
                 "susi-gawd-a2a",
                 "susi-daemon",
                 "susi-server",
+                "susi-core",
+                "susi-config",
+                "susi-paths",
+                "susi-error",
+                "susi-native",
             ],
         ),
         (
@@ -425,6 +441,18 @@ fn susi_core_must_not_depend_on_infra_or_features() {
     assert!(
         deps.is_empty(),
         "susi-core workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_sandbox_must_not_depend_on_workspace_crates() {
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-sandbox/Cargo.toml"))
+        .expect("susi-sandbox Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-sandbox is a leaf REST service; workspace deps drifted: {deps:?}"
     );
 }
 

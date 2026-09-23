@@ -576,10 +576,10 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
         .map(|e| (e.name.to_ascii_lowercase(), e))
         .collect();
 
-    let mut entries: Vec<susi_sandbox::manager::ModelCatalogEntry> = Vec::new();
+    let mut entries: Vec<crate::susi_sandbox::manager::ModelCatalogEntry> = Vec::new();
     if let Ok(coding) = susi_gemi_models::coding_models::CodingModelManager::catalog() {
         for m in coding {
-            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+            entries.push(crate::susi_sandbox::manager::ModelCatalogEntry {
                 id: m.model,
                 engine: m.engine,
                 protocol_type: m.protocol_type,
@@ -589,7 +589,7 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
     }
     if let Ok(open_weight) = susi_gemi_models::open_weight::OpenWeightManager::catalog() {
         for m in open_weight {
-            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+            entries.push(crate::susi_sandbox::manager::ModelCatalogEntry {
                 id: m.ollama_tag.clone(),
                 engine: m.engine.clone(),
                 protocol_type: m.protocol_type.clone(),
@@ -597,7 +597,7 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
             });
             for v in m.variants {
                 if v.ollama_tag != m.ollama_tag {
-                    entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                    entries.push(crate::susi_sandbox::manager::ModelCatalogEntry {
                         id: v.ollama_tag,
                         engine: m.engine.clone(),
                         protocol_type: m.protocol_type.clone(),
@@ -609,14 +609,14 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
     }
     if let Ok(frontier) = susi_gemi_models::frontier::FrontierManager::catalog() {
         for m in frontier {
-            entries.push(susi_sandbox::manager::ModelCatalogEntry {
+            entries.push(crate::susi_sandbox::manager::ModelCatalogEntry {
                 id: m.model.clone(),
                 engine: m.engine.clone(),
                 protocol_type: m.protocol_type.clone(),
                 api_key_env: m.api_key_env.clone(),
             });
             for v in m.variants {
-                entries.push(susi_sandbox::manager::ModelCatalogEntry {
+                entries.push(crate::susi_sandbox::manager::ModelCatalogEntry {
                     id: v.model,
                     engine: if v.engine.is_empty() {
                         m.engine.clone()
@@ -634,7 +634,7 @@ pub fn register_model_catalog(registry: &susi_core::registry::CapabilityRegistry
         }
     }
     entries.extend(
-        susi_sandbox::manager::SusiConfig::load_global()
+        crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .model_catalog(),
     );

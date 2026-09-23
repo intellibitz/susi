@@ -2,8 +2,8 @@
 // Mandate 10: No Secret Leaks - Zero tolerance for tokens, credentials, or keys.
 
 use crate::susi_error::{EaiError, EaiResult};
+use crate::susi_sandbox::manager::SusiConfig;
 use std::path::Path;
-use susi_sandbox::manager::SusiConfig;
 
 pub struct SecurityDetector;
 

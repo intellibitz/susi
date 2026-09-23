@@ -80,7 +80,7 @@ impl OpenWeightManager {
     }
 
     pub fn catalog() -> Result<Vec<OpenWeightDefinition>> {
-        Ok(susi_sandbox::extensions::load_json_or_bundled(
+        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
             "open-weight-models.json",
             include_str!("../../../config/open-weight-models.json"),
         ))
@@ -162,7 +162,9 @@ impl OpenWeightManager {
             .filter(|s| !s.is_empty())
     }
 
-    pub fn endpoint_for(engine: &str) -> Option<susi_sandbox::manager::InferenceEndpointItem> {
+    pub fn endpoint_for(
+        engine: &str,
+    ) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
         let lower = engine.to_ascii_lowercase();
         effective_inference_endpoints_pub()
             .into_iter()

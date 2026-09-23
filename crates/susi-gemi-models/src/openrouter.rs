@@ -47,7 +47,7 @@ impl OpenRouterManager {
     }
 
     pub fn catalog() -> Result<Vec<OpenRouterRoute>> {
-        Ok(susi_sandbox::extensions::load_json_or_bundled(
+        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
             "openrouter-models.json",
             include_str!("../../../config/openrouter-models.json"),
         ))
@@ -193,7 +193,7 @@ fn validate_model_slug(slug: &str) -> Result<()> {
 
 /// Attribution headers OpenRouter expects for app rankings / some models.
 pub fn attribution_headers() -> (String, String) {
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let referer = cfg
         .get::<String>("openrouter_http_referer")
         .filter(|s| !s.trim().is_empty())

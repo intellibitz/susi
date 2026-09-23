@@ -30,7 +30,7 @@ pub fn wire_engine_hooks() {
 pub fn wire_cli_substrate(substrate: &Path) {
     wire_plane_bus();
     wire_engine_hooks();
-    let _ = susi_sandbox::extensions::ensure_extensions_substrate();
+    let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
     susi_gemi::http_provider::apply_cloud_env_file();
     let _ = std::fs::create_dir_all(substrate);
     susi_core::context_graph::ContextGraph::init_global_storage(

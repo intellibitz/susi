@@ -2,11 +2,11 @@
 // Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
 use crate::susi_error::EaiResult;
+use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
 use std::time::Duration;
 use susi_gemi::hardware::HardwareProfiler;
 use susi_gemi::models::ModelManager;
-use susi_sandbox::manager::SusiAuditLogger;
 use tracing::info;
 
 pub struct SusiRuntimeAdmin;

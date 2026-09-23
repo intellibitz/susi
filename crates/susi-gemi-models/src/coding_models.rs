@@ -78,7 +78,7 @@ impl CodingModelManager {
     pub fn catalog() -> Result<Vec<CodingModelDefinition>> {
         // Extension-pack API: host `~/.susi/extensions/<pack>/coding-models.json`
         // overrides the bundled catalog (manifest may still point at config/).
-        Ok(susi_sandbox::extensions::load_json_or_bundled(
+        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
             "coding-models.json",
             include_str!("../../../config/coding-models.json"),
         ))
@@ -252,7 +252,7 @@ impl CodingModelDefinition {
     }
 }
 
-fn endpoint_for(name: &str) -> Option<susi_sandbox::manager::InferenceEndpointItem> {
+fn endpoint_for(name: &str) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
     let lower = name.to_ascii_lowercase();
     effective_inference_endpoints_pub()
         .into_iter()

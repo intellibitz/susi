@@ -74,7 +74,7 @@ impl GawdAgent for DynamicAgent {
         // ReAct schema here used to make small models stop at describing an
         // intended action instead of answering (see dynamic_agent_prompt's
         // doc comment). This just asks directly.
-        let prompt = susi_sandbox::manager::SusiPrompts::load_global()
+        let prompt = crate::susi_sandbox::manager::SusiPrompts::load_global()
             .dynamic_agent_prompt()
             .replace("{agent_role}", &self.agent_name)
             .replace("{mission_profile}", &self.mission_profile)
@@ -264,9 +264,10 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
-            let cfg =
-                susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
-                    .unwrap_or_default();
+            let cfg = crate::susi_sandbox::manager::SusiConfig::load(
+                &crate::susi_paths::SusiDirs::config_dir(),
+            )
+            .unwrap_or_default();
             susi_core::plane_bus::gemi::ModelManager::install_model(&cfg.alpha_weights_url());
             let _ =
                 susi_core::plane_bus::gemi::ModelManager::ensure_hardware_optimal_models(workspace);
@@ -866,7 +867,8 @@ impl GawdAgent for SelfHealingAgent {
         // Apply-patch-then-test cycle when the goal embeds a PatchRequest JSON
         // object (must contain a "files" array). Workspace-confined via host hooks.
         if let Some(patch_json) = extract_patch_request_json(goal) {
-            let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+            let cfg =
+                crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
             let outcome = crate::admin_hooks::hooks().apply_patch_cycle(
                 workspace,
                 &patch_json,
@@ -984,7 +986,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             format!("{}/completions", self.api_base_url)
         };
 
-        match susi_sandbox::manager::http_agent()
+        match crate::susi_sandbox::manager::http_agent()
             .post(&endpoint_url)
             .header("Content-Type", "application/json")
             .send_json(payload)
@@ -1048,13 +1050,13 @@ impl GawdAgent for LibraryScoutAgent {
             query_term = "rust".to_string();
         }
 
-        let api_base = susi_sandbox::manager::SusiConfig::load_global()
+        let api_base = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .crates_io_api_url();
         let url = format!("{}?q={}&per_page=5", api_base, query_term);
         let mut results = Vec::new();
 
-        if let Ok(resp) = susi_sandbox::manager::http_agent()
+        if let Ok(resp) = crate::susi_sandbox::manager::http_agent()
             .get(&url)
             .header("User-Agent", "SUSI/0.1")
             .call()
@@ -1171,7 +1173,7 @@ impl GawdAgent for AdminAgent {
             }
             Some("install") => {
                 let global_dir = Self::global_dir();
-                susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)
+                crate::susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)
                     .map_err(|e| susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))?;
                 Ok("SUSI runtime initialized and sandboxed.".to_string())
             }
@@ -1229,7 +1231,7 @@ impl AdminAgent {
     ];
 
     pub(super) fn match_action(lower_goal: &str) -> Option<String> {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let routing = cfg.admin_command_routing();
         let is_explicit_admin_pulse = lower_goal.trim_start().starts_with("admin pulse");
 

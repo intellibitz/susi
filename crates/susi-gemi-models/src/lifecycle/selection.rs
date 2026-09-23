@@ -1,10 +1,10 @@
 //! Model selection, preference scoring, and active engine/model overrides.
 
 use crate::susi_error::EaiResult;
+use crate::susi_sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use susi_sandbox::manager::ModelInfo;
 
 use crate::hardware::HardwareProfiler;
 
@@ -70,7 +70,7 @@ impl ModelManager {
     /// first one.
     pub(crate) fn resolve_model_size_gb(
         m: &ModelInfo,
-        heuristics: &susi_sandbox::manager::ModelScoringHeuristics,
+        heuristics: &crate::susi_sandbox::manager::ModelScoringHeuristics,
     ) -> f32 {
         let p = PathBuf::from(m.model_id());
         if p.is_file() {
@@ -120,7 +120,7 @@ impl ModelManager {
             return None;
         }
 
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let heuristics = cfg.model_scoring_heuristics();
 
         // Resolve every candidate's size up front: size_preference_score
@@ -270,7 +270,8 @@ impl ModelManager {
             let trimmed = content.trim();
             if !trimmed.is_empty() && trimmed != "auto" && !Self::cooling_down(trimmed) {
                 if let Some(path) = Self::get_model_path(trimmed) {
-                    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+                    let cfg =
+                        crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
                     let size = path
                         .metadata()
                         .map(|m| m.len() as f32 / 1073741824.0)
@@ -308,7 +309,7 @@ impl ModelManager {
         // Reachable on every inference/model-routing decision, not just boot:
         // a config.json torn by a concurrent writer must degrade to bundled
         // defaults here rather than panic this request's thread.
-        let cfg = susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         let model = Self::get_selected_model(intent).unwrap_or(cfg.default_model());
         let engine = Self::get_selected_engine().unwrap_or(cfg.default_engine());
         (engine, model)
@@ -398,7 +399,7 @@ impl ModelManager {
     }
 
     pub fn get_tokenizer_path(model_id: &str) -> Option<PathBuf> {
-        let tokenizer_filename = susi_sandbox::manager::SusiConfig::load_global()
+        let tokenizer_filename = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .tokenizer_filename();
         let model_path = Self::get_model_path(model_id)?;

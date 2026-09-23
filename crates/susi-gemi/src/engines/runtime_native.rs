@@ -128,7 +128,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let mut all_tokens = vec![];
         let mut tokens_to_process = prompt_tokens.to_vec();
 
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let max_tokens = cfg.max_generation_tokens();
         // The model's own declared stop token (e.g. Qwen2.5-Instruct's
         // <|im_end|>) is frequently absent from the static config list,
@@ -299,7 +299,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         }
 
         // Fallback: first config endpoint that has a resolvable API key (or is local).
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let endpoints = cfg.inference_endpoints();
         let endpoint = endpoints
             .endpoints

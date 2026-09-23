@@ -587,10 +587,10 @@ impl HardwareProfiler {
     /// machine with plenty of RAM but little free disk would still attempt
     /// a download (up to ~45GB for the 72B tier) with no check at all.
     fn filter_ladder_by_hardware(
-        steps: &[susi_sandbox::manager::ModelLadderConfigStep],
+        steps: &[crate::susi_sandbox::manager::ModelLadderConfigStep],
         ram_gb: usize,
         free_disk_bytes: u64,
-    ) -> Vec<susi_sandbox::manager::ModelLadderConfigStep> {
+    ) -> Vec<crate::susi_sandbox::manager::ModelLadderConfigStep> {
         const DISK_SAFETY_MARGIN_BYTES: u64 = 2_000_000_000; // 2GB headroom
         steps
             .iter()
@@ -616,7 +616,7 @@ impl HardwareProfiler {
         // qualify a model that will immediately OOM on a busy host.
         let ram_gb = Self::determine_available_ram_gb();
         let free_disk_bytes = Self::get_free_disk_bytes(&crate::ModelManager::get_models_dir());
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
 
         let config_steps = crate::hf_discovery::resolve_model_ladder(&cfg);
         let reserve = cfg.model_scoring_heuristics().system_ram_buffer_gb;
@@ -778,8 +778,8 @@ mod tests {
         step: usize,
         min_ram_gb: f32,
         expected_bytes: u64,
-    ) -> susi_sandbox::manager::ModelLadderConfigStep {
-        susi_sandbox::manager::ModelLadderConfigStep {
+    ) -> crate::susi_sandbox::manager::ModelLadderConfigStep {
+        crate::susi_sandbox::manager::ModelLadderConfigStep {
             fields: Default::default(),
             step,
             label: format!("{step}-tier"),

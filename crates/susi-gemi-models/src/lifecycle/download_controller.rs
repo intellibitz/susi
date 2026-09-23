@@ -61,7 +61,7 @@ impl ModelDownloadController {
 
         std::thread::spawn(move || {
             static RUNNING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let limit = susi_sandbox::manager::SusiConfig::load_global()
+            let limit = crate::susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .model_lifecycle()
                 .max_parallel_downloads

@@ -671,7 +671,7 @@ impl SusiSupervisor {
                 {
                     (leader_output.to_string(), "STATE_CONVERGENCE")
                 } else {
-                    let prompts = susi_sandbox::manager::SusiPrompts::load_global();
+                    let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
                     let consensus_prompt = prompts
                         .consensus_wisdom_prompt()
                         .replace("{goal}", goal)
@@ -841,7 +841,7 @@ impl SusiSupervisor {
         // (PeerAdmission::Explicit), not via an open LAN ping.
         let mut req = client.post(&url).json(&req_val);
         if Self::peer_allows_host_token(addr) {
-            let token = susi_sandbox::manager::SusiConfig::load_global()
+            let token = crate::susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .api_auth_token();
             if !token.is_empty() {

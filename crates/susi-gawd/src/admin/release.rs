@@ -258,9 +258,9 @@ impl SusiAdmin {
 
         if !push.status.success() {
             let stderr = String::from_utf8_lossy(&push.stderr);
-            susi_sandbox::manager::SusiAuditLogger::log(
+            crate::susi_sandbox::manager::SusiAuditLogger::log(
                 &global_dir,
-                susi_sandbox::manager::LogLevel::Axiomatic,
+                crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "MOTION_RULE_PUSH_FAILED",
                 &format!("git push failed after a clean release/sync: {}", stderr),
             );
@@ -270,9 +270,9 @@ impl SusiAdmin {
             )));
         }
 
-        susi_sandbox::manager::SusiAuditLogger::log(
+        crate::susi_sandbox::manager::SusiAuditLogger::log(
             &global_dir,
-            susi_sandbox::manager::LogLevel::Axiomatic,
+            crate::susi_sandbox::manager::LogLevel::Axiomatic,
             "MOTION_RULE_COMPLETE",
             "Full Motion Rule sequence (check -> test -> release -> sync -> push) completed successfully.",
         );
@@ -312,9 +312,9 @@ impl SusiAdmin {
                     String::from_utf8_lossy(&push_tag.stderr)
                 )));
             }
-            susi_sandbox::manager::SusiAuditLogger::log(
+            crate::susi_sandbox::manager::SusiAuditLogger::log(
                 &global_dir,
-                susi_sandbox::manager::LogLevel::Axiomatic,
+                crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "RELEASE_CUT",
                 &format!("Cut and pushed release {}.", tag_name),
             );

@@ -308,7 +308,9 @@ impl SusiAdmin {
             let hash_file = global_dir.join("binary.hash");
 
             if let Ok(hash) =
-                susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(&current_exe)
+                crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(
+                    &current_exe,
+                )
             {
                 fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
             }

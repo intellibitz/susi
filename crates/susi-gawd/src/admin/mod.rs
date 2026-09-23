@@ -28,7 +28,7 @@ impl SusiAdmin {
         let mut overall_success = true;
 
         // 1. Audit Security Patterns (No hardcoded keys)
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let patterns = cfg.governance().secret_tokens();
         let src_dir = workspace.join("src");
 
@@ -81,7 +81,7 @@ impl SusiAdmin {
         }
 
         // 2. Enforce Workspace Purity
-        susi_sandbox::manager::SandboxManager::ensure_gitignore_purity(workspace);
+        crate::susi_sandbox::manager::SandboxManager::ensure_gitignore_purity(workspace);
         let gitignore = workspace.join(".gitignore");
         if gitignore.exists() {
             let content = fs::read_to_string(&gitignore)?;
@@ -125,7 +125,7 @@ impl SusiAdmin {
         // 4. Binary Integrity Check
         if let Ok(current_exe) = env::current_exe() {
             let global_dir = Self::get_global_susi_dir();
-            match susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
+            match crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
                 &current_exe,
                 &global_dir,
             ) {

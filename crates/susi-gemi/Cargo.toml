@@ -7,7 +7,6 @@ edition = "2021"
 [dependencies]
 susi-gemi-models = { workspace = true }
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokenizers = "0.23.2"
@@ -21,6 +20,10 @@ once_cell = { workspace = true }
 flume = { workspace = true }
 url = { workspace = true }
 sysinfo = "0.39.6"
+ureq = { version = "3.4.2", features = ["json"] }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }

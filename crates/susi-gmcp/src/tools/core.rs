@@ -88,7 +88,8 @@ impl CoreTools {
         description = "Report on autonomous invisible work performed by the substrate"
     )]
     pub fn sovereign_dashboard(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        let log_content = susi_sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 100);
+        let log_content =
+            crate::susi_sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 100);
         let mut report = "# SUSI Sovereign Dashboard - Invisible Work Audit\n\n".to_string();
 
         let mut self_heals = 0;
@@ -316,12 +317,14 @@ impl CoreTools {
                 .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
             return Self::shared_runtime()?
                 .block_on(async {
-                    susi_sandbox::manager::SandboxManager::execute_in_docker(clean).await
+                    // Requires the standalone `susi-sandbox` service (`127.0.0.1:18083`);
+                    // bollard is isolated there — IPC fails clearly if the service is down.
+                    crate::susi_sandbox::manager::SandboxManager::execute_in_docker(clean).await
                 })
                 .map_err(|e| {
                     EaiError::process(format!(
                         "[PRIVACY] mandatory sandbox: Docker execution failed: {e}. \
-                     Grant process.exec or ensure Docker is running."
+                     Start `susi-sandbox` (SUSI_SANDBOX_PORT) and ensure Docker is running."
                     ))
                 });
         }
@@ -949,8 +952,15 @@ impl CoreTools {
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
 
         Self::shared_runtime()?
-            .block_on(async { susi_sandbox::manager::SandboxManager::execute_in_docker(cmd).await })
-            .map_err(|e| EaiError::process(format!("[CAPABILITY_GAP] Docker execution failed: {}. Ensure Docker daemon is running.", e)))
+            .block_on(async {
+                crate::susi_sandbox::manager::SandboxManager::execute_in_docker(cmd).await
+            })
+            .map_err(|e| {
+                EaiError::process(format!(
+                    "[CAPABILITY_GAP] Docker execution failed: {e}. \
+                 Start the susi-sandbox service (127.0.0.1:18083) and ensure Docker is running."
+                ))
+            })
     }
 
     #[cfg(feature = "tools-rich")]
@@ -1279,7 +1289,7 @@ impl CoreTools {
         {
             return Err(EaiError::governance("apply_patch_cycle requires files[]"));
         }
-        let cfg = susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
         let request_json = serde_json::to_string(arg)
             .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
         gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())

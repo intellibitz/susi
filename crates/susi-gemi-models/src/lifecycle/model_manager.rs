@@ -2,11 +2,11 @@
 // 100% Rust implementation for world-scale model orchestration with expert background Stop/Pause/Resume controller & ~/Downloads testing integration
 
 use super::download_controller::{ModelDownloadController, ModelDownloadProgress};
+use crate::susi_sandbox::manager::ModelInfo;
 use dashmap::DashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use susi_core::task_manager::TaskHandle;
-use susi_sandbox::manager::ModelInfo;
 
 #[derive(Debug, Clone)]
 /// Filesystem-walk rules for `recursive_scan_model_dir`, loaded once per scan
@@ -38,7 +38,7 @@ impl ModelManager {
     }
 
     pub(crate) fn cooling_down(model: &str) -> bool {
-        let cooldown = susi_sandbox::manager::SusiConfig::load_global()
+        let cooldown = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .model_lifecycle()
             .failure_cooldown_secs;
@@ -206,7 +206,7 @@ impl ModelManager {
         fs::create_dir_all(&models_dir).map_err(|e| e.to_string())?;
         let file_name = crate::download::artifact_name(target)?;
         let path = models_dir.join(&file_name);
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let trusted_origin = url::Url::parse(target)
             .ok()
             .zip(url::Url::parse(&cfg.hf_base_url()).ok())
@@ -567,7 +567,7 @@ mod tests {
         let _ = fs::write(&sf_path, vec![0u8; 2_000_000]);
         let mut discovered = Vec::new();
         let mut visited = std::collections::HashSet::new();
-        let cfg = susi_sandbox::manager::SusiConfig::default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::default();
         let rules = ModelScanRules {
             exclude_dirs: cfg.model_scan_exclude_dirs(),
             extensions: cfg.model_file_extensions(),

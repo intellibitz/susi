@@ -30,9 +30,9 @@ impl ReflexEngine {
         // legitimately exceed 2ms, so this records the violation rather than
         // aborting an in-flight result.
         if elapsed_micros > 2000 {
-            susi_sandbox::manager::SusiAuditLogger::log(
+            crate::susi_sandbox::manager::SusiAuditLogger::log(
                 workspace,
-                susi_sandbox::manager::LogLevel::Axiomatic,
+                crate::susi_sandbox::manager::LogLevel::Axiomatic,
                 "LATENCY_VIOLATION",
                 &format!(
                     "Tier-0 reflex exceeded 2ms mandate: {}us (Intent: {})",

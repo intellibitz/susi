@@ -49,6 +49,12 @@ mod susi_paths;
 #[rustfmt::skip]
 pub mod susi_config;
 
+// Vendored `susi-sandbox` surface + IPC client: full surface kept
+// identical across crates; per-crate dead_code allowance is the audit trail.
+#[allow(dead_code)]
+#[rustfmt::skip]
+pub mod susi_sandbox;
+
 pub mod ama;
 pub mod amas;
 pub(crate) mod cloud_recovery;

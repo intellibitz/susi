@@ -209,7 +209,7 @@ impl SpeculativeDecoder {
         task_handle: &Arc<TaskHandle>,
         callback: &dyn Fn(String),
     ) -> Option<EaiResult<String>> {
-        let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         if !cfg.speculative_decoding_enabled() {
             return None;
         }

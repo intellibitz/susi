@@ -1,9 +1,9 @@
+use crate::susi_sandbox::manager::ModelLadderConfigStep;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-use susi_sandbox::manager::ModelLadderConfigStep;
 
 #[derive(Deserialize)]
 struct HfModel {
@@ -91,7 +91,9 @@ fn cache_path() -> std::path::PathBuf {
 /// dynamic HF-discovered ladder when the config leaves it empty. Lives here
 /// (not as a `SusiConfig` method) because `sandbox::manager::SusiConfig` must
 /// stay a pure config accessor with no dependency on `gemi`.
-pub fn resolve_model_ladder(cfg: &susi_sandbox::manager::SusiConfig) -> Vec<ModelLadderConfigStep> {
+pub fn resolve_model_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
     let configured = cfg.model_ladder();
     if configured.is_empty() {
         discover_dynamic_ladder()
@@ -111,7 +113,7 @@ pub fn discover_dynamic_ladder() -> Vec<ModelLadderConfigStep> {
                 .unwrap_or_default(),
         )
     });
-    let cfg = susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
     let policy = cfg.model_lifecycle();
     let mut guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let stale = now().saturating_sub(guard.refreshed_at) >= policy.discovery_refresh_secs.max(60);
@@ -204,7 +206,9 @@ pub(crate) fn compact_ladder(
     result
 }
 
-fn fetch_dynamic_ladder(cfg: &susi_sandbox::manager::SusiConfig) -> Vec<ModelLadderConfigStep> {
+fn fetch_dynamic_ladder(
+    cfg: &crate::susi_sandbox::manager::SusiConfig,
+) -> Vec<ModelLadderConfigStep> {
     let policy = cfg.model_lifecycle();
     let mut headers = reqwest::header::HeaderMap::new();
     if let Ok(token) = std::env::var("HF_TOKEN") {

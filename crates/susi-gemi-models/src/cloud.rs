@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
-use susi_sandbox::extensions::{load_cloud_vendors, CloudVendorEntry};
+use crate::susi_sandbox::extensions::{load_cloud_vendors, CloudVendorEntry};
 
 /// Zero-config cloud secrets: `~/.susi/cloud.env` (KEY=value lines).
 /// Shell / process env always wins; this file only fills missing keys so an
@@ -264,22 +264,23 @@ fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<PathBuf, String> 
 }
 
 /// Bundled defaults ∪ user `inference_endpoints` by name (user wins).
-pub fn effective_inference_endpoints_pub() -> Vec<susi_sandbox::manager::InferenceEndpointItem> {
+pub fn effective_inference_endpoints_pub(
+) -> Vec<crate::susi_sandbox::manager::InferenceEndpointItem> {
     effective_inference_endpoints()
 }
 
 /// Bundled defaults ∪ user `inference_endpoints` by name (user wins).
 /// Ensures new OpenAI-compat presets (DeepSeek, Kimi, …) appear even when
 /// `~/.susi/config.json` still has an older endpoints array.
-pub fn effective_inference_endpoints() -> Vec<susi_sandbox::manager::InferenceEndpointItem> {
-    let bundled = susi_sandbox::manager::SusiConfig::default()
+pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::InferenceEndpointItem> {
+    let bundled = crate::susi_sandbox::manager::SusiConfig::default()
         .inference_endpoints()
         .endpoints;
-    let user = susi_sandbox::manager::SusiConfig::load_global()
+    let user = crate::susi_sandbox::manager::SusiConfig::load_global()
         .unwrap_or_default()
         .inference_endpoints()
         .endpoints;
-    let mut by_name: BTreeMap<String, susi_sandbox::manager::InferenceEndpointItem> =
+    let mut by_name: BTreeMap<String, crate::susi_sandbox::manager::InferenceEndpointItem> =
         BTreeMap::new();
     for endpoint in bundled {
         by_name.insert(endpoint.name.to_ascii_lowercase(), endpoint);

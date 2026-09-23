@@ -85,7 +85,7 @@ impl FrontierManager {
     }
 
     pub fn catalog() -> Result<Vec<FrontierDefinition>> {
-        Ok(susi_sandbox::extensions::load_json_or_bundled(
+        Ok(crate::susi_sandbox::extensions::load_json_or_bundled(
             "frontier-models.json",
             include_str!("../../../config/frontier-models.json"),
         ))
@@ -315,7 +315,7 @@ impl FrontierDefinition {
     }
 }
 
-fn endpoint_for(name: &str) -> Option<susi_sandbox::manager::InferenceEndpointItem> {
+fn endpoint_for(name: &str) -> Option<crate::susi_sandbox::manager::InferenceEndpointItem> {
     let lower = name.to_ascii_lowercase();
     effective_inference_endpoints_pub()
         .into_iter()
