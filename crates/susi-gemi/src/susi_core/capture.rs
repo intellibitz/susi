@@ -254,36 +254,50 @@ impl EvidenceSession {
     /// Default redaction for sessions reconstituted cross-copy: configured
     /// secret-token patterns, same as the SecurityDetector path.
     fn default_redact(s: &str) -> String {
-        let patterns = crate::susi_config::SusiConfig::load(
-            &crate::susi_paths::SusiDirs::config_dir(),
-        )
-        .map(|c| c.governance().secret_tokens)
-        .unwrap_or_default();
+        let patterns =
+            crate::susi_config::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
+                .map(|c| c.governance().secret_tokens)
+                .unwrap_or_default();
         crate::susi_error::redact::redact_patterns(&patterns, s)
     }
 
     /// Reconstitute a session handle from another copy's rendezvous file —
     /// receipts record into the owner's `inbox/` instead of a local map.
+    /// Scans every live pid dir under `bus/` so sessions activated by a
+    /// *separate process* are visible too.
     fn remote_session(canonical: &Path) -> Option<Self> {
-        let dir = evidence_rendezvous(canonical)?;
-        let text = std::fs::read_to_string(dir.join("session.json")).ok()?;
-        let meta: serde_json::Value = serde_json::from_str(&text).ok()?;
-        let id = meta.get("id")?.as_str()?.to_string();
-        let goal = meta
-            .get("goal")
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_string();
-        Some(Self {
-            id,
-            goal,
-            workspace: canonical.to_path_buf(),
-            next: AtomicU64::new(0),
-            receipts: DashMap::new(),
-            redact: Self::default_redact,
-            session_dir: OnceLock::new(),
-            remote_inbox: Some(dir.join("inbox")),
-        })
+        let pid_dir = crate::susi_paths::SusiDirs::cache_dir()
+            .join("bus")
+            .join(std::process::id().to_string());
+        let leaf = crate::susi_core::plane_bus_ipc::enc(&canonical.to_string_lossy());
+        for base in crate::susi_core::plane_bus_ipc::sibling_pid_dirs(&pid_dir) {
+            let dir = base.join("evidence").join(&leaf);
+            let Ok(text) = std::fs::read_to_string(dir.join("session.json")) else {
+                continue;
+            };
+            let Ok(meta) = serde_json::from_str::<serde_json::Value>(&text) else {
+                continue;
+            };
+            let Some(id) = meta.get("id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let goal = meta
+                .get("goal")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            return Some(Self {
+                id: id.to_string(),
+                goal,
+                workspace: canonical.to_path_buf(),
+                next: AtomicU64::new(0),
+                receipts: DashMap::new(),
+                redact: Self::default_redact,
+                session_dir: OnceLock::new(),
+                remote_inbox: Some(dir.join("inbox")),
+            });
+        }
+        None
     }
 
     /// The live session bound to this workspace: this thread/task's scope

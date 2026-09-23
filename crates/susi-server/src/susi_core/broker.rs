@@ -4,14 +4,16 @@
 //! Identical public API to `susi_core::broker`, but state lives under
 //! `<cache>/bus/<pid>/broker/` (the same process-scoped rendezvous as
 //! `IpcPlaneBus`) instead of in-memory maps, so independent vendored
-//! `susi_core` copies in one process observe the same grants, pending
-//! requests, and inboxes. Lifetime matches the old in-process semantics:
-//! broker state is process-scoped, not durable across restarts.
+//! `susi_core` copies and separate processes observe the same grants,
+//! pending requests, and inboxes. Lifetime matches the old in-process
+//! semantics: broker state is process-scoped, not durable across
+//! restarts — reads scan every live pid dir under `bus/`, writes stay
+//! in the owning process's dir so pid-dir sweeping preserves ownership.
 //!
 //! Layout: `grants/<key>.json`, `requests/<id>.json`,
 //! `inbox/<recipient>/<ordered-name>.json`. Writes are atomic (tmp + rename).
 
-use crate::susi_core::plane_bus_ipc::enc;
+use crate::susi_core::plane_bus_ipc::{enc, sibling_pid_dirs};
 use crate::susi_paths::SusiDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -130,8 +132,8 @@ fn scan_dir<T: for<'de> Deserialize<'de>>(dir: &Path) -> Vec<(PathBuf, T)> {
     out
 }
 
-/// File-backed permission/message broker shared across vendored copies in
-/// one process.
+/// File-backed permission/message broker shared across copies and
+/// processes through the `bus/` rendezvous.
 pub struct IpcBroker {
     dir: PathBuf,
 }
@@ -154,7 +156,8 @@ impl IpcBroker {
     }
 
     /// Global broker — shared `<cache>/bus/<pid>/broker/` rendezvous so all
-    /// vendored copies in this process see the same state.
+    /// copies in this process see the same state; reads scan sibling pid
+    /// dirs so separate processes interop.
     pub fn global() -> &'static Self {
         static BROKER: OnceLock<IpcBroker> = OnceLock::new();
         BROKER.get_or_init(|| {
@@ -179,6 +182,27 @@ impl IpcBroker {
         self.dir.join("inbox").join(enc(recipient))
     }
 
+    /// Own `broker/<sub>` dir first, then every sibling pid dir's — grants,
+    /// requests, and inboxes cross process boundaries through the shared
+    /// `bus/` root. `new()`'s temp dir isn't under a `bus/` root, so it
+    /// stays hermetic.
+    fn state_dirs(&self, sub: &str) -> Vec<PathBuf> {
+        let Some(pid_dir) = self.dir.parent() else {
+            return vec![self.dir.join(sub)];
+        };
+        let under_bus = pid_dir
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|n| n == "bus");
+        if !under_bus {
+            return vec![self.dir.join(sub)];
+        }
+        sibling_pid_dirs(pid_dir)
+            .into_iter()
+            .map(|d| d.join("broker").join(sub))
+            .collect()
+    }
+
     /// Grant `grantee` permission to perform `scope.action` on `scope.resource`.
     pub fn grant(
         &self,
@@ -195,10 +219,7 @@ impl IpcBroker {
             granted_at: now,
             expires_at: ttl_secs.map(|ttl| now + ttl),
         };
-        let _ = write_json(
-            &self.grants_dir().join(enc(&scope.key(grantee))),
-            &grant,
-        );
+        let _ = write_json(&self.grants_dir().join(enc(&scope.key(grantee))), &grant);
         grant
     }
 
@@ -261,8 +282,13 @@ impl IpcBroker {
         req
     }
 
-    fn load_request(&self, request_id: &str) -> Option<PermissionRequest> {
-        read_json(&self.requests_dir().join(enc(request_id)))
+    /// Locate a request across all rendezvous dirs — returns the owning
+    /// requests dir so `negotiate` writes the resolution back where the
+    /// request lives.
+    fn load_request(&self, request_id: &str) -> Option<(PathBuf, PermissionRequest)> {
+        self.state_dirs("requests")
+            .iter()
+            .find_map(|d| read_json(&d.join(enc(request_id))).map(|r| (d.clone(), r)))
     }
 
     /// Grantor resolves a pending request. On approve, installs a grant.
@@ -273,7 +299,7 @@ impl IpcBroker {
         approve: bool,
         workspace: Option<&Path>,
     ) -> Result<PermissionRequest, String> {
-        let Some(mut entry) = self.load_request(request_id) else {
+        let Some((req_dir, mut entry)) = self.load_request(request_id) else {
             return Err(format!("unknown permission request: {request_id}"));
         };
         if entry.status != NegotiationStatus::Pending {
@@ -319,14 +345,15 @@ impl IpcBroker {
                 None,
             );
         }
-        write_json(&self.requests_dir().join(enc(request_id)), &entry)?;
+        write_json(&req_dir.join(enc(request_id)), &entry)?;
         Ok(entry)
     }
 
     /// Pending requests addressed to `grantor` (or all when `grantor` is empty).
     pub fn pending_requests(&self, grantor: Option<&str>) -> Vec<PermissionRequest> {
-        scan_dir::<PermissionRequest>(&self.requests_dir())
-            .into_iter()
+        self.state_dirs("requests")
+            .iter()
+            .flat_map(|d| scan_dir::<PermissionRequest>(d))
             .map(|(_, r)| r)
             .filter(|r| r.status == NegotiationStatus::Pending)
             .filter(|r| grantor.is_none_or(|g| r.grantor == g))
@@ -335,24 +362,32 @@ impl IpcBroker {
 
     /// Check whether `grantee` currently holds a valid grant for `scope`.
     pub fn is_permitted(&self, grantee: &str, scope: &PermissionScope) -> bool {
-        read_json::<PermissionGrant>(&self.grants_dir().join(enc(&scope.key(grantee))))
+        let key = enc(&scope.key(grantee));
+        self.state_dirs("grants")
+            .iter()
+            .find_map(|d| read_json::<PermissionGrant>(&d.join(&key)))
             .is_some_and(|g| g.expires_at.is_none_or(|exp| exp > now_secs()))
     }
 
-    /// Revoke an existing grant.
+    /// Revoke an existing grant — searched across all rendezvous dirs and
+    /// removed wherever it was written.
     pub fn revoke(&self, grantee: &str, scope: &PermissionScope) -> Option<PermissionGrant> {
-        let file = self.grants_dir().join(enc(&scope.key(grantee)));
-        let grant = read_json::<PermissionGrant>(&file);
-        if grant.is_some() {
-            let _ = std::fs::remove_file(&file);
+        let key = enc(&scope.key(grantee));
+        for dir in self.state_dirs("grants") {
+            let file = dir.join(&key);
+            if let Some(grant) = read_json::<PermissionGrant>(&file) {
+                let _ = std::fs::remove_file(&file);
+                return Some(grant);
+            }
         }
-        grant
+        None
     }
 
     /// List grants held by an identity.
     pub fn grants_for(&self, grantee: &str) -> Vec<PermissionGrant> {
-        scan_dir::<PermissionGrant>(&self.grants_dir())
-            .into_iter()
+        self.state_dirs("grants")
+            .iter()
+            .flat_map(|d| scan_dir::<PermissionGrant>(d))
             .map(|(_, g)| g)
             .filter(|g| g.grantee == grantee)
             .collect()
@@ -387,15 +422,18 @@ impl IpcBroker {
     }
 
     /// Receive up to `limit` messages for `recipient` (oldest first; consumed
-    /// messages are deleted).
+    /// messages are deleted). Scans every rendezvous dir's inbox — senders
+    /// in other processes write under their own pid dir.
     pub fn receive(&self, recipient: &str, limit: usize) -> Vec<IpcMessage> {
         let mut out = Vec::new();
-        for (path, msg) in scan_dir::<IpcMessage>(&self.inbox_dir(recipient)) {
-            if out.len() >= limit {
-                break;
+        for dir in self.state_dirs("inbox") {
+            for (path, msg) in scan_dir::<IpcMessage>(&dir.join(enc(recipient))) {
+                if out.len() >= limit {
+                    return out;
+                }
+                out.push(msg);
+                let _ = std::fs::remove_file(&path);
             }
-            out.push(msg);
-            let _ = std::fs::remove_file(&path);
         }
         out
     }
@@ -406,3 +444,4 @@ impl Default for IpcBroker {
         Self::new()
     }
 }
+

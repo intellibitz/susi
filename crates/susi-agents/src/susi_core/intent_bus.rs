@@ -191,9 +191,13 @@ impl IntentBus {
     }
 
     fn kind_dir(&self, kind: IntentKind) -> Option<PathBuf> {
-        self.dir
-            .as_ref()
-            .map(|d| d.join(if kind == IntentKind::Provide { "provide" } else { "need" }))
+        self.dir.as_ref().map(|d| {
+            d.join(if kind == IntentKind::Provide {
+                "provide"
+            } else {
+                "need"
+            })
+        })
     }
 
     /// Atomic write of an intent message into the shared rendezvous.
@@ -212,22 +216,40 @@ impl IntentBus {
         }
     }
 
-    /// Messages of `kind` persisted by any copy under the rendezvous.
+    /// Messages of `kind` persisted by any copy under the rendezvous —
+    /// own pid dir first, then sibling pid dirs so intents advertised by
+    /// *separate processes* match through the shared `bus/` root.
     fn scan(&self, kind: IntentKind) -> Vec<IntentMessage> {
-        let Some(dir) = self.kind_dir(kind) else {
-            return Vec::new();
+        let leaf = if kind == IntentKind::Provide {
+            "provide"
+        } else {
+            "need"
         };
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return Vec::new();
+        let dirs: Vec<PathBuf> = match self.dir.as_ref().and_then(|d| d.parent()) {
+            Some(pid_dir) => crate::susi_core::plane_bus_ipc::sibling_pid_dirs(pid_dir)
+                .into_iter()
+                .map(|d| d.join("intents").join(leaf))
+                .collect(),
+            None => return Vec::new(),
         };
-        rd.flatten()
-            .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
-            .filter_map(|e| {
-                std::fs::read_to_string(e.path())
+        let mut out = Vec::new();
+        for dir in dirs {
+            let Ok(rd) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for e in rd.flatten() {
+                if !e.file_name().to_string_lossy().ends_with(".json") {
+                    continue;
+                }
+                if let Some(m) = std::fs::read_to_string(e.path())
                     .ok()
                     .and_then(|s| serde_json::from_str::<IntentMessage>(&s).ok())
-            })
-            .collect()
+                {
+                    out.push(m);
+                }
+            }
+        }
+        out
     }
 
     /// This copy's map ∪ persisted messages from other copies (dedup by id).
@@ -313,14 +335,12 @@ impl IntentBus {
         let mut scored: Vec<IntentMatch> = self
             .all(IntentKind::Provide)
             .iter()
-            .map(|p| {
-                IntentMatch {
-                    need_id: need.id.clone(),
-                    provider_id: p.id.clone(),
-                    provider: p.from.clone(),
-                    score: intent_similarity(need, p),
-                    provider_intent: p.intent.clone(),
-                }
+            .map(|p| IntentMatch {
+                need_id: need.id.clone(),
+                provider_id: p.id.clone(),
+                provider: p.from.clone(),
+                score: intent_similarity(need, p),
+                provider_intent: p.intent.clone(),
             })
             .filter(|m| m.score >= min_score)
             .collect();

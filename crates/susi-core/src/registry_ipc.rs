@@ -317,6 +317,22 @@ impl IpcCapabilityRegistry {
         self.bus.rendezvous().join("caps").join(kind)
     }
 
+    /// Own `caps/<kind>` dir first, then sibling pid dirs — capabilities
+    /// registered by *separate processes* are discoverable through the
+    /// shared `<cache>/bus/` rendezvous.
+    fn cap_dirs(&self, kind: &str) -> Vec<PathBuf> {
+        self.bus
+            .rendezvous_dirs()
+            .into_iter()
+            .map(|d| d.join("caps").join(kind))
+            .collect()
+    }
+
+    /// First matching cap metadata across all rendezvous dirs.
+    fn find_cap(&self, kind: &str, name: &str) -> Option<Value> {
+        self.cap_dirs(kind).iter().find_map(|d| read_cap(d, name))
+    }
+
     /// Remove this copy's capability file only when it records this copy's
     /// endpoint — a same-named registration from another copy is left alone.
     fn remove_own_cap(&self, kind: &str, name: &str) {
@@ -369,7 +385,7 @@ impl IpcCapabilityRegistry {
         if let Some(t) = self.tools.get(name) {
             return Some(Arc::clone(t.value()));
         }
-        let meta = read_cap(&self.caps_dir("tool"), name);
+        let meta = self.find_cap("tool", name);
         if meta.is_none() && !self.bus.is_wired(&tool_topic(name)) {
             return None;
         }
@@ -396,10 +412,12 @@ impl IpcCapabilityRegistry {
     /// All visible tool names — locally registered plus remote capabilities.
     pub fn list_tools(&self) -> Vec<String> {
         let mut names: Vec<String> = self.tools.iter().map(|e| e.key().clone()).collect();
-        for meta in scan_caps(&self.caps_dir("tool")) {
-            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
-                if !names.iter().any(|x| x == n) {
-                    names.push(n.to_string());
+        for dir in self.cap_dirs("tool") {
+            for meta in scan_caps(&dir) {
+                if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+                    if !names.iter().any(|x| x == n) {
+                        names.push(n.to_string());
+                    }
                 }
             }
         }
@@ -429,9 +447,7 @@ impl IpcCapabilityRegistry {
         if let Some(p) = self.providers.get(name) {
             return Some(Arc::clone(p.value()));
         }
-        if read_cap(&self.caps_dir("provider"), name).is_none()
-            && !self.bus.is_wired(&provider_topic(name))
-        {
+        if self.find_cap("provider", name).is_none() && !self.bus.is_wired(&provider_topic(name)) {
             return None;
         }
         Some(Arc::new(RemoteProvider {
@@ -449,10 +465,12 @@ impl IpcCapabilityRegistry {
 
     pub fn list_providers(&self) -> Vec<String> {
         let mut names: Vec<String> = self.providers.iter().map(|e| e.key().clone()).collect();
-        for meta in scan_caps(&self.caps_dir("provider")) {
-            if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
-                if !names.iter().any(|x| x == n) {
-                    names.push(n.to_string());
+        for dir in self.cap_dirs("provider") {
+            for meta in scan_caps(&dir) {
+                if let Some(n) = meta.get("name").and_then(|v| v.as_str()) {
+                    if !names.iter().any(|x| x == n) {
+                        names.push(n.to_string());
+                    }
                 }
             }
         }
@@ -479,7 +497,7 @@ impl IpcCapabilityRegistry {
         if let Some(c) = self.agents.get(name) {
             return Some(c.value().clone());
         }
-        let meta = read_cap(&self.caps_dir("agent"), name)?;
+        let meta = self.find_cap("agent", name)?;
         Some(AgentCapability {
             name: meta.get("name")?.as_str()?.to_string(),
             description: meta
@@ -496,21 +514,23 @@ impl IpcCapabilityRegistry {
 
     pub fn list_agents(&self) -> Vec<AgentCapability> {
         let mut out: Vec<AgentCapability> = self.agents.iter().map(|e| e.value().clone()).collect();
-        for meta in scan_caps(&self.caps_dir("agent")) {
-            let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            if !out.iter().any(|c| c.name == name) {
-                out.push(AgentCapability {
-                    name: name.to_string(),
-                    description: meta
-                        .get("description")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
-                    is_core: meta
-                        .get("is_core")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                });
+        for dir in self.cap_dirs("agent") {
+            for meta in scan_caps(&dir) {
+                let name = meta.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !out.iter().any(|c| c.name == name) {
+                    out.push(AgentCapability {
+                        name: name.to_string(),
+                        description: meta
+                            .get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string(),
+                        is_core: meta
+                            .get("is_core")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false),
+                    });
+                }
             }
         }
         out

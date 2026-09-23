@@ -71,14 +71,18 @@ composition-root re-exports.
 `SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`
 copies cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
 statics (each vendored module is a distinct type), so vendored trees back
-`plane_bus` with **`plane_bus_ipc::IpcPlaneBus`**: a per-process filesystem
+`plane_bus` with **`plane_bus_ipc::IpcPlaneBus`**: a filesystem
 rendezvous under `<cache>/bus/<pid>/` (endpoint files for exact topics and
 prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
 `POST /handle` and `POST /stream`. Stream ids embed the opener's endpoint
 (`ipc://<addr>/<id>`) so `stream_emit` routes cross-copy; stale endpoint
 files are pruned on connect failure and dead pid dirs swept via `/proc`.
-Per-pid scoping preserves today's per-process bus isolation across daemon,
-CLI, and parallel test binaries. **`registry_ipc::IpcCapabilityRegistry`**
+Writes stay scoped to the owning process's pid dir (ownership/liveness),
+while **reads scan every numeric-named sibling pid dir** — own dir first,
+then sorted siblings — so vendored copies *and separate plane processes*
+resolve each other's registrations through the same `bus/` root. Exact
+topic registrations outrank prefix handlers process-wide.
+**`registry_ipc::IpcCapabilityRegistry`**
 applies the same pattern to the capability catalog: `register_tool` keeps
 the trait object local, serves `capability.tool.<name>` on the owner's bus
 (MAC + evidence capture run in the owner-side dispatch handler), and writes
@@ -96,12 +100,17 @@ endpoint-backed the same way when consumers vendor `susi_core`.
 `crates/susi-core/vendor_template/susi_core/`) — `plane_bus` facades with
 `PlaneBus` delegating to `IpcPlaneBus`, `plane_bus_ipc`, a file-backed
 `IpcBroker` under `<cache>/bus/<pid>/broker/` (grants/requests/inbox as
-JSON files), `registry` delegating to `IpcCapabilityRegistry` (so tools
-registered in one copy dispatch cross-copy), `capture`/`evidence`/
-`receipt_archive` with a receipts inbox drained by the owning session,
+JSON files — the in-crate `susi_core::broker::IpcBroker` is the same
+file-backed implementation, so CLI and daemon broker state interop),
+`registry` delegating to `IpcCapabilityRegistry` (so tools
+registered in one copy dispatch cross-copy and cross-process),
+`capture`/`evidence`/
+`receipt_archive` with a receipts inbox drained by the owning session
+(session rendezvous scans sibling pid dirs),
 file-backed `mac_policy` sharing `~/.susi/mac.hmac.key`,
-`intent_bus` (providers/needs persisted under the rendezvous so
-cross-copy matching works), `agent_tx` (per-copy `open` map; durable
+`intent_bus` (providers/needs persisted under the rendezvous, scanned
+across pid dirs so cross-process matching works), `agent_tx` (per-copy
+`open` map; durable
 `.susi/tx/` journal is already workspace-shared), `bus` (per-copy
 `TypedEventBus` — the only typed subscribers live in their publishing
 crate today), plus

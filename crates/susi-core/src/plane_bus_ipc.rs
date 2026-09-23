@@ -94,6 +94,15 @@ impl IpcPlaneBus {
         &self.rendezvous
     }
 
+    /// Own rendezvous dir first, then every other live numeric-named pid
+    /// dir under `<cache>/bus/` (sorted) — the cross-process discovery
+    /// set. Reads scan all dirs so *separate processes* resolve each
+    /// other's registrations; writes always stay in the owning process's
+    /// dir so `sweep_dead_processes` keeps ownership/liveness tracking.
+    pub fn rendezvous_dirs(&self) -> Vec<PathBuf> {
+        sibling_pid_dirs(&self.rendezvous)
+    }
+
     /// This copy's callback endpoint; binds the listener on first use.
     /// `None` if loopback bind failed (registrations then stay local-only).
     /// This copy's listener address (bound lazily on first registration or
@@ -141,23 +150,30 @@ impl IpcPlaneBus {
         }
     }
 
-    /// Ordered remote candidates: exact topic file first, then every prefix
-    /// file whose key prefixes `topic`. Returns `(file, endpoint)` pairs so
-    /// stale files can be pruned on connect failure.
+    /// Ordered remote candidates: every exact topic file across live
+    /// rendezvous dirs first, then every prefix file whose key prefixes
+    /// `topic` — exact registrations outrank prefix handlers process-wide.
+    /// Returns `(file, endpoint)` pairs so stale files can be pruned on
+    /// connect failure.
     fn candidates(&self, topic: &str) -> Vec<(PathBuf, SocketAddr)> {
         let mut out = Vec::new();
-        let exact = self.rendezvous.join("topics").join(enc(topic));
-        if let Some((ep, _)) = read_endpoint_key(&exact) {
-            out.push((exact, ep));
+        let dirs = self.rendezvous_dirs();
+        for dir in &dirs {
+            let exact = dir.join("topics").join(enc(topic));
+            if let Some((ep, _)) = read_endpoint_key(&exact) {
+                out.push((exact, ep));
+            }
         }
-        let pdir = self.rendezvous.join("prefixes");
-        if let Ok(rd) = std::fs::read_dir(&pdir) {
-            for entry in rd.flatten() {
-                let path = entry.path();
-                if let Some((ep, _)) = read_endpoint_key(&path)
-                    .filter(|(_, prefix)| topic.starts_with(prefix.as_str()))
-                {
-                    out.push((path, ep));
+        for dir in &dirs {
+            let pdir = dir.join("prefixes");
+            if let Ok(rd) = std::fs::read_dir(&pdir) {
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if let Some((ep, _)) = read_endpoint_key(&path)
+                        .filter(|(_, prefix)| topic.starts_with(prefix.as_str()))
+                    {
+                        out.push((path, ep));
+                    }
                 }
             }
         }
@@ -456,6 +472,35 @@ fn dispatch(
     }
 }
 
+/// `own` pid dir first, then every other numeric-named sibling dir under
+/// `<cache>/bus/` sorted by name — the cross-process discovery set. No
+/// liveness check here: dead pids are swept at bus init
+/// (`sweep_dead_processes`) and dead endpoints are pruned on connect
+/// failure, so a stale dir only costs one failed connect attempt.
+pub fn sibling_pid_dirs(own: &Path) -> Vec<PathBuf> {
+    let mut out = vec![own.to_path_buf()];
+    let Some(bus_dir) = own.parent() else {
+        return out;
+    };
+    let mut siblings: Vec<PathBuf> = std::fs::read_dir(bus_dir)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| {
+                    *p != *own
+                        && p.is_dir()
+                        && p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.parse::<u64>().is_ok())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    siblings.sort();
+    out.extend(siblings);
+    out
+}
+
 /// Remove rendezvous dirs whose pid no longer exists (`/proc` liveness —
 /// Linux-only; other platforms keep stale dirs until manual cleanup).
 fn sweep_dead_processes(bus_dir: Option<&Path>) {
@@ -569,6 +614,34 @@ mod tests {
         );
         b.stream_close(&sid);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two rendezvous dirs under one `bus/` root simulate separate
+    /// processes: the requester's scan must find a handler published by
+    /// the sibling pid dir. A real `sleep` child provides a live pid so
+    /// `sweep_dead_processes` does not reap its dir on Linux.
+    #[test]
+    fn cross_process_request_reaches_sibling_pid_dir() {
+        let bus_root = tempdir("busroot");
+        let mut child = match std::process::Command::new("sleep")
+            .arg("30")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(_) => return, // no sleep binary — skip
+        };
+        let mine = bus_root.join(std::process::id().to_string());
+        let theirs = bus_root.join(child.id().to_string());
+        let a = IpcPlaneBus::with_rendezvous(mine);
+        let b = IpcPlaneBus::with_rendezvous(theirs);
+        b.register("test.cross", Arc::new(Echo));
+        let out = a.request("test.cross", json!({ "p": 7 })).unwrap();
+        assert_eq!(out, json!({ "echo": { "p": 7 } }));
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&bus_root);
     }
 
     #[test]
