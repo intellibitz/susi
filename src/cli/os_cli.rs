@@ -61,10 +61,20 @@ fn status(json: bool) -> Result<()> {
     }
 
     println!("SUSI OS — substrate status");
+    let term_age = if term.term == 0 || term.updated_at == 0 {
+        String::new()
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!(" ({}s ago)", now.saturating_sub(term.updated_at))
+    };
     println!(
-        "consensus:   term {} / leader {} — {} decision(s), {} anomal{}",
+        "consensus:   term {} / leader {}{} — {} decision(s), {} anomal{}",
         state.term.max(term.term),
         leader_display(&state, &term),
+        term_age,
         state.decisions,
         state.anomalies.len(),
         if state.anomalies.len() == 1 {
