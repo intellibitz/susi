@@ -12,9 +12,11 @@
 //! `execute_tool` call under the `reflex_<slug>` convention — no direct
 //! calls into `reflex_synth`.
 //!
-//! Requires the `wasm32-wasip1` rustup target (installed by CI). When it is
-//! absent the test reports a skip instead of claiming a pass it didn't earn —
-//! same convention as `reflex_synth::tests::test_wasm_reflex_hot_patch_end_to_end`.
+//! Requires the `wasm32-wasip1` rustup target (installed by CI) and the
+//! `susi-native` leaf service on `127.0.0.1:18084` (CI builds and starts it
+//! before the test run). When either is absent the test reports a skip
+//! instead of claiming a pass it didn't earn — same convention as
+//! `reflex_synth::tests::test_wasm_reflex_hot_patch_end_to_end`.
 
 #[allow(dead_code)]
 #[path = "../src/susi_paths.rs"]
@@ -66,6 +68,13 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
         &workspace,
     );
     let _ = std::fs::remove_dir_all(&tmp);
+    if second.contains("susi-native service unreachable") {
+        eprintln!(
+            "[SKIP] susi-native service not running on 127.0.0.1:18084, \
+             reflex-execution leg not exercised: {second}"
+        );
+        return;
+    }
     assert!(
         second.contains("[REFLEX:") && second.contains("input=e2e-arg"),
         "hot-patched reflex must execute through execute_tool, got: {second}"

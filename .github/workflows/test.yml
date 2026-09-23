@@ -73,6 +73,21 @@ jobs:
         with:
           tool: cargo-nextest@0.9.146
 
+      # The capability-gap e2e executes a synthesized WASI reflex through the
+      # susi-native leaf service; without it the test reports a skip.
+      - name: Build susi-native service
+        run: cargo build -p susi-native --locked
+
+      - name: Start susi-native on 127.0.0.1:18084
+        run: |
+          ./target/debug/susi-native &
+          for i in $(seq 1 60); do
+            curl -sf -o /dev/null http://127.0.0.1:18084/healthz && exit 0
+            curl -s -o /dev/null http://127.0.0.1:18084/ && exit 0
+            sleep 1
+          done
+          echo "susi-native failed to start" && exit 1
+
       # nextest schedules each test as its own process (~40% faster than
       # libtest's per-binary pools on this suite) and isolates cross-process
       # IPC state the way the microkernel intends.
