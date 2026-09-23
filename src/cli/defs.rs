@@ -32,6 +32,7 @@ use super::patch_cli;
 use super::plan_cli;
 use super::privacy_cli;
 use super::python_engine_cli;
+use super::services_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
 use super::telemetry_cli;
@@ -164,6 +165,11 @@ pub(crate) enum Commands {
     Gemi,
     /// Inspect workspace health report
     Status,
+    /// Leaf-service process table: supervised pids, live health, restart
+    Services {
+        #[command(subcommand)]
+        action: Option<services_cli::ServicesCommands>,
+    },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
     /// Recursively audit src/ (AST-based) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
@@ -475,7 +481,8 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         | Commands::Ambient { .. }
         | Commands::Tx { .. }
         | Commands::Substrate { .. }
-        | Commands::Crown { .. } => false,
+        | Commands::Crown { .. }
+        | Commands::Services { .. } => false,
         Commands::Mcp {
             action: Some(mcp_cli::McpCommands::Serve) | None,
         } => true,

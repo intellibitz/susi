@@ -22,7 +22,8 @@ use headless_chrome::Browser;
 #[cfg(feature = "tools-rich")]
 use super::helpers::secure_external_url;
 use super::helpers::{
-    confine_exec_argv, external_agent_control, read_file_nofollow, secure_path, tool_string_arg,
+    confine_exec_argv, external_agent_control, os_ps_proc, os_sysinfo_proc, read_file_nofollow,
+    secure_path, tool_string_arg,
 };
 
 pub struct CoreTools;
@@ -406,6 +407,135 @@ impl CoreTools {
 
             task_handle.report_progress();
             std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    #[tool(
+        name = "os_services",
+        description = "List the substrate's leaf services (susi-paths/error/config/sandbox/native) with supervised pids and live health; action=restart <name> SIGTERMs a supervised service for the daemon to respawn"
+    )]
+    pub fn os_services(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let action = arg
+            .get("action")
+            .and_then(|v| v.as_str())
+            .unwrap_or("status");
+        let name = arg.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let audit = format!("{action} {name}").trim().to_string();
+        gawd_hooks::audit_action("os_services", &audit, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+
+        match action {
+            "status" | "list" => {
+                let statuses = crate::susi_core::service_table::status();
+                serde_json::to_string_pretty(&statuses)
+                    .map_err(|e| EaiError::protocol(e.to_string()))
+            }
+            "restart" => {
+                if name.is_empty() {
+                    return Err(EaiError::protocol(
+                        "Usage: os_services {action: \"restart\", name: <service>}",
+                    ));
+                }
+                let Some(svc) = crate::susi_core::service_table::leaf_service(name) else {
+                    return Err(EaiError::protocol(format!("unknown service `{name}`")));
+                };
+                let table = crate::susi_core::service_table::load();
+                let Some(rec) = table.iter().find(|r| r.name == svc.name) else {
+                    return Err(EaiError::process(format!(
+                        "{name} is not supervised by the daemon"
+                    )));
+                };
+                let ok = Command::new("kill")
+                    .args(["-TERM", &rec.pid.to_string()])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if ok {
+                    Ok(format!(
+                        "sent SIGTERM to {} (pid {}); the daemon supervisor will respawn it",
+                        svc.name, rec.pid
+                    ))
+                } else {
+                    Err(EaiError::process(format!(
+                        "failed to SIGTERM {} (pid {})",
+                        svc.name, rec.pid
+                    )))
+                }
+            }
+            other => Err(EaiError::protocol(format!(
+                "unknown action `{other}` (status|restart)"
+            ))),
+        }
+    }
+
+    #[tool(
+        name = "os_ps",
+        description = "List host processes (pid, name, RSS) read from /proc, sorted by memory; args: {limit?: N, filter?: substring}"
+    )]
+    pub fn os_ps(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let limit = arg
+            .get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(50)
+            .min(500) as usize;
+        let filter = arg.get("filter").and_then(|v| v.as_str()).unwrap_or("");
+        gawd_hooks::audit_action("os_ps", filter, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        os_ps_proc(limit, filter)
+    }
+
+    #[tool(
+        name = "os_sysinfo",
+        description = "Host summary from /proc: kernel, uptime, load average, memory totals, cpu count"
+    )]
+    pub fn os_sysinfo(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("os_sysinfo", "", workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        os_sysinfo_proc()
+    }
+
+    #[tool(
+        name = "os_kill",
+        description = "Send TERM or KILL to a pid the substrate supervises (service-table pids only — fails closed on any other pid); args: {pid: N, signal?: \"term\"|\"kill\"}"
+    )]
+    pub fn os_kill(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        let pid =
+            arg.get("pid")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| EaiError::protocol("Usage: os_kill {pid: <n>}"))? as u32;
+        let signal = arg.get("signal").and_then(|v| v.as_str()).unwrap_or("term");
+        let sig_name = match signal {
+            "term" | "TERM" | "15" => "TERM",
+            "kill" | "KILL" | "9" => "KILL",
+            other => {
+                return Err(EaiError::protocol(format!(
+                    "signal `{other}` not permitted (term|kill)"
+                )));
+            }
+        };
+        let audit = format!("{sig_name} {pid}");
+        gawd_hooks::audit_action("os_kill", &audit, workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+
+        // Fails closed: only pids the daemon itself supervises may be
+        // signalled through this tool — an arbitrary-pid kill would be a
+        // host-destruction primitive, not an OS-layer capability.
+        let supervised = crate::susi_core::service_table::load();
+        if !supervised.iter().any(|r| r.pid == pid) {
+            return Err(EaiError::authorization(format!(
+                "pid {pid} is not in the substrate process table — os_kill only \
+                 reaches supervised leaf services"
+            )));
+        }
+        let ok = Command::new("kill")
+            .args([format!("-{sig_name}"), pid.to_string()])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            Ok(format!("sent SIG{sig_name} to pid {pid}"))
+        } else {
+            Err(EaiError::process(format!("kill -{sig_name} {pid} failed")))
         }
     }
 
@@ -1488,7 +1618,7 @@ mod unwired_governance_tests {
     /// nextest each test is its own process; under `cargo test` the env swap
     /// races with peers but only shrinks the visible rendezvous, which is
     /// the conservative direction for a fail-closed assertion.
-    fn isolate_bus_root() {
+    pub(super) fn isolate_bus_root() {
         let dir = std::env::temp_dir()
             .join("susi-unwired")
             .join(std::process::id().to_string());
@@ -1506,5 +1636,94 @@ mod unwired_governance_tests {
     fn test_exec_command_fails_closed_when_unwired() {
         isolate_bus_root();
         assert!(CoreTools::exec_command(&serde_json::json!("ls"), Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn test_os_tools_fail_closed_when_unwired() {
+        isolate_bus_root();
+        assert!(CoreTools::os_ps(&serde_json::json!({}), Path::new(".")).is_err());
+        assert!(CoreTools::os_sysinfo(&serde_json::json!({}), Path::new(".")).is_err());
+        assert!(CoreTools::os_services(&serde_json::json!({}), Path::new(".")).is_err());
+        assert!(CoreTools::os_kill(&serde_json::json!({"pid": 1}), Path::new(".")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod os_tools_wired_tests {
+    //! Positive-path coverage: a permissive `gawd.audit.action` handler is
+    //! registered on a pid-private bus root, so the governed tools actually
+    //! execute instead of failing closed at the audit gate.
+    use super::unwired_governance_tests::isolate_bus_root;
+    use super::*;
+    use crate::susi_core::plane_bus::{topics, PlaneBus, PlaneHandler};
+    use std::sync::Arc;
+
+    struct PermitAudit;
+
+    impl PlaneHandler for PermitAudit {
+        fn handle(
+            &self,
+            _topic: &str,
+            _payload: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({}))
+        }
+    }
+
+    fn wire_permissive_audit() {
+        isolate_bus_root();
+        PlaneBus::global().register(topics::GAWD_AUDIT_ACTION, Arc::new(PermitAudit));
+    }
+
+    #[test]
+    fn os_services_lists_all_five_leaf_services() {
+        wire_permissive_audit();
+        let out = CoreTools::os_services(&serde_json::json!({}), Path::new("."))
+            .expect("os_services status");
+        let statuses: serde_json::Value = serde_json::from_str(&out).expect("json array");
+        assert_eq!(statuses.as_array().map(|a| a.len()), Some(5));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn os_ps_lists_this_test_process() {
+        wire_permissive_audit();
+        let out =
+            CoreTools::os_ps(&serde_json::json!({"limit": 500}), Path::new(".")).expect("os_ps");
+        assert!(out.contains("PID\tNAME\tRSS_KB"));
+        assert!(out.contains(&std::process::id().to_string()));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn os_sysinfo_reports_kernel_and_memory() {
+        wire_permissive_audit();
+        let out =
+            CoreTools::os_sysinfo(&serde_json::json!({}), Path::new(".")).expect("os_sysinfo");
+        assert!(out.contains("kernel: Linux"));
+        assert!(out.contains("MemTotal:"));
+    }
+
+    #[test]
+    fn os_kill_fails_closed_on_unsupervised_pid() {
+        wire_permissive_audit();
+        // Audit passes, but the pid gate must still refuse: pid 4_000_000
+        // is never in the substrate process table.
+        let err = CoreTools::os_kill(
+            &serde_json::json!({"pid": 4_000_000, "signal": "term"}),
+            Path::new("."),
+        )
+        .expect_err("unsupervised pid must be refused");
+        assert!(err.to_string().contains("process table"));
+    }
+
+    #[test]
+    fn os_kill_rejects_non_whitelisted_signals() {
+        wire_permissive_audit();
+        assert!(CoreTools::os_kill(
+            &serde_json::json!({"pid": 1, "signal": "STOP"}),
+            Path::new("."),
+        )
+        .is_err());
     }
 }

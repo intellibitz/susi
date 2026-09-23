@@ -115,19 +115,40 @@ across pid dirs so cross-process matching works), `agent_tx` (per-copy
 `TypedEventBus` — the only typed subscribers live in their publishing
 crate today), plus
 `context_graph`/`net_guard`/`telemetry`/`agent_types`/`provider`/
-`task_manager`/`truth`/`manifold`/`queue` (telemetry history
-file-backed; task handles and pulse queues stay per-copy) with
+`task_manager`/`truth`/`manifold`/`queue`/`service_table` (telemetry
+history file-backed; the service table is a single shared file under
+`substrate_home/services.json`; task handles and pulse queues stay
+per-copy) with
 `crate::` paths remounted to the vendored tree. `mod.rs` re-exports the
 crate-root leaf modules (`susi_core::susi_error`, `susi_core::redact`) so
 call sites resolve unchanged. `GemiServer::start_http_server` binds the
 vendored `ContextGraph` to `<workspace>/context_graph.jsonl` — the same
 log the daemon's copy uses, and every read path already `replay()`s it.
-Vendored copies carry no `#[cfg(test)]` modules and must remain
-byte-identical across consumers and their template.
+Vendored `#[cfg(test)]` modules run once per consumer test binary — the
+same assertions then prove every vendored copy, not just the canonical
+crate. All copies must remain byte-identical to the template.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →
 `susi-gawd-agents`; `susi-gawd-a2a` → `susi-gawd-agents`.
+
+**Process layer.** `susi-core::service_table` is the kernel ABI for the
+leaf services: the `LEAF_SERVICES` registry (binary name, port env var,
+default port), the shared process table at `substrate_home/services.json`
+(atomic temp+rename writes; corrupt reads as empty), `probe` (TCP liveness),
+`pid_alive`, and `status` (registry joined with live probes).
+`susi-daemon::supervisor` is the init half: `run_daemon_loop` spawns any
+leaf service whose port is dead (binary found next to the daemon, then
+`substrate_home/bin`, then `$PATH`), records supervised pids, health-checks
+on a 5s cadence, respawns crashes up to 10 restarts, and SIGTERM→SIGKILLs
+its own children on graceful shutdown — it never kills processes it did
+not spawn. `susi services` (root CLI) prints the joined table/health view
+and `susi services restart <name>` SIGTERMs a supervised pid for the
+supervisor to respawn. `susi-gmcp` exposes the same surface to agents as
+governed tools (`os_services`, `os_ps`, `os_sysinfo`, `os_kill`), each
+behind `gawd_hooks::audit_action`; `os_kill` additionally fails closed to
+pids present in the process table only, so the tool can never signal an
+arbitrary host process.
 
 Hook traits (`EngineHooks`, `AdminHooks`, `HostHooks`, `dag_hooks`) remain for
 composition-root wiring alongside the bus — never by stuffing implementations

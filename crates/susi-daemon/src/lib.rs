@@ -45,6 +45,7 @@ pub mod gmcp_bootstrap;
 pub mod privacy;
 pub mod runtime_admin;
 pub mod server;
+pub mod supervisor;
 pub mod telemetry;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};

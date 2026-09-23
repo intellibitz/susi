@@ -128,6 +128,34 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "os_services",
+        "List or restart the substrate's leaf services (supervised process table)",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_services),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_ps",
+        "List host processes from /proc (pid, name, RSS), sorted by memory",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_ps),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_sysinfo",
+        "Host kernel/uptime/load/memory summary from /proc",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::os_sysinfo),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "os_kill",
+        "Signal a supervised substrate service pid (TERM/KILL only, fails closed otherwise)",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::os_kill),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "agents_list",
         "List managed external executors and setup readiness",
         MetaCategory::IntelligenceBridge,

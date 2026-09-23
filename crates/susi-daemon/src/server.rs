@@ -692,11 +692,17 @@ impl SusiDaemon {
             }
         });
 
+        // Process layer: bring the leaf services up and keep them up for
+        // the life of the daemon. The supervisor terminates only pids it
+        // spawned itself, recorded in the shared process table.
+        let _supervisor = crate::supervisor::start(Arc::clone(&ctx.shutdown_signal));
+
         while !ctx.is_shutdown_requested() {
             thread::sleep(Duration::from_secs(5));
         }
 
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
+        crate::supervisor::shutdown_all();
     }
 
     fn force_canonical_ports(cfg: &mut SusiConfig) {

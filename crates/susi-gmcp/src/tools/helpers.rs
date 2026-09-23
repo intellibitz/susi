@@ -227,3 +227,91 @@ pub(super) fn tool_string_arg(arg: &serde_json::Value, keys: &[&str]) -> EaiResu
         keys.join(", ")
     )))
 }
+
+/// `os_ps` backend: walk /proc, return `pid, comm, VmRSS kB` rows sorted by
+/// memory descending, capped at `limit`. Linux-only — other platforms get a
+/// clear unsupported error rather than an empty table.
+pub(super) fn os_ps_proc(limit: usize, filter: &str) -> EaiResult<String> {
+    if !cfg!(target_os = "linux") {
+        return Err(EaiError::protocol("os_ps requires /proc (Linux)"));
+    }
+    let mut rows: Vec<(u32, String, u64)> = Vec::new();
+    let entries =
+        fs::read_dir("/proc").map_err(|e| EaiError::filesystem(format!("read /proc: {e}")))?;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        let dir = entry.path();
+        let comm = fs::read_to_string(dir.join("comm"))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
+        if !filter.is_empty() && !comm.contains(filter) {
+            continue;
+        }
+        let rss_kb = fs::read_to_string(dir.join("status"))
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmRSS:"))
+                    .and_then(|l| l.split_whitespace().nth(1)?.parse::<u64>().ok())
+            })
+            .unwrap_or(0);
+        rows.push((pid, comm, rss_kb));
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r.2));
+    rows.truncate(limit);
+    let mut out = String::from("PID\tNAME\tRSS_KB\n");
+    for (pid, comm, rss) in rows {
+        out.push_str(&format!("{pid}\t{comm}\t{rss}\n"));
+    }
+    Ok(out)
+}
+
+/// `os_sysinfo` backend: kernel, uptime, loadavg, meminfo, cpu count.
+/// Linux-only for the same reason as `os_ps_proc`.
+pub(super) fn os_sysinfo_proc() -> EaiResult<String> {
+    if !cfg!(target_os = "linux") {
+        return Err(EaiError::protocol("os_sysinfo requires /proc (Linux)"));
+    }
+    let read = |p: &str| -> String {
+        fs::read_to_string(p)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "?".into())
+    };
+    let kernel = read("/proc/sys/kernel/ostype");
+    let release = read("/proc/sys/kernel/osrelease");
+    let uptime_secs: f64 = read("/proc/uptime")
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0.0);
+    let loadavg = read("/proc/loadavg");
+    let meminfo = read("/proc/meminfo");
+    let mem_line = |key: &str| -> String {
+        meminfo
+            .lines()
+            .find(|l| l.starts_with(key))
+            .unwrap_or("?")
+            .to_string()
+    };
+    let cpus = read("/proc/cpuinfo")
+        .lines()
+        .filter(|l| l.starts_with("processor"))
+        .count();
+    Ok(format!(
+        "kernel: {kernel} {release}\n\
+         uptime: {:.0}s\n\
+         loadavg: {loadavg}\n\
+         {}\n\
+         {}\n\
+         cpus: {cpus}",
+        uptime_secs,
+        mem_line("MemTotal:"),
+        mem_line("MemAvailable:")
+    ))
+}

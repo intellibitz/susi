@@ -33,6 +33,7 @@ pub mod plan_cli;
 pub mod plane_cli;
 pub mod privacy_cli;
 pub mod python_engine_cli;
+pub mod services_cli;
 pub mod shell_cli;
 pub mod substrate_cli;
 pub mod swe_agent_cli;

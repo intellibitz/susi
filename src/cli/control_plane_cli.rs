@@ -31,6 +31,7 @@ use super::plan_cli;
 use super::plane_cli::{apply_plane_prep, plane_exit, run_plane, run_plane_cwd, PlanePrep};
 use super::privacy_cli;
 use super::python_engine_cli;
+use super::services_cli;
 use super::substrate_cli;
 use super::swe_agent_cli;
 use super::telemetry_cli;
@@ -111,6 +112,11 @@ pub(crate) fn dispatch(
     if let Some(Commands::Crown { action }) = command {
         return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             crown_cli::execute(action, cwd)
+        }));
+    }
+    if let Some(Commands::Services { action }) = command {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
+            services_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Agents { action }) = command {

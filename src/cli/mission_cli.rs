@@ -7,6 +7,7 @@ use super::control_plane_cli::{control_plane_start, control_plane_stop};
 use super::defs::Commands;
 use super::keys_cli;
 use super::mcp_cli;
+use super::services_cli;
 use super::shell_cli::{glass_box_callback, run_shell, MissionHost};
 
 use std::env;
@@ -325,6 +326,15 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 susi_paths::SusiDirs::substrate_home(),
                 global_dir.to_path_buf(),
             );
+        }
+        Commands::Services { action } => {
+            // Pre-boot dispatch in control_plane_cli normally wins first;
+            // this arm keeps the match exhaustive and covers any path that
+            // reaches post-boot dispatch with the command intact.
+            if let Err(e) = services_cli::execute(action, cwd) {
+                eprintln!("{e}");
+                return std::process::ExitCode::FAILURE;
+            }
         }
     }
     std::process::ExitCode::SUCCESS

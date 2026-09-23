@@ -28,6 +28,7 @@ pub mod queue;
 pub mod receipt_archive;
 pub mod registry;
 pub mod registry_ipc;
+pub mod service_table;
 pub mod task_manager;
 pub mod telemetry;
 pub mod truth;
