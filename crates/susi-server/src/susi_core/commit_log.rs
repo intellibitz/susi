@@ -12,10 +12,13 @@
 //!
 //! Membership-authenticity is the security property that matters: a peer
 //! without `cluster.key` cannot forge a record, and a forged/tampered
-//! record fails `verify` before it ever touches the ledger. This is not
-//! a Raft log — entries are commit decisions, not state-machine ops, and
-//! there is no index/term ordering — but a restarted node can now recover
-//! and audit every quorum decision its cluster made.
+//! record fails `verify` before it ever touches the ledger. Ordering is
+//! two-layered, Raft-lite: each record carries a consensus `term`
+//! (`term.json` bumps on leader transitions; stale-term pushes are
+//! rejected, newer terms adopted) and a per-coordinator `seq` (gaps are
+//! detected and self-healed via anti-entropy pull). `replay()` folds the
+//! ledger into `ClusterState`, so a restarted node reconstructs the
+//! cluster's consensus view as a pure function of the log.
 //!
 //! ## Byte-identical vendoring
 //!
