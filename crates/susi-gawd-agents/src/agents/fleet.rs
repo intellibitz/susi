@@ -300,6 +300,21 @@ impl GawdAgentFleet {
         let registry = AgentMetaRegistry::global();
         let available_agents = registry.list_agents();
 
+        // External executor peers (`categories` contains "external") run
+        // managed CLIs / paid APIs with real side effects — a generic
+        // inference or chat goal must never fan out to them. They are
+        // recruited only on explicit invocation: the peer named in the
+        // goal or operator-configured `agent_routing` keywords.
+        let is_external_executor =
+            |agent: &AgentProfile| agent.categories.iter().any(|c| c == "external");
+        let explicitly_requested = |agent: &AgentProfile| -> bool {
+            let short = agent.name.to_lowercase().replace("agent", "");
+            (!short.is_empty() && lower_goal.contains(&short))
+                || routing
+                    .get(&agent.name)
+                    .is_some_and(|keys| keys.iter().any(|k| lower_goal.contains(k)))
+        };
+
         // 1. Core Native Agents & Matched Handlers
         for agent in &available_agents {
             if agent.is_core {
@@ -315,6 +330,8 @@ impl GawdAgentFleet {
                 if keys.iter().any(|k| lower_goal.contains(k)) {
                     should_add = true;
                 }
+            } else if is_external_executor(agent) {
+                should_add = explicitly_requested(agent);
             } else if agent
                 .semantic_anchors
                 .iter()
@@ -369,6 +386,9 @@ impl GawdAgentFleet {
                     continue;
                 }
                 if let Some(profile) = available_agents.iter().find(|a| a.name == name) {
+                    if is_external_executor(profile) && !explicitly_requested(profile) {
+                        continue;
+                    }
                     fleet.push(instantiate_agent(profile));
                 }
             }
@@ -426,6 +446,9 @@ impl GawdAgentFleet {
                         break;
                     }
                     if fleet.iter().any(|a| a.name() == agent.name) {
+                        continue;
+                    }
+                    if is_external_executor(&agent) && !explicitly_requested(&agent) {
                         continue;
                     }
 
@@ -811,6 +834,42 @@ mod tests {
         assert!(
             fleet.iter().any(|a| a.name() == "CustomDomainAgent")
                 || fleet.iter().any(|a| a.name() == "UniversalReasoner")
+        );
+    }
+
+    /// External executor peers (categories contain "external") run managed
+    /// CLIs / paid APIs with real side effects. A generic goal must never
+    /// recruit them via broad semantic match — only explicit invocation
+    /// (peer named in the goal) may.
+    #[test]
+    fn test_external_executor_requires_explicit_invocation() {
+        crate::test_plane::wire();
+        let registry = AgentMetaRegistry::global();
+        registry.register_agent(AgentProfile {
+            name: "PaidCliPeerAgent".into(),
+            description: "Managed executor for coding tasks; runs a paid external CLI.".into(),
+            categories: vec!["peer".into(), "coding".into(), "external".into()],
+            semantic_anchors: vec!["coding-agent".into(), "peer".into()],
+            base_rank: 0.9,
+            is_core: false,
+        });
+
+        let generic = GawdAgentFleet::synthesize_fleet(
+            "reply to this chat message with a short answer",
+            Path::new("."),
+        );
+        assert!(
+            !generic.iter().any(|a| a.name() == "PaidCliPeerAgent"),
+            "generic goal must not fan out to external executor peers"
+        );
+
+        let explicit = GawdAgentFleet::synthesize_fleet(
+            "use paidclipeer to refactor the parser",
+            Path::new("."),
+        );
+        assert!(
+            explicit.iter().any(|a| a.name() == "PaidCliPeerAgent"),
+            "explicitly naming the peer must still recruit it"
         );
     }
 
