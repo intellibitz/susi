@@ -83,6 +83,10 @@ fn status(json: bool) -> Result<()> {
                 "reachable": p.probe(),
             })).collect::<Vec<_>>(),
             "banned_peers": banned_count,
+            "key_epoch": susi_config::cluster_key::cluster_key()
+                .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
+            "staged_key_epoch": susi_config::cluster_key::staged_key()
+                .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
         });
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
@@ -90,6 +94,23 @@ fn status(json: bool) -> Result<()> {
 
     println!("SUSI OS — substrate status");
     println!("node:        {}", susi_config::cluster_key::wire_node_id());
+    // Key epoch: the current key's fingerprint prefix, plus any staged
+    // next-epoch key awaiting its committed rekey record — operators
+    // comparing `susi os` across nodes can see rotation drift at a
+    // glance without the key itself ever being printed.
+    let key_epoch = susi_config::cluster_key::cluster_key()
+        .map(|k| susi_config::cluster_key::key_fingerprint(&k));
+    let staged_epoch = susi_config::cluster_key::staged_key()
+        .map(|k| susi_config::cluster_key::key_fingerprint(&k));
+    if let Some(fp) = &key_epoch {
+        println!(
+            "key epoch:   {}{}",
+            &fp[..12],
+            staged_epoch
+                .map(|s| format!(" — rotation to {} staged, awaiting commit", &s[..12]))
+                .unwrap_or_default()
+        );
+    }
     let term_age = if term.term == 0 || term.updated_at == 0 {
         String::new()
     } else {
