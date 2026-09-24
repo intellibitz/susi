@@ -239,8 +239,15 @@ impl CommitRecord {
         member: &str,
         electorate: Vec<String>,
     ) -> Option<Self> {
-        // A member spec must be `id@address` — sealing a malformed one
-        // would produce a record that fails verify on every receiver.
+        // A member spec must be `id@address` and `kind` a known member
+        // kind — sealing either malformed produces a record that fails
+        // verify on every receiver.
+        if !matches!(
+            kind,
+            KIND_MEMBER_ADD | KIND_MEMBER_REMOVE | KIND_MEMBER_UNBAN
+        ) {
+            return None;
+        }
         let (id, addr) = member.split_once('@')?;
         if id.is_empty() || addr.is_empty() {
             return None;
@@ -280,7 +287,14 @@ impl CommitRecord {
     /// `(kind, node_id, address)` for a membership record — `None` for
     /// decisions and member values that are not `id@address`.
     pub fn member_delta(&self) -> Option<(&str, &str, &str)> {
-        if self.kind.is_empty() {
+        // Only known member kinds — an arbitrary non-empty `kind` with
+        // a well-formed `id@address` value would otherwise verify,
+        // append, and inflate replay's membership count while applying
+        // nothing. Unknown kinds must fail verify below.
+        if !matches!(
+            self.kind.as_str(),
+            KIND_MEMBER_ADD | KIND_MEMBER_REMOVE | KIND_MEMBER_UNBAN
+        ) {
             return None;
         }
         let (id, addr) = self.value.split_once('@')?;
@@ -1390,6 +1404,12 @@ mod tests {
         assert!(
             CommitRecord::seal_member("c", "c", KIND_MEMBER_ADD, "no-address", vec![]).is_none()
         );
+        // An unknown kind can't seal either, and a signed record
+        // carrying one fails verify — arbitrary kinds must not append.
+        assert!(
+            CommitRecord::seal_member("c", "c", "bogus_kind", "node-x@10.0.0.5:9090", vec![])
+                .is_none()
+        );
         let Some(mut bad) = seal_into_test(KIND_MEMBER_ADD, "node-x@10.0.0.5:9090") else {
             return;
         };
@@ -1404,6 +1424,19 @@ mod tests {
             !bad.verify(),
             "member record with malformed value must fail verify"
         );
+        // Same for a signed record whose kind is arbitrary — verify
+        // must refuse it before it ever appends.
+        let Some(mut bogus) = seal_into_test(KIND_MEMBER_ADD, "node-x@10.0.0.5:9090") else {
+            return;
+        };
+        bogus.kind = "bogus_kind".into();
+        if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
+            bogus.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &k,
+                bogus.signed_payload().as_bytes(),
+            );
+        }
+        assert!(!bogus.verify(), "unknown record kind must fail verify");
         let _ = fs::remove_dir_all(&dir);
     }
 
