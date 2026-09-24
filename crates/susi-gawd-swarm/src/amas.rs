@@ -250,6 +250,8 @@ impl SusiSupervisor {
                     let mut last_persist = std::time::Instant::now();
                     // Ban-list re-read throttle — see the sweep below.
                     let mut last_ban_check = std::time::Instant::now();
+                    // Persisted-roster rehydrate throttle — see below.
+                    let mut last_rehydrate = std::time::Instant::now();
 
                     loop {
                         let registry_checksum =
@@ -284,6 +286,34 @@ impl SusiSupervisor {
                                 });
                             }
                             last_ban_check = std::time::Instant::now();
+                        }
+                        // Operator `peers add` lands on disk mid-flight —
+                        // rehydrate persisted Explicit members into the
+                        // live roster every ~15s so an add takes effect
+                        // without a daemon restart, including cross-subnet
+                        // where broadcast never reaches. Existing rows keep
+                        // their live state; a live Discovered row upgrades.
+                        if last_rehydrate.elapsed().as_secs() >= 15 {
+                            for saved in peer_registry::load_persisted_peers() {
+                                let looped = saved
+                                    .address
+                                    .split(':')
+                                    .next()
+                                    .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+                                    .is_some_and(|ip| ip.is_loopback());
+                                if looped {
+                                    continue;
+                                }
+                                match peers.iter_mut().find(|p| p.address == saved.address) {
+                                    Some(p) => {
+                                        if matches!(p.admission, PeerAdmission::Discovered) {
+                                            p.admission = PeerAdmission::Explicit;
+                                        }
+                                    }
+                                    None => peers.push(saved),
+                                }
+                            }
+                            last_rehydrate = std::time::Instant::now();
                         }
                         drop(peers);
 
