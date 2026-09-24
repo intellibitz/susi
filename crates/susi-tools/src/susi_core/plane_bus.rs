@@ -424,9 +424,11 @@ pub mod gemi {
                 topics::GEMI_INFER_EMBED,
                 json!({ "text": text, "model": model }),
             );
-            v.get("embedding")
-                .and_then(|e| e.as_array())
-                .map(|arr| arr.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect())
+            v.get("embedding").and_then(|e| e.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_f64().map(|f| f as f32))
+                    .collect()
+            })
         }
 
         pub fn generate_reasoning_deep_with_min_complexity(

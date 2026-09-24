@@ -36,6 +36,30 @@ check_template "crates/susi-core/vendor_template/susi_core" "susi_core"
 check_template "crates/susi-sandbox/vendor_template/susi_sandbox" "susi_sandbox"
 check_template "crates/susi-native/vendor_template/susi_native" "susi_native"
 
+# Canonical -> template for susi_core only: susi_core copies are byte-
+# identical to crates/susi-core/src (vendor_sync_tests enforces the same).
+# Drift here previously went unnoticed when the canonical was reformatted
+# after copies were last mirrored. susi_sandbox / susi_native are excluded
+# on purpose: their canonical files are the real implementations while
+# vendored copies are adapted variants (crate:: paths that cannot exist
+# inside the implementing crate).
+check_canonical() {
+    local template_dir="$1" canonical_dir="$2"
+    local t rel tm cm
+    while IFS= read -r -d '' t; do
+        rel="${t#"$template_dir"/}"
+        [ -f "$canonical_dir/$rel" ] || continue
+        tm=$(md5sum "$t" | cut -d' ' -f1)
+        cm=$(md5sum "$canonical_dir/$rel" | cut -d' ' -f1)
+        if [ "$tm" != "$cm" ]; then
+            echo "DRIFT: canonical $canonical_dir/$rel != template $t"
+            fail=1
+        fi
+    done < <(find "$template_dir" -name '*.rs' -print0)
+}
+
+check_canonical "crates/susi-core/vendor_template/susi_core" "crates/susi-core/src"
+
 # Flat leaf modules: every copy identical to every other copy.
 for leaf in susi_error susi_paths susi_config; do
     ref=""

@@ -41,6 +41,25 @@ pub struct InferenceRouter;
 /// mission and spam the error sink.
 const PROVIDER_DOWN_COOLDOWN_SECS: u64 = 120;
 
+/// Credential-scoped failures (HTTP 401/402/403/429) indict the vendor's
+/// key or account, not the individual model — every sibling sharing that
+/// credential would fail identically. A longer window than the per-provider
+/// cooldown: auth problems persist until an operator intervenes, and an
+/// openrouter catalog alone is ~130 names that would each burn a request
+/// re-learning the same 402.
+const VENDOR_DOWN_COOLDOWN_SECS: u64 = 600;
+
+/// Credential scope for a provider name. `catalog-<vendor>-<model>` and
+/// `<vendor>-<model>` registrations both draw from the vendor's endpoint +
+/// key, so the scope key is the leading vendor token.
+fn vendor_scope(name: &str) -> Option<String> {
+    let rest = name.strip_prefix("catalog-").unwrap_or(name);
+    rest.split(['-', '/'])
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
 fn now_unix() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -55,12 +74,21 @@ fn provider_down_map() -> &'static std::sync::RwLock<std::collections::HashMap<S
 }
 
 impl InferenceRouter {
-    /// True while `name` is inside its post-failure cooldown window.
+    /// True while `name` is inside its post-failure cooldown window — either
+    /// its own, or the credential-scope cooldown a sibling's auth/quota
+    /// failure imposed on the whole vendor.
     pub fn provider_cooled(name: &str) -> bool {
         let map = provider_down_map()
             .read()
             .unwrap_or_else(|e| e.into_inner());
-        map.get(name).is_some_and(|until| now_unix() < *until)
+        let now = now_unix();
+        if map.get(name).is_some_and(|until| now < *until) {
+            return true;
+        }
+        vendor_scope(name).is_some_and(|scope| {
+            map.get(&format!("vendor:{scope}"))
+                .is_some_and(|until| now < *until)
+        })
     }
 
     /// Mark a provider down after a failed attempt; a success clears it via
@@ -70,6 +98,21 @@ impl InferenceRouter {
             .write()
             .unwrap_or_else(|e| e.into_inner());
         map.insert(name.to_string(), now_unix() + PROVIDER_DOWN_COOLDOWN_SECS);
+    }
+
+    /// Mark a provider's *vendor* down: call when the failure is
+    /// credential-scoped (HTTP 401/402/403/429) rather than model-scoped,
+    /// so siblings sharing the key are skipped without probing.
+    pub fn record_vendor_failure(name: &str) {
+        if let Some(scope) = vendor_scope(name) {
+            let mut map = provider_down_map()
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            map.insert(
+                format!("vendor:{scope}"),
+                now_unix() + VENDOR_DOWN_COOLDOWN_SECS,
+            );
+        }
     }
 
     /// Clear a provider's cooldown after a successful call.
@@ -728,5 +771,18 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&name));
         InferenceRouter::record_provider_success(&name);
         assert!(!InferenceRouter::provider_cooled(&name));
+    }
+
+    #[test]
+    fn vendor_failure_cools_siblings_not_strangers() {
+        let tag = std::process::id();
+        let down = format!("vend{tag}-model-a");
+        let sibling = format!("vend{tag}-model-b");
+        let catalog_sibling = format!("catalog-vend{tag}-model-c");
+        let stranger = format!("other{tag}-model-a");
+        InferenceRouter::record_vendor_failure(&down);
+        assert!(InferenceRouter::provider_cooled(&sibling));
+        assert!(InferenceRouter::provider_cooled(&catalog_sibling));
+        assert!(!InferenceRouter::provider_cooled(&stranger));
     }
 }
