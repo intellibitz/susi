@@ -282,6 +282,7 @@ async fn handle_gemi_request(
                 "endpoints": [
                     "/v1/chat/completions",
                     "/v1/models",
+                    "/v1/models/{id}",
                     "/v1/completions",
                     "/v1/embeddings",
                     "/context-graph/stats",
@@ -302,36 +303,37 @@ async fn handle_gemi_request(
         }
         (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
-            let payload = tokio::task::spawn_blocking(move || {
-                let models = gemi::ModelManager::list_models(&ws);
-                let json_models: Vec<serde_json::Value> = models
-                    .as_array()
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|m| {
-                                let id = m
-                                    .get("model_id")
-                                    .or_else(|| m.get("id"))
-                                    .and_then(|v| v.as_str())?;
-                                // OpenAI clients display and echo `id`
-                                // verbatim — a filesystem path leaks layout
-                                // and reads badly. Present the file stem;
-                                // the raw id stays available as `model_id`.
-                                Some(json!({
-                                    "id": model_display_id(id),
-                                    "model_id": id,
-                                    "object": "model",
-                                    "owned_by": "susi",
-                                }))
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                json!({"object": "list", "data": json_models})
-            })
+            let payload = tokio::task::spawn_blocking(
+                move || json!({"object": "list", "data": openai_model_list(&ws)}),
+            )
             .await
             .unwrap_or_else(|_| json!({"object": "list", "data": []}));
             Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, p) if p.starts_with("/v1/models/") => {
+            let requested = p.trim_start_matches("/v1/models/").to_owned();
+            let want = requested.clone();
+            let ws = (*workspace).clone();
+            let payload = tokio::task::spawn_blocking(move || {
+                openai_model_list(&ws).into_iter().find(|m| {
+                    m.get("id").and_then(|v| v.as_str()) == Some(want.as_str())
+                        || m.get("model_id").and_then(|v| v.as_str()) == Some(want.as_str())
+                })
+            })
+            .await
+            .unwrap_or_default();
+            match payload {
+                Some(model) => Ok(json_response(StatusCode::OK, &model)),
+                None => Ok(json_response(
+                    StatusCode::NOT_FOUND,
+                    &json!({"error": {
+                        "message": format!("The model '{requested}' does not exist"),
+                        "type": "invalid_request_error",
+                        "param": "model",
+                        "code": "model_not_found",
+                    }}),
+                )),
+            }
         }
         (&Method::GET, "/well-known/susi") => {
             let payload = tokio::task::spawn_blocking(move || {
@@ -934,6 +936,31 @@ fn model_display_id(id: &str) -> &str {
     } else {
         id
     }
+}
+
+/// `/v1/models` entries in OpenAI shape. `id` is the display id a client
+/// echoes back as `model`; the raw internal id stays as `model_id`.
+fn openai_model_list(workspace: &std::path::Path) -> Vec<serde_json::Value> {
+    let models = gemi::ModelManager::list_models(workspace);
+    models
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|m| {
+                    let id = m
+                        .get("model_id")
+                        .or_else(|| m.get("id"))
+                        .and_then(|v| v.as_str())?;
+                    Some(json!({
+                        "id": model_display_id(id),
+                        "model_id": id,
+                        "object": "model",
+                        "owned_by": "susi",
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::Value {
