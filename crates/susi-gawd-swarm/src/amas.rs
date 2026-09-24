@@ -256,7 +256,14 @@ impl SusiSupervisor {
                     // Persisted-roster rehydrate throttle — see below.
                     let mut last_rehydrate = std::time::Instant::now();
                     // Commit-ledger anti-entropy throttle — see below.
-                    let mut last_commit_sync = std::time::Instant::now();
+                    // Back-dated so the first sweep fires ~30s in — just
+                    // after the persisted-roster rehydrate populates the
+                    // live roster — rather than 5 min after boot. A node
+                    // rejoining after downtime should catch up on the
+                    // ledger (and committed membership) quickly, not
+                    // wait out a full interval.
+                    let mut last_commit_sync =
+                        std::time::Instant::now() - std::time::Duration::from_secs(270);
 
                     loop {
                         let registry_checksum =
