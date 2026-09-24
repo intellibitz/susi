@@ -122,11 +122,21 @@ impl SusiAdmin {
             }
         }
 
-        // 4. Binary Integrity Check
+        // 4. Binary Integrity Check. `/proc/self/exe` resolves the running
+        // inode — a binary replaced in place still verifies the live image
+        // instead of reporting a `… (deleted)` path.
         if let Ok(current_exe) = env::current_exe() {
+            let verify_source = {
+                let proc_exe = std::path::PathBuf::from("/proc/self/exe");
+                if proc_exe.exists() {
+                    proc_exe
+                } else {
+                    current_exe
+                }
+            };
             let global_dir = Self::get_global_susi_dir();
             match crate::susi_sandbox::daemon_state::SusiDaemonState::verify_binary_integrity(
-                &current_exe,
+                &verify_source,
                 &global_dir,
             ) {
                 Ok(true) => report.push_str(

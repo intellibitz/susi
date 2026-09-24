@@ -371,9 +371,14 @@ impl SusiDaemon {
             "bin/susi"
         };
         let global_bin = global_dir.join(bin_name);
-        // Host contract: prefer the canonical ~/.susi/bin/susi.
+        // Host contract: prefer the canonical ~/.susi/bin/susi. The
+        // current_exe fallback must resolve to a *live* inode — after an
+        // in-place replacement it reports a `… (deleted)` path that
+        // Command::new fails ENOENT on, leaving the daemon unstartable.
         let bin_to_run = if global_bin.exists() {
             global_bin.clone()
+        } else if let Some(exe) = crate::supervisor::reexec_path() {
+            exe
         } else if let Some(ref exe) = current_exe {
             exe.clone()
         } else {

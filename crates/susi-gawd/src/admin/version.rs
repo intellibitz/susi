@@ -2,7 +2,7 @@ use super::SusiAdmin;
 use crate::susi_error::{EaiError, EaiResult};
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// How much to bump the engine's own semver when cutting a release (see
@@ -301,15 +301,25 @@ impl SusiAdmin {
             }
         }
 
-        // 3. Update Binary Integrity Hash
+        // 3. Update Binary Integrity Hash. `/proc/self/exe` resolves the
+        // running inode — an in-place replaced binary still hashes the live
+        // image, where `current_exe` would report a `… (deleted)` path.
         if let Ok(current_exe) = env::current_exe() {
+            let hash_source = {
+                let proc_exe = PathBuf::from("/proc/self/exe");
+                if proc_exe.exists() {
+                    proc_exe
+                } else {
+                    current_exe
+                }
+            };
             let global_dir = Self::get_global_susi_dir();
             fs::create_dir_all(&global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
             let hash_file = global_dir.join("binary.hash");
 
             if let Ok(hash) =
                 crate::susi_sandbox::daemon_state::SusiDaemonState::calculate_binary_hash(
-                    &current_exe,
+                    &hash_source,
                 )
             {
                 fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
