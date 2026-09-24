@@ -43,6 +43,13 @@ pub mod topics {
     pub const GEMI_CLOUD_APPLY_ENV: &str = "gemi.cloud.apply_env";
     pub const GEMI_CLOUD_REGISTER: &str = "gemi.cloud.register";
     pub const GEMI_CLOUD_FAILOVER: &str = "gemi.cloud.failover";
+    /// Report a failed provider attempt so the GEMI plane's cooldown
+    /// routing can skip it (and its credential/endpoint scope) — used by
+    /// consumers that call providers directly, e.g. swarm recovery.
+    pub const GEMI_PROVIDER_FAILURE: &str = "gemi.provider.failure";
+    /// Report a provider success so a stale cooldown clears early —
+    /// counterpart to `GEMI_PROVIDER_FAILURE`.
+    pub const GEMI_PROVIDER_SUCCESS: &str = "gemi.provider.success";
     pub const GEMI_PULSE_REASON: &str = "gemi.pulse.reason";
     pub const GEMI_CODING_CATALOG: &str = "gemi.coding.catalog";
 
@@ -559,6 +566,21 @@ pub mod gemi {
 
     pub fn cloud_failover_order() -> Value {
         req_ok(topics::GEMI_CLOUD_FAILOVER, json!({}))
+    }
+
+    /// Report a provider attempt failure to the GEMI plane's cooldown
+    /// router — fire-and-forget; cooldown state is advisory.
+    pub fn note_provider_failure(name: &str, error: &str) {
+        let _ = req(
+            topics::GEMI_PROVIDER_FAILURE,
+            json!({ "name": name, "error": error }),
+        );
+    }
+
+    /// Report a provider success — clears any stale cooldown on the GEMI
+    /// side. Fire-and-forget.
+    pub fn note_provider_success(name: &str) {
+        let _ = req(topics::GEMI_PROVIDER_SUCCESS, json!({ "name": name }));
     }
 
     pub fn coding_catalog() -> Value {

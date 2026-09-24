@@ -313,7 +313,30 @@ impl PlaneHandler for GemiPlaneHandler {
             }
             topics::GEMI_CLOUD_FAILOVER => {
                 let order = InferenceRouter::cloud_failover_order(CapabilityRegistry::global());
-                Ok(json!({ "order": order }))
+                // Failover order means *currently viable* order: providers
+                // inside their post-failure cooldown are skipped here so
+                // consumers (swarm recovery, endpoint cascades) do not
+                // re-probe a dead vendor once per mission. `cooled` is
+                // reported for observability.
+                let (order, cooled): (Vec<String>, Vec<String>) = order
+                    .into_iter()
+                    .partition(|name| !InferenceRouter::provider_cooled(name));
+                Ok(json!({ "order": order, "cooled": cooled }))
+            }
+            topics::GEMI_PROVIDER_FAILURE => {
+                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let error = payload.get("error").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    InferenceRouter::record_failure(name, error);
+                }
+                Ok(json!({ "ok": true }))
+            }
+            topics::GEMI_PROVIDER_SUCCESS => {
+                let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                if !name.is_empty() {
+                    InferenceRouter::record_provider_success(name);
+                }
+                Ok(json!({ "ok": true }))
             }
             topics::GEMI_PULSE_REASON => {
                 let prompt = payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
@@ -332,4 +355,54 @@ impl PlaneHandler for GemiPlaneHandler {
 
 pub fn register() {
     PlaneBus::global().register_prefix("gemi.", Arc::new(GemiPlaneHandler));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The swarm recovery loop reports provider attempts through the bus —
+    /// the failure topic must feed the shared cooldown classifier and the
+    /// success topic must clear it, or dead vendors get re-probed forever.
+    #[test]
+    fn provider_failure_and_success_topics_drive_cooldown() {
+        let _env = crate::engines::env_test_lock();
+        let path =
+            std::env::temp_dir().join(format!("susi-cd-handler-{}.json", std::process::id()));
+        // SAFETY: test-only env override, serialized by env_test_lock and
+        // restored before this test returns.
+        unsafe {
+            std::env::set_var("SUSI_COOLDOWNS_FILE", &path);
+        }
+        let handler = GemiPlaneHandler;
+        let name = format!("vendhandler{}-model-a", std::process::id());
+        let sibling = name.replace("model-a", "model-b");
+
+        let v = handler
+            .handle(
+                topics::GEMI_PROVIDER_FAILURE,
+                json!({ "name": name, "error": "HTTP 429: rate limited" }),
+            )
+            .expect("failure topic must be handled");
+        assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
+        assert!(InferenceRouter::provider_cooled(&name));
+        // 429 is credential-scoped — the sibling cools too.
+        assert!(InferenceRouter::provider_cooled(&sibling));
+
+        let v = handler
+            .handle(topics::GEMI_PROVIDER_SUCCESS, json!({ "name": name }))
+            .expect("success topic must be handled");
+        assert_eq!(v.get("ok").and_then(|x| x.as_bool()), Some(true));
+        assert!(!InferenceRouter::provider_cooled(&name));
+        assert!(!InferenceRouter::provider_cooled(&sibling));
+
+        // Empty payloads are tolerated, never panic.
+        assert!(handler
+            .handle(topics::GEMI_PROVIDER_FAILURE, json!({}))
+            .is_ok());
+        unsafe {
+            std::env::remove_var("SUSI_COOLDOWNS_FILE");
+        }
+        let _ = std::fs::remove_file(&path);
+    }
 }

@@ -68,10 +68,47 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+fn cooldowns_path() -> PathBuf {
+    // Test/debug override — cooldown unit tests must not persist into the
+    // host's live provider_cooldowns.json.
+    if let Some(p) = std::env::var_os("SUSI_COOLDOWNS_FILE").filter(|p| !p.is_empty()) {
+        return PathBuf::from(p);
+    }
+    crate::susi_paths::SusiDirs::config_dir().join("provider_cooldowns.json")
+}
+
+/// Cooldowns persist across daemon restarts — a vendor whose key is out
+/// of credits does not revive because the process bounced, and without
+/// persistence the first post-restart mission re-probes every dead scope.
+fn load_cooldowns() -> std::collections::HashMap<String, u64> {
+    let now = now_unix();
+    std::fs::read_to_string(cooldowns_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<std::collections::HashMap<String, u64>>(&s).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(_, until)| *until > now)
+        .collect()
+}
+
+fn save_cooldowns(map: &std::collections::HashMap<String, u64>) {
+    let now = now_unix();
+    let live: std::collections::HashMap<&String, &u64> =
+        map.iter().filter(|(_, until)| **until > now).collect();
+    let Ok(bytes) = serde_json::to_vec(&live) else {
+        return;
+    };
+    let path = cooldowns_path();
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, &bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
 fn provider_down_map() -> &'static std::sync::RwLock<std::collections::HashMap<String, u64>> {
     static MAP: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, u64>>> =
         std::sync::OnceLock::new();
-    MAP.get_or_init(std::sync::RwLock::default)
+    MAP.get_or_init(|| std::sync::RwLock::new(load_cooldowns()))
 }
 
 impl InferenceRouter {
@@ -99,6 +136,7 @@ impl InferenceRouter {
             .write()
             .unwrap_or_else(|e| e.into_inner());
         map.insert(name.to_string(), now_unix() + PROVIDER_DOWN_COOLDOWN_SECS);
+        save_cooldowns(&map);
     }
 
     /// Mark a provider's whole scope down: call when the failure is
@@ -114,15 +152,49 @@ impl InferenceRouter {
                 format!("vendor:{scope}"),
                 now_unix() + VENDOR_DOWN_COOLDOWN_SECS,
             );
+            save_cooldowns(&map);
         }
     }
 
-    /// Clear a provider's cooldown after a successful call.
+    /// Record a failed provider attempt: per-provider cooldown always,
+    /// plus the credential/endpoint scope when the error is auth/quota or
+    /// transport (siblings sharing the key or engine would fail the same
+    /// way). Shared by the primary cascade and the plane-bus endpoint the
+    /// swarm recovery loop reports through.
+    pub fn record_failure(name: &str, error: &str) {
+        Self::record_provider_failure(name);
+        let scoped = [
+            "HTTP 401",
+            "HTTP 402",
+            "HTTP 403",
+            "HTTP 429",
+            "error sending request",
+            "Connection refused",
+            "tcp connect error",
+            "timed out",
+        ]
+        .iter()
+        .any(|s| error.contains(s));
+        if scoped {
+            Self::record_vendor_failure(name);
+        }
+    }
+
+    /// Clear a provider's cooldown after a successful call. A live response
+    /// also proves the vendor's credential/endpoint works, so the sibling
+    /// scope clears too — otherwise one bad model would strand every good
+    /// sibling for the full vendor TTL.
     pub fn record_provider_success(name: &str) {
         let mut map = provider_down_map()
             .write()
             .unwrap_or_else(|e| e.into_inner());
-        map.remove(name);
+        let mut changed = map.remove(name).is_some();
+        if let Some(scope) = vendor_scope(name) {
+            changed |= map.remove(&format!("vendor:{scope}")).is_some();
+        }
+        if changed {
+            save_cooldowns(&map);
+        }
     }
 
     fn preference_path() -> PathBuf {
@@ -765,8 +837,40 @@ mod tests {
         assert!(!order.iter().any(|n| n.contains("ollama")));
     }
 
+    /// Redirect the persisted cooldown file into a per-test tmp path so
+    /// `record_*` never writes into the host's live `provider_cooldowns.json`.
+    /// Caller holds `env_test_lock` for the whole test body.
+    struct CooldownFileGuard {
+        path: std::path::PathBuf,
+    }
+
+    impl CooldownFileGuard {
+        fn new(tag: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("susi-cd-{tag}-{}.json", std::process::id()));
+            // SAFETY: test-only env override; the caller serializes env
+            // mutation through `env_test_lock` and restores on drop.
+            unsafe {
+                std::env::set_var("SUSI_COOLDOWNS_FILE", &path);
+            }
+            Self { path }
+        }
+    }
+
+    impl Drop for CooldownFileGuard {
+        fn drop(&mut self) {
+            // SAFETY: see `new` — same lock scope.
+            unsafe {
+                std::env::remove_var("SUSI_COOLDOWNS_FILE");
+            }
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
     #[test]
     fn provider_cooldown_marks_down_and_clears_on_success() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("basic");
         let name = format!("cd-test-{}", std::process::id());
         assert!(!InferenceRouter::provider_cooled(&name));
         InferenceRouter::record_provider_failure(&name);
@@ -777,6 +881,8 @@ mod tests {
 
     #[test]
     fn vendor_failure_cools_siblings_not_strangers() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("vend");
         let tag = std::process::id();
         let down = format!("vend{tag}-model-a");
         let sibling = format!("vend{tag}-model-b");
@@ -786,5 +892,37 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&sibling));
         assert!(InferenceRouter::provider_cooled(&catalog_sibling));
         assert!(!InferenceRouter::provider_cooled(&stranger));
+    }
+
+    #[test]
+    fn classified_failure_scopes_vendor_and_success_clears_it() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("cls");
+        // Unique vendor token — the cooldown map is process-global.
+        let down = format!("vendcls{}-model-a", std::process::id());
+        let sibling = down.replace("model-a", "model-b");
+        // Credential-scoped error cools the whole vendor scope.
+        InferenceRouter::record_failure(&down, "HTTP 402: insufficient credits");
+        assert!(InferenceRouter::provider_cooled(&down));
+        assert!(InferenceRouter::provider_cooled(&sibling));
+        // A sibling's success proves the credential works — scope clears.
+        InferenceRouter::record_provider_success(&sibling);
+        assert!(!InferenceRouter::provider_cooled(&sibling));
+        // The vendor scope lifted, but `down` keeps its own entry.
+        assert!(InferenceRouter::provider_cooled(&down));
+        InferenceRouter::record_provider_success(&down);
+        assert!(!InferenceRouter::provider_cooled(&down));
+    }
+
+    #[test]
+    fn unclassified_failure_does_not_scope_vendor() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("uncls");
+        let down = format!("venduncls{}-model-a", std::process::id());
+        let sibling = down.replace("model-a", "model-b");
+        InferenceRouter::record_failure(&down, "HTTP 404: model not found");
+        assert!(InferenceRouter::provider_cooled(&down));
+        assert!(!InferenceRouter::provider_cooled(&sibling));
+        InferenceRouter::record_provider_success(&down);
     }
 }

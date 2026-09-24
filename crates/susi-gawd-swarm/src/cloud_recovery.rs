@@ -439,6 +439,9 @@ async fn recover_with_providers(
         .await;
         match result {
             Ok(Ok((answer, evidence))) => {
+                // Feed the GEMI cooldown router: a provider that served
+                // recovery should not stay cooled on a stale failure.
+                crate::susi_core::plane_bus::gemi::note_provider_success(&name);
                 record_attempt(
                     report,
                     &name,
@@ -461,15 +464,22 @@ async fn recover_with_providers(
                 if msg.contains("no handler for topic") || msg.contains("no longer available") {
                     ghosts += 1;
                 } else {
+                    // Report through the bus so the GEMI plane's cooldown
+                    // router skips this provider (and its credential/
+                    // endpoint scope) on later missions and restarts.
+                    crate::susi_core::plane_bus::gemi::note_provider_failure(&name, &msg);
                     record_attempt(report, &name, "CLOUD_ATTEMPT_FAILED", msg)
                 }
             }
-            Err(_) => record_attempt(
-                report,
-                &name,
-                "CLOUD_ATTEMPT_FAILED",
-                "Provider attempt timed out".into(),
-            ),
+            Err(_) => {
+                crate::susi_core::plane_bus::gemi::note_provider_failure(&name, "timed out");
+                record_attempt(
+                    report,
+                    &name,
+                    "CLOUD_ATTEMPT_FAILED",
+                    "Provider attempt timed out".into(),
+                )
+            }
         }
     }
     if ghosts > 0 {
