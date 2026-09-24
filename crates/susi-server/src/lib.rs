@@ -638,18 +638,34 @@ async fn handle_gemi_request(
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     let graph = ContextGraph::global();
                     let _ = graph.replay();
-                    if let Some(node_id) = body.get("node_id").and_then(|v| v.as_str()) {
-                        let depth =
-                            body.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-                        let node = susi_core::context_graph::NodeId(node_id.to_string());
-                        serde_json::to_value(graph.related(&node, depth)).unwrap_or_else(
-                            |_| serde_json::json!({"error": "serialization failed"}),
-                        )
-                    } else {
-                        serde_json::to_value(graph.workspace_subgraph(&ws)).unwrap_or_else(
-                            |_| serde_json::json!({"error": "serialization failed"}),
-                        )
+                    // An unbounded workspace subgraph can run to megabytes of
+                    // ambient file-change noise — callers that need the full
+                    // graph raise `limit` explicitly (0 = no cap).
+                    let limit = body.get("limit").and_then(|v| v.as_u64()).unwrap_or(500) as usize;
+                    let mut subgraph =
+                        if let Some(node_id) = body.get("node_id").and_then(|v| v.as_str()) {
+                            let depth =
+                                body.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+                            let node = susi_core::context_graph::NodeId(node_id.to_string());
+                            graph.related(&node, depth)
+                        } else {
+                            graph.workspace_subgraph(&ws)
+                        };
+                    let truncated = limit > 0 && subgraph.nodes.len() > limit;
+                    if truncated {
+                        subgraph.nodes.truncate(limit);
+                        let keep: std::collections::HashSet<_> =
+                            subgraph.nodes.iter().map(|n| n.id.clone()).collect();
+                        subgraph
+                            .edges
+                            .retain(|e| keep.contains(&e.source) && keep.contains(&e.target));
                     }
+                    let mut value = serde_json::to_value(&subgraph)
+                        .unwrap_or_else(|_| serde_json::json!({"error": "serialization failed"}));
+                    if truncated && let Some(obj) = value.as_object_mut() {
+                        obj.insert(String::from("truncated"), serde_json::Value::Bool(true));
+                    }
+                    value
                 })
                 .await
                 .unwrap_or_else(|_| serde_json::json!({"error": "query failed"})),
