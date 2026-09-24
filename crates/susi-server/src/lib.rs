@@ -476,6 +476,13 @@ async fn handle_gemi_request(
                             })
                     })
                     .unwrap_or(false);
+                // Registered provider backends are also valid `model` ids —
+                // the governed cascade honors them as routing hints, and
+                // response labels echo them back verbatim.
+                let known = known || {
+                    let (order, cooled) = provider_ids();
+                    order.iter().chain(cooled.iter()).any(|p| p == requested)
+                };
                 if !known {
                     return Ok(api_error(
                         StatusCode::BAD_REQUEST,
@@ -990,11 +997,30 @@ fn model_display_id(id: &str) -> &str {
     }
 }
 
+/// Registered cloud/provider backends as selectable `model` ids.
+/// `cloud_failover_order` returns the currently routable order plus the
+/// cooled set — validation accepts both (a cooled provider is known, just
+/// resting), while `/v1/models` advertises only the routable ones.
+fn provider_ids() -> (Vec<String>, Vec<String>) {
+    let v = gemi::cloud_failover_order();
+    let list = |key: &str| {
+        v.get(key)
+            .and_then(|x| x.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    (list("order"), list("cooled"))
+}
+
 /// `/v1/models` entries in OpenAI shape. `id` is the display id a client
 /// echoes back as `model`; the raw internal id stays as `model_id`.
 fn openai_model_list(workspace: &std::path::Path) -> Vec<serde_json::Value> {
     let models = gemi::ModelManager::list_models(workspace);
-    models
+    let mut out: Vec<serde_json::Value> = models
         .as_array()
         .map(|arr| {
             arr.iter()
@@ -1012,7 +1038,18 @@ fn openai_model_list(workspace: &std::path::Path) -> Vec<serde_json::Value> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Provider ids are advertised verbatim — `model_display_id` would
+    // mangle `vendor/model` names through Path::file_stem.
+    for name in provider_ids().0 {
+        out.push(json!({
+            "id": name,
+            "model_id": name,
+            "object": "model",
+            "owned_by": "susi",
+        }));
+    }
+    out
 }
 
 /// Generative answers render through an `inference:<provider>` receipt —
