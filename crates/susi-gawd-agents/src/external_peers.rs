@@ -226,7 +226,10 @@ fn invoke_http_json(
     }
 }
 
-/// Minimal A2A-style JSON message send: POST `{api_base}/message:send` with text parts.
+/// A2A `message/send` over the JSON-RPC binding: POST `{api_base}/` with a
+/// `message/send` call. Carries the configured bearer (or the local api_token
+/// for susi-to-susi calls) plus this node's Ed25519 v2 request signature so a
+/// roster-bound susi peer authorizes us without a shared token.
 fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     let base = spec.api_base.trim().trim_end_matches('/');
     if base.is_empty() {
@@ -235,33 +238,94 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
             spec.name
         )));
     }
-    let url = if base.ends_with("/message:send") {
-        base.to_string()
-    } else {
-        format!("{base}/message:send")
-    };
+    use crate::susi_config::cluster_key;
+    use sha2::Digest;
     let payload = serde_json::json!({
-        "message": {
-            "role": "user",
-            "parts": [{"type": "text", "text": goal}]
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "message/send",
+        "params": {
+            "message": {
+                "role": "ROLE_USER",
+                "parts": [{"kind": "text", "text": goal}],
+                "messageId": format!("susi-{}", cluster_key::random_nonce_hex()),
+            }
         }
     });
+    let body =
+        serde_json::to_vec(&payload).map_err(|e| EaiError::process(format!("a2a encode: {e}")))?;
+    let url = format!("{base}/");
     let mut req = crate::susi_sandbox::manager::http_agent()
         .post(&url)
         .header("Content-Type", "application/json");
-    let bearer = resolve_bearer(spec);
+    let bearer = {
+        let b = resolve_bearer(spec);
+        if b.is_empty() {
+            crate::susi_config::SusiConfig::load_global()
+                .map(|c| c.api_auth_token())
+                .unwrap_or_default()
+        } else {
+            b
+        }
+    };
     if !bearer.is_empty() {
         req = req.header("Authorization", format!("Bearer {bearer}"));
     }
-    match req.send_json(&payload) {
-        Ok(resp) => {
+    // Member signature over susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{sha256(body)}
+    let node = cluster_key::wire_node_id();
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let nonce = cluster_key::random_nonce_hex();
+    let hash = hex::encode(sha2::Sha256::digest(&body));
+    let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{hash}");
+    if let Some(sig) = cluster_key::member_sign(&canonical) {
+        req = req
+            .header("x-susi-node", node)
+            .header("x-susi-req-ts", ts.to_string())
+            .header("x-susi-req-nonce", nonce)
+            .header("x-susi-req-sig", sig);
+    }
+    match req.send(&body) {
+        Ok(mut resp) => {
             let status = resp.status();
-            let body = resp.into_body().read_to_string().unwrap_or_default();
-            let body = SecurityDetector::redact(&body);
+            let text = resp
+                .body_mut()
+                .read_to_string()
+                .map_err(|e| EaiError::process(format!("a2a read: {e}")))?;
             if !(200..300).contains(&status.as_u16()) {
-                return Err(EaiError::process(format!("a2a peer HTTP {status}: {body}")));
+                return Err(EaiError::process(format!(
+                    "a2a peer HTTP {status}: {}",
+                    SecurityDetector::redact(&text)
+                )));
             }
-            Ok(body)
+            let doc: serde_json::Value = serde_json::from_str(&text)
+                .map_err(|e| EaiError::process(format!("a2a peer: bad JSON-RPC reply: {e}")))?;
+            if let Some(err) = doc.get("error") {
+                return Err(EaiError::process(format!("a2a peer rpc error: {err}")));
+            }
+            let reply = doc
+                .pointer("/result/task/status/message/parts")
+                .and_then(|p| p.as_array())
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })
+                .unwrap_or_default();
+            let state = doc
+                .pointer("/result/task/status/state")
+                .and_then(|s| s.as_str())
+                .map(|s| s.trim_start_matches("TASK_STATE_").to_ascii_lowercase())
+                .unwrap_or_else(|| "unknown".to_string());
+            if reply.is_empty() {
+                Ok(format!("task {state} (no reply text): {text}"))
+            } else {
+                Ok(format!("task {state}: {reply}"))
+            }
         }
         Err(e) => Err(EaiError::process(format!("a2a peer failed: {e}"))),
     }
