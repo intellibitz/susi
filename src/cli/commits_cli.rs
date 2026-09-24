@@ -146,211 +146,245 @@ fn sync() -> Result<()> {
         .filter_map(|r| serde_json::to_string(r).ok())
         .collect();
 
+    let targets: Vec<(String, String)> = nodes
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            let addr = n.get("address").and_then(|a| a.as_str())?;
+            // A loopback explicit entry is a self-edge (only possible from
+            // a pre-guard `peers add` or a hand-edited peers.json) — syncing
+            // with ourselves is a no-op that doubles as an MCP recursion.
+            if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost")
+            {
+                return None;
+            }
+            let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
+            Some((id.to_string(), addr.to_string()))
+        })
+        .collect();
+    // Parallel per-peer sync — a dead member costs its connect timeout,
+    // so a serial walk stalls the whole sync ~10s per unresponsive peer.
+    let outcomes: Vec<SyncOutcome> = std::thread::scope(|s| {
+        let handles: Vec<_> = targets
+            .iter()
+            .map(|(id, addr)| s.spawn(|| sync_peer(id, addr, &held, bearer.as_deref())))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| {
+                h.join().unwrap_or_else(|_| SyncOutcome {
+                    line: "sync worker panicked".to_string(),
+                    ..SyncOutcome::default()
+                })
+            })
+            .collect()
+    });
     let mut total_new = 0usize;
     let mut total_dup = 0usize;
     let mut total_bad = 0usize;
     let mut total_pushed = 0usize;
     let mut total_push_rejected = 0usize;
-    for n in &nodes {
-        if n.get("admission").and_then(|a| a.as_str()) != Some("explicit") {
-            continue;
-        }
-        let Some(addr) = n.get("address").and_then(|a| a.as_str()) else {
-            continue;
-        };
-        // A loopback explicit entry is a self-edge (only possible from a
-        // pre-guard `peers add` or a hand-edited peers.json) — syncing
-        // with ourselves is a no-op that doubles as an MCP recursion.
-        if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost") {
-            continue;
-        }
-        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
-        // Paginate until a short page — a ledger past the fetch cap must
-        // still converge instead of truncating at the first 1000 records.
-        // The full record set is retained for the push half of the
-        // exchange (records we hold that the peer lacks).
-        let mut offset = 0usize;
-        let mut their_records: Vec<commit_log::CommitRecord> = Vec::new();
-        let (mut new, mut dup, mut bad) = (0usize, 0usize, 0usize);
-        let mut reachable = true;
-        loop {
-            match susi_core::mcp_client::call_tool(
-                addr,
-                "commit_log_fetch",
-                &serde_json::json!({ "limit": 1000, "offset": offset }),
-                bearer.as_deref(),
-            ) {
-                Ok(result) => {
-                    let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str())
-                    else {
-                        println!("{id} ({addr}): no tool output");
-                        reachable = false;
-                        break;
-                    };
-                    let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
-                    else {
-                        println!("{id} ({addr}): malformed fetch payload");
-                        reachable = false;
-                        break;
-                    };
-                    let page = records.len();
-                    offset += page;
-                    their_records.extend(records);
-                    if page < 1000 {
-                        break;
-                    }
-                }
-                Err(e) => {
-                    println!("{id} ({addr}): unreachable — {e}");
-                    reachable = false;
-                    break;
-                }
-            }
-        }
-        if !reachable {
-            continue;
-        }
-        let theirs: std::collections::HashSet<String> = their_records
-            .iter()
-            .filter_map(|r| serde_json::to_string(r).ok())
-            .collect();
-        // Descending seq order: prior-epoch records (signed under the
-        // retired cluster key) may only append when their seq+1
-        // successor is held and names their epoch — landing successors
-        // first lets a pre-rotation tail gap fill in one pass.
-        let mut ordered: Vec<&commit_log::CommitRecord> = their_records.iter().collect();
-        ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
-        let mut to_apply: Vec<commit_log::CommitRecord> = Vec::new();
-        for r in ordered {
-            if !r.verify() {
-                bad += 1;
-                continue;
-            }
-            // Raft's step-down on the pull path, but only from member
-            // coordinators — a non-member's forged high term must not
-            // adopt into term.json (it would freeze honest pushes).
-            if commit_log::coordinator_known(r) {
-                let _ = commit_log::check_term(r);
-            }
-            // Member records need coordinator authority — an evicted
-            // node still holds cluster.key. Refused records stay
-            // missing and converge once the coordinator is known.
-            if !commit_log::member_coordinator_known(r) {
-                bad += 1;
-                continue;
-            }
-            let key = serde_json::to_string(&r).unwrap_or_default();
-            if held.contains(&key) {
-                dup += 1;
-                continue;
-            }
-            to_apply.push((*r).clone());
-        }
-        // One lock + one ledger load for the whole pull — per-record
-        // `append` re-read and re-locked the ledger every record.
-        for outcome in commit_log::append_many(&to_apply) {
-            match outcome {
-                commit_log::AppendOutcome::Applied => new += 1,
-                commit_log::AppendOutcome::Skipped => dup += 1,
-                commit_log::AppendOutcome::Refused => bad += 1,
-            }
-        }
-
-        // Symmetric repair: records we hold that the peer lacks are pushed
-        // through `commit_record` — the receive path re-runs signature,
-        // quorum, and term gates, so a rejected push is the protocol
-        // working, not a sync failure. The archive is ours to serve: an
-        // uncompacted peer missing below-floor history can only get it
-        // from our cold storage.
-        let mut pushed = 0usize;
-        let mut push_rejected = 0usize;
-        let to_push: Vec<commit_log::CommitRecord> = commit_log::load()
-            .into_iter()
-            .chain(commit_log::load_from(&commit_log::archive_path()))
-            .filter(|r| {
-                let key = serde_json::to_string(r).unwrap_or_default();
-                !theirs.contains(&key)
-            })
-            .collect();
-        // Batch intake first — one RPC for the whole repair on peers
-        // running commit_records (the per-record loop below costs one
-        // TCP+HTTP round trip per record). Pre-batch peers get the
-        // fallback loop; the batch call failing for any other reason is
-        // covered by the same path — refused records are the protocol's
-        // gate working, not a sync failure.
-        // The tool caps a batch at 1000 — a bigger delta takes the
-        // per-record path (a peer that far behind is rare, and today's
-        // per-record behavior is no worse than before).
-        let batch_ok = if to_push.is_empty() || to_push.len() > 1000 {
-            None
-        } else {
-            susi_core::mcp_client::call_tool(
-                addr,
-                "commit_records",
-                &serde_json::json!({ "records": to_push }),
-                bearer.as_deref(),
-            )
-            .ok()
-            .filter(|r| r.get("isError").and_then(|v| v.as_bool()) != Some(true))
-        };
-        if let Some(result) = &batch_ok {
-            // The summary is JSON text: {applied, skipped, refused, repaired}.
-            let counts = result
-                .pointer("/content/0/text")
-                .and_then(|t| t.as_str())
-                .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
-            pushed += counts
-                .as_ref()
-                .and_then(|c| c.get("applied").and_then(|v| v.as_u64()))
-                .unwrap_or(0) as usize
-                + counts
-                    .as_ref()
-                    .and_then(|c| c.get("skipped").and_then(|v| v.as_u64()))
-                    .unwrap_or(0) as usize;
-            push_rejected += counts
-                .as_ref()
-                .and_then(|c| c.get("refused").and_then(|v| v.as_u64()))
-                .unwrap_or(0) as usize;
-        }
-        if batch_ok.is_none() {
-            for r in &to_push {
-                // The tool's args ARE the record — commit_record
-                // deserializes the argument object directly.
-                let Ok(args) = serde_json::to_value(r) else {
-                    continue;
-                };
-                match susi_core::mcp_client::call_tool(
-                    addr,
-                    "commit_record",
-                    &args,
-                    bearer.as_deref(),
-                ) {
-                    // A completed RPC can still carry a tool-level rejection
-                    // (isError) — a stale-term or consistency refusal is the
-                    // protocol's gate working, not a sync failure.
-                    Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
-                        push_rejected += 1;
-                    }
-                    Ok(_) => pushed += 1,
-                    Err(_) => push_rejected += 1,
-                }
-            }
-        }
-        println!(
-            "{id} ({addr}): +{new} pulled, {dup} already held, {bad} rejected; \
-             {pushed} pushed, {push_rejected} push-rejected"
-        );
-        total_new += new;
-        total_dup += dup;
-        total_bad += bad;
-        total_pushed += pushed;
-        total_push_rejected += push_rejected;
+    for o in outcomes {
+        println!("{}", o.line);
+        total_new += o.new;
+        total_dup += o.dup;
+        total_bad += o.bad;
+        total_pushed += o.pushed;
+        total_push_rejected += o.push_rejected;
     }
     println!(
         "sync: {total_new} pulled, {total_dup} already held, {total_bad} rejected; \
          {total_pushed} pushed, {total_push_rejected} push-rejected"
     );
     Ok(())
+}
+
+#[derive(Default)]
+struct SyncOutcome {
+    line: String,
+    new: usize,
+    dup: usize,
+    bad: usize,
+    pushed: usize,
+    push_rejected: usize,
+}
+
+/// One peer's sync: pull their records (paginated), verify + batch-append
+/// locally, then push what they lack — batch intake first, per-record
+/// `commit_record` as the pre-batch-peer fallback.
+fn sync_peer(
+    id: &str,
+    addr: &str,
+    held: &std::collections::HashSet<String>,
+    bearer: Option<&str>,
+) -> SyncOutcome {
+    let mut out = SyncOutcome::default();
+    // Paginate until a short page — a ledger past the fetch cap must
+    // still converge instead of truncating at the first 1000 records.
+    // The full record set is retained for the push half of the
+    // exchange (records we hold that the peer lacks).
+    let mut offset = 0usize;
+    let mut their_records: Vec<commit_log::CommitRecord> = Vec::new();
+    let mut unreachable_note = String::new();
+    loop {
+        match susi_core::mcp_client::call_tool(
+            addr,
+            "commit_log_fetch",
+            &serde_json::json!({ "limit": 1000, "offset": offset }),
+            bearer,
+        ) {
+            Ok(result) => {
+                let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
+                    unreachable_note = "no tool output".to_string();
+                    break;
+                };
+                let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
+                else {
+                    unreachable_note = "malformed fetch payload".to_string();
+                    break;
+                };
+                let page = records.len();
+                offset += page;
+                their_records.extend(records);
+                if page < 1000 {
+                    break;
+                }
+            }
+            Err(e) => {
+                unreachable_note = format!("unreachable — {e}");
+                break;
+            }
+        }
+    }
+    if !unreachable_note.is_empty() {
+        out.line = format!("{id} ({addr}): {unreachable_note}");
+        return out;
+    }
+    let theirs: std::collections::HashSet<String> = their_records
+        .iter()
+        .filter_map(|r| serde_json::to_string(r).ok())
+        .collect();
+    // Descending seq order: prior-epoch records (signed under the
+    // retired cluster key) may only append when their seq+1
+    // successor is held and names their epoch — landing successors
+    // first lets a pre-rotation tail gap fill in one pass.
+    let mut ordered: Vec<&commit_log::CommitRecord> = their_records.iter().collect();
+    ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
+    let mut to_apply: Vec<commit_log::CommitRecord> = Vec::new();
+    for r in ordered {
+        if !r.verify() {
+            out.bad += 1;
+            continue;
+        }
+        // Raft's step-down on the pull path, but only from member
+        // coordinators — a non-member's forged high term must not
+        // adopt into term.json (it would freeze honest pushes).
+        if commit_log::coordinator_known(r) {
+            let _ = commit_log::check_term(r);
+        }
+        // Member records need coordinator authority — an evicted
+        // node still holds cluster.key. Refused records stay
+        // missing and converge once the coordinator is known.
+        if !commit_log::member_coordinator_known(r) {
+            out.bad += 1;
+            continue;
+        }
+        let key = serde_json::to_string(&r).unwrap_or_default();
+        if held.contains(&key) {
+            out.dup += 1;
+            continue;
+        }
+        to_apply.push((*r).clone());
+    }
+    // One lock + one ledger load for the whole pull — per-record
+    // `append` re-read and re-locked the ledger every record.
+    for outcome in commit_log::append_many(&to_apply) {
+        match outcome {
+            commit_log::AppendOutcome::Applied => out.new += 1,
+            commit_log::AppendOutcome::Skipped => out.dup += 1,
+            commit_log::AppendOutcome::Refused => out.bad += 1,
+        }
+    }
+
+    // Symmetric repair: records we hold that the peer lacks are pushed
+    // through `commit_record` — the receive path re-runs signature,
+    // quorum, and term gates, so a rejected push is the protocol
+    // working, not a sync failure. The archive is ours to serve: an
+    // uncompacted peer missing below-floor history can only get it
+    // from our cold storage.
+    let to_push: Vec<commit_log::CommitRecord> = commit_log::load()
+        .into_iter()
+        .chain(commit_log::load_from(&commit_log::archive_path()))
+        .filter(|r| {
+            let key = serde_json::to_string(r).unwrap_or_default();
+            !theirs.contains(&key)
+        })
+        .collect();
+    // Batch intake first — one RPC for the whole repair on peers
+    // running commit_records (the per-record loop below costs one
+    // TCP+HTTP round trip per record). Pre-batch peers get the
+    // fallback loop; the batch call failing for any other reason is
+    // covered by the same path — refused records are the protocol's
+    // gate working, not a sync failure.
+    // The tool caps a batch at 1000 — a bigger delta takes the
+    // per-record path (a peer that far behind is rare, and today's
+    // per-record behavior is no worse than before).
+    let batch_ok = if to_push.is_empty() || to_push.len() > 1000 {
+        None
+    } else {
+        susi_core::mcp_client::call_tool(
+            addr,
+            "commit_records",
+            &serde_json::json!({ "records": to_push }),
+            bearer,
+        )
+        .ok()
+        .filter(|r| r.get("isError").and_then(|v| v.as_bool()) != Some(true))
+    };
+    if let Some(result) = &batch_ok {
+        // The summary is JSON text: {applied, skipped, refused, repaired}.
+        let counts = result
+            .pointer("/content/0/text")
+            .and_then(|t| t.as_str())
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
+        out.pushed += counts
+            .as_ref()
+            .and_then(|c| c.get("applied").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as usize
+            + counts
+                .as_ref()
+                .and_then(|c| c.get("skipped").and_then(|v| v.as_u64()))
+                .unwrap_or(0) as usize;
+        out.push_rejected += counts
+            .as_ref()
+            .and_then(|c| c.get("refused").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as usize;
+    }
+    if batch_ok.is_none() {
+        for r in &to_push {
+            // The tool's args ARE the record — commit_record
+            // deserializes the argument object directly.
+            let Ok(args) = serde_json::to_value(r) else {
+                continue;
+            };
+            match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer) {
+                // A completed RPC can still carry a tool-level rejection
+                // (isError) — a stale-term or consistency refusal is the
+                // protocol's gate working, not a sync failure.
+                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
+                    out.push_rejected += 1;
+                }
+                Ok(_) => out.pushed += 1,
+                Err(_) => out.push_rejected += 1,
+            }
+        }
+    }
+    out.line = format!(
+        "{id} ({addr}): +{} pulled, {} already held, {} rejected; \
+         {} pushed, {} push-rejected",
+        out.new, out.dup, out.bad, out.pushed, out.push_rejected
+    );
+    out
 }
 
 fn list(
