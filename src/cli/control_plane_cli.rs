@@ -344,9 +344,10 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
 }
 
 /// Report a live daemon pid, waiting for the host-contract ports before
-/// printing endpoints — the pid can precede the bind by several seconds.
+/// printing endpoints — the pid can precede the bind by tens of seconds
+/// when boot work (e.g. index maintenance) runs before the listeners.
 fn report_running(pid: u32) {
-    if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(20)) {
+    if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(60)) {
         println!("[SUSI Daemon] Running (PID: {}).", pid);
         println!("{}", SusiDaemon::host_contract_endpoints_report());
         let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();

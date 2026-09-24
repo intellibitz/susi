@@ -35,6 +35,10 @@ const DISABLE_COOLDOWN_SECS: u64 = 300;
 const MISSING_RETRY_INTERVAL: Duration = Duration::from_secs(30);
 /// SIGTERM → SIGKILL escalation window on shutdown.
 const TERM_GRACE: Duration = Duration::from_secs(2);
+/// Consecutive HTTP-probe failures tolerated on a live pid before it is
+/// declared wedged and respawned — transient probe timeouts under load
+/// must not kill a healthy service.
+const WEDGED_MISS_LIMIT: u32 = 3;
 
 /// Locate a leaf service binary: next to the running daemon first
 /// (cargo target dir, staged installs), then `substrate_home/bin`, then
@@ -224,24 +228,15 @@ pub fn ensure_leaf_services() {
             }
             continue;
         }
-        let Some(pid) = spawn_service(svc) else {
-            slog(&format!(
-                "[supervisor] {} down and binary `{}` not found",
-                svc.name, svc.binary
-            ));
-            continue;
-        };
-        if wait_for_port(svc.port(), STARTUP_WAIT) {
-            service_table::record(&mut table, svc.name, pid, svc.port());
+        if let Some(pid) = spawn_and_record(svc, &mut table) {
             slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
-        } else {
+        } else if !table.iter().any(|r| r.name == svc.name) {
             slog(&format!(
-                "[supervisor] {} spawned (pid {}) but never bound :{}",
+                "[supervisor] {} down and binary `{}` not found or never bound :{}",
                 svc.name,
-                pid,
+                svc.binary,
                 svc.port()
             ));
-            let _ = signal(pid, SIGKILL);
         }
     }
     // Same locked merge as the monitor — a CLI op racing the boot pass
@@ -263,6 +258,44 @@ pub fn ensure_leaf_services() {
     });
     if let Err(e) = merged {
         slog(&format!("[supervisor] persist process table: {e}"));
+    }
+}
+
+/// Spawn a service, wait for its port, then verify the listener is
+/// actually owned by our child before recording — a port still bound by
+/// a lingering or foreign process makes `wait_for_port` pass while our
+/// spawn dies on EADDRINUSE; recording that dead pid crash-loops the
+/// monitor. On ownership mismatch the spawn is killed and a resolvable
+/// holder is adopted as external instead.
+fn spawn_and_record(
+    svc: &LeafService,
+    table: &mut Vec<service_table::ServiceRecord>,
+) -> Option<u32> {
+    let pid = spawn_service(svc)?;
+    if !wait_for_port(svc.port(), STARTUP_WAIT) {
+        let _ = signal(pid, SIGKILL);
+        return None;
+    }
+    match service_table::pid_for_port(svc.port()) {
+        Some(holder) if holder == pid => {
+            service_table::record(table, svc.name, pid, svc.port());
+            Some(pid)
+        }
+        Some(holder) => {
+            let _ = signal(pid, SIGKILL);
+            service_table::record_external(table, svc.name, holder, svc.port());
+            slog(&format!(
+                "[supervisor] {} port held by pid {holder}; adopted as external",
+                svc.name
+            ));
+            None
+        }
+        // Holder unresolvable — give our live spawn the benefit; a wrong
+        // record is caught and corrected as external on the next pass.
+        None => {
+            service_table::record(table, svc.name, pid, svc.port());
+            Some(pid)
+        }
     }
 }
 
@@ -290,16 +323,42 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
             let _ = signal(rec.pid, SIGKILL);
         }
     }
-    if let Some(pid) = spawn_service(svc) {
-        if wait_for_port(svc.port(), STARTUP_WAIT) {
-            let rec = service_table::record(table, svc.name, pid, svc.port());
-            slog(&format!(
-                "[supervisor] restarted {} (pid {}, restart #{})",
-                svc.name, pid, rec.restarts
-            ));
-        } else {
-            let _ = signal(pid, SIGKILL);
+    // Recorded pid is dead but the port still serves: the binder is a
+    // lingering or foreign process. Spawning here dies on EADDRINUSE and
+    // records a dead pid — the crash loop this guard exists to break.
+    // Adopt a resolvable holder as external; defer otherwise.
+    {
+        let recorded_dead = table
+            .iter()
+            .find(|r| r.name == svc.name)
+            .is_some_and(|r| !service_table::pid_alive(r.pid));
+        if recorded_dead && service_table::probe(svc.port()) {
+            match service_table::pid_for_port(svc.port()) {
+                Some(holder) => {
+                    service_table::record_external(table, svc.name, holder, svc.port());
+                    slog(&format!(
+                        "[supervisor] {} port held by live pid {holder}; adopted as external",
+                        svc.name
+                    ));
+                }
+                None => slog(&format!(
+                    "[supervisor] {} dead but port bound by unresolvable process; deferring respawn",
+                    svc.name
+                )),
+            }
+            return;
         }
+    }
+    if let Some(pid) = spawn_and_record(svc, table) {
+        let restarts = table
+            .iter()
+            .find(|r| r.name == svc.name)
+            .map(|r| r.restarts)
+            .unwrap_or(0);
+        slog(&format!(
+            "[supervisor] restarted {} (pid {pid}, restart #{restarts})",
+            svc.name
+        ));
     }
 }
 
@@ -307,6 +366,8 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
 /// wedged-port. Runs until `shutdown` is raised.
 fn monitor_loop(shutdown: Arc<AtomicBool>) {
     let mut missing_retry: std::collections::HashMap<&'static str, std::time::Instant> =
+        std::collections::HashMap::new();
+    let mut probe_misses: std::collections::HashMap<&'static str, u32> =
         std::collections::HashMap::new();
     while !shutdown.load(Ordering::Acquire) {
         let mut table = service_table::load();
@@ -349,14 +410,12 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                         "[supervisor] {} not supervised; attempting spawn",
                         svc.name
                     ));
-                    if let Some(pid) = spawn_service(svc) {
-                        if wait_for_port(svc.port(), STARTUP_WAIT) {
-                            service_table::record(&mut table, svc.name, pid, svc.port());
-                            slog(&format!("[supervisor] adopted {} (pid {})", svc.name, pid));
-                            changed = true;
-                        } else {
-                            let _ = signal(pid, SIGKILL);
-                        }
+                    if let Some(pid) = spawn_and_record(svc, &mut table) {
+                        slog(&format!("[supervisor] adopted {} (pid {})", svc.name, pid));
+                        changed = true;
+                    } else if table.iter().any(|r| r.name == svc.name) {
+                        // spawn_and_record adopted an external holder.
+                        changed = true;
                     }
                 }
                 continue;
@@ -400,10 +459,22 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
             }
             // HTTP probe, not just TCP accept: a wedged listener still
             // answers connect() while its request path is dead — only an
-            // HTTP response proves the service actually serves.
-            let healthy = service_table::pid_alive(rec.pid) && service_table::http_probe(rec.port);
-            if healthy {
+            // HTTP response proves the service actually serves. A dead
+            // pid respawns at once, but a live pid that fails the probe
+            // gets a grace streak — a single probe timeout under load
+            // must not kill a healthy service.
+            let alive = service_table::pid_alive(rec.pid);
+            if alive && service_table::http_probe(rec.port) {
+                probe_misses.remove(svc.name);
                 continue;
+            }
+            if alive {
+                let misses = probe_misses.entry(svc.name).or_insert(0);
+                *misses += 1;
+                if *misses < WEDGED_MISS_LIMIT {
+                    continue;
+                }
+                probe_misses.remove(svc.name);
             }
             slog(&format!("[supervisor] {} unhealthy; respawning", svc.name));
             respawn(svc, &mut table);
