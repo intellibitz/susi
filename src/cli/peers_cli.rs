@@ -40,6 +40,14 @@ pub enum PeersCommands {
         /// node_id or address of the banned peer to restore
         peer: String,
     },
+    /// Rotate the cluster key across every verified member — the only
+    /// way to truly revoke an evicted member's cluster.key. Generates a
+    /// fresh key, commits a `cluster_rekey` record (its SHA-256
+    /// fingerprint), delivers it with the key to each member's
+    /// `cluster_rekey_stage` tool, then activates locally. Members that
+    /// don't acknowledge are cryptographically stranded: their key can
+    /// no longer sign or verify anything post-rotation.
+    Rekey,
 }
 
 pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
@@ -48,6 +56,7 @@ pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
         PeersCommands::Add { host, port } => add(&host, port),
         PeersCommands::Remove { peer } => remove(&peer),
         PeersCommands::Unban { peer } => unban(&peer),
+        PeersCommands::Rekey => rekey(),
     }
 }
 
@@ -175,6 +184,112 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
         }
     }
     println!("membership delta committed to ledger; pushed to {pushed} peer(s)");
+}
+
+/// `susi peers rekey` — rotate cluster.key cluster-wide. The flow:
+/// generate → fingerprint → seal `cluster_rekey` (signed under the
+/// CURRENT key) → stage locally → push {record, key} to each member's
+/// `cluster_rekey_stage` tool (each stages + appends + activates) →
+/// append locally LAST so our pushes still authenticate under the old
+/// derived bearer. Receivers verify record signature + coordinator
+/// authority + fingerprint match before activating, so the ledger —
+/// not the transport — decides which key takes effect.
+fn rekey() -> Result<()> {
+    use susi_core::commit_log;
+    if susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists()
+    {
+        bail!("this node is evicted — a rekey it seals carries no cluster authority");
+    }
+    let Some(new_key) = susi_config::cluster_key::generate_key() else {
+        bail!("could not generate a new cluster key (getrandom failed)");
+    };
+    let fingerprint = susi_config::cluster_key::key_fingerprint(&new_key);
+    let electorate: Vec<String> = load_registry()
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            n.get("node_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    let Some(record) = commit_log::CommitRecord::seal_rekey(
+        &susi_config::cluster_key::wire_node_id(),
+        &commit_log::load_term().leader,
+        &fingerprint,
+        electorate,
+    ) else {
+        bail!("no cluster.key — cannot seal a rekey record");
+    };
+    // Stage locally so our own append activates the rotation.
+    if !susi_config::cluster_key::stage_key(&new_key) {
+        bail!("failed to stage cluster.key.next — refusing to rekey");
+    }
+    let args = serde_json::json!({
+        "record": &record,
+        "key_hex": hex::encode(new_key),
+    });
+    let bearer = susi_config::cluster_key::peer_bearer();
+    let targets: Vec<String> = load_registry()
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            n.get("address")
+                .and_then(|a| a.as_str())
+                .map(str::to_string)
+        })
+        .filter(|a| !(a.starts_with("127.") || a.starts_with("::1") || a.starts_with("localhost")))
+        .collect();
+    let mut acked = 0usize;
+    let mut failed: Vec<String> = Vec::new();
+    for addr in &targets {
+        match susi_core::mcp_client::call_tool(
+            addr,
+            "cluster_rekey_stage",
+            &args,
+            bearer.as_deref(),
+        ) {
+            Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+                acked += 1;
+            }
+            Ok(result) => {
+                let detail = result
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .and_then(|a| a.first())
+                    .and_then(|c| c.get("text"))
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("refused")
+                    .to_string();
+                failed.push(format!("{addr}: {detail}"));
+            }
+            Err(e) => failed.push(format!("{addr}: {e}")),
+        }
+    }
+    // Local activation LAST — our pushes above authenticated under the
+    // old derived bearer; rotating earlier would lock us out mid-push.
+    if let Err(e) = commit_log::append(&record) {
+        // The staged file stays for the retry path — report honestly.
+        eprintln!("warning: local rekey record not appended — {e}; staged key left for retry");
+        return Err(e.into());
+    }
+    println!(
+        "cluster key rotated — epoch {} active; {acked} member(s) applied, {} unreachable/refused",
+        &fingerprint[..16],
+        failed.len()
+    );
+    for f in &failed {
+        eprintln!("  stranded-risk: {f}");
+    }
+    if !failed.is_empty() {
+        eprintln!(
+            "recovery: unacknowledged members are cryptographically stranded — \
+             copy the NEW ~/.susi/cluster.key to them (0600) to rejoin"
+        );
+    }
+    Ok(())
 }
 
 /// Liveness for display: only a `last_seen_secs` within the staleness window

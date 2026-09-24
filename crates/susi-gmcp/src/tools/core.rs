@@ -733,6 +733,99 @@ impl CoreTools {
         serde_json::to_string(&records)
             .map_err(|e| EaiError::internal(format!("serialize commit records: {e}")))
     }
+
+    #[tool(
+        name = "cluster_rekey_stage",
+        description = "Stage a next-epoch cluster key delivered with its committed cluster_rekey record. Args: {record: CommitRecord, key_hex: string (64 hex)}. Verifies the record's signature under the current key, requires coordinator authority, checks the pushed key's SHA-256 matches the committed fingerprint, stages it (0600), then appends the record — whose apply activates the rotation. The committed record, not the transport, is the authority on which key takes effect."
+    )]
+    pub fn cluster_rekey_stage(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
+            arg.get("record")
+                .cloned()
+                .ok_or_else(|| EaiError::protocol("missing 'record' field"))?,
+        )
+        .map_err(|e| EaiError::protocol(format!("bad commit record: {e}")))?;
+        let key_hex = arg
+            .get("key_hex")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("missing 'key_hex' field"))?;
+        let key_bytes =
+            hex::decode(key_hex).map_err(|e| EaiError::protocol(format!("bad key_hex: {e}")))?;
+        if key_bytes.len() != 32 {
+            return Err(EaiError::protocol("key_hex must decode to 32 bytes"));
+        }
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&key_bytes);
+        // Epoch check first: a duplicate push post-rotation is a no-op
+        // when the record is already held; anything else signed only by
+        // the retired key is revoked-key traffic.
+        match record.verify_key_epoch() {
+            Some(crate::susi_core::commit_log::KeyEpoch::Current) => {}
+            Some(crate::susi_core::commit_log::KeyEpoch::Prev) => {
+                let held = crate::susi_core::commit_log::load();
+                if held.iter().any(|r| r == &record) {
+                    return Ok("rekey already applied — nothing to do".to_string());
+                }
+                return Err(EaiError::authorization(
+                    "rekey record verifies only under the retired key — it is not held and cannot be staged post-rotation",
+                ));
+            }
+            None => {
+                return Err(EaiError::authorization(
+                    "rekey record failed cluster-key signature or consistency checks",
+                ));
+            }
+        }
+        let Some(fingerprint) = record.rekey_fingerprint() else {
+            return Err(EaiError::protocol(
+                "record is not a well-formed cluster_rekey record",
+            ));
+        };
+        // Coordinator authority — an evicted member still holds the key
+        // and must not be able to rotate the cluster under itself.
+        if !crate::susi_core::commit_log::member_coordinator_known(&record) {
+            return Err(EaiError::authorization(format!(
+                "rekey coordinator {} is not an explicit member of this roster",
+                record.coordinator
+            )));
+        }
+        // The pushed key must match the committed fingerprint — the
+        // ledger, not the transport, decides which key activates.
+        if crate::susi_config::cluster_key::key_fingerprint(&key) != fingerprint {
+            return Err(EaiError::protocol(
+                "pushed key does not match the committed rekey fingerprint",
+            ));
+        }
+        // Same stale-term gate as commit_record — a coordinator working
+        // from superseded leadership must not drive an epoch change.
+        if crate::susi_core::commit_log::coordinator_known(&record) {
+            if let crate::susi_core::commit_log::TermVerdict::Stale =
+                crate::susi_core::commit_log::check_term(&record)
+            {
+                return Err(EaiError::protocol(format!(
+                    "stale term {} (current {}): rekey coordinator is working from superseded leadership",
+                    record.term,
+                    crate::susi_core::commit_log::load_term().term
+                )));
+            }
+        }
+        // Stage, then append — the append's apply activates the key.
+        // On append failure remove the staged file so a stray next-epoch
+        // key cannot linger beside an uncommitted record.
+        if !crate::susi_config::cluster_key::stage_key(&key) {
+            return Err(EaiError::internal("failed to stage cluster.key.next"));
+        }
+        if let Err(e) = crate::susi_core::commit_log::append(&record) {
+            let _ = std::fs::remove_file(
+                crate::susi_paths::SusiDirs::config_dir().join("cluster.key.next"),
+            );
+            return Err(e);
+        }
+        Ok(format!(
+            "rekey staged and applied — cluster epoch rotated to key {}",
+            &fingerprint[..16]
+        ))
+    }
 }
 
 /// Anti-entropy repair for the commit ledger: resolve `coordinator`'s
@@ -779,7 +872,13 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
             break;
         }
         match fetch_commit_records(addr, coordinator, remaining[0], bearer) {
-            Ok(fetched) => {
+            Ok(mut fetched) => {
+                // Descending seq order: a prior-epoch record (signed
+                // under the retired cluster key) may only append when
+                // its seq+1 successor is held and names its epoch — so
+                // the successor must land first, or a pre-rotation tail
+                // gap takes one sweep per record.
+                fetched.sort_by_key(|r| std::cmp::Reverse(r.seq));
                 let mut got = 0usize;
                 for r in fetched {
                     // Member records need coordinator authority — an

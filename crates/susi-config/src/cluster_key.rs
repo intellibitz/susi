@@ -122,6 +122,136 @@ pub fn peer_bearer() -> Option<String> {
     cluster_key().map(|k| hmac_sha256_hex(&k, b"susi-peer-bearer-v1"))
 }
 
+/// Staged next-epoch key, delivered by a verified `cluster_rekey`
+/// push and activated only when the committed rekey record lands in
+/// the ledger — a staged key that never gets committed never takes
+/// effect.
+fn staged_key_path() -> PathBuf {
+    crate::susi_paths::SusiDirs::config_dir().join("cluster.key.next")
+}
+
+/// Prior-epoch key retained on activation. Verification accepts it
+/// only for chain-pinned history fills — see
+/// `commit_log::append_to`'s epoch rule — so a revoked key can never
+/// authorize new records but the pre-rotation ledger stays
+/// verifiable for audit.
+fn prev_key_path() -> PathBuf {
+    crate::susi_paths::SusiDirs::config_dir().join("cluster.key.prev")
+}
+
+fn key_bytes_from_file(path: &PathBuf) -> Option<[u8; 32]> {
+    let bytes = hex::decode(fs::read_to_string(path).ok()?.trim()).ok()?;
+    if bytes.len() != 32 {
+        return None;
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bytes);
+    Some(key)
+}
+
+/// Write a key file with 0600 mode atomically (tmp + rename).
+fn write_key_file(path: &PathBuf, key: &[u8; 32]) -> bool {
+    if let Some(dir) = path.parent() {
+        if fs::create_dir_all(dir).is_err() {
+            return false;
+        }
+    }
+    let tmp = path.with_extension("tmp");
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let written = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&tmp)
+            .and_then(|mut f| f.write_all(hex::encode(key).as_bytes()))
+            .is_ok();
+        if !written {
+            return false;
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if fs::write(&tmp, hex::encode(key)).is_err() {
+            return false;
+        }
+    }
+    fs::rename(&tmp, path).is_ok()
+}
+
+/// A fresh random 32-byte cluster key — the coordinator-side half of
+/// `susi peers rekey`. Not persisted; `stage_key` writes it.
+pub fn generate_key() -> Option<[u8; 32]> {
+    let mut raw = [0u8; 32];
+    getrandom::fill(&mut raw).ok()?;
+    Some(raw)
+}
+
+/// SHA-256 hex of a key — the value committed in `cluster_rekey`
+/// records. Receivers confirm the pushed key matches the committed
+/// fingerprint before staging, so the ledger — not the transport —
+/// is the authority on which rotation happened.
+pub fn key_fingerprint(key: &[u8; 32]) -> String {
+    hex::encode(Sha256::digest(key))
+}
+
+/// Stage a next-epoch key beside `cluster.key` (0600). The staged
+/// file is inert until a committed `cluster_rekey` record activates
+/// it — writing this file alone changes nothing.
+pub fn stage_key(key: &[u8; 32]) -> bool {
+    stage_key_to(key, &staged_key_path())
+}
+
+/// Test seam: stage to an explicit path.
+pub fn stage_key_to(key: &[u8; 32], path: &PathBuf) -> bool {
+    write_key_file(path, key)
+}
+
+/// Load a staged next-epoch key, if one is waiting for activation.
+pub fn staged_key() -> Option<[u8; 32]> {
+    key_bytes_from_file(&staged_key_path())
+}
+
+/// The prior-epoch key, retained after activation for verifying
+/// pre-rotation history. `None` when no rotation has happened.
+pub fn prev_key() -> Option<[u8; 32]> {
+    key_bytes_from_file(&prev_key_path())
+}
+
+/// Activate the staged key iff its fingerprint matches `fingerprint`
+/// — the committed rekey record's value. On success the current key
+/// rotates to `cluster.key.prev` and the staged key becomes current.
+/// Returns false when no staged key exists or the fingerprint does
+/// not match: applying a rekey record can never clear the key or
+/// activate an unexpected one.
+pub fn activate_staged_key(fingerprint: &str) -> bool {
+    activate_staged_key_at(fingerprint, &crate::susi_paths::SusiDirs::config_dir())
+}
+
+/// Test seam: activate against an explicit directory.
+pub fn activate_staged_key_at(fingerprint: &str, dir: &std::path::Path) -> bool {
+    let staged_path = dir.join("cluster.key.next");
+    let Some(staged) = key_bytes_from_file(&staged_path) else {
+        return false;
+    };
+    if key_fingerprint(&staged) != fingerprint {
+        return false;
+    }
+    let current_path = dir.join("cluster.key");
+    let prev_path = dir.join("cluster.key.prev");
+    if let Some(current) = key_bytes_from_file(&current_path) {
+        if !write_key_file(&prev_path, &current) {
+            return false;
+        }
+    }
+    // rename, not copy — the staged key must not linger beside the
+    // active one after rotation.
+    fs::rename(&staged_path, &current_path).is_ok()
+}
+
 /// Fresh random nonce for one handshake exchange (128-bit).
 pub fn random_nonce_hex() -> String {
     let mut raw = [0u8; 16];

@@ -1320,7 +1320,15 @@ impl SusiSupervisor {
             .iter()
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect();
-        for r in &their_records {
+        // Descending seq order: prior-epoch records (signed under the
+        // retired cluster key) may only append when their seq+1
+        // successor is held and names their epoch — landing successors
+        // first lets a pre-rotation tail gap fill in one sweep instead
+        // of one record per ~5min cycle.
+        let mut ordered: Vec<&crate::susi_core::commit_log::CommitRecord> =
+            their_records.iter().collect();
+        ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
+        for r in ordered {
             if !r.verify() {
                 continue;
             }

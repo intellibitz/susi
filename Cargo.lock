@@ -6555,6 +6555,7 @@ dependencies = [
  "anyhow",
  "clap",
  "console-subscriber",
+ "hex",
  "parking_lot",
  "rayon",
  "serde",

@@ -167,7 +167,13 @@ fn sync() -> Result<()> {
             .iter()
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect();
-        for r in &their_records {
+        // Descending seq order: prior-epoch records (signed under the
+        // retired cluster key) may only append when their seq+1
+        // successor is held and names their epoch — landing successors
+        // first lets a pre-rotation tail gap fill in one pass.
+        let mut ordered: Vec<&commit_log::CommitRecord> = their_records.iter().collect();
+        ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
+        for r in ordered {
             if !r.verify() {
                 bad += 1;
                 continue;
@@ -280,10 +286,16 @@ fn list(
     );
     for r in records.iter().rev().take(limit.min(500)) {
         // Member rows show the delta's target — an audit of roster
-        // history needs the who, not just the kind.
+        // history needs the who, not just the kind. Rekey rows show
+        // the rotated key's fingerprint prefix — the epoch boundary's
+        // identity.
         let subject = r
             .member_delta()
             .map(|(_, id, addr)| format!("{id}@{addr}"))
+            .or_else(|| {
+                r.rekey_fingerprint()
+                    .map(|fp| format!("key:{}", &fp[..12.min(fp.len())]))
+            })
             .unwrap_or_else(|| "-".to_string());
         println!(
             "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {:<8} {}",

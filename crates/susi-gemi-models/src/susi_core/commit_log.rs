@@ -132,6 +132,14 @@ pub const KIND_MEMBER_REMOVE: &str = "member_remove";
 /// Lift a previously committed ban — the member can re-verify naturally
 /// on its next signed handshake (it is not re-added).
 pub const KIND_MEMBER_UNBAN: &str = "member_unban";
+/// Cluster-key rotation boundary (Raft's epoch/leader-change analog):
+/// the `value` is the SHA-256 fingerprint of the next-epoch key, sealed
+/// under the CURRENT (soon-prior) key. Receivers that staged the
+/// matching key via `cluster_rekey_stage` activate it on apply; the old
+/// key is retained as `cluster.key.prev` so pre-rotation history stays
+/// verifiable. Members that never staged are cryptographically
+/// stranded — revocation of evicted key-holders is the point.
+pub const KIND_CLUSTER_REKEY: &str = "cluster_rekey";
 
 /// Inputs for `CommitRecord::seal` — the decision fields a coordinator
 /// knows at commit time. `seq` and `signature` are derived by `seal`.
@@ -252,6 +260,43 @@ impl CommitRecord {
         if id.is_empty() || addr.is_empty() {
             return None;
         }
+        Self::seal_signed(coordinator, leader, kind, member, electorate)
+    }
+
+    /// Seal a cluster-key rotation record. `fingerprint` is the
+    /// SHA-256 hex of the next-epoch key (cluster_key::key_fingerprint);
+    /// the record is signed under the CURRENT key — receivers verify it
+    /// pre-rotation, then activate. Sealing must happen BEFORE the
+    /// coordinator rotates its own key or the record fails every
+    /// receiver's check.
+    pub fn seal_rekey(
+        coordinator: &str,
+        leader: &str,
+        fingerprint: &str,
+        electorate: Vec<String>,
+    ) -> Option<Self> {
+        if hex::decode(fingerprint).ok()?.len() != 32 {
+            return None;
+        }
+        Self::seal_signed(
+            coordinator,
+            leader,
+            KIND_CLUSTER_REKEY,
+            fingerprint,
+            electorate,
+        )
+    }
+
+    /// Shared seal path for the non-decision record kinds — signature,
+    /// seq, term, and chain linkage are identical; only the kind's
+    /// value validation differs (done by each caller).
+    fn seal_signed(
+        coordinator: &str,
+        leader: &str,
+        kind: &str,
+        value: &str,
+        electorate: Vec<String>,
+    ) -> Option<Self> {
         let key = crate::susi_config::cluster_key::cluster_key()?;
         let committed_at = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -269,8 +314,8 @@ impl CommitRecord {
             electorate: sorted,
             tally: 0,
             quorum_threshold: 0,
-            value_hash: hex::encode(Sha256::digest(member.as_bytes())),
-            value: member.to_string(),
+            value_hash: hex::encode(Sha256::digest(value.as_bytes())),
+            value: value.to_string(),
             committed_at,
             seq: next_seq_for(&held, coordinator),
             leader: leader.to_string(),
@@ -304,6 +349,18 @@ impl CommitRecord {
         Some((self.kind.as_str(), id, addr))
     }
 
+    /// The committed key fingerprint for a `cluster_rekey` record —
+    /// `None` for other kinds or a malformed (non-32-byte-hex) value.
+    pub fn rekey_fingerprint(&self) -> Option<&str> {
+        if self.kind != KIND_CLUSTER_REKEY {
+            return None;
+        }
+        if hex::decode(&self.value).ok()?.len() != 32 {
+            return None;
+        }
+        Some(self.value.as_str())
+    }
+
     /// The exact bytes the signature covers (compact JSON of
     /// `SignedFields` — serde emits struct fields in declaration order,
     /// so this is stable across processes and vendored copies).
@@ -330,39 +387,81 @@ impl CommitRecord {
         .unwrap_or_default()
     }
 
-    /// Verify a received record against the local cluster key and its own
-    /// internal consistency (tally crossed quorum, hash matches value).
-    /// Rejects unsigned, forged, tampered, and self-inconsistent records.
-    pub fn verify(&self) -> bool {
+    /// Which key epoch this record's signature verifies under. `Current`
+    /// is the live cluster key; `Prev` is the key retired by the most
+    /// recent `cluster_rekey` activation (`cluster.key.prev`). A `Prev`
+    /// signature proves the record is genuine pre-rotation history — it
+    /// can never authorize new appends at the frontier (see `append_to`),
+    /// but it can fill chain-pinned gaps so rotated members keep one
+    /// convergent ledger.
+    pub fn signature_epoch(&self) -> Option<KeyEpoch> {
         if self.signature.is_empty() {
-            return false;
+            return None;
         }
-        let Some(key) = crate::susi_config::cluster_key::cluster_key() else {
-            return false;
-        };
-        let expected = crate::susi_config::cluster_key::hmac_sha256_hex(
-            &key,
-            self.signed_payload().as_bytes(),
-        );
-        if expected != self.signature {
-            return false;
+        let payload = self.signed_payload();
+        if let Some(key) = crate::susi_config::cluster_key::cluster_key() {
+            let expected =
+                crate::susi_config::cluster_key::hmac_sha256_hex(&key, payload.as_bytes());
+            if expected == self.signature {
+                return Some(KeyEpoch::Current);
+            }
         }
-        // Internal consistency: a correctly-signed decision record can
-        // still claim a tally that never reached quorum — check it.
-        // Membership records carry no vote by design (leader-signed
-        // replication), so only decisions get the quorum check; member
-        // kinds instead require a well-formed `id@address` value.
+        if let Some(prev) = crate::susi_config::cluster_key::prev_key() {
+            let expected =
+                crate::susi_config::cluster_key::hmac_sha256_hex(&prev, payload.as_bytes());
+            if expected == self.signature {
+                return Some(KeyEpoch::Prev);
+            }
+        }
+        None
+    }
+
+    /// Internal consistency independent of the signature: a correctly
+    /// signed decision record can still claim a tally that never reached
+    /// quorum — check it. Membership records carry no vote by design
+    /// (leader-signed replication), so only decisions get the quorum
+    /// check; member kinds instead require a well-formed `id@address`
+    /// value and a rekey record a well-formed fingerprint.
+    fn internally_consistent(&self) -> bool {
         if self.kind.is_empty() {
             if self.quorum_threshold != self.electorate.len() / 2 + 1
                 || self.tally < self.quorum_threshold
             {
                 return false;
             }
-        } else if self.member_delta().is_none() {
+        } else if self.member_delta().is_none() && self.rekey_fingerprint().is_none() {
             return false;
         }
         hex::encode(Sha256::digest(self.value.as_bytes())) == self.value_hash
     }
+
+    /// Verify a received record against the local cluster key and its own
+    /// internal consistency (tally crossed quorum, hash matches value).
+    /// Rejects unsigned, forged, tampered, and self-inconsistent records.
+    /// Accepts both current- and prior-epoch signatures — see
+    /// `signature_epoch`; `append_to` further constrains prior-epoch
+    /// records to chain-pinned history fills.
+    pub fn verify(&self) -> bool {
+        self.signature_epoch().is_some() && self.internally_consistent()
+    }
+
+    /// Signature epoch + consistency together — `None` rejects.
+    pub fn verify_key_epoch(&self) -> Option<KeyEpoch> {
+        self.signature_epoch()
+            .filter(|_| self.internally_consistent())
+    }
+}
+
+/// Which cluster-key epoch a record's signature verifies under.
+/// `Ord` derives so `Prev < Current` — callers can require current-era
+/// signatures with `>= KeyEpoch::Current` style checks if needed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum KeyEpoch {
+    /// Signed under `cluster.key.prev` — genuine pre-rotation history.
+    /// Never authoritative for new appends at the frontier.
+    Prev,
+    /// Signed under the live `cluster.key`.
+    Current,
 }
 
 /// Shared env-mutation lock for tests: `cluster_key()` resolves through
@@ -840,11 +939,6 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             "commit ledger lock unavailable — possible wedged holder or extreme contention",
         ));
     };
-    if !record.verify() {
-        return Err(EaiError::protocol(
-            "refusing to append a commit record that fails signature or consistency verification",
-        ));
-    }
     let held = load_from(path);
     if record.seq > 0 {
         if let Some(existing) = held
@@ -861,6 +955,36 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
         }
     } else if held.iter().any(|r| r == record) {
         return Ok(());
+    }
+    // Epoch-aware intake: current-key records append normally. A record
+    // signed only under the retired key (`cluster.key.prev`) is genuine
+    // pre-rotation history — but a revoked member still holding that key
+    // could forge it, so prior-epoch records may ONLY fill internal
+    // chain-pinned gaps: a held successor at seq+1 must name this
+    // record's epoch. The successor's signed prev_epoch pins exactly one
+    // content hash — a forged fill cannot produce it — and any seq at
+    // the frontier (no successor held) is post-rotation traffic signed
+    // with a dead key: refused unconditionally.
+    match record.verify_key_epoch() {
+        Some(KeyEpoch::Current) => {}
+        Some(KeyEpoch::Prev) => {
+            let pinned = held.iter().any(|r| {
+                r.coordinator == record.coordinator
+                    && r.seq == record.seq + 1
+                    && r.prev_epoch == record.epoch
+            });
+            if !pinned {
+                return Err(EaiError::protocol(
+                    "refusing prior-epoch record without a chain-pinned successor \
+                     (revoked-key traffic cannot extend the ledger frontier)",
+                ));
+            }
+        }
+        None => {
+            return Err(EaiError::protocol(
+                "refusing to append a commit record that fails signature or consistency verification",
+            ));
+        }
     }
     // Chain check (Raft's prevLogIndex/prevLogTerm consistency): when the
     // record declares a predecessor link and we hold that predecessor
@@ -908,25 +1032,43 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     if record.member_delta().is_some() {
         apply_member_delta(record, path.parent().unwrap_or_else(|| Path::new(".")));
     }
+    // Same for key rotation: the committed rekey record is the epoch
+    // boundary — applying it activates the staged next-epoch key. The
+    // fingerprint match inside activation pins the staged key to THIS
+    // record, so a rekey record can never activate an arbitrary file.
+    if let Some(fingerprint) = record.rekey_fingerprint() {
+        let _ = crate::susi_config::cluster_key::activate_staged_key_at(
+            fingerprint,
+            path.parent().unwrap_or_else(|| Path::new(".")),
+        );
+    }
     Ok(())
 }
 
-/// A member record only carries authority when its sealing coordinator
-/// is a current explicit member of the roster — or this node itself
-/// (operator-initiated local commits). An evicted node still holds
-/// cluster.key, so a valid HMAC alone cannot authorize membership
-/// changes: without this gate a rogue evicted member could evict the
-/// whole cluster. Intake paths (the `commit_record` tool, anti-entropy
-/// pulls, `commits sync`) must check this BEFORE append — a refused
-/// record stays missing and is retried once the coordinator is known,
-/// rather than entering the ledger applied.
+/// Whether this record changes cluster-wide security state — roster
+/// deltas and key rotations alike. Decision records (empty kind) never
+/// do.
+fn privileged_kind(record: &CommitRecord) -> bool {
+    record.member_delta().is_some() || record.rekey_fingerprint().is_some()
+}
+
+/// A privileged record (member delta or cluster rekey) only carries
+/// authority when its sealing coordinator is a current explicit member
+/// of the roster — or this node itself (operator-initiated local
+/// commits). An evicted node still holds cluster.key, so a valid HMAC
+/// alone cannot authorize membership or key-epoch changes: without
+/// this gate a rogue evicted member could evict the whole cluster or
+/// rotate the key under itself. Intake paths (the `commit_record`
+/// tool, anti-entropy pulls, `commits sync`) must check this BEFORE
+/// append — a refused record stays missing and is retried once the
+/// coordinator is known, rather than entering the ledger applied.
 pub fn member_coordinator_known(record: &CommitRecord) -> bool {
     member_coordinator_known_at(record, &SusiDirs::config_dir())
 }
 
 /// Test seam: coordinator-authority check against an explicit roster dir.
 pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
-    record.member_delta().is_none() || coordinator_known_at(record, dir)
+    !privileged_kind(record) || coordinator_known_at(record, dir)
 }
 
 /// Whether the record's coordinator holds commit authority on this
