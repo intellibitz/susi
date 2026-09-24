@@ -122,20 +122,35 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
     let Ok(args) = serde_json::to_value(&record) else {
         return;
     };
+    // Push targets: every explicit peer — plus the subject itself for
+    // remove/unban. The subject just left our roster, but it must learn
+    // its own eviction promptly (the stand-down marker) instead of
+    // waiting for its next pull sweep. A re-add's subject is already
+    // back in the roster and covered by the peer list.
+    let mut targets: Vec<String> = load_registry()
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            n.get("address")
+                .and_then(|a| a.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if matches!(
+        kind,
+        commit_log::KIND_MEMBER_REMOVE | commit_log::KIND_MEMBER_UNBAN
+    ) && !targets.iter().any(|a| a == address)
+    {
+        targets.push(address.to_string());
+    }
     let mut pushed = 0usize;
-    for n in load_registry() {
-        if n.get("admission").and_then(|a| a.as_str()) != Some("explicit") {
-            continue;
-        }
-        let Some(addr) = n.get("address").and_then(|a| a.as_str()) else {
-            continue;
-        };
+    for addr in targets {
         // Same self-edge rule as `commits sync` — a loopback explicit
         // row is this node, and an MCP call to ourselves recurses.
         if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost") {
             continue;
         }
-        match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer.as_deref()) {
+        match susi_core::mcp_client::call_tool(&addr, "commit_record", &args, bearer.as_deref()) {
             // A tool-level isError is a protocol refusal (stale term,
             // equivocation) — the gate working, not a push success.
             Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
