@@ -183,10 +183,21 @@ pub fn node_id() -> Option<String> {
 }
 
 /// The node id this host advertises on the wire — the persisted
-/// identity, or the pre-identity fallback when the file cannot be
-/// created (read-only substrate: degraded but functional).
+/// identity, or a per-process ephemeral id when the substrate is
+/// read-only. Never a shared constant: two degraded nodes must
+/// still not collide in the coordinator/election namespace.
 pub fn wire_node_id() -> String {
-    node_id().unwrap_or_else(|| "susi-daemon-node".to_string())
+    node_id().unwrap_or_else(ephemeral_node_id)
+}
+
+/// Process-unique fallback identity for read-only substrates —
+/// generated once per process so signed pings stay consistent
+/// while the process lives.
+fn ephemeral_node_id() -> String {
+    static EPHEMERAL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    EPHEMERAL
+        .get_or_init(|| format!("susi-ephemeral-{}", &random_nonce_hex()[..12]))
+        .clone()
 }
 
 /// Verified fields of a signed ping: `(node_id, caps_csv, checksum,

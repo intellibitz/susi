@@ -1000,7 +1000,11 @@ impl SusiDaemon {
             // Own the host-contract UDP surface: answer both LAN and peer dialects.
             if msg.contains("SUSI_LAN_PING") || msg.starts_with("SUSI_PING") {
                 let pong = if msg.contains("SUSI_LAN_PING") {
-                    format!("SUSI_LAN_PONG:susi-daemon-node:{}", gmcp_port)
+                    format!(
+                        "SUSI_LAN_PONG:{}:{}",
+                        crate::susi_config::cluster_key::wire_node_id(),
+                        gmcp_port
+                    )
                 } else {
                     "SUSI_PONG:daemon:0:".to_string()
                 };
