@@ -1246,6 +1246,12 @@ impl SusiSupervisor {
             if !r.verify() {
                 continue;
             }
+            // Raft's step-down on the pull path: a verified record
+            // carrying a newer term adopts it into term.json — a node
+            // rejoining after downtime shouldn't stay at term 0 while
+            // the cluster has moved on. Stale-term records still append
+            // (history fill bypasses the term gate by design).
+            let _ = crate::susi_core::commit_log::check_term(r);
             let key = serde_json::to_string(&r).unwrap_or_default();
             if held.contains(&key) {
                 continue;
