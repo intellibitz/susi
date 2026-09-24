@@ -104,6 +104,9 @@ impl SusiMasterAgent {
         self.solve_stream_with_model(goal, workspace, version, None, _callback)
     }
 
+    #[allow(clippy::too_many_arguments)] // mirrors the established
+                                         // solve_stream signature + the model-hint slot; grouping into a
+                                         // config struct would churn every external caller for one option.
     pub fn solve_stream_with_model(
         &self,
         goal: &str,
@@ -131,6 +134,8 @@ impl SusiMasterAgent {
     /// (`/v1/chat/completions` `model` field). The hint is advisory inside
     /// the governed pipeline: failover prioritizes a matching provider and
     /// the local leg loads the named model — it never bypasses governance.
+    #[allow(clippy::too_many_arguments)] // same shape as
+                                         // solve_stream_report plus the model-hint slot.
     pub fn solve_stream_report_with_model(
         &self,
         goal: &str,

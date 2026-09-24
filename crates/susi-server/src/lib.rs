@@ -790,6 +790,10 @@ async fn handle_gemi_request(
 }
 
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::too_many_arguments)] // response constructor: the two
+// model strings serve different roles (response label vs routing hint)
+// and the permit must travel with the request — a struct adds a type
+// for one call site.
 fn build_streaming_response(
     prompt: String,
     model_name: String,
