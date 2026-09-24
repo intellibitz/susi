@@ -258,6 +258,12 @@ impl SusiSupervisor {
                     let mut last_persist = std::time::Instant::now();
                     // Ban-list re-read throttle — see the sweep below.
                     let mut last_ban_check = std::time::Instant::now();
+                    // Leadership-evaluation throttle — see below. Back-dated
+                    // so the first evaluation runs on the first pass: a
+                    // lone node should elect itself at boot rather than
+                    // wait 10s with no leader.
+                    let mut last_election_check =
+                        std::time::Instant::now() - std::time::Duration::from_secs(10);
                     // Persisted-roster rehydrate throttle — see below.
                     let mut last_rehydrate = std::time::Instant::now();
                     // Commit-ledger anti-entropy throttle — see below.
@@ -313,6 +319,27 @@ impl SusiSupervisor {
                                 });
                             }
                             last_ban_check = std::time::Instant::now();
+                        }
+                        // Leadership liveness: the deterministic bully
+                        // election only ran at quorum-commit time, so a
+                        // cluster without missions sat at term 0 with no
+                        // leader — and a leader that went stale kept its
+                        // claim indefinitely. Evaluate on the same ~10s
+                        // cadence as the ban sweep: every member computes
+                        // elect_leader over its own roster view, so nodes
+                        // converge on the same winner without vote
+                        // traffic. claim_leadership bumps the term only
+                        // on a real transition (and freezes under the
+                        // eviction marker, so an evicted node can't keep
+                        // inflating its term).
+                        if last_election_check.elapsed().as_secs() >= 10 {
+                            let term = crate::susi_core::commit_log::load_term();
+                            if let Some(winner) = Self::elect_leader(&peers) {
+                                if winner != term.leader {
+                                    crate::susi_core::commit_log::claim_leadership(&winner);
+                                }
+                            }
+                            last_election_check = std::time::Instant::now();
                         }
                         // Operator `peers add` lands on disk mid-flight —
                         // rehydrate persisted Explicit members into the
