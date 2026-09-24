@@ -105,6 +105,12 @@ fn sync() -> Result<()> {
         let Some(addr) = n.get("address").and_then(|a| a.as_str()) else {
             continue;
         };
+        // A loopback explicit entry is a self-edge (only possible from a
+        // pre-guard `peers add` or a hand-edited peers.json) — syncing
+        // with ourselves is a no-op that doubles as an MCP recursion.
+        if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost") {
+            continue;
+        }
         let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
         // Paginate until a short page — a ledger past the fetch cap must
         // still converge instead of truncating at the first 1000 records.
