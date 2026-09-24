@@ -388,11 +388,18 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
                 }
                 continue;
             };
-            // A loopback responder is this host's own daemon — only one
-            // process can bind the discovery port per host, so a signed
-            // pong from 127.0.0.1/::1 is always ourselves. A self-edge
-            // would let mission dispatch recurse into our own endpoint.
-            if src.ip().is_loopback() {
+            // Self-edge guards — a self-add would let mission dispatch
+            // recurse into our own endpoint. Three routes, one refusal:
+            // a loopback responder is this host's own daemon (only one
+            // process binds the discovery port per host); a responder at
+            // any of our own interface addresses is likewise ourselves —
+            // UDP to our LAN IP loops back (the bind check can only
+            // succeed on local addresses); and on the identity-era wire
+            // format the attested node_id is the strongest check of all.
+            if src.ip().is_loopback()
+                || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
+                || node_id == susi_config::cluster_key::wire_node_id()
+            {
                 bail!(
                     "{node_id} answered from {} — that is this node's own daemon; \
                  `peers add` needs a remote host",

@@ -378,12 +378,22 @@ impl SusiSupervisor {
                             });
                             if let Some((node_id, checksum, bloom_hex, roster)) = verified {
                                 {
-                                    // Loopback is never a peer: only one
-                                    // daemon can bind 9092 on a host, so a
-                                    // loopback pong is always our own —
-                                    // admitting it would let mission
-                                    // dispatch recurse into ourselves.
-                                    if src.ip().is_loopback() {
+                                    // Self-edge guard — admitting our own
+                                    // responder lets mission dispatch
+                                    // recurse into ourselves. Loopback is
+                                    // never a peer (one daemon binds 9092
+                                    // per host); our own broadcast also
+                                    // reaches the responder via the LAN
+                                    // interface, so refuse any local
+                                    // interface address (the bind probe
+                                    // can only succeed locally) and —
+                                    // strongest on the signed path — any
+                                    // pong attesting OUR node_id.
+                                    if src.ip().is_loopback()
+                                        || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
+                                        || node_id
+                                            == crate::susi_config::cluster_key::wire_node_id()
+                                    {
                                         continue;
                                     }
                                     let addr_str = format!(

@@ -953,11 +953,20 @@ impl SusiDaemon {
                 // gives the pinger about us. Admitting the sender here
                 // makes membership symmetric in one exchange: the pinger
                 // admits us from our pong, we admit them from their ping.
-                // Loopback is ourselves — never a peer (one daemon binds
-                // the discovery port per host). The advertised node_id is
-                // signed, so it is trusted as-is; a legacy ping without
-                // one gets a synthesized per-address id.
-                if !src.ip().is_loopback() {
+                // Self-edge guard — persisting ourselves as Explicit lets
+                // mission dispatch recurse into our own endpoint. Loopback
+                // is never a peer (one daemon binds the discovery port per
+                // host); our own scout's broadcast also reaches this
+                // socket via the LAN interface, so refuse any local
+                // interface address (the bind probe can only succeed
+                // locally) and any ping attesting OUR node_id. The signed
+                // pong below still goes out — a CLI probing its own
+                // address needs the refusal signal, not silence.
+                let is_self = src.ip().is_loopback()
+                    || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
+                    || (!pinger_id.is_empty()
+                        && pinger_id == crate::susi_config::cluster_key::wire_node_id());
+                if !is_self {
                     let pinger_addr =
                         format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
                     let pinger_id = if pinger_id.is_empty() {
