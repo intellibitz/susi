@@ -139,18 +139,24 @@ impl NetGuard {
         if now.abs_diff(ts) > REQ_SKEW_SECS {
             return false;
         }
-        if !Self::record_nonce(node, nonce) {
-            return false;
-        }
-        if let Some(bytes) = body {
-            let hash = hex::encode(sha2::Sha256::digest(bytes));
-            let v2 = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");
-            if crate::susi_config::cluster_key::member_verify(&pubkey, &v2, sig) {
-                return true;
+        let sig_ok = match body {
+            Some(bytes) => {
+                let hash = hex::encode(sha2::Sha256::digest(bytes));
+                let v2 = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");
+                crate::susi_config::cluster_key::member_verify(&pubkey, &v2, sig) || {
+                    let v1 = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
+                    crate::susi_config::cluster_key::member_verify(&pubkey, &v1, sig)
+                }
             }
-        }
-        let v1 = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
-        crate::susi_config::cluster_key::member_verify(&pubkey, &v1, sig)
+            None => {
+                let v1 = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
+                crate::susi_config::cluster_key::member_verify(&pubkey, &v1, sig)
+            }
+        };
+        // The nonce is consumed only after the signature proves a real
+        // member sent this — otherwise unauthenticated garbage headers
+        // would burn nonce slots (and disk writes) at will.
+        sig_ok && Self::record_nonce(node, nonce)
     }
 
     /// The `(pubkey, registered_ip)` of a roster member whose node key is
@@ -202,25 +208,29 @@ impl NetGuard {
         })
     }
 
-    /// First-use insert for `{node}:{nonce}` — false on replay. Bounded:
-    /// at capacity an arbitrary entry is evicted (same self-deadlock-safe
-    /// pattern as `RateLimiter`); a reused nonce after eviction still
-    /// fails because the covering timestamp expired with the skew window.
+    /// First-use insert for `{node}:{nonce}` — false on replay. Backed
+    /// by a JSONL file in the config dir so a replayed request also
+    /// fails across process restarts and sibling servers on the same
+    /// node (each process previously kept a private in-memory set, so a
+    /// captured request inside the skew window replayed cleanly against
+    /// a fresh process or a different port). Mutations serialize
+    /// through `FileLock`; a wedged lock fails closed.
     fn record_nonce(node: &str, nonce: &str) -> bool {
-        static NONCES: OnceLock<DashMap<String, ()>> = OnceLock::new();
-        const CAP: usize = 50_000;
-        let seen = NONCES.get_or_init(DashMap::new);
-        let key = format!("{node}:{nonce}");
-        if seen.contains_key(&key) {
+        static STORE: OnceLock<std::sync::Mutex<NonceFile>> = OnceLock::new();
+        let dir = crate::susi_paths::SusiDirs::config_dir();
+        let Some(_guard) = crate::susi_core::commit_log::FileLock::acquire(&dir, "seen_nonces")
+        else {
             return false;
-        }
-        if seen.len() >= CAP {
-            let stale = seen.iter().next().map(|r| r.key().clone());
-            if let Some(stale) = stale {
-                seen.remove(&stale);
-            }
-        }
-        seen.insert(key, ()).is_none()
+        };
+        let store = STORE.get_or_init(|| {
+            let mut f = NonceFile::open(dir.join("seen_nonces.jsonl"));
+            f.refresh();
+            std::sync::Mutex::new(f)
+        });
+        store
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .record(&format!("{node}:{nonce}"))
     }
 
     /// Whether `ip` is the address of a member in `peers_banned.json` —
@@ -257,6 +267,111 @@ impl NetGuard {
             diff |= x ^ y;
         }
         diff == 0
+    }
+}
+
+/// Append-only nonce ledger (`{node}:{nonce}:{recorded_at}` per line)
+/// behind an incremental offset, so `record` costs O(new bytes) per
+/// call. Callers hold `FileLock` around `record`, which folds any lines
+/// sibling processes appended since this process's last pass — the
+/// cross-process dedup an in-memory set cannot give.
+struct NonceFile {
+    path: std::path::PathBuf,
+    seen: std::collections::HashMap<String, u64>,
+    offset: u64,
+}
+
+impl NonceFile {
+    const CAP: usize = 50_000;
+
+    fn open(path: std::path::PathBuf) -> Self {
+        Self {
+            path,
+            seen: std::collections::HashMap::new(),
+            offset: 0,
+        }
+    }
+
+    /// Fold complete lines appended since `offset`; a torn tail line
+    /// (crash mid-write) waits for the next pass or gets compacted away.
+    fn refresh(&mut self) {
+        use std::io::{Read, Seek, SeekFrom};
+        let Ok(mut f) = std::fs::File::open(&self.path) else {
+            return;
+        };
+        let Ok(meta) = f.metadata() else { return };
+        if meta.len() < self.offset {
+            // Compacted by a sibling — re-read from the top.
+            self.offset = 0;
+            self.seen.clear();
+        }
+        if f.seek(SeekFrom::Start(self.offset)).is_err() {
+            return;
+        }
+        let mut buf = Vec::new();
+        if f.read_to_end(&mut buf).is_err() {
+            return;
+        }
+        let complete = buf.iter().rposition(|b| *b == b'\n').map_or(0, |i| i + 1);
+        for line in String::from_utf8_lossy(&buf[..complete]).lines() {
+            if let Some((key, ts)) = line.rsplit_once(':') {
+                if let Ok(t) = ts.parse::<u64>() {
+                    self.seen.insert(key.to_string(), t);
+                }
+            }
+        }
+        self.offset += complete as u64;
+    }
+
+    fn record(&mut self, key: &str) -> bool {
+        use std::io::Write;
+        self.refresh();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        // Entries older than twice the skew window can never validate
+        // again (their covering timestamp expired), so they stop
+        // counting against dedup and get compacted away.
+        self.seen
+            .retain(|_, t| now.saturating_sub(*t) < REQ_SKEW_SECS * 2);
+        if self.seen.contains_key(key) {
+            return false;
+        }
+        self.seen.insert(key.to_string(), now);
+        let line = format!("{key}:{now}\n");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
+            if f.write_all(line.as_bytes()).is_ok() {
+                self.offset += line.len() as u64;
+            }
+        }
+        if self.seen.len() > Self::CAP {
+            self.compact();
+        }
+        true
+    }
+
+    /// Rewrite the ledger with only live entries — callers already hold
+    /// `FileLock`, so the swap is atomic w.r.t. sibling processes.
+    fn compact(&mut self) {
+        use std::io::Write;
+        let mut tmp = self.path.clone();
+        tmp.set_extension("tmp");
+        let mut body = String::with_capacity(self.seen.len() * 48);
+        for (k, t) in &self.seen {
+            body.push_str(&format!("{k}:{t}\n"));
+        }
+        if std::fs::File::create(&tmp)
+            .and_then(|mut f| f.write_all(body.as_bytes()))
+            .is_ok()
+            && std::fs::rename(&tmp, &self.path).is_ok()
+        {
+            self.offset = body.len() as u64;
+        }
     }
 }
 
@@ -350,6 +465,44 @@ mod tests {
             .insert(ip, (Instant::now() - RateLimiter::WINDOW, u32::MAX));
         assert!(limiter.check(ip, 1));
         assert!(!limiter.check(ip, 1));
+    }
+
+    #[test]
+    fn nonce_file_dedups_across_process_lifetimes() {
+        let dir = std::env::temp_dir().join(format!("susi-nonce-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("seen_nonces.jsonl");
+        {
+            let mut f = NonceFile::open(path.clone());
+            assert!(f.record("node-a:n1"));
+            assert!(!f.record("node-a:n1"));
+            assert!(f.record("node-a:n2"));
+        }
+        // A fresh instance (process restart) folds the file — the same
+        // nonce is still refused, a new one still passes.
+        {
+            let mut f = NonceFile::open(path.clone());
+            assert!(!f.record("node-a:n1"));
+            assert!(f.record("node-a:n3"));
+        }
+        // A sibling's line appended *between* this process's calls is
+        // folded by the incremental refresh inside the next record.
+        {
+            use std::io::Write;
+            let mut f2 = NonceFile::open(path.clone());
+            assert!(f2.record("node-b:x0")); // advances f2's offset
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(f, "node-b:x1:{now}").unwrap();
+            assert!(!f2.record("node-b:x1"));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     const EMPTY_SIGNED: SignedRequest<'static> = SignedRequest {
