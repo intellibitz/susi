@@ -38,6 +38,40 @@ fn answer_text(answer: &serde_json::Value) -> String {
     }
 }
 
+/// Mint an inference receipt for a provider call and return a citation
+/// answer resolving to its output. "Provider X returned this text" is a
+/// host-recorded fact the ledger can prove — this lets generative goals
+/// (chat completions, where no tool evidence exists to cite) pass the
+/// same absolute gate as receipt-cited answers. `None` when no live
+/// mission session exists; callers then keep the unmodified answer path.
+fn cite_inference_output(
+    provider: &str,
+    text: &str,
+    goal: &str,
+    workspace: &Path,
+) -> Option<String> {
+    let session = crate::susi_core::capture::EvidenceSession::for_workspace(workspace)?;
+    let pre: HashSet<String> = session.receipts().iter().map(|r| r.id.clone()).collect();
+    let tool = format!("inference:{provider}");
+    let captured = crate::susi_core::capture::EvidenceSession::capture_call(
+        &tool,
+        &serde_json::json!({"provider": provider, "goal": goal}),
+        workspace,
+        || Ok(text.to_string()),
+    );
+    if captured.is_err() {
+        return None;
+    }
+    let rid = session
+        .receipts()
+        .into_iter()
+        .find(|r| !pre.contains(&r.id))?
+        .id;
+    Some(format!(
+        "{{\"citations\":[{{\"receipt_id\":\"{rid}\",\"json_pointer\":null}}]}}"
+    ))
+}
+
 fn eligible(report: &SusiMissionReport) -> bool {
     report.status == "FAILED"
         && !report.final_answer.contains("[GOVERNANCE_BLOCK]")
@@ -53,7 +87,12 @@ fn eligible(report: &SusiMissionReport) -> bool {
 /// `model` field): a hint naming a failover provider moves that provider to
 /// the front of the attempt order; a hint naming a local model is loaded by
 /// the local fallback leg instead of the intent-classified default.
-pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path, model_hint: Option<&str>) {
+pub(crate) fn recover(
+    report: &mut SusiMissionReport,
+    workspace: &Path,
+    model_hint: Option<&str>,
+    generative: bool,
+) {
     if !eligible(report) {
         return;
     }
@@ -101,6 +140,7 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path, model_hi
                     Duration::from_secs(60),
                     true,
                     model_hint,
+                    generative,
                 ));
                 Ok(())
             })
@@ -140,11 +180,26 @@ async fn verify_recovery_answer(
     context: &str,
     _registry: &CapabilityRegistry,
     workspace: &Path,
+    generative: bool,
 ) -> EaiResult<(String, EvidenceRecord)> {
     let answer_text = answer_text(&answer.answer);
     if !matches!(answer.status, CompletionStatus::Complete) {
         return Err(EaiError::inference(answer_text));
     }
+    // Generative missions (`/v1/chat/completions`): the model's output is
+    // the product — there may be nothing to cite but the call itself.
+    // Promote a prose answer to a citation of an inference receipt minted
+    // for this call, so the ledger renders exactly the provider's output.
+    // Answers that already carry citations resolve normally below; on
+    // non-generative missions prose without receipts still fails the
+    // absolute gate — provider narrative is never self-evidence there.
+    let answer_text =
+        if generative && crate::susi_core::capture::GroundedAnswer::parse(&answer_text).is_none() {
+            cite_inference_output(provider, &answer_text, &report.goal, workspace)
+                .unwrap_or(answer_text)
+        } else {
+            answer_text
+        };
     // Crown gate: citations resolve from the ledger; if receipts exist and
     // were not cited, fail — never promote narrative over captured evidence.
     if let Some(resolved) =
@@ -290,6 +345,7 @@ async fn recover_with_providers(
     timeout: Duration,
     fallback_local: bool,
     model_hint: Option<&str>,
+    generative: bool,
 ) {
     if !eligible(report) {
         return;
@@ -308,6 +364,19 @@ async fn recover_with_providers(
             }
         }
         reordered
+    } else {
+        providers
+    };
+    // Generative missions carry a strict honoring contract: the caller's
+    // `model` field must be the actual generator (the response labels it).
+    // A named provider is the only cloud leg allowed; a named local model
+    // skips the cloud cascade entirely.
+    let providers = if generative {
+        match model_hint {
+            Some(h) if hint_is_provider => vec![h.to_string()],
+            Some(_) => Vec::new(),
+            None => providers,
+        }
     } else {
         providers
     };
@@ -333,11 +402,28 @@ async fn recover_with_providers(
             continue;
         };
         eprintln!("[FAILOVER] Trying cloud {name}");
-        let prompt = recovery_prompt(&report.goal, &context);
+        // Generative missions send the goal verbatim — the recovery-JSON
+        // envelope biases evidence-free chat goals toward "failed" and
+        // demands strict JSON small local models cannot reliably emit.
+        let prompt = if generative {
+            report.goal.clone()
+        } else {
+            recovery_prompt(&report.goal, &context)
+        };
         let result = tokio::time::timeout(timeout, async {
             let raw = provider.generate(&prompt).await?;
-            let answer = parse_recovery_answer(&raw)?;
-            verify_recovery_answer(report, &name, answer, &context, registry, workspace).await
+            let answer = if generative {
+                CloudAnswer {
+                    status: CompletionStatus::Complete,
+                    answer: serde_json::Value::String(raw),
+                }
+            } else {
+                parse_recovery_answer(&raw)?
+            };
+            verify_recovery_answer(
+                report, &name, answer, &context, registry, workspace, generative,
+            )
+            .await
         })
         .await;
         match result {
@@ -380,7 +466,10 @@ async fn recover_with_providers(
     }
 
     // Last resort: local GGUF / llamacpp path (skips cloud escalation).
-    if !fallback_local {
+    // Generative missions that named a provider must not silently
+    // substitute a different local model — the response is labeled with
+    // the requested model, so the fallback would mislabel the generator.
+    if !fallback_local || (generative && hint_is_provider) {
         report.final_answer.push_str(&format!(
             "\nFailover exhausted {} cloud provider(s); mission remains failed. See attempt details in the mission trace.",
             attempted.len().saturating_sub(ghosts)
@@ -389,7 +478,11 @@ async fn recover_with_providers(
     }
 
     eprintln!("[FAILOVER] Trying local inference");
-    let prompt = recovery_prompt(&report.goal, &context);
+    let prompt = if generative {
+        report.goal.clone()
+    } else {
+        recovery_prompt(&report.goal, &context)
+    };
     let workspace_owned = workspace.to_path_buf();
     // A provider-name hint was already served by the cloud loop above; only
     // a non-provider hint is a local model name to load here.
@@ -411,8 +504,18 @@ async fn recover_with_providers(
                 raw.chars().take(200).collect::<String>()
             )));
         }
-        let answer = parse_recovery_answer(&raw)?;
-        verify_recovery_answer(report, "local", answer, &context, registry, workspace).await
+        let answer = if generative {
+            CloudAnswer {
+                status: CompletionStatus::Complete,
+                answer: serde_json::Value::String(raw),
+            }
+        } else {
+            parse_recovery_answer(&raw)?
+        };
+        verify_recovery_answer(
+            report, "local", answer, &context, registry, workspace, generative,
+        )
+        .await
     })
     .await;
 
@@ -608,6 +711,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             Some("b-hinted"),
+            false,
         )
         .await;
         // The hinted provider ran first even though it was listed last.
@@ -634,6 +738,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             None,
+            false,
         )
         .await;
         assert!(!report.is_success());
@@ -679,6 +784,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             None,
+            false,
         )
         .await;
         assert!(!report.is_success());
@@ -704,6 +810,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             None,
+            false,
         )
         .await;
         assert!(!report.is_success());
@@ -726,6 +833,7 @@ mod tests {
             Duration::from_millis(20),
             false,
             None,
+            false,
         )
         .await;
         assert!(!report.is_success());
@@ -748,6 +856,7 @@ mod tests {
                 Duration::from_secs(1),
                 false,
                 None,
+                false,
             )
             .await;
             assert_eq!(report.status, status);
@@ -762,6 +871,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             None,
+            false,
         )
         .await;
         assert!(calls.lock().unwrap().is_empty());
@@ -796,6 +906,7 @@ mod tests {
             Duration::from_secs(1),
             false,
             None,
+            false,
         )
         .await;
         assert!(report.is_success(), "{}", report.final_answer);
@@ -805,6 +916,70 @@ mod tests {
             .iter()
             .any(|entry| entry.action == "CLOUD_ATTEMPT_VERIFIED"));
         assert_eq!(*calls.lock().unwrap(), ["a-cites"]);
+    }
+
+    /// Generative missions (`/v1/chat/completions`) produce no tool receipts
+    /// to cite — the provider's output is the product. The recovery gate
+    /// accepts it via a self-cited inference receipt minted for the call.
+    #[tokio::test]
+    async fn generative_mission_self_cites_inference_receipt() {
+        wire_verify_stub();
+        let ws = TempWorkspace::new();
+        let session =
+            crate::susi_core::capture::EvidenceSession::new("Reply with exactly: ok", &ws.0, |s| {
+                s.to_string()
+            })
+            .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+
+        let (registry, calls) = providers(&[("a-gen", Reply::Text(COMPLETE))]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-gen".into()],
+            &ws.0,
+            Duration::from_secs(1),
+            false,
+            None,
+            true, // generative
+        )
+        .await;
+        assert!(report.is_success(), "{}", report.final_answer);
+        assert!(report
+            .final_answer
+            .contains("The observed result is available."));
+        assert_eq!(*calls.lock().unwrap(), ["a-gen"]);
+    }
+
+    /// The promotion is scoped to generative missions: the same prose
+    /// answer on a normal mission still fails the absolute gate.
+    #[tokio::test]
+    async fn non_generative_prose_answer_still_fails_without_receipts() {
+        wire_verify_stub();
+        let ws = TempWorkspace::new();
+        let session = crate::susi_core::capture::EvidenceSession::new(
+            "Explain the observed result",
+            &ws.0,
+            |s| s.to_string(),
+        )
+        .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+
+        let (registry, _calls) = providers(&[("a-prose", Reply::Text(COMPLETE))]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-prose".into()],
+            &ws.0,
+            Duration::from_secs(1),
+            false,
+            None,
+            false,
+        )
+        .await;
+        assert!(!report.is_success(), "{}", report.final_answer);
     }
 
     #[test]

@@ -94,6 +94,49 @@ impl SusiMasterAgent {
         })
     }
 
+    /// Generative mission (`/v1/chat/completions`): the provider's own
+    /// output is the product. The swarm fleet is skipped — its agents run
+    /// tools that mint incidental receipts a chat goal can satisfy
+    /// spuriously (observed: "reply ok" answered by citing a `status`
+    /// receipt). Instead the request goes straight through the governed
+    /// provider cascade (`recover` with `generative`): safety/security
+    /// audit, cooldowns, privacy gates, model-hint priority, local
+    /// fallback — and the answer self-cites an inference receipt minted
+    /// for the call, so provenance stays in the ledger.
+    pub fn solve_clean_generative(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        _version: &str,
+        model: Option<&str>,
+    ) -> String {
+        let session = crate::susi_core::capture::EvidenceSession::new(
+            goal,
+            workspace,
+            susi_gawd_agents::security::SecurityDetector::redact,
+        )
+        .ok();
+        let _activation = session
+            .as_ref()
+            .map(crate::susi_core::capture::EvidenceSession::activate);
+        let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
+        let mut report = SusiMissionReport {
+            goal: goal.to_string(),
+            status: "FAILED".into(),
+            agents: vec![],
+            interactions: vec![],
+            final_answer: String::new(),
+        };
+        crate::cloud_recovery::recover(&mut report, workspace, model, true);
+        if report.is_success() {
+            report.final_answer
+        } else {
+            // Marker lets the HTTP layer map exhausted inference to a
+            // 502 instead of serving failure prose as a 200 completion.
+            format!("[INFERENCE_FAILED]{}", report.final_answer)
+        }
+    }
+
     pub fn solve_stream(
         &self,
         goal: &str,
@@ -137,6 +180,19 @@ impl SusiMasterAgent {
     #[allow(clippy::too_many_arguments)] // same shape as
                                          // solve_stream_report plus the model-hint slot.
     pub fn solve_stream_report_with_model(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        model_hint: Option<&str>,
+        _callback: &dyn Fn(String),
+    ) -> SusiMissionReport {
+        self.solve_stream_report_inner(goal, workspace, version, model_hint, _callback)
+    }
+
+    #[allow(clippy::too_many_arguments)] // same shape as the public
+                                         // wrappers it consolidates.
+    fn solve_stream_report_inner(
         &self,
         goal: &str,
         workspace: &Path,
@@ -470,7 +526,7 @@ impl SusiMasterAgent {
                 interactions: Vec::new(),
                 final_answer,
             };
-            crate::cloud_recovery::recover(&mut report, workspace, model_hint);
+            crate::cloud_recovery::recover(&mut report, workspace, model_hint, false);
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             eprintln!("{}", report.completion_message());
             drop(_guard);
@@ -486,7 +542,7 @@ impl SusiMasterAgent {
 
         match res {
             Ok(mut report) => {
-                crate::cloud_recovery::recover(&mut report, workspace, model_hint);
+                crate::cloud_recovery::recover(&mut report, workspace, model_hint, false);
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
@@ -502,7 +558,7 @@ impl SusiMasterAgent {
                     interactions: Vec::new(),
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
-                crate::cloud_recovery::recover(&mut err_report, workspace, model_hint);
+                crate::cloud_recovery::recover(&mut err_report, workspace, model_hint, false);
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 eprintln!("{}", err_report.completion_message());
                 drop(_guard);
@@ -657,7 +713,7 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut report, workspace, None);
+        crate::cloud_recovery::recover(&mut report, workspace, None, false);
         attach_evidence_ledger(&mut report, session.as_ref(), workspace);
         Ok(report)
     }
@@ -707,7 +763,7 @@ impl SusiMasterAgent {
                 step
             );
             let mut report = self.solve_internal(step, workspace, version, 0)?;
-            crate::cloud_recovery::recover(&mut report, workspace, None);
+            crate::cloud_recovery::recover(&mut report, workspace, None, false);
 
             let success = report.status == "COMPLETE" || report.status == "SUCCESS";
             let summary = format!(
@@ -764,7 +820,7 @@ impl SusiMasterAgent {
             )
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut final_report, workspace, None);
+        crate::cloud_recovery::recover(&mut final_report, workspace, None, false);
         attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
         Ok(final_report)
     }

@@ -613,6 +613,32 @@ pub mod gawd {
         .to_string()
     }
 
+    /// Generative mission solve (`/v1/chat/completions`): the model's own
+    /// output is the product, so recovery may self-cite an inference
+    /// receipt minted for the provider call instead of demanding
+    /// mission-captured tool evidence a chat goal never produces.
+    pub fn solve_mission_generative(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+    ) -> String {
+        req_ok(
+            topics::GAWD_SOLVE,
+            json!({
+                "intent": intent,
+                "workspace": workspace.display().to_string(),
+                "version": version,
+                "model": model,
+                "generative": true
+            }),
+        )
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+    }
+
     pub fn sanitize_input(input: &str) -> Result<String, String> {
         let v = req(topics::GAWD_SANITIZE, json!({ "input": input }))?;
         if let Some(e) = v.get("error").and_then(|x| x.as_str()) {

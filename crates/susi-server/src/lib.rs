@@ -528,7 +528,7 @@ async fn handle_gemi_request(
                 let model_for_task = completion.model.clone();
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let final_resp = gawd::solve_mission_with_model(
+                    let final_resp = gawd::solve_mission_generative(
                         &prompt_for_task,
                         &ws,
                         env!("CARGO_PKG_VERSION"),
@@ -554,8 +554,33 @@ async fn handle_gemi_request(
                     }
                 };
 
+                if let Some(detail) = content.strip_prefix("[INFERENCE_FAILED]") {
+                    return Ok(json_response(
+                        StatusCode::BAD_GATEWAY,
+                        &json!({"error": {"message": format!("All inference providers failed{detail}"), "type": "server_error", "code": "inference_exhausted"}}),
+                    ));
+                }
+                // Label the response with the actual generator, not the
+                // requested model — failover may have served it. The
+                // rendered inference receipt names it as
+                // `Source: inference:<provider>`; "local" means the
+                // resolved local model generated the answer.
+                let served_model = content
+                    .strip_prefix("Source: inference:")
+                    .and_then(|rest| rest.split('|').next())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(|gen_name| {
+                        if gen_name == "local" {
+                            active_model.as_str()
+                        } else {
+                            gen_name
+                        }
+                    })
+                    .unwrap_or(&active_model)
+                    .to_string();
                 let payload =
-                    completion_response(&active_model, &content, path == "/v1/completions");
+                    completion_response(&served_model, &content, path == "/v1/completions");
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
