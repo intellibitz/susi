@@ -142,7 +142,7 @@ pub fn capture_verified_read(
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
         "hostname" => "hostname",
-        "whoami" => "whoami",
+        "whoami" | "who am i" => "whoami",
         "uname" => "uname -a",
         _ => return None,
     };
