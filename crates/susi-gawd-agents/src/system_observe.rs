@@ -118,6 +118,26 @@ pub fn capture_verified_read(
     if let Some((tool, arg)) = tool_read {
         return Some(capture_tool_read(&normalized, workspace, tool, arg));
     }
+    // Directory listings mirror master's exec_command fast path.
+    let ls_cmd = if normalized == "ls"
+        || normalized == "dir"
+        || normalized == "list directory"
+        || normalized == "list files"
+    {
+        Some("ls -la".to_string())
+    } else if normalized.starts_with("ls ") && normalized.split_whitespace().count() <= 3 {
+        Some(goal.trim().to_string())
+    } else {
+        None
+    };
+    if let Some(cmd) = ls_cmd {
+        return Some(capture_tool_read(
+            &normalized,
+            workspace,
+            "exec_command",
+            serde_json::Value::String(cmd),
+        ));
+    }
     let command = match normalized.as_str() {
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
