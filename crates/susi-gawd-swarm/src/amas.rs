@@ -399,11 +399,25 @@ impl SusiSupervisor {
                                     }
                                     let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
                                     let mut peers = t_shared.write();
+                                    // Same node re-homed to a new address:
+                                    // drop any other row keyed by the
+                                    // attested id — one node, one slot.
+                                    peers.retain(|p| p.address == addr_str || p.node_id != node_id);
                                     let (entry, is_new, admission_changed) = if let Some(p) =
                                         peers.iter_mut().find(|p| p.address == addr_str)
                                     {
                                         let changed =
                                             !matches!(p.admission, PeerAdmission::Explicit);
+                                        // The signed pong attests this
+                                        // node's real identity — replace a
+                                        // synthetic `susi-peer-<ip>` id the
+                                        // unsigned LAN path guessed, or a
+                                        // stale id after re-keying. Without
+                                        // this the row promotes to Explicit
+                                        // under a fake id and the peer's
+                                        // records fail member-coordinator
+                                        // checks downstream.
+                                        p.node_id = node_id.clone();
                                         p.trust_score = (p.trust_score + 0.05).min(1.0);
                                         p.is_active = true;
                                         p.registry_checksum = checksum;

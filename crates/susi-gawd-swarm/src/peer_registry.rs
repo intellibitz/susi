@@ -132,6 +132,9 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &PathBuf) {
         .parent()
         .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
     let mut nodes = load_persisted_peers_from(path);
+    // Same node re-homed to a new address: drop stale rows keyed by the
+    // same node_id so one node occupies exactly one persisted slot.
+    nodes.retain(|n| n.address == node.address || n.node_id != node.node_id);
     if let Some(existing) = nodes.iter_mut().find(|n| n.address == node.address) {
         *existing = node.clone();
     } else {
@@ -219,5 +222,37 @@ mod tests {
 
         let _ = std::fs::remove_file(&reg);
         let _ = std::fs::remove_file(&ban);
+    }
+
+    #[test]
+    fn rehomed_node_keeps_one_slot_and_verified_id_overwrites() {
+        let reg = temp_registry();
+        let mut old = node("10.0.0.6:9093", PeerAdmission::Explicit);
+        old.node_id = "susi-node-rehome".to_string();
+        persist_verified_peer_to(&old, &reg);
+
+        // Same node_id verifies at a new address — the stale row goes,
+        // one slot remains, keyed under the new address.
+        let mut moved = node("192.168.1.20:9093", PeerAdmission::Explicit);
+        moved.node_id = "susi-node-rehome".to_string();
+        persist_verified_peer_to(&moved, &reg);
+        let loaded = load_persisted_peers_from(&reg);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].address, "192.168.1.20:9093");
+        assert_eq!(loaded[0].node_id, "susi-node-rehome");
+
+        // An entry persisted under a synthetic LAN-discovery id takes the
+        // verified node_id on the same-address upsert.
+        let mut synthetic = node("192.168.1.20:9093", PeerAdmission::Explicit);
+        synthetic.node_id = "susi-peer-192.168.1.20".to_string();
+        persist_verified_peer_to(&synthetic, &reg);
+        let mut verified = node("192.168.1.20:9093", PeerAdmission::Explicit);
+        verified.node_id = "susi-node-verified".to_string();
+        persist_verified_peer_to(&verified, &reg);
+        let loaded = load_persisted_peers_from(&reg);
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].node_id, "susi-node-verified");
+
+        let _ = std::fs::remove_file(&reg);
     }
 }
