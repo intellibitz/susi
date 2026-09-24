@@ -36,7 +36,50 @@ pub struct CloudEscalation {
 
 pub struct InferenceRouter;
 
+/// A provider that just failed is skipped for this long — dead endpoints
+/// (e.g. an absent Ollama) otherwise burn a connect timeout on every
+/// mission and spam the error sink.
+const PROVIDER_DOWN_COOLDOWN_SECS: u64 = 120;
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn provider_down_map() -> &'static std::sync::RwLock<std::collections::HashMap<String, u64>> {
+    static MAP: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, u64>>> =
+        std::sync::OnceLock::new();
+    MAP.get_or_init(std::sync::RwLock::default)
+}
+
 impl InferenceRouter {
+    /// True while `name` is inside its post-failure cooldown window.
+    pub fn provider_cooled(name: &str) -> bool {
+        let map = provider_down_map()
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        map.get(name).is_some_and(|until| now_unix() < *until)
+    }
+
+    /// Mark a provider down after a failed attempt; a success clears it via
+    /// `record_provider_success`.
+    pub fn record_provider_failure(name: &str) {
+        let mut map = provider_down_map()
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        map.insert(name.to_string(), now_unix() + PROVIDER_DOWN_COOLDOWN_SECS);
+    }
+
+    /// Clear a provider's cooldown after a successful call.
+    pub fn record_provider_success(name: &str) {
+        let mut map = provider_down_map()
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        map.remove(name);
+    }
+
     fn preference_path() -> PathBuf {
         crate::susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
@@ -252,6 +295,7 @@ impl InferenceRouter {
             return Vec::new();
         }
         let mut providers = Self::list_cloud_providers_from_registry(registry);
+        providers.retain(|name| !Self::provider_cooled(name));
         providers.sort_by_key(|name| {
             let preferred = pref.preferred_cloud.as_ref().is_some_and(|preferred| {
                 name.to_ascii_lowercase()
@@ -674,5 +718,15 @@ mod tests {
         );
         assert!(order.iter().any(|n| n.contains("openai")));
         assert!(!order.iter().any(|n| n.contains("ollama")));
+    }
+
+    #[test]
+    fn provider_cooldown_marks_down_and_clears_on_success() {
+        let name = format!("cd-test-{}", std::process::id());
+        assert!(!InferenceRouter::provider_cooled(&name));
+        InferenceRouter::record_provider_failure(&name);
+        assert!(InferenceRouter::provider_cooled(&name));
+        InferenceRouter::record_provider_success(&name);
+        assert!(!InferenceRouter::provider_cooled(&name));
     }
 }

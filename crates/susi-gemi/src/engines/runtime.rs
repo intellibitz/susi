@@ -306,11 +306,15 @@ impl GemiEngine {
         let runtime = Self::provider_runtime()?;
         let mut errors: Vec<String> = Vec::new();
         for name in names {
+            if crate::routing::InferenceRouter::provider_cooled(&name) {
+                continue;
+            }
             let Some(provider) = registry.get_provider(&name) else {
                 continue;
             };
             match runtime.block_on(provider.generate(prompt)) {
                 Ok(text) if !text.trim().is_empty() => {
+                    crate::routing::InferenceRouter::record_provider_success(&name);
                     if !errors.is_empty() {
                         eprintln!(
                             "[INFERENCE FAILOVER] Succeeded via {} after {} prior failure(s)",
@@ -322,11 +326,13 @@ impl GemiEngine {
                     return Some(text);
                 }
                 Ok(_) => {
+                    crate::routing::InferenceRouter::record_provider_failure(&name);
                     let detail = format!("{name}: empty response");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
                     errors.push(detail);
                 }
                 Err(e) => {
+                    crate::routing::InferenceRouter::record_provider_failure(&name);
                     let detail = format!("{name}: {e}");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
                     errors.push(detail);
