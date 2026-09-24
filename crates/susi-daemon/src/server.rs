@@ -407,6 +407,15 @@ impl SusiDaemon {
                     .unwrap_or(&def_recompiled);
                 info!("{}", msg.replace("{}", &running.pid.to_string()));
                 Self::stop_daemon(&substrate_home, global_dir);
+                // SIGTERM is async — spawning immediately races the old
+                // daemon's port release; a new daemon that binds while
+                // 9090–9094 are still held dies on EADDRINUSE and nothing
+                // retries, leaving the host contract permanently down
+                // (observed live). Wait for release before spawning.
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while Self::host_contract_tcp_ready() && Instant::now() < deadline {
+                    thread::sleep(Duration::from_millis(100));
+                }
             } else {
                 return;
             }
@@ -470,7 +479,9 @@ impl SusiDaemon {
             if spawned_via_systemd {
                 // systemd-run returns before binds complete — wait for the
                 // public host-contract ports so callers never race.
-                let _ = Self::wait_for_host_contract(Duration::from_secs(10));
+                if !Self::wait_for_host_contract(Duration::from_secs(10)) {
+                    warn!("[SusiDaemon] spawned via systemd but host contract never came up");
+                }
                 return;
             }
         }
@@ -516,7 +527,9 @@ impl SusiDaemon {
             if let Ok(mut child) = cmd.spawn() {
                 let _ = child.wait();
             }
-            let _ = Self::wait_for_host_contract(Duration::from_secs(10));
+            if !Self::wait_for_host_contract(Duration::from_secs(10)) {
+                warn!("[SusiDaemon] daemon spawned but host contract never came up");
+            }
         }
 
         #[cfg(not(unix))]
@@ -530,7 +543,9 @@ impl SusiDaemon {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null());
             let _ = cmd.spawn();
-            let _ = Self::wait_for_host_contract(Duration::from_secs(10));
+            if !Self::wait_for_host_contract(Duration::from_secs(10)) {
+                warn!("[SusiDaemon] daemon spawned but host contract never came up");
+            }
         }
     }
 

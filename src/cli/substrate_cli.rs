@@ -85,6 +85,7 @@ fn collect(workspace: &Path) -> serde_json::Value {
                 "gemi": ports::GEMI,
                 "udp": ports::UDP_DISCOVERY,
                 "gmcp_alias": ports::GMCP_HTTP,
+                "a2a_http": ports::A2A_HTTP,
             },
             "ready": SusiDaemon::host_contract_ready(),
             "tcp_ready": SusiDaemon::host_contract_tcp_ready(),
