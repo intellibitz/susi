@@ -186,7 +186,25 @@ impl TelemetryHistoryStore {
         // because every existing caller of mark_completed ran under
         // cfg!(test), which short-circuits inference before ever reaching
         // it. The block scope drops the guard before save_history() runs.
+        // Bound the profile map: categories are free-form strings, so an
+        // unbounded keyspace (unique task names) would grow the map — and
+        // the persisted telemetry_history.json — without limit. Past the
+        // cap, inserting a new category evicts the least-sampled profile:
+        // the least-observed entries carry the least calibration value.
+        const MAX_TELEMETRY_PROFILES: usize = 500;
         {
+            if !self.profiles.contains_key(category)
+                && self.profiles.len() >= MAX_TELEMETRY_PROFILES
+            {
+                if let Some(victim) = self
+                    .profiles
+                    .iter()
+                    .min_by_key(|r| r.value().sample_count)
+                    .map(|r| r.key().clone())
+                {
+                    self.profiles.remove(&victim);
+                }
+            }
             let mut profile = self
                 .profiles
                 .entry(category.to_string())
