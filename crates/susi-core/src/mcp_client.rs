@@ -24,12 +24,15 @@ use serde_json::{json, Value};
 /// `crates/susi-gmcp/src/protocol_tests.rs`.
 const PROTOCOL_VERSION: &str = "2025-11-25";
 
+/// The response plus the peer's bound pubkey when the request went out
+/// sealed — `Some` means the peer MUST answer sealed; an unsealed reply
+/// is a downgrade attempt, not a format variant.
 fn post(
     url: &str,
     bearer: Option<&str>,
     session: Option<&str>,
     body: &Value,
-) -> Result<ureq::http::Response<ureq::Body>, String> {
+) -> Result<(ureq::http::Response<ureq::Body>, Option<String>), String> {
     let mut req = crate::susi_config::http_agent()
         .post(url)
         .header("accept", "application/json, text/event-stream");
@@ -57,6 +60,7 @@ fn post(
     // failure fails closed, never downgrades to readable plaintext.
     let mut wire = body_bytes;
     let mut content_type = "application/json";
+    let mut sealed_to = None;
     let addr = url
         .split_once("://")
         .and_then(|(_, rest)| rest.split('/').next())
@@ -78,10 +82,12 @@ fn post(
                 .header("x-susi-node-pub", our_pk);
             wire = ct;
             content_type = "application/octet-stream";
+            sealed_to = Some(peer_pk);
         }
     }
     req.header("content-type", content_type)
         .send(&wire)
+        .map(|r| (r, sealed_to))
         .map_err(|e| format!("POST {url}: {e}"))
 }
 
@@ -185,7 +191,7 @@ pub fn session_call(
     let url = format!("http://{addr}/mcp");
 
     // 1. initialize — the response header carries the session id.
-    let init = post(
+    let (init, sealed) = post(
         &url,
         bearer,
         None,
@@ -200,6 +206,14 @@ pub fn session_call(
             }
         }),
     )?;
+    // A sealed request demands a sealed response — the session id in
+    // this reply is a bearer-grade credential; plaintext carriage of
+    // it to a sealed request means a relay is stripping the channel.
+    if sealed.is_some() && init.headers().get("x-susi-enc").is_none() {
+        return Err(format!(
+            "peer {addr} answered a sealed request in plaintext"
+        ));
+    }
     let session = init
         .headers()
         .get("mcp-session-id")
@@ -229,7 +243,7 @@ fn session_request(
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
-    let resp = post(
+    let (resp, sealed) = post(
         url,
         bearer,
         Some(session),
@@ -240,18 +254,43 @@ fn session_request(
             "params": params
         }),
     )?;
+    // Sealed channel: the response must come back encrypted to the same
+    // key — an unsealed reply means the channel was downgraded on-path.
+    let enc_headers = (
+        resp.headers()
+            .get("x-susi-enc")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string),
+        resp.headers()
+            .get("x-susi-enc-nonce")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string),
+    );
     // Bound the response: a peer streaming an unbounded body inside the
     // 20s recv window could still exhaust memory — cap at 16 MiB, far
     // above any tool result the protocol legitimately carries.
-    let text = {
+    let body = {
         use std::io::Read;
-        let mut buf = String::new();
+        let mut buf = Vec::new();
         resp.into_body()
             .as_reader()
-            .take(16 * 1024 * 1024)
-            .read_to_string(&mut buf)
+            .take(16 * 1024 * 1024 + 1)
+            .read_to_end(&mut buf)
             .map_err(|e| format!("read SSE body: {e}"))?;
         buf
+    };
+    let text = if let Some(pk) = sealed.as_deref() {
+        let (Some(v), Some(nonce)) = enc_headers else {
+            return Err("sealed request answered by an unsealed response".to_string());
+        };
+        if v != "v1" {
+            return Err(format!("unknown sealed-response version {v}"));
+        }
+        let pt = crate::susi_config::cluster_key::member_open(pk, &nonce, &body)
+            .ok_or_else(|| "sealed response failed AEAD verification".to_string())?;
+        String::from_utf8(pt).map_err(|e| format!("sealed response not utf-8: {e}"))?
+    } else {
+        String::from_utf8(body).map_err(|e| format!("SSE body not utf-8: {e}"))?
     };
     sse_result(&text, 2)
 }

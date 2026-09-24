@@ -226,6 +226,9 @@ async fn handle_request(
     // signed. Decryption uses the *roster-bound* pubkey when one exists;
     // the self-asserted `x-susi-node-pub` covers the asymmetric window —
     // AEAD tag failure or a swapped pubkey fails closed either way.
+    // When the request was sealed, the response is sealed back to the
+    // same key — the session id and tool results travel encrypted too.
+    let mut seal_key: Option<String> = None;
     let effective = if enc_h.is_some() || enc_nonce_h.is_some() {
         let open_key = node_h
             .as_deref()
@@ -239,6 +242,7 @@ async fn handle_request(
             (Some("v1"), Some(nonce), Some(pk)) => {
                 match crate::susi_config::cluster_key::member_open(pk, nonce, &body_bytes) {
                     Some(pt) => {
+                        seal_key = Some(pk.to_string());
                         // rmcp requires application/json — the sealed wire
                         // body travelled as octet-stream.
                         parts.headers.insert(
@@ -284,6 +288,53 @@ async fn handle_request(
             "Use the MCP Streamable HTTP endpoint at /mcp",
         )
     };
+    // Sealed request ⇒ sealed response: collect the (bounded) service
+    // body, encrypt to the requester's key, and mark it `x-susi-enc: v1`.
+    // The client refuses unsealed responses to sealed requests, so a
+    // relay cannot silently downgrade the return path either.
+    if let Some(pk) = seal_key {
+        let (mut rparts, rbody) = result.into_parts();
+        // The rebuilt body's length differs from whatever the service
+        // set — stale lengths truncate or hang the reader.
+        rparts.headers.remove(hyper::header::CONTENT_LENGTH);
+        let rbytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
+            rbody,
+            16 * 1024 * 1024,
+        ))
+        .await
+        {
+            Ok(c) => c.to_bytes(),
+            Err(_) => {
+                return Ok(response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "response body exceeds limit",
+                ));
+            }
+        };
+        result = match crate::susi_config::cluster_key::member_seal(&pk, &rbytes) {
+            Some((nonce, ct)) => {
+                let mut sealed = Response::from_parts(
+                    rparts,
+                    http_body_util::Full::new(Bytes::from(ct)).boxed(),
+                );
+                let h = sealed.headers_mut();
+                h.insert("x-susi-enc", hyper::header::HeaderValue::from_static("v1"));
+                if let Ok(v) = hyper::header::HeaderValue::from_str(&nonce) {
+                    h.insert("x-susi-enc-nonce", v);
+                }
+                h.insert(
+                    hyper::header::CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_static("application/octet-stream"),
+                );
+                sealed
+            }
+            // Our node.key is unreadable — return the plaintext body
+            // rather than dropping the call; the client fails closed
+            // on unsealed replies, so the downgrade is visible, never
+            // silent.
+            None => Response::from_parts(rparts, http_body_util::Full::new(rbytes).boxed()),
+        };
+    }
     cors(&mut result, &cfg.allow_origin());
     Ok(result)
 }
