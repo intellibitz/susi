@@ -576,10 +576,53 @@ pub mod cluster_key {
     /// (`host:port`); `None` when no bound member claims that address —
     /// the client's signal to send plaintext instead of a seal nobody can
     /// open.
+    /// The parsed `peers.json`/`peers_banned.json` rows, cached by file
+    /// (mtime_ns, len): the request-auth hot path consults the roster
+    /// several times per call — a stat is microseconds, a read+parse of
+    /// the whole roster is not. A stamp change reloads; a missing file
+    /// caches as empty so a deleted roster doesn't re-stat-then-parse
+    /// fail every request.
+    pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
+        use std::sync::{Mutex, OnceLock};
+        type RowsCache = Mutex<std::collections::HashMap<String, (u128, u64, Vec<serde_json::Value>)>>;
+        static CACHE: OnceLock<RowsCache> = OnceLock::new();
+        let path = crate::susi_paths::SusiDirs::config_dir().join(file);
+        let stamp = fs::metadata(&path)
+            .ok()
+            .and_then(|m| {
+                m.modified().ok().map(|t| {
+                    (
+                        t.duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_nanos())
+                            .unwrap_or(0),
+                        m.len(),
+                    )
+                })
+            })
+            .unwrap_or((0, 0));
+        let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        let key = path.to_string_lossy().to_string();
+        {
+            let map = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some((ns, len, rows)) = map.get(&key) {
+                if (*ns, *len) == stamp {
+                    return rows.clone();
+                }
+            }
+        }
+        let rows = fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+            .unwrap_or_default();
+        cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, (stamp.0, stamp.1, rows.clone()));
+        rows
+    }
+
     pub fn bound_pubkey_for_addr(addr: &str) -> Option<String> {
-        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
-        let text = fs::read_to_string(path).ok()?;
-        let roster = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        let roster = config_json_rows("peers.json");
         let host = addr.split(':').next()?;
         let bound = |m: &serde_json::Value| {
             let pk = m.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
@@ -608,9 +651,7 @@ pub mod cluster_key {
     /// side mirror of `bound_pubkey_for_addr`, used to open sealed bodies
     /// from members whose keys the ledger/handshake already attested.
     pub fn bound_pubkey_for_node(node_id: &str) -> Option<String> {
-        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
-        let text = fs::read_to_string(path).ok()?;
-        let roster = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        let roster = config_json_rows("peers.json");
         roster.iter().find_map(|m| {
             if m.get("node_id").and_then(|v| v.as_str()) != Some(node_id) {
                 return None;

@@ -164,9 +164,7 @@ impl NetGuard {
     /// meaningful (the pubkey was committed by `member_add`, not
     /// self-asserted).
     fn bound_member(node: &str) -> Option<(String, IpAddr)> {
-        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
-        let text = std::fs::read_to_string(path).ok()?;
-        let peers = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        let peers = crate::susi_config::cluster_key::config_json_rows("peers.json");
         peers.iter().find_map(|p| {
             if p.get("node_id").and_then(|v| v.as_str()) != Some(node) {
                 return None;
@@ -188,13 +186,7 @@ impl NetGuard {
     /// is bound — such members must authenticate by signature, not the
     /// sniffable shared bearer.
     fn peer_key_bound(ip: &IpAddr) -> bool {
-        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return false;
-        };
-        let Ok(peers) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
-            return false;
-        };
+        let peers = crate::susi_config::cluster_key::config_json_rows("peers.json");
         peers.iter().any(|p| {
             !p.get("pubkey")
                 .and_then(|v| v.as_str())
@@ -236,13 +228,7 @@ impl NetGuard {
     /// Whether `ip` is the address of a member in `peers_banned.json` —
     /// the standing check for the cluster peer bearer (see above).
     fn peer_address_banned(ip: &IpAddr) -> bool {
-        let path = crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json");
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return false;
-        };
-        let Ok(banned) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
-            return false;
-        };
+        let banned = crate::susi_config::cluster_key::config_json_rows("peers_banned.json");
         banned.iter().any(|b| {
             b.get("address")
                 .and_then(|a| a.as_str())
