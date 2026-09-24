@@ -239,20 +239,36 @@ impl ContextGraph {
         let Some(path) = path else {
             return Ok(());
         };
-        // Serialize against sibling processes: `persist()` truncates
-        // the log, so an unlocked append racing a compact could write
-        // into the truncation window and be silently lost.
-        let _lock = path
-            .parent()
-            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
-        let line = serde_json::to_string(event)?;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .map_err(|e| EaiError::filesystem(e.to_string()))?;
-        use std::io::Write;
-        writeln!(file, "{line}").map_err(|e| EaiError::filesystem(e.to_string()))?;
+        // The 16 MiB bound is enforced on append, not only at attach —
+        // a long-lived daemon would otherwise grow the log unboundedly
+        // between restarts. The check is an fstat on the already-open
+        // handle, cheap relative to the lock+write it rides.
+        let mut oversized = false;
+        {
+            // Serialize against sibling processes: `persist()` truncates
+            // the log, so an unlocked append racing a compact could write
+            // into the truncation window and be silently lost.
+            let _lock = path.parent().and_then(|dir| {
+                crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph")
+            });
+            let line = serde_json::to_string(event)?;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
+            use std::io::Write;
+            writeln!(file, "{line}").map_err(|e| EaiError::filesystem(e.to_string()))?;
+            oversized = file
+                .metadata()
+                .map(|m| m.len() > 16 * 1024 * 1024)
+                .unwrap_or(false);
+        }
+        if oversized {
+            // Lock released — compact()/persist() re-take it internally
+            // (FileLock is not reentrant per process).
+            let _ = self.compact();
+        }
         Ok(())
     }
 
@@ -824,6 +840,15 @@ impl ContextGraph {
         let Some(path) = path else {
             return Ok(());
         };
+        // The truncate below must not interleave with a sibling's
+        // append — the same lock append_event takes.
+        let _lock = path
+            .parent()
+            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
+        // Fold any sibling-appended tail into memory BEFORE rewriting —
+        // truncating against a stale in-memory view would silently drop
+        // lines this process never saw.
+        self.replay()?;
         let mut lines = Vec::new();
         for node in self.nodes.iter() {
             lines.push(ContextGraphEvent::NodeAdded(node.value().clone()));
@@ -831,11 +856,6 @@ impl ContextGraph {
         for edge in self.edges.iter() {
             lines.push(ContextGraphEvent::EdgeAdded(edge.value().clone()));
         }
-        // The truncate below must not interleave with a sibling's
-        // append — the same lock append_event takes.
-        let _lock = path
-            .parent()
-            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
