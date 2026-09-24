@@ -81,7 +81,15 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
             let path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
             if path.is_dir() {
-                if name != ".git" && name != "target" && name != ".susi" && name != "node_modules" {
+                // `build-cache` is install.sh's persistent CARGO_TARGET_DIR —
+                // its fingerprint churn used to dominate the graph (~98% of
+                // external_context nodes were build artifacts).
+                if name != ".git"
+                    && name != "target"
+                    && name != ".susi"
+                    && name != "node_modules"
+                    && name != "build-cache"
+                {
                     stack.push(path);
                 }
                 continue;
