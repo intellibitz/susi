@@ -34,11 +34,44 @@ use susi::SUSI_VERSION;
 use susi_daemon::SusiDaemon;
 use susi_gawd::ama::SusiMasterAgent;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use std::env;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
+
+/// Bare args are mission intent by design — but a hyphenated first token
+/// is never natural language, so `susi daemon-status` / `peer-list` /
+/// `commit-sync` are almost always mistyped control-plane commands, not
+/// goals. Silently ingesting them burns an inference round on garbage.
+/// Returns the sibling command names sharing the token's stem (handling
+/// singular→plural: `peer` → `peers`) when the stem names a command
+/// family — the caller refuses with a suggestion instead of dispatching.
+fn command_near_miss(intent: &[String]) -> Vec<String> {
+    let Some(first) = intent.first() else {
+        return Vec::new();
+    };
+    if !first.contains('-') {
+        return Vec::new();
+    }
+    let Some(stem) = first.split('-').next() else {
+        return Vec::new();
+    };
+    if stem.is_empty() {
+        return Vec::new();
+    }
+    let mut matches: Vec<String> = Cli::command()
+        .get_subcommands()
+        .flat_map(|c| {
+            std::iter::once(c.get_name().to_string())
+                .chain(c.get_visible_aliases().map(str::to_string))
+        })
+        .filter(|name| name.split('-').next() == Some(stem) || name.trim_end_matches('s') == stem)
+        .collect();
+    matches.sort();
+    matches.dedup();
+    matches
+}
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
     let stdin = io::stdin();
@@ -74,6 +107,27 @@ fn get_home_dir() -> PathBuf {
 
 fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
+    // A hyphenated first intent token is a mistyped command, not a goal —
+    // refuse before any substrate work (daemon ensure, auto-install) runs.
+    if cli.command.is_none() {
+        let near_misses = command_near_miss(&cli.intent);
+        if !near_misses.is_empty() {
+            eprintln!(
+                "`{}` is not a susi command — refusing to ingest it as mission intent.",
+                cli.intent.join(" ")
+            );
+            eprintln!(
+                "did you mean: {}",
+                near_misses
+                    .iter()
+                    .map(|s| format!("`susi {s}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            eprintln!("substrate status: `susi os` · service health: `susi services status`");
+            return std::process::ExitCode::from(2);
+        }
+    }
     // Control-plane planes return early; Models::Local and Mcp serve fall through.
     let command = match dispatch(cli.command) {
         Ok(code) => return code,
