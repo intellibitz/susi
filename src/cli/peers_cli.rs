@@ -1101,6 +1101,41 @@ fn handshake(
     )
 }
 
+/// Post-handshake endpoint proof: the verified pong attests a node_id,
+/// but UDP alone can't show the claimed GMCP endpoint is alive, serving
+/// MCP, and owned by the same identity. Call `cluster_status` on the
+/// attested address — the signed/encrypted peer channel — and require
+/// the serving node's id to match. A reflector relaying pongs it can't
+/// back with a real endpoint, or a firewalled peer whose MCP port is
+/// dead, refuses here instead of entering the roster as dead weight.
+/// Returns the peer's reported status for callers that want it.
+fn verify_endpoint(node_id: &str, address: &str) -> Result<serde_json::Value> {
+    let bearer = susi_config::cluster_key::peer_bearer();
+    let result = susi_core::mcp_client::call_tool(
+        address,
+        "cluster_status",
+        &serde_json::json!({}),
+        bearer.as_deref(),
+    )
+    .map_err(|e| {
+        anyhow::anyhow!(
+            "{node_id} verified over UDP but its MCP endpoint {address} is unreachable ({e}) — not admitting a peer that can't serve"
+        )
+    })?;
+    let status = result
+        .pointer("/content/0/text")
+        .and_then(|v| v.as_str())
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    let serving_id = status.get("node").and_then(|v| v.as_str()).unwrap_or("");
+    if serving_id != node_id {
+        bail!(
+            "endpoint {address} serves node {serving_id} but the handshake attested {node_id} — refusing an identity-mismatched peer"
+        );
+    }
+    Ok(status)
+}
+
 /// Join a peer by address: verify the responder cryptographically via
 /// `handshake`, then persist it as an explicit member and commit the
 /// admission to the replicated ledger.
@@ -1108,6 +1143,10 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     {
         let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
+        // The pong attested an id — now prove the claimed endpoint is
+        // live, serving, and owned by that same id before any local
+        // state changes.
+        verify_endpoint(&node_id, &address)?;
         // A banned member was operator-evicted — re-adding must be a
         // deliberate `peers unban` first, not an accidental re-add.
         let banned = load_banned();
@@ -1249,6 +1288,11 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
     } else {
         "not a member — `susi peers add` to admit"
     };
+    let endpoint = verify_endpoint(&node_id, &address).map(|s| {
+        let state = s.get("state").and_then(|v| v.as_str()).unwrap_or("up");
+        let term = s.get("term").and_then(|v| v.as_u64()).unwrap_or(0);
+        format!("serving (state {state}, term {term})")
+    });
     let bloom = if bloom_hex.is_empty() || bloom_hex.chars().all(|c| c == '0') {
         "none".to_string()
     } else {
@@ -1268,6 +1312,10 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
             format!("{}… (subject-attested)", &pubkey[..16])
         }
     );
+    match &endpoint {
+        Ok(e) => println!("  mcp endpoint:      {e}"),
+        Err(e) => println!("  mcp endpoint:      UNREACHABLE/INVALID — {e}"),
+    }
     println!("  local standing:    {standing}");
     Ok(())
 }
