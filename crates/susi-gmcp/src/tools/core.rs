@@ -1157,26 +1157,18 @@ impl CoreTools {
             }
         }
         let roster = gawd::cluster_roster().unwrap_or_default();
-        let banned: usize = std::fs::read_to_string(
-            crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json"),
-        )
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
-        .map_or(0, |v| v.len());
-        let bound =
-            std::fs::read_to_string(crate::susi_paths::SusiDirs::config_dir().join("peers.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
-                .map_or(0, |v| {
-                    v.iter()
-                        .filter(|p| {
-                            !p.get("pubkey")
-                                .and_then(|x| x.as_str())
-                                .unwrap_or("")
-                                .is_empty()
-                        })
-                        .count()
-                });
+        // Mtime-cached roster rows — this tool answers on every
+        // `peers status` sweep.
+        let banned = crate::susi_config::cluster_key::config_json_rows("peers_banned.json").len();
+        let bound = crate::susi_config::cluster_key::config_json_rows("peers.json")
+            .iter()
+            .filter(|p| {
+                !p.get("pubkey")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .is_empty()
+            })
+            .count();
         let key_epoch = crate::susi_config::cluster_key::cluster_key()
             .map(|k| crate::susi_config::cluster_key::key_fingerprint(&k))
             .unwrap_or_default();
