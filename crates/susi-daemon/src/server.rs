@@ -972,11 +972,16 @@ impl SusiDaemon {
                 if !is_self {
                     let pinger_addr =
                         format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
-                    let pinger_id = if pinger_id.is_empty() {
-                        format!("susi-peer-{}", src.ip())
-                    } else {
-                        pinger_id
-                    };
+                    // The verified signature proves the daemon at src holds
+                    // cluster.key — Explicit standing for the ADDRESS is
+                    // earned. The advertised node_id is self-asserted,
+                    // though: persisting it would let any member re-home
+                    // another member's identity to its own address with a
+                    // single forged ping. We record a synthetic id; the
+                    // scout's reverse handshake upgrades to the attested
+                    // id once this address's own responder confirms it,
+                    // and committed member_add records bind real ids
+                    // through the ledger path.
                     // A banned member gets no handshake at all: no
                     // admission on our side, and no signed pong for them
                     // to verify us with. Without this the ban only stops
@@ -986,7 +991,7 @@ impl SusiDaemon {
                         continue;
                     }
                     let node = susi_gawd::swarm::amas::ClusterPeerNode {
-                        node_id: pinger_id,
+                        node_id: format!("susi-peer-{}", src.ip()),
                         address: pinger_addr,
                         node_type: "PEER".into(),
                         is_active: true,

@@ -336,6 +336,14 @@ impl SusiSupervisor {
                                         if matches!(p.admission, PeerAdmission::Discovered) {
                                             p.admission = PeerAdmission::Explicit;
                                         }
+                                        // The persisted row's node_id was
+                                        // written only after signed
+                                        // verification — adopt it over the
+                                        // live row's synthetic
+                                        // `susi-peer-<ip>` guess.
+                                        if p.node_id != saved.node_id {
+                                            p.node_id = saved.node_id.clone();
+                                        }
                                     }
                                     None => peers.push(saved),
                                 }
