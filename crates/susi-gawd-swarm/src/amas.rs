@@ -186,6 +186,13 @@ pub struct ClusterPeerNode {
 /// until they re-verify with a fresh signed pong.
 pub const PEER_STALE_SECS: u64 = 30;
 
+/// Broadcast cadence once the roster is established (~600ms while
+/// discovery is pending). New nodes still reach us instantly — their
+/// own pings arrive via recv_from and we answer immediately — so an
+/// established roster only needs a keep-alive broadcast well inside the
+/// 30s staleness window instead of ~7 broadcast packets/second forever.
+const STEADY_BROADCAST_SECS: u64 = 3;
+
 impl ClusterPeerNode {
     /// True when this peer has not ponged within `PEER_STALE_SECS`. Local
     /// nodes are exempt — the loopback entry is always live.
@@ -299,6 +306,10 @@ impl SusiSupervisor {
                         std::time::Instant::now() - std::time::Duration::from_secs(270);
                     // Ledger-compaction throttle — see below.
                     let mut last_compact = std::time::Instant::now();
+                    // Steady-state broadcast backoff — see the send block
+                    // below. Back-dated so the first pass announces us.
+                    let mut last_broadcast = std::time::Instant::now()
+                        - std::time::Duration::from_secs(STEADY_BROADCAST_SECS);
 
                     loop {
                         // A committed member_remove naming this node
@@ -329,6 +340,17 @@ impl SusiSupervisor {
                                 p.is_active = false;
                             }
                         }
+                        // Discovered peers that never verify are gossip/LAN
+                        // ghosts — the directed-ping sweep would otherwise
+                        // send signed pings to a dead candidate every pass
+                        // forever. Decay them out after a TTL longer than
+                        // the staleness window; a real peer reappears via
+                        // its own traffic or the next gossip round.
+                        const DISCOVERED_TTL_SECS: u64 = 300;
+                        peers.retain(|p| {
+                            !matches!(p.admission, PeerAdmission::Discovered)
+                                || now.saturating_sub(p.last_seen_secs) <= DISCOVERED_TTL_SECS
+                        });
                         // Operator eviction applies to the live roster too —
                         // re-read the ban file every ~10s (not every probe)
                         // and drop banned members promptly.
@@ -704,62 +726,25 @@ impl SusiSupervisor {
                             }
                         }
 
-                        let _ = socket
-                            .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
-                        // Cluster-key handshake (VC-200-001): only nodes that
-                        // can HMAC-sign a pong echoing this nonce may become
-                        // Explicit roster members. The signed ping also goes
-                        // directly to every Discovered peer's discovery port —
-                        // LAN broadcast cannot cross subnets, and a
-                        // gossip-learned member only earns Explicit by
-                        // answering a handshake aimed at it.
-                        // v2 ping first — its pong attests the responder's
-                        // Ed25519 pubkey for member-key binding; the v1 ping
-                        // follows for pre-PKI peers. Both nonces are pending
-                        // so either pong verifies.
-                        let pings: Vec<(String, String)> = [
-                            crate::susi_config::cluster_key::signed_ping_v2(
-                                &local_caps,
-                                registry_checksum,
-                                &local_bloom.to_hex(),
-                            ),
-                            crate::susi_config::cluster_key::signed_ping(
-                                &local_caps,
-                                registry_checksum,
-                                &local_bloom.to_hex(),
-                            ),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect();
-                        if !pings.is_empty() {
-                            for (_, nonce) in &pings {
-                                pending_nonces.push_back(nonce.clone());
-                            }
-                            while pending_nonces.len() > 8 {
-                                pending_nonces.pop_front();
-                            }
-                            for (signed, _) in &pings {
-                                let _ = socket.send_to(
-                                    signed.as_bytes(),
-                                    format!("255.255.255.255:{}", port),
-                                );
-                            }
-                            // Discovered peers get a directed ping every
-                            // cycle — that handshake is their only path to
-                            // Explicit. Explicit members get one once they
-                            // pass half the staleness window: broadcast
-                            // keeps same-subnet members fresh (the filter
-                            // skips them, so no extra LAN traffic), but a
-                            // cross-subnet member can only be reached by a
-                            // directed ping — without this it decays
-                            // inactive 30s after `peers add`.
-                            let now = now_secs();
-                            let targets: Vec<String> = t_shared
-                                .read()
+                        // Directed-ping targets and the broadcast gate share
+                        // one roster read. Discovery is "pending" while any
+                        // Discovered candidate awaits promotion or no active
+                        // Explicit member exists — in that phase the fast
+                        // ~600ms broadcast cadence stays; once the roster is
+                        // established, broadcasts back off to a keep-alive.
+                        let now = now_secs();
+                        let (targets, discovery_pending) = {
+                            let peers = t_shared.read();
+                            let targets: Vec<String> = peers
                                 .iter()
                                 .filter(|p| match p.admission {
-                                    PeerAdmission::Discovered => true,
+                                    PeerAdmission::Discovered => p.is_active,
+                                    // Explicit members get a directed ping
+                                    // once they pass half the staleness
+                                    // window — a cross-subnet member cannot
+                                    // be reached by broadcast, so without
+                                    // this it decays inactive 30s after
+                                    // `peers add`.
                                     PeerAdmission::Explicit => {
                                         now.saturating_sub(p.last_seen_secs) > PEER_STALE_SECS / 2
                                     }
@@ -772,15 +757,80 @@ impl SusiSupervisor {
                                 })
                                 .take(32)
                                 .collect();
-                            for target in targets {
-                                for (signed, _) in &pings {
-                                    let _ = socket.send_to(signed.as_bytes(), &target);
+                            let pending = peers.iter().any(|p| {
+                                matches!(p.admission, PeerAdmission::Discovered) && p.is_active
+                            }) || !peers.iter().any(|p| {
+                                matches!(p.admission, PeerAdmission::Explicit) && p.is_active
+                            });
+                            (targets, pending)
+                        };
+                        let broadcast_due = discovery_pending
+                            || last_broadcast.elapsed().as_secs() >= STEADY_BROADCAST_SECS;
+                        if broadcast_due {
+                            last_broadcast = std::time::Instant::now();
+                            let _ = socket
+                                .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
+                        }
+                        // Cluster-key handshake (VC-200-001): only nodes that
+                        // can HMAC-sign a pong echoing this nonce may become
+                        // Explicit roster members. The signed ping also goes
+                        // directly to every Discovered peer's discovery port —
+                        // LAN broadcast cannot cross subnets, and a
+                        // gossip-learned member only earns Explicit by
+                        // answering a handshake aimed at it.
+                        // v2 ping first — its pong attests the responder's
+                        // Ed25519 pubkey for member-key binding; the v1 ping
+                        // follows for pre-PKI peers. Both nonces are pending
+                        // so either pong verifies.
+                        if broadcast_due || !targets.is_empty() {
+                            let pings: Vec<(String, String)> = [
+                                crate::susi_config::cluster_key::signed_ping_v2(
+                                    &local_caps,
+                                    registry_checksum,
+                                    &local_bloom.to_hex(),
+                                ),
+                                crate::susi_config::cluster_key::signed_ping(
+                                    &local_caps,
+                                    registry_checksum,
+                                    &local_bloom.to_hex(),
+                                ),
+                            ]
+                            .into_iter()
+                            .flatten()
+                            .collect();
+                            if !pings.is_empty() {
+                                for (_, nonce) in &pings {
+                                    pending_nonces.push_back(nonce.clone());
+                                }
+                                while pending_nonces.len() > 8 {
+                                    pending_nonces.pop_front();
+                                }
+                                if broadcast_due {
+                                    for (signed, _) in &pings {
+                                        let _ = socket.send_to(
+                                            signed.as_bytes(),
+                                            format!("255.255.255.255:{}", port),
+                                        );
+                                    }
+                                }
+                                // A Discovered candidate's handshake is its
+                                // only path to Explicit — directed pings keep
+                                // the fast cadence regardless of broadcast
+                                // backoff (stale candidates are filtered by
+                                // is_active and decayed out at the TTL).
+                                for target in targets {
+                                    for (signed, _) in &pings {
+                                        let _ = socket.send_to(signed.as_bytes(), &target);
+                                    }
                                 }
                             }
                         }
-                        // Also speak the daemon's LAN ping dialect so host discovery works.
-                        let _ =
-                            socket.send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
+                        // Also speak the daemon's LAN ping dialect so host
+                        // discovery works — same backoff as our own dialect.
+                        if broadcast_due {
+                            let _ = socket
+                                .send_to(b"SUSI_LAN_PING", format!("255.255.255.255:{}", port));
+                        }
                         std::thread::sleep(Duration::from_millis(100));
                     }
                 }
