@@ -39,7 +39,8 @@ pub fn cluster_key_path() -> PathBuf {
 /// promoted to `Explicit`).
 pub fn cluster_key() -> Option<[u8; 32]> {
     let path = cluster_key_path();
-    if let Ok(text) = fs::read_to_string(&path) {
+    if let Some(raw) = cached_file_bytes(&path) {
+        let text = String::from_utf8(raw).ok()?;
         let bytes = hex::decode(text.trim()).ok()?;
         if bytes.len() == 32 {
             let mut key = [0u8; 32];
@@ -139,8 +140,8 @@ fn prev_key_path() -> PathBuf {
     crate::susi_paths::SusiDirs::config_dir().join("cluster.key.prev")
 }
 
-fn key_bytes_from_file(path: &PathBuf) -> Option<[u8; 32]> {
-    let bytes = hex::decode(fs::read_to_string(path).ok()?.trim()).ok()?;
+fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
+    let bytes = hex::decode(String::from_utf8(cached_file_bytes(path)?).ok()?.trim()).ok()?;
     if bytes.len() != 32 {
         return None;
     }
@@ -295,8 +296,8 @@ fn wire_safe(s: &str) -> bool {
 /// namespace.
 pub fn node_id() -> Option<String> {
     let path = crate::susi_paths::SusiDirs::config_dir().join("node_id");
-    if let Ok(text) = fs::read_to_string(&path) {
-        let id = text.trim().to_string();
+    if let Some(raw) = cached_file_bytes(&path) {
+        let id = String::from_utf8(raw).ok()?.trim().to_string();
         if wire_safe(&id) && id.len() <= 64 {
             return Some(id);
         }
@@ -533,6 +534,43 @@ pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
         .unwrap_or_else(|e| e.into_inner())
         .insert(key, (stamp.0, stamp.1, rows.clone()));
     rows
+}
+
+/// Small-credential-file cache, same mtime-keyed pattern as
+/// `config_json_rows`: `cluster.key`/`node.key`/`node_id` are read on
+/// every signed request, handshake verify, and seal — a stat replaces
+/// the read+decode. Absent files are NOT cached (creation paths must
+/// still run); a stamp change or read failure drops the entry so a
+/// rekey never serves a stale key.
+pub fn cached_file_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
+    use std::sync::{Mutex, OnceLock};
+    type BytesCache = Mutex<std::collections::HashMap<std::path::PathBuf, ((u128, u64), Vec<u8>)>>;
+    static CACHE: OnceLock<BytesCache> = OnceLock::new();
+    let meta = fs::metadata(path).ok()?;
+    let stamp = (
+        meta.modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+        meta.len(),
+    );
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let key = path.to_path_buf();
+    {
+        let map = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((s, bytes)) = map.get(&key) {
+            if *s == stamp {
+                return Some(bytes.clone());
+            }
+        }
+    }
+    let bytes = fs::read(path).ok()?;
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key, (stamp, bytes.clone()));
+    Some(bytes)
 }
 
 pub fn bound_pubkey_for_addr(addr: &str) -> Option<String> {
