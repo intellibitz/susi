@@ -405,6 +405,15 @@ impl GawdAgentFleet {
         // 2. Inference endpoints mapping — open admission: any configured
         // OpenAI-compat / protocol endpoint mounts as a DynamicInferenceEndpointAgent
         // when api_base is set (env override optional).
+        //
+        // Remote (non-loopback) endpoints receive the mission goal verbatim
+        // as the request body — before auth is even evaluated by the remote.
+        // Mounting one under local_only mode, or without a resolvable key
+        // when the endpoint declares `api_key_env`, is pure data egress that
+        // can never produce a completion. Loopback engines (Ollama, vLLM, …)
+        // are exempt: they are local substrates.
+        let cloud_blocked =
+            crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference();
         for endpoint in &cfg.inference_endpoints().endpoints {
             if endpoint.api_base.trim().is_empty() {
                 continue;
@@ -418,17 +427,30 @@ impl GawdAgentFleet {
             if base_url.trim().is_empty() {
                 continue;
             }
+            if is_remote_inference_endpoint(&base_url) {
+                if cloud_blocked {
+                    continue;
+                }
+                if !endpoint.api_key_env.trim().is_empty()
+                    && resolve_inference_key(&endpoint.api_key_env).is_none()
+                {
+                    continue;
+                }
+            }
             if fleet
                 .iter()
                 .any(|a| a.name() == format!("{}BridgeAgent", endpoint.name))
             {
                 continue;
             }
-            fleet.push(Arc::new(DynamicInferenceEndpointAgent::new(
+            let mut bridge = DynamicInferenceEndpointAgent::new(
                 &endpoint.name,
                 &base_url,
                 &endpoint.protocol_type,
-            )));
+            );
+            bridge.model = endpoint.model.clone();
+            bridge.api_key_env = endpoint.api_key_env.clone();
+            fleet.push(Arc::new(bridge));
         }
 
         // 3. Semantic Meta-Registry Discovery
@@ -870,6 +892,35 @@ mod tests {
         assert!(
             explicit.iter().any(|a| a.name() == "PaidCliPeerAgent"),
             "explicitly naming the peer must still recruit it"
+        );
+    }
+
+    /// Remote inference endpoints receive the mission goal as the request
+    /// body before auth is evaluated — loopback engines are local
+    /// substrates, everything else is egress.
+    #[test]
+    fn test_remote_inference_endpoint_classification() {
+        assert!(!is_remote_inference_endpoint("http://localhost:11434/v1"));
+        assert!(!is_remote_inference_endpoint("http://127.0.0.1:8000/v1"));
+        assert!(!is_remote_inference_endpoint("http://[::1]:1234/v1"));
+        assert!(is_remote_inference_endpoint("https://api.openai.com/v1"));
+        assert!(is_remote_inference_endpoint("http://10.0.0.5:8000/v1"));
+        assert!(!is_remote_inference_endpoint(""));
+    }
+
+    /// The zero-config credential contract: env wins, `~/.susi/cloud.env`
+    /// fills the rest (with `export ` prefix tolerated).
+    #[test]
+    fn test_resolve_inference_key_env_and_cloud_env() {
+        std::env::set_var("SUSI_TEST_PEER_KEY_XYZ", "sk-test");
+        assert_eq!(
+            resolve_inference_key("SUSI_TEST_PEER_KEY_XYZ").as_deref(),
+            Some("sk-test")
+        );
+        std::env::remove_var("SUSI_TEST_PEER_KEY_XYZ");
+        assert_eq!(
+            resolve_inference_key("SUSI_DEFINITELY_MISSING_KEY_ABC123"),
+            None
         );
     }
 

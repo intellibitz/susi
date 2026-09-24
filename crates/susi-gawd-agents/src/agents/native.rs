@@ -917,7 +917,53 @@ pub struct DynamicInferenceEndpointAgent {
     pub endpoint_name: String,
     pub api_base_url: String,
     pub protocol_type: String,
+    /// Endpoint's configured default model id (`gpt-4o-mini`, …); empty
+    /// falls back to the legacy `<name>-substrate` placeholder.
+    pub model: String,
+    /// Env var / `cloud.env` key holding this endpoint's API key.
+    pub api_key_env: String,
     pub agent_rank: f32,
+}
+
+/// True when `api_base` targets a remote (non-loopback) host. Loopback
+/// inference engines (Ollama, vLLM, llama.cpp, LM Studio, …) are local
+/// substrates; anything else is network egress of the mission goal.
+pub(crate) fn is_remote_inference_endpoint(api_base: &str) -> bool {
+    let lower = api_base.trim().to_ascii_lowercase();
+    (lower.starts_with("http://") || lower.starts_with("https://"))
+        && !lower.contains("localhost")
+        && !lower.contains("127.0.0.1")
+        && !lower.contains("[::1]")
+        && !lower.contains("0.0.0.0")
+}
+
+/// Resolve an endpoint credential the same way `susi-gemi-models::cloud`
+/// does: process env first, then the zero-config `~/.susi/cloud.env`
+/// store (`KEY=value`, optional `export ` prefix).
+pub(crate) fn resolve_inference_key(api_key_env: &str) -> Option<String> {
+    if api_key_env.trim().is_empty() {
+        return None;
+    }
+    if let Ok(v) = std::env::var(api_key_env) {
+        if !v.trim().is_empty() {
+            return Some(v);
+        }
+    }
+    let path = crate::susi_paths::SusiDirs::config_dir().join("cloud.env");
+    let content = std::fs::read_to_string(path).ok()?;
+    for line in content.lines() {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line).trim();
+        if let Some((k, v)) = line.split_once('=') {
+            if k.trim() == api_key_env {
+                let v = v.trim().trim_matches('"').trim_matches('\'');
+                if !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 impl DynamicInferenceEndpointAgent {
@@ -926,6 +972,8 @@ impl DynamicInferenceEndpointAgent {
             endpoint_name: name.to_string(),
             api_base_url: api_base_url.to_string(),
             protocol_type: protocol_type.to_string(),
+            model: String::new(),
+            api_key_env: String::new(),
             agent_rank: 0.95,
         }
     }
@@ -964,9 +1012,14 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             }
         }
 
+        let model = if self.model.trim().is_empty() {
+            format!("{}-substrate", self.endpoint_name.to_lowercase())
+        } else {
+            self.model.clone()
+        };
         let payload = match self.protocol_type.as_str() {
             "chat" => serde_json::json!({
-                "model": format!("{}-substrate", self.endpoint_name.to_lowercase()),
+                "model": model,
                 "messages": [{"role": "user", "content": goal}],
                 "max_tokens": 1024
             }),
@@ -975,7 +1028,7 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
                 "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
             }),
             _ => serde_json::json!({
-                "model": format!("{}-substrate", self.endpoint_name.to_lowercase()),
+                "model": model,
                 "prompt": goal,
                 "max_tokens": 1024
             }),
@@ -989,11 +1042,13 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             format!("{}/completions", self.api_base_url)
         };
 
-        match crate::susi_sandbox::manager::http_agent()
+        let mut request = crate::susi_sandbox::manager::http_agent()
             .post(&endpoint_url)
-            .header("Content-Type", "application/json")
-            .send_json(payload)
-        {
+            .header("Content-Type", "application/json");
+        if let Some(key) = resolve_inference_key(&self.api_key_env) {
+            request = request.header("Authorization", format!("Bearer {key}"));
+        }
+        match request.send_json(payload) {
             Ok(resp) => {
                 let text = resp
                     .into_body()
