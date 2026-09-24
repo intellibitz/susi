@@ -1200,6 +1200,26 @@
     "label": "manual",
     "ref": "symbol://manual"
    }
+  },
+  {
+   "id": "EV-2022924-126",
+   "milestone": "Endpoint probes exposed in susi os --json (gmcp/gemi/gmcp-sse/a2a + a2a-udp port)",
+   "proof": "VERIFIED",
+   "type": "MISSION",
+   "anchor": {
+    "label": "manual",
+    "ref": "symbol://manual"
+   }
+  },
+  {
+   "id": "EV-2022924-127",
+   "milestone": "Requested model honored end-to-end: /v1/chat/completions threads model through GAWD_SOLVE -> solve_clean_with_model -> failover provider prioritization + local fallback model + streaming path; stems/basenames accepted at boundary",
+   "proof": "VERIFIED",
+   "type": "MISSION",
+   "anchor": {
+    "label": "manual",
+    "ref": "symbol://manual"
+   }
   }
  ],
  "epistemic_score": 1.0,
