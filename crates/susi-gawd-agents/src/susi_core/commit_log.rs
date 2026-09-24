@@ -364,14 +364,17 @@ static TERM_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// term sequence or interleaving torn JSONL lines into the ledger.
 /// Acquisition is `O_CREAT|O_EXCL` on `<name>.lock` inside `dir`; the
 /// file records the holder pid for stale detection.
-struct FileLock {
+/// `pub` so sibling kernel modules (service_table) share the primitive —
+/// every cross-process read-modify-write on `~/.susi` state needs it.
+#[doc(hidden)]
+pub struct FileLock {
     path: PathBuf,
 }
 
 impl FileLock {
     /// ~3s of 10ms retries — the guarded sections are millisecond-scale,
     /// so a longer wait means a wedged holder, not contention.
-    fn acquire(dir: &Path, name: &str) -> Option<Self> {
+    pub fn acquire(dir: &Path, name: &str) -> Option<Self> {
         // A bare filename's parent is the empty path — normalize it to
         // the current directory so lock placement is well-defined.
         let dir = if dir.as_os_str().is_empty() {

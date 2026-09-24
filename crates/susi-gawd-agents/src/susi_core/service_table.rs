@@ -148,6 +148,29 @@ pub fn save(records: &[ServiceRecord]) -> EaiResult<()> {
     save_to(&table_path(), records)
 }
 
+/// Atomic read-modify-write on the shared table, serialized across
+/// processes by the same lockfile primitive the commit ledger uses.
+/// Without it, `susi services stop` can load, mutate, and save while the
+/// supervisor does the same — whichever writes last wins, and an
+/// operator's stop flag is silently clobbered by the monitor's pass.
+/// The closure sees the freshly loaded table; its mutations are what
+/// gets persisted.
+pub fn update_with<R>(f: impl FnOnce(&mut Vec<ServiceRecord>) -> R) -> EaiResult<R> {
+    let path = table_path();
+    let Some(_lock) = path
+        .parent()
+        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "services"))
+    else {
+        return Err(EaiError::filesystem(
+            "service table lock unavailable — possible wedged holder or extreme contention",
+        ));
+    };
+    let mut table = load();
+    let out = f(&mut table);
+    save(&table)?;
+    Ok(out)
+}
+
 /// Test seam: save to an explicit path instead of the shared location.
 pub fn save_to(path: &std::path::Path, records: &[ServiceRecord]) -> EaiResult<()> {
     if let Some(dir) = path.parent() {
@@ -244,7 +267,19 @@ pub fn probe(port: u16) -> bool {
 pub fn pid_alive(pid: u32) -> bool {
     #[cfg(target_os = "linux")]
     {
-        PathBuf::from(format!("/proc/{pid}")).is_dir()
+        if !PathBuf::from(format!("/proc/{pid}")).is_dir() {
+            return false;
+        }
+        // A zombie still has a /proc dir but cannot serve or hold
+        // anything — read the state field (the char after the last ')'
+        // in `pid (comm) state ...`; comm itself may contain parens).
+        // Unreadable stat keeps the conservative "alive" answer.
+        fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit(')').next().map(|tail| tail.to_string()))
+            .and_then(|tail| tail.trim().chars().next())
+            .map(|state| state != 'Z')
+            .unwrap_or(true)
     }
     #[cfg(all(unix, not(target_os = "linux")))]
     {

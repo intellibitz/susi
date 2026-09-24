@@ -103,7 +103,38 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         .stderr(err)
         .spawn()
         .ok()
-        .map(|child| child.id())
+        .map(|mut child| {
+            let pid = child.id();
+            // The daemon parents every service child, and a Child that is
+            // dropped without wait() leaves a permanent zombie — observed
+            // live: susi-native stuck <defunct> under the daemon, port
+            // dead, no respawn possible. A detached waiter reaps it.
+            thread::spawn(move || {
+                let _ = child.wait();
+            });
+            pid
+        })
+}
+
+/// Supervisor decisions go to stderr AND `substrate_home/logs/
+/// supervisor.log` — the daemon detaches stderr, so without the file
+/// every spawn/respawn/hold-down decision is invisible after the fact.
+fn slog(msg: &str) {
+    eprintln!("{msg}");
+    let path = crate::susi_paths::SusiDirs::substrate_home()
+        .join("logs")
+        .join("supervisor.log");
+    if let Some(dir) = path.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = writeln!(f, "[{ts}] {msg}");
+    }
 }
 
 /// Wait until a port accepts TCP connections or the deadline passes.
@@ -148,13 +179,19 @@ const SIGKILL: i32 = 9;
 pub fn ensure_leaf_services() {
     let mut table = service_table::load();
     for svc in LEAF_SERVICES {
+        // An operator stop survives daemon restarts — the flag lives in
+        // the table, and "holds it down until `susi services start`"
+        // means exactly that.
+        if table.iter().any(|r| r.name == svc.name && r.stopped) {
+            continue;
+        }
         if service_table::probe(svc.port()) {
             // Port bound by a process we didn't spawn — record it as
             // external so the table reflects reality; never killed by us.
             if !table.iter().any(|r| r.name == svc.name) {
                 let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
                 service_table::record_external(&mut table, svc.name, pid, svc.port());
-                eprintln!(
+                slog(&format!(
                     "[supervisor] {} already bound externally{} — observing, not supervising",
                     svc.name,
                     if pid != 0 {
@@ -162,32 +199,49 @@ pub fn ensure_leaf_services() {
                     } else {
                         String::new()
                     }
-                );
+                ));
             }
             continue;
         }
         let Some(pid) = spawn_service(svc) else {
-            eprintln!(
+            slog(&format!(
                 "[supervisor] {} down and binary `{}` not found",
                 svc.name, svc.binary
-            );
+            ));
             continue;
         };
         if wait_for_port(svc.port(), STARTUP_WAIT) {
             service_table::record(&mut table, svc.name, pid, svc.port());
-            eprintln!("[supervisor] started {} (pid {})", svc.name, pid);
+            slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
         } else {
-            eprintln!(
+            slog(&format!(
                 "[supervisor] {} spawned (pid {}) but never bound :{}",
                 svc.name,
                 pid,
                 svc.port()
-            );
+            ));
             let _ = signal(pid, SIGKILL);
         }
     }
-    if let Err(e) = service_table::save(&table) {
-        eprintln!("[supervisor] persist process table: {e}");
+    // Same locked merge as the monitor — a CLI op racing the boot pass
+    // must not be clobbered by our stale copy.
+    let merged = service_table::update_with(|fresh| {
+        for my in &table {
+            match fresh.iter_mut().find(|r| r.name == my.name) {
+                Some(f) if f.stopped == my.stopped => *f = my.clone(),
+                Some(f) => {
+                    let stopped = f.stopped;
+                    let disabled = f.disabled_until;
+                    *f = my.clone();
+                    f.stopped = stopped;
+                    f.disabled_until = disabled;
+                }
+                None => fresh.push(my.clone()),
+            }
+        }
+    });
+    if let Err(e) = merged {
+        slog(&format!("[supervisor] persist process table: {e}"));
     }
 }
 
@@ -200,10 +254,10 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
                 .map(|d| d.as_secs())
                 .unwrap_or(0)
                 + DISABLE_COOLDOWN_SECS;
-            eprintln!(
+            slog(&format!(
                 "[supervisor] {} exceeded {MAX_RESTARTS} restarts; suspending respawns for {}s",
                 svc.name, DISABLE_COOLDOWN_SECS
-            );
+            ));
             rec.disabled_until = Some(until);
             return;
         }
@@ -217,10 +271,10 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
     if let Some(pid) = spawn_service(svc) {
         if wait_for_port(svc.port(), STARTUP_WAIT) {
             let rec = service_table::record(table, svc.name, pid, svc.port());
-            eprintln!(
+            slog(&format!(
                 "[supervisor] restarted {} (pid {}, restart #{})",
                 svc.name, pid, rec.restarts
-            );
+            ));
         } else {
             let _ = signal(pid, SIGKILL);
         }
@@ -235,6 +289,9 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
     while !shutdown.load(Ordering::Acquire) {
         let mut table = service_table::load();
         let mut changed = false;
+        // Rows dropped this pass (external release) — replayed onto the
+        // fresh table inside the locked merge so the removal sticks.
+        let mut removed: Vec<String> = Vec::new();
         let now_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -254,7 +311,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                         // external so `susi services`/`susi os` can name it.
                         let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
                         service_table::record_external(&mut table, svc.name, pid, svc.port());
-                        eprintln!(
+                        slog(&format!(
                             "[supervisor] {} bound externally{} — observing",
                             svc.name,
                             if pid != 0 {
@@ -262,15 +319,18 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                             } else {
                                 String::new()
                             }
-                        );
+                        ));
                         changed = true;
                         continue;
                     }
-                    eprintln!("[supervisor] {} not supervised; attempting spawn", svc.name);
+                    slog(&format!(
+                        "[supervisor] {} not supervised; attempting spawn",
+                        svc.name
+                    ));
                     if let Some(pid) = spawn_service(svc) {
                         if wait_for_port(svc.port(), STARTUP_WAIT) {
                             service_table::record(&mut table, svc.name, pid, svc.port());
-                            eprintln!("[supervisor] adopted {} (pid {})", svc.name, pid);
+                            slog(&format!("[supervisor] adopted {} (pid {})", svc.name, pid));
                             changed = true;
                         } else {
                             let _ = signal(pid, SIGKILL);
@@ -290,7 +350,13 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
             }
             if rec.stopped {
                 // Operator stop — hold the service down until `susi
-                // services start` clears the flag.
+                // services start` clears the flag. A pid still alive
+                // here lost a race (respawned in the same pass the flag
+                // landed, or the stop-time SIGTERM didn't take) —
+                // enforce the hold-down rather than let it run.
+                if !rec.external && service_table::pid_alive(rec.pid) {
+                    let _ = signal(rec.pid, SIGTERM);
+                }
                 continue;
             }
             if rec.external {
@@ -300,11 +366,12 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 if service_table::probe(rec.port) {
                     continue;
                 }
-                eprintln!(
+                slog(&format!(
                     "[supervisor] external {} released :{}; taking over",
                     svc.name, rec.port
-                );
+                ));
                 table.retain(|r| r.name != svc.name);
+                removed.push(svc.name.to_string());
                 missing_retry.remove(svc.name);
                 changed = true;
                 continue;
@@ -313,12 +380,36 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
             if healthy {
                 continue;
             }
-            eprintln!("[supervisor] {} unhealthy; respawning", svc.name);
+            slog(&format!("[supervisor] {} unhealthy; respawning", svc.name));
             respawn(svc, &mut table);
             changed = true;
         }
-        if changed && let Err(e) = service_table::save(&table) {
-            eprintln!("[supervisor] persist process table: {e}");
+        if changed {
+            // Locked merge: `services stop`/`start` may have written
+            // mid-pass — saving our stale copy wholesale would clobber
+            // the operator's flag. Rows we touched overwrite wholesale
+            // (we own pid/restarts/uptime); rows the operator toggled
+            // keep their `stopped`/`disabled_until`; rows we removed
+            // stay removed.
+            let merged = service_table::update_with(|fresh| {
+                for my in &table {
+                    match fresh.iter_mut().find(|r| r.name == my.name) {
+                        Some(f) if f.stopped == my.stopped => *f = my.clone(),
+                        Some(f) => {
+                            let stopped = f.stopped;
+                            let disabled = f.disabled_until;
+                            *f = my.clone();
+                            f.stopped = stopped;
+                            f.disabled_until = disabled;
+                        }
+                        None => fresh.push(my.clone()),
+                    }
+                }
+                fresh.retain(|r| !removed.contains(&r.name));
+            });
+            if let Err(e) = merged {
+                slog(&format!("[supervisor] persist process table: {e}"));
+            }
         }
         thread::sleep(PROBE_INTERVAL);
     }
@@ -339,8 +430,17 @@ pub fn start(shutdown: Arc<AtomicBool>) -> thread::JoinHandle<()> {
 /// must never signal a process it did not spawn.
 pub fn shutdown_all() {
     let mut table = service_table::load();
+    slog(&format!(
+        "[supervisor] shutdown_all: {} rows, table_path={:?}",
+        table.len(),
+        service_table::table_path()
+    ));
     for rec in table.iter().filter(|r| !r.external) {
-        let _ = signal(rec.pid, SIGTERM);
+        let ok = signal(rec.pid, SIGTERM);
+        slog(&format!(
+            "[supervisor] SIGTERM {} (pid {}) -> {ok}",
+            rec.name, rec.pid
+        ));
     }
     let start = Instant::now();
     while start.elapsed() < TERM_GRACE {
@@ -359,7 +459,7 @@ pub fn shutdown_all() {
     }
     table.clear();
     if let Err(e) = service_table::save(&table) {
-        eprintln!("[supervisor] clear process table: {e}");
+        slog(&format!("[supervisor] clear process table: {e}"));
     }
 }
 
@@ -394,9 +494,11 @@ mod tests {
 
     /// Full supervision loop against the real leaf binaries: isolated XDG
     /// root (the vendored `SusiDirs` honors `SUSI_XDG`/`XDG_*_HOME`) plus
-    /// shifted service ports, so nothing touches the host substrate or its
-    /// canonical ports. `shutdown_all` runs unconditionally so a mid-test
-    /// failure cannot leak supervised services.
+    /// per-run unique service ports, so nothing touches the host substrate,
+    /// its canonical ports, or stale children leaked by an earlier run —
+    /// fixed ports let an orphaned process get adopted as "external" and
+    /// then survive `shutdown_all` (which correctly never signals external
+    /// pids), failing the port check spuriously.
     #[test]
     #[cfg(unix)]
     fn ensure_and_shutdown_supervise_real_leaf_binaries() {
@@ -407,7 +509,18 @@ mod tests {
             eprintln!("skipping: leaf service binaries not built");
             return;
         }
+        // Env mutation must be serialized — vendored susi_core/susi_config
+        // tests in this same binary flip XDG vars too, and a mid-test swap
+        // moves table_path() so shutdown_all loads an empty table and
+        // signals nothing (observed: all 5 ports still bound).
+        let _env_guard = susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let tmp = std::env::temp_dir().join(format!("susi_sup_e2e_{}", std::process::id()));
+        // Ports derived from this test process's pid: every invocation gets
+        // its own range, so a leaked child from a previous (or concurrent)
+        // run can never be mistaken for this run's services.
+        let base: u16 = 28000 + (std::process::id() % 1000) as u16 * 10;
         // SAFETY: env mutation in a test-only context; under nextest this
         // process runs this test alone. All reads happen after this block.
         #[allow(unsafe_code)]
@@ -417,7 +530,7 @@ mod tests {
                 std::env::set_var(v, &tmp);
             }
             for (i, s) in LEAF_SERVICES.iter().enumerate() {
-                std::env::set_var(s.port_env, (28980 + i as u16).to_string());
+                std::env::set_var(s.port_env, (base + i as u16).to_string());
             }
         }
 
@@ -426,13 +539,32 @@ mod tests {
         let all_up = LEAF_SERVICES.iter().all(|s| service_table::probe(s.port()));
 
         shutdown_all();
+        // The table pids must be dead; ports on this run's unique range
+        // must be closed. If a port somehow stays bound, kill the holder —
+        // it can only be a child this run spawned (unique range).
+        for s in LEAF_SERVICES {
+            if service_table::probe(s.port())
+                && let Some(pid) = service_table::pid_for_port(s.port())
+            {
+                let _ = signal(pid, SIGKILL);
+            }
+        }
+        let pids_dead = table.iter().all(|r| !service_table::pid_alive(r.pid));
         let all_down = LEAF_SERVICES
             .iter()
             .all(|s| !service_table::probe(s.port()));
 
         assert_eq!(table.len(), LEAF_SERVICES.len(), "every service supervised");
         assert!(all_up, "every service port live after ensure");
-        assert!(all_down, "every service port closed after shutdown");
+        assert!(
+            pids_dead,
+            "supervised pids still alive after shutdown: {:?}",
+            table
+                .iter()
+                .map(|r| (r.name.clone(), r.pid))
+                .collect::<Vec<_>>()
+        );
+        assert!(all_down, "ports still bound after shutdown");
         assert!(service_table::load().is_empty(), "table cleared");
         let _ = fs::remove_dir_all(&tmp);
     }

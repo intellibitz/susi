@@ -24,7 +24,10 @@ pub fn push_to_hardware_if_dev_build() {
                 let _ = fs::create_dir_all(&bin_dir);
                 let _ = fs::remove_file(&target);
                 if fs::copy(&exe, &target).is_ok() {
-                    println!("[SUBSTRATE DEPLOYMENT] Development build natively overriding hardware daemon path.");
+                    // stderr, not stdout — operator commands emit
+                    // machine-readable JSON on stdout (`crown verify`,
+                    // `os --json`); a deploy banner there corrupts parsing.
+                    eprintln!("[SUBSTRATE DEPLOYMENT] Development build natively overriding hardware daemon path.");
                 }
             }
         }

@@ -145,32 +145,36 @@ fn stop(name: &str) -> Result<()> {
     let Some(svc) = service_table::leaf_service(name) else {
         bail!("unknown service `{name}` (expected one of the leaf services)");
     };
-    let mut table = service_table::load();
-    let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) else {
-        bail!("{name} is not in the process table — nothing to stop");
-    };
-    if rec.external {
-        bail!(
-            "{name} is bound by an external process (pid {}) that the daemon \
-             does not supervise — stop it yourself",
-            rec.pid
-        );
-    }
     if susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_none() {
         bail!(
             "the daemon is not running — {name} is already unsupervised; \
-             kill pid {} directly if it is still alive",
-            rec.pid
+             kill its pid directly if it is still alive"
         );
     }
-    let pid = rec.pid;
+    // Set the flag BEFORE signaling — otherwise the monitor can win the
+    // race: see the dead pid, respawn a fresh child, then have its table
+    // overwritten by our flag with the new child orphaned. update_with
+    // serializes the load→mutate→save against the monitor's own pass.
+    let pid = service_table::update_with(|table| -> Result<u32, String> {
+        let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) else {
+            return Err(format!(
+                "{name} is not in the process table — nothing to stop"
+            ));
+        };
+        if rec.external {
+            return Err(format!(
+                "{name} is bound by an external process (pid {}) that the daemon \
+                 does not supervise — stop it yourself",
+                rec.pid
+            ));
+        }
+        rec.stopped = true;
+        Ok(rec.pid)
+    })
+    .map_err(|e| anyhow::anyhow!("{e}"))?
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
     #[cfg(unix)]
     {
-        // Set the flag BEFORE signaling — otherwise the monitor can win
-        // the race: see the dead pid, respawn a fresh child, then have
-        // its table overwritten by our flag with the new child orphaned.
-        rec.stopped = true;
-        service_table::save(&table)?;
         if service_table::pid_alive(pid) {
             let ok = std::process::Command::new("kill")
                 .args(["-TERM", &pid.to_string()])
@@ -198,17 +202,29 @@ fn start(name: &str) -> Result<()> {
     let Some(svc) = service_table::leaf_service(name) else {
         bail!("unknown service `{name}` (expected one of the leaf services)");
     };
-    let mut table = service_table::load();
-    if let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) {
-        if !rec.stopped {
+    // Same serialization as stop — a plain load→save here can be
+    // clobbered by the monitor's pass, silently losing the start.
+    let cleared = service_table::update_with(|table| {
+        table.iter_mut().find(|r| r.name == svc.name).map(|rec| {
+            if !rec.stopped {
+                return false;
+            }
+            rec.stopped = false;
+            rec.disabled_until = None;
+            true
+        })
+    })
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    match cleared {
+        Some(true) => {
+            println!("cleared stop on {name}; the supervisor will respawn it within ~5s");
+            return Ok(());
+        }
+        Some(false) => {
             println!("{name} is not stopped");
             return Ok(());
         }
-        rec.stopped = false;
-        rec.disabled_until = None;
-        service_table::save(&table)?;
-        println!("cleared stop on {name}; the supervisor will respawn it within ~5s");
-        return Ok(());
+        None => {}
     }
     // No record at all — dropping the name into the table as stopped=false
     // adds nothing; the monitor's missing-service path already retries
@@ -222,12 +238,19 @@ fn start(name: &str) -> Result<()> {
 }
 
 fn logs(name: &str, lines: usize) -> Result<()> {
-    let Some(svc) = service_table::leaf_service(name) else {
-        bail!("unknown service `{name}` (expected one of the leaf services)");
+    // "supervisor" is a valid pseudo-service — its log carries spawn,
+    // respawn, hold-down, and adoption decisions.
+    let file_name = if name == "supervisor" {
+        "supervisor".to_string()
+    } else {
+        let Some(svc) = service_table::leaf_service(name) else {
+            bail!("unknown service `{name}` (expected one of the leaf services, or `supervisor`)");
+        };
+        svc.name.to_string()
     };
     let path = susi_paths::SusiDirs::substrate_home()
         .join("logs")
-        .join(format!("{}.log", svc.name));
+        .join(format!("{file_name}.log"));
     let file = match std::fs::File::open(&path) {
         Ok(f) => f,
         Err(_) => bail!(
