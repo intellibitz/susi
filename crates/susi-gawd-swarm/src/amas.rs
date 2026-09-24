@@ -608,10 +608,26 @@ impl SusiSupervisor {
                             }
                             let _ = socket
                                 .send_to(signed.as_bytes(), format!("255.255.255.255:{}", port));
+                            // Discovered peers get a directed ping every
+                            // cycle — that handshake is their only path to
+                            // Explicit. Explicit members get one once they
+                            // pass half the staleness window: broadcast
+                            // keeps same-subnet members fresh (the filter
+                            // skips them, so no extra LAN traffic), but a
+                            // cross-subnet member can only be reached by a
+                            // directed ping — without this it decays
+                            // inactive 30s after `peers add`.
+                            let now = now_secs();
                             let targets: Vec<String> = t_shared
                                 .read()
                                 .iter()
-                                .filter(|p| matches!(p.admission, PeerAdmission::Discovered))
+                                .filter(|p| match p.admission {
+                                    PeerAdmission::Discovered => true,
+                                    PeerAdmission::Explicit => {
+                                        now.saturating_sub(p.last_seen_secs) > PEER_STALE_SECS / 2
+                                    }
+                                    PeerAdmission::Local => false,
+                                })
                                 .filter_map(|p| {
                                     p.address.split(':').next().map(|h| {
                                         format!("{h}:{}", crate::susi_paths::ports::UDP_DISCOVERY)
