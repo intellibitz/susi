@@ -370,6 +370,31 @@ async fn handle_gemi_request(
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
+            // OpenAI contract: an unknown `model` is a 400, not a silent
+            // reroute. Known names are honored by the governed pipeline's
+            // own selection (the response labels the model that served).
+            if let Some(ref requested) = completion.model {
+                let known = gemi::ModelManager::list_models(&workspace)
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|m| {
+                                m.get("model_id")
+                                    .or_else(|| m.get("id"))
+                                    .and_then(|v| v.as_str())
+                            })
+                            .any(|id| {
+                                id == requested || id.rsplit('/').next() == Some(requested.as_str())
+                            })
+                    })
+                    .unwrap_or(false);
+                if !known {
+                    return Ok(api_error(
+                        StatusCode::BAD_REQUEST,
+                        &format!("unknown model '{requested}' — see /v1/models"),
+                    ));
+                }
+            }
             let permit = match admission.try_acquire_owned() {
                 Ok(permit) => permit,
                 Err(_) => {
@@ -931,6 +956,7 @@ fn api_error(status: StatusCode, message: &str) -> Response<BoxBody> {
 struct CompletionInput {
     prompt: String,
     stream: bool,
+    model: Option<String>,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1000,7 +1026,15 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     if prompt.trim().is_empty() {
         return Err("Prompt must not be empty".into());
     }
-    Ok(CompletionInput { prompt, stream })
+    let model = object
+        .get("model")
+        .and_then(|m| m.as_str())
+        .map(str::to_string);
+    Ok(CompletionInput {
+        prompt,
+        stream,
+        model,
+    })
 }
 
 #[cfg(test)]
