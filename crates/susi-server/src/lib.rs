@@ -518,6 +518,7 @@ async fn handle_gemi_request(
                     trimmed_prompt,
                     active_model,
                     completion.model.clone(),
+                    completion.max_tokens,
                     Arc::clone(&workspace),
                     path == "/v1/completions",
                     permit,
@@ -583,8 +584,13 @@ async fn handle_gemi_request(
                 // body carries the raw model output, matching the
                 // streaming path's shape.
                 let body_text = unwrap_inference_render(&content).unwrap_or(content);
-                let payload =
-                    completion_response(&served_model, &body_text, path == "/v1/completions");
+                let (body_text, capped) = cap_completion(&body_text, completion.max_tokens);
+                let payload = completion_response(
+                    &served_model,
+                    &body_text,
+                    path == "/v1/completions",
+                    if capped { "length" } else { "stop" },
+                );
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
@@ -921,11 +927,12 @@ fn build_streaming_response(
     prompt: String,
     model_name: String,
     requested_model: Option<String>,
+    max_tokens: Option<u32>,
     workspace: Arc<PathBuf>,
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
-    let rx = completion_stream(model_name, legacy, move |callback| {
+    let rx = completion_stream(model_name, legacy, max_tokens, move |callback| {
         let _permit = permit;
         gemi::GemiEngine::generate_reasoning_stream_with_model(
             &prompt,
@@ -1023,11 +1030,58 @@ fn unwrap_inference_render(content: &str) -> Option<String> {
     Some(lines.join("\n"))
 }
 
-fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::Value {
-    let choice = if legacy {
-        json!({"index": 0, "text": content, "finish_reason": "stop", "logprobs": null})
+/// Cut `text` at `max_words` words or `max_chars` bytes, whichever binds
+/// first, at a UTF-8 boundary. Returns bytes kept and whether it cut.
+fn cap_piece(text: &str, max_words: usize, max_chars: usize) -> (usize, bool) {
+    let mut end = text.len().min(max_chars);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut in_word = false;
+    let mut words = 0usize;
+    for (i, ch) in text[..end].char_indices() {
+        if ch.is_whitespace() {
+            in_word = false;
+        } else if !in_word {
+            in_word = true;
+            words += 1;
+            if words > max_words {
+                end = i;
+                break;
+            }
+        }
+    }
+    (end, end < text.len())
+}
+
+/// Approximate-token cap for `max_tokens`. Without the provider's own
+/// tokenizer an exact count is impossible, so enforce whichever bound
+/// binds first — `max` whitespace-separated words (a word is never less
+/// than one token) or `max * 4` chars (~4 chars/token for dense text).
+/// Returns the served text and whether it was cut, so callers can report
+/// `finish_reason: "length"` honestly.
+fn cap_completion(text: &str, max_tokens: Option<u32>) -> (String, bool) {
+    let Some(max) = max_tokens.map(|m| m as usize).filter(|m| *m > 0) else {
+        return (text.to_string(), false);
+    };
+    let (end, cut) = cap_piece(text, max, max.saturating_mul(4));
+    if cut {
+        (text[..end].trim_end().to_string(), true)
     } else {
-        json!({"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"})
+        (text.to_string(), false)
+    }
+}
+
+fn completion_response(
+    model: &str,
+    content: &str,
+    legacy: bool,
+    finish_reason: &str,
+) -> serde_json::Value {
+    let choice = if legacy {
+        json!({"index": 0, "text": content, "finish_reason": finish_reason, "logprobs": null})
+    } else {
+        json!({"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": finish_reason})
     };
     json!({"id": completion_id(), "object": if legacy { "text_completion" } else { "chat.completion" },
         "created": now_secs(), "model": model, "choices": [choice]})
@@ -1038,14 +1092,12 @@ fn stream_chunk(
     model: &str,
     legacy: bool,
     delta: serde_json::Value,
-    finished: bool,
+    finish_reason: Option<&str>,
 ) -> String {
     let (id, created) = identity;
-    let reason = if finished {
-        json!("stop")
-    } else {
-        serde_json::Value::Null
-    };
+    let reason = finish_reason
+        .map(|r| json!(r))
+        .unwrap_or(serde_json::Value::Null);
     let choice = if legacy {
         json!({"index": 0, "text": delta.get("content").and_then(|v| v.as_str()).unwrap_or(""),
             "finish_reason": reason, "logprobs": null})
@@ -1062,6 +1114,7 @@ fn stream_chunk(
 fn completion_stream(
     model: String,
     legacy: bool,
+    max_tokens: Option<u32>,
     solve: impl FnOnce(&dyn Fn(String)) -> String + Send + 'static,
 ) -> tokio::sync::mpsc::Receiver<String> {
     // Bound queued frames and split large solver outputs so a slow client cannot
@@ -1077,18 +1130,40 @@ fn completion_stream(
                 &model,
                 legacy,
                 json!({"role": "assistant"}),
-                false,
+                None,
             ))
             .is_err()
         {
             return;
         }
         let emitted = std::cell::Cell::new(false);
+        let emitted_words = std::cell::Cell::new(0usize);
+        let emitted_chars = std::cell::Cell::new(0usize);
+        let truncated = std::cell::Cell::new(false);
         let callback = |piece: String| {
-            if piece.is_empty() {
+            if piece.is_empty() || truncated.get() {
                 return;
             }
             emitted.set(true);
+            // `max_tokens` budget: cut this piece at the remaining word/char
+            // allowance, then suppress the rest of the stream.
+            let mut piece = piece;
+            if let Some(max) = max_tokens.map(|m| m as usize) {
+                let (keep, cut) = cap_piece(
+                    &piece,
+                    max.saturating_sub(emitted_words.get()),
+                    max.saturating_mul(4).saturating_sub(emitted_chars.get()),
+                );
+                emitted_words.set(emitted_words.get() + piece[..keep].split_whitespace().count());
+                emitted_chars.set(emitted_chars.get() + keep);
+                if cut {
+                    truncated.set(true);
+                }
+                piece.truncate(keep);
+                if piece.is_empty() {
+                    return;
+                }
+            }
             let mut remaining = piece.as_str();
             while !remaining.is_empty() {
                 let mut end = remaining.len().min(4096);
@@ -1102,7 +1177,7 @@ fn completion_stream(
                         &model,
                         legacy,
                         json!({"content": chunk}),
-                        false,
+                        None,
                     ))
                     .is_err()
                 {
@@ -1122,7 +1197,7 @@ fn completion_stream(
                 &model,
                 legacy,
                 json!({}),
-                true,
+                Some(if truncated.get() { "length" } else { "stop" }),
             ))
             .is_ok()
         {
@@ -1166,6 +1241,7 @@ struct CompletionInput {
     prompt: String,
     stream: bool,
     model: Option<String>,
+    max_tokens: Option<u32>,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1239,16 +1315,70 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         .get("model")
         .and_then(|m| m.as_str())
         .map(str::to_string);
+    // `max_tokens` (legacy) and `max_completion_tokens` (current) alias the
+    // same budget; a present-but-invalid value is a client error, not
+    // silence.
+    let max_tokens = match object
+        .get("max_tokens")
+        .or_else(|| object.get("max_completion_tokens"))
+    {
+        None => None,
+        Some(v) => Some(
+            v.as_u64()
+                .filter(|n| *n > 0 && *n <= u64::from(u32::MAX))
+                .ok_or("max_tokens must be a positive integer")? as u32,
+        ),
+    };
     Ok(CompletionInput {
         prompt,
         stream,
         model,
+        max_tokens,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cap_completion_enforces_word_and_char_budgets() {
+        // No cap passes through unchanged.
+        assert_eq!(cap_completion("a b c", None), ("a b c".into(), false));
+        // Word budget binds first.
+        let (text, cut) = cap_completion("one two three four five", Some(2));
+        assert!(cut);
+        assert_eq!(text, "one two");
+        // Char budget (4/token) binds for dense single-token-ish text.
+        let (text, cut) = cap_completion("abcdefghij", Some(2));
+        assert!(cut);
+        assert!(text.len() <= 8);
+        // Under budget is untouched.
+        assert_eq!(cap_completion("short", Some(10)), ("short".into(), false));
+    }
+
+    #[test]
+    fn parses_max_tokens_and_rejects_invalid() {
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"max_tokens":42}"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(input.max_tokens, Some(42));
+        let aliased = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"max_completion_tokens":7}"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(aliased.max_tokens, Some(7));
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"max_tokens":-3}"#,
+                false,
+            )
+            .is_err()
+        );
+    }
 
     #[test]
     fn inference_render_unwraps_to_raw_model_output() {
@@ -1300,7 +1430,7 @@ mod tests {
     }
     #[tokio::test]
     async fn streaming_delivers_returned_answer_and_escapes_model_names() {
-        let mut rx = completion_stream("quoted\"model".into(), false, |_| "Hello 🦀".into());
+        let mut rx = completion_stream("quoted\"model".into(), false, None, |_| "Hello 🦀".into());
         let mut content = String::new();
         let mut stopped = false;
         while let Some(frame) = rx.recv().await {
@@ -1324,7 +1454,7 @@ mod tests {
     async fn streaming_does_not_duplicate_callback_output_and_chunks_unicode() {
         let answer = "🦀".repeat(3000);
         let expected = answer.clone();
-        let mut rx = completion_stream("model".into(), true, move |callback| {
+        let mut rx = completion_stream("model".into(), true, None, move |callback| {
             callback(answer.clone());
             answer
         });
@@ -1343,8 +1473,8 @@ mod tests {
 
     #[test]
     fn completion_metadata_is_current_unique_and_route_specific() {
-        let first = completion_response("m", "answer", true);
-        let second = completion_response("m", "answer", false);
+        let first = completion_response("m", "answer", true, "stop");
+        let second = completion_response("m", "answer", false, "stop");
         assert_ne!(first["id"], second["id"]);
         assert!(first["created"].as_u64().unwrap().abs_diff(now_secs()) <= 1);
         assert_eq!(first["choices"][0]["text"], "answer");
@@ -1354,7 +1484,7 @@ mod tests {
     async fn disconnected_stream_releases_admission() {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
-        let rx = completion_stream("m".into(), false, move |_| {
+        let rx = completion_stream("m".into(), false, None, move |_| {
             let _permit = permit;
             "answer".into()
         });
@@ -1374,7 +1504,7 @@ mod tests {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let rx = completion_stream("m".into(), false, move |callback| {
+        let rx = completion_stream("m".into(), false, None, move |callback| {
             let _permit = permit;
             let _ = started_tx.send(());
             callback("x".repeat(4096 * 32));
