@@ -41,7 +41,50 @@ fn post(
             .header("mcp-session-id", sid)
             .header("mcp-protocol-version", PROTOCOL_VERSION);
     }
+    // Prove `node.key` possession on every POST — a member whose pubkey is
+    // bound in the receiver's roster gets authorized by signature alone,
+    // and its sniffable shared bearer is refused (see `net_guard`).
+    for (name, value) in signed_headers(url) {
+        req = req.header(&name, value);
+    }
     req.send_json(body).map_err(|e| format!("POST {url}: {e}"))
+}
+
+/// `X-Susi-*` request-signature headers over
+/// `susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}`. Empty when no
+/// `node.key` exists (standalone host) — receivers treat the request as
+/// an unsigned call and apply the bearer/token rules.
+fn signed_headers(url: &str) -> Vec<(String, String)> {
+    use crate::susi_config::cluster_key;
+    let node = cluster_key::wire_node_id();
+    let path = url.splitn(4, '/').nth(3).map_or_else(
+        || "/".to_string(),
+        |p| {
+            // url = "http://{addr}/mcp" — the split yields the path sans
+            // leading slash; normalize so the receiver's
+            // `req.uri().path()` compares equal.
+            if p.is_empty() {
+                "/".to_string()
+            } else {
+                format!("/{p}")
+            }
+        },
+    );
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let nonce = cluster_key::random_nonce_hex();
+    let canonical = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:POST:{path}");
+    let Some(sig) = cluster_key::member_sign(&canonical) else {
+        return Vec::new();
+    };
+    vec![
+        ("x-susi-node".to_string(), node),
+        ("x-susi-req-ts".to_string(), ts.to_string()),
+        ("x-susi-req-nonce".to_string(), nonce),
+        ("x-susi-req-sig".to_string(), sig),
+    ]
 }
 
 /// Extract the `data:` JSON-RPC message matching `id` from an SSE body.

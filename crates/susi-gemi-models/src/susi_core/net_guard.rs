@@ -14,19 +14,56 @@ use std::time::{Duration, Instant};
 
 pub struct NetGuard;
 
+/// The `X-Susi-*` request-signature headers a member node attaches to
+/// peer MCP calls (`mcp_client` signs every POST when `node.key` is
+/// loadable). The signature covers
+/// `susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}` — a passive
+/// sniffer captures headers that cannot be re-minted for a different
+/// request, and the nonce cache makes verbatim replay fail outright.
+pub struct SignedRequest<'a> {
+    pub node: Option<&'a str>,
+    pub ts_secs: Option<u64>,
+    pub nonce: Option<&'a str>,
+    pub sig: Option<&'a str>,
+}
+
+impl SignedRequest<'_> {
+    /// Any signature-related header present — the request is a signed
+    /// attempt (valid or malformed), distinct from a plain bearer call.
+    pub fn present(&self) -> bool {
+        self.sig.is_some() || self.node.is_some() || self.nonce.is_some()
+    }
+}
+
+/// Clock skew tolerated between the sender's timestamp and local time.
+const REQ_SKEW_SECS: u64 = 300;
+
 impl NetGuard {
-    /// Whether an `Authorization: Bearer <token>` header satisfies the
-    /// configured `api_auth_token` for this peer.
+    /// Whether a request satisfies admission for this peer.
     ///
+    /// - Valid signed request → authorized on its own (proof of `node.key`
+    ///   possession beats any bearer).
+    /// - Malformed/invalid signed attempt → falls through to the bearer
+    ///   check (an unknown or unbound node still authenticates by
+    ///   credential; a *bound* member's bearer is refused anyway below).
     /// - Token configured → bearer required for every peer (zero-trust).
     /// - Token empty (pre-seed) → loopback only; remote peers denied.
     /// - A presented credential also passes when it is the cluster
     ///   peer bearer — derived from the shared `cluster.key`, so every
-    ///   member node presents the same value. The per-host api_token
-    ///   can never authenticate a remote node (it doesn't know it),
-    ///   which is why member-to-member MCP calls carry the derived
-    ///   credential instead.
-    pub fn is_authorized(auth_header: Option<&str>, peer: IpAddr) -> bool {
+    ///   member node presents the same value — **unless** the source
+    ///   address belongs to a member whose pubkey is bound: once a
+    ///   member can prove `node.key` possession, the sniffable shared
+    ///   bearer no longer suffices from its registered address.
+    pub fn is_authorized(
+        auth_header: Option<&str>,
+        peer: IpAddr,
+        signed: &SignedRequest<'_>,
+        method: &str,
+        path: &str,
+    ) -> bool {
+        if signed.present() && Self::signed_request_valid(signed, &peer, method, path) {
+            return true;
+        }
         let token = crate::susi_config::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
@@ -48,10 +85,121 @@ impl NetGuard {
                         // a fresh address is the documented residual —
                         // full revocation needs cluster re-key).
                         && !Self::peer_address_banned(&peer)
+                        // A member with a bound node key must prove it:
+                        // the bearer is sniffable plaintext and this peer
+                        // is capable of signing, so bearer-only calls from
+                        // its registered address are refused.
+                        && !Self::peer_key_bound(&peer)
                 })
             }
             None => token.is_empty() && peer.is_loopback(),
         }
+    }
+
+    /// Verify a signed peer request: the claimed node must be a roster
+    /// member with a bound pubkey, the source IP must be that member's
+    /// registered address, the timestamp must be inside the skew window,
+    /// the nonce must be fresh, and the Ed25519 signature must cover the
+    /// canonical request string.
+    fn signed_request_valid(
+        signed: &SignedRequest<'_>,
+        peer: &IpAddr,
+        method: &str,
+        path: &str,
+    ) -> bool {
+        let (Some(node), Some(ts), Some(nonce), Some(sig)) =
+            (signed.node, signed.ts_secs, signed.nonce, signed.sig)
+        else {
+            return false;
+        };
+        let Some((pubkey, member_ip)) = Self::bound_member(node) else {
+            return false;
+        };
+        if member_ip != *peer {
+            return false;
+        }
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if now.abs_diff(ts) > REQ_SKEW_SECS {
+            return false;
+        }
+        if !Self::record_nonce(node, nonce) {
+            return false;
+        }
+        let canonical = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
+        crate::susi_config::cluster_key::member_verify(&pubkey, &canonical, sig)
+    }
+
+    /// The `(pubkey, registered_ip)` of a roster member whose node key is
+    /// bound — the roster binding is what makes a member-signed request
+    /// meaningful (the pubkey was committed by `member_add`, not
+    /// self-asserted).
+    fn bound_member(node: &str) -> Option<(String, IpAddr)> {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
+        let text = std::fs::read_to_string(path).ok()?;
+        let peers = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        peers.iter().find_map(|p| {
+            if p.get("node_id").and_then(|v| v.as_str()) != Some(node) {
+                return None;
+            }
+            let pubkey = p.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
+            if pubkey.is_empty() {
+                return None;
+            }
+            let ip = p
+                .get("address")
+                .and_then(|v| v.as_str())
+                .and_then(|a| a.split(':').next())
+                .and_then(|h| h.parse::<IpAddr>().ok())?;
+            Some((pubkey.to_string(), ip))
+        })
+    }
+
+    /// Whether `ip` is the registered address of a member whose node key
+    /// is bound — such members must authenticate by signature, not the
+    /// sniffable shared bearer.
+    fn peer_key_bound(ip: &IpAddr) -> bool {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return false;
+        };
+        let Ok(peers) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
+            return false;
+        };
+        peers.iter().any(|p| {
+            !p.get("pubkey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .is_empty()
+                && p.get("address")
+                    .and_then(|a| a.as_str())
+                    .and_then(|a| a.split(':').next())
+                    .and_then(|h| h.parse::<IpAddr>().ok())
+                    .is_some_and(|pip| pip == *ip)
+        })
+    }
+
+    /// First-use insert for `{node}:{nonce}` — false on replay. Bounded:
+    /// at capacity an arbitrary entry is evicted (same self-deadlock-safe
+    /// pattern as `RateLimiter`); a reused nonce after eviction still
+    /// fails because the covering timestamp expired with the skew window.
+    fn record_nonce(node: &str, nonce: &str) -> bool {
+        static NONCES: OnceLock<DashMap<String, ()>> = OnceLock::new();
+        const CAP: usize = 50_000;
+        let seen = NONCES.get_or_init(DashMap::new);
+        let key = format!("{node}:{nonce}");
+        if seen.contains_key(&key) {
+            return false;
+        }
+        if seen.len() >= CAP {
+            let stale = seen.iter().next().map(|r| r.key().clone());
+            if let Some(stale) = stale {
+                seen.remove(&stale);
+            }
+        }
+        seen.insert(key, ()).is_none()
     }
 
     /// Whether `ip` is the address of a member in `peers_banned.json` —
@@ -183,6 +331,13 @@ mod tests {
         assert!(!limiter.check(ip, 1));
     }
 
+    const EMPTY_SIGNED: SignedRequest<'static> = SignedRequest {
+        node: None,
+        ts_secs: None,
+        nonce: None,
+        sig: None,
+    };
+
     #[test]
     fn empty_token_allows_loopback_only() {
         // When the live host already seeded a token this test observes the
@@ -193,16 +348,59 @@ mod tests {
             .unwrap_or_default()
             .api_auth_token();
         if token.is_empty() {
-            assert!(NetGuard::is_authorized(None, loopback));
-            assert!(!NetGuard::is_authorized(None, remote));
+            assert!(NetGuard::is_authorized(
+                None,
+                loopback,
+                &EMPTY_SIGNED,
+                "POST",
+                "/mcp"
+            ));
+            assert!(!NetGuard::is_authorized(
+                None,
+                remote,
+                &EMPTY_SIGNED,
+                "POST",
+                "/mcp"
+            ));
         } else {
-            assert!(!NetGuard::is_authorized(None, loopback));
+            assert!(!NetGuard::is_authorized(
+                None,
+                loopback,
+                &EMPTY_SIGNED,
+                "POST",
+                "/mcp"
+            ));
             assert!(NetGuard::is_authorized(
                 Some(&format!("Bearer {}", token)),
-                loopback
+                loopback,
+                &EMPTY_SIGNED,
+                "POST",
+                "/mcp"
             ));
-            assert!(!NetGuard::is_authorized(Some("Bearer wrong"), remote));
+            assert!(!NetGuard::is_authorized(
+                Some("Bearer wrong"),
+                remote,
+                &EMPTY_SIGNED,
+                "POST",
+                "/mcp"
+            ));
         }
+    }
+
+    #[test]
+    fn malformed_signed_attempt_falls_through_to_bearer_rules() {
+        // Sig headers present but node unknown → not authorized by
+        // signature, and no bearer → remote still denied.
+        let remote = IpAddr::from([8, 8, 8, 8]);
+        let signed = SignedRequest {
+            node: Some("susi-node-unknown"),
+            ts_secs: Some(0),
+            nonce: Some("abcd"),
+            sig: Some("00"),
+        };
+        assert!(!NetGuard::is_authorized(
+            None, remote, &signed, "POST", "/mcp"
+        ));
     }
 
     #[test]

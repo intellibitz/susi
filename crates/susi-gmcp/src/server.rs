@@ -179,13 +179,21 @@ async fn handle_request(
     peer: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
     let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+    let hdr = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok());
+    let signed = crate::susi_core::net_guard::SignedRequest {
+        node: hdr("x-susi-node"),
+        ts_secs: hdr("x-susi-req-ts").and_then(|s| s.parse().ok()),
+        nonce: hdr("x-susi-req-nonce"),
+        sig: hdr("x-susi-req-sig"),
+    };
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
     } else if !crate::susi_core::net_guard::NetGuard::is_authorized(
-        req.headers()
-            .get(hyper::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok()),
+        hdr(hyper::header::AUTHORIZATION.as_str()),
         peer,
+        &signed,
+        req.method().as_str(),
+        req.uri().path(),
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
     } else if !crate::susi_core::net_guard::RateLimiter::global()

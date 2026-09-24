@@ -104,6 +104,10 @@ async fn read_json_body(req: Request<Incoming>) -> Result<serde_json::Value, Res
     }
 }
 
+fn header_str<'a>(req: &'a Request<Incoming>, name: &str) -> Option<&'a str> {
+    req.headers().get(name).and_then(|v| v.to_str().ok())
+}
+
 fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<BoxBody> {
     let allow_origin = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
         .unwrap_or_default()
@@ -222,11 +226,20 @@ async fn handle_gemi_request(
     // world-facing surface is gated below.
     if method != Method::OPTIONS && path != "/health" {
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
+        let signed = susi_core::net_guard::SignedRequest {
+            node: header_str(&req, "x-susi-node"),
+            ts_secs: header_str(&req, "x-susi-req-ts").and_then(|s| s.parse().ok()),
+            nonce: header_str(&req, "x-susi-req-nonce"),
+            sig: header_str(&req, "x-susi-req-sig"),
+        };
         if !susi_core::net_guard::NetGuard::is_authorized(
             req.headers()
                 .get(hyper::header::AUTHORIZATION)
                 .and_then(|v| v.to_str().ok()),
             peer_ip,
+            &signed,
+            method.as_str(),
+            &path,
         ) {
             return Ok(json_response(
                 StatusCode::UNAUTHORIZED,
