@@ -311,7 +311,13 @@ fn list(
             r.tally,
             r.quorum_threshold,
             r.committed_at,
-            if r.verify() { "yes" } else { "NO" },
+            match r.verify_key_epoch() {
+                Some(commit_log::KeyEpoch::Current) => "yes",
+                // Valid but signed under the retired key — pre-rotation
+                // history, marked so an audit can tell the eras apart.
+                Some(commit_log::KeyEpoch::Prev) => "prev",
+                None => "NO",
+            },
             subject
         );
     }

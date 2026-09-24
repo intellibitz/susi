@@ -314,11 +314,17 @@ fn list(json: bool) -> Result<()> {
     let evicted = susi_paths::SusiDirs::config_dir()
         .join("cluster_evicted.json")
         .exists();
+    // The elected coordination head from term.json — marks the roster row
+    // so an operator can see who currently claims leadership.
+    let term = susi_core::commit_log::load_term();
+    let leader = term.leader.as_str();
     if json {
         // Machine surface for agents — same fields the table shows.
         let body = serde_json::json!({
             "node_id": susi_config::cluster_key::wire_node_id(),
             "evicted": evicted,
+            "leader": if leader.is_empty() { serde_json::Value::Null } else { serde_json::json!(leader) },
+            "term": term.term,
             "peers": nodes.iter().map(|n| serde_json::json!({
                 "node_id": n.get("node_id"),
                 "address": n.get("address"),
@@ -334,6 +340,9 @@ fn list(json: bool) -> Result<()> {
     // This node's wire identity — an operator verifying a member joined
     // needs the local id to match against the remote roster.
     println!("node: {}", susi_config::cluster_key::wire_node_id());
+    if !leader.is_empty() {
+        println!("leader: {} (term {})", leader, term.term);
+    }
     // A committed member_remove naming this node stands it down — the
     // scout is silent until a committed unban clears the marker.
     if evicted {
@@ -348,9 +357,15 @@ fn list(json: bool) -> Result<()> {
         "PEER", "ADDRESS", "TRUST", "ADMISSION"
     );
     for n in &nodes {
+        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let id = if id == leader {
+            format!("{} *", id)
+        } else {
+            id.to_string()
+        };
         println!(
             "{:<22} {:<22} {:<7.2} {:<8} {}",
-            n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
+            id,
             n.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
             n.get("trust_score").and_then(|v| v.as_f64()).unwrap_or(0.0),
             n.get("admission").and_then(|v| v.as_str()).unwrap_or("?"),
