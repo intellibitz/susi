@@ -1016,10 +1016,28 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
             if banned.iter().any(&member_matches) {
                 return;
             }
-            if let Some(i) = peers.iter().position(&member_matches) {
-                peers[i]["is_active"] = serde_json::json!(true);
-                peers[i]["last_seen_secs"] = serde_json::json!(record.committed_at);
-            } else {
+            // Collapse every row matching the committed identity into
+            // one — a synthetic `susi-peer-*` row or a stale pre-move
+            // address is superseded by the attested (id, addr) pair.
+            // Admission upgrades to explicit (the coordinator verified
+            // this member) while liveness fields stay as probed:
+            // membership grants standing, not liveness — the same
+            // invariant the new-row path keeps below.
+            let mut merged = false;
+            peers.retain_mut(|n| {
+                if !member_matches(n) {
+                    return true;
+                }
+                if merged {
+                    return false;
+                }
+                merged = true;
+                n["node_id"] = serde_json::json!(id);
+                n["address"] = serde_json::json!(addr);
+                n["admission"] = serde_json::json!("explicit");
+                true
+            });
+            if !merged {
                 // Explicit admission — the coordinator cryptographically
                 // verified this member — but `last_seen_secs: 0`:
                 // committed membership grants roster standing, not
@@ -1276,6 +1294,37 @@ mod tests {
                 .unwrap();
         assert!(banned.is_empty(), "unban must clear the eviction");
 
+        // Identity collapse: a committed add must supersede every row
+        // matching its (id|addr) — a synthetic LAN-discovery id at the
+        // same address, or the same node_id at a stale pre-move address.
+        // The surviving row carries the attested pair + explicit
+        // admission while keeping its probed liveness.
+        fs::write(
+            dir.join("peers.json"),
+            serde_json::to_string(&serde_json::json!([
+                { "node_id": "susi-peer-10.0.0.5", "address": "10.0.0.5:9090",
+                  "admission": "discovered", "last_seen_secs": 999 },
+                { "node_id": "node-d", "address": "10.0.0.44:9090",
+                  "admission": "explicit", "last_seen_secs": 12345 },
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        let Some(add_d) = seal_into_test(KIND_MEMBER_ADD, "node-d@10.0.0.5:9090") else {
+            return;
+        };
+        append_to(&path, &add_d).expect("append collapse add");
+        let peers: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+        assert_eq!(peers.len(), 1, "add must collapse matching rows into one");
+        assert_eq!(peers[0]["node_id"], "node-d");
+        assert_eq!(peers[0]["address"], "10.0.0.5:9090");
+        assert_eq!(peers[0]["admission"], "explicit");
+        assert_eq!(
+            peers[0]["last_seen_secs"], 999,
+            "committed membership grants standing, not liveness"
+        );
+
         // Self-edge guard: a committed add naming this node, or any
         // loopback address, never lands in peers.json — `peers add`
         // pushes the member record to the member itself, so this is a
@@ -1293,7 +1342,10 @@ mod tests {
         let peers: Vec<serde_json::Value> =
             serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
         assert!(
-            peers.is_empty(),
+            !peers.iter().any(|p| {
+                p["node_id"].as_str() == Some(self_id.as_str())
+                    || p["address"].as_str().is_some_and(|a| a.starts_with("127."))
+            }),
             "self/loopback member_add must not create a self-edge"
         );
 
@@ -1329,8 +1381,8 @@ mod tests {
         // roster correctly declined to apply them. The self-remove
         // evicts the self entry the derived roster had been carrying.
         let state = replay_records(&load_from(&path));
-        assert_eq!(state.memberships, 8);
-        assert_eq!(state.roster.len(), 1);
+        assert_eq!(state.memberships, 9);
+        assert_eq!(state.roster.len(), 2);
         assert!(state.banned.is_empty());
 
         // Malformed member specs can't seal, and a member record
