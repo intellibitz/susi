@@ -443,16 +443,28 @@ fn status(json_out: bool) -> Result<()> {
             "warning: members report different terms ({terms:?}) — leadership may be partitioned"
         );
     }
+    // The split-brain signal: same term but different claimed leaders
+    // means two nodes both believe they lead — term divergence alone
+    // can't see it when the partition predates the next election.
+    let leader_claims: std::collections::BTreeSet<String> = rows
+        .iter()
+        .filter(|r| r.get("error").is_none())
+        .filter_map(|r| {
+            let l = r.get("leader").and_then(|v| v.as_str())?;
+            (!l.is_empty()).then(|| l.to_string())
+        })
+        .collect();
+    if leader_claims.len() > 1 {
+        eprintln!(
+            "warning: members report different leaders ({leader_claims:?}) — possible split-brain; expect terms to diverge at the next election"
+        );
+    }
     if epochs.len() > 1 {
         eprintln!("warning: members report different key epochs ({epochs:?}) — a rekey is mid-flight or some members are stranded");
     }
     Ok(())
 }
 
-/// Follower-side `member_add` delegation: the elected leader seals
-/// config changes, so a non-leader asks it via `member_propose`. The
-/// subject was verified locally already — the proposal carries only
-/// the attested `node_id@address`, never key material.
 /// Follower-side delegation: the elected leader seals every committed
 /// roster delta, so a non-leader asks it via `member_propose`. The
 /// subject was resolved locally already — the proposal carries only
