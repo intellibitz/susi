@@ -31,7 +31,7 @@ impl PlaneHandler for ToolsPlaneHandler {
                 let args = payload.get("args").cloned().unwrap_or(json!({}));
                 let ws = workspace_path(&payload);
                 let text = ToolRegistry::execute_tool(name, &args, &ws);
-                if text.starts_with('[') && text.contains("Error") {
+                if looks_like_tool_error(&text) {
                     Ok(json!({ "error": text }))
                 } else {
                     Ok(json!({ "text": text }))
@@ -86,6 +86,46 @@ impl PlaneHandler for ToolsPlaneHandler {
     }
 }
 
+/// `ToolRegistry::execute_tool` flattens `Err(EaiError)` and MCP/JSON-RPC
+/// failures into bare strings, so error results must be detected textually —
+/// otherwise `"Protocol Error: ..."` leaks to callers as successful output.
+/// Display prefixes are checked only near the head so content that merely
+/// mentions an error is not misclassified.
+fn looks_like_tool_error(text: &str) -> bool {
+    let t = text.trim_start();
+    if t.starts_with("[FAIL]") || (t.starts_with('[') && t.contains("Error")) {
+        return true;
+    }
+    let head = &t[..t.len().min(64)];
+    head.contains(" Error:")
+        || head.contains(" Violation:")
+        || head.contains("Mcp error")
+        || head.contains("MCP Error")
+}
+
 pub fn register() {
     PlaneBus::global().register_prefix("tools.", Arc::new(ToolsPlaneHandler));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_tool_error;
+
+    #[test]
+    fn tool_error_text_detection_covers_stringified_failures() {
+        // The observed live leak: an MCP -32603 flattened to bare text.
+        assert!(looks_like_tool_error(
+            "Protocol Error: Mcp error: -32603: Unknown tool: reason"
+        ));
+        assert!(looks_like_tool_error("[FAIL] MCP: connection refused"));
+        assert!(looks_like_tool_error("[Tool Error] missing arg"));
+        assert!(looks_like_tool_error("Sandbox Error: path denied"));
+        assert!(looks_like_tool_error("Governance Violation: blocked"));
+        // Legitimate output must not be misclassified.
+        assert!(!looks_like_tool_error("the answer is 42"));
+        assert!(!looks_like_tool_error(
+            "Errors are documented later in this report."
+        ));
+        assert!(!looks_like_tool_error(""));
+    }
 }

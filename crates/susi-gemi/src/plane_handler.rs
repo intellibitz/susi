@@ -244,12 +244,17 @@ impl PlaneHandler for GemiPlaneHandler {
                         bus.stream_emit(stream_id, json!(chunk));
                     }
                 };
-                let text = match model {
-                    Some(m) if !m.is_empty() => {
-                        GemiEngine::generate_reasoning_stream_with_model(prompt, &ws, &emit, m)
+                // The serving backend is reported as a structured chunk
+                // before any content — text consumers skip non-string
+                // chunks; the OpenAI SSE layer uses it to label frames with
+                // the actual generator rather than the requested model.
+                let meta = |name: &str| {
+                    if !stream_id.is_empty() {
+                        bus.stream_emit(stream_id, json!({ "susi_meta": { "provider": name } }));
                     }
-                    _ => GemiEngine::generate_reasoning_stream(prompt, &ws, &emit),
                 };
+                let text =
+                    GemiEngine::generate_reasoning_stream_meta(prompt, &ws, &emit, model, &meta);
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_INFER_EMBED => {

@@ -353,6 +353,26 @@ pub mod gemi {
             on_chunk: &dyn Fn(String),
             model: Option<&str>,
         ) -> String {
+            Self::generate_reasoning_stream_with_model_meta(
+                prompt,
+                workspace,
+                on_chunk,
+                model,
+                &|_| {},
+            )
+        }
+
+        /// Streaming reasoning that also surfaces `susi_meta` control
+        /// chunks — the handler emits `{"susi_meta":{"provider":name}}`
+        /// when routing picks the actual serving backend, before any
+        /// content chunk, so SSE callers can label frames truthfully.
+        pub fn generate_reasoning_stream_with_model_meta(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+            on_meta: &dyn Fn(&str),
+        ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
             let result = req(
@@ -364,20 +384,25 @@ pub mod gemi {
                     "model": model,
                 }),
             );
-            while let Ok(chunk) = rx.try_recv() {
+            let deliver = |chunk: &Value| {
                 if let Some(s) = chunk.as_str() {
                     on_chunk(s.to_string());
                 } else if let Some(s) = chunk.get("text").and_then(|v| v.as_str()) {
                     on_chunk(s.to_string());
+                } else if let Some(p) = chunk
+                    .get("susi_meta")
+                    .and_then(|m| m.get("provider"))
+                    .and_then(|v| v.as_str())
+                {
+                    on_meta(p);
                 }
+            };
+            while let Ok(chunk) = rx.try_recv() {
+                deliver(&chunk);
             }
             // Drain remaining after handler returns
             while let Ok(chunk) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
-                if let Some(s) = chunk.as_str() {
-                    on_chunk(s.to_string());
-                } else if let Some(s) = chunk.get("text").and_then(|v| v.as_str()) {
-                    on_chunk(s.to_string());
-                }
+                deliver(&chunk);
             }
             bus.stream_close(&stream_id);
             match result {

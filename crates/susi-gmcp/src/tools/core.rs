@@ -1600,6 +1600,22 @@ fn fetch_commit_records(
     serde_json::from_str(text).map_err(|e| format!("bad records: {e}"))
 }
 
+/// True when a remote tool's `Ok` payload is actually stringified error
+/// text — MCP adapters can return `-32603`/protocol failures as content.
+/// Display prefixes are checked only near the head so output that merely
+/// mentions an error is not misclassified.
+fn remote_result_is_error(text: &str) -> bool {
+    let t = text.trim_start();
+    if t.contains("[FAIL]") {
+        return true;
+    }
+    let head = &t[..t.len().min(64)];
+    head.contains(" Error:")
+        || head.contains(" Violation:")
+        || head.contains("Mcp error")
+        || head.contains("MCP Error")
+}
+
 impl CoreTools {
     #[tool(
         name = "commit_log",
@@ -2035,7 +2051,7 @@ impl CoreTools {
         let remotes = GmcpClient::scout_reasoning_remotes();
         if let Some(best_remote) = remotes.first() {
             let res = GmcpClient::execute_external_tool(best_remote, "reason", &arg_s)?;
-            if !res.contains("[FAIL]") {
+            if !remote_result_is_error(&res) {
                 return Ok(res);
             }
         }
@@ -2668,6 +2684,25 @@ impl CoreTools {
             .abort(id, workspace)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
+    }
+}
+
+#[cfg(test)]
+mod remote_result_tests {
+    use super::remote_result_is_error;
+
+    #[test]
+    fn mcp_protocol_error_text_is_not_treated_as_tool_output() {
+        // The observed live leak: a -32603 surfaced through Ok(String).
+        assert!(remote_result_is_error(
+            "Protocol Error: Mcp error: -32603: Unknown tool: reason"
+        ));
+        assert!(remote_result_is_error("[FAIL] MCP: timeout"));
+        assert!(remote_result_is_error("MCP Error: tool crashed"));
+        assert!(!remote_result_is_error("the capital of France is Paris"));
+        assert!(!remote_result_is_error(
+            "Much later in the text an error: is mentioned"
+        ));
     }
 }
 

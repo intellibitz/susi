@@ -36,7 +36,7 @@ pub struct GemiEngine;
 
 impl GemiEngine {
     pub fn generate_reasoning(prompt: &str, workspace: &Path) -> String {
-        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None)
+        Self::reason_internal(prompt, workspace, true, &|_| {}, None, None, &|_| {})
     }
 
     pub fn generate_reasoning_deep(prompt: &str, workspace: &Path) -> String {
@@ -48,7 +48,15 @@ impl GemiEngine {
         workspace: &Path,
         min_complexity: Option<crate::intent::TaskComplexity>,
     ) -> String {
-        Self::reason_internal(prompt, workspace, false, &|_| {}, min_complexity, None)
+        Self::reason_internal(
+            prompt,
+            workspace,
+            false,
+            &|_| {},
+            min_complexity,
+            None,
+            &|_| {},
+        )
     }
 
     pub fn generate_reasoning_deep_with_model(
@@ -56,7 +64,15 @@ impl GemiEngine {
         workspace: &Path,
         model: &str,
     ) -> String {
-        Self::reason_internal(prompt, workspace, false, &|_| {}, None, Some(model))
+        Self::reason_internal(
+            prompt,
+            workspace,
+            false,
+            &|_| {},
+            None,
+            Some(model),
+            &|_| {},
+        )
     }
 
     pub fn generate_reasoning_stream(
@@ -64,7 +80,7 @@ impl GemiEngine {
         workspace: &Path,
         callback: &dyn Fn(String),
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, None)
+        Self::reason_internal(prompt, workspace, true, callback, None, None, &|_| {})
     }
 
     /// Streaming reasoning honoring a caller-requested model name — the
@@ -75,7 +91,29 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         model: &str,
     ) -> String {
-        Self::reason_internal(prompt, workspace, true, callback, None, Some(model))
+        Self::reason_internal(
+            prompt,
+            workspace,
+            true,
+            callback,
+            None,
+            Some(model),
+            &|_| {},
+        )
+    }
+
+    /// Streaming reasoning that also reports the actual serving backend
+    /// (provider name or local model id) through `meta` the moment routing
+    /// picks it — before any content chunk — so SSE callers can label
+    /// frames truthfully instead of echoing the requested model.
+    pub fn generate_reasoning_stream_meta(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: Option<&str>,
+        meta: &dyn Fn(&str),
+    ) -> String {
+        Self::reason_internal(prompt, workspace, true, callback, None, model, meta)
     }
 
     /// Ultra-Latency Competitive Inference Racing
@@ -87,6 +125,7 @@ impl GemiEngine {
         callback: &dyn Fn(String),
         min_complexity: Option<crate::intent::TaskComplexity>,
         requested_model: Option<&str>,
+        meta: &dyn Fn(&str),
     ) -> String {
         if allow_reflex {
             let (reflex_decision, _) = super::reflex::ReflexEngine::try_solve(prompt, workspace);
@@ -103,9 +142,11 @@ impl GemiEngine {
 
         // Latency / CPU-only gate: escalate to cloud when local is known-slow
         // (or host has no GPU). Sticky preference + optional interactive pick.
-        let explicit_local_request = requested_model
-            .map(|m| !crate::routing::InferenceRouter::is_cloud_provider_name(m))
-            .unwrap_or(false);
+        // A requested model is "explicitly local" when no registered
+        // provider matches it — `is_cloud_provider_name`'s '-' catch-all
+        // would misclassify hyphenated GGUF ids like `qwen2.5-0.5b-*`.
+        let explicit_local_request =
+            requested_model.is_some() && !Self::model_names_a_provider(requested_model);
         if !explicit_local_request {
             let names = crate::susi_core::registry::CapabilityRegistry::global().list_providers();
             if let Some(esc) = crate::routing::InferenceRouter::maybe_escalate_to_cloud(&names) {
@@ -115,7 +156,7 @@ impl GemiEngine {
                     esc.provider, esc.reason
                 ));
                 if let Some(text) =
-                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback)
+                    Self::try_discovered_providers(prompt, Some(&esc.provider), callback, meta)
                 {
                     return match Self::verify_axiomatic_alignment(&text, workspace) {
                         Ok(v) => v,
@@ -128,15 +169,24 @@ impl GemiEngine {
         // Pillar 4/8: prefer zero-config discovered providers (Ollama, vLLM, …)
         // before the native GGUF path. Skips Candle (Local) — that provider
         // delegates back into this function and would recurse.
-        if let Some(text) = Self::try_discovered_providers(prompt, requested_model, callback) {
+        if let Some(text) = Self::try_discovered_providers(prompt, requested_model, callback, meta)
+        {
             return match Self::verify_axiomatic_alignment(&text, workspace) {
                 Ok(v) => v,
                 Err(_) => text,
             };
         }
 
-        eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
-        callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
+        // Only announce failover when the provider cascade was actually in
+        // play: no model named (normal route) or the name matched a
+        // registered provider. A caller-named local model id reaches here
+        // by honoring, not fallback.
+        if requested_model.is_none() || Self::model_names_a_provider(requested_model) {
+            eprintln!("[INFERENCE FAILOVER] Falling back to local inference");
+            callback("[SUSI ROUTING] Falling back to local inference\n".to_string());
+        } else {
+            eprintln!("[INFERENCE] Caller-requested local model — native inference");
+        }
 
         // Primary Federated vs Native Inference Routing Edge
         let global_config =
@@ -168,6 +218,8 @@ impl GemiEngine {
                 min_complexity,
             )
         });
+        // Report the actual local generator before the first content chunk.
+        meta(selected_model.as_deref().unwrap_or(engine_key));
         let local_started = std::time::Instant::now();
         let result = engine.run_inference_stream(prompt, callback, selected_model.as_deref());
         if let Some(model) = selected_model.as_deref() {
@@ -180,8 +232,8 @@ impl GemiEngine {
                 );
             }
         }
-        if let Ok(res) = result {
-            if !res.trim().is_empty() {
+        match &result {
+            Ok(res) if !res.trim().is_empty() => {
                 // Feed the latency gate so the next request can escalate if slow.
                 if engine_key == "llamacpp" {
                     crate::routing::InferenceRouter::record_local_sample(
@@ -189,11 +241,13 @@ impl GemiEngine {
                         res.len(),
                     );
                 }
-                return match Self::verify_axiomatic_alignment(&res, workspace) {
+                return match Self::verify_axiomatic_alignment(res, workspace) {
                     Ok(v) => v,
-                    Err(_) => res,
+                    Err(_) => res.clone(),
                 };
             }
+            Ok(_) => eprintln!("[INFERENCE] Local engine returned empty output"),
+            Err(e) => eprintln!("[INFERENCE] Local engine failed: {e}"),
         }
 
         // Fleet Mandate: a fresh substrate with zero provisioned weights must
@@ -216,10 +270,7 @@ impl GemiEngine {
             workspace,
         )
         .unwrap_or_default();
-        if !power_res.contains("[FAIL]")
-            && !power_res.contains("[CAPABILITY_GAP]")
-            && !power_res.contains("Inference Error")
-        {
+        if !power_res.trim().is_empty() && !Self::looks_like_error_text(&power_res) {
             callback(power_res.clone());
             return power_res;
         }
@@ -297,6 +348,7 @@ impl GemiEngine {
         prompt: &str,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
+        meta: &dyn Fn(&str),
     ) -> Option<String> {
         // Mock-inference seam: under test the env opts out of *all* real
         // provider calls — discovered HTTP endpoints included — not just the
@@ -309,7 +361,43 @@ impl GemiEngine {
             prompt,
             requested_model,
             callback,
+            meta,
         )
+    }
+
+    /// True when a caller-requested model name substring-matches a
+    /// registered provider — the predicate both the strict-honoring early
+    /// return and the fallback announcement share, so a named local model
+    /// never triggers the cascade nor the "falling back" notice.
+    fn model_names_a_provider(requested_model: Option<&str>) -> bool {
+        let Some(model) = requested_model else {
+            return false;
+        };
+        let model_l = model.to_ascii_lowercase();
+        crate::susi_core::registry::CapabilityRegistry::global()
+            .list_providers()
+            .iter()
+            .any(|n| n.to_ascii_lowercase().contains(&model_l))
+    }
+
+    /// True when `text` is a stringified engine/tool failure rather than
+    /// generated content. Adapters flatten `Err(EaiError)` and MCP/JSON-RPC
+    /// failures into `Ok(String)`, so the markers must be detected textually.
+    /// Display prefixes are checked only near the head so legitimate output
+    /// that merely mentions an error is not misclassified.
+    pub(crate) fn looks_like_error_text(text: &str) -> bool {
+        let t = text.trim_start();
+        if t.contains("[FAIL]")
+            || t.contains("[CAPABILITY_GAP]")
+            || t.contains("[INFERENCE_FAILED]")
+        {
+            return true;
+        }
+        let head = &t[..t.len().min(64)];
+        head.contains(" Error:")
+            || head.contains(" Violation:")
+            || head.contains("Mcp error")
+            || head.contains("MCP Error")
     }
 
     fn try_providers(
@@ -317,6 +405,7 @@ impl GemiEngine {
         prompt: &str,
         requested_model: Option<&str>,
         callback: &dyn Fn(String),
+        meta: &dyn Fn(&str),
     ) -> Option<String> {
         let mut names: Vec<String> = registry
             .list_providers()
@@ -332,6 +421,17 @@ impl GemiEngine {
 
         if let Some(model) = requested_model {
             let model_l = model.to_ascii_lowercase();
+            // Strict honoring: a requested name that matches no registered
+            // provider is a local model id — return so the caller falls
+            // through to local inference instead of silently rerouting the
+            // named model to an arbitrary cloud provider. Shares its
+            // predicate with the fallback-announcement gate.
+            if !names
+                .iter()
+                .any(|n| n.to_ascii_lowercase().contains(&model_l))
+            {
+                return None;
+            }
             names.sort_by_key(|n| {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
                 let preferred = crate::routing::InferenceRouter::matches_preferred_cloud(n);
@@ -363,6 +463,9 @@ impl GemiEngine {
                             errors.len()
                         );
                     }
+                    // Actual generator — emitted before the content chunk so
+                    // SSE labels can name it instead of the requested model.
+                    meta(&name);
                     callback(text.clone());
                     return Some(text);
                 }
@@ -553,6 +656,28 @@ mod tests {
     use super::*;
 
     use std::thread;
+
+    #[test]
+    fn error_text_detection_rejects_stringified_failures() {
+        // The observed live leak: an MCP -32603 surfaced through Ok(String)
+        // all the way into a chat completion's content.
+        assert!(GemiEngine::looks_like_error_text(
+            "Protocol Error: Mcp error: -32603: Unknown tool: reason"
+        ));
+        assert!(GemiEngine::looks_like_error_text(
+            "[FAIL] SUSI-Tier2-Inference: exhausted"
+        ));
+        assert!(GemiEngine::looks_like_error_text(
+            "Inference Error: model crashed"
+        ));
+        assert!(GemiEngine::looks_like_error_text(
+            "Governance Violation: blocked"
+        ));
+        assert!(!GemiEngine::looks_like_error_text("the answer is 42"));
+        assert!(!GemiEngine::looks_like_error_text(
+            "Later in the text an error: is discussed"
+        ));
+    }
 
     #[test]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
@@ -799,7 +924,7 @@ mod tests {
             reply: "recovered",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {});
+        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("recovered"));
     }
 
@@ -819,7 +944,7 @@ mod tests {
             reply: "from-ollama",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {});
+        let out = GemiEngine::try_providers(&registry, "hello", None, &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("from-ollama"));
     }
 
@@ -835,7 +960,7 @@ mod tests {
             reply: "mixtral",
         });
 
-        let out = GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {});
+        let out = GemiEngine::try_providers(&registry, "hello", Some("mixtral"), &|_| {}, &|_| {});
         assert_eq!(out.as_deref(), Some("mixtral"));
     }
 

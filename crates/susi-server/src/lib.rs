@@ -939,15 +939,16 @@ fn build_streaming_response(
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
-    let rx = completion_stream(model_name, legacy, max_tokens, move |callback| {
+    let rx = completion_stream(model_name, legacy, max_tokens, move |callback, meta| {
         let _permit = permit;
-        gemi::GemiEngine::generate_reasoning_stream_with_model(
+        gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
             &prompt,
             &workspace,
             &|chunk| {
                 callback(chunk);
             },
             requested_model.as_deref(),
+            meta,
         )
     });
     let stream =
@@ -1152,33 +1153,57 @@ fn completion_stream(
     model: String,
     legacy: bool,
     max_tokens: Option<u32>,
-    solve: impl FnOnce(&dyn Fn(String)) -> String + Send + 'static,
+    solve: impl FnOnce(&dyn Fn(String), &dyn Fn(&str)) -> String + Send + 'static,
 ) -> tokio::sync::mpsc::Receiver<String> {
-    // Bound queued frames and split large solver outputs so a slow client cannot
+    // Bound queued frames and split large frames so a slow client cannot
     // retain an unbounded response queue. Blocking sends run only on the blocking pool.
     let (tx, rx) = tokio::sync::mpsc::channel(16);
     let error_tx = tx.clone();
     let task = tokio::task::spawn_blocking(move || {
         let id = completion_id();
         let created = now_secs();
-        if tx
-            .blocking_send(stream_chunk(
+        // The solver reports the actual serving backend through the meta
+        // callback before content starts; until then fall back to the
+        // requested/resolved label so early paths (reflex solves) stay sane.
+        let actual: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+        let role_sent = std::cell::Cell::new(false);
+        let label = || actual.borrow().clone().unwrap_or_else(|| model.clone());
+        // The role frame is deferred until the meta report or the first
+        // content chunk so its `model` field names the true generator.
+        let send_role = |tx: &tokio::sync::mpsc::Sender<String>| -> bool {
+            if role_sent.replace(true) {
+                return true;
+            }
+            tx.blocking_send(stream_chunk(
                 (&id, created),
-                &model,
+                &label(),
                 legacy,
                 json!({"role": "assistant"}),
                 None,
             ))
-            .is_err()
-        {
-            return;
-        }
+            .is_ok()
+        };
+        let meta_cb = |name: &str| {
+            *actual.borrow_mut() = Some(name.to_string());
+            let _ = send_role(&tx);
+        };
         let emitted = std::cell::Cell::new(false);
         let emitted_words = std::cell::Cell::new(0usize);
         let emitted_chars = std::cell::Cell::new(0usize);
         let truncated = std::cell::Cell::new(false);
+        let failed = std::cell::Cell::new(false);
         let callback = |piece: String| {
             if piece.is_empty() || truncated.get() {
+                return;
+            }
+            // Engine failure markers are not content — suppress them and
+            // terminate the stream with an SSE error frame instead.
+            let head = piece.trim_start();
+            if head.starts_with("[FAIL]") || head.starts_with("[INFERENCE_FAILED]") {
+                failed.set(true);
+                return;
+            }
+            if !send_role(&tx) {
                 return;
             }
             emitted.set(true);
@@ -1211,7 +1236,7 @@ fn completion_stream(
                 if tx
                     .blocking_send(stream_chunk(
                         (&id, created),
-                        &model,
+                        &label(),
                         legacy,
                         json!({"content": chunk}),
                         None,
@@ -1223,15 +1248,30 @@ fn completion_stream(
                 remaining = rest;
             }
         };
-        let result = solve(&callback);
+        let result = solve(&callback, &meta_cb);
         // Some solver paths return a complete answer without invoking callbacks.
-        if !emitted.get() {
+        if !emitted.get() && !failed.get() {
             callback(result);
+        }
+        if failed.get() {
+            let _ = tx.blocking_send(format!(
+                "data: {}\n\ndata: [DONE]\n\n",
+                json!({"error": {
+                    "message": "inference failed", "type": "server_error",
+                    "code": "inference_exhausted"
+                }})
+            ));
+            return;
+        }
+        // A solver that produced neither meta nor content still owes the
+        // client the opening role frame before the finish frame.
+        if !send_role(&tx) {
+            return;
         }
         if tx
             .blocking_send(stream_chunk(
                 (&id, created),
-                &model,
+                &label(),
                 legacy,
                 json!({}),
                 Some(if truncated.get() { "length" } else { "stop" }),
@@ -1467,7 +1507,9 @@ mod tests {
     }
     #[tokio::test]
     async fn streaming_delivers_returned_answer_and_escapes_model_names() {
-        let mut rx = completion_stream("quoted\"model".into(), false, None, |_| "Hello 🦀".into());
+        let mut rx = completion_stream("quoted\"model".into(), false, None, |_, _| {
+            "Hello 🦀".into()
+        });
         let mut content = String::new();
         let mut stopped = false;
         while let Some(frame) = rx.recv().await {
@@ -1491,7 +1533,7 @@ mod tests {
     async fn streaming_does_not_duplicate_callback_output_and_chunks_unicode() {
         let answer = "🦀".repeat(3000);
         let expected = answer.clone();
-        let mut rx = completion_stream("model".into(), true, None, move |callback| {
+        let mut rx = completion_stream("model".into(), true, None, move |callback, _| {
             callback(answer.clone());
             answer
         });
@@ -1521,7 +1563,7 @@ mod tests {
     async fn disconnected_stream_releases_admission() {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
-        let rx = completion_stream("m".into(), false, None, move |_| {
+        let rx = completion_stream("m".into(), false, None, move |_, _| {
             let _permit = permit;
             "answer".into()
         });
@@ -1541,7 +1583,7 @@ mod tests {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let rx = completion_stream("m".into(), false, None, move |callback| {
+        let rx = completion_stream("m".into(), false, None, move |callback, _| {
             let _permit = permit;
             let _ = started_tx.send(());
             callback("x".repeat(4096 * 32));

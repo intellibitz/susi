@@ -52,7 +52,9 @@ impl Provider for McpInferenceProvider {
         let prompt = prompt.to_string();
         Box::pin(async move {
             let text = invoke_mcp_llm(&server, &tool, &prompt);
-            if text.trim().is_empty() || text.contains("[FAIL]") || text.contains("MCP Error") {
+            if text.trim().is_empty()
+                || crate::engines::runtime::GemiEngine::looks_like_error_text(&text)
+            {
                 return Err(crate::susi_core::susi_error::EaiError::inference(format!(
                     "MCP inference via {}:{} failed: {}",
                     server,
@@ -98,7 +100,9 @@ fn invoke_mcp_llm(server: &str, tool: &str, prompt: &str) -> String {
         let res = plane_tools::execute_external_tool(server, tool, &payload)
             .unwrap_or_else(|e| format!("[FAIL] {e}"));
         last = res.clone();
-        if !res.contains("[FAIL]") && !res.contains("MCP Error") && !res.trim().is_empty() {
+        if !res.trim().is_empty()
+            && !crate::engines::runtime::GemiEngine::looks_like_error_text(&res)
+        {
             return extract_text_payload(&res);
         }
     }

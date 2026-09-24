@@ -294,7 +294,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         crate::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),
         );
-        if let Some(text) = GemiEngine::try_discovered_providers(prompt, None, callback) {
+        if let Some(text) = GemiEngine::try_discovered_providers(prompt, None, callback, &|_| {}) {
             return Ok(text);
         }
 

@@ -323,11 +323,24 @@ impl ModelManager {
 
         let susi_models = Self::get_models_dir();
         if let Ok(entries) = std::fs::read_dir(&susi_models) {
+            // Only weight files are candidates — sibling artifacts
+            // (*.download.json, *.lock, *.tokenizer.json) also contain the
+            // model id in their names and must never resolve as the model.
+            let mut fuzzy = None;
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.to_string_lossy().contains(model_id) && path.is_file() {
+                if !path.is_file() || path.extension().and_then(|e| e.to_str()) != Some("gguf") {
+                    continue;
+                }
+                if path.file_stem().and_then(|s| s.to_str()) == Some(model_id) {
                     return Some(path);
                 }
+                if fuzzy.is_none() && path.to_string_lossy().contains(model_id) {
+                    fuzzy = Some(path);
+                }
+            }
+            if fuzzy.is_some() {
+                return fuzzy;
             }
         }
 
