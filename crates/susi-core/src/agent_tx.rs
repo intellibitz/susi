@@ -209,6 +209,46 @@ impl TxManager {
         Ok(out)
     }
 
+    /// Re-load persisted transactions from `workspace/.susi/tx/` into the
+    /// in-memory map. Each CLI invocation is a fresh process — without
+    /// hydration `list`, `commit` and `abort` can never see a `begin`
+    /// issued by an earlier call. Closed rows on disk also shadow stale
+    /// in-memory open rows for the same id.
+    pub fn hydrate(&self, workspace: &Path) {
+        let dir = workspace.join(".susi").join("tx");
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut max_id = 0u64;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(tx) = serde_json::from_str::<AgentTransaction>(&text) else {
+                continue;
+            };
+            if let Some(n) = tx
+                .id
+                .strip_prefix("tx-")
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                max_id = max_id.max(n + 1);
+            }
+            if tx.status == TxStatus::Open {
+                self.open.insert(tx.id.clone(), tx);
+            } else {
+                self.open.remove(&tx.id);
+            }
+        }
+        // A hydrated tx-7 must not collide with the next `begin` minting
+        // tx-1 in a fresh process — advance the counter past disk state.
+        self.next_id.fetch_max(max_id, Ordering::Relaxed);
+    }
+
     fn persist(&self, tx: &AgentTransaction) {
         let dir = PathBuf::from(&tx.workspace).join(".susi").join("tx");
         let _ = std::fs::create_dir_all(&dir);

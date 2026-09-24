@@ -28,6 +28,9 @@ pub enum TxCommands {
 
 pub fn execute(action: Option<TxCommands>, workspace: &Path) -> Result<()> {
     let mgr = susi_core::agent_tx::TxManager::global();
+    // Every CLI call is a fresh process — pull the durable .susi/tx/
+    // records in so commit/abort/list see earlier `begin`s.
+    mgr.hydrate(workspace);
     match action {
         Some(TxCommands::Begin { description, files }) => {
             let file_rels: Vec<String> = files
