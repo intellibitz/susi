@@ -658,7 +658,12 @@ impl SusiSupervisor {
                 let bb = Arc::clone(&blackboard);
                 rayon::spawn(move || {
                     let remote_res = Self::dispatch_peer_task(&addr, "reason", &g);
-                    if !remote_res.contains("unreachable") {
+                    // Only genuine peer outputs may vote: transport
+                    // failures ("unreachable") and tool-level refusals
+                    // ("[A2A Error") are excluded — an error string is
+                    // not an opinion and must never reach quorum.
+                    if !remote_res.contains("unreachable") && !remote_res.starts_with("[A2A Error")
+                    {
                         bb.insert(format!("PeerNode_{}", node_id), remote_res);
                     }
                 });
@@ -820,8 +825,15 @@ impl SusiSupervisor {
                         rayon::spawn(move || {
                             // Best-effort: an unreachable voter just misses
                             // this entry — the ledger is a recovery aid, not
-                            // the commit itself.
-                            let _ = Self::dispatch_peer_task(&addr, "commit_record", &body);
+                            // the commit itself. A tool-level refusal
+                            // (stale term, chain divergence) is consensus-
+                            // relevant though — log it, never swallow it.
+                            let res = Self::dispatch_peer_task(&addr, "commit_record", &body);
+                            if res.starts_with("[A2A Error") || res.contains("unreachable") {
+                                eprintln!(
+                                    "- [Consensus Master] commit push to {addr} failed: {res}"
+                                );
+                            }
                         });
                     }
                 }
@@ -1034,7 +1046,16 @@ impl SusiSupervisor {
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
                     .unwrap_or_else(|| result.to_string());
-                format!("[A2A Flux ({})]: {}", addr, text.trim())
+                // MCP transport success ≠ tool success: `isError` marks a
+                // tool-level refusal (bad args, stale term, chain
+                // divergence). It must be labeled as an error — a Flux-
+                // labeled error would be inserted as a peer output and
+                // could vote in quorum.
+                if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+                    format!("[A2A Error ({})]: {}", addr, text.trim())
+                } else {
+                    format!("[A2A Flux ({})]: {}", addr, text.trim())
+                }
             }
             Err(e) => format!("[A2A Fallback]: Node '{}' unreachable ({e}).", addr),
         }
