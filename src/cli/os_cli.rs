@@ -31,12 +31,17 @@ fn status(json: bool) -> Result<()> {
     let services = service_table::status();
     let peers = load_verified_peers();
     let up = services.iter().filter(|s| s.up).count();
+    // A committed member_remove naming this node stands it down.
+    let evicted = susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists();
 
     if json {
         let daemon =
             susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
         let body = serde_json::json!({
             "node_id": susi_config::cluster_key::wire_node_id(),
+            "evicted": evicted,
             "consensus": {
                 "term": state.term.max(term.term),
                 "leader": leader_display(&state, &term),
@@ -92,10 +97,7 @@ fn status(json: bool) -> Result<()> {
     );
     println!("services:    {}/{} leaf services up", up, services.len());
     println!("peers:       {} verified cluster member(s)", peers.len());
-    if susi_paths::SusiDirs::config_dir()
-        .join("cluster_evicted.json")
-        .exists()
-    {
+    if evicted {
         println!("cluster:     EVICTED — removed by a committed member_remove; standing down until a committed unban");
     }
     let daemon = susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
