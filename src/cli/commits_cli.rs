@@ -243,12 +243,26 @@ fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()
         .filter(|r| term.is_none_or(|t| r.term == t))
         .collect();
     println!(
-        "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} VERIFIED",
-        "EPOCH", "SEQ", "TERM", "COORDINATOR", "KIND", "TALLY", "QUORUM", "COMMITTED_AT"
+        "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {:<8} SUBJECT",
+        "EPOCH",
+        "SEQ",
+        "TERM",
+        "COORDINATOR",
+        "KIND",
+        "TALLY",
+        "QUORUM",
+        "COMMITTED_AT",
+        "VERIFIED"
     );
     for r in records.iter().rev().take(limit.min(500)) {
+        // Member rows show the delta's target — an audit of roster
+        // history needs the who, not just the kind.
+        let subject = r
+            .member_delta()
+            .map(|(_, id, addr)| format!("{id}@{addr}"))
+            .unwrap_or_else(|| "-".to_string());
         println!(
-            "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {}",
+            "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {:<8} {}",
             &r.epoch[..12.min(r.epoch.len())],
             r.seq,
             r.term,
@@ -261,7 +275,8 @@ fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()
             r.tally,
             r.quorum_threshold,
             r.committed_at,
-            if r.verify() { "yes" } else { "NO" }
+            if r.verify() { "yes" } else { "NO" },
+            subject
         );
     }
     Ok(())
