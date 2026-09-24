@@ -160,10 +160,19 @@ fn session_request(
             "params": params
         }),
     )?;
-    let text = resp
-        .into_body()
-        .read_to_string()
-        .map_err(|e| format!("read SSE body: {e}"))?;
+    // Bound the response: a peer streaming an unbounded body inside the
+    // 20s recv window could still exhaust memory — cap at 16 MiB, far
+    // above any tool result the protocol legitimately carries.
+    let text = {
+        use std::io::Read;
+        let mut buf = String::new();
+        resp.into_body()
+            .as_reader()
+            .take(16 * 1024 * 1024)
+            .read_to_string(&mut buf)
+            .map_err(|e| format!("read SSE body: {e}"))?;
+        buf
+    };
     sse_result(&text, 2)
 }
 
