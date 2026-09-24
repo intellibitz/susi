@@ -877,6 +877,22 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
     let Some((kind, id, addr)) = record.member_delta() else {
         return;
     };
+    // A committed add about ourselves or a loopback address is a
+    // no-op — a node never lists itself as a peer (the same self-edge
+    // rule the scout and `peers add` enforce). `peers add` pushes the
+    // member record to the new member too, so this case is routine,
+    // not adversarial.
+    if kind == KIND_MEMBER_ADD {
+        let self_edge = id == crate::susi_config::cluster_key::wire_node_id()
+            || addr
+                .split(':')
+                .next()
+                .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+        if self_edge {
+            return;
+        }
+    }
     // Serialize the roster read-modify-write across processes — same
     // lockfile discipline as the ledger append itself.
     let Some(_lock) = FileLock::acquire(dir, "peers") else {
@@ -1163,10 +1179,33 @@ mod tests {
                 .unwrap();
         assert!(banned.is_empty(), "unban must clear the eviction");
 
-        // Replay derives the same membership view the applies produced.
+        // Self-edge guard: a committed add naming this node, or any
+        // loopback address, never lands in peers.json — `peers add`
+        // pushes the member record to the member itself, so this is a
+        // routine delivery, not an adversarial edge.
+        let self_id = crate::susi_config::cluster_key::wire_node_id();
+        let Some(self_add) = seal_into_test(KIND_MEMBER_ADD, &format!("{self_id}@10.0.0.9:9090"))
+        else {
+            return;
+        };
+        append_to(&path, &self_add).expect("append self-add");
+        let Some(loop_add) = seal_into_test(KIND_MEMBER_ADD, "node-c@127.0.0.1:9090") else {
+            return;
+        };
+        append_to(&path, &loop_add).expect("append loop-add");
+        let peers: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+        assert!(
+            peers.is_empty(),
+            "self/loopback member_add must not create a self-edge"
+        );
+
+        // Replay is the pure cluster view — the deltas were committed,
+        // so the derived roster reports them even though the local
+        // roster correctly declined to apply them.
         let state = replay_records(&load_from(&path));
-        assert_eq!(state.memberships, 4);
-        assert!(state.roster.is_empty());
+        assert_eq!(state.memberships, 6);
+        assert_eq!(state.roster.len(), 2);
         assert!(state.banned.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
