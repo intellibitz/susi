@@ -129,12 +129,32 @@ fn slog(msg: &str) {
     }
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         use std::io::Write;
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let _ = writeln!(f, "[{ts}] {msg}");
+        let _ = writeln!(f, "[{}] {msg}", utc_now());
     }
+}
+
+/// `YYYY-MM-DD HH:MM:SS` UTC from the wall clock — readable ops
+/// timestamps without pulling a datetime crate into the supervisor.
+fn utc_now() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = secs / 86400;
+    let tod = secs % 86400;
+    let (h, m, s) = (tod / 3600, tod % 3600 / 60, tod % 60);
+    // civil-from-days (Howard Hinnant's algorithm)
+    let z = days as i64 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mo <= 2 { y + 1 } else { y };
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z")
 }
 
 /// Wait until a port accepts TCP connections or the deadline passes.
@@ -482,6 +502,16 @@ mod tests {
         assert!(signal(pid, SIGTERM));
         let _ = child.wait();
         assert!(!service_table::pid_alive(pid));
+    }
+
+    #[test]
+    fn utc_now_formats_iso_utc() {
+        let ts = utc_now();
+        assert_eq!(ts.len(), 20, "YYYY-MM-DD HH:MM:SSZ: {ts}");
+        assert!(ts.ends_with('Z'));
+        assert_eq!(&ts[4..5], "-");
+        assert_eq!(&ts[7..8], "-");
+        assert_eq!(&ts[10..11], " ");
     }
 
     #[test]

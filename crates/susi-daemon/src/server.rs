@@ -90,11 +90,16 @@ pub struct DaemonLock {
 impl DaemonLock {
     #[allow(unsafe_code)]
     fn acquire(path: &Path) -> Result<Self, String> {
+        // No .truncate(true): a contending acquire must not wipe the
+        // holder's pid/substrate lines before flock refuses it — the
+        // empty file would make check_status report "not running" for a
+        // live daemon. write_pid truncates explicitly once the lock is
+        // ours.
         let file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .open(path)
             .map_err(|e| e.to_string())?;
 
@@ -1061,16 +1066,28 @@ mod tests {
         let global_lock_path = SusiDaemon::get_lock_file(&global_dir);
         let _ = std::fs::remove_file(&global_lock_path);
 
-        let first = DaemonLock::acquire(&global_lock_path);
+        let mut first = DaemonLock::acquire(&global_lock_path);
         assert!(
             first.is_ok(),
             "the first daemon must be able to acquire the global lock"
         );
+        let _ = first
+            .as_mut()
+            .map(|l| l.write_pid(&global_dir))
+            .expect("lock");
 
         let second = DaemonLock::acquire(&global_lock_path);
         assert!(
             second.is_err(),
             "a second daemon must be refused the global lock while the first is still running"
+        );
+        // A contended acquire must not truncate the holder's pid lines —
+        // a wiped lock file makes check_status report "not running" for a
+        // live daemon.
+        let contents = std::fs::read_to_string(&global_lock_path).unwrap_or_default();
+        assert!(
+            !contents.trim().is_empty(),
+            "contended acquire wiped the lock file"
         );
 
         drop(first);
