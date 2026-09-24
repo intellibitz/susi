@@ -541,7 +541,13 @@ impl Drop for FileLock {
 /// leader and bumps the term when leadership changed, returning the
 /// term to stamp on the record. Same-leader re-elections reuse the
 /// current term — terms move only on real leadership transitions.
+/// An evicted node cannot claim: its term freezes while the marker
+/// stands, so exile can't be spent inflating a term the cluster would
+/// adopt on re-admission.
 pub fn claim_leadership(leader: &str) -> u64 {
+    if SusiDirs::config_dir().join("cluster_evicted.json").exists() {
+        return load_term().term;
+    }
     claim_leadership_at(&term_path(), leader)
 }
 
