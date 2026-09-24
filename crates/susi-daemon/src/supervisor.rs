@@ -92,12 +92,9 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
     };
     let log_dir = crate::susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
-    let open_log = || {
-        OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_dir.join(format!("{}.log", svc.name)))
-    };
+    let log_path = log_dir.join(format!("{}.log", svc.name));
+    rotate_log_if_large(&log_path, 16 * 1024 * 1024);
+    let open_log = || OpenOptions::new().create(true).append(true).open(&log_path);
     let (out, err) = match (open_log(), open_log()) {
         (Ok(o), Ok(e)) => (Stdio::from(o), Stdio::from(e)),
         _ => (Stdio::null(), Stdio::null()),
@@ -131,9 +128,23 @@ fn slog(msg: &str) {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
+    rotate_log_if_large(&path, 4 * 1024 * 1024);
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         use std::io::Write;
         let _ = writeln!(f, "[{}] {msg}", utc_now());
+    }
+}
+
+/// Single-generation rotation: past `cap_bytes` the log becomes
+/// `{name}.1` (previous generation discarded) and the writer continues
+/// on a fresh file. Bounds every supervised log at ~2×cap without
+/// losing the most recent history a debugging session needs.
+fn rotate_log_if_large(path: &std::path::Path, cap_bytes: u64) {
+    let oversized = fs::metadata(path)
+        .map(|m| m.len() > cap_bytes)
+        .unwrap_or(false);
+    if oversized {
+        let _ = fs::rename(path, path.with_extension("log.1"));
     }
 }
 

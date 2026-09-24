@@ -68,9 +68,58 @@ impl ReceiptArchive {
             let _ = std::fs::create_dir_all(parent);
         }
         let _guard = archive_lock().lock();
+        Self::rotate_if_large(&path);
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
             let _ = writeln!(file, "{line}");
         }
+    }
+
+    /// Audit lines are forensic — completeness, not recency, is the value,
+    /// so the bound is generational rotation rather than tail truncation:
+    /// past `ROTATE_BYTES` the live file becomes `.1`, prior generations
+    /// shift up, and the oldest beyond `KEEP_GENERATIONS` is dropped.
+    /// Total footprint stays under `ROTATE_BYTES * (KEEP_GENERATIONS + 1)`.
+    fn rotate_if_large(path: &Path) {
+        const ROTATE_BYTES: u64 = 16 * 1024 * 1024;
+        const KEEP_GENERATIONS: u32 = 8;
+        let oversized = std::fs::metadata(path)
+            .map(|m| m.len() > ROTATE_BYTES)
+            .unwrap_or(false);
+        if !oversized {
+            return;
+        }
+        let oldest = path.with_file_name(format!(
+            "{}.{KEEP_GENERATIONS}",
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+        ));
+        let _ = std::fs::remove_file(&oldest);
+        for g in (1..KEEP_GENERATIONS).rev() {
+            let from = path.with_file_name(format!(
+                "{}.{g}",
+                path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or_default()
+            ));
+            if from.exists() {
+                let to = path.with_file_name(format!(
+                    "{}.{}",
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or_default(),
+                    g + 1
+                ));
+                let _ = std::fs::rename(&from, &to);
+            }
+        }
+        let first = path.with_file_name(format!(
+            "{}.1",
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+        ));
+        let _ = std::fs::rename(path, &first);
     }
 
     /// Read archived lines for audit tooling. Does **not** restore live ledger
@@ -141,6 +190,38 @@ mod tests {
         assert!(lines[0].successful);
         let raw = std::fs::read_to_string(ReceiptArchive::path(&ws.0)).unwrap();
         assert!(!raw.contains("Linux host"));
+    }
+
+    #[test]
+    fn rotate_shifts_generations_and_drops_oldest() {
+        let ws = Workspace::new();
+        let path = ReceiptArchive::path(&ws.0);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let name = path.file_name().unwrap().to_str().unwrap();
+        // Seed generations .1 and .2 plus an oversized live file.
+        std::fs::write(path.with_file_name(format!("{name}.1")), "gen1\n").unwrap();
+        std::fs::write(path.with_file_name(format!("{name}.2")), "gen2\n").unwrap();
+        std::fs::write(&path, "x".repeat(16 * 1024 * 1024 + 8)).unwrap();
+
+        ReceiptArchive::rotate_if_large(&path);
+
+        assert_eq!(
+            std::fs::read_to_string(path.with_file_name(format!("{name}.1"))).unwrap(),
+            "x".repeat(16 * 1024 * 1024 + 8),
+            "the live file must become generation .1"
+        );
+        assert_eq!(
+            std::fs::read_to_string(path.with_file_name(format!("{name}.2"))).unwrap(),
+            "gen1\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(path.with_file_name(format!("{name}.3"))).unwrap(),
+            "gen2\n"
+        );
+        assert!(
+            !path.exists(),
+            "rotation leaves no live file to append over"
+        );
     }
 
     #[test]
