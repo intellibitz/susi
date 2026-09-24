@@ -1315,14 +1315,28 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             "commit ledger lock unavailable — possible wedged holder or extreme contention",
         ));
     };
-    let held = load_from(path);
+    let mut held = load_from(path);
+    append_checked(path, record, &mut held).map(|_| ())
+}
+
+/// Intake checks + file append against a caller-maintained `held` —
+/// the same gates `append_to` runs, minus the lock and the load, so a
+/// batch can pay them once. Returns `true` when the record was written
+/// (the caller's `held` is extended so follow-on records in the same
+/// batch check against it — a batch containing both a record and its
+/// successor still chains).
+fn append_checked(
+    path: &PathBuf,
+    record: &CommitRecord,
+    held: &mut Vec<CommitRecord>,
+) -> EaiResult<bool> {
     if record.seq > 0 {
         if let Some(existing) = held
             .iter()
             .find(|r| r.coordinator == record.coordinator && r.seq == record.seq)
         {
             if existing == record {
-                return Ok(());
+                return Ok(false);
             }
             return Err(EaiError::protocol(format!(
                 "commit equivocation: {} seq {} already held with different content",
@@ -1330,7 +1344,7 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             )));
         }
     } else if held.iter().any(|r| r == record) {
-        return Ok(());
+        return Ok(false);
     }
     // Below-floor dedup: a record under the compaction high-water is
     // covered by the snapshot. The archive decides — identical content
@@ -1344,7 +1358,7 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
                 &record.coordinator,
                 record.seq,
             ) {
-                Some(archived) if &archived == record => return Ok(()),
+                Some(archived) if &archived == record => return Ok(false),
                 Some(_) => {
                     return Err(EaiError::protocol(format!(
                         "commit equivocation: {} seq {} diverges from archived record",
@@ -1479,7 +1493,47 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             );
         }
     }
-    Ok(())
+    held.push(record.clone());
+    Ok(true)
+}
+
+/// Per-record outcome of a batch intake — `Skipped` is an idempotent
+/// re-delivery (already held, identical), `Refused` a gate failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendOutcome {
+    Applied,
+    Skipped,
+    Refused,
+}
+
+/// Batch intake for anti-entropy/gap repair: one lock + one ledger
+/// load, then every record runs the full check sequence against the
+/// growing `held` view — without it a 1000-record repair costs 1000
+/// full-ledger parses and 1000 lock round-trips. A refused record
+/// doesn't abort the batch (a forked record among good ones must not
+/// starve the rest); outcomes align 1:1 with `records`.
+pub fn append_many(records: &[CommitRecord]) -> Vec<AppendOutcome> {
+    append_many_to(&ledger_path(), records)
+}
+
+/// Test seam + path-explicit form of `append_many`.
+pub fn append_many_to(path: &PathBuf, records: &[CommitRecord]) -> Vec<AppendOutcome> {
+    let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(_file_lock) = path
+        .parent()
+        .and_then(|dir| FileLock::acquire(dir, "commit_log"))
+    else {
+        return vec![AppendOutcome::Refused; records.len()];
+    };
+    let mut held = load_from(path);
+    records
+        .iter()
+        .map(|record| match append_checked(path, record, &mut held) {
+            Ok(true) => AppendOutcome::Applied,
+            Ok(false) => AppendOutcome::Skipped,
+            Err(_) => AppendOutcome::Refused,
+        })
+        .collect()
 }
 
 /// Whether this record changes cluster-wide security state — roster

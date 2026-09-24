@@ -1470,7 +1470,7 @@ impl SusiSupervisor {
         // still ours for dedup purposes: without them every sweep would
         // re-append below-floor history (a no-op, but one that costs a
         // full archive scan per record).
-        let mut held: std::collections::HashSet<String> = crate::susi_core::commit_log::load()
+        let held: std::collections::HashSet<String> = crate::susi_core::commit_log::load()
             .iter()
             .chain(
                 crate::susi_core::commit_log::load_from(
@@ -1525,6 +1525,7 @@ impl SusiSupervisor {
         let mut ordered: Vec<&crate::susi_core::commit_log::CommitRecord> =
             their_records.iter().collect();
         ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
+        let mut to_apply: Vec<crate::susi_core::commit_log::CommitRecord> = Vec::new();
         for r in ordered {
             if !r.verify() {
                 continue;
@@ -1546,10 +1547,12 @@ impl SusiSupervisor {
             if held.contains(&key) {
                 continue;
             }
-            if crate::susi_core::commit_log::append(r).is_ok() {
-                held.insert(key);
-            }
+            to_apply.push((*r).clone());
         }
+        // One lock + one ledger load for the whole pull — per-record
+        // `append` would re-read and re-lock the ledger per record
+        // (O(N²) on a full-history repair).
+        let _ = crate::susi_core::commit_log::append_many(&to_apply);
         // Symmetric repair: push our records the peer lacks through
         // `commit_record` — their receive path re-runs signature, term,
         // sequence, and chain gates, so a rejection is the protocol's

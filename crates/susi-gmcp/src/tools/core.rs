@@ -1249,17 +1249,26 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
                 // the successor must land first, or a pre-rotation tail
                 // gap takes one sweep per record.
                 fetched.sort_by_key(|r| std::cmp::Reverse(r.seq));
+                // Member records need coordinator authority — an
+                // evicted node still holds cluster.key, so a gap fill
+                // must not smuggle a rogue roster delta through.
+                let eligible: Vec<crate::susi_core::commit_log::CommitRecord> = fetched
+                    .into_iter()
+                    .filter(|r| {
+                        r.coordinator == coordinator
+                            && remaining.contains(&r.seq)
+                            && r.verify()
+                            && crate::susi_core::commit_log::member_coordinator_known(r)
+                    })
+                    .collect();
+                // Batch intake: one lock + one ledger load for the whole
+                // repair instead of a full-ledger parse per record.
+                let outcomes = crate::susi_core::commit_log::append_many(&eligible);
                 let mut got = 0usize;
-                for r in fetched {
-                    // Member records need coordinator authority — an
-                    // evicted node still holds cluster.key, so a gap fill
-                    // must not smuggle a rogue roster delta through.
-                    if r.coordinator == coordinator
-                        && remaining.contains(&r.seq)
-                        && r.verify()
-                        && crate::susi_core::commit_log::member_coordinator_known(&r)
-                        && crate::susi_core::commit_log::append(&r).is_ok()
-                    {
+                for (r, outcome) in eligible.iter().zip(outcomes) {
+                    // Applied OR already-held (Skipped) — the seq is
+                    // present either way, so the gap is filled.
+                    if outcome != crate::susi_core::commit_log::AppendOutcome::Refused {
                         remaining.retain(|s| *s != r.seq);
                         got += 1;
                     }

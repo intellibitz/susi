@@ -128,7 +128,7 @@ fn sync() -> Result<()> {
     // so "new" is determined by membership before the write, not the
     // write's outcome. The compaction archive counts as held: archived
     // records are still ours for dedup purposes.
-    let mut held: std::collections::HashSet<String> = commit_log::load()
+    let held: std::collections::HashSet<String> = commit_log::load()
         .iter()
         .chain(commit_log::load_from(&commit_log::archive_path()).iter())
         .filter_map(|r| serde_json::to_string(r).ok())
@@ -208,6 +208,7 @@ fn sync() -> Result<()> {
         // first lets a pre-rotation tail gap fill in one pass.
         let mut ordered: Vec<&commit_log::CommitRecord> = their_records.iter().collect();
         ordered.sort_by_key(|r| std::cmp::Reverse(r.seq));
+        let mut to_apply: Vec<commit_log::CommitRecord> = Vec::new();
         for r in ordered {
             if !r.verify() {
                 bad += 1;
@@ -231,12 +232,15 @@ fn sync() -> Result<()> {
                 dup += 1;
                 continue;
             }
-            match commit_log::append(r) {
-                Ok(()) => {
-                    held.insert(key);
-                    new += 1;
-                }
-                Err(_) => bad += 1,
+            to_apply.push((*r).clone());
+        }
+        // One lock + one ledger load for the whole pull — per-record
+        // `append` re-read and re-locked the ledger every record.
+        for outcome in commit_log::append_many(&to_apply) {
+            match outcome {
+                commit_log::AppendOutcome::Applied => new += 1,
+                commit_log::AppendOutcome::Skipped => dup += 1,
+                commit_log::AppendOutcome::Refused => bad += 1,
             }
         }
 
