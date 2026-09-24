@@ -534,6 +534,34 @@ pub fn bound_pubkey_for_node(node_id: &str) -> Option<String> {
     })
 }
 
+// ---- Subject-signed binding attestation ----
+
+/// The payload a member signs to attest its own key binding —
+/// `susi-bind-v1:{node_id}:{pubkey}`. Carried in v3 pongs and on
+/// `member_add` records (`subject_sig`) so the member_add's pubkey is
+/// no longer merely proposer-asserted: a binding a subject never
+/// signed cannot be committed.
+pub fn bind_payload(node_id: &str, pubkey: &str) -> String {
+    format!("susi-bind-v1:{node_id}:{pubkey}")
+}
+
+/// This node's binding attestation — Ed25519 sig over `bind_payload`
+/// for our own id+pubkey. `None` without a usable `node.key`.
+pub fn bind_attestation() -> Option<String> {
+    let id = wire_node_id();
+    let pk = node_pubkey_hex()?;
+    member_sign(&bind_payload(&id, &pk))
+}
+
+/// Verify `sig` as `node_id`'s attestation for `pubkey` — strict
+/// verification under the *claimed* key; a wrong-key binding produces
+/// a sig that cannot verify and the record/pong is refused.
+pub fn verify_bind_attestation(node_id: &str, pubkey: &str, sig: &str) -> bool {
+    !pubkey.is_empty()
+        && !sig.is_empty()
+        && member_verify(pubkey, &bind_payload(node_id, pubkey), sig)
+}
+
 /// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
 /// bloom_hex, nonce, wants_v2)` — `node_id` is empty for pre-identity
 /// senders; `wants_v2` is true for `SUSI_PING_SIG2` senders, who must
@@ -768,10 +796,62 @@ pub fn signed_pong_v2(
     ))
 }
 
+/// V3 pong (`SUSI_PONG_SIG3`) — v2 plus `bind_sig`: the responder's
+/// Ed25519 attestation over `susi-bind-v1:{node_id}:{pubkey}` (see
+/// `bind_attestation`). The HMAC authenticates the datagram; the
+/// bind_sig proves the claimed pubkey is the responder's own choice —
+/// a `member_add` built from this handshake carries it as
+/// `subject_sig`, so wrong-key bindings can't be proposed at all.
+pub fn signed_pong_v3(
+    node_id: &str,
+    checksum: u64,
+    bloom_hex: &str,
+    nonce: &str,
+    roster: &[(String, String)],
+) -> Option<String> {
+    let key = cluster_key()?;
+    let pubkey = node_pubkey_hex()?;
+    let bind_sig = bind_attestation()?;
+    let checksum = checksum.to_string();
+    let roster_hex = encode_roster(&roster[..roster.len().min(32)]);
+    for f in [
+        node_id,
+        &pubkey,
+        &bind_sig,
+        &checksum,
+        bloom_hex,
+        nonce,
+        &roster_hex,
+    ] {
+        if !wire_safe(f) {
+            return None;
+        }
+    }
+    let mac = mac_tag(
+        &key,
+        &[
+            "pong3",
+            node_id,
+            &pubkey,
+            &bind_sig,
+            &checksum,
+            bloom_hex,
+            nonce,
+            &roster_hex,
+        ],
+    );
+    Some(format!(
+        "SUSI_PONG_SIG3:{node_id}:{pubkey}:{bind_sig}:{checksum}:{bloom_hex}:{nonce}:{roster_hex}:{mac}"
+    ))
+}
+
 /// Verified fields of a signed pong: `(node_id, checksum, bloom_hex,
-/// roster, pubkey)` — `pubkey` is the responder's attested Ed25519
-/// verifying key, empty for pre-v2 pongs.
-pub type VerifiedPong = (String, u64, String, Vec<(String, String)>, String);
+/// roster, pubkey, bind_sig)` — `pubkey` is the responder's attested
+/// Ed25519 verifying key (empty for pre-v2 pongs); `bind_sig` is its
+/// signature over `susi-bind-v1:{node_id}:{pubkey}` (empty for pre-v3
+/// pongs) — a `member_add` subject attestation sourced from the
+/// handshake rather than the proposer.
+pub type VerifiedPong = (String, u64, String, Vec<(String, String)>, String, String);
 
 /// Verify a signed pong against `expected_nonce`. `None` for
 /// malformed input, a bad MAC, or a nonce that does not match the
@@ -781,19 +861,23 @@ pub type VerifiedPong = (String, u64, String, Vec<(String, String)>, String);
 pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPong> {
     let key = cluster_key()?;
     let parts: Vec<&str> = msg.split(':').collect();
+    // SUSI_PONG_SIG3:<node_id>:<pubkey>:<bind_sig>:<checksum>:<bloom>:<nonce>:<roster>:<mac>
     // SUSI_PONG_SIG2:<node_id>:<pubkey>:<checksum>:<bloom>:<nonce>:<roster>:<mac>
     // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:[<roster>:]<mac>
-    let (node_id, pubkey, checksum_s, bloom, nonce, roster_hex, mac) =
+    let (node_id, pubkey, bind_sig, checksum_s, bloom, nonce, roster_hex, mac) =
         match (parts.first(), parts.len()) {
+            (Some(&"SUSI_PONG_SIG3"), 9) => (
+                parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7], parts[8],
+            ),
             (Some(&"SUSI_PONG_SIG2"), 8) => (
-                parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7],
+                parts[1], parts[2], "", parts[3], parts[4], parts[5], parts[6], parts[7],
             ),
             (Some(&"SUSI_PONG_SIG"), 7) => (
-                parts[1], "", parts[2], parts[3], parts[4], parts[5], parts[6],
+                parts[1], "", "", parts[2], parts[3], parts[4], parts[5], parts[6],
             ),
-            (Some(&"SUSI_PONG_SIG"), 6) => {
-                (parts[1], "", parts[2], parts[3], parts[4], "0", parts[5])
-            }
+            (Some(&"SUSI_PONG_SIG"), 6) => (
+                parts[1], "", "", parts[2], parts[3], parts[4], "0", parts[5],
+            ),
             _ => return None,
         };
     for f in [node_id, checksum_s, bloom, nonce, roster_hex] {
@@ -801,14 +885,23 @@ pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPon
             return None;
         }
     }
-    // pubkey may be empty (v1 pongs) but never malformed when present.
-    if !pubkey.is_empty() && !wire_safe(pubkey) {
-        return None;
+    // pubkey/bind_sig may be empty (pre-v2/v3 pongs) but never malformed
+    // when present.
+    for f in [pubkey, bind_sig] {
+        if !f.is_empty() && !wire_safe(f) {
+            return None;
+        }
     }
     if nonce != expected_nonce {
         return None;
     }
     let expected = match (parts.first(), parts.len()) {
+        (Some(&"SUSI_PONG_SIG3"), _) => mac_tag(
+            &key,
+            &[
+                "pong3", node_id, pubkey, bind_sig, checksum_s, bloom, nonce, roster_hex,
+            ],
+        ),
         (Some(&"SUSI_PONG_SIG2"), _) => mac_tag(
             &key,
             &[
@@ -824,12 +917,19 @@ pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPon
     if expected != mac {
         return None;
     }
+    // A v3 pong must carry a *verifying* binding attestation — a sig
+    // that doesn't prove against the claimed pubkey means the peer is
+    // advertising a key it does not hold; refuse the handshake.
+    if !bind_sig.is_empty() && !verify_bind_attestation(node_id, pubkey, bind_sig) {
+        return None;
+    }
     Some((
         node_id.to_string(),
         checksum_s.parse().unwrap_or(0),
         bloom.to_string(),
         decode_roster(roster_hex),
         pubkey.to_string(),
+        bind_sig.to_string(),
     ))
 }
 
@@ -890,9 +990,10 @@ mod tests {
         ];
         let pong =
             signed_pong("susi-daemon-node", 0, "abcd", &echoed, &roster).expect("signed pong");
-        let (node_id, csum, pbloom, gossip, pubkey) =
+        let (node_id, csum, pbloom, gossip, pubkey, bind_sig) =
             verify_signed_pong(&pong, &nonce).expect("verify pong");
         assert!(pubkey.is_empty());
+        assert!(bind_sig.is_empty());
         assert_eq!(
             (node_id.as_str(), csum, pbloom.as_str()),
             ("susi-daemon-node", 0, "abcd")
@@ -925,7 +1026,8 @@ mod tests {
         let key = cluster_key().unwrap();
         let mac = mac_tag(&key, &["pong", "old-peer", "0", "00", &echoed]);
         let legacy = format!("SUSI_PONG_SIG:old-peer:0:00:{echoed}:{mac}");
-        let (node_id, _, _, roster, _) = verify_signed_pong(&legacy, &nonce).expect("legacy pong");
+        let (node_id, _, _, roster, _, _) =
+            verify_signed_pong(&legacy, &nonce).expect("legacy pong");
         assert_eq!(node_id, "old-peer");
         assert!(roster.is_empty());
     }
@@ -984,6 +1086,58 @@ mod tests {
         bad[0] ^= 1;
         assert!(member_open(&our_pub, &nonce, &bad).is_none());
         assert!(member_open(&our_pub, &"00".repeat(12), &ct).is_none());
+    }
+
+    #[test]
+    fn v3_pong_carries_subject_attested_binding() {
+        let _t = set_key_env();
+        let (ping, nonce) = signed_ping_v2("CORE", 1, "00").expect("v2 ping");
+        let (_, _, _, _, echoed, wants_v2) = verify_signed_ping(&ping).expect("verify");
+        assert!(wants_v2);
+        let my_id = wire_node_id();
+        let my_pk = node_pubkey_hex().expect("pubkey");
+        let pong = signed_pong_v3(&my_id, 3, "abcd", &echoed, &[]).expect("v3 pong");
+        let (node_id, csum, _bloom, _roster, pubkey, bind_sig) =
+            verify_signed_pong(&pong, &nonce).expect("v3 verify");
+        assert_eq!(node_id, my_id);
+        assert_eq!(csum, 3);
+        assert_eq!(pubkey, my_pk);
+        // The attestation must verify under the claimed key for the
+        // claimed id — this is what member_add's subject_sig carries.
+        assert!(verify_bind_attestation(&node_id, &pubkey, &bind_sig));
+        // Wrong id, wrong key, and tampered sig all fail closed.
+        assert!(!verify_bind_attestation(
+            "susi-node-other",
+            &pubkey,
+            &bind_sig
+        ));
+        assert!(!verify_bind_attestation(
+            &node_id,
+            &"aa".repeat(32),
+            &bind_sig
+        ));
+        let mut bad = bind_sig.clone();
+        bad.replace_range(0..2, "00");
+        assert!(!verify_bind_attestation(&node_id, &pubkey, &bad));
+        // The real attack: a member holding cluster.key mints a
+        // correctly-MAC'd v3 pong claiming a key the subject never
+        // attested — the binding still refuses because the sig can't
+        // verify under the claimed pubkey.
+        let key = cluster_key().expect("cluster key");
+        let fake_sig = "00".repeat(64);
+        let mac = mac_tag(
+            &key,
+            &[
+                "pong3", &my_id, &my_pk, &fake_sig, "3", "abcd", &echoed, "0",
+            ],
+        );
+        let forged = format!("SUSI_PONG_SIG3:{my_id}:{my_pk}:{fake_sig}:3:abcd:{echoed}:0:{mac}");
+        assert!(verify_signed_pong(&forged, &nonce).is_none());
+        // And a v2 pong still verifies — with an empty attestation, so
+        // member_add can't manufacture subject_sig from it.
+        let pong2 = signed_pong_v2(&my_id, 3, "abcd", &echoed, &[]).expect("v2 pong");
+        let (_, _, _, _, _, sig2) = verify_signed_pong(&pong2, &nonce).expect("v2 verify");
+        assert!(sig2.is_empty());
     }
 
     #[test]

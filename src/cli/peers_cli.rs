@@ -133,7 +133,13 @@ fn now_secs() -> u64 {
 /// signature/term/chain and apply on append, so one `peers add`
 /// converges membership cluster-wide. Push failures only delay
 /// convergence — `commits sync` and roster gossip carry the record.
-fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &str) {
+fn commit_membership(
+    kind: &str,
+    node_id: &str,
+    address: &str,
+    member_pubkey: &str,
+    subject_sig: &str,
+) {
     // An evicted node can still seal member records locally, but no
     // member will accept them — coordinator authority requires current
     // explicit membership. Say so instead of reporting false pushes.
@@ -163,7 +169,15 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
         // Follower delegation: the elected leader seals every committed
         // roster delta — ask it to via member_propose rather than
         // sealing an unauthorized record locally.
-        propose_member(&term.leader, kind, node_id, address, &roster, member_pubkey);
+        propose_member(
+            &term.leader,
+            kind,
+            node_id,
+            address,
+            &roster,
+            member_pubkey,
+            subject_sig,
+        );
         return;
     }
     // The roster as this node observed it at commit time — audit context
@@ -195,6 +209,9 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
         eprintln!("note: no cluster.key — membership change not committed to ledger");
         return;
     };
+    // The subject's own binding attestation from the v3 handshake —
+    // required by intake for any member_add claiming a pubkey.
+    record.subject_sig = subject_sig.to_string();
     // Joint-consensus: a bound-quorum of the electorate must endorse a
     // privileged record or every receiver refuses it. Collect the other
     // members' signatures (our member_sig is our own vote) before
@@ -450,6 +467,7 @@ fn propose_member(
     address: &str,
     roster: &[serde_json::Value],
     member_pubkey: &str,
+    subject_sig: &str,
 ) {
     let Some(leader_addr) = roster.iter().find_map(|n| {
         (n.get("node_id").and_then(|v| v.as_str()) == Some(leader))
@@ -471,6 +489,7 @@ fn propose_member(
         "member": format!("{node_id}@{address}"),
         "kind": kind,
         "member_pubkey": member_pubkey,
+        "subject_sig": subject_sig,
     });
     match susi_core::mcp_client::call_tool(&leader_addr, "member_propose", &args, bearer.as_deref())
     {
@@ -836,7 +855,15 @@ fn delegate_membership(kind: &str, node_id: &str, address: &str) -> bool {
         );
         return true;
     }
-    propose_member(&term.leader, kind, node_id, address, &load_registry(), "");
+    propose_member(
+        &term.leader,
+        kind,
+        node_id,
+        address,
+        &load_registry(),
+        "",
+        "",
+    );
     true
 }
 
@@ -937,7 +964,7 @@ fn remove(peer: &str) -> Result<()> {
         // Commit the eviction — receivers drop the member and record the
         // ban on append, so the eviction takes effect cluster-wide, not
         // just where the operator ran the command.
-        commit_membership(susi_core::commit_log::KIND_MEMBER_REMOVE, id, addr, "");
+        commit_membership(susi_core::commit_log::KIND_MEMBER_REMOVE, id, addr, "", "");
     }
     println!(
         "{} verified member(s) remain; {} banned",
@@ -997,6 +1024,7 @@ fn handshake(
     for (ping, nonce) in attempts {
         socket.send_to(ping.as_bytes(), (host.as_str(), port))?;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut fallback: Option<(susi_config::cluster_key::VerifiedPong, std::net::IpAddr)> = None;
         loop {
             let (amt, src) = match socket.recv_from(&mut buf) {
                 Ok(r) => r,
@@ -1017,6 +1045,18 @@ fn handshake(
                 }
                 continue;
             };
+            // Prefer the v3 subject-attested pong: responders send
+            // v3+v2 together, so a verified v2 is held as a fallback
+            // while we keep listening for the attestation — unless the
+            // responder turns out to be self, which we must bail on
+            // either way.
+            if pong.5.is_empty() {
+                fallback = fallback.or(Some((pong, src.ip())));
+                if std::time::Instant::now() >= deadline {
+                    break;
+                }
+                continue;
+            }
             // Self-edge guards — adding or probing ourselves is never a
             // remote peer. Three routes, one refusal: a loopback responder
             // is this host's own daemon (only one process binds the
@@ -1038,6 +1078,22 @@ fn handshake(
             }
             return Ok((pong, src.ip()));
         }
+        // v3 never arrived — a pre-v3 responder's verified pong is still
+        // authoritative for identity, just unattested. Use it, with the
+        // same self-edge guard.
+        if let Some((pong, ip)) = fallback {
+            if ip.is_loopback()
+                || std::net::TcpListener::bind((ip, 0)).is_ok()
+                || pong.0 == susi_config::cluster_key::wire_node_id()
+            {
+                bail!(
+                    "{} answered from {ip} — that is this node's own daemon; \
+                 this command needs a remote host",
+                    pong.0
+                );
+            }
+            return Ok((pong, ip));
+        }
     }
     bail!(
         "no signed pong from {host}:{port} — peer unreachable, not a susi daemon, \
@@ -1049,7 +1105,7 @@ fn handshake(
 /// `handshake`, then persist it as an explicit member and commit the
 /// admission to the replicated ledger.
 fn add(host: &str, port: Option<u16>) -> Result<()> {
-    let ((node_id, checksum, bloom_hex, roster, pubkey), ip) = handshake(host, port)?;
+    let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     {
         let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
         // A banned member was operator-evicted — re-adding must be a
@@ -1079,6 +1135,11 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             "capability_bloom": bloom_words,
             "admission": "explicit",
             "last_seen_secs": now_secs(),
+            // The subject's own binding attestation (v3 pong) — persisted
+            // so later `member_add` records and re-pushes carry proof the
+            // key is the subject's claim, not ours.
+            "pubkey": pubkey,
+            "bind_sig": bind_sig,
         });
 
         // Serialize the roster RMW with the daemon's apply/scout
@@ -1144,12 +1205,22 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
         drop(_peers_lock);
         // Commit the admission to the replicated ledger — every verified
         // peer applies the same roster delta on append, so membership
-        // converges without a `peers add` on each node.
+        // converges without a `peers add` on each node. The key binding
+        // is propagated only when the subject attested it (v3 pong): a
+        // pre-v3 peer joins unbound and binds on each member's own
+        // handshake — a binding without subject_sig is refused at
+        // intake, so claiming one here would just drop the record.
+        let (commit_pubkey, commit_sig) = if bind_sig.is_empty() {
+            ("", "")
+        } else {
+            (pubkey.as_str(), bind_sig.as_str())
+        };
         commit_membership(
             susi_core::commit_log::KIND_MEMBER_ADD,
             &node_id,
             &address,
-            &pubkey,
+            commit_pubkey,
+            commit_sig,
         );
     }
     Ok(())
@@ -1161,7 +1232,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
 /// non-destructive way to test reachability and cluster.key
 /// compatibility before (or instead of) `peers add`.
 fn probe(host: &str, port: Option<u16>) -> Result<()> {
-    let ((node_id, checksum, bloom_hex, roster, pubkey), ip) = handshake(host, port)?;
+    let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
     let banned = load_banned().iter().any(|b| {
         b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
@@ -1191,8 +1262,10 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
         "  signing key:       {}",
         if pubkey.is_empty() {
             "unbound (pre-PKI peer)".to_string()
+        } else if bind_sig.is_empty() {
+            format!("{}… (attested by HMAC only — pre-v3)", &pubkey[..16])
         } else {
-            format!("{}…", &pubkey[..16])
+            format!("{}… (subject-attested)", &pubkey[..16])
         }
     );
     println!("  local standing:    {standing}");
@@ -1269,7 +1342,7 @@ fn unban(peer: &str) -> Result<()> {
         // Replicate the unban — receivers banned this member via the
         // committed removal, so lifting it locally alone would leave
         // them refusing its handshakes forever.
-        commit_membership(susi_core::commit_log::KIND_MEMBER_UNBAN, id, addr, "");
+        commit_membership(susi_core::commit_log::KIND_MEMBER_UNBAN, id, addr, "", "");
     }
     println!(
         "lifted ban on {} member(s); they may re-verify on next handshake",

@@ -136,6 +136,15 @@ pub struct CommitRecord {
     /// First write wins; re-binding requires remove + re-add.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub member_pubkey: String,
+    /// The subject's own Ed25519 signature over
+    /// `susi-bind-v1:{node_id}:{member_pubkey}` — the binding
+    /// attestation sourced from the v3 handshake pong, not the
+    /// proposer. Required at intake when `member_pubkey` is present:
+    /// a proposer can no longer bind a key the subject never claimed
+    /// (wrong-key bindings were a DoS on the victim's records).
+    /// Signature-transparent like `member_sig` — outside `SignedFields`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subject_sig: String,
     /// Member endorsements for privileged (member/rekey) records — the
     /// joint-consensus half of roster safety: once a quorum of the
     /// electorate's members have bound pubkeys, a privileged record is
@@ -278,6 +287,7 @@ impl CommitRecord {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            subject_sig: String::new(),
             endorsements: Vec::new(),
         };
         rec.signature =
@@ -422,6 +432,7 @@ impl CommitRecord {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            subject_sig: String::new(),
             endorsements: Vec::new(),
         };
         rec.signature =
@@ -1398,6 +1409,14 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             )));
         }
     }
+    // Subject-attested binding: a member_add claiming a pubkey must
+    // carry the subject's own signature for it — bindings a subject
+    // never claimed can't be committed (proposer-attested DoS closed).
+    if !subject_attestation_valid(record) {
+        return Err(EaiError::protocol(
+            "refusing member_add: member_pubkey lacks a valid subject attestation",
+        ));
+    }
     // Chain check (Raft's prevLogIndex/prevLogTerm consistency): when the
     // record declares a predecessor link and we hold that predecessor
     // slot, the epochs must agree — a mismatch is proof the
@@ -1603,6 +1622,27 @@ pub fn endorsement_payload(signature: &str) -> String {
     format!("susi-endorse-v1:{signature}")
 }
 
+/// Whether a `member_add` carrying `member_pubkey` also carries the
+/// subject's own attestation for it (`subject_sig` over
+/// `susi-bind-v1:{id}:{pubkey}`, sourced from the v3 handshake). A
+/// binding the subject never signed is refused — a malicious or
+/// careless proposer can no longer bind a wrong key onto a member,
+/// which was a record-starvation DoS on the victim. `member_add`s
+/// without a pubkey (unbound legacy members) stay admissible.
+fn subject_attestation_valid(record: &CommitRecord) -> bool {
+    let Some((KIND_MEMBER_ADD, id, _)) = record.member_delta() else {
+        return true;
+    };
+    if record.member_pubkey.is_empty() {
+        return true;
+    }
+    crate::susi_config::cluster_key::verify_bind_attestation(
+        id,
+        &record.member_pubkey,
+        &record.subject_sig,
+    )
+}
+
 /// Whether `kind` is a privileged roster/config delta — the record kinds
 /// the endorsement gate applies to. Quorum decisions (empty kind) are
 /// already electorate-tallied and stay ungated.
@@ -1740,6 +1780,9 @@ fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord, dir: &Pat
     }
     row["pubkey"] = serde_json::json!(record.member_pubkey);
     row["key_bound_at"] = serde_json::json!(record.committed_at);
+    // The subject's attestation rides along — a later member_propose or
+    // re-push can carry proof the binding was the subject's own claim.
+    row["bind_sig"] = serde_json::json!(record.subject_sig);
     // Seq floor: the member's highest seq visible at bind time (live +
     // archive). Records beyond it are post-binding traffic that must
     // carry `member_sig` even with a forged `committed_at` — the
@@ -2035,6 +2078,7 @@ mod tests {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            subject_sig: String::new(),
             endorsements: Vec::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
@@ -2295,6 +2339,7 @@ mod tests {
             signature: "s".into(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            subject_sig: String::new(),
             endorsements: Vec::new(),
         };
         // An explicit member's delta is authorized; discovered peers and

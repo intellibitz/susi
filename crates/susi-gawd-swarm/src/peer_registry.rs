@@ -178,6 +178,7 @@ mod tests {
             last_seen_secs: crate::amas::now_secs(),
             pubkey: String::new(),
             key_bound_at: 0,
+            bind_sig: String::new(),
         }
     }
 

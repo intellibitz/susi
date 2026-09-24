@@ -530,9 +530,7 @@ pub mod cluster_key {
         let pk = hex::decode(pubkey_hex).ok()?;
         let arr = <[u8; 32]>::try_from(pk.as_slice()).ok()?;
         let vk = ed25519_dalek::VerifyingKey::from_bytes(&arr).ok()?;
-        Some(x25519_dalek::PublicKey::from(
-            vk.to_montgomery().to_bytes(),
-        ))
+        Some(x25519_dalek::PublicKey::from(vk.to_montgomery().to_bytes()))
     }
 
     /// AEAD key shared by this node and the bound member `peer_pubkey_hex`:
@@ -563,11 +561,7 @@ pub mod cluster_key {
     /// Open a `member_seal` ciphertext from the bound member
     /// `peer_pubkey_hex`. `None` on any failure (bad key, tampered tag,
     /// malformed nonce) — there is no partial plaintext.
-    pub fn member_open(
-        peer_pubkey_hex: &str,
-        nonce_hex: &str,
-        ciphertext: &[u8],
-    ) -> Option<Vec<u8>> {
+    pub fn member_open(peer_pubkey_hex: &str, nonce_hex: &str, ciphertext: &[u8]) -> Option<Vec<u8>> {
         use chacha20poly1305::aead::{Aead, KeyInit};
         let key = peer_channel_key(peer_pubkey_hex)?;
         let nonce = hex::decode(nonce_hex).ok()?;
@@ -624,6 +618,34 @@ pub mod cluster_key {
             let pk = m.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
             (!pk.is_empty()).then(|| pk.to_string())
         })
+    }
+
+    // ---- Subject-signed binding attestation ----
+
+    /// The payload a member signs to attest its own key binding —
+    /// `susi-bind-v1:{node_id}:{pubkey}`. Carried in v3 pongs and on
+    /// `member_add` records (`subject_sig`) so the member_add's pubkey is
+    /// no longer merely proposer-asserted: a binding a subject never
+    /// signed cannot be committed.
+    pub fn bind_payload(node_id: &str, pubkey: &str) -> String {
+        format!("susi-bind-v1:{node_id}:{pubkey}")
+    }
+
+    /// This node's binding attestation — Ed25519 sig over `bind_payload`
+    /// for our own id+pubkey. `None` without a usable `node.key`.
+    pub fn bind_attestation() -> Option<String> {
+        let id = wire_node_id();
+        let pk = node_pubkey_hex()?;
+        member_sign(&bind_payload(&id, &pk))
+    }
+
+    /// Verify `sig` as `node_id`'s attestation for `pubkey` — strict
+    /// verification under the *claimed* key; a wrong-key binding produces
+    /// a sig that cannot verify and the record/pong is refused.
+    pub fn verify_bind_attestation(node_id: &str, pubkey: &str, sig: &str) -> bool {
+        !pubkey.is_empty()
+            && !sig.is_empty()
+            && member_verify(pubkey, &bind_payload(node_id, pubkey), sig)
     }
 
     /// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
@@ -860,10 +882,62 @@ pub mod cluster_key {
         ))
     }
 
+    /// V3 pong (`SUSI_PONG_SIG3`) — v2 plus `bind_sig`: the responder's
+    /// Ed25519 attestation over `susi-bind-v1:{node_id}:{pubkey}` (see
+    /// `bind_attestation`). The HMAC authenticates the datagram; the
+    /// bind_sig proves the claimed pubkey is the responder's own choice —
+    /// a `member_add` built from this handshake carries it as
+    /// `subject_sig`, so wrong-key bindings can't be proposed at all.
+    pub fn signed_pong_v3(
+        node_id: &str,
+        checksum: u64,
+        bloom_hex: &str,
+        nonce: &str,
+        roster: &[(String, String)],
+    ) -> Option<String> {
+        let key = cluster_key()?;
+        let pubkey = node_pubkey_hex()?;
+        let bind_sig = bind_attestation()?;
+        let checksum = checksum.to_string();
+        let roster_hex = encode_roster(&roster[..roster.len().min(32)]);
+        for f in [
+            node_id,
+            &pubkey,
+            &bind_sig,
+            &checksum,
+            bloom_hex,
+            nonce,
+            &roster_hex,
+        ] {
+            if !wire_safe(f) {
+                return None;
+            }
+        }
+        let mac = mac_tag(
+            &key,
+            &[
+                "pong3",
+                node_id,
+                &pubkey,
+                &bind_sig,
+                &checksum,
+                bloom_hex,
+                nonce,
+                &roster_hex,
+            ],
+        );
+        Some(format!(
+            "SUSI_PONG_SIG3:{node_id}:{pubkey}:{bind_sig}:{checksum}:{bloom_hex}:{nonce}:{roster_hex}:{mac}"
+        ))
+    }
+
     /// Verified fields of a signed pong: `(node_id, checksum, bloom_hex,
-    /// roster, pubkey)` — `pubkey` is the responder's attested Ed25519
-    /// verifying key, empty for pre-v2 pongs.
-    pub type VerifiedPong = (String, u64, String, Vec<(String, String)>, String);
+    /// roster, pubkey, bind_sig)` — `pubkey` is the responder's attested
+    /// Ed25519 verifying key (empty for pre-v2 pongs); `bind_sig` is its
+    /// signature over `susi-bind-v1:{node_id}:{pubkey}` (empty for pre-v3
+    /// pongs) — a `member_add` subject attestation sourced from the
+    /// handshake rather than the proposer.
+    pub type VerifiedPong = (String, u64, String, Vec<(String, String)>, String, String);
 
     /// Verify a signed pong against `expected_nonce`. `None` for
     /// malformed input, a bad MAC, or a nonce that does not match the
@@ -873,39 +947,52 @@ pub mod cluster_key {
     pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPong> {
         let key = cluster_key()?;
         let parts: Vec<&str> = msg.split(':').collect();
+        // SUSI_PONG_SIG3:<node_id>:<pubkey>:<bind_sig>:<checksum>:<bloom>:<nonce>:<roster>:<mac>
         // SUSI_PONG_SIG2:<node_id>:<pubkey>:<checksum>:<bloom>:<nonce>:<roster>:<mac>
         // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:[<roster>:]<mac>
-        let (node_id, pubkey, checksum_s, bloom, nonce, roster_hex, mac) = match (
-            parts.first(),
-            parts.len(),
-        ) {
-            (Some(&"SUSI_PONG_SIG2"), 8) => (
-                parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7],
-            ),
-            (Some(&"SUSI_PONG_SIG"), 7) => {
-                (parts[1], "", parts[2], parts[3], parts[4], parts[5], parts[6])
-            }
-            (Some(&"SUSI_PONG_SIG"), 6) => {
-                (parts[1], "", parts[2], parts[3], parts[4], "0", parts[5])
-            }
-            _ => return None,
-        };
+        let (node_id, pubkey, bind_sig, checksum_s, bloom, nonce, roster_hex, mac) =
+            match (parts.first(), parts.len()) {
+                (Some(&"SUSI_PONG_SIG3"), 9) => (
+                    parts[1], parts[2], parts[3], parts[4], parts[5], parts[6], parts[7], parts[8],
+                ),
+                (Some(&"SUSI_PONG_SIG2"), 8) => (
+                    parts[1], parts[2], "", parts[3], parts[4], parts[5], parts[6], parts[7],
+                ),
+                (Some(&"SUSI_PONG_SIG"), 7) => (
+                    parts[1], "", "", parts[2], parts[3], parts[4], parts[5], parts[6],
+                ),
+                (Some(&"SUSI_PONG_SIG"), 6) => (
+                    parts[1], "", "", parts[2], parts[3], parts[4], "0", parts[5],
+                ),
+                _ => return None,
+            };
         for f in [node_id, checksum_s, bloom, nonce, roster_hex] {
             if !wire_safe(f) {
                 return None;
             }
         }
-        // pubkey may be empty (v1 pongs) but never malformed when present.
-        if !pubkey.is_empty() && !wire_safe(pubkey) {
-            return None;
+        // pubkey/bind_sig may be empty (pre-v2/v3 pongs) but never malformed
+        // when present.
+        for f in [pubkey, bind_sig] {
+            if !f.is_empty() && !wire_safe(f) {
+                return None;
+            }
         }
         if nonce != expected_nonce {
             return None;
         }
         let expected = match (parts.first(), parts.len()) {
+            (Some(&"SUSI_PONG_SIG3"), _) => mac_tag(
+                &key,
+                &[
+                    "pong3", node_id, pubkey, bind_sig, checksum_s, bloom, nonce, roster_hex,
+                ],
+            ),
             (Some(&"SUSI_PONG_SIG2"), _) => mac_tag(
                 &key,
-                &["pong2", node_id, pubkey, checksum_s, bloom, nonce, roster_hex],
+                &[
+                    "pong2", node_id, pubkey, checksum_s, bloom, nonce, roster_hex,
+                ],
             ),
             (_, 6) => mac_tag(&key, &["pong", node_id, checksum_s, bloom, nonce]),
             _ => mac_tag(
@@ -916,14 +1003,22 @@ pub mod cluster_key {
         if expected != mac {
             return None;
         }
+        // A v3 pong must carry a *verifying* binding attestation — a sig
+        // that doesn't prove against the claimed pubkey means the peer is
+        // advertising a key it does not hold; refuse the handshake.
+        if !bind_sig.is_empty() && !verify_bind_attestation(node_id, pubkey, bind_sig) {
+            return None;
+        }
         Some((
             node_id.to_string(),
             checksum_s.parse().unwrap_or(0),
             bloom.to_string(),
             decode_roster(roster_hex),
             pubkey.to_string(),
+            bind_sig.to_string(),
         ))
     }
+
 }
 mod json_util {
     // susi Sandbox Manager: 100% DYNAMIC - Zero hardcoded keys

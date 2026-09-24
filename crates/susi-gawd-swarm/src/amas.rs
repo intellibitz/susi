@@ -172,6 +172,13 @@ pub struct ClusterPeerNode {
     /// history and don't require `member_sig`.
     #[serde(default)]
     pub key_bound_at: u64,
+    /// The subject's own Ed25519 signature over
+    /// `susi-bind-v1:{node_id}:{pubkey}` — sourced from the v3 signed
+    /// pong and carried into `member_add` records as `subject_sig`, so
+    /// a bound key is always the subject's claim, never proposer
+    /// hearsay. Empty on pre-v3 peers (HMAC-attested binding only).
+    #[serde(default)]
+    pub bind_sig: String,
 }
 
 /// A peer that has not ponged within this window is marked inactive by the
@@ -227,6 +234,7 @@ impl SusiSupervisor {
                 last_seen_secs: now_secs(),
                 pubkey: String::new(),
                 key_bound_at: 0,
+                bind_sig: String::new(),
             }];
 
             // Rehydrate cluster-key-verified peers from the persistent
@@ -447,7 +455,9 @@ impl SusiSupervisor {
                             let verified = pending_nonces.iter().find_map(|nonce| {
                                 crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
                             });
-                            if let Some((node_id, checksum, bloom_hex, roster, pubkey)) = verified {
+                            if let Some((node_id, checksum, bloom_hex, roster, pubkey, bind_sig)) =
+                                verified
+                            {
                                 {
                                     // Self-edge guard — admitting our own
                                     // responder lets mission dispatch
@@ -511,6 +521,7 @@ impl SusiSupervisor {
                                         // through remove + re-add).
                                         if p.pubkey.is_empty() && !pubkey.is_empty() {
                                             p.pubkey = pubkey.clone();
+                                            p.bind_sig = bind_sig.clone();
                                             p.key_bound_at = now_secs();
                                         }
                                         (p.clone(), false, changed)
@@ -539,6 +550,7 @@ impl SusiSupervisor {
                                                 now_secs()
                                             },
                                             pubkey,
+                                            bind_sig,
                                         };
                                         peers.push(node.clone());
                                         (node, true, false)
@@ -596,6 +608,7 @@ impl SusiSupervisor {
                                                 last_seen_secs: now_secs(),
                                                 pubkey: String::new(),
                                                 key_bound_at: 0,
+                                                bind_sig: String::new(),
                                             });
                                         }
                                     }
@@ -662,6 +675,7 @@ impl SusiSupervisor {
                                         last_seen_secs: now_secs(),
                                         pubkey: String::new(),
                                         key_bound_at: 0,
+                                        bind_sig: String::new(),
                                     });
                                 }
                             }
@@ -1647,6 +1661,7 @@ mod tests {
             last_seen_secs: now_secs(),
             pubkey: String::new(),
             key_bound_at: 0,
+            bind_sig: String::new(),
         }
     }
 
@@ -1739,6 +1754,7 @@ mod tests {
             last_seen_secs: now_secs(),
             pubkey: String::new(),
             key_bound_at: 0,
+            bind_sig: String::new(),
         };
 
         let capability_match = ClusterPeerNode {
@@ -1756,6 +1772,7 @@ mod tests {
             last_seen_secs: now_secs(),
             pubkey: String::new(),
             key_bound_at: 0,
+            bind_sig: String::new(),
         };
 
         let a_score = SusiSupervisor::score_peer_for_goal(&generic_high_trust, &goal_tokens);

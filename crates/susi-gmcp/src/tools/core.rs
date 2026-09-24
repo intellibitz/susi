@@ -956,9 +956,17 @@ impl CoreTools {
             .unwrap_or(crate::susi_core::commit_log::KIND_MEMBER_ADD);
         // Optional on member_add: the subject's Ed25519 pubkey as the
         // proposer's handshake attested it — the committed record then
-        // binds the member's signing key on every receiver.
+        // binds the member's signing key on every receiver. `subject_sig`
+        // is the subject's own signature over
+        // `susi-bind-v1:{id}:{pubkey}` from its v3 pong — intake refuses
+        // a pubkey binding without it, so a proposer can never bind a
+        // key the subject didn't claim.
         let member_pubkey = arg
             .get("member_pubkey")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let subject_sig = arg
+            .get("subject_sig")
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if !matches!(
@@ -1045,6 +1053,7 @@ impl CoreTools {
                 "no cluster.key — cannot seal a member record",
             ));
         };
+        record.subject_sig = subject_sig.to_string();
         // Joint-consensus: collect the bound electorate's endorsements
         // before committing — a bound-quorum requirement is evaluated
         // receiver-side, so a record sealed short of it would be refused

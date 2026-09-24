@@ -17,6 +17,7 @@
 //! `cluster.key` are never touched. `commit_log::ENV_LOCK` serializes
 //! against other env-seamed tests.
 
+use ed25519_dalek::{Signer, SigningKey};
 use std::path::PathBuf;
 use susi_config::cluster_key;
 use susi_core::commit_log::{self, CommitInput, CommitRecord};
@@ -85,6 +86,15 @@ fn decision_as(coordinator: &str, value: &str) -> CommitRecord {
         value,
     })
     .expect("seal must succeed while a cluster.key exists")
+}
+
+/// The subject-side half of the v3 handshake: `(pubkey, subject_sig)`
+/// for `node_id`, signed under a foreign member key — matching
+/// `member_sign`'s `susi-member-v1:` wrap of `bind_payload`.
+fn attest(node_id: &str, sk: &SigningKey) -> (String, String) {
+    let pk = hex::encode(sk.verifying_key().to_bytes());
+    let msg = format!("susi-member-v1:{}", cluster_key::bind_payload(node_id, &pk));
+    (pk, hex::encode(sk.sign(msg.as_bytes()).to_bytes()))
 }
 
 /// Write a peers.json with one explicit member row; `pubkey`/`bound_at`
@@ -245,9 +255,12 @@ fn member_add_commits_the_subjects_pubkey_binding() {
     let self_id = cluster_key::wire_node_id();
 
     // Seal a member_add carrying the subject's attested pubkey — the
-    // ledger half of key binding.
-    let subject_pk = hex::encode([0x77u8; 32]);
-    let add = CommitRecord::seal_member(
+    // ledger half of key binding. The subject_sig is the subject's own
+    // signature over `susi-bind-v1:{id}:{pk}` (the v3-pong attestation),
+    // without which intake refuses the binding.
+    let sk_m = SigningKey::from_bytes(&[0x77u8; 32]);
+    let (subject_pk, subject_sig) = attest("node-m", &sk_m);
+    let mut add = CommitRecord::seal_member(
         &self_id,
         &self_id,
         commit_log::KIND_MEMBER_ADD,
@@ -256,6 +269,7 @@ fn member_add_commits_the_subjects_pubkey_binding() {
         &subject_pk,
     )
     .expect("seal_member");
+    add.subject_sig = subject_sig.clone();
     assert_eq!(add.member_pubkey, subject_pk);
     commit_log::append(&add).unwrap();
 
@@ -274,6 +288,11 @@ fn member_add_commits_the_subjects_pubkey_binding() {
         row.get("key_bound_at").and_then(|v| v.as_u64()),
         Some(add.committed_at)
     );
+    assert_eq!(
+        row.get("bind_sig").and_then(|v| v.as_str()),
+        Some(subject_sig.as_str()),
+        "the subject attestation must persist on the row for re-proposals"
+    );
 
     // And from now on, records as node-m must carry node-m's signature —
     // ours (self) is a different key and refuses.
@@ -284,16 +303,21 @@ fn member_add_commits_the_subjects_pubkey_binding() {
     );
 
     // First-write-wins: a second member_add claiming a different key
-    // does not re-bind (re-binding needs remove + re-add).
-    let rebind = CommitRecord::seal_member(
+    // does not re-bind (re-binding needs remove + re-add). It still
+    // carries a valid attestation for its claimed key — the refusal is
+    // on the bind, not the record.
+    let sk_r = SigningKey::from_bytes(&[0x99u8; 32]);
+    let (rebind_pk, rebind_sig) = attest("node-m", &sk_r);
+    let mut rebind = CommitRecord::seal_member(
         &self_id,
         &self_id,
         commit_log::KIND_MEMBER_ADD,
         "node-m@10.0.0.9:9090",
         vec![self_id.clone()],
-        &hex::encode([0x99u8; 32]),
+        &rebind_pk,
     )
     .expect("seal_member rebind");
+    rebind.subject_sig = rebind_sig;
     commit_log::append(&rebind).unwrap();
     let peers: Vec<serde_json::Value> =
         serde_json::from_str(&std::fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
@@ -306,4 +330,83 @@ fn member_add_commits_the_subjects_pubkey_binding() {
         Some(subject_pk.as_str()),
         "binding must be first-write-wins"
     );
+}
+
+#[test]
+fn member_add_pubkey_requires_subject_attestation() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new();
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0xCCu8; 32])).unwrap();
+    let self_id = cluster_key::wire_node_id();
+    let sk_v = SigningKey::from_bytes(&[0x77u8; 32]);
+    let (pk_v, sig_v) = attest("node-v", &sk_v);
+
+    let seal_add = |pubkey: &str| {
+        CommitRecord::seal_member(
+            &self_id,
+            &self_id,
+            commit_log::KIND_MEMBER_ADD,
+            "node-v@10.0.0.9:9090",
+            vec![self_id.clone()],
+            pubkey,
+        )
+        .expect("seal_member")
+    };
+
+    // No attestation at all — the proposer-asserted binding the gate
+    // exists to refuse.
+    let unattested = seal_add(&pk_v);
+    assert!(
+        commit_log::append(&unattested).is_err(),
+        "member_add with a pubkey but no subject_sig must refuse"
+    );
+
+    // A signature that doesn't verify — wrong key material entirely.
+    let mut wrong_key = seal_add(&pk_v);
+    let (_pk_x, sig_x) = attest("node-v", &SigningKey::from_bytes(&[0x88u8; 32]));
+    wrong_key.subject_sig = sig_x;
+    assert!(commit_log::append(&wrong_key).is_err());
+
+    // A valid signature over a *different* node id — attestation is
+    // bound to the claimed identity, not just the key.
+    let mut wrong_id = seal_add(&pk_v);
+    let (_p, sig_id) = attest("node-other", &sk_v);
+    wrong_id.subject_sig = sig_id;
+    assert!(commit_log::append(&wrong_id).is_err());
+
+    // Tampered attestation bytes.
+    let mut tampered = seal_add(&pk_v);
+    tampered.subject_sig = format!("00{}", &sig_v[2..]);
+    assert!(commit_log::append(&tampered).is_err());
+
+    // The genuine attestation commits and binds.
+    let mut good = seal_add(&pk_v);
+    good.subject_sig = sig_v;
+    commit_log::append(&good).unwrap();
+    let peers: Vec<serde_json::Value> =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+    let row = peers
+        .iter()
+        .find(|p| p.get("node_id").and_then(|v| v.as_str()) == Some("node-v"))
+        .expect("member row applied");
+    assert_eq!(
+        row.get("pubkey").and_then(|v| v.as_str()),
+        Some(pk_v.as_str())
+    );
+
+    // A member_add with no pubkey claim needs no attestation — the
+    // unbound legacy path stays open.
+    let unbound = CommitRecord::seal_member(
+        &self_id,
+        &self_id,
+        commit_log::KIND_MEMBER_ADD,
+        "node-u@10.0.0.7:9090",
+        vec![self_id.clone()],
+        "",
+    )
+    .expect("seal_member");
+    commit_log::append(&unbound).unwrap();
 }

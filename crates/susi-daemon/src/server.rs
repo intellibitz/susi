@@ -1014,6 +1014,7 @@ impl SusiDaemon {
                             .unwrap_or(0),
                         pubkey: String::new(),
                         key_bound_at: 0,
+                        bind_sig: String::new(),
                     };
                     susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
                 }
@@ -1025,26 +1026,36 @@ impl SusiDaemon {
                         .into_iter()
                         .map(|p| (p.node_id, p.address))
                         .collect();
-                // v2 pings get a pubkey-attesting pong — the responder
-                // side of member-key binding.
-                let pong = if wants_v2 {
-                    crate::susi_config::cluster_key::signed_pong_v2(
-                        &crate::susi_config::cluster_key::wire_node_id(),
-                        0,
-                        &bloom,
-                        &nonce,
-                        &roster,
-                    )
+                // Identity-era pings get attested pongs — v3 (subject-
+                // signed binding) plus v2+v1 fallbacks so every requester
+                // generation finds a format it can verify.
+                let pongs: Vec<Option<String>> = if wants_v2 {
+                    vec![
+                        crate::susi_config::cluster_key::signed_pong_v3(
+                            &crate::susi_config::cluster_key::wire_node_id(),
+                            0,
+                            &bloom,
+                            &nonce,
+                            &roster,
+                        ),
+                        crate::susi_config::cluster_key::signed_pong_v2(
+                            &crate::susi_config::cluster_key::wire_node_id(),
+                            0,
+                            &bloom,
+                            &nonce,
+                            &roster,
+                        ),
+                    ]
                 } else {
-                    crate::susi_config::cluster_key::signed_pong(
+                    vec![crate::susi_config::cluster_key::signed_pong(
                         &crate::susi_config::cluster_key::wire_node_id(),
                         0,
                         &bloom,
                         &nonce,
                         &roster,
-                    )
+                    )]
                 };
-                if let Some(pong) = pong {
+                for pong in pongs.into_iter().flatten() {
                     let _ = socket.send_to(pong.as_bytes(), src);
                 }
                 continue;
