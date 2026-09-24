@@ -359,7 +359,7 @@ async fn recover_with_providers(
     if !fallback_local {
         report.final_answer.push_str(&format!(
             "\nFailover exhausted {} cloud provider(s); mission remains failed. See attempt details in the mission trace.",
-            attempted.len()
+            attempted.len().saturating_sub(ghosts)
         ));
         return;
     }
@@ -413,7 +413,7 @@ async fn recover_with_providers(
 
     report.final_answer.push_str(&format!(
         "\nFailover exhausted {} cloud provider(s) and local inference; mission remains failed. See attempt details in the mission trace.",
-        attempted.len()
+        attempted.len().saturating_sub(ghosts)
     ));
 }
 
