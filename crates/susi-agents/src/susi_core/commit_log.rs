@@ -93,11 +93,30 @@ pub struct CommitRecord {
     /// records and pre-linkage history.
     #[serde(default)]
     pub prev_epoch: String,
+    /// Record kind: empty is a quorum decision (the common case).
+    /// `member_add`/`member_remove` are leader-signed roster deltas
+    /// committed through the same ledger — receivers apply them to
+    /// `peers.json` on append. Skipped when empty so decision records
+    /// stay byte-compatible with the pre-membership format.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub kind: String,
     /// HMAC-SHA256 hex over `signed_payload()` under `cluster.key`.
     /// Empty until `seal` runs; a record with an empty signature never
     /// verifies.
     pub signature: String,
 }
+
+/// Membership record kinds — roster deltas committed through the same
+/// signed ledger as quorum decisions (Raft's committed configuration
+/// change analog). Carried in `CommitRecord::kind`; the member spec is
+/// `value` as `node_id@address`.
+pub const KIND_MEMBER_ADD: &str = "member_add";
+/// Drop the member and ban re-verification — eviction must take effect
+/// on every receiver the moment the record lands.
+pub const KIND_MEMBER_REMOVE: &str = "member_remove";
+/// Lift a previously committed ban — the member can re-verify naturally
+/// on its next signed handshake (it is not re-added).
+pub const KIND_MEMBER_UNBAN: &str = "member_unban";
 
 /// Inputs for `CommitRecord::seal` — the decision fields a coordinator
 /// knows at commit time. `seq` and `signature` are derived by `seal`.
@@ -140,6 +159,10 @@ struct SignedFields<'a> {
     /// wire compatibility is signature compatibility here.
     #[serde(skip_serializing_if = "str::is_empty")]
     prev_epoch: &'a str,
+    /// Same omission rule as `prev_epoch` — decision records must not
+    /// grow a field their existing signatures never covered.
+    #[serde(skip_serializing_if = "str::is_empty")]
+    kind: &'a str,
 }
 
 impl CommitRecord {
@@ -177,11 +200,73 @@ impl CommitRecord {
             // (highest seq) — "" on its first record. Receivers holding
             // a different head at seq-1 see fork evidence, not a gap.
             prev_epoch: chain_head_epoch(&held, input.coordinator).unwrap_or_default(),
+            kind: String::new(),
             signature: String::new(),
         };
         rec.signature =
             crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
         Some(rec)
+    }
+
+    /// Seal a membership-change record (Raft's committed configuration
+    /// entry analog). `member` is `node_id@address`; `electorate` is the
+    /// roster as the coordinator saw it — audit context, not a vote.
+    /// Like Raft's config entries, roster deltas are leader-signed and
+    /// replicated rather than voted on per entry, so they carry
+    /// `tally = quorum_threshold = 0` honestly: `verify` checks the
+    /// signature and value integrity, not a quorum that never happened.
+    /// Receivers apply the delta to `peers.json` on append — the ledger
+    /// is the applied membership state.
+    pub fn seal_member(
+        coordinator: &str,
+        leader: &str,
+        kind: &str,
+        member: &str,
+        electorate: Vec<String>,
+    ) -> Option<Self> {
+        let key = crate::susi_config::cluster_key::cluster_key()?;
+        let committed_at = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let mut sorted = electorate;
+        sorted.sort();
+        let epoch = hex::encode(Sha256::digest(
+            format!("{}|{}|{}", kind, sorted.join(","), committed_at).as_bytes(),
+        ));
+        let held = load();
+        let mut rec = CommitRecord {
+            epoch,
+            coordinator: coordinator.to_string(),
+            electorate: sorted,
+            tally: 0,
+            quorum_threshold: 0,
+            value_hash: hex::encode(Sha256::digest(member.as_bytes())),
+            value: member.to_string(),
+            committed_at,
+            seq: next_seq_for(&held, coordinator),
+            leader: leader.to_string(),
+            term: load_term().term,
+            prev_epoch: chain_head_epoch(&held, coordinator).unwrap_or_default(),
+            kind: kind.to_string(),
+            signature: String::new(),
+        };
+        rec.signature =
+            crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
+        Some(rec)
+    }
+
+    /// `(kind, node_id, address)` for a membership record — `None` for
+    /// decisions and member values that are not `id@address`.
+    pub fn member_delta(&self) -> Option<(&str, &str, &str)> {
+        if self.kind.is_empty() {
+            return None;
+        }
+        let (id, addr) = self.value.split_once('@')?;
+        if id.is_empty() || addr.is_empty() {
+            return None;
+        }
+        Some((self.kind.as_str(), id, addr))
     }
 
     /// The exact bytes the signature covers (compact JSON of
@@ -205,6 +290,7 @@ impl CommitRecord {
             leader: &self.leader,
             term: self.term,
             prev_epoch: &self.prev_epoch,
+            kind: &self.kind,
         })
         .unwrap_or_default()
     }
@@ -226,11 +312,13 @@ impl CommitRecord {
         if expected != self.signature {
             return false;
         }
-        // Internal consistency: a correctly-signed record can still claim
-        // a tally that never reached quorum, or carry a value that does
-        // not match its hash — check both before trusting it.
-        if self.quorum_threshold != self.electorate.len() / 2 + 1
-            || self.tally < self.quorum_threshold
+        // Internal consistency: a correctly-signed decision record can
+        // still claim a tally that never reached quorum — check it.
+        // Membership records carry no vote by design (leader-signed
+        // replication), so only decisions get the quorum check.
+        if self.kind.is_empty()
+            && (self.quorum_threshold != self.electorate.len() / 2 + 1
+                || self.tally < self.quorum_threshold)
         {
             return false;
         }
@@ -541,6 +629,16 @@ pub struct ClusterState {
     pub coordinators: std::collections::BTreeMap<String, u64>,
     /// Total records that passed signature + consistency verification.
     pub decisions: usize,
+    /// Committed membership records folded in append order — the count
+    /// of roster deltas the ledger carries.
+    pub memberships: usize,
+    /// Derived committed roster (`node_id -> address`) — the members a
+    /// replay of this ledger converges to. Nodes holding identical logs
+    /// derive identical rosters.
+    pub roster: std::collections::BTreeMap<String, String>,
+    /// Members evicted by committed removals (`node_id`, `address`) —
+    /// a committed `member_add` cannot resurrect a banned member.
+    pub banned: std::collections::BTreeSet<(String, String)>,
     /// Anomalies found while replaying (signature failures, seq
     /// regressions, term regressions, equivocation).
     pub anomalies: Vec<String>,
@@ -568,6 +666,37 @@ pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
             continue;
         }
         state.decisions += 1;
+        // Fold membership deltas in append order — the same order
+        // `apply_member_delta` ran in when the records landed, so the
+        // derived roster reproduces what the ledger applied.
+        if let Some((kind, id, addr)) = r.member_delta() {
+            state.memberships += 1;
+            match kind {
+                KIND_MEMBER_ADD => {
+                    if !state
+                        .banned
+                        .iter()
+                        .any(|(bid, baddr)| bid == id || baddr == addr)
+                    {
+                        // Dedup on either field — a member re-added with
+                        // a new id at the same address replaces the
+                        // stale claim.
+                        state.roster.retain(|nid, naddr| nid != id && naddr != addr);
+                        state.roster.insert(id.to_string(), addr.to_string());
+                    }
+                }
+                KIND_MEMBER_REMOVE => {
+                    state.roster.retain(|nid, naddr| nid != id && naddr != addr);
+                    state.banned.insert((id.to_string(), addr.to_string()));
+                }
+                KIND_MEMBER_UNBAN => {
+                    state
+                        .banned
+                        .retain(|(bid, baddr)| bid != id && baddr != addr);
+                }
+                _ => {}
+            }
+        }
         if r.term > state.term {
             state.term = r.term;
             state.leader = r.leader.clone();
@@ -725,7 +854,99 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
         .open(path)
         .map_err(|e| EaiError::filesystem(format!("open {}: {e}", path.display())))?;
     file.write_all(line.as_bytes())
-        .map_err(|e| EaiError::filesystem(format!("append {}: {e}", path.display())))
+        .map_err(|e| EaiError::filesystem(format!("append {}: {e}", path.display())))?;
+    // Committed membership is applied state — the ledger IS the roster
+    // history, so a member record landing here updates peers.json as
+    // part of the same append. Best-effort: a failed apply leaves the
+    // durable record (replay and gossip re-converge) rather than
+    // rejecting a validly signed append.
+    if record.member_delta().is_some() {
+        apply_member_delta(record, path.parent().unwrap_or_else(|| Path::new(".")));
+    }
+    Ok(())
+}
+
+/// Apply a committed membership delta to `peers.json` /
+/// `peers_banned.json` beside the ledger — the roster half of "the
+/// ledger is applied state". `dir` is the ledger's directory (not the
+/// global config dir) so path-seamed test ledgers apply hermetically.
+/// Structural JSON: this kernel module cannot depend on the swarm
+/// plane's `ClusterPeerNode`, and the on-disk schema (snake_case field
+/// names) is the stable wire format both sides already share.
+fn apply_member_delta(record: &CommitRecord, dir: &Path) {
+    let Some((kind, id, addr)) = record.member_delta() else {
+        return;
+    };
+    // Serialize the roster read-modify-write across processes — same
+    // lockfile discipline as the ledger append itself.
+    let Some(_lock) = FileLock::acquire(dir, "peers") else {
+        return;
+    };
+    let peers_path = dir.join("peers.json");
+    let banned_path = dir.join("peers_banned.json");
+    let mut peers: Vec<serde_json::Value> = fs::read_to_string(&peers_path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let mut banned: Vec<serde_json::Value> = fs::read_to_string(&banned_path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let member_matches = |n: &serde_json::Value| {
+        n.get("node_id").and_then(|v| v.as_str()) == Some(id)
+            || n.get("address").and_then(|v| v.as_str()) == Some(addr)
+    };
+    match kind {
+        KIND_MEMBER_ADD => {
+            // A ban is operator eviction — a committed add must never
+            // silently resurrect an evicted member.
+            if banned.iter().any(&member_matches) {
+                return;
+            }
+            if let Some(i) = peers.iter().position(&member_matches) {
+                peers[i]["is_active"] = serde_json::json!(true);
+                peers[i]["last_seen_secs"] = serde_json::json!(record.committed_at);
+            } else {
+                // Explicit admission — the coordinator cryptographically
+                // verified this member — but `last_seen_secs: 0`:
+                // committed membership grants roster standing, not
+                // liveness. The member stays stale (no quorum weight,
+                // no leadership) until it directly pongs this node.
+                peers.push(serde_json::json!({
+                    "node_id": id,
+                    "address": addr,
+                    "node_type": "PEER",
+                    "is_active": true,
+                    "capabilities": [],
+                    "registry_checksum": 0,
+                    "latency_ms": 0,
+                    "uptime_secs": 0,
+                    "trust_score": 0.8,
+                    "capability_bloom": [0, 0, 0, 0],
+                    "admission": "explicit",
+                    "last_seen_secs": 0,
+                }));
+            }
+            let _ = crate::susi_config::atomic_write_json_pretty(&peers_path, &peers);
+        }
+        KIND_MEMBER_REMOVE => {
+            peers.retain(|n| !member_matches(n));
+            if !banned.iter().any(&member_matches) {
+                banned.push(serde_json::json!({
+                    "node_id": id,
+                    "address": addr,
+                    "banned_at": record.committed_at,
+                }));
+            }
+            let _ = crate::susi_config::atomic_write_json_pretty(&peers_path, &peers);
+            let _ = crate::susi_config::atomic_write_json_pretty(&banned_path, &banned);
+        }
+        KIND_MEMBER_UNBAN => {
+            banned.retain(|b| !member_matches(b));
+            let _ = crate::susi_config::atomic_write_json_pretty(&banned_path, &banned);
+        }
+        _ => {}
+    }
 }
 
 /// Load every well-formed record, oldest first. Malformed lines are
@@ -857,10 +1078,107 @@ mod tests {
             leader: String::new(),
             term: 0,
             prev_epoch: String::new(),
+            kind: String::new(),
             signature: String::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn member_records_seal_verify_and_apply_to_roster() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_member_{}", std::process::id()));
+        let path = dir.join("commit_log.jsonl");
+        let _ = fs::remove_dir_all(&dir);
+
+        // seal_member assigns seq from the shared ledger path — the
+        // path-seamed test ledger is empty, so re-seq + re-sign each
+        // record into the test chain (same pattern as the gap tests).
+        let mut seq = 0u64;
+        let mut seal_into_test = |kind: &str, member: &str| -> Option<CommitRecord> {
+            let mut rec = CommitRecord::seal_member("coord-a", "coord-a", kind, member, vec![])?;
+            seq += 1;
+            rec.seq = seq;
+            if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
+                rec.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                    &k,
+                    rec.signed_payload().as_bytes(),
+                );
+            }
+            Some(rec)
+        };
+
+        let Some(add) = seal_into_test(KIND_MEMBER_ADD, "node-b@10.0.0.2:9090") else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        assert!(add.verify(), "sealed member record must verify");
+        assert_eq!(
+            add.member_delta(),
+            Some((KIND_MEMBER_ADD, "node-b", "10.0.0.2:9090"))
+        );
+        append_to(&path, &add).expect("append add");
+
+        // Applied: peers.json beside the ledger gained the member as
+        // explicit — but stale (last_seen 0): committed standing, not
+        // liveness.
+        let peers: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0]["node_id"], "node-b");
+        assert_eq!(peers[0]["admission"], "explicit");
+        assert_eq!(peers[0]["last_seen_secs"], 0);
+
+        // Removal evicts + bans on append.
+        let Some(rem) = seal_into_test(KIND_MEMBER_REMOVE, "node-b@10.0.0.2:9090") else {
+            return;
+        };
+        append_to(&path, &rem).expect("append remove");
+        let peers: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+        assert!(peers.is_empty(), "evicted member must leave the roster");
+        let banned: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
+                .unwrap();
+        assert_eq!(banned.len(), 1);
+
+        // A re-add while banned is refused — eviction wins over a stale
+        // add arriving late.
+        let Some(readd) = seal_into_test(KIND_MEMBER_ADD, "node-b@10.0.0.2:9090") else {
+            return;
+        };
+        append_to(&path, &readd).expect("append re-add");
+        let peers: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers.json")).unwrap()).unwrap();
+        assert!(peers.is_empty(), "banned member must not be resurrected");
+
+        // Unban lifts the ban so the member can re-verify naturally.
+        let Some(unban) = seal_into_test(KIND_MEMBER_UNBAN, "node-b@10.0.0.2:9090") else {
+            return;
+        };
+        append_to(&path, &unban).expect("append unban");
+        let banned: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
+                .unwrap();
+        assert!(banned.is_empty(), "unban must clear the eviction");
+
+        // Replay derives the same membership view the applies produced.
+        let state = replay_records(&load_from(&path));
+        assert_eq!(state.memberships, 4);
+        assert!(state.roster.is_empty());
+        assert!(state.banned.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pre_membership_records_parse_as_decisions() {
+        // A record serialized before `kind` existed must still load and
+        // present as a decision — the ledger's history is permanent.
+        let line = r#"{"epoch":"e","coordinator":"c","electorate":["A","B"],"tally":2,"quorum_threshold":2,"value_hash":"h","value":"v","committed_at":0,"seq":1,"leader":"l","term":1,"signature":"s"}"#;
+        let rec: CommitRecord = serde_json::from_str(line).expect("legacy record parses");
+        assert!(rec.kind.is_empty());
+        assert!(rec.member_delta().is_none());
     }
 
     #[test]

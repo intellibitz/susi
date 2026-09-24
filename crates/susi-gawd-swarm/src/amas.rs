@@ -194,7 +194,10 @@ impl SusiSupervisor {
         static DISCOVERED_PEERS: OnceLock<Arc<RwLock<Vec<ClusterPeerNode>>>> = OnceLock::new();
         let peers_lock = DISCOVERED_PEERS.get_or_init(|| {
             let initial = vec![ClusterPeerNode {
-                node_id: "susi-local-master".to_string(),
+                // The persisted wire identity — consensus needs every
+                // node's coordinator seq chain, chain linkage, and
+                // leader election to live in its own id namespace.
+                node_id: crate::susi_config::cluster_key::wire_node_id(),
                 address: format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
@@ -735,11 +738,7 @@ impl SusiSupervisor {
             fleet_info.iter().map(|i| i.name.clone()).collect();
         let dispatched_peers: Vec<&ClusterPeerNode> = cluster_nodes
             .iter()
-            .filter(|n| {
-                n.node_id != "susi-local-master"
-                    && n.is_active
-                    && matches!(n.admission, PeerAdmission::Explicit)
-            })
+            .filter(|n| n.is_active && matches!(n.admission, PeerAdmission::Explicit))
             .collect();
         for node in &dispatched_peers {
             electorate.insert(format!("PeerNode_{}", node.node_id));
@@ -902,9 +901,10 @@ impl SusiSupervisor {
                     // None) seals nothing: a commit record with a vacant
                     // leader field is not a quorum decision.
                     crate::susi_core::commit_log::claim_leadership(&leader);
+                    let our_id = crate::susi_config::cluster_key::wire_node_id();
                     crate::susi_core::commit_log::CommitRecord::seal(
                         crate::susi_core::commit_log::CommitInput {
-                            coordinator: "susi-local-master",
+                            coordinator: &our_id,
                             leader: &leader,
                             electorate: electorate.iter().cloned().collect(),
                             tally,
@@ -1164,7 +1164,7 @@ impl SusiSupervisor {
 
         let target_nodes: Vec<_> = nodes
             .into_iter()
-            .filter(|n| n.node_id != "susi-local-master")
+            .filter(|n| !matches!(n.admission, PeerAdmission::Local))
             .collect();
 
         let successes = target_nodes
@@ -1575,7 +1575,9 @@ mod tests {
         .ok();
         let nodes = SusiSupervisor::list_cluster_nodes();
         assert!(
-            nodes.iter().any(|n| n.node_id == "susi-local-master"),
+            nodes
+                .iter()
+                .any(|n| matches!(n.admission, PeerAdmission::Local)),
             "local master must remain discoverable without binding 9092"
         );
     }

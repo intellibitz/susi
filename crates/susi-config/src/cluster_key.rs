@@ -2,12 +2,20 @@
 //! discovery handshake behind authenticated peer membership (VC-200-001).
 //!
 //! Protocol (`susi-peer-v1`):
-//! - Scout sends `SUSI_PING_SIG:<caps_csv>:<checksum>:<bloom_hex>:<nonce>:<mac>`
-//!   where `mac` is HMAC-SHA256 over `susi-peer-v1:ping:<same fields>`.
+//! - Scout sends
+//!   `SUSI_PING_SIG:<node_id>:<caps_csv>:<checksum>:<bloom_hex>:<nonce>:<mac>`
+//!   where `node_id` is the sender's persisted identity (`node_id()`) and
+//!   `mac` is HMAC-SHA256 over `susi-peer-v1:ping:<same fields>`. Pre-identity
+//!   6-field pings (no `node_id`) still verify with an empty sender id so
+//!   mixed-version clusters handshake; `peers add` falls back to that format
+//!   for daemons that predate the field.
 //! - The daemon verifies the MAC and answers
-//!   `SUSI_PONG_SIG:<node_id>:<checksum>:<bloom_hex>:<nonce>:<mac>` — the nonce
-//!   echoed back binds the pong to this exchange, so replaying a captured
-//!   signed pong against a different ping fails verification.
+//!   `SUSI_PONG_SIG:<node_id>:<checksum>:<bloom_hex>:<nonce>:<roster_hex>:<mac>`
+//!   — the nonce echoed back binds the pong to this exchange, so replaying a
+//!   captured signed pong against a different ping fails verification. The
+//!   `roster_hex` field carries the responder's verified members
+//!   (`node_id@address;…`, hex-encoded, ≤8 entries) so one handshake teaches
+//!   the joiner the whole cluster; pre-gossip 6-field pongs still verify.
 //!
 //! Peers that only ever produce unsigned pongs stay `Discovered` — a spoofed
 //! UDP answer can never reach `Explicit` without the shared key. The operator
@@ -138,10 +146,84 @@ fn wire_safe(s: &str) -> bool {
             .all(|c| c.is_alphanumeric() || c == ',' || c == '-' || c == '_' || c == '.')
 }
 
+/// Stable per-node identity persisted at `~/.susi/node_id` (0600) —
+/// generated once on first use. Consensus needs distinct coordinator
+/// identities: a hardcoded node id would put every member's commit
+/// sequence, chain linkage, and election tie-breaks in one shared
+/// namespace.
+pub fn node_id() -> Option<String> {
+    let path = crate::susi_paths::SusiDirs::config_dir().join("node_id");
+    if let Ok(text) = fs::read_to_string(&path) {
+        let id = text.trim().to_string();
+        if wire_safe(&id) && id.len() <= 64 {
+            return Some(id);
+        }
+    }
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).ok()?;
+    }
+    let id = format!("susi-node-{}", &random_nonce_hex()[..12]);
+    // 0600 like the cluster key — the id isn't secret, but a
+    // world-writable identity file invites trivial spoofing.
+    #[cfg(unix)]
+    let written = {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .and_then(|mut f| f.write_all(id.as_bytes()))
+            .is_ok()
+    };
+    #[cfg(not(unix))]
+    let written = fs::write(&path, &id).is_ok();
+    written.then_some(id)
+}
+
+/// The node id this host advertises on the wire — the persisted
+/// identity, or the pre-identity fallback when the file cannot be
+/// created (read-only substrate: degraded but functional).
+pub fn wire_node_id() -> String {
+    node_id().unwrap_or_else(|| "susi-daemon-node".to_string())
+}
+
+/// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
+/// bloom_hex, nonce)` — `node_id` is empty for pre-identity senders.
+pub type VerifiedPing = (String, String, u64, String, String);
+
 /// Build a signed discovery ping. Returns `(wire_message, nonce)` — the nonce
 /// must be kept to verify the answering pong. `None` when no key exists or a
 /// field is not wire-safe.
 pub fn signed_ping(caps_csv: &str, checksum: u64, bloom_hex: &str) -> Option<(String, String)> {
+    let key = cluster_key()?;
+    let node_id = wire_node_id();
+    let nonce = random_nonce_hex();
+    let checksum = checksum.to_string();
+    for f in [&node_id, caps_csv, &checksum, bloom_hex, &nonce] {
+        if !wire_safe(f) {
+            return None;
+        }
+    }
+    let mac = mac_tag(
+        &key,
+        &["ping", &node_id, caps_csv, &checksum, bloom_hex, &nonce],
+    );
+    Some((
+        format!("SUSI_PING_SIG:{node_id}:{caps_csv}:{checksum}:{bloom_hex}:{nonce}:{mac}"),
+        nonce,
+    ))
+}
+
+/// Legacy 6-field ping for dialing pre-identity daemons — a `peers
+/// add` fallback so a new node can still handshake a peer running a
+/// build that rejects the node_id field outright.
+pub fn signed_ping_legacy(
+    caps_csv: &str,
+    checksum: u64,
+    bloom_hex: &str,
+) -> Option<(String, String)> {
     let key = cluster_key()?;
     let nonce = random_nonce_hex();
     let checksum = checksum.to_string();
@@ -157,26 +239,40 @@ pub fn signed_ping(caps_csv: &str, checksum: u64, bloom_hex: &str) -> Option<(St
     ))
 }
 
-/// Verified fields of a signed ping: `(caps_csv, checksum, bloom_hex, nonce)`.
-/// `None` for malformed input or a bad MAC — the caller must not answer.
-pub fn verify_signed_ping(msg: &str) -> Option<(String, u64, String, String)> {
+/// Verify a signed ping; `None` for malformed input or a bad MAC —
+/// the caller must not answer. Legacy 6-field pings (pre-identity
+/// builds) verify with an empty node_id so mixed-version clusters
+/// still handshake.
+pub fn verify_signed_ping(msg: &str) -> Option<VerifiedPing> {
     let key = cluster_key()?;
     let parts: Vec<&str> = msg.split(':').collect();
-    // SUSI_PING_SIG:<caps>:<checksum>:<bloom>:<nonce>:<mac>
-    if parts.len() != 6 || parts[0] != "SUSI_PING_SIG" {
+    if parts.first() != Some(&"SUSI_PING_SIG") {
         return None;
     }
-    let (caps, checksum_s, bloom, nonce, mac) = (parts[1], parts[2], parts[3], parts[4], parts[5]);
+    // SUSI_PING_SIG:[<node_id>:]<caps>:<checksum>:<bloom>:<nonce>:<mac>
+    let (node_id, caps, checksum_s, bloom, nonce, mac) = match parts.len() {
+        7 => (parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]),
+        6 => ("", parts[1], parts[2], parts[3], parts[4], parts[5]),
+        _ => return None,
+    };
     for f in [caps, checksum_s, bloom, nonce] {
         if !wire_safe(f) {
             return None;
         }
     }
-    let expected = mac_tag(&key, &["ping", caps, checksum_s, bloom, nonce]);
+    if !node_id.is_empty() && !wire_safe(node_id) {
+        return None;
+    }
+    let expected = if parts.len() == 6 {
+        mac_tag(&key, &["ping", caps, checksum_s, bloom, nonce])
+    } else {
+        mac_tag(&key, &["ping", node_id, caps, checksum_s, bloom, nonce])
+    };
     if expected != mac {
         return None;
     }
     Some((
+        node_id.to_string(),
         caps.to_string(),
         checksum_s.parse().unwrap_or(0),
         bloom.to_string(),
@@ -343,7 +439,9 @@ mod tests {
     fn signed_ping_pong_roundtrip_verifies() {
         let _t = set_key_env();
         let (ping, nonce) = signed_ping("CORE,GPU", 7, "00ff").expect("signed ping");
-        let (caps, checksum, bloom, echoed) = verify_signed_ping(&ping).expect("verify ping");
+        let (pinger_id, caps, checksum, bloom, echoed) =
+            verify_signed_ping(&ping).expect("verify ping");
+        assert!(pinger_id.starts_with("susi-node-"));
         assert_eq!(
             (caps.as_str(), checksum, bloom.as_str()),
             ("CORE,GPU", 7, "00ff")
@@ -368,7 +466,7 @@ mod tests {
     fn pong_with_wrong_nonce_or_mac_is_rejected() {
         let _t = set_key_env();
         let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
-        let (_, _, _, echoed) = verify_signed_ping(&ping).unwrap();
+        let (_, _, _, _, echoed) = verify_signed_ping(&ping).unwrap();
         let pong = signed_pong("peer", 0, "00", &echoed, &[]).unwrap();
         // Wrong expected nonce -> reject.
         assert!(verify_signed_pong(&pong, "deadbeef").is_none());
@@ -383,7 +481,7 @@ mod tests {
     fn legacy_six_field_pong_still_verifies_with_empty_roster() {
         let _t = set_key_env();
         let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
-        let (_, _, _, echoed) = verify_signed_ping(&ping).unwrap();
+        let (_, _, _, _, echoed) = verify_signed_ping(&ping).unwrap();
         // Reconstruct a pre-gossip pong: no roster field, MAC over the
         // original five fields — older daemons still handshake cleanly.
         let key = cluster_key().unwrap();
@@ -392,6 +490,36 @@ mod tests {
         let (node_id, _, _, roster) = verify_signed_pong(&legacy, &nonce).expect("legacy pong");
         assert_eq!(node_id, "old-peer");
         assert!(roster.is_empty());
+    }
+
+    #[test]
+    fn legacy_six_field_ping_verifies_with_empty_node_id() {
+        let _t = set_key_env();
+        // Reconstruct a pre-identity ping: no node_id field, MAC over the
+        // original four fields — older daemons still handshake cleanly.
+        let key = cluster_key().unwrap();
+        let mac = mac_tag(&key, &["ping", "CORE", "1", "00", "noncenonce"]);
+        let legacy = format!("SUSI_PING_SIG:CORE:1:00:noncenonce:{mac}");
+        let (pinger_id, caps, checksum, bloom, echoed) =
+            verify_signed_ping(&legacy).expect("legacy ping");
+        assert!(pinger_id.is_empty());
+        assert_eq!(
+            (caps.as_str(), checksum, bloom.as_str(), echoed.as_str()),
+            ("CORE", 1, "00", "noncenonce")
+        );
+    }
+
+    #[test]
+    fn node_id_persists_and_is_wire_safe() {
+        let _t = set_key_env();
+        let first = node_id().expect("node id");
+        assert!(first.starts_with("susi-node-"));
+        // Second call reads back the same identity — identity is stable.
+        assert_eq!(node_id().as_deref(), Some(first.as_str()));
+        // And it survives the ping wire format unchanged.
+        let (ping, _) = signed_ping("CORE", 1, "00").unwrap();
+        let (pinger_id, _, _, _, _) = verify_signed_ping(&ping).unwrap();
+        assert_eq!(pinger_id, first);
     }
 
     #[test]

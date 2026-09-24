@@ -232,16 +232,21 @@ fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()
         .filter(|r| term.is_none_or(|t| r.term == t))
         .collect();
     println!(
-        "{:<14} {:<5} {:<5} {:<18} {:<7} {:<7} {:<12} VERIFIED",
-        "EPOCH", "SEQ", "TERM", "COORDINATOR", "TALLY", "QUORUM", "COMMITTED_AT"
+        "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} VERIFIED",
+        "EPOCH", "SEQ", "TERM", "COORDINATOR", "KIND", "TALLY", "QUORUM", "COMMITTED_AT"
     );
     for r in records.iter().rev().take(limit.min(500)) {
         println!(
-            "{:<14} {:<5} {:<5} {:<18} {:<7} {:<7} {:<12} {}",
+            "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {}",
             &r.epoch[..12.min(r.epoch.len())],
             r.seq,
             r.term,
             r.coordinator,
+            if r.kind.is_empty() {
+                "decision"
+            } else {
+                r.kind.as_str()
+            },
             r.tally,
             r.quorum_threshold,
             r.committed_at,
@@ -340,6 +345,19 @@ fn replay_view() -> Result<()> {
         }
     );
     println!("decisions:     {}", state.decisions);
+    println!("memberships:   {}", state.memberships);
+    if !state.roster.is_empty() {
+        println!("committed roster:");
+        for (id, addr) in &state.roster {
+            println!("  {id:<24} {addr}");
+        }
+    }
+    if !state.banned.is_empty() {
+        println!("committed bans:");
+        for (id, addr) in &state.banned {
+            println!("  {id:<24} {addr}");
+        }
+    }
     println!("coordinators:");
     for (coord, high) in &state.coordinators {
         println!("  {coord:<20} high-water seq {high}");

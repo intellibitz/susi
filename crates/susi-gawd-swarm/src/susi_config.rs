@@ -232,10 +232,84 @@ pub mod cluster_key {
                 .all(|c| c.is_alphanumeric() || c == ',' || c == '-' || c == '_' || c == '.')
     }
 
+    /// Stable per-node identity persisted at `~/.susi/node_id` (0600) —
+    /// generated once on first use. Consensus needs distinct coordinator
+    /// identities: a hardcoded node id would put every member's commit
+    /// sequence, chain linkage, and election tie-breaks in one shared
+    /// namespace.
+    pub fn node_id() -> Option<String> {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("node_id");
+        if let Ok(text) = fs::read_to_string(&path) {
+            let id = text.trim().to_string();
+            if wire_safe(&id) && id.len() <= 64 {
+                return Some(id);
+            }
+        }
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir).ok()?;
+        }
+        let id = format!("susi-node-{}", &random_nonce_hex()[..12]);
+        // 0600 like the cluster key — the id isn't secret, but a
+        // world-writable identity file invites trivial spoofing.
+        #[cfg(unix)]
+        let written = {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .and_then(|mut f| f.write_all(id.as_bytes()))
+                .is_ok()
+        };
+        #[cfg(not(unix))]
+        let written = fs::write(&path, &id).is_ok();
+        written.then_some(id)
+    }
+
+    /// The node id this host advertises on the wire — the persisted
+    /// identity, or the pre-identity fallback when the file cannot be
+    /// created (read-only substrate: degraded but functional).
+    pub fn wire_node_id() -> String {
+        node_id().unwrap_or_else(|| "susi-daemon-node".to_string())
+    }
+
+    /// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
+    /// bloom_hex, nonce)` — `node_id` is empty for pre-identity senders.
+    pub type VerifiedPing = (String, String, u64, String, String);
+
     /// Build a signed discovery ping. Returns `(wire_message, nonce)` — the nonce
     /// must be kept to verify the answering pong. `None` when no key exists or a
     /// field is not wire-safe.
     pub fn signed_ping(caps_csv: &str, checksum: u64, bloom_hex: &str) -> Option<(String, String)> {
+        let key = cluster_key()?;
+        let node_id = wire_node_id();
+        let nonce = random_nonce_hex();
+        let checksum = checksum.to_string();
+        for f in [&node_id, caps_csv, &checksum, bloom_hex, &nonce] {
+            if !wire_safe(f) {
+                return None;
+            }
+        }
+        let mac = mac_tag(
+            &key,
+            &["ping", &node_id, caps_csv, &checksum, bloom_hex, &nonce],
+        );
+        Some((
+            format!("SUSI_PING_SIG:{node_id}:{caps_csv}:{checksum}:{bloom_hex}:{nonce}:{mac}"),
+            nonce,
+        ))
+    }
+
+    /// Legacy 6-field ping for dialing pre-identity daemons — a `peers
+    /// add` fallback so a new node can still handshake a peer running a
+    /// build that rejects the node_id field outright.
+    pub fn signed_ping_legacy(
+        caps_csv: &str,
+        checksum: u64,
+        bloom_hex: &str,
+    ) -> Option<(String, String)> {
         let key = cluster_key()?;
         let nonce = random_nonce_hex();
         let checksum = checksum.to_string();
@@ -251,27 +325,42 @@ pub mod cluster_key {
         ))
     }
 
-    /// Verified fields of a signed ping: `(caps_csv, checksum, bloom_hex, nonce)`.
-    /// `None` for malformed input or a bad MAC — the caller must not answer.
-    pub fn verify_signed_ping(msg: &str) -> Option<(String, u64, String, String)> {
+    /// Verify a signed ping; `None` for malformed input or a bad MAC —
+    /// the caller must not answer. Legacy 6-field pings (pre-identity
+    /// builds) verify with an empty node_id so mixed-version clusters
+    /// still handshake.
+    pub fn verify_signed_ping(msg: &str) -> Option<VerifiedPing> {
         let key = cluster_key()?;
         let parts: Vec<&str> = msg.split(':').collect();
-        // SUSI_PING_SIG:<caps>:<checksum>:<bloom>:<nonce>:<mac>
-        if parts.len() != 6 || parts[0] != "SUSI_PING_SIG" {
+        if parts.first() != Some(&"SUSI_PING_SIG") {
             return None;
         }
-        let (caps, checksum_s, bloom, nonce, mac) =
-            (parts[1], parts[2], parts[3], parts[4], parts[5]);
+        // SUSI_PING_SIG:[<node_id>:]<caps>:<checksum>:<bloom>:<nonce>:<mac>
+        let (node_id, caps, checksum_s, bloom, nonce, mac) = match parts.len() {
+            7 => (
+                parts[1], parts[2], parts[3], parts[4], parts[5], parts[6],
+            ),
+            6 => ("", parts[1], parts[2], parts[3], parts[4], parts[5]),
+            _ => return None,
+        };
         for f in [caps, checksum_s, bloom, nonce] {
             if !wire_safe(f) {
                 return None;
             }
         }
-        let expected = mac_tag(&key, &["ping", caps, checksum_s, bloom, nonce]);
+        if !node_id.is_empty() && !wire_safe(node_id) {
+            return None;
+        }
+        let expected = if parts.len() == 6 {
+            mac_tag(&key, &["ping", caps, checksum_s, bloom, nonce])
+        } else {
+            mac_tag(&key, &["ping", node_id, caps, checksum_s, bloom, nonce])
+        };
         if expected != mac {
             return None;
         }
         Some((
+            node_id.to_string(),
             caps.to_string(),
             checksum_s.parse().unwrap_or(0),
             bloom.to_string(),

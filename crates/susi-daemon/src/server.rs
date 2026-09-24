@@ -931,7 +931,7 @@ impl SusiDaemon {
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
             // host still gets legacy discovery but never roster admission.
-            if let Some((_caps, _checksum, _bloom, nonce)) =
+            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
                 // Mutual admission: a correctly signed ping proves the
@@ -940,23 +940,35 @@ impl SusiDaemon {
                 // makes membership symmetric in one exchange: the pinger
                 // admits us from our pong, we admit them from their ping.
                 // Loopback is ourselves — never a peer (one daemon binds
-                // the discovery port per host).
+                // the discovery port per host). The advertised node_id is
+                // signed, so it is trusted as-is; a legacy ping without
+                // one gets a synthesized per-address id.
                 if !src.ip().is_loopback() {
                     let pinger_addr =
                         format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
-                    let pinger_id = format!("susi-peer-{}", src.ip());
+                    let pinger_id = if pinger_id.is_empty() {
+                        format!("susi-peer-{}", src.ip())
+                    } else {
+                        pinger_id
+                    };
                     if !susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
                         let node = susi_gawd::swarm::amas::ClusterPeerNode {
                             node_id: pinger_id,
                             address: pinger_addr,
                             node_type: "PEER".into(),
                             is_active: true,
-                            capabilities: vec!["CORE".into()],
-                            registry_checksum: 0,
+                            capabilities: caps_csv
+                                .split(',')
+                                .filter(|c| !c.is_empty())
+                                .map(str::to_string)
+                                .collect(),
+                            registry_checksum: checksum,
                             latency_ms: 0,
                             uptime_secs: 0,
                             trust_score: 0.8,
-                            capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::default(),
+                            capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
+                                &bloom_hex,
+                            ),
                             admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
                             last_seen_secs: std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -975,7 +987,7 @@ impl SusiDaemon {
                         .map(|p| (p.node_id, p.address))
                         .collect();
                 if let Some(pong) = crate::susi_config::cluster_key::signed_pong(
-                    "susi-daemon-node",
+                    &crate::susi_config::cluster_key::wire_node_id(),
                     0,
                     &bloom,
                     &nonce,
