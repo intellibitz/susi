@@ -24,7 +24,6 @@ pub mod task_store;
 
 pub use capabilities::GawdCapabilities;
 pub use executor::GawdA2AExecutor;
-pub use task_store::GawdTaskStore;
 
 #[cfg(test)]
 mod tests {
@@ -75,15 +74,6 @@ mod tests {
     }
 
     #[test]
-    fn task_store_clones_share_inner_arc() {
-        let store = GawdTaskStore::new();
-        let clone = store.clone();
-        assert!(Arc::ptr_eq(&store.inner(), &clone.inner()));
-        let default = GawdTaskStore::default();
-        assert!(!Arc::ptr_eq(&store.inner(), &default.inner()));
-    }
-
-    #[test]
     fn agent_card_advertises_orchestrator_identity() {
         let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
         let card = executor.agent_card();
@@ -102,13 +92,6 @@ mod tests {
         assert!(card.skills.iter().any(|s| s.id == "agent_orchestration"));
         assert!(card.skills.iter().any(|s| s.id == "task_delegation"));
         assert!(card.capabilities.streaming.unwrap_or(false));
-    }
-
-    #[test]
-    fn executor_task_store_is_shared() {
-        let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
-        let store = executor.task_store();
-        assert!(Arc::ptr_eq(&store.inner(), &executor.task_store().inner()));
     }
 
     #[test]

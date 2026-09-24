@@ -3,7 +3,6 @@
 //! Implements the A2A protocol executor for message processing and task management.
 
 use super::capabilities::GawdCapabilities;
-use super::task_store::GawdTaskStore;
 use ra2a::error::Result;
 use ra2a::server::{AgentExecutor, Event, EventQueue, RequestContext};
 use ra2a::types::{Message, Part, Task, TaskState, TaskStatus};
@@ -60,7 +59,6 @@ async fn run_fleet(
 /// susi-gawd's A2A protocol executor
 pub struct GawdA2AExecutor {
     agent_fleet: Arc<GawdAgentFleet>,
-    task_store: GawdTaskStore,
     capabilities: GawdCapabilities,
 }
 
@@ -68,13 +66,8 @@ impl GawdA2AExecutor {
     pub fn new(agent_fleet: Arc<GawdAgentFleet>) -> Self {
         Self {
             agent_fleet,
-            task_store: GawdTaskStore::new(),
             capabilities: GawdCapabilities::orchestrator(),
         }
-    }
-
-    pub fn task_store(&self) -> GawdTaskStore {
-        self.task_store.clone()
     }
 
     pub fn agent_card(&self) -> ra2a::types::AgentCard {

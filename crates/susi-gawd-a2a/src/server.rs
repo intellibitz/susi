@@ -109,7 +109,16 @@ pub fn serve(listener: TcpListener, verifier: Verifier) -> std::io::Result<()> {
                 interface.url = format!("http://{addr}{}", interface.url);
             }
         }
-        let state = ServerState::from_executor(executor, card);
+        // Own the task store so retention is bounded: ra2a's default
+        // InMemoryTaskStore grows forever, and its TaskVersion/GetTaskFuture
+        // types aren't exported so a bounded TaskStore impl can't be written
+        // — instead a reaper periodically evicts the oldest terminal tasks
+        // through the exported list/delete surface.
+        let task_store = Arc::new(ra2a::server::InMemoryTaskStore::new());
+        let handler = ra2a::server::DefaultRequestHandler::new(executor, card.clone())
+            .with_task_store(task_store.clone());
+        let state = ServerState::new(Arc::new(handler), card);
+        tokio::spawn(crate::task_store::reaper(task_store));
         // `a2a_router`, not `a2a_full_router`: the REST binding registers
         // `/tasks/{id}:cancel`-style paths that axum's router rejects with a
         // panic — and the release profile is `panic = "abort"`, which would
