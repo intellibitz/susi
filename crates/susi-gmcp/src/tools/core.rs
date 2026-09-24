@@ -716,6 +716,89 @@ impl CoreTools {
     }
 
     #[tool(
+        name = "commit_records",
+        description = "Batch intake of replicated commit records for anti-entropy pushes. Args: {records: [CommitRecord, ...]} (max 1000) — every record re-runs signature, coordinator-membership, and term gates; the accepted set appends in one ledger pass, and any remaining sequence gap is repaired from the coordinator once. Returns an applied/skipped/refused summary."
+    )]
+    pub fn commit_records(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("commit_records", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let records: Vec<crate::susi_core::commit_log::CommitRecord> = serde_json::from_value(
+            arg.get("records")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        )
+        .map_err(|e| EaiError::protocol(format!("bad commit records array: {e}")))?;
+        // Bound the batch — an unbounded array is an unbounded
+        // signature-verification workload on one RPC.
+        const MAX_BATCH: usize = 1000;
+        if records.len() > MAX_BATCH {
+            return Err(EaiError::protocol(format!(
+                "batch of {} exceeds the {MAX_BATCH}-record cap",
+                records.len()
+            )));
+        }
+        // Same per-record gates as commit_record: signature, coordinator
+        // membership (an evicted node still holds cluster.key), and the
+        // AppendEntries term check. Adopted/conflict verdicts ride the
+        // same check_term path — only Stale refuses.
+        let mut accepted: Vec<crate::susi_core::commit_log::CommitRecord> = Vec::new();
+        let mut refused = 0usize;
+        for r in &records {
+            if !r.verify()
+                || !crate::susi_core::commit_log::member_coordinator_known(r)
+                || (crate::susi_core::commit_log::coordinator_known(r)
+                    && matches!(
+                        crate::susi_core::commit_log::check_term(r),
+                        crate::susi_core::commit_log::TermVerdict::Stale
+                    ))
+            {
+                refused += 1;
+                continue;
+            }
+            accepted.push(r.clone());
+        }
+        // One lock + one ledger load for the whole batch — the append
+        // path's full validation still runs per record.
+        let mut applied = 0usize;
+        let mut skipped = 0usize;
+        for outcome in crate::susi_core::commit_log::append_many(&accepted) {
+            match outcome {
+                crate::susi_core::commit_log::AppendOutcome::Applied => applied += 1,
+                crate::susi_core::commit_log::AppendOutcome::Skipped => skipped += 1,
+                crate::susi_core::commit_log::AppendOutcome::Refused => refused += 1,
+            }
+        }
+        // Gap repair once per coordinator (the single-record path runs it
+        // per record — a batch hitting seq jumps would recurse N times).
+        // Compute each coordinator's max accepted seq, then pull whatever
+        // between it and our high-water is still missing.
+        let held = crate::susi_core::commit_log::load();
+        let mut max_seq: std::collections::HashMap<&str, u64> = std::collections::HashMap::new();
+        for r in &accepted {
+            let e = max_seq.entry(r.coordinator.as_str()).or_insert(0);
+            *e = (*e).max(r.seq);
+        }
+        let mut repaired = 0usize;
+        for (coordinator, hi) in max_seq {
+            let floor = crate::susi_core::commit_log::snapshot_floor(coordinator);
+            let missing =
+                crate::susi_core::commit_log::missing_seqs_floored(&held, coordinator, hi, floor);
+            if !missing.is_empty() {
+                repaired += repair_commit_gap(coordinator, &missing).unwrap_or(0);
+            }
+        }
+        // Machine-readable summary — pushers get real counts instead of
+        // scraping a human sentence.
+        Ok(serde_json::json!({
+            "applied": applied,
+            "skipped": skipped,
+            "refused": refused,
+            "repaired": repaired,
+        })
+        .to_string())
+    }
+
+    #[tool(
         name = "commit_log_fetch",
         description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N, offset?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators), skipping `offset` matches for pagination."
     )]
@@ -2706,6 +2789,63 @@ mod os_tools_wired_tests {
             tampered["value"] = serde_json::json!("forged payload");
             assert!(CoreTools::commit_record(&tampered, Path::new(".")).is_err());
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_records_batch_intake_applies_skips_refuses() {
+        let _permit = wire_permissive_audit();
+        let (_env, dir) = isolate_config();
+        let seal = |value: &str| {
+            crate::susi_core::commit_log::CommitRecord::seal(
+                crate::susi_core::commit_log::CommitInput {
+                    coordinator: "susi-local-master",
+                    leader: "susi-local-master",
+                    electorate: vec!["A".into(), "B".into()],
+                    tally: 2,
+                    quorum_threshold: 2,
+                    value,
+                },
+            )
+        };
+        let (Some(r1), Some(r2)) = (seal("v1"), seal("v2")) else {
+            eprintln!("skip: cluster key unavailable");
+            return;
+        };
+        // Seal produces seq from the ledger at seal time — r1 and r2 may
+        // share a seq when the ledger is empty; the batch still applies
+        // both (dup-seq handling lives in append_many).
+        let out =
+            CoreTools::commit_records(&serde_json::json!({ "records": [r1, r2] }), Path::new("."))
+                .expect("batch must be accepted");
+        let counts: serde_json::Value = serde_json::from_str(&out).expect("json summary");
+        assert!(counts["applied"].as_u64().unwrap_or(0) >= 1);
+
+        // Replay the same batch — everything held → all skipped, none applied.
+        let out = CoreTools::commit_records(
+            &serde_json::json!({ "records": [
+                crate::susi_core::commit_log::load()[0].clone()
+            ] }),
+            Path::new("."),
+        )
+        .expect("re-batch must be accepted");
+        let counts: serde_json::Value = serde_json::from_str(&out).expect("json summary");
+        assert_eq!(counts["applied"].as_u64(), Some(0));
+
+        // A forged record inside an otherwise fine batch is refused, not fatal.
+        let forged = serde_json::json!({
+            "epoch": "aa", "coordinator": "evil", "electorate": ["A", "B"],
+            "tally": 2, "quorum_threshold": 2, "value_hash": "h",
+            "value": "v", "committed_at": 0, "signature": "deadbeef",
+            "seq": 1, "term": 1, "leader": "evil", "prev_epoch": "",
+            "member_sig": "", "member_pubkey": "", "subject_sig": "",
+            "endorsements": []
+        });
+        let out =
+            CoreTools::commit_records(&serde_json::json!({ "records": [forged] }), Path::new("."))
+                .expect("mixed batch still returns a summary");
+        let counts: serde_json::Value = serde_json::from_str(&out).expect("json summary");
+        assert_eq!(counts["refused"].as_u64(), Some(1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

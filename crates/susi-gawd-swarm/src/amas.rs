@@ -1603,30 +1603,51 @@ impl SusiSupervisor {
         // `append` would re-read and re-lock the ledger per record
         // (O(N²) on a full-history repair).
         let _ = crate::susi_core::commit_log::append_many(&to_apply);
-        // Symmetric repair: push our records the peer lacks through
-        // `commit_record` — their receive path re-runs signature, term,
-        // sequence, and chain gates, so a rejection is the protocol's
-        // gate working, not a sync failure. The archive is ours to
-        // serve: an uncompacted peer missing below-floor history can
-        // only get it from our cold storage.
-        for r in crate::susi_core::commit_log::load().into_iter().chain(
-            crate::susi_core::commit_log::load_from(&crate::susi_core::commit_log::archive_path()),
-        ) {
-            let key = serde_json::to_string(&r).unwrap_or_default();
-            if theirs.contains(&key) {
-                continue;
-            }
-            // The tool's args ARE the record — commit_record deserializes
-            // the argument object directly into CommitRecord.
-            let Ok(args) = serde_json::to_value(&r) else {
-                continue;
-            };
-            let _ = crate::susi_core::mcp_client::call_tool(
+        // Symmetric repair: push our records the peer lacks — batch intake
+        // first (`commit_records`: one RPC for the whole repair), per-record
+        // `commit_record` as the pre-batch-peer fallback. Their receive
+        // path re-runs signature, term, sequence, and chain gates either
+        // way, so a rejection is the protocol's gate working, not a sync
+        // failure. The archive is ours to serve: an uncompacted peer
+        // missing below-floor history can only get it from our cold
+        // storage.
+        let to_push: Vec<crate::susi_core::commit_log::CommitRecord> =
+            crate::susi_core::commit_log::load()
+                .into_iter()
+                .chain(crate::susi_core::commit_log::load_from(
+                    &crate::susi_core::commit_log::archive_path(),
+                ))
+                .filter(|r| {
+                    let key = serde_json::to_string(r).unwrap_or_default();
+                    !theirs.contains(&key)
+                })
+                .collect();
+        // The tool caps a batch at 1000 — a bigger delta takes the
+        // per-record path.
+        let batch_ok = !to_push.is_empty()
+            && to_push.len() <= 1000
+            && crate::susi_core::mcp_client::call_tool(
                 addr,
-                "commit_record",
-                &args,
+                "commit_records",
+                &serde_json::json!({ "records": to_push }),
                 bearer.as_deref(),
-            );
+            )
+            .ok()
+            .is_some_and(|r| r.get("isError").and_then(|v| v.as_bool()) != Some(true));
+        if !batch_ok {
+            for r in &to_push {
+                // The tool's args ARE the record — commit_record
+                // deserializes the argument object directly.
+                let Ok(args) = serde_json::to_value(r) else {
+                    continue;
+                };
+                let _ = crate::susi_core::mcp_client::call_tool(
+                    addr,
+                    "commit_record",
+                    &args,
+                    bearer.as_deref(),
+                );
+            }
         }
     }
 

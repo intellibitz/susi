@@ -264,29 +264,76 @@ fn sync() -> Result<()> {
         // from our cold storage.
         let mut pushed = 0usize;
         let mut push_rejected = 0usize;
-        for r in commit_log::load()
+        let to_push: Vec<commit_log::CommitRecord> = commit_log::load()
             .into_iter()
             .chain(commit_log::load_from(&commit_log::archive_path()))
-        {
-            let key = serde_json::to_string(&r).unwrap_or_default();
-            if theirs.contains(&key) {
-                continue;
-            }
-            // The tool's args ARE the record — commit_record deserializes
-            // the argument object directly into CommitRecord.
-            let Ok(args) = serde_json::to_value(&r) else {
-                continue;
-            };
-            match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer.as_deref())
-            {
-                // A completed RPC can still carry a tool-level rejection
-                // (isError) — a stale-term or consistency refusal is the
-                // protocol's gate working, not a sync failure.
-                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
-                    push_rejected += 1;
+            .filter(|r| {
+                let key = serde_json::to_string(r).unwrap_or_default();
+                !theirs.contains(&key)
+            })
+            .collect();
+        // Batch intake first — one RPC for the whole repair on peers
+        // running commit_records (the per-record loop below costs one
+        // TCP+HTTP round trip per record). Pre-batch peers get the
+        // fallback loop; the batch call failing for any other reason is
+        // covered by the same path — refused records are the protocol's
+        // gate working, not a sync failure.
+        // The tool caps a batch at 1000 — a bigger delta takes the
+        // per-record path (a peer that far behind is rare, and today's
+        // per-record behavior is no worse than before).
+        let batch_ok = if to_push.is_empty() || to_push.len() > 1000 {
+            None
+        } else {
+            susi_core::mcp_client::call_tool(
+                addr,
+                "commit_records",
+                &serde_json::json!({ "records": to_push }),
+                bearer.as_deref(),
+            )
+            .ok()
+            .filter(|r| r.get("isError").and_then(|v| v.as_bool()) != Some(true))
+        };
+        if let Some(result) = &batch_ok {
+            // The summary is JSON text: {applied, skipped, refused, repaired}.
+            let counts = result
+                .pointer("/content/0/text")
+                .and_then(|t| t.as_str())
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
+            pushed += counts
+                .as_ref()
+                .and_then(|c| c.get("applied").and_then(|v| v.as_u64()))
+                .unwrap_or(0) as usize
+                + counts
+                    .as_ref()
+                    .and_then(|c| c.get("skipped").and_then(|v| v.as_u64()))
+                    .unwrap_or(0) as usize;
+            push_rejected += counts
+                .as_ref()
+                .and_then(|c| c.get("refused").and_then(|v| v.as_u64()))
+                .unwrap_or(0) as usize;
+        }
+        if batch_ok.is_none() {
+            for r in &to_push {
+                // The tool's args ARE the record — commit_record
+                // deserializes the argument object directly.
+                let Ok(args) = serde_json::to_value(r) else {
+                    continue;
+                };
+                match susi_core::mcp_client::call_tool(
+                    addr,
+                    "commit_record",
+                    &args,
+                    bearer.as_deref(),
+                ) {
+                    // A completed RPC can still carry a tool-level rejection
+                    // (isError) — a stale-term or consistency refusal is the
+                    // protocol's gate working, not a sync failure.
+                    Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
+                        push_rejected += 1;
+                    }
+                    Ok(_) => pushed += 1,
+                    Err(_) => push_rejected += 1,
                 }
-                Ok(_) => pushed += 1,
-                Err(_) => push_rejected += 1,
             }
         }
         println!(

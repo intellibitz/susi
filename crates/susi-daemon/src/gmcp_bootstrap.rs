@@ -170,6 +170,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "commit_records",
+        "Batch intake of replicated commit records — one ledger pass for anti-entropy pushes",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::commit_records),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "commit_log",
         "List quorum commit records in the local ledger, newest first",
         MetaCategory::SystemPrimitive,
