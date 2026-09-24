@@ -131,9 +131,9 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
         eprintln!("note: membership record not appended — {e}");
         return;
     }
-    let token = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
-        .unwrap_or_default();
-    let bearer = (!token.trim().is_empty()).then(|| token.trim().to_string());
+    // Peer pushes carry the cluster-derived bearer — the per-host
+    // api_token cannot authenticate on a remote node's NetGuard.
+    let bearer = susi_config::cluster_key::peer_bearer();
     let Ok(args) = serde_json::to_value(&record) else {
         return;
     };

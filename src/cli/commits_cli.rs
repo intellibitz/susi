@@ -87,9 +87,9 @@ fn sync() -> Result<()> {
         println!("peers.json is unreadable — nothing to sync from");
         return Ok(());
     };
-    let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
-    let token = std::fs::read_to_string(token_path).unwrap_or_default();
-    let bearer = (!token.trim().is_empty()).then(|| token.trim().to_string());
+    // Member-to-member calls authenticate with the cluster-derived
+    // peer bearer — the per-host api_token only authenticates locally.
+    let bearer = susi_config::cluster_key::peer_bearer();
 
     // Snapshot held records once — append() is idempotent on duplicates,
     // so "new" is determined by membership before the write, not the

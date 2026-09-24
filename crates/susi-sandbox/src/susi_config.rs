@@ -197,6 +197,17 @@ pub mod cluster_key {
         hex::encode(hmac_sha256(key, message))
     }
 
+    /// Bearer credential for member-to-member MCP calls. The host
+    /// `api_token` is a per-node secret — a remote daemon validates
+    /// against ITS token and cannot accept ours — so peer calls
+    /// (commit pushes, ledger fetches, mission dispatch) present this
+    /// cluster.key-derived value instead. Every member holding the
+    /// shared key derives the same credential; it is never persisted
+    /// and rotates if the cluster key does.
+    pub fn peer_bearer() -> Option<String> {
+        cluster_key().map(|k| hmac_sha256_hex(&k, b"susi-peer-bearer-v1"))
+    }
+
     /// Fresh random nonce for one handshake exchange (128-bit).
     pub fn random_nonce_hex() -> String {
         let mut raw = [0u8; 16];

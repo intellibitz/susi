@@ -1206,15 +1206,12 @@ impl SusiSupervisor {
         }
         let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
 
-        // Only Local / Explicit peers may receive the host bearer. UDP-
-        // discovered peers stay unauthenticated on purpose: a fleet that
-        // needs mutual auth must admit peers via an explicit allowlist
-        // (PeerAdmission::Explicit), not via an open LAN ping.
+        // Only Local / Explicit peers may receive a bearer credential.
+        // The credential itself is the cluster peer bearer — the host
+        // api_token is a per-node secret the remote cannot validate.
+        // UDP-discovered peers stay unauthenticated on purpose.
         let bearer = if Self::peer_allows_host_token(addr) {
-            let token = crate::susi_sandbox::manager::SusiConfig::load_global()
-                .unwrap_or_default()
-                .api_auth_token();
-            (!token.is_empty()).then_some(token)
+            crate::susi_config::cluster_key::peer_bearer()
         } else {
             None
         };
@@ -1249,10 +1246,9 @@ impl SusiSupervisor {
     /// fills bypass the term gate (terms gate new writes, not the log's
     /// past).
     fn sync_commit_ledger_from(addr: &str) {
-        let token = crate::susi_sandbox::manager::SusiConfig::load_global()
-            .unwrap_or_default()
-            .api_auth_token();
-        let bearer = (!token.is_empty()).then_some(token);
+        // Member-to-member calls carry the cluster-derived peer bearer —
+        // the per-host api_token cannot authenticate on a remote node.
+        let bearer = crate::susi_config::cluster_key::peer_bearer();
         let mut held: std::collections::HashSet<String> = crate::susi_core::commit_log::load()
             .iter()
             .filter_map(|r| serde_json::to_string(r).ok())

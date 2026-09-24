@@ -765,12 +765,11 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
         return Err(format!("coordinator {coordinator} not in verified roster"));
     }
 
-    // Roster candidates are verified members — entitled to the host bearer
-    // for the tools/call channel (same contract as dispatch_peer_task).
-    let token = crate::susi_sandbox::manager::SusiConfig::load_global()
-        .unwrap_or_default()
-        .api_auth_token();
-    let bearer = (!token.is_empty()).then_some(token.as_str());
+    // Roster candidates are verified members — the member-to-member
+    // credential is the cluster-derived peer bearer (the per-host
+    // api_token cannot authenticate on a remote node).
+    let bearer_owned = crate::susi_config::cluster_key::peer_bearer();
+    let bearer = bearer_owned.as_deref();
 
     let mut last_err = String::new();
     let mut repaired_total = 0usize;

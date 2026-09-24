@@ -20,17 +20,27 @@ impl NetGuard {
     ///
     /// - Token configured → bearer required for every peer (zero-trust).
     /// - Token empty (pre-seed) → loopback only; remote peers denied.
+    /// - A presented credential also passes when it is the cluster
+    ///   peer bearer — derived from the shared `cluster.key`, so every
+    ///   member node presents the same value. The per-host api_token
+    ///   can never authenticate a remote node (it doesn't know it),
+    ///   which is why member-to-member MCP calls carry the derived
+    ///   credential instead.
     pub fn is_authorized(auth_header: Option<&str>, peer: IpAddr) -> bool {
         let token = crate::susi_config::SusiConfig::load_global()
             .unwrap_or_default()
             .api_auth_token();
-        if token.is_empty() {
-            return peer.is_loopback();
+        let presented = auth_header.and_then(|h| h.strip_prefix("Bearer "));
+        match presented {
+            Some(p) => {
+                if !token.is_empty() && Self::constant_time_eq(p.as_bytes(), token.as_bytes()) {
+                    return true;
+                }
+                crate::susi_config::cluster_key::peer_bearer()
+                    .is_some_and(|pb| Self::constant_time_eq(p.as_bytes(), pb.as_bytes()))
+            }
+            None => token.is_empty() && peer.is_loopback(),
         }
-        auth_header
-            .and_then(|h| h.strip_prefix("Bearer "))
-            .map(|presented| Self::constant_time_eq(presented.as_bytes(), token.as_bytes()))
-            .unwrap_or(false)
     }
 
     /// Byte-for-byte comparison that always inspects every byte of both
