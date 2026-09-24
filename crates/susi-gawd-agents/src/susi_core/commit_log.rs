@@ -698,20 +698,23 @@ pub fn load_term() -> TermState {
     load_term_from(&term_path())
 }
 
-/// Test seam: load term state from an explicit path.
-pub fn load_term_from(path: &PathBuf) -> TermState {
-    let Ok(text) = fs::read_to_string(path) else {
-        return TermState {
-            term: 0,
-            leader: String::new(),
-            updated_at: 0,
-        };
-    };
-    serde_json::from_str(&text).unwrap_or(TermState {
+/// Test seam: load term state from an explicit path. Mtime-cached —
+/// the intake path consults term state on every record, and an
+/// anti-entropy pull of hundreds of records should not re-parse the
+/// file each time; `save_term_to`'s atomic rename changes the stamp.
+pub fn load_term_from(path: &std::path::Path) -> TermState {
+    let default = || TermState {
         term: 0,
         leader: String::new(),
         updated_at: 0,
-    })
+    };
+    let Some(raw) = crate::susi_config::cluster_key::cached_file_bytes(path) else {
+        return default();
+    };
+    let Ok(text) = String::from_utf8(raw) else {
+        return default();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|_| default())
 }
 
 /// Persist term state atomically (temp + rename — a crash mid-write
