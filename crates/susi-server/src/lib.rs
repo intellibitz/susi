@@ -579,8 +579,12 @@ async fn handle_gemi_request(
                     })
                     .unwrap_or(&active_model)
                     .to_string();
+                // The receipt wrapper is audit metadata — the response
+                // body carries the raw model output, matching the
+                // streaming path's shape.
+                let body_text = unwrap_inference_render(&content).unwrap_or(content);
                 let payload =
-                    completion_response(&served_model, &content, path == "/v1/completions");
+                    completion_response(&served_model, &body_text, path == "/v1/completions");
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
@@ -1004,6 +1008,21 @@ fn openai_model_list(workspace: &std::path::Path) -> Vec<serde_json::Value> {
         .unwrap_or_default()
 }
 
+/// Generative answers render through an `inference:<provider>` receipt —
+/// the ledger keeps the provenance; the OpenAI-compat response body must
+/// carry the raw model output (the streaming path already returns it
+/// unwrapped). Returns `None` when `content` is not exactly one rendered
+/// inference receipt.
+fn unwrap_inference_render(content: &str) -> Option<String> {
+    let rest = content.strip_prefix("Source: inference:")?;
+    let body = rest.split_once("\nTool reported:\n")?.1;
+    let mut lines = Vec::new();
+    for line in body.lines() {
+        lines.push(line.strip_prefix("> ").unwrap_or(line));
+    }
+    Some(lines.join("\n"))
+}
+
 fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::Value {
     let choice = if legacy {
         json!({"index": 0, "text": content, "finish_reason": "stop", "logprobs": null})
@@ -1230,6 +1249,21 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inference_render_unwraps_to_raw_model_output() {
+        let rendered = "Source: inference:local | receipt 1-2:0 | observed at Unix 9 | arguments {\"goal\":\"g\"} | selector entire response | output_hash abc\nTool reported:\n> ok\n> second line";
+        assert_eq!(
+            unwrap_inference_render(rendered).as_deref(),
+            Some("ok\nsecond line")
+        );
+        // Tool receipts and non-rendered answers are not unwrapped.
+        assert!(
+            unwrap_inference_render("Source: status | receipt 1:0 | \nTool reported:\n> x")
+                .is_none()
+        );
+        assert!(unwrap_inference_render("plain answer").is_none());
+    }
 
     #[test]
     fn preserves_conversation_and_all_text_parts() {
