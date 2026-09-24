@@ -536,21 +536,41 @@ fn unban(peer: &str) -> Result<()> {
     let _peers_lock =
         susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
     let banned = load_banned();
-    let kept: Vec<_> = banned
+    // Same unambiguous-prefix rule as `peers remove` — each lifted ban
+    // is replicated cluster-wide, so a broad prefix must not sweep
+    // multiple evictions open in one shot.
+    let matches: Vec<&serde_json::Value> = banned
         .iter()
         .filter(|b| {
             let id = b.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
             let addr = b.get("address").and_then(|v| v.as_str()).unwrap_or("");
-            !(id == peer || addr == peer || id.starts_with(peer) || addr.starts_with(peer))
+            id == peer || addr == peer || id.starts_with(peer) || addr.starts_with(peer)
         })
-        .cloned()
         .collect();
-    if kept.len() == banned.len() {
+    if matches.is_empty() {
         bail!("no banned peer matching `{peer}`");
     }
-    let lifted: Vec<serde_json::Value> = banned
+    if matches.len() > 1 {
+        let names: Vec<String> = matches
+            .iter()
+            .map(|b| {
+                format!(
+                    "{} ({})",
+                    b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                    b.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                )
+            })
+            .collect();
+        bail!(
+            "`{peer}` matches {} banned members — refuse to mass-unban: {}",
+            matches.len(),
+            names.join(", ")
+        );
+    }
+    let lifted: Vec<serde_json::Value> = vec![matches[0].clone()];
+    let kept: Vec<_> = banned
         .iter()
-        .filter(|b| !kept.contains(b))
+        .filter(|b| **b != lifted[0])
         .cloned()
         .collect();
     let bpath = banned_path();
