@@ -7,8 +7,9 @@
 #![allow(missing_docs)]
 
 //! Integration test for cluster-key rotation (`susi peers rekey`):
-//! the full seal → stage → append → activate cycle plus the
-//! prior-epoch intake bounds (`commit_log::append_to`'s epoch rule).
+//! the two-phase seal → stage → append → activate-record → rotate
+//! cycle plus the prior-epoch intake bounds (`commit_log::append_to`'s
+//! epoch rule).
 //!
 //! Runs against a hermetic HOME so the host's real `cluster.key` is
 //! never touched — mutating it would cut this machine off its own
@@ -139,8 +140,8 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
         vec![1, 3]
     );
 
-    // Stage key_b, seal + append the rekey record — the apply path
-    // activates the staged key whose fingerprint matches the record.
+    // Stage key_b, seal + append the rekey record — the PREPARE phase:
+    // it commits which key was agreed but must NOT rotate anything.
     let fp_b = cluster_key::key_fingerprint(&key_b);
     assert!(cluster_key::stage_key_to(
         &key_b,
@@ -158,6 +159,32 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
     // The local node is always a known coordinator for its own records.
     assert!(commit_log::member_coordinator_known_at(&rekey, &dir));
     commit_log::append(&rekey).unwrap();
+
+    // Abortable half: the key is unchanged and the staged file still
+    // waits — a rotation aborted here leaves no trace on the epoch.
+    assert_eq!(
+        std::fs::read_to_string(dir.join("cluster.key"))
+            .unwrap()
+            .trim(),
+        hex::encode(key_a)
+    );
+    assert!(dir.join("cluster.key.next").exists());
+    assert!(!dir.join("cluster.key.prev").exists());
+
+    // Commit phase: the activate record's apply rotates the key.
+    let activate = CommitRecord::seal_rekey_activate(
+        &cluster_key::wire_node_id(),
+        "node-c",
+        &fp_b,
+        vec!["node-c".into()],
+    )
+    .expect("seal_rekey_activate must succeed with a valid fingerprint");
+    assert_eq!(activate.kind, commit_log::KIND_CLUSTER_REKEY_ACTIVATE);
+    assert_eq!(activate.signature_epoch(), Some(KeyEpoch::Current));
+    // It chains on the rekey record — the two phases are linked.
+    assert_eq!(activate.prev_epoch, rekey.epoch);
+    assert!(commit_log::member_coordinator_known_at(&activate, &dir));
+    commit_log::append(&activate).unwrap();
 
     // Rotation happened: staged → current, current → prev.
     assert_eq!(
@@ -205,8 +232,21 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
     commit_log::append(&rekey).unwrap();
 
     // Rekey records need coordinator authority like member deltas — a
-    // foreign coordinator's rotation record is not privileged.
+    // foreign coordinator's rotation record is not privileged, in
+    // either phase.
     let foreign = CommitRecord::seal_rekey("node-x", "node-x", &fp_b, vec!["node-x".into()])
         .expect("seal_rekey must succeed with a valid fingerprint");
     assert!(!commit_log::member_coordinator_known_at(&foreign, &dir));
+    let foreign_activate =
+        CommitRecord::seal_rekey_activate("node-x", "node-x", &fp_b, vec!["node-x".into()])
+            .expect("seal_rekey_activate must succeed with a valid fingerprint");
+    assert!(!commit_log::member_coordinator_known_at(
+        &foreign_activate,
+        &dir
+    ));
+
+    // The activate record itself is old-key-signed (sealed before the
+    // coordinator rotated) — post-rotation redelivery dedups cleanly.
+    assert_eq!(activate.signature_epoch(), Some(KeyEpoch::Prev));
+    commit_log::append(&activate).unwrap();
 }

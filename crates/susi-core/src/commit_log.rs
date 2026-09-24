@@ -132,14 +132,22 @@ pub const KIND_MEMBER_REMOVE: &str = "member_remove";
 /// Lift a previously committed ban — the member can re-verify naturally
 /// on its next signed handshake (it is not re-added).
 pub const KIND_MEMBER_UNBAN: &str = "member_unban";
-/// Cluster-key rotation boundary (Raft's epoch/leader-change analog):
-/// the `value` is the SHA-256 fingerprint of the next-epoch key, sealed
-/// under the CURRENT (soon-prior) key. Receivers that staged the
-/// matching key via `cluster_rekey_stage` activate it on apply; the old
-/// key is retained as `cluster.key.prev` so pre-rotation history stays
-/// verifiable. Members that never staged are cryptographically
-/// stranded — revocation of evicted key-holders is the point.
+/// Cluster-key rotation, prepare phase (Raft's epoch/leader-change
+/// analog): the `value` is the SHA-256 fingerprint of the next-epoch
+/// key, sealed under the CURRENT key. Applying this record does NOT
+/// rotate — it only commits which key the cluster agreed to stage.
+/// Receivers stage the matching key via `cluster_rekey_stage`; rotation
+/// happens when a `cluster_rekey_activate` record lands. A rekey that
+/// never reaches activate leaves the fingerprint committed but the
+/// epoch unchanged — the abortable half of the two-phase rotation.
 pub const KIND_CLUSTER_REKEY: &str = "cluster_rekey";
+/// Cluster-key rotation, commit phase: applying this record activates
+/// the staged `cluster.key.next` (fingerprint match pins the file to
+/// this record — an activate can never swap in an arbitrary key). The
+/// old key is retained as `cluster.key.prev` so pre-rotation history
+/// stays verifiable. Members that never staged are cryptographically
+/// stranded — revocation of evicted key-holders is the point.
+pub const KIND_CLUSTER_REKEY_ACTIVATE: &str = "cluster_rekey_activate";
 
 /// Inputs for `CommitRecord::seal` — the decision fields a coordinator
 /// knows at commit time. `seq` and `signature` are derived by `seal`.
@@ -263,12 +271,12 @@ impl CommitRecord {
         Self::seal_signed(coordinator, leader, kind, member, electorate)
     }
 
-    /// Seal a cluster-key rotation record. `fingerprint` is the
-    /// SHA-256 hex of the next-epoch key (cluster_key::key_fingerprint);
-    /// the record is signed under the CURRENT key — receivers verify it
-    /// pre-rotation, then activate. Sealing must happen BEFORE the
-    /// coordinator rotates its own key or the record fails every
-    /// receiver's check.
+    /// Seal a cluster-key rotation record (prepare phase).
+    /// `fingerprint` is the SHA-256 hex of the next-epoch key
+    /// (cluster_key::key_fingerprint); the record is signed under the
+    /// CURRENT key — receivers verify it pre-rotation and stage the
+    /// matching key. Applying this record does NOT rotate; that is the
+    /// job of `seal_rekey_activate`'s record.
     pub fn seal_rekey(
         coordinator: &str,
         leader: &str,
@@ -282,6 +290,28 @@ impl CommitRecord {
             coordinator,
             leader,
             KIND_CLUSTER_REKEY,
+            fingerprint,
+            electorate,
+        )
+    }
+
+    /// Seal the commit-phase record for a staged rotation — applying it
+    /// activates the staged key whose fingerprint it carries. Sealed
+    /// under the CURRENT (pre-rotation) key: members receive it before
+    /// they activate, so it must verify under the old epoch.
+    pub fn seal_rekey_activate(
+        coordinator: &str,
+        leader: &str,
+        fingerprint: &str,
+        electorate: Vec<String>,
+    ) -> Option<Self> {
+        if hex::decode(fingerprint).ok()?.len() != 32 {
+            return None;
+        }
+        Self::seal_signed(
+            coordinator,
+            leader,
+            KIND_CLUSTER_REKEY_ACTIVATE,
             fingerprint,
             electorate,
         )
@@ -349,10 +379,13 @@ impl CommitRecord {
         Some((self.kind.as_str(), id, addr))
     }
 
-    /// The committed key fingerprint for a `cluster_rekey` record —
+    /// The committed key fingerprint for either rekey-phase record —
     /// `None` for other kinds or a malformed (non-32-byte-hex) value.
     pub fn rekey_fingerprint(&self) -> Option<&str> {
-        if self.kind != KIND_CLUSTER_REKEY {
+        if !matches!(
+            self.kind.as_str(),
+            KIND_CLUSTER_REKEY | KIND_CLUSTER_REKEY_ACTIVATE
+        ) {
             return None;
         }
         if hex::decode(&self.value).ok()?.len() != 32 {
@@ -1032,15 +1065,18 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     if record.member_delta().is_some() {
         apply_member_delta(record, path.parent().unwrap_or_else(|| Path::new(".")));
     }
-    // Same for key rotation: the committed rekey record is the epoch
-    // boundary — applying it activates the staged next-epoch key. The
-    // fingerprint match inside activation pins the staged key to THIS
-    // record, so a rekey record can never activate an arbitrary file.
-    if let Some(fingerprint) = record.rekey_fingerprint() {
-        let _ = crate::susi_config::cluster_key::activate_staged_key_at(
-            fingerprint,
-            path.parent().unwrap_or_else(|| Path::new(".")),
-        );
+    // Key rotation is two-phase: the `cluster_rekey` record only
+    // commits WHICH key was agreed; `cluster_rekey_activate` is the
+    // epoch boundary — applying it activates the staged next-epoch key.
+    // The fingerprint match inside activation pins the staged file to
+    // THIS record, so an activate can never swap in an arbitrary file.
+    if record.kind == KIND_CLUSTER_REKEY_ACTIVATE {
+        if let Some(fingerprint) = record.rekey_fingerprint() {
+            let _ = crate::susi_config::cluster_key::activate_staged_key_at(
+                fingerprint,
+                path.parent().unwrap_or_else(|| Path::new(".")),
+            );
+        }
     }
     Ok(())
 }
