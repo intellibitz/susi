@@ -38,7 +38,8 @@ pub enum McpCommands {
         /// JSON arguments object, e.g. '{"coordinator":"node-a"}' (default {})
         #[arg(default_value = "{}")]
         args: String,
-        /// Bearer token (default: ~/.susi/api_token)
+        /// Bearer token (default: cluster peer bearer for remote
+        /// members, ~/.susi/api_token for loopback)
         #[arg(long)]
         token: Option<String>,
     },
@@ -47,10 +48,34 @@ pub enum McpCommands {
     Tools {
         /// Peer address, e.g. 127.0.0.1:9093
         addr: String,
-        /// Bearer token (default: ~/.susi/api_token)
+        /// Bearer token (default: cluster peer bearer for remote
+        /// members, ~/.susi/api_token for loopback)
         #[arg(long)]
         token: Option<String>,
     },
+}
+
+/// Default credential for a peer MCP call when `--token` isn't given.
+/// The host api_token only authenticates on THIS host — a remote member
+/// validates it against its own token and refuses — so non-loopback
+/// targets get the cluster-derived peer bearer (identical on every
+/// member) and loopback gets the host token.
+fn default_bearer(addr: &str) -> Option<String> {
+    let loopback = addr.split(':').next().is_some_and(|h| {
+        h == "localhost"
+            || h.parse::<std::net::IpAddr>()
+                .map(|ip| ip.is_loopback())
+                .unwrap_or(false)
+    });
+    if !loopback {
+        if let Some(pb) = susi_config::cluster_key::peer_bearer() {
+            return Some(pb);
+        }
+    }
+    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
 }
 
 /// Returns `true` when the caller should run the native stdio MCP server.
@@ -65,15 +90,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         } => {
             let arguments: serde_json::Value = serde_json::from_str(&args)
                 .map_err(|e| anyhow::anyhow!("args must be a JSON object: {e}"))?;
-            let bearer = match token {
-                Some(t) => Some(t),
-                None => {
-                    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
-                        .ok()
-                        .map(|t| t.trim().to_string())
-                        .filter(|t| !t.is_empty())
-                }
-            };
+            let bearer = token.or_else(|| default_bearer(&addr));
             let result =
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -81,15 +98,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             Ok(false)
         }
         McpCommands::Tools { addr, token } => {
-            let bearer = match token {
-                Some(t) => Some(t),
-                None => {
-                    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
-                        .ok()
-                        .map(|t| t.trim().to_string())
-                        .filter(|t| !t.is_empty())
-                }
-            };
+            let bearer = token.or_else(|| default_bearer(&addr));
             let result = susi_core::mcp_client::session_call(
                 &addr,
                 "tools/list",
