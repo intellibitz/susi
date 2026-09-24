@@ -166,6 +166,9 @@ fn liveness(n: &serde_json::Value) -> &'static str {
 fn list() -> Result<()> {
     let nodes = load_registry();
     let banned = load_banned();
+    // This node's wire identity — an operator verifying a member joined
+    // needs the local id to match against the remote roster.
+    println!("node: {}", susi_config::cluster_key::wire_node_id());
     if nodes.is_empty() && banned.is_empty() {
         println!("no verified peers — this node runs standalone");
         return Ok(());
@@ -333,6 +336,15 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             }
 
             let address = format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
+            // A banned member was operator-evicted — re-adding must be a
+            // deliberate `peers unban` first, not an accidental re-add.
+            let banned = load_banned();
+            if banned.iter().any(|b| {
+                b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
+                    || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
+            }) {
+                bail!("{node_id} ({address}) is banned — `susi peers unban` it before re-adding");
+            }
             // ClusterPeerNode shape, written structurally — the root crate
             // takes no dependency on the swarm plane.
             let bloom_words: Vec<u64> = (0..bloom_hex.len() / 16)
@@ -364,7 +376,6 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             // load-bearing until the swarm's directed handshake upgrades
             // them to explicit (persisted members only ever carry
             // `explicit`; the swarm filters on read regardless).
-            let banned = load_banned();
             let mut learned = 0usize;
             for (gid, gaddr) in &roster {
                 let known = nodes.iter().any(|n| {

@@ -36,6 +36,7 @@ fn status(json: bool) -> Result<()> {
         let daemon =
             susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
         let body = serde_json::json!({
+            "node_id": susi_config::cluster_key::wire_node_id(),
             "consensus": {
                 "term": state.term.max(term.term),
                 "leader": leader_display(&state, &term),
@@ -66,6 +67,7 @@ fn status(json: bool) -> Result<()> {
     }
 
     println!("SUSI OS — substrate status");
+    println!("node:        {}", susi_config::cluster_key::wire_node_id());
     let term_age = if term.term == 0 || term.updated_at == 0 {
         String::new()
     } else {
