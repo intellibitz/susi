@@ -938,7 +938,10 @@ impl SusiDaemon {
             "[A2A Cluster UDP] Discovery listener active on {}",
             addr_display
         );
-        let mut buf = [0u8; 1024];
+        // 4 KiB: signed pings are small today, but wire-format growth
+        // (larger bloom fields, future capability metadata) must not
+        // silently truncate and fail signature verification.
+        let mut buf = [0u8; 4096];
         while let Ok((amt, src)) = socket.recv_from(&mut buf) {
             let msg = String::from_utf8_lossy(&buf[..amt]);
             // Cluster-key handshake (VC-200-001): answer a signed ping with a

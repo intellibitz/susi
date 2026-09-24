@@ -237,7 +237,12 @@ impl SusiSupervisor {
                     let _ = socket.set_broadcast(true);
                     let _ = socket.set_read_timeout(Some(Duration::from_millis(500)));
 
-                    let mut buf = [0u8; 1024];
+                    // 4 KiB: a signed pong carries a gossip roster of
+                    // hex-encoded `id@address;` entries (~80 B/member) —
+                    // a 1 KiB buffer truncates pongs past ~12 members,
+                    // silently capping cluster growth by breaking
+                    // signature verification on every oversized pong.
+                    let mut buf = [0u8; 4096];
                     let local_caps = HardwareProfiler::get_caps_string();
                     let mut local_bloom = CapabilityBloom::local_snapshot();
                     let mut last_registry_checksum =

@@ -444,7 +444,12 @@ pub mod cluster_key {
     ) -> Option<String> {
         let key = cluster_key()?;
         let checksum = checksum.to_string();
-        let roster_hex = encode_roster(roster);
+        // Cap the gossip roster: entries hex-encode to ~80 B each, and a
+        // UDP datagram past the LAN MTU fragments or drops — a giant
+        // roster would break handshakes rather than accelerate them.
+        // Convergence doesn't need completeness here: anti-entropy and
+        // further pongs fill in whatever this pong omits.
+        let roster_hex = encode_roster(&roster[..roster.len().min(32)]);
         for f in [node_id, &checksum, bloom_hex, nonce, &roster_hex] {
             if !wire_safe(f) {
                 return None;
