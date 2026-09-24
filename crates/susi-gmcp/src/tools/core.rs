@@ -738,7 +738,16 @@ impl CoreTools {
         name = "cluster_rekey_stage",
         description = "Prepare phase of cluster-key rotation: stage a next-epoch cluster key delivered with its committed cluster_rekey record. Args: {record: CommitRecord, key_hex: string (64 hex)}. Verifies the record's signature under the current key, requires coordinator authority, checks the pushed key's SHA-256 matches the committed fingerprint, stages it (0600), then appends the record. Does NOT rotate — a separate cluster_rekey_commit call delivers the activate record whose apply activates the staged key."
     )]
-    pub fn cluster_rekey_stage(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn cluster_rekey_stage(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // Audit WITHOUT key_hex — the pushed secret must never reach
+        // the audit log; the record alone carries its fingerprint.
+        gawd_hooks::audit_action(
+            "cluster_rekey_stage",
+            &arg.get("record")
+                .map_or_else(|| arg.to_string(), |r| r.to_string()),
+            workspace,
+        )
+        .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
             arg.get("record")
                 .cloned()
@@ -851,7 +860,9 @@ impl CoreTools {
         name = "cluster_rekey_commit",
         description = "Commit phase of cluster-key rotation: apply a committed cluster_rekey_activate record. Args: {record: CommitRecord}. Verifies the record's signature (current key — members are still pre-rotation when this arrives), requires coordinator authority, then appends it; the append's apply activates the staged cluster.key.next when its fingerprint matches the committed one. Members that never staged stay on the old epoch."
     )]
-    pub fn cluster_rekey_commit(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn cluster_rekey_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("cluster_rekey_commit", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
             arg.get("record")
                 .cloned()
@@ -920,7 +931,9 @@ impl CoreTools {
         name = "member_propose",
         description = "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a member_add. Args: {member: \"node_id@address\"}. Refuses unless this node is the currently claimed leader; refuses subjects already banned (an evicted node cannot re-enter via delegation) or this node itself. On success the record is sealed, appended, and pushed to the roster including the subject."
     )]
-    pub fn member_propose(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn member_propose(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         let member = arg
             .get("member")
             .and_then(|v| v.as_str())
