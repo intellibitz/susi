@@ -436,10 +436,15 @@ impl SusiSupervisor {
                             last_commit_sync = std::time::Instant::now();
                         }
                         drop(peers);
-                        // Network I/O happens outside the roster lock.
-                        for addr in sync_addrs {
-                            Self::sync_commit_ledger_from(&addr);
-                        }
+                        // Network I/O happens outside the roster lock —
+                        // and in parallel: each dead peer costs its
+                        // connect timeout, so a serial walk stalls the
+                        // sweep by ~10s per unresponsive member.
+                        std::thread::scope(|s| {
+                            for addr in &sync_addrs {
+                                s.spawn(move || Self::sync_commit_ledger_from(addr));
+                            }
+                        });
 
                         let ping_msg = format!(
                             "SUSI_PING:{}:{}:{}",
@@ -489,6 +494,24 @@ impl SusiSupervisor {
                                         continue;
                                     }
                                     let peer_bloom = CapabilityBloom::from_hex(&bloom_hex);
+                                    // Endpoint proof before first
+                                    // promotion (new row or Discovered →
+                                    // Explicit upgrade): the pong attests
+                                    // an id but not that the claimed
+                                    // endpoint serves it — a reflector
+                                    // relaying pongs or a dead MCP port
+                                    // must not enter the roster.
+                                    // Routine re-verifies of already-
+                                    // Explicit rows skip the round trip.
+                                    let unproven = {
+                                        let peers = t_shared.read();
+                                        peers.iter().find(|p| p.address == addr_str).is_none_or(
+                                            |p| !matches!(p.admission, PeerAdmission::Explicit),
+                                        )
+                                    };
+                                    if unproven && !Self::endpoint_serves(&node_id, &addr_str) {
+                                        continue;
+                                    }
                                     let mut peers = t_shared.write();
                                     // Same node re-homed to a new address:
                                     // drop any other row keyed by the
@@ -1337,6 +1360,54 @@ impl SusiSupervisor {
             n.address == addr
                 && matches!(n.admission, PeerAdmission::Local | PeerAdmission::Explicit)
         })
+    }
+
+    /// Whether the endpoint behind `addr` is live, serving MCP, and
+    /// owned by `node_id` — the TCP half of admission. A signed pong
+    /// attests the id over UDP; `cluster_status` proves the claimed
+    /// service address answers and reports the same identity, so a
+    /// reflector or a dead MCP port never reaches `Explicit`.
+    fn endpoint_serves(node_id: &str, addr: &str) -> bool {
+        // Cooldown: a verified peer whose endpoint is dead retries the
+        // ~10s connect timeout on every pong — remember the last
+        // failure so one unproven member can't serialize the sweep.
+        static FAILED: OnceLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+            OnceLock::new();
+        let now = now_secs();
+        {
+            let failed =
+                FAILED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+            let map = failed.lock().unwrap_or_else(|e| e.into_inner());
+            if map.get(addr).is_some_and(|t| now.saturating_sub(*t) < 60) {
+                return false;
+            }
+        }
+        let bearer = crate::susi_config::cluster_key::peer_bearer();
+        let ok = crate::susi_core::mcp_client::call_tool(
+            addr,
+            "cluster_status",
+            &serde_json::json!({}),
+            bearer.as_deref(),
+        )
+        .ok()
+        .and_then(|result| {
+            result
+                .pointer("/content/0/text")
+                .and_then(|v| v.as_str())
+                .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+                .and_then(|s| s.get("node").and_then(|v| v.as_str()).map(str::to_string))
+        })
+        .as_deref()
+            == Some(node_id);
+        if !ok {
+            let failed =
+                FAILED.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+            failed
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(addr.to_string(), now);
+        }
+        ok
     }
 
     /// Invoke a governed tool on a verified peer over the MCP Streamable
