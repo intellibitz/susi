@@ -23,6 +23,11 @@ use crate::executor::GawdA2AExecutor;
 /// (JSON-RPC, REST, SSE) requires the bearer token.
 const PUBLIC_PATH: &str = "/.well-known/agent-card.json";
 
+/// Concurrent in-flight HTTP requests. Each accepted task can own a fleet
+/// thread (see `run_fleet`), so an unbounded accept queue is a thread-spawn
+/// DoS surface even with `MAX_INFLIGHT_REQUESTS` gating execution.
+const MAX_CONCURRENT_REQUESTS: usize = 64;
+
 async fn bearer_guard(
     State(expected): State<Arc<str>>,
     req: Request<Body>,
@@ -76,10 +81,14 @@ pub fn serve(listener: TcpListener, bearer_token: String) -> std::io::Result<()>
         // panic — and the release profile is `panic = "abort"`, which would
         // take the whole daemon down at startup. JSON-RPC + SSE is the
         // primary A2A binding anyway; the card advertises only what we serve.
-        let app = a2a_router(state).layer(axum::middleware::from_fn_with_state(
-            Arc::<str>::from(bearer_token.as_str()),
-            bearer_guard,
-        ));
+        let app = a2a_router(state)
+            .layer(axum::middleware::from_fn_with_state(
+                Arc::<str>::from(bearer_token.as_str()),
+                bearer_guard,
+            ))
+            .layer(tower::limit::ConcurrencyLimitLayer::new(
+                MAX_CONCURRENT_REQUESTS,
+            ));
         eprintln!(
             "[A2A] HTTP available: JSON-RPC /, SSE /stream, card /.well-known/agent-card.json"
         );

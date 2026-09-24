@@ -109,6 +109,9 @@ fn status(json: bool) -> Result<()> {
                 .map(|(avail, total)| serde_json::json!({
                     "available_bytes": avail, "total_bytes": total,
                 })),
+            "substrate_usage": substrate_usage().iter().take(8).map(|(name, bytes)| {
+                serde_json::json!({ "entry": name, "bytes": bytes })
+            }).collect::<Vec<_>>(),
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
                 "restarts": s.restarts, "up": s.up, "external": s.external,
@@ -124,7 +127,10 @@ fn status(json: bool) -> Result<()> {
                 .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
             "staged_key_epoch": susi_config::cluster_key::staged_key()
                 .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
-            "warnings": credential_warnings(),
+            "warnings": credential_warnings()
+                .into_iter()
+                .chain(stray_bin_warnings())
+                .collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
@@ -197,7 +203,10 @@ fn status(json: bool) -> Result<()> {
     if evicted {
         println!("cluster:     EVICTED — removed by a committed member_remove; standing down until a committed unban");
     }
-    for warning in credential_warnings() {
+    for warning in credential_warnings()
+        .into_iter()
+        .chain(stray_bin_warnings())
+    {
         println!("warning:     {warning}");
     }
     let daemon = susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
@@ -214,6 +223,15 @@ fn status(json: bool) -> Result<()> {
             human_bytes(avail),
             human_bytes(total)
         );
+    }
+    let usage = substrate_usage();
+    if !usage.is_empty() {
+        let top: Vec<String> = usage
+            .iter()
+            .take(4)
+            .map(|(name, bytes)| format!("{name} {}", human_bytes(*bytes)))
+            .collect();
+        println!("footprint:   {}", top.join(" · "));
     }
     println!();
 
@@ -281,6 +299,92 @@ fn status(json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Per-entry disk usage of `substrate_home`, largest first. Some
+/// subsystems grow by design (model downloads, the cargo build cache,
+/// rotated archives); the OS view should show where the substrate's
+/// bytes actually live so an operator can spot unbounded growth rather
+/// than discovering it via a full disk.
+///
+/// The recursive walk is bounded — an adversarial or pathological tree
+/// must not stall a status command.
+fn substrate_usage() -> Vec<(String, u64)> {
+    const MAX_ENTRIES: usize = 250_000;
+    let home = susi_paths::SusiDirs::substrate_home();
+    let mut entries = 0usize;
+    fn dir_size(path: &Path, entries: &mut usize) -> u64 {
+        let mut total = 0u64;
+        let Ok(read) = std::fs::read_dir(path) else {
+            return 0;
+        };
+        for entry in read.flatten() {
+            if *entries >= MAX_ENTRIES {
+                return total;
+            }
+            *entries += 1;
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_file() {
+                total += meta.len();
+            } else if meta.is_dir() {
+                total += dir_size(&entry.path(), entries);
+            }
+        }
+        total
+    }
+    let mut usage: Vec<(String, u64)> = std::fs::read_dir(&home)
+        .map(|read| {
+            read.flatten()
+                .map(|e| {
+                    let size = e
+                        .metadata()
+                        .map(|m| {
+                            if m.is_dir() {
+                                dir_size(&e.path(), &mut entries)
+                            } else {
+                                m.len()
+                            }
+                        })
+                        .unwrap_or(0);
+                    (e.file_name().to_string_lossy().to_string(), size)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    usage.sort_by_key(|a| std::cmp::Reverse(a.1));
+    usage
+}
+
+/// Stray heavyweight files inside `~/.susi/bin` — only the live binary
+/// (`susi`/`susi.exe`) and an optional `lib/` dir belong there; an
+/// orphaned `susi.rollback-*` from a manual backup can quietly hold
+/// gigabytes. Flagged, never auto-deleted.
+fn stray_bin_warnings() -> Vec<String> {
+    const STRAY_WARN_BYTES: u64 = 256 * 1024 * 1024;
+    let bin_dir = susi_paths::SusiDirs::substrate_home().join("bin");
+    let mut warnings = Vec::new();
+    let Ok(read) = std::fs::read_dir(&bin_dir) else {
+        return warnings;
+    };
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if matches!(name.as_str(), "susi" | "susi.exe" | "lib") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_file() && meta.len() >= STRAY_WARN_BYTES {
+            warnings.push(format!(
+                "stray {name} ({}) in {} — remove or archive to reclaim space",
+                human_bytes(meta.len()),
+                bin_dir.display()
+            ));
+        }
+    }
+    warnings
 }
 
 /// Free/total bytes on the filesystem holding `path` — a ledger or roster
