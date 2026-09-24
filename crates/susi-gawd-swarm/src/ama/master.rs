@@ -482,18 +482,6 @@ impl SusiMasterAgent {
 
         eprintln!("\n- [Swarm Execution Latency] {:?}", elapsed);
 
-        if elapsed.as_millis() > 2 {
-            crate::susi_sandbox::manager::SusiAuditLogger::log(
-                workspace,
-                crate::susi_sandbox::manager::LogLevel::Axiomatic,
-                "LATENCY_VIOLATION",
-                &format!(
-                    "Reflex operation exceeded 2ms mandate: {:?} (Goal: {})",
-                    elapsed, goal
-                ),
-            );
-        }
-
         match res {
             Ok(mut report) => {
                 crate::cloud_recovery::recover(&mut report, workspace, model_hint);

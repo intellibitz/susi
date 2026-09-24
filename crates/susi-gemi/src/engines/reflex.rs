@@ -28,8 +28,11 @@ impl ReflexEngine {
         // Sub-2ms Reflex Mandate: audit (not enforce) breaches, consistent with
         // the swarm-level guard in src/gawd/ama.rs — genuine reasoning work can
         // legitimately exceed 2ms, so this records the violation rather than
-        // aborting an in-flight result.
-        if elapsed_micros > 2000 {
+        // aborting an in-flight result. Only a *served* reflex can breach the
+        // mandate: an intent that escalated never claimed a sub-2ms answer, and
+        // logging the escalation attempt itself as a violation turns the audit
+        // trace into noise — every mission goal pays the predict_intent cost.
+        if elapsed_micros > 2000 && matches!(decision, ReflexDecision::Solved(_)) {
             crate::susi_sandbox::manager::SusiAuditLogger::log(
                 workspace,
                 crate::susi_sandbox::manager::LogLevel::Axiomatic,
