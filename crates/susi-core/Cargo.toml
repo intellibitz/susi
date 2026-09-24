@@ -19,6 +19,7 @@ regex = "1.13"
 tracing = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 getrandom = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true, features = ["html_reports"] }

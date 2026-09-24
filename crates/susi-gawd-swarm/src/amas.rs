@@ -160,6 +160,18 @@ pub struct ClusterPeerNode {
     /// such entries start inactive and must pong before they vote or lead.
     #[serde(default)]
     pub last_seen_secs: u64,
+    /// Ed25519 verifying key bound to this member (hex) — attested by a
+    /// v2 signed pong or a committed `member_add`. Empty means unbound
+    /// (pre-PKI member): once set, `commit_log`'s attribution gate
+    /// requires this member's records to carry `member_sig` under it.
+    /// First write wins — re-binding goes through remove + re-add.
+    #[serde(default)]
+    pub pubkey: String,
+    /// When `pubkey` was bound (committed_at of the binding record, or
+    /// handshake time) — records sealed before it are pre-binding
+    /// history and don't require `member_sig`.
+    #[serde(default)]
+    pub key_bound_at: u64,
 }
 
 /// A peer that has not ponged within this window is marked inactive by the
@@ -213,6 +225,8 @@ impl SusiSupervisor {
                 capability_bloom: CapabilityBloom::local_snapshot(),
                 admission: PeerAdmission::Local,
                 last_seen_secs: now_secs(),
+                pubkey: String::new(),
+                key_bound_at: 0,
             }];
 
             // Rehydrate cluster-key-verified peers from the persistent
@@ -433,7 +447,7 @@ impl SusiSupervisor {
                             let verified = pending_nonces.iter().find_map(|nonce| {
                                 crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
                             });
-                            if let Some((node_id, checksum, bloom_hex, roster)) = verified {
+                            if let Some((node_id, checksum, bloom_hex, roster, pubkey)) = verified {
                                 {
                                     // Self-edge guard — admitting our own
                                     // responder lets mission dispatch
@@ -491,6 +505,14 @@ impl SusiSupervisor {
                                         p.capability_bloom = peer_bloom;
                                         p.admission = PeerAdmission::Explicit;
                                         p.last_seen_secs = now_secs();
+                                        // Key binding: the pong attests
+                                        // (id, pubkey) jointly — bind on
+                                        // first write only (re-binding goes
+                                        // through remove + re-add).
+                                        if p.pubkey.is_empty() && !pubkey.is_empty() {
+                                            p.pubkey = pubkey.clone();
+                                            p.key_bound_at = now_secs();
+                                        }
                                         (p.clone(), false, changed)
                                     } else {
                                         let node = ClusterPeerNode {
@@ -508,6 +530,15 @@ impl SusiSupervisor {
                                             // may receive the host bearer.
                                             admission: PeerAdmission::Explicit,
                                             last_seen_secs: now_secs(),
+                                            // Same first-write binding as the
+                                            // merge path — the pong attests
+                                            // this id's signing key.
+                                            key_bound_at: if pubkey.is_empty() {
+                                                0
+                                            } else {
+                                                now_secs()
+                                            },
+                                            pubkey,
                                         };
                                         peers.push(node.clone());
                                         (node, true, false)
@@ -563,6 +594,8 @@ impl SusiSupervisor {
                                                 // ping sweep upgrades it.
                                                 admission: PeerAdmission::Discovered,
                                                 last_seen_secs: now_secs(),
+                                                pubkey: String::new(),
+                                                key_bound_at: 0,
                                             });
                                         }
                                     }
@@ -627,6 +660,8 @@ impl SusiSupervisor {
                                         // the host bearer token to these addresses.
                                         admission: PeerAdmission::Discovered,
                                         last_seen_secs: now_secs(),
+                                        pubkey: String::new(),
+                                        key_bound_at: 0,
                                     });
                                 }
                             }
@@ -641,17 +676,38 @@ impl SusiSupervisor {
                         // LAN broadcast cannot cross subnets, and a
                         // gossip-learned member only earns Explicit by
                         // answering a handshake aimed at it.
-                        if let Some((signed, nonce)) = crate::susi_config::cluster_key::signed_ping(
-                            &local_caps,
-                            registry_checksum,
-                            &local_bloom.to_hex(),
-                        ) {
-                            pending_nonces.push_back(nonce);
-                            while pending_nonces.len() > 4 {
+                        // v2 ping first — its pong attests the responder's
+                        // Ed25519 pubkey for member-key binding; the v1 ping
+                        // follows for pre-PKI peers. Both nonces are pending
+                        // so either pong verifies.
+                        let pings: Vec<(String, String)> = [
+                            crate::susi_config::cluster_key::signed_ping_v2(
+                                &local_caps,
+                                registry_checksum,
+                                &local_bloom.to_hex(),
+                            ),
+                            crate::susi_config::cluster_key::signed_ping(
+                                &local_caps,
+                                registry_checksum,
+                                &local_bloom.to_hex(),
+                            ),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .collect();
+                        if !pings.is_empty() {
+                            for (_, nonce) in &pings {
+                                pending_nonces.push_back(nonce.clone());
+                            }
+                            while pending_nonces.len() > 8 {
                                 pending_nonces.pop_front();
                             }
-                            let _ = socket
-                                .send_to(signed.as_bytes(), format!("255.255.255.255:{}", port));
+                            for (signed, _) in &pings {
+                                let _ = socket.send_to(
+                                    signed.as_bytes(),
+                                    format!("255.255.255.255:{}", port),
+                                );
+                            }
                             // Discovered peers get a directed ping every
                             // cycle — that handshake is their only path to
                             // Explicit. Explicit members get one once they
@@ -680,7 +736,9 @@ impl SusiSupervisor {
                                 .take(32)
                                 .collect();
                             for target in targets {
-                                let _ = socket.send_to(signed.as_bytes(), &target);
+                                for (signed, _) in &pings {
+                                    let _ = socket.send_to(signed.as_bytes(), &target);
+                                }
                             }
                         }
                         // Also speak the daemon's LAN ping dialect so host discovery works.
@@ -1587,6 +1645,8 @@ mod tests {
             capability_bloom: CapabilityBloom::default(),
             admission,
             last_seen_secs: now_secs(),
+            pubkey: String::new(),
+            key_bound_at: 0,
         }
     }
 
@@ -1677,6 +1737,8 @@ mod tests {
             capability_bloom: CapabilityBloom::from_tokens(["status", "version"]),
             admission: PeerAdmission::Discovered,
             last_seen_secs: now_secs(),
+            pubkey: String::new(),
+            key_bound_at: 0,
         };
 
         let capability_match = ClusterPeerNode {
@@ -1692,6 +1754,8 @@ mod tests {
             capability_bloom: CapabilityBloom::from_tokens(["bloat_audit"]),
             admission: PeerAdmission::Discovered,
             last_seen_secs: now_secs(),
+            pubkey: String::new(),
+            key_bound_at: 0,
         };
 
         let a_score = SusiSupervisor::score_peer_for_goal(&generic_high_trust, &goal_tokens);

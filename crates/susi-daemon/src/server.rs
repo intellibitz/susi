@@ -948,7 +948,7 @@ impl SusiDaemon {
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
             // host still gets legacy discovery but never roster admission.
-            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce)) =
+            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
                 // Mutual admission: a correctly signed ping proves the
@@ -1012,6 +1012,8 @@ impl SusiDaemon {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_secs())
                             .unwrap_or(0),
+                        pubkey: String::new(),
+                        key_bound_at: 0,
                     };
                     susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
                 }
@@ -1023,13 +1025,26 @@ impl SusiDaemon {
                         .into_iter()
                         .map(|p| (p.node_id, p.address))
                         .collect();
-                if let Some(pong) = crate::susi_config::cluster_key::signed_pong(
-                    &crate::susi_config::cluster_key::wire_node_id(),
-                    0,
-                    &bloom,
-                    &nonce,
-                    &roster,
-                ) {
+                // v2 pings get a pubkey-attesting pong — the responder
+                // side of member-key binding.
+                let pong = if wants_v2 {
+                    crate::susi_config::cluster_key::signed_pong_v2(
+                        &crate::susi_config::cluster_key::wire_node_id(),
+                        0,
+                        &bloom,
+                        &nonce,
+                        &roster,
+                    )
+                } else {
+                    crate::susi_config::cluster_key::signed_pong(
+                        &crate::susi_config::cluster_key::wire_node_id(),
+                        0,
+                        &bloom,
+                        &nonce,
+                        &roster,
+                    )
+                };
+                if let Some(pong) = pong {
                     let _ = socket.send_to(pong.as_bytes(), src);
                 }
                 continue;

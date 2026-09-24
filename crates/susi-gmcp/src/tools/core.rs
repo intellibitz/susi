@@ -954,6 +954,13 @@ impl CoreTools {
             .get("kind")
             .and_then(|v| v.as_str())
             .unwrap_or(crate::susi_core::commit_log::KIND_MEMBER_ADD);
+        // Optional on member_add: the subject's Ed25519 pubkey as the
+        // proposer's handshake attested it — the committed record then
+        // binds the member's signing key on every receiver.
+        let member_pubkey = arg
+            .get("member_pubkey")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         if !matches!(
             kind,
             crate::susi_core::commit_log::KIND_MEMBER_ADD
@@ -1024,7 +1031,12 @@ impl CoreTools {
         }
         let electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
         let Some(record) = crate::susi_core::commit_log::CommitRecord::seal_member(
-            &self_id, &self_id, kind, member, electorate,
+            &self_id,
+            &self_id,
+            kind,
+            member,
+            electorate,
+            member_pubkey,
         ) else {
             return Err(EaiError::internal(
                 "no cluster.key — cannot seal a member record",

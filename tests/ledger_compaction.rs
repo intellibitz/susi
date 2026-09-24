@@ -113,6 +113,7 @@ fn compaction_preserves_the_consensus_view_and_bounds_intake() {
         commit_log::KIND_MEMBER_ADD,
         "node-m@10.0.0.9:9090",
         vec![self_id.clone()],
+        "",
     )
     .expect("seal_member must succeed for a well-formed spec");
     commit_log::append(&member).unwrap();

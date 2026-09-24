@@ -16,6 +16,7 @@ parking_lot = { workspace = true }
 hex = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }
+ed25519-dalek = { workspace = true }
 susi-gemi = { path = "../susi-gemi" }
 susi-server = { path = "../susi-server" }
 susi-tools = { path = "../susi-tools" }

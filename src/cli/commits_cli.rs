@@ -414,6 +414,48 @@ fn show(epoch_prefix: &str) -> Result<()> {
     let r = matches[0];
     println!("{}", serde_json::to_string_pretty(r)?);
     println!("verified: {}", r.verify());
+    // Coordinator-attribution state: absent is the pre-PKI form; when
+    // the roster binds the coordinator's key the sig must verify under
+    // it — an INVALID here means the record would now be refused at
+    // intake (forgery or a re-bound key).
+    let bound_pk = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("peers.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+        .unwrap_or_default()
+        .iter()
+        .find_map(|p| {
+            (p.get("node_id").and_then(|v| v.as_str()) == Some(r.coordinator.as_str()))
+                .then(|| {
+                    p.get("pubkey")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string)
+                })
+                .flatten()
+        });
+    let msig = if r.member_sig.is_empty() {
+        "absent".to_string()
+    } else if r.coordinator == susi_config::cluster_key::wire_node_id() {
+        match susi_config::cluster_key::node_pubkey_hex() {
+            Some(pk)
+                if susi_config::cluster_key::member_verify(&pk, &r.signature, &r.member_sig) =>
+            {
+                "valid (self)".to_string()
+            }
+            _ => "INVALID (self)".to_string(),
+        }
+    } else {
+        match bound_pk {
+            Some(pk)
+                if susi_config::cluster_key::member_verify(&pk, &r.signature, &r.member_sig) =>
+            {
+                "valid".to_string()
+            }
+            Some(_) => "INVALID".to_string(),
+            None => "present (coordinator key unbound)".to_string(),
+        }
+    };
+    println!("member_sig: {msig}");
     Ok(())
 }
 

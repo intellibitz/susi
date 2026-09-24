@@ -119,6 +119,23 @@ pub struct CommitRecord {
     /// Empty until `seal` runs; a record with an empty signature never
     /// verifies.
     pub signature: String,
+    /// Ed25519 signature (hex) by the coordinator's `node.key` over
+    /// `signature` — non-repudiable coordinator attribution. The HMAC
+    /// proves cluster-key possession (membership); this proves WHICH
+    /// member sealed the record. Enforced at intake once the roster
+    /// binds the coordinator's pubkey (`attribution_valid_at`);
+    /// unsigned records stay admissible only in the pre-binding
+    /// window. Skipped when empty for wire compatibility with
+    /// pre-PKI ledgers.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub member_sig: String,
+    /// The subject's Ed25519 pubkey, carried only on `member_add`
+    /// records — the ledger half of key binding: every receiver binds
+    /// the member's signing key when the committed add applies, so
+    /// attribution enforcement converges with the roster itself.
+    /// First write wins; re-binding requires remove + re-add.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub member_pubkey: String,
 }
 
 /// Membership record kinds — roster deltas committed through the same
@@ -233,27 +250,40 @@ impl CommitRecord {
             prev_epoch: chain_head_epoch(&held, input.coordinator).unwrap_or_default(),
             kind: String::new(),
             signature: String::new(),
+            member_sig: String::new(),
+            member_pubkey: String::new(),
         };
         rec.signature =
             crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
+        rec.member_sig =
+            crate::susi_config::cluster_key::member_sign(&rec.signature).unwrap_or_default();
         Some(rec)
     }
 
     /// Seal a membership-change record (Raft's committed configuration
     /// entry analog). `member` is `node_id@address`; `electorate` is the
     /// roster as the coordinator saw it — audit context, not a vote.
-    /// Like Raft's config entries, roster deltas are leader-signed and
-    /// replicated rather than voted on per entry, so they carry
+    /// `member_pubkey` is the subject's Ed25519 verifying key as
+    /// attested by the sealer's handshake — carried only on
+    /// `member_add` so receivers bind the member's signing key when
+    /// the committed add applies (first write wins). Like Raft's
+    /// config entries, roster deltas are leader-signed and replicated
+    /// rather than voted on per entry, so they carry
     /// `tally = quorum_threshold = 0` honestly: `verify` checks the
     /// signature and value integrity, not a quorum that never happened.
     /// Receivers apply the delta to `peers.json` on append — the ledger
     /// is the applied membership state.
+    #[allow(clippy::too_many_arguments)]
+    // The six parameters are one flat delta spec (who seals, under what
+    // leadership, which kind, which subject, which electorate, which
+    // subject key) — a wrapper struct would only rename the same list.
     pub fn seal_member(
         coordinator: &str,
         leader: &str,
         kind: &str,
         member: &str,
         electorate: Vec<String>,
+        member_pubkey: &str,
     ) -> Option<Self> {
         // A member spec must be `id@address` and `kind` a known member
         // kind — sealing either malformed produces a record that fails
@@ -268,7 +298,17 @@ impl CommitRecord {
         if id.is_empty() || addr.is_empty() {
             return None;
         }
-        Self::seal_signed(coordinator, leader, kind, member, electorate)
+        let mut rec = Self::seal_signed(coordinator, leader, kind, member, electorate)?;
+        // Only adds carry a key binding — remove/unban deltas act on
+        // members whose binding already exists (or is moot).
+        if kind == KIND_MEMBER_ADD
+            && hex::decode(member_pubkey)
+                .ok()
+                .is_some_and(|b| b.len() == 32)
+        {
+            rec.member_pubkey = member_pubkey.to_string();
+        }
+        Some(rec)
     }
 
     /// Seal a cluster-key rotation record (prepare phase).
@@ -353,9 +393,13 @@ impl CommitRecord {
             prev_epoch: chain_head_epoch(&held, coordinator).unwrap_or_default(),
             kind: kind.to_string(),
             signature: String::new(),
+            member_sig: String::new(),
+            member_pubkey: String::new(),
         };
         rec.signature =
             crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
+        rec.member_sig =
+            crate::susi_config::cluster_key::member_sign(&rec.signature).unwrap_or_default();
         Some(rec)
     }
 
@@ -1302,6 +1346,20 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
             ));
         }
     }
+    // Non-repudiable attribution: once a member's signing key is bound
+    // (handshake or committed member_add), records claiming its
+    // coordination from the binding point forward must carry that key's
+    // signature — membership proof alone no longer mints records as
+    // them. Pre-binding history stays appendable or pre-PKI ledgers
+    // could never converge through the gate.
+    if let Some(dir) = path.parent() {
+        if !attribution_valid_at(record, dir) {
+            return Err(EaiError::protocol(format!(
+                "refusing record: {} is key-bound but member_sig is missing or invalid",
+                record.coordinator
+            )));
+        }
+    }
     // Chain check (Raft's prevLogIndex/prevLogTerm consistency): when the
     // record declares a predecessor link and we hold that predecessor
     // slot, the epochs must agree — a mismatch is proof the
@@ -1430,6 +1488,82 @@ pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     })
 }
 
+/// The coordinator's bound signing key `(pubkey_hex, bound_at)` — the
+/// roster half of member-signed consensus. `bound_at` is the
+/// `committed_at` of the record (or handshake time) that established
+/// the binding: only records sealed after it must carry `member_sig`,
+/// so a member's pre-binding history always converges. This node is
+/// always self-bound (bound_at = 0: every record we seal post-keygen
+/// signs, so self-attributed forgeries die on arrival). `None` when
+/// no key is bound — the shared-key ceiling that predates PKI.
+fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64)> {
+    if coordinator == crate::susi_config::cluster_key::wire_node_id() {
+        return crate::susi_config::cluster_key::node_pubkey_hex().map(|pk| (pk, 0));
+    }
+    let peers: Vec<serde_json::Value> = fs::read_to_string(dir.join("peers.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    peers.iter().find_map(|p| {
+        if p.get("node_id").and_then(|v| v.as_str()) != Some(coordinator) {
+            return None;
+        }
+        let pk = p.get("pubkey").and_then(|v| v.as_str())?.to_string();
+        if pk.is_empty() {
+            return None;
+        }
+        let at = p.get("key_bound_at").and_then(|v| v.as_u64()).unwrap_or(0);
+        Some((pk, at))
+    })
+}
+
+/// Whether this record's coordinator attribution is genuine. When the
+/// roster binds a pubkey for the coordinator, records sealed at or
+/// after the binding must carry a valid `member_sig` — a stolen
+/// cluster.key can still mint HMACs, but it can no longer sign as
+/// that member. Unbound coordinators and pre-binding history pass on
+/// the cluster-key proof alone (the ceiling this replaces — the
+/// residual is documented in ARCHITECTURE.md).
+pub fn attribution_valid(record: &CommitRecord) -> bool {
+    attribution_valid_at(record, &SusiDirs::config_dir())
+}
+
+/// Test seam: attribution check against an explicit roster dir.
+pub fn attribution_valid_at(record: &CommitRecord, dir: &Path) -> bool {
+    let Some((pk, bound_at)) = bound_pubkey_at(&record.coordinator, dir) else {
+        return true;
+    };
+    if record.committed_at < bound_at {
+        return true;
+    }
+    !record.member_sig.is_empty()
+        && crate::susi_config::cluster_key::member_verify(
+            &pk,
+            &record.signature,
+            &record.member_sig,
+        )
+}
+
+/// Bind the member's signing key into a roster row when the committed
+/// add carries one — first write wins. A bound key is only ever
+/// replaced by remove + re-add (leader-gated): letting a later record
+/// or handshake overwrite it would let an attacker re-bind a victim's
+/// identity to a key they hold and resume forging.
+fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord) {
+    if record.member_pubkey.is_empty() {
+        return;
+    }
+    let unbound = row
+        .get("pubkey")
+        .and_then(|v| v.as_str())
+        .is_none_or(|p| p.is_empty());
+    if !unbound {
+        return;
+    }
+    row["pubkey"] = serde_json::json!(record.member_pubkey);
+    row["key_bound_at"] = serde_json::json!(record.committed_at);
+}
+
 /// Apply a committed membership delta to `peers.json` /
 /// `peers_banned.json` beside the ledger — the roster half of "the
 /// ledger is applied state". `dir` is the ledger's directory (not the
@@ -1525,6 +1659,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                 n["node_id"] = serde_json::json!(id);
                 n["address"] = serde_json::json!(addr);
                 n["admission"] = serde_json::json!("explicit");
+                bind_member_key(n, record);
                 true
             });
             if !merged {
@@ -1533,7 +1668,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                 // committed membership grants roster standing, not
                 // liveness. The member stays stale (no quorum weight,
                 // no leadership) until it directly pongs this node.
-                peers.push(serde_json::json!({
+                let mut row = serde_json::json!({
                     "node_id": id,
                     "address": addr,
                     "node_type": "PEER",
@@ -1546,7 +1681,9 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                     "capability_bloom": [0, 0, 0, 0],
                     "admission": "explicit",
                     "last_seen_secs": 0,
-                }));
+                });
+                bind_member_key(&mut row, record);
+                peers.push(row);
             }
             let _ = crate::susi_config::atomic_write_json_pretty(&peers_path, &peers);
         }
@@ -1701,6 +1838,8 @@ mod tests {
             prev_epoch: String::new(),
             kind: String::new(),
             signature: String::new(),
+            member_sig: String::new(),
+            member_pubkey: String::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
         let _ = fs::remove_dir_all(&dir);
@@ -1718,7 +1857,8 @@ mod tests {
         // record into the test chain (same pattern as the gap tests).
         let mut seq = 0u64;
         let mut seal_into_test = |kind: &str, member: &str| -> Option<CommitRecord> {
-            let mut rec = CommitRecord::seal_member("coord-a", "coord-a", kind, member, vec![])?;
+            let mut rec =
+                CommitRecord::seal_member("coord-a", "coord-a", kind, member, vec![], "")?;
             seq += 1;
             rec.seq = seq;
             if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
@@ -1878,14 +2018,20 @@ mod tests {
         // Malformed member specs can't seal, and a member record
         // carrying one fails verify even when validly signed.
         assert!(
-            CommitRecord::seal_member("c", "c", KIND_MEMBER_ADD, "no-address", vec![]).is_none()
+            CommitRecord::seal_member("c", "c", KIND_MEMBER_ADD, "no-address", vec![], "")
+                .is_none()
         );
         // An unknown kind can't seal either, and a signed record
         // carrying one fails verify — arbitrary kinds must not append.
-        assert!(
-            CommitRecord::seal_member("c", "c", "bogus_kind", "node-x@10.0.0.5:9090", vec![])
-                .is_none()
-        );
+        assert!(CommitRecord::seal_member(
+            "c",
+            "c",
+            "bogus_kind",
+            "node-x@10.0.0.5:9090",
+            vec![],
+            ""
+        )
+        .is_none());
         let Some(mut bad) = seal_into_test(KIND_MEMBER_ADD, "node-x@10.0.0.5:9090") else {
             return;
         };
@@ -1951,6 +2097,8 @@ mod tests {
             prev_epoch: String::new(),
             kind: kind.into(),
             signature: "s".into(),
+            member_sig: String::new(),
+            member_pubkey: String::new(),
         };
         // An explicit member's delta is authorized; discovered peers and
         // unknown ids are not.

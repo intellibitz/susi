@@ -122,7 +122,7 @@ fn now_secs() -> u64 {
 /// signature/term/chain and apply on append, so one `peers add`
 /// converges membership cluster-wide. Push failures only delay
 /// convergence — `commits sync` and roster gossip carry the record.
-fn commit_membership(kind: &str, node_id: &str, address: &str) {
+fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &str) {
     // An evicted node can still seal member records locally, but no
     // member will accept them — coordinator authority requires current
     // explicit membership. Say so instead of reporting false pushes.
@@ -152,7 +152,7 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
         // Follower delegation: the elected leader seals every committed
         // roster delta — ask it to via member_propose rather than
         // sealing an unauthorized record locally.
-        propose_member(&term.leader, kind, node_id, address, &roster);
+        propose_member(&term.leader, kind, node_id, address, &roster, member_pubkey);
         return;
     }
     // The roster as this node observed it at commit time — audit context
@@ -175,6 +175,7 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
         kind,
         &format!("{node_id}@{address}"),
         electorate,
+        member_pubkey,
     ) else {
         eprintln!("note: no cluster.key — membership change not committed to ledger");
         return;
@@ -242,12 +243,16 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
 /// roster delta, so a non-leader asks it via `member_propose`. The
 /// subject was resolved locally already — the proposal carries only
 /// the attested `node_id@address` and the delta kind.
+#[allow(clippy::too_many_arguments)]
+// Same flat-delta shape as CommitRecord::seal_member — the proposal
+// forwards exactly what the leader seals.
 fn propose_member(
     leader: &str,
     kind: &str,
     node_id: &str,
     address: &str,
     roster: &[serde_json::Value],
+    member_pubkey: &str,
 ) {
     let Some(leader_addr) = roster.iter().find_map(|n| {
         (n.get("node_id").and_then(|v| v.as_str()) == Some(leader))
@@ -268,6 +273,7 @@ fn propose_member(
     let args = serde_json::json!({
         "member": format!("{node_id}@{address}"),
         "kind": kind,
+        "member_pubkey": member_pubkey,
     });
     match susi_core::mcp_client::call_tool(&leader_addr, "member_propose", &args, bearer.as_deref())
     {
@@ -524,6 +530,7 @@ fn list(json: bool) -> Result<()> {
                 "trust_score": n.get("trust_score"),
                 "admission": n.get("admission"),
                 "live": liveness(n) == "yes",
+                "key_bound": n.get("pubkey").and_then(|v| v.as_str()).is_some_and(|p| !p.is_empty()),
             })).collect::<Vec<_>>(),
             "banned": banned,
         });
@@ -546,7 +553,7 @@ fn list(json: bool) -> Result<()> {
         return Ok(());
     }
     println!(
-        "{:<22} {:<22} {:<7} {:<8} LIVE",
+        "{:<22} {:<22} {:<7} {:<8} LIVE  KEY",
         "PEER", "ADDRESS", "TRUST", "ADMISSION"
     );
     for n in &nodes {
@@ -556,13 +563,25 @@ fn list(json: bool) -> Result<()> {
         } else {
             id.to_string()
         };
+        // Bound = the member's Ed25519 key is attested — its records
+        // must carry member_sig or intake refuses them.
+        let key_state = if n
+            .get("pubkey")
+            .and_then(|v| v.as_str())
+            .is_some_and(|p| !p.is_empty())
+        {
+            "bound"
+        } else {
+            "-"
+        };
         println!(
-            "{:<22} {:<22} {:<7.2} {:<8} {}",
+            "{:<22} {:<22} {:<7.2} {:<8} {:<5} {}",
             id,
             n.get("address").and_then(|v| v.as_str()).unwrap_or("?"),
             n.get("trust_score").and_then(|v| v.as_f64()).unwrap_or(0.0),
             n.get("admission").and_then(|v| v.as_str()).unwrap_or("?"),
             liveness(n),
+            key_state,
         );
     }
     if !banned.is_empty() {
@@ -604,7 +623,7 @@ fn delegate_membership(kind: &str, node_id: &str, address: &str) -> bool {
         );
         return true;
     }
-    propose_member(&term.leader, kind, node_id, address, &load_registry());
+    propose_member(&term.leader, kind, node_id, address, &load_registry(), "");
     true
 }
 
@@ -705,7 +724,7 @@ fn remove(peer: &str) -> Result<()> {
         // Commit the eviction — receivers drop the member and record the
         // ban on append, so the eviction takes effect cluster-wide, not
         // just where the operator ran the command.
-        commit_membership(susi_core::commit_log::KIND_MEMBER_REMOVE, id, addr);
+        commit_membership(susi_core::commit_log::KIND_MEMBER_REMOVE, id, addr, "");
     }
     println!(
         "{} verified member(s) remain; {} banned",
@@ -742,6 +761,12 @@ fn handshake(
     // that doesn't know the node_id field ignores the 7-field ping, so
     // the handshake falls back instead of dead-ending on version skew.
     let mut attempts: Vec<(String, String)> = Vec::new();
+    // v2 first — the pong attests the responder's Ed25519 pubkey, the
+    // handshake half of member-signed consensus. v1 and legacy remain
+    // for peers running pre-PKI builds.
+    if let Some(p) = susi_config::cluster_key::signed_ping_v2("CORE", 0, "0000000000000000") {
+        attempts.push(p);
+    }
     if let Some(p) = susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000") {
         attempts.push(p);
     }
@@ -811,7 +836,7 @@ fn handshake(
 /// `handshake`, then persist it as an explicit member and commit the
 /// admission to the replicated ledger.
 fn add(host: &str, port: Option<u16>) -> Result<()> {
-    let ((node_id, checksum, bloom_hex, roster), ip) = handshake(host, port)?;
+    let ((node_id, checksum, bloom_hex, roster, pubkey), ip) = handshake(host, port)?;
     {
         let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
         // A banned member was operator-evicted — re-adding must be a
@@ -907,7 +932,12 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
         // Commit the admission to the replicated ledger — every verified
         // peer applies the same roster delta on append, so membership
         // converges without a `peers add` on each node.
-        commit_membership(susi_core::commit_log::KIND_MEMBER_ADD, &node_id, &address);
+        commit_membership(
+            susi_core::commit_log::KIND_MEMBER_ADD,
+            &node_id,
+            &address,
+            &pubkey,
+        );
     }
     Ok(())
 }
@@ -918,7 +948,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
 /// non-destructive way to test reachability and cluster.key
 /// compatibility before (or instead of) `peers add`.
 fn probe(host: &str, port: Option<u16>) -> Result<()> {
-    let ((node_id, checksum, bloom_hex, roster), ip) = handshake(host, port)?;
+    let ((node_id, checksum, bloom_hex, roster, pubkey), ip) = handshake(host, port)?;
     let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
     let banned = load_banned().iter().any(|b| {
         b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
@@ -944,6 +974,14 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
     println!("  registry checksum: {checksum}");
     println!("  capability bloom:  {bloom}");
     println!("  gossip roster:     {} member(s) advertised", roster.len());
+    println!(
+        "  signing key:       {}",
+        if pubkey.is_empty() {
+            "unbound (pre-PKI peer)".to_string()
+        } else {
+            format!("{}…", &pubkey[..16])
+        }
+    );
     println!("  local standing:    {standing}");
     Ok(())
 }
@@ -1018,7 +1056,7 @@ fn unban(peer: &str) -> Result<()> {
         // Replicate the unban — receivers banned this member via the
         // committed removal, so lifting it locally alone would leave
         // them refusing its handshakes forever.
-        commit_membership(susi_core::commit_log::KIND_MEMBER_UNBAN, id, addr);
+        commit_membership(susi_core::commit_log::KIND_MEMBER_UNBAN, id, addr, "");
     }
     println!(
         "lifted ban on {} member(s); they may re-verify on next handshake",

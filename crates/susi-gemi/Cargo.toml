@@ -26,6 +26,7 @@ ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
 getrandom = { workspace = true }
+ed25519-dalek = { workspace = true }
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }
