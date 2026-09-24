@@ -113,6 +113,12 @@ fn status(json: bool) -> Result<()> {
                 .map(|(avail, total)| serde_json::json!({
                     "available_bytes": avail, "total_bytes": total,
                 })),
+            "endpoints": endpoint_probes().iter().map(|(name, port, up)| {
+                serde_json::json!({ "name": name, "port": port, "up": up })
+            }).chain(std::iter::once(serde_json::json!({
+                "name": "a2a-udp", "port": susi_paths::ports::UDP_DISCOVERY,
+                "up": null,
+            }))).collect::<Vec<_>>(),
             "substrate_usage": substrate_usage().iter().take(8).map(|(name, bytes)| {
                 serde_json::json!({ "entry": name, "bytes": bytes })
             }).collect::<Vec<_>>(),
@@ -222,31 +228,14 @@ fn status(json: bool) -> Result<()> {
             .unwrap_or_else(|| "not running".to_string())
     );
     {
-        use susi_paths::ports;
-        let probes: [(&str, u16); 4] = [
-            ("gmcp", ports::GMCP),
-            ("gemi", ports::GEMI),
-            ("gmcp-sse", ports::GMCP_HTTP),
-            ("a2a", ports::A2A_HTTP),
-        ];
-        let fields: Vec<String> = probes
+        let fields: Vec<String> = endpoint_probes()
             .iter()
-            .map(|(name, port)| {
-                let up = std::net::TcpStream::connect_timeout(
-                    &std::net::SocketAddr::new(
-                        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-                        *port,
-                    ),
-                    std::time::Duration::from_millis(150),
-                )
-                .is_ok();
-                format!("{name} :{port} {}", if up { "up" } else { "DOWN" })
-            })
+            .map(|(name, port, up)| format!("{name} :{port} {}", if *up { "up" } else { "DOWN" }))
             .collect();
         println!(
             "endpoints:   {} (+a2a-udp :{})",
             fields.join(" · "),
-            ports::UDP_DISCOVERY
+            susi_paths::ports::UDP_DISCOVERY
         );
     }
     if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
@@ -548,6 +537,33 @@ impl PeerView {
         };
         std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
     }
+}
+
+/// Live TCP probes of the public host-contract endpoints — shared by the
+/// text view's `endpoints:` line and the `--json` payload. UDP discovery
+/// has no TCP probe; callers surface its port statically.
+fn endpoint_probes() -> Vec<(&'static str, u16, bool)> {
+    use susi_paths::ports;
+    let probes: [(&str, u16); 4] = [
+        ("gmcp", ports::GMCP),
+        ("gemi", ports::GEMI),
+        ("gmcp-sse", ports::GMCP_HTTP),
+        ("a2a", ports::A2A_HTTP),
+    ];
+    probes
+        .iter()
+        .map(|(name, port)| {
+            let up = std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                    *port,
+                ),
+                std::time::Duration::from_millis(150),
+            )
+            .is_ok();
+            (*name, *port, up)
+        })
+        .collect()
 }
 
 /// Count of operator-evicted members — a nonzero value means
