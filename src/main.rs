@@ -97,7 +97,17 @@ fn main() -> std::process::ExitCode {
     let global_dir = susi_paths::SusiDirs::config_dir();
     let _ = std::fs::create_dir_all(&global_dir);
 
-    let file_appender = tracing_appender::rolling::never(&global_dir, "audit.log");
+    // Bounded daily rotation: `never` produced an unbounded single file
+    // (22MB+ observed in weeks). Seven retained files keep a week of
+    // daemon tracing without filling the disk; `minutely`/`hourly` would
+    // rotate mid-incident too aggressively for postmortems.
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("audit")
+        .filename_suffix("log")
+        .max_log_files(7)
+        .build(&global_dir)
+        .unwrap_or_else(|_| tracing_appender::rolling::never(&global_dir, "audit.log"));
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
