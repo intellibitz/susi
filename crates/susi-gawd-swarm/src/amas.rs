@@ -1181,11 +1181,12 @@ impl SusiSupervisor {
         base + capability_match * 0.6
     }
 
-    /// Whether outbound calls to `addr` may attach this host's bearer token.
-    /// Only roster peers admitted as Local or Explicit qualify — never
-    /// Discovered peers, and never an arbitrary loopback port (a local
-    /// listener could otherwise steal the token).
-    fn peer_allows_host_token(addr: &str) -> bool {
+    /// Whether outbound calls to `addr` may attach the cluster bearer
+    /// credential. Only roster peers admitted as Local or Explicit
+    /// qualify — never Discovered peers, and never an arbitrary
+    /// loopback port (a local listener could otherwise harvest the
+    /// credential).
+    fn peer_allows_bearer(addr: &str) -> bool {
         let addr = addr.trim();
         Self::list_cluster_nodes().iter().any(|n| {
             n.address == addr
@@ -1210,7 +1211,7 @@ impl SusiSupervisor {
         // The credential itself is the cluster peer bearer — the host
         // api_token is a per-node secret the remote cannot validate.
         // UDP-discovered peers stay unauthenticated on purpose.
-        let bearer = if Self::peer_allows_host_token(addr) {
+        let bearer = if Self::peer_allows_bearer(addr) {
             crate::susi_config::cluster_key::peer_bearer()
         } else {
             None
@@ -1612,14 +1613,14 @@ mod tests {
     fn discovered_peers_never_receive_host_bearer() {
         // Local master is rostered as PeerAdmission::Local on the GMCP port.
         let local = format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP);
-        assert!(SusiSupervisor::peer_allows_host_token(&local));
+        assert!(SusiSupervisor::peer_allows_bearer(&local));
         // Arbitrary loopback ports are not automatic trust — a local listener
         // must not steal the host bearer just by binding nearby.
-        assert!(!SusiSupervisor::peer_allows_host_token("127.0.0.1:19999"));
-        assert!(!SusiSupervisor::peer_allows_host_token("localhost:9093"));
+        assert!(!SusiSupervisor::peer_allows_bearer("127.0.0.1:19999"));
+        assert!(!SusiSupervisor::peer_allows_bearer("localhost:9093"));
         // Any non-roster / Discovered address must be denied.
-        assert!(!SusiSupervisor::peer_allows_host_token("10.0.0.99:9093"));
-        assert!(!SusiSupervisor::peer_allows_host_token("192.168.1.50:9090"));
+        assert!(!SusiSupervisor::peer_allows_bearer("10.0.0.99:9093"));
+        assert!(!SusiSupervisor::peer_allows_bearer("192.168.1.50:9090"));
     }
 
     #[test]
