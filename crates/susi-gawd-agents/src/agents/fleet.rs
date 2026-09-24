@@ -107,6 +107,16 @@ impl NeuralAgentFactory {
     const MAX_KEYWORDS: usize = 8;
 
     pub fn synthesize_specialist(goal: &str, workspace: &Path) -> EaiResult<AgentProfile> {
+        // An empty goal carries no capability signal — a specialist
+        // synthesized from nothing would be arbitrary. It also closes a
+        // resource-exhaustion surface: an A2A caller sending an empty
+        // message could otherwise trigger a full LLM generation per
+        // request (~60s CPU-bound each).
+        if goal.trim().is_empty() {
+            return Err(crate::susi_error::EaiError::config(
+                "cannot synthesize a specialist for an empty goal",
+            ));
+        }
         let prompts = crate::susi_sandbox::manager::SusiPrompts::load_global();
         let prompt = prompts.agent_factory_prompt().replace("{goal}", goal);
 
@@ -321,6 +331,16 @@ impl GawdAgentFleet {
             if should_add && !fleet.iter().any(|a| a.name() == agent.name) {
                 fleet.push(instantiate_agent(agent));
             }
+        }
+
+        // An empty goal carries no capability signal — returning the
+        // core agents is the only meaningful answer. Skipping the
+        // semantic steps also closes a resource surface: step 3 runs a
+        // model projection per registered agent (~150 IPC calls), so an
+        // A2A caller sending an empty message could otherwise trigger a
+        // ~minute of model work per request.
+        if lower_goal.trim().is_empty() {
+            return fleet;
         }
 
         // 1b. Semantic intent bus: match goal against agent descriptions/anchors
