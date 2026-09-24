@@ -103,8 +103,8 @@ impl GawdA2AExecutor {
                     description: "Orchestrate multi-agent missions and task delegation".to_string(),
                     tags: vec!["orchestration".to_string(), "swarm".to_string()],
                     examples: vec![],
-                    input_modes: vec![],
-                    output_modes: vec![],
+                    input_modes: vec!["text".to_string()],
+                    output_modes: vec!["text".to_string()],
                     security_requirements: vec![],
                 },
                 ra2a::types::AgentSkill {
@@ -113,15 +113,30 @@ impl GawdA2AExecutor {
                     description: "Delegate tasks to specialized agents".to_string(),
                     tags: vec!["delegation".to_string(), "coordination".to_string()],
                     examples: vec![],
-                    input_modes: vec![],
-                    output_modes: vec![],
+                    input_modes: vec!["text".to_string()],
+                    output_modes: vec!["text".to_string()],
                     security_requirements: vec![],
                 },
             ],
-            security_schemes: Default::default(),
-            security_requirements: vec![],
-            default_input_modes: vec![],
-            default_output_modes: vec![],
+            security_schemes: {
+                let mut m = std::collections::HashMap::new();
+                m.insert(
+                    "bearer".to_string(),
+                    ra2a::types::SecurityScheme::Http(
+                        ra2a::types::HttpAuthSecurityScheme::bearer(),
+                    ),
+                );
+                m
+            },
+            security_requirements: vec![ra2a::types::SecurityRequirement {
+                schemes: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("bearer".to_string(), Vec::new());
+                    m
+                },
+            }],
+            default_input_modes: vec!["text".to_string()],
+            default_output_modes: vec!["text".to_string()],
             signatures: vec![],
             icon_url: None,
         }
