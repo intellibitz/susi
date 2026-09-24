@@ -533,33 +533,8 @@ fn audit(strict: bool) -> Result<()> {
                 &r.epoch[..12.min(r.epoch.len())]
             );
         }
-        // PKI gates re-checked against today's bindings: a record that
-        // would be refused at intake now (bound coordinator without a
-        // valid member_sig, privileged record short on endorsements,
-        // member_add with an unattested pubkey) is an anomaly wherever
-        // it came from — pre-gate appends, a stolen cluster.key, or a
-        // bug — and audit exists to surface exactly that.
-        if r.verify() && !commit_log::attribution_valid(r) {
-            anomalies += 1;
-            println!(
-                "ATTRIBUTION FAILURE  {} seq {} — coordinator is key-bound but member_sig is missing or invalid",
-                r.coordinator, r.seq
-            );
-        }
-        if r.verify() && !commit_log::endorsements_satisfied(r) {
-            anomalies += 1;
-            println!(
-                "ENDORSEMENT SHORTFALL  {} seq {} ({}) — privileged record below bound-majority",
-                r.coordinator, r.seq, r.kind
-            );
-        }
-        if r.verify() && !commit_log::subject_attestation_valid(r) {
-            anomalies += 1;
-            println!(
-                "SUBJECT ATTESTATION MISSING  {} seq {} — member_add pubkey lacks the subject's binding signature",
-                r.coordinator, r.seq
-            );
-        }
+        // Attribution/endorsement/subject-attestation anomalies are
+        // folded by replay() itself — they print via state.anomalies.
     }
 
     println!(

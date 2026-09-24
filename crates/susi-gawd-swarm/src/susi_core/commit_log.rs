@@ -1143,20 +1143,55 @@ fn fold_records(
 /// compacted and uncompacted views of the same history are identical.
 pub fn replay() -> ClusterState {
     let records = load();
-    let Some(snap) = load_snapshot() else {
-        return replay_records(&records);
+    let mut state = match load_snapshot() {
+        Some(snap) => fold_records(
+            ClusterState {
+                term: snap.term,
+                leader: snap.leader.clone(),
+                coordinators: snap.high_water.clone(),
+                decisions: snap.decisions,
+                memberships: snap.memberships,
+                roster: snap.roster.clone(),
+                banned: snap.banned.clone(),
+                anomalies: Vec::new(),
+            },
+            &records,
+            &snap.high_water,
+        ),
+        None => replay_records(&records),
     };
-    let seed = ClusterState {
-        term: snap.term,
-        leader: snap.leader.clone(),
-        coordinators: snap.high_water.clone(),
-        decisions: snap.decisions,
-        memberships: snap.memberships,
-        roster: snap.roster.clone(),
-        banned: snap.banned.clone(),
-        anomalies: Vec::new(),
-    };
-    fold_records(seed, &records, &snap.high_water)
+    // PKI gates re-checked against today's bindings: a record that
+    // would be refused at intake now — bound coordinator without a
+    // valid member_sig, privileged record below bound-majority,
+    // member_add with an unattested pubkey — is an anomaly wherever it
+    // came from (pre-gate appends, a stolen cluster.key, or a bug),
+    // and the reconstructed view is where operators look for it.
+    // Signature-failing records are already flagged by the fold.
+    let dir = SusiDirs::config_dir();
+    for r in &records {
+        if !r.verify() {
+            continue;
+        }
+        if !attribution_valid_at(r, &dir) {
+            state.anomalies.push(format!(
+                "attribution failure: {} seq {} — key-bound coordinator with missing/invalid member_sig",
+                r.coordinator, r.seq
+            ));
+        }
+        if !endorsements_satisfied_at(r, &dir) {
+            state.anomalies.push(format!(
+                "endorsement shortfall: {} seq {} ({}) below bound-majority",
+                r.coordinator, r.seq, r.kind
+            ));
+        }
+        if !subject_attestation_valid(r) {
+            state.anomalies.push(format!(
+                "subject attestation missing: {} seq {} — member_add pubkey lacks the subject's binding signature",
+                r.coordinator, r.seq
+            ));
+        }
+    }
+    state
 }
 
 /// Where the ledger lives: `~/.susi/commit_log.jsonl` — one JSON record
