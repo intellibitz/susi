@@ -330,20 +330,24 @@ pub fn start(shutdown: Arc<AtomicBool>) -> thread::JoinHandle<()> {
 
 /// Graceful shutdown: SIGTERM every pid the daemon supervises, escalate to
 /// SIGKILL after the grace window, then clear the table so a stale record
-/// never outlives its process.
+/// never outlives its process. External rows are skipped — a daemon stop
+/// must never signal a process it did not spawn.
 pub fn shutdown_all() {
     let mut table = service_table::load();
-    for rec in &table {
+    for rec in table.iter().filter(|r| !r.external) {
         let _ = signal(rec.pid, SIGTERM);
     }
     let start = Instant::now();
     while start.elapsed() < TERM_GRACE {
-        if table.iter().all(|r| !service_table::pid_alive(r.pid)) {
+        if table
+            .iter()
+            .all(|r| r.external || !service_table::pid_alive(r.pid))
+        {
             break;
         }
         thread::sleep(Duration::from_millis(100));
     }
-    for rec in &table {
+    for rec in table.iter().filter(|r| !r.external) {
         if service_table::pid_alive(rec.pid) {
             let _ = signal(rec.pid, SIGKILL);
         }

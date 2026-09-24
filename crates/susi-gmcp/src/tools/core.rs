@@ -496,7 +496,7 @@ impl CoreTools {
 
     #[tool(
         name = "os_kill",
-        description = "Send TERM or KILL to a pid the substrate supervises (service-table pids only — fails closed on any other pid); args: {pid: N, signal?: \"term\"|\"kill\"}"
+        description = "Send TERM or KILL to a pid the substrate supervises (daemon-spawned service pids only — fails closed on any other pid, including external table rows); args: {pid: N, signal?: \"term\"|\"kill\"}"
     )]
     pub fn os_kill(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let pid =
@@ -519,12 +519,14 @@ impl CoreTools {
 
         // Fails closed: only pids the daemon itself supervises may be
         // signalled through this tool — an arbitrary-pid kill would be a
-        // host-destruction primitive, not an OS-layer capability.
+        // host-destruction primitive, not an OS-layer capability. External
+        // rows (ports bound by processes the daemon did not spawn) are in
+        // the table for observability but are explicitly NOT killable.
         let supervised = crate::susi_core::service_table::load();
-        if !supervised.iter().any(|r| r.pid == pid) {
+        if !supervised.iter().any(|r| r.pid == pid && !r.external) {
             return Err(EaiError::authorization(format!(
-                "pid {pid} is not in the substrate process table — os_kill only \
-                 reaches supervised leaf services"
+                "pid {pid} is not a supervised leaf service — os_kill only \
+                 reaches pids the daemon spawned"
             )));
         }
         let ok = Command::new("kill")
@@ -2070,7 +2072,32 @@ mod os_tools_wired_tests {
             Path::new("."),
         )
         .expect_err("unsupervised pid must be refused");
-        assert!(err.to_string().contains("process table"));
+        assert!(err.to_string().contains("supervised"));
+    }
+
+    #[test]
+    fn os_kill_fails_closed_on_external_table_row() {
+        let _permit = wire_permissive_audit();
+        // External rows record processes the daemon observed but did not
+        // spawn — the kill gate must exclude them. Write one in, verify
+        // refusal, restore the table (the supervisor would also drop the
+        // stale row on its next pass: the fake port is dead).
+        let path = crate::susi_core::service_table::table_path();
+        let original = std::fs::read_to_string(&path).unwrap_or_default();
+        let mut table = crate::susi_core::service_table::load();
+        crate::susi_core::service_table::record_external(&mut table, "susi-native", 4_000_001, 1);
+        crate::susi_core::service_table::save(&table).expect("seed external row");
+        let err = CoreTools::os_kill(
+            &serde_json::json!({"pid": 4_000_001, "signal": "term"}),
+            Path::new("."),
+        )
+        .expect_err("external row must not be killable");
+        assert!(err.to_string().contains("supervised"));
+        if original.is_empty() {
+            let _ = std::fs::remove_file(&path);
+        } else {
+            std::fs::write(&path, original).expect("restore table");
+        }
     }
 
     #[test]
