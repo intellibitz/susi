@@ -374,14 +374,24 @@ impl GemiEngine {
                 }
                 Err(e) => {
                     crate::routing::InferenceRouter::record_provider_failure(&name);
-                    // Auth/quota statuses are credential-scoped: the sibling
-                    // providers sharing this vendor's key would fail the same
-                    // way, so cool the whole vendor rather than probing each.
+                    // Auth/quota statuses are credential-scoped and transport
+                    // failures are endpoint-scoped: siblings sharing this
+                    // vendor's key or engine would fail the same way, so cool
+                    // the whole scope rather than probing each entry.
                     let msg = e.to_string();
-                    if ["HTTP 401", "HTTP 402", "HTTP 403", "HTTP 429"]
-                        .iter()
-                        .any(|s| msg.contains(s))
-                    {
+                    let scoped = [
+                        "HTTP 401",
+                        "HTTP 402",
+                        "HTTP 403",
+                        "HTTP 429",
+                        "error sending request",
+                        "Connection refused",
+                        "tcp connect error",
+                        "timed out",
+                    ]
+                    .iter()
+                    .any(|s| msg.contains(s));
+                    if scoped {
                         crate::routing::InferenceRouter::record_vendor_failure(&name);
                     }
                     let detail = format!("{name}: {e}");

@@ -41,12 +41,13 @@ pub struct InferenceRouter;
 /// mission and spam the error sink.
 const PROVIDER_DOWN_COOLDOWN_SECS: u64 = 120;
 
-/// Credential-scoped failures (HTTP 401/402/403/429) indict the vendor's
-/// key or account, not the individual model — every sibling sharing that
-/// credential would fail identically. A longer window than the per-provider
-/// cooldown: auth problems persist until an operator intervenes, and an
-/// openrouter catalog alone is ~130 names that would each burn a request
-/// re-learning the same 402.
+/// Scope-wide failures — credential (HTTP 401/402/403/429) and transport
+/// (connect refused, unreachable engine, timeout) — indict the vendor's
+/// key/account or the whole endpoint, not the individual model. Every
+/// sibling on that scope fails identically, so one failure cools them all.
+/// A longer window than the per-provider cooldown: these problems persist
+/// until an operator intervenes, and an openrouter catalog alone is ~130
+/// names that would each burn a request re-learning the same 402.
 const VENDOR_DOWN_COOLDOWN_SECS: u64 = 600;
 
 /// Credential scope for a provider name. `catalog-<vendor>-<model>` and
@@ -100,9 +101,10 @@ impl InferenceRouter {
         map.insert(name.to_string(), now_unix() + PROVIDER_DOWN_COOLDOWN_SECS);
     }
 
-    /// Mark a provider's *vendor* down: call when the failure is
-    /// credential-scoped (HTTP 401/402/403/429) rather than model-scoped,
-    /// so siblings sharing the key are skipped without probing.
+    /// Mark a provider's whole scope down: call when the failure is
+    /// credential-scoped (HTTP 401/402/403/429) or endpoint-scoped
+    /// (transport errors) rather than model-scoped, so siblings sharing
+    /// the key/engine are skipped without probing.
     pub fn record_vendor_failure(name: &str) {
         if let Some(scope) = vendor_scope(name) {
             let mut map = provider_down_map()
