@@ -53,7 +53,7 @@ fn status(json: bool) -> Result<()> {
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
                 "restarts": s.restarts, "up": s.up, "external": s.external,
-                "stopped": s.stopped,
+                "stopped": s.stopped, "rss": s.rss(),
             })).collect::<Vec<_>>(),
             "peers": peers.iter().map(|p| serde_json::json!({
                 "node_id": &p.node_id, "address": &p.address,
@@ -108,8 +108,8 @@ fn status(json: bool) -> Result<()> {
     println!();
 
     println!(
-        "{:<14} {:<6} {:<8} {:<9} {:<8} UP",
-        "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME"
+        "{:<14} {:<6} {:<8} {:<9} {:<8} {:<10} UP",
+        "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME", "RSS"
     );
     let any_external = services.iter().any(|s| s.external);
     for s in &services {
@@ -120,12 +120,13 @@ fn status(json: bool) -> Result<()> {
             (false, None) => "-".to_string(),
         };
         println!(
-            "{:<14} {:<6} {:<8} {:<9} {:<8} {}",
+            "{:<14} {:<6} {:<8} {:<9} {:<8} {:<10} {}",
             s.name,
             s.port,
             pid,
             s.restarts,
             s.uptime(),
+            s.rss(),
             if s.stopped {
                 "stopped"
             } else if s.up {

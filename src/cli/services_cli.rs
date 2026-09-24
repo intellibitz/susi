@@ -52,8 +52,8 @@ pub fn execute(action: Option<ServicesCommands>, _workspace: &Path) -> Result<()
 
 fn status() -> Result<()> {
     println!(
-        "{:<14} {:<6} {:<8} {:<9} {:<8} UP",
-        "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME"
+        "{:<14} {:<6} {:<8} {:<9} {:<8} {:<10} UP",
+        "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME", "RSS"
     );
     let services = service_table::status();
     let any_external = services.iter().any(|s| s.external);
@@ -65,12 +65,13 @@ fn status() -> Result<()> {
             (false, None) => "-".to_string(),
         };
         println!(
-            "{:<14} {:<6} {:<8} {:<9} {:<8} {}",
+            "{:<14} {:<6} {:<8} {:<9} {:<8} {:<10} {}",
             s.name,
             s.port,
             pid,
             s.restarts,
             s.uptime(),
+            s.rss(),
             if s.stopped {
                 "stopped"
             } else if s.up {

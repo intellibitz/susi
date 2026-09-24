@@ -336,6 +336,23 @@ pub fn pid_for_port(_port: u16) -> Option<u32> {
     None
 }
 
+/// Resident set size of `pid` in KiB (`VmRSS` from `/proc/<pid>/status`)
+/// — the footprint column for service tables. `None` when the pid is
+/// dead, unreadable, or the field is absent.
+#[cfg(target_os = "linux")]
+pub fn rss_kb(pid: u32) -> Option<u64> {
+    let text = fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    text.lines()
+        .find_map(|l| l.strip_prefix("VmRSS:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
+}
+
+/// No `/proc` on non-Linux platforms — memory footprint is unknown.
+#[cfg(not(target_os = "linux"))]
+pub fn rss_kb(_pid: u32) -> Option<u64> {
+    None
+}
+
 /// A snapshot of every leaf service with its live health — what the
 /// `services` CLI and `os_services` tool render. Supervision metadata comes
 /// from the table when present; health is always probed live.
@@ -383,6 +400,17 @@ impl ServiceStatus {
             format!("{}m{}s", secs / 60, secs % 60)
         } else {
             format!("{secs}s")
+        }
+    }
+
+    /// Human resident memory for the process behind `pid` ("84.2 MiB",
+    /// "612 KiB"); "-" when no supervised pid exists or the OS won't
+    /// tell us — never invent a number for an unreadable process.
+    pub fn rss(&self) -> String {
+        match self.pid.and_then(rss_kb) {
+            Some(kb) if kb >= 1024 => format!("{:.1} MiB", kb as f64 / 1024.0),
+            Some(kb) => format!("{kb} KiB"),
+            None => "-".to_string(),
         }
     }
 }
@@ -455,6 +483,12 @@ mod tests {
         fs::write(&path, "{not json").unwrap();
         assert!(load_from(&path).is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rss_kb_reads_self_and_none_for_dead() {
+        assert!(rss_kb(std::process::id()).is_some_and(|kb| kb > 0));
+        assert_eq!(rss_kb(4_000_000), None);
     }
 
     #[test]
