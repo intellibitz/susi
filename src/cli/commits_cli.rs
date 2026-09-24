@@ -30,6 +30,10 @@ pub enum CommitsCommands {
         /// member_remove, member_unban)
         #[arg(long)]
         kind: Option<String>,
+        /// Emit machine-readable JSON instead of the table — the form
+        /// agents and scripts should consume
+        #[arg(long)]
+        json: bool,
     },
     /// Print the full record (including committed value) for an epoch prefix
     Show {
@@ -66,13 +70,15 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
         coordinator: None,
         term: None,
         kind: None,
+        json: false,
     }) {
         CommitsCommands::List {
             limit,
             coordinator,
             term,
             kind,
-        } => list(limit, coordinator.as_deref(), term, kind.as_deref()),
+            json,
+        } => list(limit, coordinator.as_deref(), term, kind.as_deref(), json),
         CommitsCommands::Show { epoch } => show(&epoch),
         CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
@@ -289,6 +295,7 @@ fn list(
     coordinator: Option<&str>,
     term: Option<u64>,
     kind: Option<&str>,
+    json: bool,
 ) -> Result<()> {
     // "decision" is the display name for records with no kind field —
     // let the filter accept the same vocabulary the table prints.
@@ -306,6 +313,40 @@ fn list(
             })
         })
         .collect();
+    if json {
+        let rows: Vec<serde_json::Value> = records
+            .iter()
+            .rev()
+            .take(limit.min(500))
+            .map(|r| {
+                serde_json::json!({
+                    "epoch": r.epoch,
+                    "seq": r.seq,
+                    "term": r.term,
+                    "coordinator": r.coordinator,
+                    "leader": r.leader,
+                    "kind": if r.kind.is_empty() { "decision" } else { r.kind.as_str() },
+                    "tally": r.tally,
+                    "quorum": r.quorum_threshold,
+                    "committed_at": r.committed_at,
+                    "verified": match r.verify_key_epoch() {
+                        Some(commit_log::KeyEpoch::Current) => "yes",
+                        Some(commit_log::KeyEpoch::Prev) => "prev",
+                        None => "no",
+                    },
+                    "subject": r
+                        .member_delta()
+                        .map(|(_, id, addr)| format!("{id}@{addr}"))
+                        .or_else(|| {
+                            r.rekey_fingerprint()
+                                .map(|fp| format!("key:{}", &fp[..12.min(fp.len())]))
+                        }),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&rows)?);
+        return Ok(());
+    }
     println!(
         "{:<14} {:<5} {:<5} {:<18} {:<24} {:<7} {:<7} {:<12} {:<8} SUBJECT",
         "EPOCH",
