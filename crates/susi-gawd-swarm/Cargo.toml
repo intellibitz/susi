@@ -32,3 +32,6 @@ metal = ["susi-gawd-agents/metal"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest = "1.11.0"

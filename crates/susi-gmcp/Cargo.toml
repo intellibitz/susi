@@ -42,6 +42,7 @@ default = ["tools-rich"]
 tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:fastembed", "dep:syn"]
 
 [dev-dependencies]
+proptest = "1.11.0"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 # Test-only: exercises MCP client connect against an in-process server.

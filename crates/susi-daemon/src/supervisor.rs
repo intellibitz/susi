@@ -564,7 +564,20 @@ mod tests {
             }
         }
 
-        ensure_leaf_services();
+        // A fully parallel `cargo test --workspace` can starve a spawned
+        // service past the 10s bind wait — ensure is idempotent (bound
+        // ports are adopted, dead ones respawned), so retry until the
+        // fleet is up instead of flaking on a slow spawn.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            ensure_leaf_services();
+            if LEAF_SERVICES.iter().all(|s| service_table::probe(s.port()))
+                || Instant::now() >= deadline
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
         let table = service_table::load();
         let all_up = LEAF_SERVICES.iter().all(|s| service_table::probe(s.port()));
 

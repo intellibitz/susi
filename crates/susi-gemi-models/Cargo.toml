@@ -41,3 +41,6 @@ metal = ["candle-core/metal"]
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest = "1.11.0"

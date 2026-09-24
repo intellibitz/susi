@@ -105,11 +105,32 @@ impl DaemonLock {
 
         #[cfg(unix)]
         {
-            // SAFETY: We just opened the file, so fd is valid.
-            // flock doesn't access memory unsafely or take ownership.
-            let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-            if ret != 0 {
-                return Err("Locked by another process".into());
+            // A flock lives on the open file description — a child caught
+            // between fork and exec still shares our fds (CLOEXEC closes
+            // at execve), so a sibling process spawning children in the
+            // same process can present a *transient* EWOULDBLOCK that is
+            // fork-window noise, not a real contender. A genuine lock
+            // holder never releases in a few hundred ms; retry briefly
+            // before declaring contention.
+            // SAFETY: We just opened the file, so fd is valid. flock
+            // doesn't access memory unsafely or take ownership.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
+            loop {
+                let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+                if ret == 0 {
+                    break;
+                }
+                let err = std::io::Error::last_os_error();
+                // EWOULDBLOCK == EAGAIN on unix.
+                let transient = matches!(
+                    err.raw_os_error(),
+                    Some(libc::EINTR) | Some(libc::EWOULDBLOCK)
+                );
+                if transient && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                    continue;
+                }
+                return Err(format!("Locked by another process ({err})"));
             }
         }
 
@@ -1240,7 +1261,22 @@ mod tests {
             std::fs::set_permissions(&fake_bin, perms).unwrap();
         }
 
-        let mut child = Command::new(&fake_bin).arg("5").spawn().unwrap();
+        // ETXTBSY is transient: a parallel thread's fork can hold the
+        // destination fd open-for-write between fork and exec while the
+        // copy above is finishing. Retry past the window.
+        let mut child = {
+            let mut attempt = 0;
+            loop {
+                match Command::new(&fake_bin).arg("5").spawn() {
+                    Ok(c) => break c,
+                    Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempt < 20 => {
+                        attempt += 1;
+                        thread::sleep(Duration::from_millis(25));
+                    }
+                    Err(e) => panic!("spawn fake susi: {e}"),
+                }
+            }
+        };
         let pid = child.id() as i32;
         // Give the kernel a moment to populate /proc/{pid}/exe.
         thread::sleep(Duration::from_millis(50));

@@ -45,3 +45,6 @@ metal = ["susi-gemi-models/metal", "candle-core/metal", "candle-nn/metal", "cand
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest = "1.11.0"

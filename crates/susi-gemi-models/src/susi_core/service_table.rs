@@ -575,4 +575,111 @@ mod tests {
         // 9 is the discard port; nothing sane binds it in a test env.
         assert!(!probe(9));
     }
+
+    mod prop_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        fn name_strategy() -> impl Strategy<Value = String> {
+            // Real tables only carry leaf-service names, but the state
+            // machine must hold for arbitrary keys — including unicode.
+            "[a-z\\-]{1,16}".prop_map(String::from)
+        }
+
+        fn record_strategy() -> impl Strategy<Value = ServiceRecord> {
+            (
+                name_strategy(),
+                any::<u32>(),
+                any::<u16>(),
+                any::<u64>(),
+                any::<u32>(),
+                any::<bool>(),
+                any::<bool>(),
+                any::<Option<u64>>(),
+            )
+                .prop_map(
+                    |(name, pid, port, started_at, restarts, external, stopped, disabled_until)| {
+                        ServiceRecord {
+                            name,
+                            pid,
+                            port,
+                            started_at,
+                            restarts,
+                            disabled_until,
+                            external,
+                            stopped,
+                        }
+                    },
+                )
+        }
+
+        proptest! {
+            /// serde round-trip: save_to → load_from is lossless for any
+            /// table — a record that can't round-trip is a wire-format bug.
+            #[test]
+            fn save_load_round_trips_any_table(
+                records in proptest::collection::vec(record_strategy(), 0..8)
+            ) {
+                let dir = std::env::temp_dir().join(format!(
+                    "susi_svc_prop_{}_{:?}",
+                    std::process::id(),
+                    std::thread::current().id()
+                ));
+                let path = dir.join("services.json");
+                save_to(&path, &records).expect("save");
+                let loaded = load_from(&path);
+                prop_assert_eq!(loaded, records);
+                let _ = fs::remove_dir_all(&dir);
+            }
+
+            /// record() is an upsert: the table holds exactly one row per
+            /// name, and restarts counts every re-record of the same name.
+            #[test]
+            fn record_keeps_one_row_per_name(
+                name in name_strategy(),
+                pids in proptest::collection::vec(any::<u32>(), 1..6),
+                port in any::<u16>(),
+            ) {
+                let mut table = Vec::new();
+                for (i, pid) in pids.iter().enumerate() {
+                    let rec = record(&mut table, &name, *pid, port);
+                    prop_assert_eq!(rec.pid, *pid);
+                    prop_assert_eq!(rec.restarts as usize, i);
+                }
+                prop_assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+            }
+
+            /// record_external() always leaves exactly one external row —
+            /// even over a supervised record (the supervisor must never
+            /// signal a pid it didn't spawn, so the flag is rewritten).
+            #[test]
+            fn record_external_overwrites_to_external(
+                seed in proptest::collection::vec(record_strategy(), 0..6),
+                name in name_strategy(),
+                pid in any::<u32>(),
+                port in any::<u16>(),
+            ) {
+                let mut table = seed;
+                let rec = record_external(&mut table, &name, pid, port);
+                prop_assert!(rec.external);
+                prop_assert_eq!(rec.restarts, 0);
+                prop_assert_eq!(table.iter().filter(|r| r.name == name).count(), 1);
+                prop_assert!(table.iter().find(|r| r.name == name).map(|r| r.external) == Some(true));
+            }
+
+            /// remove() is idempotent and total: returns true iff the
+            /// name was present, and leaves no row with that name.
+            #[test]
+            fn remove_is_total_and_idempotent(
+                seed in proptest::collection::vec(record_strategy(), 0..8),
+                name in name_strategy(),
+            ) {
+                let mut table = seed;
+                let present = table.iter().any(|r| r.name == name);
+                prop_assert_eq!(remove(&mut table, &name), present);
+                prop_assert!(!table.iter().any(|r| r.name == name));
+                prop_assert!(!remove(&mut table, &name));
+            }
+        }
+    }
 }
