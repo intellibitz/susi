@@ -584,10 +584,17 @@ pub mod cluster_key {
     /// caches as empty so a deleted roster doesn't re-stat-then-parse
     /// fail every request.
     pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
+        config_json_rows_at(&crate::susi_paths::SusiDirs::config_dir(), file)
+    }
+
+    /// Dir-explicit form of `config_json_rows` — intake checkers take a
+    /// `dir` seam (tests point at temp homes), and the cache keys by full
+    /// path so a test dir and the live config dir never share rows.
+    pub fn config_json_rows_at(dir: &std::path::Path, file: &str) -> Vec<serde_json::Value> {
         use std::sync::{Mutex, OnceLock};
         type RowsCache = Mutex<std::collections::HashMap<String, (u128, u64, Vec<serde_json::Value>)>>;
         static CACHE: OnceLock<RowsCache> = OnceLock::new();
-        let path = crate::susi_paths::SusiDirs::config_dir().join(file);
+        let path = dir.join(file);
         let stamp = fs::metadata(&path)
             .ok()
             .and_then(|m| {
@@ -630,8 +637,7 @@ pub mod cluster_key {
     /// rekey never serves a stale key.
     pub fn cached_file_bytes(path: &std::path::Path) -> Option<Vec<u8>> {
         use std::sync::{Mutex, OnceLock};
-        type BytesCache =
-            Mutex<std::collections::HashMap<std::path::PathBuf, ((u128, u64), Vec<u8>)>>;
+        type BytesCache = Mutex<std::collections::HashMap<std::path::PathBuf, ((u128, u64), Vec<u8>)>>;
         static CACHE: OnceLock<BytesCache> = OnceLock::new();
         let meta = fs::metadata(path).ok()?;
         let stamp = (

@@ -1641,10 +1641,8 @@ pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     if record.coordinator == crate::susi_config::cluster_key::wire_node_id() {
         return true;
     }
-    let peers: Vec<serde_json::Value> = fs::read_to_string(dir.join("peers.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    // Mtime-cached roster rows — intake runs this on every record.
+    let peers = crate::susi_config::cluster_key::config_json_rows_at(dir, "peers.json");
     peers.iter().any(|p| {
         p.get("node_id").and_then(|v| v.as_str()) == Some(record.coordinator.as_str())
             && p.get("admission").and_then(|v| v.as_str()) == Some("explicit")
@@ -1666,10 +1664,7 @@ fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64, Option
     if coordinator == crate::susi_config::cluster_key::wire_node_id() {
         return crate::susi_config::cluster_key::node_pubkey_hex().map(|pk| (pk, 0, Some(0)));
     }
-    let peers: Vec<serde_json::Value> = fs::read_to_string(dir.join("peers.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    let peers = crate::susi_config::cluster_key::config_json_rows_at(dir, "peers.json");
     peers.iter().find_map(|p| {
         if p.get("node_id").and_then(|v| v.as_str()) != Some(coordinator) {
             return None;

@@ -498,10 +498,17 @@ pub fn member_open(peer_pubkey_hex: &str, nonce_hex: &str, ciphertext: &[u8]) ->
 /// caches as empty so a deleted roster doesn't re-stat-then-parse
 /// fail every request.
 pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
+    config_json_rows_at(&crate::susi_paths::SusiDirs::config_dir(), file)
+}
+
+/// Dir-explicit form of `config_json_rows` — intake checkers take a
+/// `dir` seam (tests point at temp homes), and the cache keys by full
+/// path so a test dir and the live config dir never share rows.
+pub fn config_json_rows_at(dir: &std::path::Path, file: &str) -> Vec<serde_json::Value> {
     use std::sync::{Mutex, OnceLock};
     type RowsCache = Mutex<std::collections::HashMap<String, (u128, u64, Vec<serde_json::Value>)>>;
     static CACHE: OnceLock<RowsCache> = OnceLock::new();
-    let path = crate::susi_paths::SusiDirs::config_dir().join(file);
+    let path = dir.join(file);
     let stamp = fs::metadata(&path)
         .ok()
         .and_then(|m| {
