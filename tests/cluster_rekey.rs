@@ -147,13 +147,11 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
         &key_b,
         &dir.join("cluster.key.next")
     ));
-    let rekey = CommitRecord::seal_rekey(
-        &cluster_key::wire_node_id(),
-        "node-c",
-        &fp_b,
-        vec!["node-c".into()],
-    )
-    .expect("seal_rekey must succeed with a valid fingerprint");
+    // Privileged records must be leader-sealed: the local node claims
+    // leadership here, so leader == coordinator.
+    let self_id = cluster_key::wire_node_id();
+    let rekey = CommitRecord::seal_rekey(&self_id, &self_id, &fp_b, vec!["node-c".into()])
+        .expect("seal_rekey must succeed with a valid fingerprint");
     assert_eq!(rekey.signature_epoch(), Some(KeyEpoch::Current));
     assert_eq!(rekey.kind, commit_log::KIND_CLUSTER_REKEY);
     // The local node is always a known coordinator for its own records.
@@ -172,13 +170,9 @@ fn rekey_rotates_epoch_and_bounds_prior_epoch_appends() {
     assert!(!dir.join("cluster.key.prev").exists());
 
     // Commit phase: the activate record's apply rotates the key.
-    let activate = CommitRecord::seal_rekey_activate(
-        &cluster_key::wire_node_id(),
-        "node-c",
-        &fp_b,
-        vec!["node-c".into()],
-    )
-    .expect("seal_rekey_activate must succeed with a valid fingerprint");
+    let activate =
+        CommitRecord::seal_rekey_activate(&self_id, &self_id, &fp_b, vec!["node-c".into()])
+            .expect("seal_rekey_activate must succeed with a valid fingerprint");
     assert_eq!(activate.kind, commit_log::KIND_CLUSTER_REKEY_ACTIVATE);
     assert_eq!(activate.signature_epoch(), Some(KeyEpoch::Current));
     // It chains on the rekey record — the two phases are linked.

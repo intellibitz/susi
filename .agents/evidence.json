@@ -1110,6 +1110,26 @@
       "milestone": "daemon --help",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022924-117",
+      "milestone": "daemon stop",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022924-118",
+      "milestone": "daemon start",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

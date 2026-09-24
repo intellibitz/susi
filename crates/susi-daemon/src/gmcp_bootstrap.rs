@@ -184,6 +184,34 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "cluster_rekey_stage",
+        "Stage a next-epoch cluster key delivered with its committed cluster_rekey record",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::cluster_rekey_stage),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "cluster_rekey_commit",
+        "Apply a committed cluster_rekey_activate record — activates the staged key",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::cluster_rekey_commit),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "member_propose",
+        "Leader-only member_add proposal — seals and replicates a roster delta",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::member_propose),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
+        "verify_model_download_agent",
+        "Verify model download agent, network status, and model provisioning",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::verify_model_download_agent),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "agents_list",
         "List managed external executors and setup readiness",
         MetaCategory::IntelligenceBridge,

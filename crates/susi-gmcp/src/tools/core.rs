@@ -915,6 +915,106 @@ impl CoreTools {
             &fingerprint[..16]
         ))
     }
+
+    #[tool(
+        name = "member_propose",
+        description = "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a member_add. Args: {member: \"node_id@address\"}. Refuses unless this node is the currently claimed leader; refuses subjects already banned (an evicted node cannot re-enter via delegation) or this node itself. On success the record is sealed, appended, and pushed to the roster including the subject."
+    )]
+    pub fn member_propose(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let member = arg
+            .get("member")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("missing 'member' field"))?;
+        let (id, addr) = member
+            .split_once('@')
+            .filter(|(i, a)| !i.is_empty() && !a.is_empty())
+            .ok_or_else(|| EaiError::protocol("member must be 'node_id@address'"))?;
+        // Only the claimed leader may seal configuration changes — the
+        // member_coordinator_known gate on intake refuses anything else.
+        let term = crate::susi_core::commit_log::load_term();
+        let self_id = crate::susi_config::cluster_key::wire_node_id();
+        if term.leader != self_id {
+            return Err(EaiError::authorization(format!(
+                "not the elected leader (leader: {}) — propose to the leader",
+                if term.leader.is_empty() {
+                    "none yet"
+                } else {
+                    &term.leader
+                }
+            )));
+        }
+        if id == self_id {
+            return Err(EaiError::protocol(
+                "leader cannot be proposed as a new member — self-edge",
+            ));
+        }
+        // A delegated add must not resurrect a banned member — the ban
+        // list is local state the proposer may not share.
+        let banned: Vec<serde_json::Value> = std::fs::read_to_string(
+            crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json"),
+        )
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+        if banned.iter().any(|b| {
+            b.get("node_id").and_then(|v| v.as_str()) == Some(id)
+                || b.get("address").and_then(|v| v.as_str()) == Some(addr)
+        }) {
+            return Err(EaiError::authorization(format!(
+                "{member} is banned — a delegated add cannot lift a committed eviction"
+            )));
+        }
+        // Electorate = this leader's explicit roster at seal time.
+        let roster = gawd::cluster_roster().map_err(|e| {
+            crate::susi_error::rewrap("internal", format!("cluster roster unavailable: {e}"))
+        })?;
+        let electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
+        let Some(record) = crate::susi_core::commit_log::CommitRecord::seal_member(
+            &self_id,
+            &self_id,
+            crate::susi_core::commit_log::KIND_MEMBER_ADD,
+            member,
+            electorate,
+        ) else {
+            return Err(EaiError::internal(
+                "no cluster.key — cannot seal a member record",
+            ));
+        };
+        crate::susi_core::commit_log::append(&record)?;
+        // Push to the roster plus the subject — the subject is not yet
+        // in the leader's roster, and it must learn its own committed
+        // membership promptly rather than waiting for anti-entropy.
+        let bearer = crate::susi_config::cluster_key::peer_bearer();
+        let args = serde_json::to_value(&record)
+            .map_err(|e| EaiError::internal(format!("serialize record: {e}")))?;
+        let mut pushed = 0usize;
+        for target in roster
+            .iter()
+            .map(|(_, a, _)| a.clone())
+            .chain(std::iter::once(addr.to_string()))
+        {
+            if target.starts_with("127.")
+                || target.starts_with("::1")
+                || target.starts_with("localhost")
+            {
+                continue;
+            }
+            if let Ok(result) = crate::susi_core::mcp_client::call_tool(
+                &target,
+                "commit_record",
+                &args,
+                bearer.as_deref(),
+            ) {
+                if result.get("isError").and_then(|v| v.as_bool()) != Some(true) {
+                    pushed += 1;
+                }
+            }
+        }
+        Ok(format!(
+            "member_add {member} committed (seq {}, term {}) — pushed to {pushed} peer(s)",
+            record.seq, record.term
+        ))
+    }
 }
 
 /// Anti-entropy repair for the commit ledger: resolve `coordinator`'s

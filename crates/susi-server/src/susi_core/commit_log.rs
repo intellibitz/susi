@@ -1089,22 +1089,37 @@ fn privileged_kind(record: &CommitRecord) -> bool {
 }
 
 /// A privileged record (member delta or cluster rekey) only carries
-/// authority when its sealing coordinator is a current explicit member
-/// of the roster — or this node itself (operator-initiated local
-/// commits). An evicted node still holds cluster.key, so a valid HMAC
-/// alone cannot authorize membership or key-epoch changes: without
-/// this gate a rogue evicted member could evict the whole cluster or
-/// rotate the key under itself. Intake paths (the `commit_record`
-/// tool, anti-entropy pulls, `commits sync`) must check this BEFORE
-/// append — a refused record stays missing and is retried once the
-/// coordinator is known, rather than entering the ledger applied.
+/// authority when (a) its sealing coordinator is a current explicit
+/// member of the roster — or this node itself (operator-initiated
+/// local commits) — AND (b) the coordinator sealed under its own
+/// leadership claim (`record.leader == record.coordinator`).
+///
+/// (a) alone is not enough: an evicted node still holds cluster.key,
+/// so a valid HMAC cannot authorize roster or key-epoch changes — and
+/// (b) is Raft's leader-proposed configuration-entry rule: membership
+/// and epoch changes serialize through the elected leader, so two
+/// members cannot race divergent deltas on the same subject. A stale
+/// leader's self-claim still passes this check locally, but the term
+/// gate (`check_term`) refuses its records wherever a newer term is
+/// known — the same bound Raft gives a partitioned leader.
+///
+/// Intake paths (the `commit_record` tool, anti-entropy pulls,
+/// `commits sync`) must check this BEFORE append — a refused record
+/// stays missing and is retried once the coordinator is known, rather
+/// than entering the ledger applied.
 pub fn member_coordinator_known(record: &CommitRecord) -> bool {
     member_coordinator_known_at(record, &SusiDirs::config_dir())
 }
 
 /// Test seam: coordinator-authority check against an explicit roster dir.
 pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
-    !privileged_kind(record) || coordinator_known_at(record, dir)
+    if !privileged_kind(record) {
+        return true;
+    }
+    // Leader-proposed config changes only: the sealer must have
+    // believed itself leader at seal time. Non-leader members route
+    // `member_add` through the leader's `member_propose` tool instead.
+    record.leader == record.coordinator && coordinator_known_at(record, dir)
 }
 
 /// Whether the record's coordinator holds commit authority on this
@@ -1636,6 +1651,8 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
+        // Privileged records must be sealed under the coordinator's own
+        // leadership claim — leader == coordinator.
         let rec = |coordinator: &str, kind: &str| CommitRecord {
             epoch: "e".into(),
             coordinator: coordinator.into(),
@@ -1646,7 +1663,7 @@ mod tests {
             value: "node-x@10.0.0.5:9090".into(),
             committed_at: 0,
             seq: 1,
-            leader: "l".into(),
+            leader: coordinator.into(),
             term: 0,
             prev_epoch: String::new(),
             kind: kind.into(),
@@ -1674,6 +1691,12 @@ mod tests {
             &dir
         ));
         assert!(member_coordinator_known_at(&rec("ghost", ""), &dir));
+        // Leader-proposed rule: a member record whose sealer observed a
+        // DIFFERENT leader carries no authority — it must be proposed
+        // through the leader, not self-sealed by a follower.
+        let mut follower_sealed = rec("coord-a", KIND_MEMBER_ADD);
+        follower_sealed.leader = "someone-else".into();
+        assert!(!member_coordinator_known_at(&follower_sealed, &dir));
         let _ = fs::remove_dir_all(&dir);
     }
 

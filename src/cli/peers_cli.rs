@@ -121,9 +121,36 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
             "note: this node is evicted — member records it seals carry no cluster authority"
         );
     }
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let term = commit_log::load_term();
+    let roster = load_registry();
+    // Raft's leader-proposed configuration-entry rule: only the claimed
+    // leader seals roster deltas. A standalone node (empty roster, no
+    // leader yet) leads itself — `peers add` is the bootstrap path and
+    // must not deadlock waiting for an election that needs a peer.
+    let we_lead = term.leader == self_id || (term.leader.is_empty() && roster.is_empty());
+    if !we_lead {
+        if term.leader.is_empty() {
+            eprintln!(
+                "note: no elected leader yet — the swarm elects on a ~10s cadence; retry shortly"
+            );
+            return;
+        }
+        if kind == commit_log::KIND_MEMBER_ADD {
+            propose_member_add(&term.leader, node_id, address, &roster);
+        } else {
+            eprintln!(
+                "note: this node is not the elected leader (leader: {}) — \
+                 member {} must be committed on the leader",
+                term.leader,
+                kind.strip_prefix("member_").unwrap_or(kind)
+            );
+        }
+        return;
+    }
     // The roster as this node observed it at commit time — audit context
     // for who was a member when the delta was decided.
-    let electorate: Vec<String> = load_registry()
+    let electorate: Vec<String> = roster
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -132,9 +159,12 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
                 .map(str::to_string)
         })
         .collect();
+    // Seal under our own leadership claim — the intake gate
+    // (member_coordinator_known) refuses privileged records whose
+    // coordinator observed a different leader.
     let Some(record) = commit_log::CommitRecord::seal_member(
-        &susi_config::cluster_key::wire_node_id(),
-        &commit_log::load_term().leader,
+        &self_id,
+        &self_id,
         kind,
         &format!("{node_id}@{address}"),
         electorate,
@@ -192,6 +222,53 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
     println!("membership delta committed to ledger; pushed to {pushed} peer(s)");
 }
 
+/// Follower-side `member_add` delegation: the elected leader seals
+/// config changes, so a non-leader asks it via `member_propose`. The
+/// subject was verified locally already — the proposal carries only
+/// the attested `node_id@address`, never key material.
+fn propose_member_add(leader: &str, node_id: &str, address: &str, roster: &[serde_json::Value]) {
+    let Some(leader_addr) = roster.iter().find_map(|n| {
+        (n.get("node_id").and_then(|v| v.as_str()) == Some(leader))
+            .then(|| {
+                n.get("address")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+            .flatten()
+    }) else {
+        eprintln!(
+            "note: this node is not the elected leader (leader: {leader}) and the leader \
+             is not in the local roster — membership not committed; retry on the leader"
+        );
+        return;
+    };
+    let bearer = susi_config::cluster_key::peer_bearer();
+    let args = serde_json::json!({ "member": format!("{node_id}@{address}") });
+    match susi_core::mcp_client::call_tool(&leader_addr, "member_propose", &args, bearer.as_deref())
+    {
+        Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+            println!("membership committed by leader {leader}");
+        }
+        Ok(result) => {
+            let detail = result
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .and_then(|c| c.get("text"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("refused")
+                .to_string();
+            eprintln!("note: leader {leader} refused the proposal — {detail}");
+        }
+        Err(e) => {
+            eprintln!(
+                "note: leader {leader} unreachable ({e}) — membership not committed; \
+                 retry after the swarm re-elects (~30s staleness + election)"
+            );
+        }
+    }
+}
+
 /// `susi peers rekey` — rotate cluster.key cluster-wide, two-phase.
 ///
 /// Prepare: generate → fingerprint → seal `cluster_rekey` (signed
@@ -214,6 +291,25 @@ fn rekey(force: bool) -> Result<()> {
     {
         bail!("this node is evicted — a rekey it seals carries no cluster authority");
     }
+    // Epoch changes are leader-proposed like every other config change:
+    // the intake gate refuses rekey records whose sealer observed a
+    // different leader, so a follower-sealed rotation could never
+    // commit — refuse here instead of stranding members on a key the
+    // ledger never authorized.
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let term = commit_log::load_term();
+    let roster_now = load_registry();
+    let we_lead = term.leader == self_id || (term.leader.is_empty() && roster_now.is_empty());
+    if !we_lead {
+        bail!(
+            "this node is not the elected leader (leader: {}) — run `susi peers rekey` on the leader",
+            if term.leader.is_empty() {
+                "none yet — retry after the swarm elects"
+            } else {
+                &term.leader
+            }
+        );
+    }
     let Some(new_key) = susi_config::cluster_key::generate_key() else {
         bail!("could not generate a new cluster key (getrandom failed)");
     };
@@ -227,12 +323,11 @@ fn rekey(force: bool) -> Result<()> {
                 .map(str::to_string)
         })
         .collect();
-    let Some(record) = commit_log::CommitRecord::seal_rekey(
-        &susi_config::cluster_key::wire_node_id(),
-        &commit_log::load_term().leader,
-        &fingerprint,
-        electorate.clone(),
-    ) else {
+    // Seal under our own leadership claim — the intake gate refuses
+    // privileged records whose coordinator observed a different leader.
+    let Some(record) =
+        commit_log::CommitRecord::seal_rekey(&self_id, &self_id, &fingerprint, electorate.clone())
+    else {
         bail!("no cluster.key — cannot seal a rekey record");
     };
     // Stage locally, then commit the prepare-phase record to our own
@@ -306,12 +401,9 @@ fn rekey(force: bool) -> Result<()> {
     // apply. Push it to members FIRST, then append locally: after our
     // own activation the derived bearer changes and pushes to
     // still-old members would stop authenticating.
-    let Some(activate) = commit_log::CommitRecord::seal_rekey_activate(
-        &susi_config::cluster_key::wire_node_id(),
-        &commit_log::load_term().leader,
-        &fingerprint,
-        electorate,
-    ) else {
+    let Some(activate) =
+        commit_log::CommitRecord::seal_rekey_activate(&self_id, &self_id, &fingerprint, electorate)
+    else {
         bail!("could not seal the activate record");
     };
     let activate_args = serde_json::json!({ "record": &activate });
@@ -450,6 +542,29 @@ fn list(json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Config changes serialize through the elected leader (Raft's
+/// leader-proposed config-entry rule). A node with a known leader that
+/// isn't itself must not mutate `peers.json`/`peers_banned.json`
+/// locally — the ledger would never carry the delta and this node's
+/// roster would silently diverge. Standalone nodes lead themselves.
+fn require_leadership(action: &str) -> Result<()> {
+    use susi_core::commit_log;
+    let self_id = susi_config::cluster_key::wire_node_id();
+    let term = commit_log::load_term();
+    let we_lead = term.leader == self_id || (term.leader.is_empty() && load_registry().is_empty());
+    if !we_lead {
+        bail!(
+            "{action} is committed by the elected leader (currently {}) — run it there",
+            if term.leader.is_empty() {
+                "none yet — retry after the swarm elects"
+            } else {
+                &term.leader
+            }
+        );
+    }
+    Ok(())
+}
+
 fn remove(peer: &str) -> Result<()> {
     // Held from the initial read through both writes — the lock drops
     // before commit_membership pushes (its receiver-side apply takes
@@ -488,6 +603,7 @@ fn remove(peer: &str) -> Result<()> {
             names.join(", ")
         );
     }
+    require_leadership("member_remove")?;
     let evicted: Vec<serde_json::Value> = vec![matches[0].clone()];
     let kept: Vec<_> = nodes
         .iter()
@@ -760,6 +876,7 @@ fn unban(peer: &str) -> Result<()> {
             names.join(", ")
         );
     }
+    require_leadership("member_unban")?;
     let lifted: Vec<serde_json::Value> = vec![matches[0].clone()];
     let kept: Vec<_> = banned
         .iter()
