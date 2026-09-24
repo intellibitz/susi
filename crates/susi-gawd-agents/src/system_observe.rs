@@ -85,6 +85,17 @@ pub fn capture_verified_read(
     workspace: &Path,
 ) -> Option<crate::susi_error::EaiResult<VerifiedSystemRead>> {
     let normalized = goal.trim().to_ascii_lowercase();
+    // Status is not a shell read — it is a deterministic projection of the
+    // live hardware profile. Minting it as a verified read gives `susi
+    // status` the same answer-equality contract exec reads have, instead
+    // of falling through to a cross-examine that can never pass without
+    // receipts (and then burning a full cloud failover for nothing).
+    if matches!(
+        normalized.as_str(),
+        "status" | "susi status" | "system status" | "substrate status"
+    ) {
+        return Some(capture_status_read(&normalized, workspace));
+    }
     let command = match normalized.as_str() {
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
@@ -114,6 +125,34 @@ pub fn capture_verified_read(
             answer: format!("Command `{command}` (host execution, exit 0; observed at Unix {observed_at}):\n{output}"),
         })
     })())
+}
+
+/// Deterministic status projection: the same `HardwareProfiler` bus read a
+/// plain "status" branch would format, captured as a verified read so the
+/// answer is provably the live measurement, not model narration.
+fn capture_status_read(
+    normalized_goal: &str,
+    workspace: &Path,
+) -> crate::susi_error::EaiResult<VerifiedSystemRead> {
+    let workspace = workspace
+        .canonicalize()
+        .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
+    let captured_at = std::time::Instant::now();
+    let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+    let observed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?
+        .as_secs();
+    Ok(VerifiedSystemRead {
+        goal: normalized_goal.to_string(),
+        workspace,
+        captured_at,
+        answer: format!(
+            "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB \
+             (live hardware profile, observed at Unix {observed_at})",
+            hw.cpu_brand, hw.ram_gb
+        ),
+    })
 }
 
 fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
@@ -291,5 +330,19 @@ mod tests {
         read.captured_at = std::time::Instant::now() - std::time::Duration::from_secs(61);
         assert!(read.verify("hostname", read.answer(), &workspace).is_err());
         assert!(capture_verified_read("hostname and delete files", &workspace).is_none());
+    }
+
+    #[test]
+    fn status_read_verifies_its_own_answer_only() {
+        let workspace = std::env::current_dir().unwrap();
+        let Some(Ok(read)) = capture_verified_read("status", &workspace) else {
+            panic!("status read must mint a receipt");
+        };
+        assert!(read.answer().contains("SUSI Substrate Status"));
+        assert!(read.verify("status", read.answer(), &workspace).is_ok());
+        assert!(read
+            .verify("status", "invented status", &workspace)
+            .is_err());
+        assert!(capture_verified_read("check the status", &workspace).is_none());
     }
 }
