@@ -824,6 +824,37 @@ impl CoreTools {
                     Ok(n) => (h, n),
                     Err(_) => (hostport, A2A_PORT),
                 });
+        // Operator-configured external A2A agents form a second, explicit
+        // allowlist: `external_peer_agents` entries with protocol "a2a" are
+        // reachable by name (resolving to their api_base) or by a target
+        // URL matching a configured api_base's host[:port]. Runs before the
+        // IpAddr parse because configured peers may use DNS names.
+        if let Ok(cfg) = crate::susi_config::SusiConfig::load_global() {
+            for spec in cfg.external_peer_agents() {
+                if spec.protocol != "a2a" || spec.api_base.is_empty() {
+                    continue;
+                }
+                if spec.name == p {
+                    return Ok(spec.api_base.trim_end_matches('/').to_string());
+                }
+                let base = spec.api_base.trim_end_matches('/');
+                let base_host = base
+                    .strip_prefix("http://")
+                    .or_else(|| base.strip_prefix("https://"))
+                    .unwrap_or(base)
+                    .split('/')
+                    .next()
+                    .unwrap_or("");
+                let (bh, bp) = base_host
+                    .rsplit_once(':')
+                    .map_or((base_host, A2A_PORT), |(h, ps)| {
+                        ps.parse::<u16>().map_or((base_host, A2A_PORT), |n| (h, n))
+                    });
+                if host == bh && port == bp {
+                    return Ok(base.to_string());
+                }
+            }
+        }
         let ip: IpAddr = host
             .parse()
             .map_err(|_| EaiError::protocol(format!("a2a_delegate: bad peer address '{p}'")))?;
@@ -844,7 +875,7 @@ impl CoreTools {
         });
         if !member {
             return Err(EaiError::authorization(format!(
-                "a2a_delegate: '{p}' is not a verified cluster member — delegation is roster-gated (SSRF guard)"
+                "a2a_delegate: '{p}' is not a verified cluster member or configured a2a external_peer_agent — delegation is allowlist-gated (SSRF guard)"
             )));
         }
         // A node_id lookup still resolves to the member's registered IP.
