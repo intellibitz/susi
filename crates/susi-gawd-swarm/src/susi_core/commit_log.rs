@@ -85,6 +85,14 @@ pub struct CommitRecord {
     /// new writes, not the log's past). `0` marks pre-term records.
     #[serde(default)]
     pub term: u64,
+    /// Raft's prevLogIndex/prevLogTerm analog: the `epoch` of this
+    /// coordinator's immediately preceding record (its chain head when
+    /// this record was sealed), covered by the signature. A receiver
+    /// holding the predecessor whose epoch differs sees proof the
+    /// coordinator's log diverged — a fork, not a gap. Empty on genesis
+    /// records and pre-linkage history.
+    #[serde(default)]
+    pub prev_epoch: String,
     /// HMAC-SHA256 hex over `signed_payload()` under `cluster.key`.
     /// Empty until `seal` runs; a record with an empty signature never
     /// verifies.
@@ -127,6 +135,11 @@ struct SignedFields<'a> {
     seq: u64,
     leader: &'a str,
     term: u64,
+    /// Omitted when empty so records sealed before the linkage field
+    /// existed still verify against their original signature payload —
+    /// wire compatibility is signature compatibility here.
+    #[serde(skip_serializing_if = "str::is_empty")]
+    prev_epoch: &'a str,
 }
 
 impl CommitRecord {
@@ -147,6 +160,7 @@ impl CommitRecord {
             format!("{}|{}", sorted.join(","), committed_at).as_bytes(),
         ));
         let value_hash = hex::encode(Sha256::digest(input.value.as_bytes()));
+        let held = load();
         let mut rec = CommitRecord {
             epoch,
             coordinator: input.coordinator.to_string(),
@@ -156,9 +170,13 @@ impl CommitRecord {
             value_hash,
             value: input.value.to_string(),
             committed_at,
-            seq: next_seq_for(&load(), input.coordinator),
+            seq: next_seq_for(&held, input.coordinator),
             leader: input.leader.to_string(),
             term: load_term().term,
+            // Chain link: the epoch of this coordinator's current head
+            // (highest seq) — "" on its first record. Receivers holding
+            // a different head at seq-1 see fork evidence, not a gap.
+            prev_epoch: chain_head_epoch(&held, input.coordinator).unwrap_or_default(),
             signature: String::new(),
         };
         rec.signature =
@@ -186,6 +204,7 @@ impl CommitRecord {
             seq: self.seq,
             leader: &self.leader,
             term: self.term,
+            prev_epoch: &self.prev_epoch,
         })
         .unwrap_or_default()
     }
@@ -228,14 +247,30 @@ impl CommitRecord {
 #[doc(hidden)]
 pub static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Next sequence number for `coordinator` in `records` — the count of
-/// that coordinator's existing entries plus one.
+/// Next sequence number for `coordinator` in `records` — one past that
+/// coordinator's highest seq. Max-based, not count-based: a ledger
+/// holding {1,3} (a gap a peer later repairs) must seal seq 4, never
+/// re-claim seq 3 — re-using a held slot is equivocation against the
+/// coordinator's own history.
 pub fn next_seq_for(records: &[CommitRecord], coordinator: &str) -> u64 {
     records
         .iter()
         .filter(|r| r.coordinator == coordinator)
-        .count() as u64
+        .map(|r| r.seq)
+        .max()
+        .unwrap_or(0)
         + 1
+}
+
+/// The epoch of `coordinator`'s current chain head — its highest-seq
+/// record — or `None` when it has no records. New records seal this into
+/// `prev_epoch`, giving receivers the Raft-style predecessor check.
+fn chain_head_epoch(records: &[CommitRecord], coordinator: &str) -> Option<String> {
+    records
+        .iter()
+        .filter(|r| r.coordinator == coordinator)
+        .max_by_key(|r| r.seq)
+        .map(|r| r.epoch.clone())
 }
 
 /// Sequence numbers from `coordinator` that a holder of `records` is
@@ -555,6 +590,17 @@ pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
                     w[1].seq, w[1].term, w[0].seq, w[0].term
                 ));
             }
+            // Chain audit: a linked record must name its actual
+            // predecessor's epoch — a mismatch is fork evidence that
+            // survived append (gap filled with a divergent record).
+            if !w[1].prev_epoch.is_empty() && w[1].prev_epoch != w[0].epoch {
+                state.anomalies.push(format!(
+                    "chain-break: {coord} seq {} links to {} but predecessor is {}",
+                    w[1].seq,
+                    &w[1].prev_epoch[..12.min(w[1].prev_epoch.len())],
+                    &w[0].epoch[..12.min(w[0].epoch.len())]
+                ));
+            }
         }
         if let Some(high) = recs.iter().map(|r| r.seq).max() {
             let held: std::collections::BTreeSet<u64> = recs.iter().map(|r| r.seq).collect();
@@ -638,6 +684,30 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
         }
     } else if held.iter().any(|r| r == record) {
         return Ok(());
+    }
+    // Chain check (Raft's prevLogIndex/prevLogTerm consistency): when the
+    // record declares a predecessor link and we hold that predecessor
+    // slot, the epochs must agree — a mismatch is proof the
+    // coordinator's log diverged from ours (a fork), which is refused,
+    // not silently interleaved. When the predecessor slot is empty the
+    // link can't be evaluated yet — the record appends and gap repair
+    // fills history; replay() flags any residual chain-break.
+    if !record.prev_epoch.is_empty() && record.seq > 1 {
+        if let Some(pred) = held
+            .iter()
+            .find(|r| r.coordinator == record.coordinator && r.seq == record.seq - 1)
+        {
+            if pred.epoch != record.prev_epoch {
+                return Err(EaiError::protocol(format!(
+                    "chain divergence: {} seq {} links to epoch {} but held seq {} is {}",
+                    record.coordinator,
+                    record.seq,
+                    &record.prev_epoch[..12.min(record.prev_epoch.len())],
+                    record.seq - 1,
+                    &pred.epoch[..12.min(pred.epoch.len())]
+                )));
+            }
+        }
     }
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)
@@ -783,6 +853,7 @@ mod tests {
             seq: 0,
             leader: String::new(),
             term: 0,
+            prev_epoch: String::new(),
             signature: String::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
@@ -878,6 +949,112 @@ mod tests {
         let held = load_from(&path);
         assert_eq!(held.len(), 1);
         assert_eq!(held[0].value, "v1");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn chain_link_seals_previous_head_and_signature_covers_it() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_chain_{}", std::process::id()));
+        let path = dir.join("commit_log.jsonl");
+        let _ = fs::remove_dir_all(&dir);
+
+        let Some(mut r1) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v1",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        // Genesis: no predecessor → empty link.
+        r1.seq = 1;
+        r1.prev_epoch.clear();
+        resign(&mut r1);
+        append_to(&path, &r1).unwrap();
+
+        // An honest successor links its predecessor's epoch.
+        let mut r2 = r1.clone();
+        r2.epoch = "epoch-two".into();
+        r2.seq = 2;
+        r2.value = "v2".into();
+        r2.value_hash = hex::encode(Sha256::digest(b"v2"));
+        r2.prev_epoch = r1.epoch.clone();
+        resign(&mut r2);
+        append_to(&path, &r2).unwrap();
+
+        // Derivation: chain_head_epoch tracks the coordinator's tail.
+        let held = load_from(&path);
+        assert_eq!(
+            chain_head_epoch(&held, "node-a").as_deref(),
+            Some("epoch-two")
+        );
+        assert_eq!(chain_head_epoch(&held, "node-b"), None);
+
+        // The link is signed — mutating it breaks verification.
+        let mut forged = r2.clone();
+        forged.prev_epoch = "deadbeef".into();
+        assert!(!forged.verify(), "tampered prev_epoch must fail");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn divergent_predecessor_is_refused_and_replay_flags_chain_break() {
+        let _g = test_key_guard();
+        let dir = std::env::temp_dir().join(format!("susi_fork_{}", std::process::id()));
+        let path = dir.join("commit_log.jsonl");
+        let _ = fs::remove_dir_all(&dir);
+
+        let Some(mut pred) = CommitRecord::seal(CommitInput {
+            coordinator: "node-a",
+            leader: "node-a",
+            electorate: vec!["A".into(), "B".into()],
+            tally: 2,
+            quorum_threshold: 2,
+            value: "v1",
+        }) else {
+            eprintln!("skip: no cluster.key on this host");
+            return;
+        };
+        pred.seq = 1;
+        pred.prev_epoch.clear();
+        resign(&mut pred);
+        append_to(&path, &pred).unwrap();
+
+        // A successor claiming a different predecessor epoch is fork
+        // evidence — refused at the boundary.
+        let mut fork = pred.clone();
+        fork.epoch = "epoch-fork".into();
+        fork.seq = 2;
+        fork.prev_epoch = "not-the-held-epoch".into();
+        resign(&mut fork);
+        let err = append_to(&path, &fork).unwrap_err();
+        assert!(err.to_string().contains("chain divergence"), "{err}");
+
+        // Out-of-order delivery: seq 2 lands before its predecessor —
+        // the link can't be evaluated yet so it appends, but once the
+        // divergent predecessor fills in, replay must flag the break.
+        let mut ahead = pred.clone();
+        ahead.epoch = "epoch-two".into();
+        ahead.seq = 3;
+        ahead.prev_epoch = "phantom-epoch".into();
+        resign(&mut ahead);
+        append_to(&path, &ahead).unwrap(); // seq 2 slot still empty
+        let mut gap = pred.clone();
+        gap.epoch = "epoch-real-two".into();
+        gap.seq = 2;
+        gap.prev_epoch = pred.epoch.clone();
+        resign(&mut gap);
+        append_to(&path, &gap).unwrap();
+        let state = replay_records(&load_from(&path));
+        assert!(
+            state.anomalies.iter().any(|a| a.contains("chain-break")),
+            "replay must flag the divergent link: {:?}",
+            state.anomalies
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
