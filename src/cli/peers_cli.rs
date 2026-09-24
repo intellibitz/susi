@@ -67,6 +67,16 @@ pub enum PeersCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Cluster-wide consensus view: call `cluster_status` on every
+    /// rostered member (member-signed requests) and print each node's
+    /// term, leader view, ledger size, and key epoch side by side —
+    /// divergence shows up directly as differing terms, epochs, or
+    /// record counts.
+    Status {
+        /// Emit machine-readable JSON instead of the table view
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
@@ -77,6 +87,7 @@ pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
         PeersCommands::Remove { peer } => remove(&peer),
         PeersCommands::Unban { peer } => unban(&peer),
         PeersCommands::Rekey { force } => rekey(force),
+        PeersCommands::Status { json } => status(json),
     }
 }
 
@@ -270,6 +281,155 @@ fn endorse_targets(roster: &[serde_json::Value], self_id: &str) -> Vec<(String, 
             .then(|| (nid.to_string(), addr.to_string()))
         })
         .collect()
+}
+
+/// The local node's own consensus snapshot — same fields the
+/// `cluster_status` tool returns, computed without a round trip.
+fn local_cluster_status() -> serde_json::Value {
+    let term = commit_log::load_term();
+    let records = commit_log::load();
+    let roster = load_registry();
+    let bound = roster
+        .iter()
+        .filter(|p| {
+            !p.get("pubkey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .is_empty()
+        })
+        .count();
+    let key_epoch = susi_config::cluster_key::cluster_key()
+        .map(|k| susi_config::cluster_key::key_fingerprint(&k))
+        .unwrap_or_default();
+    serde_json::json!({
+        "node": susi_config::cluster_key::wire_node_id(),
+        "term": term.term,
+        "leader": term.leader,
+        "records": records.len(),
+        "key_epoch": &key_epoch[..key_epoch.len().min(12)],
+        "roster": roster.len(),
+        "bound": bound,
+        "pubkey": susi_config::cluster_key::node_pubkey_hex()
+            .map(|p| p[..p.len().min(12)].to_string())
+            .unwrap_or_default(),
+        "self": true,
+    })
+}
+
+/// `peers status` — query every rostered member's `cluster_status` and
+/// print the consensus picture side by side. Member calls ride the
+/// signed-request channel, so bound members answer on key possession
+/// alone; unreachable members show as offline rather than blocking.
+fn status(json_out: bool) -> Result<()> {
+    let roster = load_registry();
+    let targets: Vec<(String, String)> = roster
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            let nid = n.get("node_id").and_then(|v| v.as_str())?.to_string();
+            let addr = n.get("address").and_then(|v| v.as_str())?.to_string();
+            Some((nid, addr))
+        })
+        .collect();
+    let bearer = susi_config::cluster_key::peer_bearer();
+    let results = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for (nid, addr) in &targets {
+            if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost")
+            {
+                continue;
+            }
+            let bearer = bearer.clone();
+            let results = &results;
+            s.spawn(move || {
+                let row = match susi_core::mcp_client::call_tool(
+                    addr,
+                    "cluster_status",
+                    &serde_json::json!({}),
+                    bearer.as_deref(),
+                ) {
+                    Ok(result) => result
+                        .pointer("/content/0/text")
+                        .and_then(|v| v.as_str())
+                        .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+                        .unwrap_or_else(
+                            || serde_json::json!({"node": nid, "error": "unparseable status"}),
+                        ),
+                    Err(e) => serde_json::json!({"node": nid, "error": e}),
+                };
+                results.lock().unwrap_or_else(|e| e.into_inner()).push(row);
+            });
+        }
+    });
+    let mut rows = results.into_inner().unwrap_or_else(|e| e.into_inner());
+    rows.push(local_cluster_status());
+    rows.sort_by_key(|r| {
+        r.get("node")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    });
+    if json_out {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&rows).unwrap_or_default()
+        );
+        return Ok(());
+    }
+    println!(
+        "{:<28} {:>5} {:<28} {:>7} {:>6} {:>6} {:<14} STATE",
+        "NODE", "TERM", "LEADER", "RECORDS", "ROSTER", "BOUND", "KEY EPOCH"
+    );
+    for r in &rows {
+        let node = r.get("node").and_then(|v| v.as_str()).unwrap_or("?");
+        if let Some(err) = r.get("error").and_then(|v| v.as_str()) {
+            println!(
+                "{node:<28} {:>5} {:<28} {:>7} {:>6} {:>6} {:<14} offline ({err})",
+                "-", "-", "-", "-", "-", "-"
+            );
+            continue;
+        }
+        let term = r.get("term").and_then(|v| v.as_u64()).unwrap_or(0);
+        let leader = r.get("leader").and_then(|v| v.as_str()).unwrap_or("");
+        let leader_disp = if leader.is_empty() { "(none)" } else { leader };
+        let records = r.get("records").and_then(|v| v.as_u64()).unwrap_or(0);
+        let roster_n = r.get("roster").and_then(|v| v.as_u64()).unwrap_or(0);
+        let bound = r.get("bound").and_then(|v| v.as_u64()).unwrap_or(0);
+        let epoch = r.get("key_epoch").and_then(|v| v.as_str()).unwrap_or("-");
+        let state = if r.get("self").and_then(|v| v.as_bool()) == Some(true) {
+            "this node"
+        } else {
+            "member"
+        };
+        println!(
+            "{node:<28} {term:>5} {leader_disp:<28} {records:>7} {roster_n:>6} {bound:>6} {epoch:<14} {state}"
+        );
+    }
+    // Divergence surface: differing terms or key epochs across members
+    // is the operator-visible symptom of a partitioned or stale cluster.
+    let terms: std::collections::BTreeSet<u64> = rows
+        .iter()
+        .filter(|r| r.get("error").is_none())
+        .filter_map(|r| r.get("term").and_then(|v| v.as_u64()))
+        .collect();
+    let epochs: std::collections::BTreeSet<String> = rows
+        .iter()
+        .filter(|r| r.get("error").is_none())
+        .filter_map(|r| {
+            r.get("key_epoch")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    if terms.len() > 1 {
+        eprintln!(
+            "warning: members report different terms ({terms:?}) — leadership may be partitioned"
+        );
+    }
+    if epochs.len() > 1 {
+        eprintln!("warning: members report different key epochs ({epochs:?}) — a rekey is mid-flight or some members are stranded");
+    }
+    Ok(())
 }
 
 /// Follower-side `member_add` delegation: the elected leader seals

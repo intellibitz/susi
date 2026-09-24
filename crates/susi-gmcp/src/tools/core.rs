@@ -1127,6 +1127,66 @@ impl CoreTools {
             .ok_or_else(|| EaiError::internal("no node.key — cannot sign an endorsement"))?;
         Ok(serde_json::json!({"node": node, "sig": sig}).to_string())
     }
+
+    #[tool(
+        name = "cluster_status",
+        description = "Read-only consensus snapshot for cluster-wide status checks: {node, term, leader, records, heads, key_epoch, roster, banned, bound, pubkey}. `heads` maps each coordinator's node_id to its highest ledger seq + epoch prefix — comparing heads across members exposes ledger divergence directly. No args."
+    )]
+    pub fn cluster_status(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        use crate::susi_core::commit_log;
+        let term = commit_log::load_term();
+        let records = commit_log::load();
+        let mut heads: std::collections::BTreeMap<String, serde_json::Value> =
+            std::collections::BTreeMap::new();
+        for r in &records {
+            let entry = heads
+                .entry(r.coordinator.clone())
+                .or_insert_with(|| serde_json::json!({"seq": 0u64, "epoch": ""}));
+            if r.seq > entry.get("seq").and_then(|v| v.as_u64()).unwrap_or(0) {
+                entry["seq"] = serde_json::json!(r.seq);
+                entry["epoch"] = serde_json::json!(&r.epoch[..r.epoch.len().min(12)]);
+            }
+        }
+        let roster = gawd::cluster_roster().unwrap_or_default();
+        let banned: usize = std::fs::read_to_string(
+            crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json"),
+        )
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+        .map_or(0, |v| v.len());
+        let bound =
+            std::fs::read_to_string(crate::susi_paths::SusiDirs::config_dir().join("peers.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+                .map_or(0, |v| {
+                    v.iter()
+                        .filter(|p| {
+                            !p.get("pubkey")
+                                .and_then(|x| x.as_str())
+                                .unwrap_or("")
+                                .is_empty()
+                        })
+                        .count()
+                });
+        let key_epoch = crate::susi_config::cluster_key::cluster_key()
+            .map(|k| crate::susi_config::cluster_key::key_fingerprint(&k))
+            .unwrap_or_default();
+        Ok(serde_json::json!({
+            "node": crate::susi_config::cluster_key::wire_node_id(),
+            "term": term.term,
+            "leader": term.leader,
+            "records": records.len(),
+            "heads": heads,
+            "key_epoch": &key_epoch[..key_epoch.len().min(12)],
+            "roster": roster.len(),
+            "banned": banned,
+            "bound": bound,
+            "pubkey": crate::susi_config::cluster_key::node_pubkey_hex()
+                .map(|p| p[..p.len().min(12)].to_string())
+                .unwrap_or_default(),
+        })
+        .to_string())
+    }
 }
 
 /// Anti-entropy repair for the commit ledger: resolve `coordinator`'s

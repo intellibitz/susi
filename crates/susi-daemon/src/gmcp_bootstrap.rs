@@ -212,6 +212,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "cluster_status",
+        "Read-only consensus snapshot — term, leader, ledger heads, key epoch, roster counts",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::cluster_status),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "verify_model_download_agent",
         "Verify model download agent, network status, and model provisioning",
         MetaCategory::SystemPrimitive,
