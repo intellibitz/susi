@@ -82,25 +82,13 @@ fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
 }
 
 #[allow(clippy::result_large_err)]
-async fn read_json_body(req: Request<Incoming>) -> Result<serde_json::Value, Response<BoxBody>> {
-    use http_body_util::BodyExt;
-    let limited_body = http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024);
-    match limited_body.collect().await {
-        Ok(body) => match serde_json::from_slice(&body.to_bytes()) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(api_error(
-                StatusCode::BAD_REQUEST,
-                &format!("JSON error: {e}"),
-            )),
-        },
-        Err(error) => {
-            let status = if error.is::<http_body_util::LengthLimitError>() {
-                StatusCode::PAYLOAD_TOO_LARGE
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            Err(api_error(status, "Unable to read request body"))
-        }
+fn read_json_body(body_bytes: &hyper::body::Bytes) -> Result<serde_json::Value, Response<BoxBody>> {
+    match serde_json::from_slice(body_bytes) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(api_error(
+            StatusCode::BAD_REQUEST,
+            &format!("JSON error: {e}"),
+        )),
     }
 }
 
@@ -220,6 +208,36 @@ async fn handle_gemi_request(
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    // Extract the auth material before consuming the body — the signed
+    // request fields borrow the request headers.
+    let authorization = req
+        .headers()
+        .get(hyper::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let sign_node = header_str(&req, "x-susi-node").map(str::to_string);
+    let sign_ts = header_str(&req, "x-susi-req-ts").and_then(|s| s.parse().ok());
+    let sign_nonce = header_str(&req, "x-susi-req-nonce").map(str::to_string);
+    let sign_sig = header_str(&req, "x-susi-req-sig").map(str::to_string);
+    // H9: Buffer the request body once (10MB cap) so member v2
+    // signatures verify against the exact bytes the route handlers
+    // parse — an on-path body substitution breaks the signature
+    // instead of passing a method+path-only check.
+    use http_body_util::BodyExt;
+    let body_bytes = match http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024)
+        .collect()
+        .await
+    {
+        Ok(body) => body.to_bytes(),
+        Err(error) => {
+            let status = if error.is::<http_body_util::LengthLimitError>() {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            return Ok(api_error(status, "Unable to read request body"));
+        }
+    };
 
     // CORS preflight never carries an Authorization header, and /health is a
     // conventional unauthenticated liveness probe — everything else on this
@@ -227,25 +245,18 @@ async fn handle_gemi_request(
     if method != Method::OPTIONS && path != "/health" {
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
         let signed = susi_core::net_guard::SignedRequest {
-            node: header_str(&req, "x-susi-node"),
-            ts_secs: header_str(&req, "x-susi-req-ts").and_then(|s| s.parse().ok()),
-            nonce: header_str(&req, "x-susi-req-nonce"),
-            sig: header_str(&req, "x-susi-req-sig"),
+            node: sign_node.as_deref(),
+            ts_secs: sign_ts,
+            nonce: sign_nonce.as_deref(),
+            sig: sign_sig.as_deref(),
         };
         if !susi_core::net_guard::NetGuard::is_authorized(
-            req.headers()
-                .get(hyper::header::AUTHORIZATION)
-                .and_then(|v| v.to_str().ok()),
+            authorization.as_deref(),
             peer_ip,
             &signed,
             method.as_str(),
             &path,
-            // The REST surface doesn't buffer bodies at auth time —
-            // v1 (method+path) signatures still verify; v2 body-bound
-            // member requests fall through to the bearer rules. Member
-            // traffic doesn't target this surface (peer calls go to
-            // the GMCP port), so the asymmetry is safe to keep.
-            None,
+            Some(&body_bytes),
         ) {
             return Ok(json_response(
                 StatusCode::UNAUTHORIZED,
@@ -353,20 +364,8 @@ async fn handle_gemi_request(
                 || p == "/v1"
                 || p == "/v1/" =>
         {
-            // H9: Limit request body to 10MB to prevent OOM DOS
-            use http_body_util::BodyExt;
-            let limited_body = http_body_util::Limited::new(req.into_body(), 10 * 1024 * 1024);
-            let body_bytes = match limited_body.collect().await {
-                Ok(body) => body.to_bytes(),
-                Err(error) => {
-                    let status = if error.is::<http_body_util::LengthLimitError>() {
-                        StatusCode::PAYLOAD_TOO_LARGE
-                    } else {
-                        StatusCode::BAD_REQUEST
-                    };
-                    return Ok(api_error(status, "Unable to read request body"));
-                }
-            };
+            // The body was already buffered (bounded) for signature
+            // verification — the handler sees the same bytes that signed.
             let completion = match parse_completion(&body_bytes, path == "/v1/completions") {
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
@@ -510,7 +509,7 @@ async fn handle_gemi_request(
         }
         (&Method::POST, "/context-graph/query") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     let graph = ContextGraph::global();
                     let _ = graph.replay();
@@ -535,7 +534,7 @@ async fn handle_gemi_request(
         }
         (&Method::POST, "/context-graph/ingest") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     let graph = ContextGraph::global();
                     let _ = graph.replay();
@@ -590,7 +589,7 @@ async fn handle_gemi_request(
         }
         (&Method::POST, "/broker/grant") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     use susi_core::broker::{IpcBroker, PermissionScope};
                     let grantor = body["grantor"].as_str().unwrap_or("susi");
@@ -620,7 +619,7 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, "/broker/request") => {
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     use susi_core::broker::{IpcBroker, PermissionScope};
                     let Some(requester) = body["requester"].as_str() else {
@@ -650,7 +649,7 @@ async fn handle_gemi_request(
         }
         (&Method::POST, "/broker/negotiate") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     use susi_core::broker::IpcBroker;
                     let Some(request_id) = body["request_id"].as_str() else {
@@ -671,7 +670,7 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, "/broker/send") => {
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     use susi_core::broker::IpcBroker;
                     let Some(from) = body["from"].as_str() else {
@@ -698,7 +697,7 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, "/broker/receive") => {
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     use susi_core::broker::IpcBroker;
                     let Some(recipient) = body["recipient"].as_str() else {
@@ -716,7 +715,7 @@ async fn handle_gemi_request(
         }
         (&Method::POST, "/patch/apply") => {
             let ws = (*workspace).clone();
-            let payload = match read_json_body(req).await {
+            let payload = match read_json_body(&body_bytes) {
                 Ok(body) => tokio::task::spawn_blocking(move || {
                     let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                         .unwrap_or_default();
