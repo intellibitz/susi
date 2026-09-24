@@ -314,6 +314,34 @@ pub mod redact {
 /// preserving its kind/code so the metrics stream stays truthful.
 #[must_use]
 pub fn rewrap(kind_name: &str, msg: String) -> EaiError {
+    // Each boundary re-wraps `e.to_string()`, which already carries the
+    // kind's Display prefix — peel it (and nested repeats) so errors don't
+    // render "Authorization Error: Authorization Error: …". Foreign-kind
+    // prefixes are kept: they record where the error originated.
+    let prefix = match kind_name {
+        "Governance" => "Governance Violation: ",
+        "Hardware" => "Hardware Error: ",
+        "Protocol" => "Protocol Error: ",
+        "Inference" => "Inference Error: ",
+        "Sandbox" => "Sandbox Error: ",
+        "Config" => "Configuration Error: ",
+        "Io" => "I/O Error: ",
+        "Network" => "Network Error: ",
+        "Filesystem" => "Filesystem Error: ",
+        "Process" => "Process Error: ",
+        "Authentication" => "Authentication Error: ",
+        "Authorization" => "Authorization Error: ",
+        "Internal" => "Internal Engine Error: ",
+        _ => "",
+    };
+    let mut msg = msg;
+    while !prefix.is_empty() {
+        if let Some(rest) = msg.strip_prefix(prefix) {
+            msg = rest.to_string();
+        } else {
+            break;
+        }
+    }
     match kind_name {
         "Governance" => EaiError::governance(msg),
         "Hardware" => EaiError::hardware(msg),
