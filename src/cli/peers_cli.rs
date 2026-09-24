@@ -203,22 +203,27 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
     {
         targets.push(address.to_string());
     }
-    let mut pushed = 0usize;
-    for addr in targets {
-        // Same self-edge rule as `commits sync` — a loopback explicit
-        // row is this node, and an MCP call to ourselves recurses.
-        if addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost") {
-            continue;
-        }
-        match susi_core::mcp_client::call_tool(&addr, "commit_record", &args, bearer.as_deref()) {
-            // A tool-level isError is a protocol refusal (stale term,
-            // equivocation) — the gate working, not a push success.
-            Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
-                pushed += 1;
+    // Parallel pushes: each call carries a ~10s connect timeout, so a
+    // serial loop over a roster with dead members stalls N×10s. The
+    // swarm's broadcast paths parallelize for the same reason.
+    use rayon::prelude::*;
+    let pushed = targets
+        .par_iter()
+        .filter(|addr| {
+            // Same self-edge rule as `commits sync` — a loopback explicit
+            // row is this node, and an MCP call to ourselves recurses.
+            !(addr.starts_with("127.") || addr.starts_with("::1") || addr.starts_with("localhost"))
+        })
+        .filter(|addr| {
+            match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer.as_deref())
+            {
+                // A tool-level isError is a protocol refusal (stale term,
+                // equivocation) — the gate working, not a push success.
+                Ok(result) => result.get("isError").and_then(|v| v.as_bool()) != Some(true),
+                Err(_) => false,
             }
-            _ => {}
-        }
-    }
+        })
+        .count();
     println!("membership delta committed to ledger; pushed to {pushed} peer(s)");
 }
 
@@ -355,32 +360,39 @@ fn rekey(force: bool) -> Result<()> {
         })
         .filter(|a| !(a.starts_with("127.") || a.starts_with("::1") || a.starts_with("localhost")))
         .collect();
-    let mut acked = 0usize;
-    let mut failed: Vec<String> = Vec::new();
-    for addr in &targets {
-        match susi_core::mcp_client::call_tool(
-            addr,
-            "cluster_rekey_stage",
-            &stage_args,
-            bearer.as_deref(),
-        ) {
-            Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
-                acked += 1;
+    // Parallel staging: each call carries a ~10s connect timeout —
+    // serial staging over dead members stalls N×10s inside a
+    // timing-sensitive rotation.
+    use rayon::prelude::*;
+    let outcomes: Vec<Result<(), String>> = targets
+        .par_iter()
+        .map(|addr| {
+            match susi_core::mcp_client::call_tool(
+                addr,
+                "cluster_rekey_stage",
+                &stage_args,
+                bearer.as_deref(),
+            ) {
+                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
+                    Ok(())
+                }
+                Ok(result) => {
+                    let detail = result
+                        .get("content")
+                        .and_then(|c| c.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|c| c.get("text"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("refused")
+                        .to_string();
+                    Err(format!("{addr}: {detail}"))
+                }
+                Err(e) => Err(format!("{addr}: {e}")),
             }
-            Ok(result) => {
-                let detail = result
-                    .get("content")
-                    .and_then(|c| c.as_array())
-                    .and_then(|a| a.first())
-                    .and_then(|c| c.get("text"))
-                    .and_then(|t| t.as_str())
-                    .unwrap_or("refused")
-                    .to_string();
-                failed.push(format!("{addr}: {detail}"));
-            }
-            Err(e) => failed.push(format!("{addr}: {e}")),
-        }
-    }
+        })
+        .collect();
+    let acked = outcomes.iter().filter(|o| o.is_ok()).count();
+    let failed: Vec<String> = outcomes.into_iter().filter_map(|o| o.err()).collect();
     if !failed.is_empty() && !force {
         // Abort: staged files sit inert — the fingerprint match in
         // activation means they can never be swapped in by another
@@ -407,21 +419,27 @@ fn rekey(force: bool) -> Result<()> {
         bail!("could not seal the activate record");
     };
     let activate_args = serde_json::json!({ "record": &activate });
-    let mut activated = 0usize;
-    let mut stranded: Vec<String> = Vec::new();
-    for addr in &targets {
-        match susi_core::mcp_client::call_tool(
-            addr,
-            "cluster_rekey_commit",
-            &activate_args,
-            bearer.as_deref(),
-        ) {
-            Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
-                activated += 1;
+    let activate_results: Vec<bool> = targets
+        .par_iter()
+        .map(|addr| {
+            match susi_core::mcp_client::call_tool(
+                addr,
+                "cluster_rekey_commit",
+                &activate_args,
+                bearer.as_deref(),
+            ) {
+                Ok(result) => result.get("isError").and_then(|v| v.as_bool()) != Some(true),
+                Err(_) => false,
             }
-            Ok(_) | Err(_) => stranded.push(addr.clone()),
-        }
-    }
+        })
+        .collect();
+    let activated = activate_results.iter().filter(|ok| **ok).count();
+    let stranded: Vec<String> = targets
+        .iter()
+        .zip(activate_results.iter())
+        .filter(|(_, ok)| !**ok)
+        .map(|(a, _)| a.clone())
+        .collect();
     // Local activation LAST.
     if let Err(e) = commit_log::append(&activate) {
         eprintln!("warning: local activate record not appended — {e}; members already rotated");
