@@ -39,6 +39,10 @@ pub enum CommitsCommands {
     Show {
         /// Epoch hex prefix, e.g. the first 12 chars shown by `susi commits`
         epoch: String,
+        /// Emit machine-readable JSON — verification results ride inside
+        /// the object instead of trailing human lines
+        #[arg(long)]
+        json: bool,
     },
     /// Whole-ledger consistency check: signature failures, sequence gaps,
     /// equivocation, and commits from non-elected coordinators
@@ -55,7 +59,11 @@ pub enum CommitsCommands {
     /// Fold the ledger into the cluster's consensus view (term, leader,
     /// per-coordinator high-water marks) — the state machine is a pure
     /// function of the log
-    Replay,
+    Replay {
+        /// Emit machine-readable JSON — the consensus view as data
+        #[arg(long)]
+        json: bool,
+    },
     /// Proactively pull records this node is missing from verified peers —
     /// the receive-path repair only fires when a *push* arrives, so a node
     /// that was offline during replication needs this to catch up
@@ -83,9 +91,9 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
             kind,
             json,
         } => list(limit, coordinator.as_deref(), term, kind.as_deref(), json),
-        CommitsCommands::Show { epoch } => show(&epoch),
+        CommitsCommands::Show { epoch, json } => show(&epoch, json),
         CommitsCommands::Audit { strict, json } => audit(strict, json),
-        CommitsCommands::Replay => replay_view(),
+        CommitsCommands::Replay { json } => replay_view(json),
         CommitsCommands::Sync => sync(),
         CommitsCommands::Compact => compact(),
     }
@@ -407,7 +415,7 @@ fn list(
     Ok(())
 }
 
-fn show(epoch_prefix: &str) -> Result<()> {
+fn show(epoch_prefix: &str, json: bool) -> Result<()> {
     let mut records = commit_log::load();
     records.extend(commit_log::load_from(&commit_log::archive_path()));
     let matches: Vec<_> = records
@@ -420,8 +428,10 @@ fn show(epoch_prefix: &str) -> Result<()> {
         _ => anyhow::bail!("epoch prefix `{epoch_prefix}` is ambiguous"),
     }
     let r = matches[0];
-    println!("{}", serde_json::to_string_pretty(r)?);
-    println!("verified: {}", r.verify());
+    if !json {
+        println!("{}", serde_json::to_string_pretty(r)?);
+        println!("verified: {}", r.verify());
+    }
     // Coordinator-attribution state: absent is the pre-PKI form; when
     // the roster binds the coordinator's key the sig must verify under
     // it — an INVALID here means the record would now be refused at
@@ -463,13 +473,14 @@ fn show(epoch_prefix: &str) -> Result<()> {
             None => "present (coordinator key unbound)".to_string(),
         }
     };
-    println!("member_sig: {msig}");
     // Binding attestation: a member_add claiming a pubkey must carry
     // the subject's own signature — verify it here so an operator can
     // see whether a binding is subject-proven or would be refused now.
-    if !r.member_pubkey.is_empty() {
+    let subject_sig_state = if r.member_pubkey.is_empty() {
+        None
+    } else {
         let member_id = r.member_delta().map(|(_, id, _)| id).unwrap_or_default();
-        let att = if r.subject_sig.is_empty() {
+        Some(if r.subject_sig.is_empty() {
             "ABSENT — record would be refused at intake today".to_string()
         } else if susi_config::cluster_key::verify_bind_attestation(
             member_id,
@@ -479,22 +490,41 @@ fn show(epoch_prefix: &str) -> Result<()> {
             "valid (subject-signed)".to_string()
         } else {
             "INVALID".to_string()
-        };
-        println!("subject_sig: {att}");
-    }
-    if !r.kind.is_empty() {
+        })
+    };
+    let endorsement_state = if r.kind.is_empty() {
+        None
+    } else {
         let names: Vec<&str> = r.endorsements.iter().map(|e| e.node.as_str()).collect();
         let gate = if susi_core::commit_log::endorsements_satisfied(r) {
             "satisfied"
         } else {
             "BELOW bound quorum"
         };
-        println!(
-            "endorsements: {} signer(s) [{}] — {}",
+        Some(format!(
+            "{} signer(s) [{}] — {}",
             r.endorsements.len(),
             names.join(", "),
             gate
-        );
+        ))
+    };
+    if json {
+        let body = serde_json::json!({
+            "record": r,
+            "verified": r.verify(),
+            "member_sig": msig,
+            "subject_sig": subject_sig_state,
+            "endorsements": endorsement_state,
+        });
+        println!("{}", serde_json::to_string_pretty(&body)?);
+    } else {
+        println!("member_sig: {msig}");
+        if let Some(att) = &subject_sig_state {
+            println!("subject_sig: {att}");
+        }
+        if let Some(e) = &endorsement_state {
+            println!("endorsements: {e}");
+        }
     }
     Ok(())
 }
@@ -578,9 +608,30 @@ fn audit(strict: bool, json: bool) -> Result<()> {
 /// Print the consensus view reconstructed from the ledger — current term,
 /// leader, and each coordinator's high-water sequence mark. Two nodes
 /// holding the same records derive the same view.
-fn replay_view() -> Result<()> {
+fn replay_view(json: bool) -> Result<()> {
     let state = commit_log::replay();
     let persisted = commit_log::load_term();
+    if json {
+        let body = serde_json::json!({
+            "term": state.term,
+            "leader": state.leader,
+            "persisted": { "term": persisted.term, "leader": persisted.leader },
+            "decisions": state.decisions,
+            "memberships": state.memberships,
+            "roster": state.roster.iter().map(|(id, addr)| serde_json::json!({
+                "node_id": id, "address": addr,
+            })).collect::<Vec<_>>(),
+            "banned": state.banned.iter().map(|(id, addr)| serde_json::json!({
+                "node_id": id, "address": addr,
+            })).collect::<Vec<_>>(),
+            "coordinators": state.coordinators.iter().map(|(c, high)| serde_json::json!({
+                "coordinator": c, "high_water": high,
+            })).collect::<Vec<_>>(),
+            "anomalies": state.anomalies,
+        });
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
     println!("term:          {}", state.term);
     println!(
         "leader:        {}",
