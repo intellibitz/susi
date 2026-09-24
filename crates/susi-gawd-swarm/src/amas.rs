@@ -1280,6 +1280,13 @@ impl SusiSupervisor {
             // the cluster has moved on. Stale-term records still append
             // (history fill bypasses the term gate by design).
             let _ = crate::susi_core::commit_log::check_term(r);
+            // Member records need coordinator authority: an evicted
+            // node still holds cluster.key, so signature alone can't
+            // authorize roster changes. Refused records stay missing —
+            // retried next sweep once the coordinator is known.
+            if !crate::susi_core::commit_log::member_coordinator_known(r) {
+                continue;
+            }
             let key = serde_json::to_string(&r).unwrap_or_default();
             if held.contains(&key) {
                 continue;

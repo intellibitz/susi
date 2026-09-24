@@ -170,6 +170,13 @@ fn sync() -> Result<()> {
             // a newer term adopts it into term.json — a stale term file
             // shouldn't survive contact with a more current peer.
             let _ = commit_log::check_term(r);
+            // Member records need coordinator authority — an evicted
+            // node still holds cluster.key. Refused records stay
+            // missing and converge once the coordinator is known.
+            if !commit_log::member_coordinator_known(r) {
+                bad += 1;
+                continue;
+            }
             let key = serde_json::to_string(&r).unwrap_or_default();
             if held.contains(&key) {
                 dup += 1;

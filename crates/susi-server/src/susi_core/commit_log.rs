@@ -876,6 +876,37 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
     Ok(())
 }
 
+/// A member record only carries authority when its sealing coordinator
+/// is a current explicit member of the roster — or this node itself
+/// (operator-initiated local commits). An evicted node still holds
+/// cluster.key, so a valid HMAC alone cannot authorize membership
+/// changes: without this gate a rogue evicted member could evict the
+/// whole cluster. Intake paths (the `commit_record` tool, anti-entropy
+/// pulls, `commits sync`) must check this BEFORE append — a refused
+/// record stays missing and is retried once the coordinator is known,
+/// rather than entering the ledger applied.
+pub fn member_coordinator_known(record: &CommitRecord) -> bool {
+    member_coordinator_known_at(record, &SusiDirs::config_dir())
+}
+
+/// Test seam: coordinator-authority check against an explicit roster dir.
+pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
+    if record.member_delta().is_none() {
+        return true;
+    }
+    if record.coordinator == crate::susi_config::cluster_key::wire_node_id() {
+        return true;
+    }
+    let peers: Vec<serde_json::Value> = fs::read_to_string(dir.join("peers.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    peers.iter().any(|p| {
+        p.get("node_id").and_then(|v| v.as_str()) == Some(record.coordinator.as_str())
+            && p.get("admission").and_then(|v| v.as_str()) == Some("explicit")
+    })
+}
+
 /// Apply a committed membership delta to `peers.json` /
 /// `peers_banned.json` beside the ledger — the roster half of "the
 /// ledger is applied state". `dir` is the ledger's directory (not the
@@ -1288,6 +1319,65 @@ mod tests {
             !bad.verify(),
             "member record with malformed value must fail verify"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn member_records_require_a_known_coordinator() {
+        // Coordinator-authority gate: an evicted node still holds
+        // cluster.key, so a member record sealed by a non-member (or
+        // merely-discovered peer) must be refused at intake — otherwise
+        // a rogue evicted member could evict the whole cluster.
+        let dir = std::env::temp_dir().join(format!("susi_mauth_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("peers.json"),
+            serde_json::to_string(&serde_json::json!([
+                { "node_id": "coord-a", "admission": "explicit" },
+                { "node_id": "gossip-only", "admission": "discovered" },
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        let rec = |coordinator: &str, kind: &str| CommitRecord {
+            epoch: "e".into(),
+            coordinator: coordinator.into(),
+            electorate: vec![],
+            tally: 1,
+            quorum_threshold: 1,
+            value_hash: "h".into(),
+            value: "node-x@10.0.0.5:9090".into(),
+            committed_at: 0,
+            seq: 1,
+            leader: "l".into(),
+            term: 0,
+            prev_epoch: String::new(),
+            kind: kind.into(),
+            signature: "s".into(),
+        };
+        // An explicit member's delta is authorized; discovered peers and
+        // unknown ids are not.
+        assert!(member_coordinator_known_at(
+            &rec("coord-a", KIND_MEMBER_ADD),
+            &dir
+        ));
+        assert!(!member_coordinator_known_at(
+            &rec("gossip-only", KIND_MEMBER_ADD),
+            &dir
+        ));
+        assert!(!member_coordinator_known_at(
+            &rec("ghost", KIND_MEMBER_REMOVE),
+            &dir
+        ));
+        // Our own operator-sealed deltas always pass, and non-member
+        // records are unaffected by the gate.
+        let self_id = crate::susi_config::cluster_key::wire_node_id();
+        assert!(member_coordinator_known_at(
+            &rec(&self_id, KIND_MEMBER_REMOVE),
+            &dir
+        ));
+        assert!(member_coordinator_known_at(&rec("ghost", ""), &dir));
         let _ = fs::remove_dir_all(&dir);
     }
 

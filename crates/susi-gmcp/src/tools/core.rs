@@ -623,6 +623,17 @@ impl CoreTools {
                 "commit record failed cluster-key signature or quorum consistency checks",
             ));
         }
+        // Member records need coordinator authority, not just a valid
+        // HMAC: an evicted node still holds cluster.key, so signature
+        // alone cannot authorize roster changes (the rogue-eviction
+        // hole). Refuse records sealed by non-members — they stay
+        // missing and converge via pull once the coordinator is known.
+        if !crate::susi_core::commit_log::member_coordinator_known(&record) {
+            return Err(EaiError::authorization(format!(
+                "member record coordinator {} is not an explicit member of this roster",
+                record.coordinator
+            )));
+        }
         // Term gate BEFORE append (VC-200-001): a pushed record from a
         // stale term means the coordinator is working from superseded
         // leadership — reject it (Raft's AppendEntries term check).
@@ -766,9 +777,13 @@ fn repair_commit_gap(coordinator: &str, missing: &[u64]) -> Result<usize, String
             Ok(fetched) => {
                 let mut got = 0usize;
                 for r in fetched {
+                    // Member records need coordinator authority — an
+                    // evicted node still holds cluster.key, so a gap fill
+                    // must not smuggle a rogue roster delta through.
                     if r.coordinator == coordinator
                         && remaining.contains(&r.seq)
                         && r.verify()
+                        && crate::susi_core::commit_log::member_coordinator_known(&r)
                         && crate::susi_core::commit_log::append(&r).is_ok()
                     {
                         remaining.retain(|s| *s != r.seq);
