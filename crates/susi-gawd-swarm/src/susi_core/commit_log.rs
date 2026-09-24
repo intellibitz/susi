@@ -1730,7 +1730,11 @@ pub fn endorsement_payload(signature: &str) -> String {
 /// careless proposer can no longer bind a wrong key onto a member,
 /// which was a record-starvation DoS on the victim. `member_add`s
 /// without a pubkey (unbound legacy members) stay admissible.
-fn subject_attestation_valid(record: &CommitRecord) -> bool {
+/// Whether a `member_add` carrying `member_pubkey` also carries the
+/// subject's own binding attestation — the same check intake runs,
+/// exposed so `commits audit` can flag records that wouldn't be
+/// admitted today. Non-member_add and keyless records always pass.
+pub fn subject_attestation_valid(record: &CommitRecord) -> bool {
     let Some((KIND_MEMBER_ADD, id, _)) = record.member_delta() else {
         return true;
     };
