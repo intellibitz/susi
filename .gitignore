@@ -55,3 +55,4 @@ Thumbs.db
 *.log
 *.tmp
 .artifacts/
+.aider*

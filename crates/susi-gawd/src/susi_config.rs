@@ -3248,10 +3248,13 @@ mod config {
         /// a legacy `settings.api_auth_token` value only for migration.
         pub fn api_auth_token(&self) -> String {
             let token_path = crate::susi_paths::SusiDirs::config_dir().join("api_token");
-            if let Ok(from_file) = fs::read_to_string(&token_path) {
-                let trimmed = from_file.trim().to_string();
-                if !trimmed.is_empty() {
-                    return trimmed;
+            // Mtime-cached read — NetGuard calls this on every request.
+            if let Some(raw) = super::cluster_key::cached_file_bytes(&token_path) {
+                if let Ok(from_file) = String::from_utf8(raw) {
+                    let trimmed = from_file.trim().to_string();
+                    if !trimmed.is_empty() {
+                        return trimmed;
+                    }
                 }
             }
             self.get_or_bundled_default("api_auth_token")
