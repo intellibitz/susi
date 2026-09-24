@@ -184,34 +184,97 @@ pub fn verify_signed_ping(msg: &str) -> Option<(String, u64, String, String)> {
     ))
 }
 
-/// Build a signed pong bound to `nonce` (echoed from the verified ping).
-pub fn signed_pong(node_id: &str, checksum: u64, bloom_hex: &str, nonce: &str) -> Option<String> {
+/// Maximum roster entries carried in a signed pong — keeps the
+/// datagram well under typical UDP MTU (~1400B).
+pub const ROSTER_GOSSIP_MAX: usize = 8;
+
+/// Encode `(node_id, address)` gossip entries for the signed pong's
+/// roster field — `;`-joined `node_id@address`, hex-encoded so the
+/// field stays wire-safe. An empty roster encodes as `0`.
+pub fn encode_roster(entries: &[(String, String)]) -> String {
+    if entries.is_empty() {
+        return "0".to_string();
+    }
+    let joined = entries
+        .iter()
+        .take(ROSTER_GOSSIP_MAX)
+        .map(|(id, addr)| format!("{id}@{addr}"))
+        .collect::<Vec<_>>()
+        .join(";");
+    hex::encode(joined.as_bytes())
+}
+
+/// Inverse of `encode_roster`; `0` or undecodable input yields an
+/// empty list — a malformed roster never fails the handshake itself
+/// (the MAC still authenticates the field).
+pub fn decode_roster(field: &str) -> Vec<(String, String)> {
+    if field == "0" {
+        return Vec::new();
+    }
+    let Ok(bytes) = hex::decode(field) else {
+        return Vec::new();
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Vec::new();
+    };
+    text.split(';')
+        .filter_map(|e| {
+            e.split_once('@')
+                .map(|(id, a)| (id.to_string(), a.to_string()))
+        })
+        .collect()
+}
+
+/// Build a signed pong bound to `nonce` (echoed from the verified
+/// ping). `roster` carries `(node_id, address)` gossip so a joining
+/// node learns the rest of the cluster from one handshake —
+/// transitive membership instead of per-edge manual adds.
+pub fn signed_pong(
+    node_id: &str,
+    checksum: u64,
+    bloom_hex: &str,
+    nonce: &str,
+    roster: &[(String, String)],
+) -> Option<String> {
     let key = cluster_key()?;
     let checksum = checksum.to_string();
-    for f in [node_id, &checksum, bloom_hex, nonce] {
+    let roster_hex = encode_roster(roster);
+    for f in [node_id, &checksum, bloom_hex, nonce, &roster_hex] {
         if !wire_safe(f) {
             return None;
         }
     }
-    let mac = mac_tag(&key, &["pong", node_id, &checksum, bloom_hex, nonce]);
+    let mac = mac_tag(
+        &key,
+        &["pong", node_id, &checksum, bloom_hex, nonce, &roster_hex],
+    );
     Some(format!(
-        "SUSI_PONG_SIG:{node_id}:{checksum}:{bloom_hex}:{nonce}:{mac}"
+        "SUSI_PONG_SIG:{node_id}:{checksum}:{bloom_hex}:{nonce}:{roster_hex}:{mac}"
     ))
 }
 
-/// Verified fields of a signed pong: `(node_id, checksum, bloom_hex)`.
-/// `None` for malformed input, a bad MAC, or a nonce that does not match the
-/// nonce sent with our ping (`expected_nonce`).
-pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<(String, u64, String)> {
+/// Verified fields of a signed pong: `(node_id, checksum, bloom_hex,
+/// roster)`.
+pub type VerifiedPong = (String, u64, String, Vec<(String, String)>);
+
+/// Verify a signed pong against `expected_nonce`. `None` for
+/// malformed input, a bad MAC, or a nonce that does not match the
+/// nonce sent with our ping. Legacy 6-field pongs (pre-gossip
+/// builds) verify with an empty roster so mixed-version clusters
+/// still handshake.
+pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPong> {
     let key = cluster_key()?;
     let parts: Vec<&str> = msg.split(':').collect();
-    // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:<mac>
-    if parts.len() != 6 || parts[0] != "SUSI_PONG_SIG" {
+    if parts.first() != Some(&"SUSI_PONG_SIG") {
         return None;
     }
-    let (node_id, checksum_s, bloom, nonce, mac) =
-        (parts[1], parts[2], parts[3], parts[4], parts[5]);
-    for f in [node_id, checksum_s, bloom, nonce] {
+    // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:[<roster>:]<mac>
+    let (node_id, checksum_s, bloom, nonce, roster_hex, mac) = match parts.len() {
+        7 => (parts[1], parts[2], parts[3], parts[4], parts[5], parts[6]),
+        6 => (parts[1], parts[2], parts[3], parts[4], "0", parts[5]),
+        _ => return None,
+    };
+    for f in [node_id, checksum_s, bloom, nonce, roster_hex] {
         if !wire_safe(f) {
             return None;
         }
@@ -219,7 +282,14 @@ pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<(String, u6
     if nonce != expected_nonce {
         return None;
     }
-    let expected = mac_tag(&key, &["pong", node_id, checksum_s, bloom, nonce]);
+    let expected = if parts.len() == 6 {
+        mac_tag(&key, &["pong", node_id, checksum_s, bloom, nonce])
+    } else {
+        mac_tag(
+            &key,
+            &["pong", node_id, checksum_s, bloom, nonce, roster_hex],
+        )
+    };
     if expected != mac {
         return None;
     }
@@ -227,6 +297,7 @@ pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<(String, u6
         node_id.to_string(),
         checksum_s.parse().unwrap_or(0),
         bloom.to_string(),
+        decode_roster(roster_hex),
     ))
 }
 
@@ -278,12 +349,19 @@ mod tests {
             ("CORE,GPU", 7, "00ff")
         );
         assert_eq!(echoed, nonce);
-        let pong = signed_pong("susi-daemon-node", 0, "abcd", &echoed).expect("signed pong");
-        let (node_id, csum, pbloom) = verify_signed_pong(&pong, &nonce).expect("verify pong");
+        let roster = vec![
+            ("peer-b".to_string(), "10.0.0.2:9090".to_string()),
+            ("peer-c".to_string(), "10.0.0.3:9090".to_string()),
+        ];
+        let pong =
+            signed_pong("susi-daemon-node", 0, "abcd", &echoed, &roster).expect("signed pong");
+        let (node_id, csum, pbloom, gossip) =
+            verify_signed_pong(&pong, &nonce).expect("verify pong");
         assert_eq!(
             (node_id.as_str(), csum, pbloom.as_str()),
             ("susi-daemon-node", 0, "abcd")
         );
+        assert_eq!(gossip, roster);
     }
 
     #[test]
@@ -291,7 +369,7 @@ mod tests {
         let _t = set_key_env();
         let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
         let (_, _, _, echoed) = verify_signed_ping(&ping).unwrap();
-        let pong = signed_pong("peer", 0, "00", &echoed).unwrap();
+        let pong = signed_pong("peer", 0, "00", &echoed, &[]).unwrap();
         // Wrong expected nonce -> reject.
         assert!(verify_signed_pong(&pong, "deadbeef").is_none());
         // Tampered mac -> reject.
@@ -299,5 +377,33 @@ mod tests {
         assert!(verify_signed_pong(&tampered, &nonce).is_none());
         // Unsigned legacy pong never verifies.
         assert!(verify_signed_pong("SUSI_PONG:daemon:0:", &nonce).is_none());
+    }
+
+    #[test]
+    fn legacy_six_field_pong_still_verifies_with_empty_roster() {
+        let _t = set_key_env();
+        let (ping, nonce) = signed_ping("CORE", 1, "00").unwrap();
+        let (_, _, _, echoed) = verify_signed_ping(&ping).unwrap();
+        // Reconstruct a pre-gossip pong: no roster field, MAC over the
+        // original five fields — older daemons still handshake cleanly.
+        let key = cluster_key().unwrap();
+        let mac = mac_tag(&key, &["pong", "old-peer", "0", "00", &echoed]);
+        let legacy = format!("SUSI_PONG_SIG:old-peer:0:00:{echoed}:{mac}");
+        let (node_id, _, _, roster) = verify_signed_pong(&legacy, &nonce).expect("legacy pong");
+        assert_eq!(node_id, "old-peer");
+        assert!(roster.is_empty());
+    }
+
+    #[test]
+    fn roster_codec_roundtrips_and_caps_entries() {
+        assert_eq!(encode_roster(&[]), "0");
+        assert!(decode_roster("0").is_empty());
+        assert!(decode_roster("zz-not-hex").is_empty());
+        let many: Vec<(String, String)> = (0..20)
+            .map(|i| (format!("n{i}"), format!("10.0.0.{i}:9090")))
+            .collect();
+        let decoded = decode_roster(&encode_roster(&many));
+        assert_eq!(decoded.len(), ROSTER_GOSSIP_MAX);
+        assert_eq!(decoded[0], ("n0".to_string(), "10.0.0.0:9090".to_string()));
     }
 }

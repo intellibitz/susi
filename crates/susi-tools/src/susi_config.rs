@@ -279,39 +279,99 @@ pub mod cluster_key {
         ))
     }
 
-    /// Build a signed pong bound to `nonce` (echoed from the verified ping).
+    /// Maximum roster entries carried in a signed pong — keeps the
+    /// datagram well under typical UDP MTU (~1400B).
+    pub const ROSTER_GOSSIP_MAX: usize = 8;
+
+    /// Encode `(node_id, address)` gossip entries for the signed pong's
+    /// roster field — `;`-joined `node_id@address`, hex-encoded so the
+    /// field stays wire-safe. An empty roster encodes as `0`.
+    pub fn encode_roster(entries: &[(String, String)]) -> String {
+        if entries.is_empty() {
+            return "0".to_string();
+        }
+        let joined = entries
+            .iter()
+            .take(ROSTER_GOSSIP_MAX)
+            .map(|(id, addr)| format!("{id}@{addr}"))
+            .collect::<Vec<_>>()
+            .join(";");
+        hex::encode(joined.as_bytes())
+    }
+
+    /// Inverse of `encode_roster`; `0` or undecodable input yields an
+    /// empty list — a malformed roster never fails the handshake itself
+    /// (the MAC still authenticates the field).
+    pub fn decode_roster(field: &str) -> Vec<(String, String)> {
+        if field == "0" {
+            return Vec::new();
+        }
+        let Ok(bytes) = hex::decode(field) else {
+            return Vec::new();
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            return Vec::new();
+        };
+        text.split(';')
+            .filter_map(|e| {
+                e.split_once('@')
+                    .map(|(id, a)| (id.to_string(), a.to_string()))
+            })
+            .collect()
+    }
+
+    /// Build a signed pong bound to `nonce` (echoed from the verified
+    /// ping). `roster` carries `(node_id, address)` gossip so a joining
+    /// node learns the rest of the cluster from one handshake —
+    /// transitive membership instead of per-edge manual adds.
     pub fn signed_pong(
         node_id: &str,
         checksum: u64,
         bloom_hex: &str,
         nonce: &str,
+        roster: &[(String, String)],
     ) -> Option<String> {
         let key = cluster_key()?;
         let checksum = checksum.to_string();
-        for f in [node_id, &checksum, bloom_hex, nonce] {
+        let roster_hex = encode_roster(roster);
+        for f in [node_id, &checksum, bloom_hex, nonce, &roster_hex] {
             if !wire_safe(f) {
                 return None;
             }
         }
-        let mac = mac_tag(&key, &["pong", node_id, &checksum, bloom_hex, nonce]);
+        let mac = mac_tag(
+            &key,
+            &["pong", node_id, &checksum, bloom_hex, nonce, &roster_hex],
+        );
         Some(format!(
-            "SUSI_PONG_SIG:{node_id}:{checksum}:{bloom_hex}:{nonce}:{mac}"
+            "SUSI_PONG_SIG:{node_id}:{checksum}:{bloom_hex}:{nonce}:{roster_hex}:{mac}"
         ))
     }
 
-    /// Verified fields of a signed pong: `(node_id, checksum, bloom_hex)`.
-    /// `None` for malformed input, a bad MAC, or a nonce that does not match the
-    /// nonce sent with our ping (`expected_nonce`).
-    pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<(String, u64, String)> {
+    /// Verified fields of a signed pong: `(node_id, checksum, bloom_hex,
+    /// roster)`.
+    pub type VerifiedPong = (String, u64, String, Vec<(String, String)>);
+
+    /// Verify a signed pong against `expected_nonce`. `None` for
+    /// malformed input, a bad MAC, or a nonce that does not match the
+    /// nonce sent with our ping. Legacy 6-field pongs (pre-gossip
+    /// builds) verify with an empty roster so mixed-version clusters
+    /// still handshake.
+    pub fn verify_signed_pong(msg: &str, expected_nonce: &str) -> Option<VerifiedPong> {
         let key = cluster_key()?;
         let parts: Vec<&str> = msg.split(':').collect();
-        // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:<mac>
-        if parts.len() != 6 || parts[0] != "SUSI_PONG_SIG" {
+        if parts.first() != Some(&"SUSI_PONG_SIG") {
             return None;
         }
-        let (node_id, checksum_s, bloom, nonce, mac) =
-            (parts[1], parts[2], parts[3], parts[4], parts[5]);
-        for f in [node_id, checksum_s, bloom, nonce] {
+        // SUSI_PONG_SIG:<node_id>:<checksum>:<bloom>:<nonce>:[<roster>:]<mac>
+        let (node_id, checksum_s, bloom, nonce, roster_hex, mac) = match parts.len() {
+            7 => (
+                parts[1], parts[2], parts[3], parts[4], parts[5], parts[6],
+            ),
+            6 => (parts[1], parts[2], parts[3], parts[4], "0", parts[5]),
+            _ => return None,
+        };
+        for f in [node_id, checksum_s, bloom, nonce, roster_hex] {
             if !wire_safe(f) {
                 return None;
             }
@@ -319,7 +379,14 @@ pub mod cluster_key {
         if nonce != expected_nonce {
             return None;
         }
-        let expected = mac_tag(&key, &["pong", node_id, checksum_s, bloom, nonce]);
+        let expected = if parts.len() == 6 {
+            mac_tag(&key, &["pong", node_id, checksum_s, bloom, nonce])
+        } else {
+            mac_tag(
+                &key,
+                &["pong", node_id, checksum_s, bloom, nonce, roster_hex],
+            )
+        };
         if expected != mac {
             return None;
         }
@@ -327,6 +394,7 @@ pub mod cluster_key {
             node_id.to_string(),
             checksum_s.parse().unwrap_or(0),
             bloom.to_string(),
+            decode_roster(roster_hex),
         ))
     }
 }

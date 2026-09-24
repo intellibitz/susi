@@ -239,9 +239,13 @@ impl SusiSupervisor {
                     let mut local_bloom = CapabilityBloom::local_snapshot();
                     let mut last_registry_checksum =
                         susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
-                    // Outstanding signed-handshake nonce: a SUSI_PONG_SIG must
-                    // echo it to prove the peer holds `~/.susi/cluster.key`.
-                    let mut pending_nonce: Option<String> = None;
+                    // Outstanding signed-handshake nonces: a SUSI_PONG_SIG
+                    // must echo one to prove the peer holds
+                    // `~/.susi/cluster.key`. A short window is kept — a
+                    // directed ping to a gossip-learned peer can legit
+                    // answer a cycle late.
+                    let mut pending_nonces: std::collections::VecDeque<String> =
+                        std::collections::VecDeque::new();
                     // Roster write throttle — see the persist call below.
                     let mut last_persist = std::time::Instant::now();
                     // Ban-list re-read throttle — see the sweep below.
@@ -294,9 +298,10 @@ impl SusiSupervisor {
                             let msg = String::from_utf8_lossy(&buf[..amt]);
                             // Signed pong: peer proved it holds cluster.key and
                             // echoed our nonce — promote to Explicit + persist.
-                            if let Some(nonce) = pending_nonce.as_deref() {
-                                if let Some((node_id, checksum, bloom_hex)) =
-                                    crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
+                            let verified = pending_nonces.iter().find_map(|nonce| {
+                                crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
+                            });
+                            if let Some((node_id, checksum, bloom_hex, roster)) = verified {
                                 {
                                     // Loopback is never a peer: only one
                                     // daemon can bind 9092 on a host, so a
@@ -363,6 +368,47 @@ impl SusiSupervisor {
                                     {
                                         peer_registry::persist_verified_peer(&entry);
                                         last_persist = std::time::Instant::now();
+                                    }
+                                    // Roster gossip: the responder vouches
+                                    // for its own verified members — learn
+                                    // them as Discovered and let the
+                                    // directed signed-ping sweep below
+                                    // promote the ones that verify for us.
+                                    // Never downgrades an existing row and
+                                    // never persists an unverified entry.
+                                    if !roster.is_empty() {
+                                        let mut peers = t_shared.write();
+                                        for (gid, gaddr) in roster {
+                                            let banned = peer_registry::is_banned(&gid, &gaddr);
+                                            let known = peers
+                                                .iter()
+                                                .any(|p| p.node_id == gid || p.address == gaddr);
+                                            let looped = gaddr
+                                                .split(':')
+                                                .next()
+                                                .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+                                                .is_some_and(|ip| ip.is_loopback());
+                                            if banned || known || looped {
+                                                continue;
+                                            }
+                                            peers.push(ClusterPeerNode {
+                                                node_id: gid,
+                                                address: gaddr,
+                                                node_type: "PEER".into(),
+                                                is_active: true,
+                                                capabilities: vec!["CORE".into()],
+                                                registry_checksum: 0,
+                                                latency_ms: 0,
+                                                uptime_secs: 0,
+                                                trust_score: 0.5,
+                                                capability_bloom: CapabilityBloom::default(),
+                                                // Vouched by a member, not yet
+                                                // verified by us — the directed
+                                                // ping sweep upgrades it.
+                                                admission: PeerAdmission::Discovered,
+                                                last_seen_secs: now_secs(),
+                                            });
+                                        }
                                     }
                                     continue;
                                 }
@@ -434,15 +480,36 @@ impl SusiSupervisor {
                             .send_to(ping_msg.as_bytes(), format!("255.255.255.255:{}", port));
                         // Cluster-key handshake (VC-200-001): only nodes that
                         // can HMAC-sign a pong echoing this nonce may become
-                        // Explicit roster members.
+                        // Explicit roster members. The signed ping also goes
+                        // directly to every Discovered peer's discovery port —
+                        // LAN broadcast cannot cross subnets, and a
+                        // gossip-learned member only earns Explicit by
+                        // answering a handshake aimed at it.
                         if let Some((signed, nonce)) = crate::susi_config::cluster_key::signed_ping(
                             &local_caps,
                             registry_checksum,
                             &local_bloom.to_hex(),
                         ) {
-                            pending_nonce = Some(nonce);
+                            pending_nonces.push_back(nonce);
+                            while pending_nonces.len() > 4 {
+                                pending_nonces.pop_front();
+                            }
                             let _ = socket
                                 .send_to(signed.as_bytes(), format!("255.255.255.255:{}", port));
+                            let targets: Vec<String> = t_shared
+                                .read()
+                                .iter()
+                                .filter(|p| matches!(p.admission, PeerAdmission::Discovered))
+                                .filter_map(|p| {
+                                    p.address.split(':').next().map(|h| {
+                                        format!("{h}:{}", crate::susi_paths::ports::UDP_DISCOVERY)
+                                    })
+                                })
+                                .take(32)
+                                .collect();
+                            for target in targets {
+                                let _ = socket.send_to(signed.as_bytes(), &target);
+                            }
                         }
                         // Also speak the daemon's LAN ping dialect so host discovery works.
                         let _ =

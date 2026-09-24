@@ -216,7 +216,8 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
     socket.send_to(ping.as_bytes(), (host.as_str(), port))?;
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    let mut buf = [0u8; 1024];
+    // 4 KiB: a signed pong carrying a full gossip roster runs past 1 KiB.
+    let mut buf = [0u8; 4096];
     loop {
         let (amt, src) = match socket.recv_from(&mut buf) {
             Ok(r) => r,
@@ -234,7 +235,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             Err(e) => return Err(e.into()),
         };
         let msg = String::from_utf8_lossy(&buf[..amt]);
-        let Some((node_id, checksum, bloom_hex)) =
+        let Some((node_id, checksum, bloom_hex, roster)) =
             susi_config::cluster_key::verify_signed_pong(&msg, &nonce)
         else {
             if std::time::Instant::now() >= deadline {
@@ -281,11 +282,55 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
                 && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
         });
         nodes.push(node);
+        // Roster gossip: the peer vouched for its own verified members.
+        // Record them `discovered` — visible to the operator, never
+        // load-bearing until the swarm's directed handshake upgrades
+        // them to explicit (persisted members only ever carry
+        // `explicit`; the swarm filters on read regardless).
+        let banned = load_banned();
+        let mut learned = 0usize;
+        for (gid, gaddr) in &roster {
+            let known = nodes.iter().any(|n| {
+                n.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
+                    || n.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+            });
+            let banned_hit = banned.iter().any(|b| {
+                b.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
+                    || b.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+            });
+            let looped = gaddr
+                .split(':')
+                .next()
+                .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+            if known || banned_hit || looped {
+                continue;
+            }
+            nodes.push(serde_json::json!({
+                "node_id": gid,
+                "address": gaddr,
+                "node_type": "PEER",
+                "is_active": true,
+                "capabilities": ["CORE"],
+                "registry_checksum": 0,
+                "latency_ms": 0,
+                "uptime_secs": 0,
+                "trust_score": 0.5,
+                "capability_bloom": [],
+                "admission": "discovered",
+                "last_seen_secs": now_secs(),
+            }));
+            learned += 1;
+        }
         let path = registry_path();
         let tmp = path.with_extension("json.tmp");
         std::fs::write(&tmp, serde_json::to_string_pretty(&nodes)?)?;
         std::fs::rename(&tmp, &path)?;
-        println!("verified + admitted: {node_id} ({address})");
+        if learned > 0 {
+            println!("verified + admitted: {node_id} ({address}); learned {learned} roster entr(ies) via gossip");
+        } else {
+            println!("verified + admitted: {node_id} ({address})");
+        }
         return Ok(());
     }
 }

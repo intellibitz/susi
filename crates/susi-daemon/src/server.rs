@@ -934,12 +934,52 @@ impl SusiDaemon {
             if let Some((_caps, _checksum, _bloom, nonce)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
+                // Mutual admission: a correctly signed ping proves the
+                // sender holds cluster.key — the same proof a signed pong
+                // gives the pinger about us. Admitting the sender here
+                // makes membership symmetric in one exchange: the pinger
+                // admits us from our pong, we admit them from their ping.
+                // Loopback is ourselves — never a peer (one daemon binds
+                // the discovery port per host).
+                if !src.ip().is_loopback() {
+                    let pinger_addr =
+                        format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
+                    let pinger_id = format!("susi-peer-{}", src.ip());
+                    if !susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
+                        let node = susi_gawd::swarm::amas::ClusterPeerNode {
+                            node_id: pinger_id,
+                            address: pinger_addr,
+                            node_type: "PEER".into(),
+                            is_active: true,
+                            capabilities: vec!["CORE".into()],
+                            registry_checksum: 0,
+                            latency_ms: 0,
+                            uptime_secs: 0,
+                            trust_score: 0.8,
+                            capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::default(),
+                            admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
+                            last_seen_secs: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_secs())
+                                .unwrap_or(0),
+                        };
+                        susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
+                    }
+                }
                 let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
+                // Gossip our verified roster so one handshake teaches the
+                // joiner the whole cluster — transitive membership.
+                let roster: Vec<(String, String)> =
+                    susi_gawd::swarm::peer_registry::load_persisted_peers()
+                        .into_iter()
+                        .map(|p| (p.node_id, p.address))
+                        .collect();
                 if let Some(pong) = crate::susi_config::cluster_key::signed_pong(
                     "susi-daemon-node",
                     0,
                     &bloom,
                     &nonce,
+                    &roster,
                 ) {
                     let _ = socket.send_to(pong.as_bytes(), src);
                 }
