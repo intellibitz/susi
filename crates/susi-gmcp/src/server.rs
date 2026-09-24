@@ -179,21 +179,57 @@ async fn handle_request(
     peer: std::net::IpAddr,
 ) -> Result<Response<BoxBody>, Infallible> {
     let cfg = crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
-    let hdr = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok());
-    let signed = crate::susi_core::net_guard::SignedRequest {
-        node: hdr("x-susi-node"),
-        ts_secs: hdr("x-susi-req-ts").and_then(|s| s.parse().ok()),
-        nonce: hdr("x-susi-req-nonce"),
-        sig: hdr("x-susi-req-sig"),
+    let hdr = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string)
     };
+    // Owned header values — the body buffer below moves `req`, so the
+    // SignedRequest borrows these, not the request.
+    let (node_h, ts_h, nonce_h, sig_h) = (
+        hdr("x-susi-node"),
+        hdr("x-susi-req-ts"),
+        hdr("x-susi-req-nonce"),
+        hdr("x-susi-req-sig"),
+    );
+    let signed = crate::susi_core::net_guard::SignedRequest {
+        node: node_h.as_deref(),
+        ts_secs: ts_h.as_deref().and_then(|s| s.parse().ok()),
+        nonce: nonce_h.as_deref(),
+        sig: sig_h.as_deref(),
+    };
+    // Buffer the body once up front: request signatures bind to the
+    // exact body bytes (v2 canonical), and `service.call` accepts any
+    // Body so the buffered bytes rebuild into the same request shape
+    // downstream — JSON-RPC bodies are small and bounded anyway.
+    let (parts, body) = req.into_parts();
+    let body_bytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
+        body,
+        10 * 1024 * 1024,
+    ))
+    .await
+    {
+        Ok(c) => c.to_bytes(),
+        Err(_) => {
+            return Ok(response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "request body exceeds limit",
+            ));
+        }
+    };
+    let req = Request::from_parts(parts, http_body_util::Full::new(body_bytes.clone()));
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
     } else if !crate::susi_core::net_guard::NetGuard::is_authorized(
-        hdr(hyper::header::AUTHORIZATION.as_str()),
+        req.headers()
+            .get(hyper::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok()),
         peer,
         &signed,
         req.method().as_str(),
         req.uri().path(),
+        Some(&body_bytes),
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
     } else if !crate::susi_core::net_guard::RateLimiter::global()

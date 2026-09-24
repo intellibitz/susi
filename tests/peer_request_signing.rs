@@ -103,6 +103,16 @@ fn sign(node: &str, ts: u64, nonce: &str, method: &str, path: &str) -> String {
     .expect("node.key must sign")
 }
 
+#[allow(clippy::too_many_arguments)] // mirrors the signed-request tuple
+fn sign_v2(node: &str, ts: u64, nonce: &str, method: &str, path: &str, body: &[u8]) -> String {
+    use sha2::Digest;
+    let hash = hex::encode(sha2::Sha256::digest(body));
+    cluster_key::member_sign(&format!(
+        "susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}"
+    ))
+    .expect("node.key must sign")
+}
+
 fn write_roster(dir: &std::path::Path, node_id: &str, addr: &str, pubkey: &str) {
     let mut row = serde_json::json!({
         "node_id": node_id,
@@ -139,15 +149,21 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
     let ts = now();
     let sig = sign(&self_id, ts, "nonce-1", "POST", "/mcp");
     let req = signed(&self_id, "nonce-1", ts, &sig);
-    assert!(NetGuard::is_authorized(None, peer, &req, "POST", "/mcp"));
+    assert!(NetGuard::is_authorized(
+        None, peer, &req, "POST", "/mcp", None
+    ));
 
     // Nonce replay: the identical request is refused on the second pass.
-    assert!(!NetGuard::is_authorized(None, peer, &req, "POST", "/mcp"));
+    assert!(!NetGuard::is_authorized(
+        None, peer, &req, "POST", "/mcp", None
+    ));
 
     // A signature minted for a different path does not carry over.
     let sig2 = sign(&self_id, ts, "nonce-2", "POST", "/other");
     let req2 = signed(&self_id, "nonce-2", ts, &sig2);
-    assert!(!NetGuard::is_authorized(None, peer, &req2, "POST", "/mcp"));
+    assert!(!NetGuard::is_authorized(
+        None, peer, &req2, "POST", "/mcp", None
+    ));
 
     // A signature arriving from the wrong source IP is refused — the
     // sig is genuine but the member must call from its registered
@@ -156,14 +172,16 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
     let req3 = signed(&self_id, "nonce-3", ts, &sig3);
     let roaming: IpAddr = "10.0.0.77".parse().unwrap();
     assert!(!NetGuard::is_authorized(
-        None, roaming, &req3, "POST", "/mcp"
+        None, roaming, &req3, "POST", "/mcp", None
     ));
 
     // A stale timestamp is refused.
     let old = ts.saturating_sub(3600);
     let sig4 = sign(&self_id, old, "nonce-4", "POST", "/mcp");
     let req4 = signed(&self_id, "nonce-4", old, &sig4);
-    assert!(!NetGuard::is_authorized(None, peer, &req4, "POST", "/mcp"));
+    assert!(!NetGuard::is_authorized(
+        None, peer, &req4, "POST", "/mcp", None
+    ));
 
     // The bound member's shared bearer no longer suffices from its
     // registered address — it must sign.
@@ -174,7 +192,50 @@ fn bound_member_authenticates_by_signature_and_loses_bearer() {
         peer,
         &UNSIGNED,
         "POST",
-        "/mcp"
+        "/mcp",
+        None
+    ));
+}
+
+#[test]
+fn v2_body_bound_signature_rejects_substituted_content() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new();
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0xCEu8; 32])).unwrap();
+
+    let self_pk = cluster_key::node_pubkey_hex().expect("node key must generate");
+    let self_id = cluster_key::wire_node_id();
+    let peer: IpAddr = "10.0.0.9".parse().unwrap();
+    write_roster(&dir, &self_id, "10.0.0.9:9090", &self_pk);
+
+    // A v2 signature minted over body A verifies for exactly those bytes.
+    let ts = now();
+    let body_a = br#"{"jsonrpc":"2.0","id":2,"method":"tools/call"}"#;
+    let sig = sign_v2(&self_id, ts, "v2-n1", "POST", "/mcp", body_a);
+    let req = signed(&self_id, "v2-n1", ts, &sig);
+    assert!(NetGuard::is_authorized(
+        None,
+        peer,
+        &req,
+        "POST",
+        "/mcp",
+        Some(body_a.as_slice())
+    ));
+
+    // Same headers, different body — an on-path relay's substitution
+    // fails verification and falls through to the bearer rules.
+    let body_b = br#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"evil":true}}"#;
+    let req2 = signed(&self_id, "v2-n2", ts, &sig);
+    assert!(!NetGuard::is_authorized(
+        None,
+        peer,
+        &req2,
+        "POST",
+        "/mcp",
+        Some(body_b.as_slice())
     ));
 }
 
@@ -197,7 +258,8 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
         legacy,
         &UNSIGNED,
         "POST",
-        "/mcp"
+        "/mcp",
+        None
     ));
 
     // An unknown node's signed attempt falls through to the bearer
@@ -207,13 +269,14 @@ fn unbound_member_keeps_bearer_and_unknown_signers_fall_through() {
     let forged_sig = hex::encode([0x11u8; 64]);
     let forged = signed("node-stranger", "n-9", ts, &forged_sig);
     assert!(!NetGuard::is_authorized(
-        None, legacy, &forged, "POST", "/mcp"
+        None, legacy, &forged, "POST", "/mcp", None
     ));
     assert!(NetGuard::is_authorized(
         Some(&auth),
         legacy,
         &forged,
         "POST",
-        "/mcp"
+        "/mcp",
+        None
     ));
 }

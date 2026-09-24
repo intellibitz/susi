@@ -240,6 +240,12 @@ async fn handle_gemi_request(
             &signed,
             method.as_str(),
             &path,
+            // The REST surface doesn't buffer bodies at auth time —
+            // v1 (method+path) signatures still verify; v2 body-bound
+            // member requests fall through to the bearer rules. Member
+            // traffic doesn't target this surface (peer calls go to
+            // the GMCP port), so the asymmetry is safe to keep.
+            None,
         ) {
             return Ok(json_response(
                 StatusCode::UNAUTHORIZED,

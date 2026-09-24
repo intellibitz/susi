@@ -7,6 +7,7 @@
 // Before seeding, non-loopback peers are denied (fail closed on the wire).
 
 use dashmap::DashMap;
+use sha2::Digest;
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
@@ -16,10 +17,13 @@ pub struct NetGuard;
 
 /// The `X-Susi-*` request-signature headers a member node attaches to
 /// peer MCP calls (`mcp_client` signs every POST when `node.key` is
-/// loadable). The signature covers
-/// `susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}` — a passive
-/// sniffer captures headers that cannot be re-minted for a different
-/// request, and the nonce cache makes verbatim replay fail outright.
+/// loadable). The v2 signature covers
+/// `susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{sha256(body)}`
+/// — a passive sniffer captures headers that cannot be re-minted for a
+/// different request, the nonce cache makes verbatim replay fail
+/// outright, and the body hash closes content substitution by an
+/// on-path relay (v1 signatures covering only method+path remain
+/// verifiable for pre-body-bound senders).
 pub struct SignedRequest<'a> {
     pub node: Option<&'a str>,
     pub ts_secs: Option<u64>,
@@ -54,14 +58,21 @@ impl NetGuard {
     ///   address belongs to a member whose pubkey is bound: once a
     ///   member can prove `node.key` possession, the sniffable shared
     ///   bearer no longer suffices from its registered address.
+    ///
+    /// `body` is the buffered request bytes — required to verify a v2
+    /// (body-bound) signature; callers that cannot buffer pass `None`
+    /// and only v1 (method+path) signatures verify for them.
+    #[allow(clippy::too_many_arguments)] // one flat auth-context — a struct
+                                         // would only rename the parameters
     pub fn is_authorized(
         auth_header: Option<&str>,
         peer: IpAddr,
         signed: &SignedRequest<'_>,
         method: &str,
         path: &str,
+        body: Option<&[u8]>,
     ) -> bool {
-        if signed.present() && Self::signed_request_valid(signed, &peer, method, path) {
+        if signed.present() && Self::signed_request_valid(signed, &peer, method, path, body) {
             return true;
         }
         let token = crate::susi_config::SusiConfig::load_global()
@@ -100,12 +111,15 @@ impl NetGuard {
     /// member with a bound pubkey, the source IP must be that member's
     /// registered address, the timestamp must be inside the skew window,
     /// the nonce must be fresh, and the Ed25519 signature must cover the
-    /// canonical request string.
+    /// canonical request string — v2 (body-bound) checked first, v1
+    /// (method+path only) accepted for senders that predate body
+    /// binding.
     fn signed_request_valid(
         signed: &SignedRequest<'_>,
         peer: &IpAddr,
         method: &str,
         path: &str,
+        body: Option<&[u8]>,
     ) -> bool {
         let (Some(node), Some(ts), Some(nonce), Some(sig)) =
             (signed.node, signed.ts_secs, signed.nonce, signed.sig)
@@ -128,8 +142,15 @@ impl NetGuard {
         if !Self::record_nonce(node, nonce) {
             return false;
         }
-        let canonical = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
-        crate::susi_config::cluster_key::member_verify(&pubkey, &canonical, sig)
+        if let Some(bytes) = body {
+            let hash = hex::encode(sha2::Sha256::digest(bytes));
+            let v2 = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{hash}");
+            if crate::susi_config::cluster_key::member_verify(&pubkey, &v2, sig) {
+                return true;
+            }
+        }
+        let v1 = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}");
+        crate::susi_config::cluster_key::member_verify(&pubkey, &v1, sig)
     }
 
     /// The `(pubkey, registered_ip)` of a roster member whose node key is
@@ -353,14 +374,16 @@ mod tests {
                 loopback,
                 &EMPTY_SIGNED,
                 "POST",
-                "/mcp"
+                "/mcp",
+                None
             ));
             assert!(!NetGuard::is_authorized(
                 None,
                 remote,
                 &EMPTY_SIGNED,
                 "POST",
-                "/mcp"
+                "/mcp",
+                None
             ));
         } else {
             assert!(!NetGuard::is_authorized(
@@ -368,21 +391,24 @@ mod tests {
                 loopback,
                 &EMPTY_SIGNED,
                 "POST",
-                "/mcp"
+                "/mcp",
+                None
             ));
             assert!(NetGuard::is_authorized(
                 Some(&format!("Bearer {}", token)),
                 loopback,
                 &EMPTY_SIGNED,
                 "POST",
-                "/mcp"
+                "/mcp",
+                None
             ));
             assert!(!NetGuard::is_authorized(
                 Some("Bearer wrong"),
                 remote,
                 &EMPTY_SIGNED,
                 "POST",
-                "/mcp"
+                "/mcp",
+                None
             ));
         }
     }
@@ -399,7 +425,7 @@ mod tests {
             sig: Some("00"),
         };
         assert!(!NetGuard::is_authorized(
-            None, remote, &signed, "POST", "/mcp"
+            None, remote, &signed, "POST", "/mcp", None
         ));
     }
 

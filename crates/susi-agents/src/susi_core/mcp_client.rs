@@ -41,21 +41,28 @@ fn post(
             .header("mcp-session-id", sid)
             .header("mcp-protocol-version", PROTOCOL_VERSION);
     }
+    // Serialize once so the request signature's body hash is guaranteed
+    // byte-identical to the wire payload — the receiver re-hashes what
+    // arrived, and a mismatch is an authentication failure, not a quirk.
+    let body_bytes = serde_json::to_vec(body).unwrap_or_default();
     // Prove `node.key` possession on every POST — a member whose pubkey is
     // bound in the receiver's roster gets authorized by signature alone,
     // and its sniffable shared bearer is refused (see `net_guard`).
-    for (name, value) in signed_headers(url) {
+    for (name, value) in signed_headers(url, &body_bytes) {
         req = req.header(&name, value);
     }
-    req.send_json(body).map_err(|e| format!("POST {url}: {e}"))
+    req.header("content-type", "application/json")
+        .send(&body_bytes)
+        .map_err(|e| format!("POST {url}: {e}"))
 }
 
 /// `X-Susi-*` request-signature headers over
-/// `susi-peer-req-v1:{node}:{ts}:{nonce}:{method}:{path}`. Empty when no
-/// `node.key` exists (standalone host) — receivers treat the request as
-/// an unsigned call and apply the bearer/token rules.
-fn signed_headers(url: &str) -> Vec<(String, String)> {
+/// `susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{sha256(body)}`.
+/// Empty when no `node.key` exists (standalone host) — receivers treat
+/// the request as an unsigned call and apply the bearer/token rules.
+fn signed_headers(url: &str, body_bytes: &[u8]) -> Vec<(String, String)> {
     use crate::susi_config::cluster_key;
+    use sha2::Digest;
     let node = cluster_key::wire_node_id();
     let path = url.splitn(4, '/').nth(3).map_or_else(
         || "/".to_string(),
@@ -75,7 +82,8 @@ fn signed_headers(url: &str) -> Vec<(String, String)> {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let nonce = cluster_key::random_nonce_hex();
-    let canonical = format!("susi-peer-req-v1:{node}:{ts}:{nonce}:POST:{path}");
+    let hash = hex::encode(sha2::Sha256::digest(body_bytes));
+    let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:POST:{path}:{hash}");
     let Some(sig) = cluster_key::member_sign(&canonical) else {
         return Vec::new();
     };

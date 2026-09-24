@@ -6672,6 +6672,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "signal-hook",
  "susi-agents",
  "susi-config",
