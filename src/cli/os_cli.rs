@@ -25,6 +25,38 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
     }
 }
 
+/// Hygiene check: the credential files consensus depends on
+/// (`cluster.key`, `node.key`, `api_token`) are created 0600, but an
+/// operator `chmod` or a bad umask can loosen them silently — and a
+/// world-readable cluster.key hands every local user full cluster
+/// membership. Surfacing it in the status view turns an invisible
+/// misconfiguration into an actionable warning.
+#[cfg(unix)]
+fn credential_warnings() -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = susi_paths::SusiDirs::config_dir();
+    let mut warnings = Vec::new();
+    for name in ["cluster.key", "node.key", "api_token"] {
+        let path = dir.join(name);
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue; // absent is a bootstrap state, not a perms issue
+        };
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            warnings.push(format!(
+                "{name} is group/world-readable (mode {mode:04o}) — run `chmod 600 {}`",
+                path.display()
+            ));
+        }
+    }
+    warnings
+}
+
+#[cfg(not(unix))]
+fn credential_warnings() -> Vec<String> {
+    Vec::new()
+}
+
 fn status(json: bool) -> Result<()> {
     let state = commit_log::replay();
     let term = commit_log::load_term();
@@ -92,6 +124,7 @@ fn status(json: bool) -> Result<()> {
                 .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
             "staged_key_epoch": susi_config::cluster_key::staged_key()
                 .map(|k| susi_config::cluster_key::key_fingerprint(&k)[..12].to_string()),
+            "warnings": credential_warnings(),
         });
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
@@ -163,6 +196,9 @@ fn status(json: bool) -> Result<()> {
     );
     if evicted {
         println!("cluster:     EVICTED — removed by a committed member_remove; standing down until a committed unban");
+    }
+    for warning in credential_warnings() {
+        println!("warning:     {warning}");
     }
     let daemon = susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
     println!(
