@@ -13,7 +13,11 @@ use std::path::PathBuf;
 #[derive(Debug, Subcommand)]
 pub enum PeersCommands {
     /// List verified peers and banned members (default)
-    List,
+    List {
+        /// Emit machine-readable JSON instead of the table view
+        #[arg(long)]
+        json: bool,
+    },
     /// Bootstrap cluster membership: send a cluster-key-signed discovery
     /// ping to a host and persist the verified responder as an explicit
     /// member. Fails closed when the peer doesn't hold our cluster.key.
@@ -39,8 +43,8 @@ pub enum PeersCommands {
 }
 
 pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
-    match action.unwrap_or(PeersCommands::List) {
-        PeersCommands::List => list(),
+    match action.unwrap_or(PeersCommands::List { json: false }) {
+        PeersCommands::List { json } => list(json),
         PeersCommands::Add { host, port } => add(&host, port),
         PeersCommands::Remove { peer } => remove(&peer),
         PeersCommands::Unban { peer } => unban(&peer),
@@ -189,18 +193,35 @@ fn liveness(n: &serde_json::Value) -> &'static str {
     }
 }
 
-fn list() -> Result<()> {
+fn list(json: bool) -> Result<()> {
     let nodes = load_registry();
     let banned = load_banned();
+    let evicted = susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists();
+    if json {
+        // Machine surface for agents — same fields the table shows.
+        let body = serde_json::json!({
+            "node_id": susi_config::cluster_key::wire_node_id(),
+            "evicted": evicted,
+            "peers": nodes.iter().map(|n| serde_json::json!({
+                "node_id": n.get("node_id"),
+                "address": n.get("address"),
+                "trust_score": n.get("trust_score"),
+                "admission": n.get("admission"),
+                "live": liveness(n) == "yes",
+            })).collect::<Vec<_>>(),
+            "banned": banned,
+        });
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
     // This node's wire identity — an operator verifying a member joined
     // needs the local id to match against the remote roster.
     println!("node: {}", susi_config::cluster_key::wire_node_id());
     // A committed member_remove naming this node stands it down — the
     // scout is silent until a committed unban clears the marker.
-    if susi_paths::SusiDirs::config_dir()
-        .join("cluster_evicted.json")
-        .exists()
-    {
+    if evicted {
         println!("status: EVICTED — this node was removed from the cluster; cluster traffic is suspended until a committed unban");
     }
     if nodes.is_empty() && banned.is_empty() {
