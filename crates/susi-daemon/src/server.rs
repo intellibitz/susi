@@ -456,16 +456,37 @@ impl SusiDaemon {
             // exits non-zero when the user manager bus is unreachable (WSL,
             // containers, pre-linger SSH), in which case we fall through to
             // the portable double-fork path below.
+            //
+            // Caps scale with the host: a fixed 2G/50%-of-one-core budget
+            // (sized for a minimal daemon) makes local inference impossible —
+            // a single 7B Q4 model needs ~5G, and the leaf services + rayon
+            // swarm share the same cgroup. Floor at 8G/200%, then a quarter
+            // of RAM and half the cores, so runaway stays bounded without
+            // starving real workloads.
+            let total_ram_bytes = std::fs::read_to_string("/proc/meminfo")
+                .ok()
+                .and_then(|t| {
+                    t.lines().find(|l| l.starts_with("MemTotal")).and_then(|l| {
+                        l.split_whitespace()
+                            .nth(1)
+                            .and_then(|v| v.parse::<u64>().ok())
+                    })
+                })
+                .map(|kb| kb * 1024)
+                .unwrap_or(0);
+            let mem_cap = (total_ram_bytes / 4).max(8 * 1024 * 1024 * 1024);
+            let cores = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            let cpu_quota = (cores * 50).max(200);
             let spawned_via_systemd = Command::new("systemd-run")
-                .args([
-                    "--user",
-                    "--collect",
-                    "--quiet",
-                    "--unit=susi-daemon",
-                    "--property=MemoryMax=2G",
-                    "--property=CPUQuota=50%",
-                    "--",
-                ])
+                .args(["--user", "--collect", "--quiet", "--unit=susi-daemon"])
+                .arg(format!(
+                    "--property=MemoryMax={}G",
+                    mem_cap / (1024 * 1024 * 1024)
+                ))
+                .arg(format!("--property=CPUQuota={cpu_quota}%"))
+                .arg("--")
                 .arg(&bin_to_run)
                 .arg("daemon-start")
                 .arg("--workspace")
