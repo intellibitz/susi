@@ -639,28 +639,34 @@ impl CoreTools {
         // leadership — reject it (Raft's AppendEntries term check).
         // History fills via repair_commit_gap bypass this gate by
         // calling append() directly — terms gate new writes, not the
-        // log's past.
-        let term_note = match crate::susi_core::commit_log::check_term(&record) {
-            crate::susi_core::commit_log::TermVerdict::Stale => {
-                return Err(EaiError::protocol(format!(
-                    "stale term {} (current {}): coordinator {} is working from superseded leadership",
-                    record.term,
-                    crate::susi_core::commit_log::load_term().term,
-                    record.coordinator
-                )));
+        // log's past. Only member coordinators may drive term state:
+        // an evicted node's forged high term must not adopt into
+        // term.json (it would freeze every honest push as Stale).
+        let term_note = if !crate::susi_core::commit_log::coordinator_known(&record) {
+            String::new()
+        } else {
+            match crate::susi_core::commit_log::check_term(&record) {
+                crate::susi_core::commit_log::TermVerdict::Stale => {
+                    return Err(EaiError::protocol(format!(
+                        "stale term {} (current {}): coordinator {} is working from superseded leadership",
+                        record.term,
+                        crate::susi_core::commit_log::load_term().term,
+                        record.coordinator
+                    )));
+                }
+                crate::susi_core::commit_log::TermVerdict::Adopted(s) => {
+                    format!(" — adopted term {} (leader {})", s.term, s.leader)
+                }
+                crate::susi_core::commit_log::TermVerdict::LeaderConflict => {
+                    format!(
+                        " — WARNING: term {} leader conflict ({} vs persisted {})",
+                        record.term,
+                        record.leader,
+                        crate::susi_core::commit_log::load_term().leader
+                    )
+                }
+                crate::susi_core::commit_log::TermVerdict::Current => String::new(),
             }
-            crate::susi_core::commit_log::TermVerdict::Adopted(s) => {
-                format!(" — adopted term {} (leader {})", s.term, s.leader)
-            }
-            crate::susi_core::commit_log::TermVerdict::LeaderConflict => {
-                format!(
-                    " — WARNING: term {} leader conflict ({} vs persisted {})",
-                    record.term,
-                    record.leader,
-                    crate::susi_core::commit_log::load_term().leader
-                )
-            }
-            crate::susi_core::commit_log::TermVerdict::Current => String::new(),
         };
         // Replication-gap check BEFORE append: a seq that skips ahead of
         // what this node holds means commits from this coordinator were
@@ -2309,6 +2315,20 @@ mod os_tools_wired_tests {
     fn commit_record_rejects_stale_term_and_adopts_newer() {
         let _permit = wire_permissive_audit();
         let (_env, dir) = isolate_config();
+        // Coordinator authority requires explicit membership — declare
+        // the test's coordinators in the isolated roster so their
+        // records may drive term state.
+        let peers_dir = crate::susi_paths::SusiDirs::config_dir();
+        std::fs::create_dir_all(&peers_dir).expect("peers dir");
+        std::fs::write(
+            peers_dir.join("peers.json"),
+            serde_json::to_string(&serde_json::json!([
+                { "node_id": "leader-a", "admission": "explicit" },
+                { "node_id": "leader-c", "admission": "explicit" },
+            ]))
+            .expect("peers json"),
+        )
+        .expect("write peers.json");
         // Establish term 1 under leader-a, seal a record there, then move
         // the cluster to term 2 — the term-1 push must now be rejected.
         crate::susi_core::commit_log::claim_leadership("leader-a");

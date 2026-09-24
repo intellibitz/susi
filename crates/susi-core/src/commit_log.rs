@@ -891,9 +891,21 @@ pub fn member_coordinator_known(record: &CommitRecord) -> bool {
 
 /// Test seam: coordinator-authority check against an explicit roster dir.
 pub fn member_coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
-    if record.member_delta().is_none() {
-        return true;
-    }
+    record.member_delta().is_none() || coordinator_known_at(record, dir)
+}
+
+/// Whether the record's coordinator holds commit authority on this
+/// roster — a current explicit member or this node itself. Commit
+/// authority = membership: records from non-members may still append as
+/// history, but they must not bump `term.json` (an evicted node's
+/// forged high term would otherwise freeze consensus) nor alter the
+/// roster.
+pub fn coordinator_known(record: &CommitRecord) -> bool {
+    coordinator_known_at(record, &SusiDirs::config_dir())
+}
+
+/// Test seam: coordinator-authority check against an explicit roster dir.
+pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
     if record.coordinator == crate::susi_config::cluster_key::wire_node_id() {
         return true;
     }

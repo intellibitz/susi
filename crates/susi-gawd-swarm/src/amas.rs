@@ -1274,16 +1274,16 @@ impl SusiSupervisor {
             if !r.verify() {
                 continue;
             }
-            // Raft's step-down on the pull path: a verified record
-            // carrying a newer term adopts it into term.json — a node
-            // rejoining after downtime shouldn't stay at term 0 while
-            // the cluster has moved on. Stale-term records still append
-            // (history fill bypasses the term gate by design).
-            let _ = crate::susi_core::commit_log::check_term(r);
-            // Member records need coordinator authority: an evicted
-            // node still holds cluster.key, so signature alone can't
-            // authorize roster changes. Refused records stay missing —
-            // retried next sweep once the coordinator is known.
+            // Raft's step-down on the pull path, but only from member
+            // coordinators: an evicted node still holds cluster.key, so
+            // a forged high term from a non-member must not adopt into
+            // term.json (it would freeze every honest push as Stale).
+            if crate::susi_core::commit_log::coordinator_known(r) {
+                let _ = crate::susi_core::commit_log::check_term(r);
+            }
+            // Member records need coordinator authority: signature alone
+            // can't authorize roster changes. Refused records stay
+            // missing — retried next sweep once the coordinator is known.
             if !crate::susi_core::commit_log::member_coordinator_known(r) {
                 continue;
             }

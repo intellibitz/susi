@@ -166,10 +166,12 @@ fn sync() -> Result<()> {
                 bad += 1;
                 continue;
             }
-            // Raft's step-down on the pull path: a verified record with
-            // a newer term adopts it into term.json — a stale term file
-            // shouldn't survive contact with a more current peer.
-            let _ = commit_log::check_term(r);
+            // Raft's step-down on the pull path, but only from member
+            // coordinators — a non-member's forged high term must not
+            // adopt into term.json (it would freeze honest pushes).
+            if commit_log::coordinator_known(r) {
+                let _ = commit_log::check_term(r);
+            }
             // Member records need coordinator authority — an evicted
             // node still holds cluster.key. Refused records stay
             // missing and converge once the coordinator is known.
