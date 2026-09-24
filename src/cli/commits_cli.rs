@@ -166,6 +166,10 @@ fn sync() -> Result<()> {
                 bad += 1;
                 continue;
             }
+            // Raft's step-down on the pull path: a verified record with
+            // a newer term adopts it into term.json — a stale term file
+            // shouldn't survive contact with a more current peer.
+            let _ = commit_log::check_term(r);
             let key = serde_json::to_string(&r).unwrap_or_default();
             if held.contains(&key) {
                 dup += 1;
