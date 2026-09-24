@@ -91,6 +91,17 @@ fn now_secs() -> u64 {
 /// convergence — `commits sync` and roster gossip carry the record.
 fn commit_membership(kind: &str, node_id: &str, address: &str) {
     use susi_core::commit_log;
+    // An evicted node can still seal member records locally, but no
+    // member will accept them — coordinator authority requires current
+    // explicit membership. Say so instead of reporting false pushes.
+    if susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists()
+    {
+        eprintln!(
+            "note: this node is evicted — member records it seals carry no cluster authority"
+        );
+    }
     // The roster as this node observed it at commit time — audit context
     // for who was a member when the delta was decided.
     let electorate: Vec<String> = load_registry()
