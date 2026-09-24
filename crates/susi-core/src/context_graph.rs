@@ -168,6 +168,11 @@ pub struct ContextGraph {
     adjacency: DashMap<NodeId, DashMap<NodeId, String>>,
     reverse: DashMap<NodeId, DashMap<NodeId, String>>,
     storage_path: parking_lot::Mutex<Option<PathBuf>>,
+    /// Bytes of the log already folded into the in-memory indexes —
+    /// incremental replay resumes here instead of re-parsing the whole
+    /// file on every call. A file smaller than the offset was rewritten
+    /// by `persist()`/`compact()` and is folded wholesale again.
+    replay_offset: parking_lot::Mutex<u64>,
 }
 
 impl Default for ContextGraph {
@@ -185,6 +190,7 @@ impl ContextGraph {
             adjacency: DashMap::new(),
             reverse: DashMap::new(),
             storage_path: parking_lot::Mutex::new(None),
+            replay_offset: parking_lot::Mutex::new(0),
         }
     }
 
@@ -233,6 +239,12 @@ impl ContextGraph {
         let Some(path) = path else {
             return Ok(());
         };
+        // Serialize against sibling processes: `persist()` truncates
+        // the log, so an unlocked append racing a compact could write
+        // into the truncation window and be silently lost.
+        let _lock = path
+            .parent()
+            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
         let line = serde_json::to_string(event)?;
         let mut file = std::fs::OpenOptions::new()
             .create(true)
@@ -740,7 +752,17 @@ impl ContextGraph {
         }
     }
 
-    /// Replay an append-only JSONL log into this graph.
+    /// Replay new lines of the append-only JSONL log into this graph.
+    ///
+    /// Incremental: only bytes past `replay_offset` are parsed — the
+    /// in-memory indexes already hold everything this process wrote and
+    /// every line it previously folded, so re-reading the whole log on
+    /// each query would cost O(file size) per request for no gain.
+    /// A file that shrank below the offset was rewritten by
+    /// `persist()`/`compact()` and folds wholesale again (folding is
+    /// idempotent — node/edge ids dedupe). A trailing line without a
+    /// newline is a sibling process mid-append: skipped this pass,
+    /// folded next time.
     pub fn replay(&self) -> EaiResult<()> {
         let path = self.storage_path.lock().clone();
         let Some(path) = path else {
@@ -749,9 +771,30 @@ impl ContextGraph {
         if !path.is_file() {
             return Ok(());
         }
-        let text =
-            std::fs::read_to_string(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        for line in text.lines() {
+        use std::io::{BufRead, Seek};
+        let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let mut offset = self.replay_offset.lock();
+        let start = if file_len < *offset { 0 } else { *offset };
+        let mut file =
+            std::fs::File::open(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        file.seek(std::io::SeekFrom::Start(start))
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut consumed = start;
+        loop {
+            let mut line = String::new();
+            let n = reader
+                .read_line(&mut line)
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
+            if n == 0 {
+                break;
+            }
+            if !line.ends_with('\n') {
+                // Torn tail — a sibling append is mid-flight. Do not
+                // consume it; the next replay retries from `consumed`.
+                break;
+            }
+            consumed += n as u64;
             let line = line.trim();
             if line.is_empty() {
                 continue;
@@ -769,6 +812,7 @@ impl ContextGraph {
                 }
             }
         }
+        *offset = consumed;
         Ok(())
     }
 
@@ -787,6 +831,11 @@ impl ContextGraph {
         for edge in self.edges.iter() {
             lines.push(ContextGraphEvent::EdgeAdded(edge.value().clone()));
         }
+        // The truncate below must not interleave with a sibling's
+        // append — the same lock append_event takes.
+        let _lock = path
+            .parent()
+            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -797,6 +846,12 @@ impl ContextGraph {
         for event in lines {
             let line = serde_json::to_string(&event)?;
             writeln!(file, "{line}").map_err(|e| EaiError::filesystem(e.to_string()))?;
+        }
+        // The rewritten file is exactly the in-memory state — advance
+        // the replay cursor to EOF so the next replay doesn't re-fold
+        // lines this process just wrote.
+        if let Ok(meta) = file.metadata() {
+            *self.replay_offset.lock() = meta.len();
         }
         Ok(())
     }
@@ -968,6 +1023,88 @@ mod tests {
         let g2 = ContextGraph::with_storage(path);
         let _ = g2.replay();
         assert!(g2.node(&NodeId::stable("mission", "m-compact")).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn replay_is_incremental_and_tolerates_torn_tail() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-cg-incr-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("context_graph.jsonl");
+        let g = ContextGraph::with_storage(path.clone());
+        let ws = std::env::temp_dir().join("susi-cg-incr-ws");
+        let _ = std::fs::create_dir_all(&ws);
+        g.record_mission("m-incr", "incremental", &ws, None);
+
+        // First replay consumes everything — the cursor sits at EOF.
+        g.replay().unwrap();
+        let eof = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(*g.replay_offset.lock(), eof);
+
+        // A "sibling process" appends a node line directly — the next
+        // replay must fold ONLY the tail, and the cursor advances.
+        let ext = ContextGraphEvent::NodeAdded(Node {
+            id: NodeId::stable("external", "sibling-write"),
+            kind: NodeType::Observation,
+            label: "sibling".into(),
+            created_at: 1,
+            properties: HashMap::new(),
+        });
+        let mut line = serde_json::to_string(&ext).unwrap();
+        line.push('\n');
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(line.as_bytes())
+            .unwrap();
+        g.replay().unwrap();
+        assert!(
+            g.node(&NodeId::stable("external", "sibling-write"))
+                .is_some(),
+            "incremental replay must fold lines appended by other processes"
+        );
+
+        // A torn tail (sibling mid-append, no newline yet) must not
+        // error and must not be consumed — the cursor stays put.
+        let cursor = *g.replay_offset.lock();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(b"{\"node_added\":")
+            .unwrap();
+        g.replay().unwrap();
+        assert_eq!(*g.replay_offset.lock(), cursor);
+
+        // Completing the torn line lets the next replay fold it.
+        let node = ContextGraphEvent::NodeAdded(Node {
+            id: NodeId::stable("external", "torn-complete"),
+            kind: NodeType::Observation,
+            label: "torn".into(),
+            created_at: 2,
+            properties: HashMap::new(),
+        });
+        let full = serde_json::to_string(&node).unwrap();
+        let tail = full.strip_prefix("{\"node_added\":").unwrap();
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(format!("{tail}\n").as_bytes())
+            .unwrap();
+        g.replay().unwrap();
+        assert!(
+            g.node(&NodeId::stable("external", "torn-complete"))
+                .is_some(),
+            "the completed line must fold on the following replay"
+        );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&ws);
     }
