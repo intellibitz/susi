@@ -281,6 +281,88 @@ impl ContextGraph {
             .insert(edge.source.clone(), edge.id.clone());
     }
 
+    /// Hard bound on resident nodes. Every observed context (file
+    /// change, tool call, telemetry snapshot) becomes a node; without a
+    /// cap the in-memory maps — and the compacted log `persist()`
+    /// rewrites — grow without limit (165k nodes / 80MB observed).
+    ///
+    /// Eviction removes the oldest `created_at` ephemeral nodes first
+    /// (ExternalContext, Telemetry, Observation, File, ToolCall — bulk
+    /// observations whose value decays), protecting the few long-lived
+    /// structural nodes (workspace, user, mission, tool) that queries
+    /// anchor on. If the map is still over capacity after ephemeral
+    /// eviction, the oldest nodes go regardless of kind — the bound is
+    /// absolute. Evicted nodes' edges are removed from `edges` and both
+    /// adjacency indexes so traversal never sees dangling references.
+    ///
+    /// Runs after `replay()` and on `record_node()`: eviction is
+    /// deterministic (oldest `created_at`, ties broken by id), so every
+    /// process folds the same log into the same bounded state, and the
+    /// next `persist()` shrinks the file to match.
+    fn enforce_capacity(&self) {
+        const MAX_GRAPH_NODES: usize = 32_000;
+        if self.nodes.len() <= MAX_GRAPH_NODES {
+            return;
+        }
+        let mut by_age: Vec<(u64, NodeId, bool)> = self
+            .nodes
+            .iter()
+            .map(|r| {
+                (
+                    r.value().created_at,
+                    r.key().clone(),
+                    matches!(
+                        r.value().kind,
+                        NodeType::ExternalContext
+                            | NodeType::Telemetry
+                            | NodeType::Observation
+                            | NodeType::File
+                            | NodeType::ToolCall
+                    ),
+                )
+            })
+            .collect();
+        // Oldest first; ephemeral (true) sorts ahead of structural at
+        // the same age via the reversed flag order below.
+        by_age.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1 .0.cmp(&b.1 .0)));
+        let excess = self.nodes.len() - MAX_GRAPH_NODES;
+        let mut evict: Vec<NodeId> = by_age
+            .iter()
+            .filter(|(_, _, ephemeral)| *ephemeral)
+            .take(excess)
+            .map(|(_, id, _)| id.clone())
+            .collect();
+        if evict.len() < excess {
+            let evicted: std::collections::HashSet<NodeId> = evict.iter().cloned().collect();
+            let fill: Vec<NodeId> = by_age
+                .iter()
+                .filter(|(_, id, _)| !evicted.contains(id))
+                .take(excess - evict.len())
+                .map(|(_, id, _)| id.clone())
+                .collect();
+            evict.extend(fill);
+        }
+        for id in &evict {
+            self.nodes.remove(id);
+            if let Some((_, out)) = self.adjacency.remove(id) {
+                for (target, eid) in out {
+                    if let Some(rev) = self.reverse.get(&target) {
+                        rev.remove(id);
+                    }
+                    self.edges.remove(&eid);
+                }
+            }
+            if let Some((_, inc)) = self.reverse.remove(id) {
+                for (source, eid) in inc {
+                    if let Some(fwd) = self.adjacency.get(&source) {
+                        fwd.remove(id);
+                    }
+                    self.edges.remove(&eid);
+                }
+            }
+        }
+    }
+
     fn edge_id(source: &NodeId, kind: &EdgeType, target: &NodeId, at: u64) -> String {
         let mut hasher = Sha256::new();
         hasher.update(source.0.as_bytes());
@@ -295,6 +377,7 @@ impl ContextGraph {
         let id = node.id.clone();
         if !self.nodes.contains_key(&id) {
             self.nodes.insert(id.clone(), node.clone());
+            self.enforce_capacity();
             let _ = self.append_event(&ContextGraphEvent::NodeAdded(node));
         }
         id
@@ -827,6 +910,7 @@ impl ContextGraph {
             }
         }
         *offset = consumed;
+        self.enforce_capacity();
         Ok(())
     }
 
@@ -1043,6 +1127,60 @@ mod tests {
         assert!(g2.node(&NodeId::stable("mission", "m-compact")).is_some());
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn enforce_capacity_evicts_oldest_ephemeral_before_structural() {
+        let g = ContextGraph::new();
+        // The structural node is the OLDEST in the graph — an unguarded
+        // evict-oldest policy would drop it first.
+        g.record_node(Node {
+            id: NodeId("ws-structural".into()),
+            kind: NodeType::Workspace,
+            label: "ws".into(),
+            created_at: 1,
+            properties: HashMap::new(),
+        });
+        for i in 0..31_999u64 {
+            g.record_node(Node {
+                id: NodeId(format!("eph-{i}")),
+                kind: NodeType::ExternalContext,
+                label: format!("n{i}"),
+                created_at: 1_000 + i,
+                properties: HashMap::new(),
+            });
+        }
+        // At capacity: nothing evicted yet.
+        assert!(g.node(&NodeId("eph-0".into())).is_some());
+        // An edge into the eviction victim must die with it.
+        g.record_edge(Edge {
+            id: "e-eph0".into(),
+            source: NodeId("ws-structural".into()),
+            target: NodeId("eph-0".into()),
+            kind: EdgeType::References,
+            created_at: 2,
+            properties: HashMap::new(),
+        });
+        // The next ephemeral record exceeds the cap → evict eph-0
+        // (oldest ephemeral), never the structural node.
+        g.record_node(Node {
+            id: NodeId("eph-32000".into()),
+            kind: NodeType::ExternalContext,
+            label: "n32000".into(),
+            created_at: 33_000,
+            properties: HashMap::new(),
+        });
+        assert!(g.node(&NodeId("eph-0".into())).is_none());
+        assert!(g.node(&NodeId("eph-32000".into())).is_some());
+        assert!(
+            g.node(&NodeId("ws-structural".into())).is_some(),
+            "eviction must prefer ephemeral nodes over structural anchors"
+        );
+        assert!(
+            g.edges.get("e-eph0").is_none(),
+            "edge to an evicted node must be removed, not left dangling"
+        );
+        assert_eq!(g.nodes.len(), 32_000);
     }
 
     #[test]
