@@ -951,32 +951,38 @@ impl SusiDaemon {
                     } else {
                         pinger_id
                     };
-                    if !susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
-                        let node = susi_gawd::swarm::amas::ClusterPeerNode {
-                            node_id: pinger_id,
-                            address: pinger_addr,
-                            node_type: "PEER".into(),
-                            is_active: true,
-                            capabilities: caps_csv
-                                .split(',')
-                                .filter(|c| !c.is_empty())
-                                .map(str::to_string)
-                                .collect(),
-                            registry_checksum: checksum,
-                            latency_ms: 0,
-                            uptime_secs: 0,
-                            trust_score: 0.8,
-                            capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
-                                &bloom_hex,
-                            ),
-                            admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
-                            last_seen_secs: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_secs())
-                                .unwrap_or(0),
-                        };
-                        susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
+                    // A banned member gets no handshake at all: no
+                    // admission on our side, and no signed pong for them
+                    // to verify us with. Without this the ban only stops
+                    // our roster — the banned node could still treat us
+                    // as a verified peer and harvest our roster gossip.
+                    if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
+                        continue;
                     }
+                    let node = susi_gawd::swarm::amas::ClusterPeerNode {
+                        node_id: pinger_id,
+                        address: pinger_addr,
+                        node_type: "PEER".into(),
+                        is_active: true,
+                        capabilities: caps_csv
+                            .split(',')
+                            .filter(|c| !c.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                        registry_checksum: checksum,
+                        latency_ms: 0,
+                        uptime_secs: 0,
+                        trust_score: 0.8,
+                        capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
+                            &bloom_hex,
+                        ),
+                        admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
+                        last_seen_secs: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
+                    };
+                    susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
                 }
                 let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
                 // Gossip our verified roster so one handshake teaches the
