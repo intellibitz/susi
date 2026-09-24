@@ -1160,6 +1160,16 @@
       "milestone": "daemon-status",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022924-122",
+      "milestone": "what is the susi workspace version",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

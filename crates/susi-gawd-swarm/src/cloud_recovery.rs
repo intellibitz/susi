@@ -296,16 +296,21 @@ async fn recover_with_providers(
         crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
     );
     let mut attempted = HashSet::new();
+    let mut ghosts = 0usize;
     for name in providers {
         if !attempted.insert(name.clone()) {
             continue;
         }
+        // Resolve before logging: a name the failover order enumerated
+        // but no registry can serve (no cap, no wired topic) is a ghost,
+        // not a provider — skip it without a "Trying" line.
+        let Some(provider) = registry.get_provider(&name) else {
+            ghosts += 1;
+            continue;
+        };
         eprintln!("[FAILOVER] Trying cloud {name}");
         let prompt = recovery_prompt(&report.goal, &context);
         let result = tokio::time::timeout(timeout, async {
-            let provider = registry
-                .get_provider(&name)
-                .ok_or_else(|| EaiError::inference("Provider no longer available"))?;
             let raw = provider.generate(&prompt).await?;
             let answer = parse_recovery_answer(&raw)?;
             verify_recovery_answer(report, &name, answer, &context, registry, workspace).await
@@ -324,7 +329,19 @@ async fn recover_with_providers(
                 return;
             }
             Ok(Err(error)) => {
-                record_attempt(report, &name, "CLOUD_ATTEMPT_FAILED", error.to_string())
+                // A registry ghost — a provider name the failover order
+                // enumerated but no live process serves (stale cap file,
+                // dead owner, unswept rendezvous) — is not a provider
+                // attempt. A failed mission otherwise logs hundreds of
+                // instant "no handler" failures (observed: 547 ghost
+                // providers from a dead rediscovery sweep), drowning the
+                // real attempts in the report.
+                let msg = error.to_string();
+                if msg.contains("no handler for topic") || msg.contains("no longer available") {
+                    ghosts += 1;
+                } else {
+                    record_attempt(report, &name, "CLOUD_ATTEMPT_FAILED", msg)
+                }
             }
             Err(_) => record_attempt(
                 report,
@@ -333,6 +350,9 @@ async fn recover_with_providers(
                 "Provider attempt timed out".into(),
             ),
         }
+    }
+    if ghosts > 0 {
+        eprintln!("[FAILOVER] skipped {ghosts} ghost provider registration(s) — no live owner");
     }
 
     // Last resort: local GGUF / llamacpp path (skips cloud escalation).
