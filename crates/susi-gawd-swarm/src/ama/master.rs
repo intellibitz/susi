@@ -127,7 +127,7 @@ impl SusiMasterAgent {
             interactions: vec![],
             final_answer: String::new(),
         };
-        crate::cloud_recovery::recover(&mut report, workspace, model, true);
+        crate::cloud_recovery::recover(&mut report, workspace, model, true, session);
         if report.is_success() {
             report.final_answer
         } else {
@@ -526,7 +526,13 @@ impl SusiMasterAgent {
                 interactions: Vec::new(),
                 final_answer,
             };
-            crate::cloud_recovery::recover(&mut report, workspace, model_hint, false);
+            crate::cloud_recovery::recover(
+                &mut report,
+                workspace,
+                model_hint,
+                false,
+                session.clone(),
+            );
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             eprintln!("{}", report.completion_message());
             drop(_guard);
@@ -542,7 +548,13 @@ impl SusiMasterAgent {
 
         match res {
             Ok(mut report) => {
-                crate::cloud_recovery::recover(&mut report, workspace, model_hint, false);
+                crate::cloud_recovery::recover(
+                    &mut report,
+                    workspace,
+                    model_hint,
+                    false,
+                    session.clone(),
+                );
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
@@ -558,7 +570,13 @@ impl SusiMasterAgent {
                     interactions: Vec::new(),
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
-                crate::cloud_recovery::recover(&mut err_report, workspace, model_hint, false);
+                crate::cloud_recovery::recover(
+                    &mut err_report,
+                    workspace,
+                    model_hint,
+                    false,
+                    session.clone(),
+                );
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 eprintln!("{}", err_report.completion_message());
                 drop(_guard);
@@ -713,7 +731,7 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut report, workspace, None, false);
+        crate::cloud_recovery::recover(&mut report, workspace, None, false, session.clone());
         attach_evidence_ledger(&mut report, session.as_ref(), workspace);
         Ok(report)
     }
@@ -763,7 +781,7 @@ impl SusiMasterAgent {
                 step
             );
             let mut report = self.solve_internal(step, workspace, version, 0)?;
-            crate::cloud_recovery::recover(&mut report, workspace, None, false);
+            crate::cloud_recovery::recover(&mut report, workspace, None, false, session.clone());
 
             let success = report.status == "COMPLETE" || report.status == "SUCCESS";
             let summary = format!(
@@ -820,7 +838,7 @@ impl SusiMasterAgent {
             )
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut final_report, workspace, None, false);
+        crate::cloud_recovery::recover(&mut final_report, workspace, None, false, session.clone());
         attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
         Ok(final_report)
     }

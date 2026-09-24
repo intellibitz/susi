@@ -9,6 +9,7 @@ use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use susi_gawd_agents::security::SecurityDetector;
 
@@ -92,6 +93,7 @@ pub(crate) fn recover(
     workspace: &Path,
     model_hint: Option<&str>,
     generative: bool,
+    session: Option<Arc<crate::susi_core::capture::EvidenceSession>>,
 ) {
     if !eligible(report) {
         return;
@@ -125,15 +127,24 @@ pub(crate) fn recover(
             .unwrap_or_default()
     };
     // A dedicated thread also supports synchronous callers inside Tokio runtimes.
+    // Reborrow under a distinct name so the move closure consumes the
+    // reborrow and the caller's `&mut` stays usable after the scope ends.
+    let report_ref = &mut *report;
     let outcome = std::thread::scope(|scope| {
         scope
-            .spawn(|| -> EaiResult<()> {
+            .spawn(move || -> EaiResult<()> {
+                // The workspace-keyed session map resolves the *last*
+                // activated session — a concurrent mission on the same
+                // workspace would steal this mission's receipt writes or
+                // fail its citation checks. Enter the mission's own
+                // session scope so `for_workspace` resolves it first.
+                let _evidence_scope = crate::susi_core::capture::EvidenceSession::enter(session);
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .map_err(|e| EaiError::internal(e.to_string()))?;
                 runtime.block_on(recover_with_providers(
-                    report,
+                    report_ref,
                     registry,
                     providers,
                     workspace,
