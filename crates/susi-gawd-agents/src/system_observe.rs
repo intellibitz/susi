@@ -103,6 +103,21 @@ pub fn capture_verified_read(
     ) {
         return Some(capture_models_read(&normalized, workspace));
     }
+    // Governed tool reads: the answer is the tool's own output verbatim,
+    // which satisfies "evidence must be cited" only if the receipt binds
+    // answer-to-output — narrating the same data unbound fails the gate.
+    let tool_read = match normalized.as_str() {
+        "dashboard" | "susi dashboard" | "show dashboard" => {
+            Some(("sovereign_dashboard", serde_json::Value::Null))
+        }
+        "bloat audit" | "bloat-audit" | "run bloat audit" => {
+            Some(("bloat_audit", serde_json::Value::Null))
+        }
+        _ => None,
+    };
+    if let Some((tool, arg)) = tool_read {
+        return Some(capture_tool_read(&normalized, workspace, tool, arg));
+    }
     let command = match normalized.as_str() {
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
@@ -187,6 +202,38 @@ fn capture_models_read(
             "Active Model Substrates (Count: {count}, live scan observed at \
              Unix {observed_at}):\n\n{models}"
         ),
+    })
+}
+
+/// A governed tool call captured as a verified read. The answer is the
+/// tool output verbatim, so the receipt proves the mission returned real
+/// tool evidence rather than a narrative about it.
+fn capture_tool_read(
+    normalized_goal: &str,
+    workspace: &Path,
+    tool: &str,
+    arg: serde_json::Value,
+) -> crate::susi_error::EaiResult<VerifiedSystemRead> {
+    let workspace = workspace
+        .canonicalize()
+        .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
+    let captured_at = std::time::Instant::now();
+    let out = crate::susi_core::plane_bus::tools::execute_tool(tool, &arg, &workspace)
+        .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?;
+    if looks_like_tool_failure(&out) {
+        return Err(crate::susi_error::EaiError::governance(format!(
+            "TRUTH_UNVERIFIED: tool `{tool}` produced no observation: {out}"
+        )));
+    }
+    let observed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?
+        .as_secs();
+    Ok(VerifiedSystemRead {
+        goal: normalized_goal.to_string(),
+        workspace,
+        captured_at,
+        answer: format!("Tool `{tool}` output (governed, observed at Unix {observed_at}):\n{out}"),
     })
 }
 
