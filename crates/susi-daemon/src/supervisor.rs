@@ -288,6 +288,11 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 rec.restarts = 0;
                 changed = true;
             }
+            if rec.stopped {
+                // Operator stop — hold the service down until `susi
+                // services start` clears the flag.
+                continue;
+            }
             if rec.external {
                 // External listeners are observed, never signaled: health
                 // is the port alone. When it dies we drop the row so the

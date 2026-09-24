@@ -110,6 +110,12 @@ pub struct ServiceRecord {
     /// dies, the supervisor drops this record and spawns its own.
     #[serde(default)]
     pub external: bool,
+    /// Operator stop (`susi services stop`): the supervisor leaves the
+    /// service down until `susi services start` clears this — distinct
+    /// from `disabled_until`, which is crash-loop backoff the supervisor
+    /// manages itself.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 /// Where the process table lives: shared host state, not per-pid, because
@@ -169,6 +175,7 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         existing.restarts = existing.restarts.saturating_add(1);
         existing.disabled_until = None;
         existing.external = false;
+        existing.stopped = false;
         return existing.clone();
     }
     let rec = ServiceRecord {
@@ -179,6 +186,7 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         restarts: 0,
         disabled_until: None,
         external: false,
+        stopped: false,
     };
     records.push(rec.clone());
     rec
@@ -206,6 +214,7 @@ pub fn record_external(
         restarts: 0,
         disabled_until: None,
         external: true,
+        stopped: false,
     };
     if let Some(existing) = records.iter_mut().find(|r| r.name == name) {
         *existing = rec.clone();
@@ -347,6 +356,10 @@ pub struct ServiceStatus {
     /// True when the port is bound by a process the daemon does not own.
     #[serde(default)]
     pub external: bool,
+    /// True when the operator stopped the service — the supervisor holds
+    /// it down until `susi services start`.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 impl ServiceStatus {
@@ -398,6 +411,7 @@ pub fn status() -> Vec<ServiceStatus> {
                 started_at: rec.map(|r| r.started_at),
                 up: probe(svc.port()),
                 external: rec.map(|r| r.external).unwrap_or(false),
+                stopped: rec.map(|r| r.stopped).unwrap_or(false),
             }
         })
         .collect()
