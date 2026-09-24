@@ -456,6 +456,24 @@ fn show(epoch_prefix: &str) -> Result<()> {
         }
     };
     println!("member_sig: {msig}");
+    // Binding attestation: a member_add claiming a pubkey must carry
+    // the subject's own signature — verify it here so an operator can
+    // see whether a binding is subject-proven or would be refused now.
+    if !r.member_pubkey.is_empty() {
+        let member_id = r.member_delta().map(|(_, id, _)| id).unwrap_or_default();
+        let att = if r.subject_sig.is_empty() {
+            "ABSENT — record would be refused at intake today".to_string()
+        } else if susi_config::cluster_key::verify_bind_attestation(
+            member_id,
+            &r.member_pubkey,
+            &r.subject_sig,
+        ) {
+            "valid (subject-signed)".to_string()
+        } else {
+            "INVALID".to_string()
+        };
+        println!("subject_sig: {att}");
+    }
     if !r.kind.is_empty() {
         let names: Vec<&str> = r.endorsements.iter().map(|e| e.node.as_str()).collect();
         let gate = if susi_core::commit_log::endorsements_satisfied(r) {

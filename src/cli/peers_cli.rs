@@ -763,6 +763,7 @@ fn list(json: bool) -> Result<()> {
                 "admission": n.get("admission"),
                 "live": liveness(n) == "yes",
                 "key_bound": n.get("pubkey").and_then(|v| v.as_str()).is_some_and(|p| !p.is_empty()),
+                "key_attested": n.get("bind_sig").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty()),
             })).collect::<Vec<_>>(),
             "banned": banned,
         });
@@ -796,15 +797,24 @@ fn list(json: bool) -> Result<()> {
             id.to_string()
         };
         // Bound = the member's Ed25519 key is attested — its records
-        // must carry member_sig or intake refuses them.
-        let key_state = if n
+        // must carry member_sig or intake refuses them. `bound*` means
+        // the subject signed the binding itself (v3 attestation);
+        // plain `bound` is HMAC-only (pre-v3 peer or a committed
+        // binding from before attestations existed).
+        let key_state = if !n
             .get("pubkey")
             .and_then(|v| v.as_str())
             .is_some_and(|p| !p.is_empty())
         {
-            "bound"
-        } else {
             "-"
+        } else if n
+            .get("bind_sig")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty())
+        {
+            "bound*"
+        } else {
+            "bound"
         };
         println!(
             "{:<22} {:<22} {:<7.2} {:<8} {:<5} {}",
