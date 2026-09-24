@@ -315,32 +315,53 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
                     .display()
             );
         }
-        Some(pid) => {
-            // PID alive but ports not yet (or no longer) bound.
-            if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(5)) {
-                println!("[SUSI Daemon] Running (PID: {}).", pid);
-                println!("{}", SusiDaemon::host_contract_endpoints_report());
-                let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
-                println!(
-                    "Auth: Bearer token in {} (required for HTTP clients)",
-                    susi_paths::SusiDirs::config_dir()
-                        .join("api_token")
-                        .display()
-                );
-            } else {
-                eprintln!(
-                    "[SUSI Daemon] Process {} is up but host-contract ports 9090–9093 are not ready.",
-                    pid
-                );
-                std::process::exit(1);
+        Some(pid) => report_running(pid),
+        None => {
+            // A just-spawned daemon takes seconds to write its lock and
+            // bind the host contract (observed ~15s under load) — poll
+            // for the pid before declaring failure, then give the ports
+            // the same window.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                match SusiDaemon::check_status(cwd, global_dir) {
+                    Some(pid) => {
+                        report_running(pid);
+                        break;
+                    }
+                    None if std::time::Instant::now() < deadline => {
+                        std::thread::sleep(std::time::Duration::from_millis(250));
+                    }
+                    None => {
+                        eprintln!(
+                            "[SUSI Daemon] Failed to start. Host-contract ports 9090–9093 are not listening."
+                        );
+                        std::process::exit(1);
+                    }
+                }
             }
         }
-        None => {
-            eprintln!(
-                "[SUSI Daemon] Failed to start. Host-contract ports 9090–9093 are not listening."
-            );
-            std::process::exit(1);
-        }
+    }
+}
+
+/// Report a live daemon pid, waiting for the host-contract ports before
+/// printing endpoints — the pid can precede the bind by several seconds.
+fn report_running(pid: u32) {
+    if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(20)) {
+        println!("[SUSI Daemon] Running (PID: {}).", pid);
+        println!("{}", SusiDaemon::host_contract_endpoints_report());
+        let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+        println!(
+            "Auth: Bearer token in {} (required for HTTP clients)",
+            susi_paths::SusiDirs::config_dir()
+                .join("api_token")
+                .display()
+        );
+    } else {
+        eprintln!(
+            "[SUSI Daemon] Process {} is up but host-contract ports 9090–9093 are not ready.",
+            pid
+        );
+        std::process::exit(1);
     }
 }
 
