@@ -171,6 +171,70 @@ fn sealed_records_carry_member_sig_and_bound_coordinators_are_enforced() {
 }
 
 #[test]
+fn seq_floor_binding_refuses_backdated_forgeries() {
+    let _g = commit_log::ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let home = HomeGuard::new();
+    let dir = home.config();
+    std::fs::write(dir.join("cluster.key"), hex::encode([0xBBu8; 32])).unwrap();
+
+    let victim_pk = hex::encode([0x42u8; 32]);
+
+    // Roster row bound with a seq floor of 2 — the member's frontier
+    // when its key was committed.
+    let mut row = serde_json::json!({
+        "node_id": "node-v",
+        "address": "10.0.0.9:9090",
+        "node_type": "PEER",
+        "admission": "explicit",
+        "pubkey": victim_pk,
+        "key_bound_at": 1_000,
+        "key_bound_seq": 2,
+    });
+    std::fs::write(
+        dir.join("peers.json"),
+        serde_json::to_string_pretty(&vec![row.clone()]).unwrap(),
+    )
+    .unwrap();
+
+    // A *new* record (seq 3 > floor 2) with a forged pre-binding
+    // committed_at — the timestamp exemption can't launder it anymore.
+    let mut backdated = decision_as("node-v", "forged-new");
+    backdated.seq = 3;
+    backdated.committed_at = 500; // < bound_at — backdated
+    backdated.member_sig.clear();
+    assert!(!commit_log::attribution_valid_at(&backdated, &dir));
+
+    // A record inside the floor WITH a post-binding timestamp is also
+    // refused — genuine pre-binding history never has a newer ts.
+    let mut rewrapped = decision_as("node-v", "rewrapped-old");
+    rewrapped.seq = 2;
+    rewrapped.committed_at = 2_000; // >= bound_at
+    rewrapped.member_sig.clear();
+    assert!(!commit_log::attribution_valid_at(&rewrapped, &dir));
+
+    // Genuine pre-binding history — seq inside floor, old timestamp —
+    // still converges unsigned.
+    let mut honest = decision_as("node-v", "honest-old");
+    honest.seq = 1;
+    honest.committed_at = 500;
+    honest.member_sig.clear();
+    assert!(commit_log::attribution_valid_at(&honest, &dir));
+
+    // Legacy bindings without key_bound_seq keep the timestamp rule.
+    row["key_bound_seq"] = serde_json::Value::Null;
+    row.as_object_mut().unwrap().remove("key_bound_seq");
+    std::fs::write(
+        dir.join("peers.json"),
+        serde_json::to_string_pretty(&vec![row]).unwrap(),
+    )
+    .unwrap();
+    assert!(commit_log::attribution_valid_at(&honest, &dir));
+    assert!(!commit_log::attribution_valid_at(&rewrapped, &dir));
+}
+
+#[test]
 fn member_add_commits_the_subjects_pubkey_binding() {
     let _g = commit_log::ENV_LOCK
         .lock()

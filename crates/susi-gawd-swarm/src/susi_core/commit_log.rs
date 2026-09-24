@@ -1534,9 +1534,12 @@ pub fn coordinator_known_at(record: &CommitRecord, dir: &Path) -> bool {
 /// always self-bound (bound_at = 0: every record we seal post-keygen
 /// signs, so self-attributed forgeries die on arrival). `None` when
 /// no key is bound — the shared-key ceiling that predates PKI.
-fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64)> {
+/// The binding triple `(pubkey, bound_at, bound_seq)` — `bound_seq` is
+/// `Some` for bindings written after the seq-floor hardening, `None`
+/// for older roster rows that only recorded the timestamp.
+fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64, Option<u64>)> {
     if coordinator == crate::susi_config::cluster_key::wire_node_id() {
-        return crate::susi_config::cluster_key::node_pubkey_hex().map(|pk| (pk, 0));
+        return crate::susi_config::cluster_key::node_pubkey_hex().map(|pk| (pk, 0, Some(0)));
     }
     let peers: Vec<serde_json::Value> = fs::read_to_string(dir.join("peers.json"))
         .ok()
@@ -1551,7 +1554,8 @@ fn bound_pubkey_at(coordinator: &str, dir: &Path) -> Option<(String, u64)> {
             return None;
         }
         let at = p.get("key_bound_at").and_then(|v| v.as_u64()).unwrap_or(0);
-        Some((pk, at))
+        let seq = p.get("key_bound_seq").and_then(|v| v.as_u64());
+        Some((pk, at, seq))
     })
 }
 
@@ -1568,10 +1572,20 @@ pub fn attribution_valid(record: &CommitRecord) -> bool {
 
 /// Test seam: attribution check against an explicit roster dir.
 pub fn attribution_valid_at(record: &CommitRecord, dir: &Path) -> bool {
-    let Some((pk, bound_at)) = bound_pubkey_at(&record.coordinator, dir) else {
+    let Some((pk, bound_at, bound_seq)) = bound_pubkey_at(&record.coordinator, dir) else {
         return true;
     };
-    if record.committed_at < bound_at {
+    // With a recorded seq floor, only records that look exactly like
+    // genuine pre-binding history — seq inside the bound frontier AND
+    // a pre-binding timestamp — skip the signature. A forged record
+    // must clear both: seq above the floor fails here, a post-binding
+    // timestamp fails the other check — `committed_at` alone can no
+    // longer launder a new record into the exempt window.
+    let exempt = match bound_seq {
+        Some(floor) => record.seq <= floor && record.committed_at < bound_at,
+        None => record.committed_at < bound_at,
+    };
+    if exempt {
         return true;
     }
     !record.member_sig.is_empty()
@@ -1627,7 +1641,7 @@ pub fn endorsements_satisfied_at(record: &CommitRecord, dir: &Path) -> bool {
         .electorate
         .iter()
         .filter_map(|m| {
-            let (pk, at) = bound_pubkey_at(m, dir)?;
+            let (pk, at, _) = bound_pubkey_at(m, dir)?;
             (at <= record.committed_at).then(|| (m.clone(), pk))
         })
         .collect();
@@ -1713,7 +1727,7 @@ pub fn collect_endorsements(
 /// replaced by remove + re-add (leader-gated): letting a later record
 /// or handshake overwrite it would let an attacker re-bind a victim's
 /// identity to a key they hold and resume forging.
-fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord) {
+fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord, dir: &Path, id: &str) {
     if record.member_pubkey.is_empty() {
         return;
     }
@@ -1726,6 +1740,23 @@ fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord) {
     }
     row["pubkey"] = serde_json::json!(record.member_pubkey);
     row["key_bound_at"] = serde_json::json!(record.committed_at);
+    // Seq floor: the member's highest seq visible at bind time (live +
+    // archive). Records beyond it are post-binding traffic that must
+    // carry `member_sig` even with a forged `committed_at` — the
+    // timestamp is attacker-controlled, the seq frontier is not.
+    // Undercounting (e.g. compaction removed history) only tightens
+    // the rule, never loosens it.
+    let floor = [
+        dir.join("commit_log.archive.jsonl"),
+        dir.join("commit_log.jsonl"),
+    ]
+    .iter()
+    .flat_map(load_from)
+    .filter(|r| r.coordinator == id)
+    .map(|r| r.seq)
+    .max()
+    .unwrap_or(0);
+    row["key_bound_seq"] = serde_json::json!(floor);
 }
 
 /// Apply a committed membership delta to `peers.json` /
@@ -1823,7 +1854,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                 n["node_id"] = serde_json::json!(id);
                 n["address"] = serde_json::json!(addr);
                 n["admission"] = serde_json::json!("explicit");
-                bind_member_key(n, record);
+                bind_member_key(n, record, dir, id);
                 true
             });
             if !merged {
@@ -1846,7 +1877,7 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
                     "admission": "explicit",
                     "last_seen_secs": 0,
                 });
-                bind_member_key(&mut row, record);
+                bind_member_key(&mut row, record, dir, id);
                 peers.push(row);
             }
             let _ = crate::susi_config::atomic_write_json_pretty(&peers_path, &peers);
