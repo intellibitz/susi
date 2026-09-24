@@ -261,6 +261,32 @@ pub fn probe(port: u16) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
 }
 
+/// HTTP liveness probe — strictly stronger than `probe`: a listener can
+/// accept TCP while its request handler is wedged (deadlocked runtime,
+/// starved worker pool). Any HTTP response — even a 404 — proves the
+/// routing layer answers requests. Leaf services all serve axum, so
+/// `GET /` always elicits a status line.
+pub fn http_probe(port: u16) -> bool {
+    use std::io::{Read, Write};
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(300)));
+    if stream
+        .write_all(b"GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+        .is_err()
+    {
+        return false;
+    }
+    let mut buf = [0u8; 16];
+    match stream.read(&mut buf) {
+        Ok(n) => buf[..n].starts_with(b"HTTP/"),
+        Err(_) => false,
+    }
+}
+
 /// Whether `pid` refers to a live process. `/proc` on Linux; `kill -0`
 /// elsewhere on unix; conservatively "alive" where neither exists — a false
 /// "dead" would make the supervisor respawn a healthy service.
@@ -574,6 +600,37 @@ mod tests {
     fn probe_reports_closed_port() {
         // 9 is the discard port; nothing sane binds it in a test env.
         assert!(!probe(9));
+    }
+
+    #[test]
+    fn http_probe_distinguishes_serving_from_listening() {
+        use std::io::{Read, Write};
+        // A bare TCP listener that accepts but never speaks HTTP fails
+        // the HTTP probe while passing the TCP one — the wedge case the
+        // monitor must catch.
+        let wedged = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = wedged.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for s in wedged.incoming().flatten() {
+                let mut s = s;
+                let mut buf = [0u8; 64];
+                let _ = s.read(&mut buf);
+                // Never answer — wedged handler.
+            }
+        });
+        assert!(probe(port), "TCP probe sees the listener");
+        assert!(!http_probe(port), "HTTP probe must see through the wedge");
+
+        // A minimal HTTP responder passes both.
+        let serving = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = serving.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for s in serving.incoming().flatten() {
+                let mut s = s;
+                let _ = s.write_all(b"HTTP/1.0 404 Not Found\r\n\r\n");
+            }
+        });
+        assert!(http_probe(port), "any HTTP status line counts as alive");
     }
 
     mod prop_tests {

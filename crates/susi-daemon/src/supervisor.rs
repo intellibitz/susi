@@ -157,11 +157,12 @@ fn utc_now() -> String {
     format!("{y:04}-{mo:02}-{d:02} {h:02}:{m:02}:{s:02}Z")
 }
 
-/// Wait until a port accepts TCP connections or the deadline passes.
+/// Wait until a port answers HTTP or the deadline passes — bind alone
+/// isn't readiness; axum must actually serve.
 fn wait_for_port(port: u16, deadline: Duration) -> bool {
     let start = Instant::now();
     while start.elapsed() < deadline {
-        if service_table::probe(port) {
+        if service_table::http_probe(port) {
             return true;
         }
         thread::sleep(Duration::from_millis(100));
@@ -281,8 +282,9 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
             rec.disabled_until = Some(until);
             return;
         }
-        // Live pid with a dead port is wedged — terminate before respawn.
-        if service_table::pid_alive(rec.pid) && !service_table::probe(svc.port()) {
+        // Live pid with a dead or wedged HTTP surface is unhealthy —
+        // terminate before respawn.
+        if service_table::pid_alive(rec.pid) && !service_table::http_probe(svc.port()) {
             let _ = signal(rec.pid, SIGTERM);
             thread::sleep(Duration::from_millis(200));
             let _ = signal(rec.pid, SIGKILL);
@@ -396,7 +398,10 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 changed = true;
                 continue;
             }
-            let healthy = service_table::pid_alive(rec.pid) && service_table::probe(rec.port);
+            // HTTP probe, not just TCP accept: a wedged listener still
+            // answers connect() while its request path is dead — only an
+            // HTTP response proves the service actually serves.
+            let healthy = service_table::pid_alive(rec.pid) && service_table::http_probe(rec.port);
             if healthy {
                 continue;
             }
