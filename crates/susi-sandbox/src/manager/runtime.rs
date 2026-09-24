@@ -415,10 +415,35 @@ impl SusiMemory {
                 "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
                 "validation": "STRICT_SEMANTIC_PASS"
             });
+            // Tail-cap rotation: the file is experience memory, not an
+            // archive — past a bound it keeps the most recent entries
+            // (the semantic index consumes recency, not completeness).
+            // A stat per save is cheap; the rewrite only runs on the
+            // crossing write.
+            const EXP_CAP_BYTES: u64 = 4 * 1024 * 1024;
+            const EXP_KEEP_LINES: usize = 2048;
+            if fs::metadata(&exp_file).map(|m| m.len()).unwrap_or(0) > EXP_CAP_BYTES {
+                let keep = fs::read_to_string(&exp_file)
+                    .map(|t| {
+                        t.lines()
+                            .rev()
+                            .take(EXP_KEEP_LINES)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default();
+                let tmp = exp_file.with_extension("tmp");
+                if fs::write(&tmp, format!("{keep}\n")).is_ok() {
+                    let _ = fs::rename(&tmp, &exp_file);
+                }
+            }
             if let Ok(mut f) = fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(exp_file)
+                .open(&exp_file)
             {
                 let _ = writeln!(f, "{}", exp_entry);
             }
