@@ -96,6 +96,13 @@ pub fn capture_verified_read(
     ) {
         return Some(capture_status_read(&normalized, workspace));
     }
+    // The model inventory is equally deterministic substrate state.
+    if matches!(
+        normalized.as_str(),
+        "models" | "list models" | "show models" | "model list"
+    ) {
+        return Some(capture_models_read(&normalized, workspace));
+    }
     let command = match normalized.as_str() {
         "disk usage" | "disk space" | "df" => "df -h -x tmpfs -x devtmpfs -x squashfs --total",
         "uptime" => "uptime",
@@ -151,6 +158,34 @@ fn capture_status_read(
             "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB \
              (live hardware profile, observed at Unix {observed_at})",
             hw.cpu_brand, hw.ram_gb
+        ),
+    })
+}
+
+/// The substrate's model inventory as a verified read — `list_models` is a
+/// deterministic scan, so a "models" goal can certify its answer instead
+/// of failing cross-examination for lack of receipts.
+fn capture_models_read(
+    normalized_goal: &str,
+    workspace: &Path,
+) -> crate::susi_error::EaiResult<VerifiedSystemRead> {
+    let workspace = workspace
+        .canonicalize()
+        .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
+    let captured_at = std::time::Instant::now();
+    let models = crate::susi_core::plane_bus::gemi::ModelManager::list_models(&workspace);
+    let count = models.as_array().map(|a| a.len()).unwrap_or(0);
+    let observed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?
+        .as_secs();
+    Ok(VerifiedSystemRead {
+        goal: normalized_goal.to_string(),
+        workspace,
+        captured_at,
+        answer: format!(
+            "Active Model Substrates (Count: {count}, live scan observed at \
+             Unix {observed_at}):\n\n{models}"
         ),
     })
 }
