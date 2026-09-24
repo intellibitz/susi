@@ -896,7 +896,16 @@ impl ContextGraph {
             if line.is_empty() {
                 continue;
             }
-            let event: ContextGraphEvent = serde_json::from_str(line)?;
+            // Skip a malformed line rather than aborting the whole fold:
+            // aborting leaves `consumed` unadvanced, so every later
+            // replay restalls on the same byte and persist() rewrites
+            // only the prefix — silently truncating the tail (observed:
+            // a 165k-line log folding to 3.2k nodes). This is an
+            // observation log, not the consensus ledger; resilience to
+            // a torn or corrupted write outranks strictness.
+            let Ok(event) = serde_json::from_str::<ContextGraphEvent>(line) else {
+                continue;
+            };
             match event {
                 ContextGraphEvent::NodeAdded(node) => {
                     self.nodes.entry(node.id.clone()).or_insert(node);
@@ -1260,6 +1269,31 @@ mod tests {
             g.node(&NodeId::stable("external", "torn-complete"))
                 .is_some(),
             "the completed line must fold on the following replay"
+        );
+
+        // A malformed mid-file line must be skipped, not fatal — the
+        // cursor advances past it and valid lines after it still fold.
+        let good = ContextGraphEvent::NodeAdded(Node {
+            id: NodeId::stable("external", "after-corrupt"),
+            kind: NodeType::Observation,
+            label: "after".into(),
+            created_at: 3,
+            properties: HashMap::new(),
+        });
+        let mut tail2 = String::from("{\"node_added\": BROKEN JSON\n");
+        tail2.push_str(&serde_json::to_string(&good).unwrap());
+        tail2.push('\n');
+        std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap()
+            .write_all(tail2.as_bytes())
+            .unwrap();
+        g.replay().unwrap();
+        assert!(
+            g.node(&NodeId::stable("external", "after-corrupt"))
+                .is_some(),
+            "a malformed line must not stall folding of the valid tail"
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&ws);
