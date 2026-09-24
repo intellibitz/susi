@@ -5,7 +5,7 @@
 //! - **9091** GEMI HTTP
 //! - **9092** A2A UDP discovery
 //! - **9093** GMCP HTTP (streamable / SSE alias)
-//! - **9094** A2A HTTP (JSON-RPC /rpc + REST / + agent card)
+//! - **9094** A2A HTTP (JSON-RPC / + SSE /stream + public agent card)
 
 use crate::susi_paths::ports;
 

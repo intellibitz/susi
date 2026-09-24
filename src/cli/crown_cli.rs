@@ -187,15 +187,20 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     ));
 
     // --- Host contract ---
-    let ports_ok = ports::GMCP == 9090
-        && ports::GEMI == 9091
-        && ports::UDP_DISCOVERY == 9092
-        && ports::GMCP_HTTP == 9093;
+    // ports::ALL is the single source of truth — pinning literal port numbers
+    // here would silently skip any port added to the contract later (A2A 9094
+    // was already missed once). The drift guard asserts the contract set
+    // against the canonical 9090–9094 block instead.
+    let expected = [9090u16, 9091, 9092, 9093, 9094];
+    let ports_ok = ports::ALL
+        .iter()
+        .map(|(port, _)| *port)
+        .eq(expected.iter().copied());
     out.push(check(
         "host_contract_ports",
         true,
         ports_ok,
-        "ports::ALL fixed at 9090–9093 (no silent drift)",
+        "ports::ALL fixed at 9090–9094 (no silent drift)",
     ));
     out.push(check(
         "host_contract_listening",

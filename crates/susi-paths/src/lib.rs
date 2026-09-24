@@ -100,7 +100,7 @@ pub mod ports {
         (GEMI, "GEMI HTTP"),
         (UDP_DISCOVERY, "A2A UDP discovery"),
         (GMCP_HTTP, "GMCP HTTP alias"),
-        (A2A_HTTP, "A2A HTTP (JSON-RPC + REST)"),
+        (A2A_HTTP, "A2A HTTP (JSON-RPC + SSE + agent card)"),
     ];
 }
 
