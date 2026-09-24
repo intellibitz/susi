@@ -264,22 +264,41 @@ fn remove(peer: &str) -> Result<()> {
     let _peers_lock =
         susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
     let nodes = load_registry();
-    let kept: Vec<_> = nodes
+    // An eviction is replicated cluster-wide — a broad prefix must not
+    // wipe the membership in one shot. Exact id/address always works; a
+    // prefix only resolves when it names exactly one member.
+    let matches: Vec<&serde_json::Value> = nodes
         .iter()
         .filter(|n| {
             let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("");
             let addr = n.get("address").and_then(|v| v.as_str()).unwrap_or("");
-            !(id == peer || addr.starts_with(peer) || id.starts_with(peer))
+            id == peer || addr.starts_with(peer) || id.starts_with(peer)
         })
-        .cloned()
         .collect();
-    if kept.len() == nodes.len() {
+    if matches.is_empty() {
         bail!("no verified peer matching `{peer}`");
     }
-    // Name what's being revoked — a broad prefix must not wipe members silently.
-    let evicted: Vec<serde_json::Value> = nodes
+    if matches.len() > 1 {
+        let names: Vec<String> = matches
+            .iter()
+            .map(|n| {
+                format!(
+                    "{} ({})",
+                    n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?"),
+                    n.get("address").and_then(|v| v.as_str()).unwrap_or("?")
+                )
+            })
+            .collect();
+        bail!(
+            "`{peer}` matches {} members — refuse to mass-evict: {}",
+            matches.len(),
+            names.join(", ")
+        );
+    }
+    let evicted: Vec<serde_json::Value> = vec![matches[0].clone()];
+    let kept: Vec<_> = nodes
         .iter()
-        .filter(|n| !kept.contains(n))
+        .filter(|n| **n != evicted[0])
         .cloned()
         .collect();
     let path = registry_path();

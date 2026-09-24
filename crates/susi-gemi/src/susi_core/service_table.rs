@@ -132,13 +132,19 @@ pub fn load() -> Vec<ServiceRecord> {
 }
 
 /// Test seam: load from an explicit path instead of the shared location.
+/// Duplicate service names collapse to the first row — the table
+/// invariant is one row per name, and a hand-edited/corrupted file must
+/// not hand readers a state writers can't reason about.
 pub fn load_from(path: &std::path::Path) -> Vec<ServiceRecord> {
     let text = match fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) if e.kind() == ErrorKind::NotFound => return Vec::new(),
         Err(_) => return Vec::new(),
     };
-    serde_json::from_str(&text).unwrap_or_default()
+    let mut rows: Vec<ServiceRecord> = serde_json::from_str(&text).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    rows.retain(|r| seen.insert(r.name.clone()));
+    rows
 }
 
 /// Persist the process table atomically (temp file + rename, same contract
@@ -191,15 +197,31 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    if let Some(existing) = records.iter_mut().find(|r| r.name == name) {
-        existing.pid = pid;
-        existing.port = port;
-        existing.started_at = now;
-        existing.restarts = existing.restarts.saturating_add(1);
-        existing.disabled_until = None;
-        existing.external = false;
-        existing.stopped = false;
-        return existing.clone();
+    // One row per name — a table restored from a corrupted file could
+    // carry duplicates; absorb them into the first and drop the rest
+    // so the invariant is repaired, not just respected.
+    let mut seen = false;
+    let mut updated: Option<ServiceRecord> = None;
+    records.retain_mut(|r| {
+        if r.name != name {
+            return true;
+        }
+        if seen {
+            return false;
+        }
+        seen = true;
+        r.pid = pid;
+        r.port = port;
+        r.started_at = now;
+        r.restarts = r.restarts.saturating_add(1);
+        r.disabled_until = None;
+        r.external = false;
+        r.stopped = false;
+        updated = Some(r.clone());
+        true
+    });
+    if let Some(rec) = updated {
+        return rec;
     }
     let rec = ServiceRecord {
         name: name.to_string(),
@@ -239,9 +261,21 @@ pub fn record_external(
         external: true,
         stopped: false,
     };
-    if let Some(existing) = records.iter_mut().find(|r| r.name == name) {
-        *existing = rec.clone();
-    } else {
+    // Same one-row-per-name repair as `record`: overwrite the first
+    // same-named row and drop any duplicates a corrupted table carried.
+    let mut seen = false;
+    records.retain_mut(|r| {
+        if r.name != name {
+            return true;
+        }
+        if seen {
+            return false;
+        }
+        seen = true;
+        *r = rec.clone();
+        true
+    });
+    if !seen {
         records.push(rec.clone());
     }
     rec
@@ -671,8 +705,9 @@ mod tests {
         }
 
         proptest! {
-            /// serde round-trip: save_to → load_from is lossless for any
-            /// table — a record that can't round-trip is a wire-format bug.
+            /// serde round-trip: save_to → load_from is lossless modulo
+            /// the one-row-per-name repair — duplicate names collapse to
+            /// the first row on load, everything else survives verbatim.
             #[test]
             fn save_load_round_trips_any_table(
                 records in proptest::collection::vec(record_strategy(), 0..8)
@@ -685,7 +720,10 @@ mod tests {
                 let path = dir.join("services.json");
                 save_to(&path, &records).expect("save");
                 let loaded = load_from(&path);
-                prop_assert_eq!(loaded, records);
+                let mut deduped = records.clone();
+                let mut seen = std::collections::HashSet::new();
+                deduped.retain(|r| seen.insert(r.name.clone()));
+                prop_assert_eq!(loaded, deduped);
                 let _ = fs::remove_dir_all(&dir);
             }
 

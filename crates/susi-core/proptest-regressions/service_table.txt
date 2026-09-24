@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc dee8d65409fd487b13b7531dafdec4caae8c28a34a7a1bf5d528e2bb17a724b9 # shrinks to records = [ServiceRecord { name: "-", pid: 0, port: 0, started_at: 0, restarts: 0, disabled_until: None, external: false, stopped: false }, ServiceRecord { name: "-", pid: 0, port: 0, started_at: 0, restarts: 0, disabled_until: None, external: false, stopped: false }]
