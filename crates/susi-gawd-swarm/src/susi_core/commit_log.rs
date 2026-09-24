@@ -43,7 +43,7 @@
 
 use std::fs;
 use std::fs::OpenOptions;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -653,20 +653,69 @@ pub fn snapshot_floor(coordinator: &str) -> u64 {
 
 /// Snapshot floor relative to an explicit ledger path — the
 /// `append_to`/`commit_log_fetch` seam that can't assume `~/.susi`.
+/// Mtime-cached: intake consults the floor on every record.
 fn snapshot_floor_at(ledger: &Path, coordinator: &str) -> u64 {
     ledger
         .parent()
-        .and_then(|dir| load_snapshot_from(&dir.join("commit_snapshot.json")))
+        .and_then(|dir| {
+            crate::susi_config::cluster_key::cached_file_bytes(&dir.join("commit_snapshot.json"))
+        })
+        .and_then(|raw| String::from_utf8(raw).ok())
+        .and_then(|text| serde_json::from_str::<LedgerSnapshot>(&text).ok())
         .and_then(|s| s.high_water.get(coordinator).copied())
         .unwrap_or(0)
+}
+
+/// Parsed records of a ledger/archive file, cached by (mtime_ns, len):
+/// `find_in_archive` scanned the whole archive per below-floor record,
+/// and status surfaces re-parse the ledger per call. A stamp change
+/// reloads; an absent file caches as empty.
+fn cached_records(path: &Path) -> Vec<CommitRecord> {
+    use std::sync::{Mutex, OnceLock};
+    type Cache = Mutex<std::collections::HashMap<PathBuf, ((u128, u64), Vec<CommitRecord>)>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
+    let stamp = fs::metadata(path)
+        .ok()
+        .and_then(|m| {
+            m.modified().ok().map(|t| {
+                (
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0),
+                    m.len(),
+                )
+            })
+        })
+        .unwrap_or((0, 0));
+    let cache = CACHE.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    {
+        let map = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((s, records)) = map.get(path) {
+            if *s == stamp {
+                return records.clone();
+            }
+        }
+    }
+    let records: Vec<CommitRecord> = fs::read_to_string(path)
+        .map(|text| {
+            text.lines()
+                .filter(|l| !l.trim().is_empty())
+                .filter_map(|l| serde_json::from_str::<CommitRecord>(l).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.to_path_buf(), (stamp, records.clone()));
+    records
 }
 
 /// Find a record by `(coordinator, seq)` in the compaction archive —
 /// the dedup source for below-floor arrivals.
 fn find_in_archive(archive: &Path, coordinator: &str, seq: u64) -> Option<CommitRecord> {
-    let text = fs::read_to_string(archive).ok()?;
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<CommitRecord>(line).ok())
+    cached_records(archive)
+        .into_iter()
         .find(|r| r.coordinator == coordinator && r.seq == seq)
 }
 
@@ -1851,7 +1900,7 @@ fn bind_member_key(row: &mut serde_json::Value, record: &CommitRecord, dir: &Pat
         dir.join("commit_log.jsonl"),
     ]
     .iter()
-    .flat_map(load_from)
+    .flat_map(|p| load_from(p))
     .filter(|r| r.coordinator == id)
     .map(|r| r.seq)
     .max()
@@ -2009,16 +2058,11 @@ pub fn load() -> Vec<CommitRecord> {
     load_from(&ledger_path())
 }
 
-/// Test seam: load from an explicit path.
-pub fn load_from(path: &PathBuf) -> Vec<CommitRecord> {
-    let text = match fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Vec::new(),
-        Err(_) => return Vec::new(),
-    };
-    text.lines()
-        .filter_map(|line| serde_json::from_str::<CommitRecord>(line).ok())
-        .collect()
+/// Test seam: load from an explicit path. Mtime-cached — status and
+/// audit surfaces re-parse the ledger per call in the daemon, while
+/// intake appends invalidate by stamp.
+pub fn load_from(path: &std::path::Path) -> Vec<CommitRecord> {
+    cached_records(path)
 }
 
 #[cfg(test)]
