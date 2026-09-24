@@ -887,21 +887,20 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
     let Some((kind, id, addr)) = record.member_delta() else {
         return;
     };
-    // A committed add about ourselves or a loopback address is a
-    // no-op — a node never lists itself as a peer (the same self-edge
-    // rule the scout and `peers add` enforce). `peers add` pushes the
-    // member record to the new member too, so this case is routine,
-    // not adversarial.
-    if kind == KIND_MEMBER_ADD {
-        let self_edge = id == crate::susi_config::cluster_key::wire_node_id()
-            || addr
-                .split(':')
-                .next()
-                .and_then(|h| h.parse::<std::net::IpAddr>().ok())
-                .is_some_and(|ip| ip.is_loopback());
-        if self_edge {
-            return;
-        }
+    // A committed delta about ourselves or a loopback address is a
+    // no-op — a node never lists itself as a peer nor bans itself
+    // (the same self-edge rule the scout and `peers add` enforce).
+    // Membership pushes fan out to every peer including the subject,
+    // and anti-entropy eventually delivers every committed record, so
+    // this case is routine, not adversarial.
+    let self_subject = id == crate::susi_config::cluster_key::wire_node_id()
+        || addr
+            .split(':')
+            .next()
+            .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+            .is_some_and(|ip| ip.is_loopback());
+    if self_subject {
+        return;
     }
     // Serialize the roster read-modify-write across processes — same
     // lockfile discipline as the ledger append itself.
@@ -1210,12 +1209,32 @@ mod tests {
             "self/loopback member_add must not create a self-edge"
         );
 
+        // Self-subject remove: fan-out delivers a node its own eviction
+        // record — it must not write a ban entry against itself.
+        let Some(self_rem) =
+            seal_into_test(KIND_MEMBER_REMOVE, &format!("{self_id}@10.0.0.9:9090"))
+        else {
+            return;
+        };
+        append_to(&path, &self_rem).expect("append self-remove");
+        let banned: Vec<serde_json::Value> =
+            serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
+                .unwrap();
+        assert!(banned.is_empty(), "a node must never ban itself");
+        let Some(self_unban) =
+            seal_into_test(KIND_MEMBER_UNBAN, &format!("{self_id}@10.0.0.9:9090"))
+        else {
+            return;
+        };
+        append_to(&path, &self_unban).expect("append self-unban");
+
         // Replay is the pure cluster view — the deltas were committed,
         // so the derived roster reports them even though the local
-        // roster correctly declined to apply them.
+        // roster correctly declined to apply them. The self-remove
+        // evicts the self entry the derived roster had been carrying.
         let state = replay_records(&load_from(&path));
-        assert_eq!(state.memberships, 6);
-        assert_eq!(state.roster.len(), 2);
+        assert_eq!(state.memberships, 8);
+        assert_eq!(state.roster.len(), 1);
         assert!(state.banned.is_empty());
 
         // Malformed member specs can't seal, and a member record
