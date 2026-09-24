@@ -47,6 +47,10 @@ pub enum CommitsCommands {
         /// gate on ledger health instead of eyeballing output
         #[arg(long)]
         strict: bool,
+        /// Emit machine-readable JSON — agents and CI get structured
+        /// anomalies instead of parsing log lines
+        #[arg(long)]
+        json: bool,
     },
     /// Fold the ledger into the cluster's consensus view (term, leader,
     /// per-coordinator high-water marks) — the state machine is a pure
@@ -80,7 +84,7 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
             json,
         } => list(limit, coordinator.as_deref(), term, kind.as_deref(), json),
         CommitsCommands::Show { epoch } => show(&epoch),
-        CommitsCommands::Audit { strict } => audit(strict),
+        CommitsCommands::Audit { strict, json } => audit(strict, json),
         CommitsCommands::Replay => replay_view(),
         CommitsCommands::Sync => sync(),
         CommitsCommands::Compact => compact(),
@@ -502,7 +506,7 @@ fn show(epoch_prefix: &str) -> Result<()> {
 /// never disagree. Adds the audit-only non-leader-commit check:
 /// `coordinator != leader` is legitimate for per-node missions, so it is
 /// reported as an anomaly, not a violation.
-fn audit(strict: bool) -> Result<()> {
+fn audit(strict: bool, json: bool) -> Result<()> {
     // Full history = live ledger + compaction archive — an audit that
     // stops at the snapshot boundary would miss pre-snapshot
     // anomalies. `replay()` seeds from the snapshot so gap detection
@@ -510,47 +514,62 @@ fn audit(strict: bool) -> Result<()> {
     let mut records = commit_log::load();
     records.extend(commit_log::load_from(&commit_log::archive_path()));
     let state = commit_log::replay();
-    if let Some(snap) = commit_log::load_snapshot() {
-        println!(
-            "snapshot: {} coordinators at/below high-water (created {})",
-            snap.high_water.len(),
-            snap.created_at
-        );
-    }
-    let mut anomalies = state.anomalies.len();
+    let snapshot = commit_log::load_snapshot();
 
-    for a in &state.anomalies {
-        println!("{}", a.to_uppercase());
-    }
+    let mut anomaly_lines: Vec<String> = state.anomalies.iter().map(|a| a.to_uppercase()).collect();
     for r in &records {
         if r.verify() && !r.leader.is_empty() && r.leader != r.coordinator {
-            anomalies += 1;
-            println!(
+            // Attribution/endorsement/subject-attestation anomalies are
+            // folded by replay() itself — they land in state.anomalies.
+            anomaly_lines.push(format!(
                 "NON-LEADER COMMIT  {} seq {} — elected leader was {} ({})",
                 r.coordinator,
                 r.seq,
                 r.leader,
                 &r.epoch[..12.min(r.epoch.len())]
-            );
+            ));
         }
-        // Attribution/endorsement/subject-attestation anomalies are
-        // folded by replay() itself — they print via state.anomalies.
     }
 
-    println!(
-        "{} — {} record(s) checked, {} verified",
-        if anomalies == 0 {
-            "OK"
-        } else {
-            "ANOMALIES FOUND"
-        },
-        records.len(),
-        state.decisions
-    );
-    if strict && anomalies > 0 {
+    if json {
+        let body = serde_json::json!({
+            "ok": anomaly_lines.is_empty(),
+            "records_checked": records.len(),
+            "verified": state.decisions,
+            "snapshot": snapshot.map(|s| serde_json::json!({
+                "coordinators": s.high_water.len(),
+                "created_at": s.created_at,
+            })),
+            "anomalies": anomaly_lines,
+        });
+        println!("{}", serde_json::to_string_pretty(&body)?);
+    } else {
+        if let Some(snap) = &snapshot {
+            println!(
+                "snapshot: {} coordinators at/below high-water (created {})",
+                snap.high_water.len(),
+                snap.created_at
+            );
+        }
+        for line in &anomaly_lines {
+            println!("{line}");
+        }
+        println!(
+            "{} — {} record(s) checked, {} verified",
+            if anomaly_lines.is_empty() {
+                "OK"
+            } else {
+                "ANOMALIES FOUND"
+            },
+            records.len(),
+            state.decisions
+        );
+    }
+    if strict && !anomaly_lines.is_empty() {
         anyhow::bail!(
-            "{anomalies} ledger anomal{} found",
-            if anomalies == 1 { "y" } else { "ies" }
+            "{} ledger anomal{} found",
+            anomaly_lines.len(),
+            if anomaly_lines.len() == 1 { "y" } else { "ies" }
         );
     }
     Ok(())
