@@ -96,6 +96,8 @@ fn sync() -> Result<()> {
     let mut total_new = 0usize;
     let mut total_dup = 0usize;
     let mut total_bad = 0usize;
+    let mut total_pushed = 0usize;
+    let mut total_push_rejected = 0usize;
     for n in &nodes {
         if n.get("admission").and_then(|a| a.as_str()) != Some("explicit") {
             continue;
@@ -106,8 +108,12 @@ fn sync() -> Result<()> {
         let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or(addr);
         // Paginate until a short page — a ledger past the fetch cap must
         // still converge instead of truncating at the first 1000 records.
+        // The full record set is retained for the push half of the
+        // exchange (records we hold that the peer lacks).
         let mut offset = 0usize;
+        let mut their_records: Vec<commit_log::CommitRecord> = Vec::new();
         let (mut new, mut dup, mut bad) = (0usize, 0usize, 0usize);
+        let mut reachable = true;
         loop {
             match susi_core::mcp_client::call_tool(
                 addr,
@@ -119,49 +125,97 @@ fn sync() -> Result<()> {
                     let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str())
                     else {
                         println!("{id} ({addr}): no tool output");
+                        reachable = false;
                         break;
                     };
                     let Ok(records) = serde_json::from_str::<Vec<commit_log::CommitRecord>>(text)
                     else {
                         println!("{id} ({addr}): malformed fetch payload");
+                        reachable = false;
                         break;
                     };
                     let page = records.len();
                     offset += page;
-                    for r in records {
-                        if !r.verify() {
-                            bad += 1;
-                            continue;
-                        }
-                        let key = serde_json::to_string(&r).unwrap_or_default();
-                        if held.contains(&key) {
-                            dup += 1;
-                            continue;
-                        }
-                        match commit_log::append(&r) {
-                            Ok(()) => {
-                                held.insert(key);
-                                new += 1;
-                            }
-                            Err(_) => bad += 1,
-                        }
-                    }
+                    their_records.extend(records);
                     if page < 1000 {
                         break;
                     }
                 }
                 Err(e) => {
                     println!("{id} ({addr}): unreachable — {e}");
+                    reachable = false;
                     break;
                 }
             }
         }
-        println!("{id} ({addr}): +{new} new, {dup} already held, {bad} rejected");
+        if !reachable {
+            continue;
+        }
+        let theirs: std::collections::HashSet<String> = their_records
+            .iter()
+            .filter_map(|r| serde_json::to_string(r).ok())
+            .collect();
+        for r in &their_records {
+            if !r.verify() {
+                bad += 1;
+                continue;
+            }
+            let key = serde_json::to_string(&r).unwrap_or_default();
+            if held.contains(&key) {
+                dup += 1;
+                continue;
+            }
+            match commit_log::append(r) {
+                Ok(()) => {
+                    held.insert(key);
+                    new += 1;
+                }
+                Err(_) => bad += 1,
+            }
+        }
+
+        // Symmetric repair: records we hold that the peer lacks are pushed
+        // through `commit_record` — the receive path re-runs signature,
+        // quorum, and term gates, so a rejected push is the protocol
+        // working, not a sync failure.
+        let mut pushed = 0usize;
+        let mut push_rejected = 0usize;
+        for r in commit_log::load() {
+            let key = serde_json::to_string(&r).unwrap_or_default();
+            if theirs.contains(&key) {
+                continue;
+            }
+            // The tool's args ARE the record — commit_record deserializes
+            // the argument object directly into CommitRecord.
+            let Ok(args) = serde_json::to_value(&r) else {
+                continue;
+            };
+            match susi_core::mcp_client::call_tool(addr, "commit_record", &args, bearer.as_deref())
+            {
+                // A completed RPC can still carry a tool-level rejection
+                // (isError) — a stale-term or consistency refusal is the
+                // protocol's gate working, not a sync failure.
+                Ok(result) if result.get("isError").and_then(|v| v.as_bool()) == Some(true) => {
+                    push_rejected += 1;
+                }
+                Ok(_) => pushed += 1,
+                Err(_) => push_rejected += 1,
+            }
+        }
+        println!(
+            "{id} ({addr}): +{new} pulled, {dup} already held, {bad} rejected; \
+             {pushed} pushed, {push_rejected} push-rejected"
+        );
         total_new += new;
         total_dup += dup;
         total_bad += bad;
+        total_pushed += pushed;
+        total_push_rejected += push_rejected;
     }
-    println!("sync: {total_new} new record(s), {total_dup} already held, {total_bad} rejected");
+    println!(
+        "sync: {total_new} pulled, {total_dup} already held, {total_bad} rejected; \
+         {total_pushed} pushed, {total_push_rejected} push-rejected"
+    );
     Ok(())
 }
 
