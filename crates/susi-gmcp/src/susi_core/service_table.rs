@@ -103,6 +103,13 @@ pub struct ServiceRecord {
     /// rather than abandoned forever.
     #[serde(default)]
     pub disabled_until: Option<u64>,
+    /// True when the port is bound by a process the daemon did not spawn
+    /// (`cargo run`, a stale dev binary, a foreign listener). External
+    /// records are observed and displayed but never signaled — the
+    /// supervisor only kills its own children. When the external process
+    /// dies, the supervisor drops this record and spawns its own.
+    #[serde(default)]
+    pub external: bool,
 }
 
 /// Where the process table lives: shared host state, not per-pid, because
@@ -161,6 +168,7 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         existing.started_at = now;
         existing.restarts = existing.restarts.saturating_add(1);
         existing.disabled_until = None;
+        existing.external = false;
         return existing.clone();
     }
     let rec = ServiceRecord {
@@ -170,8 +178,40 @@ pub fn record(records: &mut Vec<ServiceRecord>, name: &str, pid: u32, port: u16)
         started_at: now,
         restarts: 0,
         disabled_until: None,
+        external: false,
     };
     records.push(rec.clone());
+    rec
+}
+
+/// Record a service whose port is bound by a process the daemon did not
+/// spawn. `pid` is best-effort (`pid_for_port` may not identify the
+/// holder — `0` means unknown). External rows keep `restarts` at 0 and
+/// are replaced by a supervised row if the supervisor ever takes over.
+pub fn record_external(
+    records: &mut Vec<ServiceRecord>,
+    name: &str,
+    pid: u32,
+    port: u16,
+) -> ServiceRecord {
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let rec = ServiceRecord {
+        name: name.to_string(),
+        pid,
+        port,
+        started_at: now,
+        restarts: 0,
+        disabled_until: None,
+        external: true,
+    };
+    if let Some(existing) = records.iter_mut().find(|r| r.name == name) {
+        *existing = rec.clone();
+    } else {
+        records.push(rec.clone());
+    }
     rec
 }
 
@@ -214,6 +254,79 @@ pub fn pid_alive(pid: u32) -> bool {
     }
 }
 
+/// Identify the pid holding a localhost TCP port, when the OS lets us.
+/// Linux: the socket inode comes from `/proc/net/tcp{,6}` (local_address
+/// port match, state LISTEN), then `/proc/*/fd` is scanned for the
+/// `socket:[inode]` symlink. `None` on other platforms or when the
+/// holder is unreadable — callers must tolerate an unknown owner.
+#[cfg(target_os = "linux")]
+pub fn pid_for_port(port: u16) -> Option<u32> {
+    let hex_port = format!("{port:04X}");
+    let mut inode = String::new();
+    for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = fs::read_to_string(table) else {
+            continue;
+        };
+        for line in text.lines().skip(1) {
+            let mut cols = line.split_whitespace();
+            let _idx = cols.next();
+            let Some(local) = cols.next() else {
+                continue;
+            };
+            let Some((_ip, p)) = local.rsplit_once(':') else {
+                continue;
+            };
+            if p != hex_port {
+                continue;
+            }
+            // Columns: sl local_address rem_address st ... inode — field 3
+            // is state (0A = LISTEN), field 9 the socket inode.
+            let _remote = cols.next();
+            let state = cols.next().unwrap_or("");
+            if state != "0A" {
+                continue;
+            }
+            inode = line.split_whitespace().nth(9).unwrap_or("").to_string();
+            break;
+        }
+        if !inode.is_empty() {
+            break;
+        }
+    }
+    if inode.is_empty() {
+        return None;
+    }
+    let needle = format!("socket:[{inode}]");
+    let proc = PathBuf::from("/proc");
+    for entry in fs::read_dir(&proc).ok()?.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !name.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+            continue;
+        }
+        let Ok(fds) = fs::read_dir(entry.path().join("fd")) else {
+            continue;
+        };
+        for fd in fds.flatten() {
+            if fs::read_link(fd.path())
+                .map(|t| t.to_string_lossy() == needle)
+                .unwrap_or(false)
+            {
+                return name.parse::<u32>().ok();
+            }
+        }
+    }
+    None
+}
+
+/// No `/proc` on non-Linux platforms — the owner of a port is unknown.
+#[cfg(not(target_os = "linux"))]
+pub fn pid_for_port(_port: u16) -> Option<u32> {
+    None
+}
+
 /// A snapshot of every leaf service with its live health — what the
 /// `services` CLI and `os_services` tool render. Supervision metadata comes
 /// from the table when present; health is always probed live.
@@ -231,6 +344,9 @@ pub struct ServiceStatus {
     pub started_at: Option<u64>,
     /// Live TCP probe result.
     pub up: bool,
+    /// True when the port is bound by a process the daemon does not own.
+    #[serde(default)]
+    pub external: bool,
 }
 
 impl ServiceStatus {
@@ -269,10 +385,19 @@ pub fn status() -> Vec<ServiceStatus> {
             ServiceStatus {
                 name: svc.name.to_string(),
                 port: svc.port(),
-                pid: rec.map(|r| r.pid),
+                // External rows may carry pid 0 when the holder couldn't
+                // be identified — render unknown, not a bogus "pid 0".
+                pid: rec.and_then(|r| {
+                    if r.external && r.pid == 0 {
+                        None
+                    } else {
+                        Some(r.pid)
+                    }
+                }),
                 restarts: rec.map(|r| r.restarts).unwrap_or(0),
                 started_at: rec.map(|r| r.started_at),
                 up: probe(svc.port()),
+                external: rec.map(|r| r.external).unwrap_or(false),
             }
         })
         .collect()
@@ -323,6 +448,33 @@ mod tests {
         assert!(pid_alive(std::process::id()));
         // pid 1 always exists on unix; an implausible pid must read dead.
         assert!(!pid_alive(4_000_000));
+    }
+
+    #[test]
+    fn pid_for_port_finds_a_listener_we_own() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let found = pid_for_port(port);
+        #[cfg(target_os = "linux")]
+        assert_eq!(found, Some(std::process::id()));
+        #[cfg(not(target_os = "linux"))]
+        assert!(found.is_none());
+        // An unbound high port must not produce a bogus owner.
+        assert!(pid_for_port(1).is_none() || probe(1));
+    }
+
+    #[test]
+    fn record_external_marks_row_and_supervised_record_replaces_it() {
+        let mut records = Vec::new();
+        let ext = record_external(&mut records, "susi-native", 0, 18084);
+        assert!(ext.external);
+        assert_eq!(ext.restarts, 0);
+        // A supervised spawn upserts over the external row — the daemon's
+        // own child replaces the observed one, external flag cleared.
+        let owned = record(&mut records, "susi-native", 7777, 18084);
+        assert!(!owned.external);
+        assert_eq!(owned.pid, 7777);
+        assert_eq!(records.len(), 1);
     }
 
     #[test]

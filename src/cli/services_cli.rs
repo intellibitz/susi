@@ -41,8 +41,15 @@ fn status() -> Result<()> {
         "{:<14} {:<6} {:<8} {:<9} {:<8} UP",
         "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME"
     );
-    for s in service_table::status() {
-        let pid = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+    let services = service_table::status();
+    let any_external = services.iter().any(|s| s.external);
+    for s in &services {
+        let pid = match (s.external, s.pid) {
+            (true, Some(p)) => format!("{p}*"),
+            (true, None) => "ext*".to_string(),
+            (false, Some(p)) => p.to_string(),
+            (false, None) => "-".to_string(),
+        };
         println!(
             "{:<14} {:<6} {:<8} {:<9} {:<8} {}",
             s.name,
@@ -52,6 +59,9 @@ fn status() -> Result<()> {
             s.uptime(),
             if s.up { "yes" } else { "no" }
         );
+    }
+    if any_external {
+        println!("* external process — bound outside daemon supervision");
     }
     Ok(())
 }
@@ -67,6 +77,16 @@ fn restart(name: &str) -> Result<()> {
              (start the daemon with `susi start` to put it under supervision)"
         );
     };
+    if rec.external {
+        // The "never kill what we didn't spawn" rule applies to operator
+        // restarts too — an external process is not ours to signal.
+        bail!(
+            "{name} is bound by an external process (pid {}) that the daemon \
+             does not supervise — stop it yourself and the supervisor will \
+             spawn a managed service on the freed port",
+            rec.pid
+        );
+    }
     if susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_none() {
         bail!(
             "the daemon is not running — killing {name} (pid {}) would leave it \

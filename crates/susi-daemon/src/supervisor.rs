@@ -149,6 +149,21 @@ pub fn ensure_leaf_services() {
     let mut table = service_table::load();
     for svc in LEAF_SERVICES {
         if service_table::probe(svc.port()) {
+            // Port bound by a process we didn't spawn — record it as
+            // external so the table reflects reality; never killed by us.
+            if !table.iter().any(|r| r.name == svc.name) {
+                let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
+                service_table::record_external(&mut table, svc.name, pid, svc.port());
+                eprintln!(
+                    "[supervisor] {} already bound externally{} — observing, not supervising",
+                    svc.name,
+                    if pid != 0 {
+                        format!(" (pid {pid})")
+                    } else {
+                        String::new()
+                    }
+                );
+            }
             continue;
         }
         let Some(pid) = spawn_service(svc) else {
@@ -235,6 +250,20 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 if due {
                     missing_retry.insert(svc.name, std::time::Instant::now());
                     if service_table::probe(svc.port()) {
+                        // Bound by a process we didn't spawn — record as
+                        // external so `susi services`/`susi os` can name it.
+                        let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
+                        service_table::record_external(&mut table, svc.name, pid, svc.port());
+                        eprintln!(
+                            "[supervisor] {} bound externally{} — observing",
+                            svc.name,
+                            if pid != 0 {
+                                format!(" (pid {pid})")
+                            } else {
+                                String::new()
+                            }
+                        );
+                        changed = true;
                         continue;
                     }
                     eprintln!("[supervisor] {} not supervised; attempting spawn", svc.name);
@@ -258,6 +287,22 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 rec.disabled_until = None;
                 rec.restarts = 0;
                 changed = true;
+            }
+            if rec.external {
+                // External listeners are observed, never signaled: health
+                // is the port alone. When it dies we drop the row so the
+                // missing-service path spawns a supervised child instead.
+                if service_table::probe(rec.port) {
+                    continue;
+                }
+                eprintln!(
+                    "[supervisor] external {} released :{}; taking over",
+                    svc.name, rec.port
+                );
+                table.retain(|r| r.name != svc.name);
+                missing_retry.remove(svc.name);
+                changed = true;
+                continue;
             }
             let healthy = service_table::pid_alive(rec.pid) && service_table::probe(rec.port);
             if healthy {

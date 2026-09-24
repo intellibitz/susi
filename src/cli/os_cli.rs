@@ -52,7 +52,7 @@ fn status(json: bool) -> Result<()> {
                 })),
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
-                "restarts": s.restarts, "up": s.up,
+                "restarts": s.restarts, "up": s.up, "external": s.external,
             })).collect::<Vec<_>>(),
             "peers": peers.iter().map(|p| serde_json::json!({
                 "node_id": &p.node_id, "address": &p.address,
@@ -110,8 +110,14 @@ fn status(json: bool) -> Result<()> {
         "{:<14} {:<6} {:<8} {:<9} {:<8} UP",
         "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME"
     );
+    let any_external = services.iter().any(|s| s.external);
     for s in &services {
-        let pid = s.pid.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
+        let pid = match (s.external, s.pid) {
+            (true, Some(p)) => format!("{p}*"),
+            (true, None) => "ext*".to_string(),
+            (false, Some(p)) => p.to_string(),
+            (false, None) => "-".to_string(),
+        };
         println!(
             "{:<14} {:<6} {:<8} {:<9} {:<8} {}",
             s.name,
@@ -121,6 +127,9 @@ fn status(json: bool) -> Result<()> {
             s.uptime(),
             if s.up { "yes" } else { "no" }
         );
+    }
+    if any_external {
+        println!("* external process — bound outside daemon supervision");
     }
     println!();
 
