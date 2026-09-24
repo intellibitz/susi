@@ -313,7 +313,16 @@ async fn handle_gemi_request(
                                     .get("model_id")
                                     .or_else(|| m.get("id"))
                                     .and_then(|v| v.as_str())?;
-                                Some(json!({"id": id, "object": "model", "owned_by": "susi"}))
+                                // OpenAI clients display and echo `id`
+                                // verbatim — a filesystem path leaks layout
+                                // and reads badly. Present the file stem;
+                                // the raw id stays available as `model_id`.
+                                Some(json!({
+                                    "id": model_display_id(id),
+                                    "model_id": id,
+                                    "object": "model",
+                                    "owned_by": "susi",
+                                }))
                             })
                             .collect()
                     })
@@ -489,10 +498,12 @@ async fn handle_gemi_request(
             let pulse_intent = completion.prompt;
             let intent = gemi::IntentClassifier::classify(&pulse_intent);
             // A caller-requested model labels the response; intent
-            // classification only applies when no model was named.
-            let active_model = completion.model.clone().unwrap_or_else(|| {
+            // classification only applies when no model was named. The
+            // label is the display id (stem), matching /v1/models.
+            let resolved_model = completion.model.clone().unwrap_or_else(|| {
                 gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1
             });
+            let active_model = model_display_id(&resolved_model).to_string();
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
@@ -909,6 +920,20 @@ fn completion_id() -> String {
         now_secs(),
         NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     )
+}
+
+/// OpenAI-facing model id: file stem for path-like internal ids,
+/// the id itself otherwise. `/v1/models` and completion labels share
+/// this so a client can echo `id` back into `model` verbatim.
+fn model_display_id(id: &str) -> &str {
+    if id.contains('/') {
+        std::path::Path::new(id)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(id)
+    } else {
+        id
+    }
 }
 
 fn completion_response(model: &str, content: &str, legacy: bool) -> serde_json::Value {
