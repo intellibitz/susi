@@ -275,6 +275,8 @@ impl SusiSupervisor {
                     // wait out a full interval.
                     let mut last_commit_sync =
                         std::time::Instant::now() - std::time::Duration::from_secs(270);
+                    // Ledger-compaction throttle — see below.
+                    let mut last_compact = std::time::Instant::now();
 
                     loop {
                         // A committed member_remove naming this node
@@ -340,6 +342,21 @@ impl SusiSupervisor {
                                 }
                             }
                             last_election_check = std::time::Instant::now();
+                        }
+                        // Ledger compaction (Raft's snapshot-and-truncate):
+                        // every ~10 min, fold the live ledger into
+                        // commit_snapshot.json once it passes 2048 records —
+                        // every intake loads the whole file, so unbounded
+                        // growth is a real cost. Local storage management,
+                        // not a consensus event: the compacted and
+                        // uncompacted views of the same history are
+                        // identical, and commit_log_fetch keeps serving the
+                        // archive for peers repairing across the boundary.
+                        if last_compact.elapsed().as_secs() >= 600 {
+                            if crate::susi_core::commit_log::load().len() > 2048 {
+                                let _ = crate::susi_core::commit_log::compact();
+                            }
+                            last_compact = std::time::Instant::now();
                         }
                         // Operator `peers add` lands on disk mid-flight —
                         // rehydrate persisted Explicit members into the
@@ -1306,8 +1323,18 @@ impl SusiSupervisor {
         // Member-to-member calls carry the cluster-derived peer bearer —
         // the per-host api_token cannot authenticate on a remote node.
         let bearer = crate::susi_config::cluster_key::peer_bearer();
+        // Held = live ledger + compaction archive — archived records are
+        // still ours for dedup purposes: without them every sweep would
+        // re-append below-floor history (a no-op, but one that costs a
+        // full archive scan per record).
         let mut held: std::collections::HashSet<String> = crate::susi_core::commit_log::load()
             .iter()
+            .chain(
+                crate::susi_core::commit_log::load_from(
+                    &crate::susi_core::commit_log::archive_path(),
+                )
+                .iter(),
+            )
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect();
         let mut offset = 0usize;
@@ -1383,8 +1410,12 @@ impl SusiSupervisor {
         // Symmetric repair: push our records the peer lacks through
         // `commit_record` — their receive path re-runs signature, term,
         // sequence, and chain gates, so a rejection is the protocol's
-        // gate working, not a sync failure.
-        for r in crate::susi_core::commit_log::load() {
+        // gate working, not a sync failure. The archive is ours to
+        // serve: an uncompacted peer missing below-floor history can
+        // only get it from our cold storage.
+        for r in crate::susi_core::commit_log::load().into_iter().chain(
+            crate::susi_core::commit_log::load_from(&crate::susi_core::commit_log::archive_path()),
+        ) {
             let key = serde_json::to_string(&r).unwrap_or_default();
             if theirs.contains(&key) {
                 continue;

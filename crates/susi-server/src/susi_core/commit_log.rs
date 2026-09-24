@@ -537,12 +537,54 @@ fn chain_head_epoch(records: &[CommitRecord], coordinator: &str) -> Option<Strin
 /// arrives with gaps (dropped replication, or a forged seq that slipped
 /// past nothing). `incoming_seq` is the seq of a record about to append.
 pub fn missing_seqs(records: &[CommitRecord], coordinator: &str, incoming_seq: u64) -> Vec<u64> {
+    missing_seqs_floored(records, coordinator, incoming_seq, 0)
+}
+
+/// `missing_seqs` bounded below by a snapshot floor: seqs at or under
+/// the compaction high-water are archived, not missing — reporting them
+/// would trigger repair pulls for history the snapshot already covers.
+pub fn missing_seqs_floored(
+    records: &[CommitRecord],
+    coordinator: &str,
+    incoming_seq: u64,
+    floor: u64,
+) -> Vec<u64> {
     let held: std::collections::BTreeSet<u64> = records
         .iter()
         .filter(|r| r.coordinator == coordinator)
         .map(|r| r.seq)
         .collect();
-    (1..incoming_seq).filter(|s| !held.contains(s)).collect()
+    (floor + 1..incoming_seq)
+        .filter(|s| !held.contains(s))
+        .collect()
+}
+
+/// The snapshot's last-included seq for `coordinator`, or 0 when no
+/// compaction has run — the intake-side floor for `missing_seqs` and
+/// the below-floor dedup check in `append_to`.
+pub fn snapshot_floor(coordinator: &str) -> u64 {
+    load_snapshot()
+        .and_then(|s| s.high_water.get(coordinator).copied())
+        .unwrap_or(0)
+}
+
+/// Snapshot floor relative to an explicit ledger path — the
+/// `append_to`/`commit_log_fetch` seam that can't assume `~/.susi`.
+fn snapshot_floor_at(ledger: &Path, coordinator: &str) -> u64 {
+    ledger
+        .parent()
+        .and_then(|dir| load_snapshot_from(&dir.join("commit_snapshot.json")))
+        .and_then(|s| s.high_water.get(coordinator).copied())
+        .unwrap_or(0)
+}
+
+/// Find a record by `(coordinator, seq)` in the compaction archive —
+/// the dedup source for below-floor arrivals.
+fn find_in_archive(archive: &Path, coordinator: &str, seq: u64) -> Option<CommitRecord> {
+    let text = fs::read_to_string(archive).ok()?;
+    text.lines()
+        .filter_map(|line| serde_json::from_str::<CommitRecord>(line).ok())
+        .find(|r| r.coordinator == coordinator && r.seq == seq)
 }
 
 /// Persisted consensus term state (`~/.susi/term.json`). Raft's
@@ -831,7 +873,25 @@ pub struct ClusterState {
 /// - term decreasing along a coordinator's seq order → term regression
 /// - holes in a coordinator's seq range → sequence gap
 pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
-    let mut state = ClusterState::default();
+    fold_records(
+        ClusterState::default(),
+        records,
+        &std::collections::BTreeMap::new(),
+    )
+}
+
+/// The fold behind `replay_records`/`replay`: `floors` carries the
+/// snapshot's per-coordinator last-included seq. Records at or below
+/// the floor are already represented in the seeded `state` — they are
+/// signature-checked (corruption still reports) but skipped from the
+/// fold and ordering checks: re-folding would double-apply deltas and
+/// windowing them against the live anchors would fabricate
+/// chain-breaks the snapshot boundary legitimately creates.
+fn fold_records(
+    mut state: ClusterState,
+    records: &[CommitRecord],
+    floors: &std::collections::BTreeMap<String, u64>,
+) -> ClusterState {
     let mut by_coord: std::collections::BTreeMap<String, Vec<&CommitRecord>> =
         std::collections::BTreeMap::new();
     for r in records {
@@ -842,42 +902,56 @@ pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
             ));
             continue;
         }
-        state.decisions += 1;
-        // Fold membership deltas in append order — the same order
-        // `apply_member_delta` ran in when the records landed, so the
-        // derived roster reproduces what the ledger applied.
-        if let Some((kind, id, addr)) = r.member_delta() {
-            state.memberships += 1;
-            match kind {
-                KIND_MEMBER_ADD => {
-                    if !state
-                        .banned
-                        .iter()
-                        .any(|(bid, baddr)| bid == id || baddr == addr)
-                    {
-                        // Dedup on either field — a member re-added with
-                        // a new id at the same address replaces the
-                        // stale claim.
-                        state.roster.retain(|nid, naddr| nid != id && naddr != addr);
-                        state.roster.insert(id.to_string(), addr.to_string());
+        let floor = floors.get(&r.coordinator).copied().unwrap_or(0);
+        if r.seq < floor {
+            // Covered by the snapshot — already in the seeded state,
+            // and excluded from ordering checks: windowing archived-era
+            // strays against the live anchors would fabricate
+            // chain-breaks the snapshot boundary legitimately creates.
+            continue;
+        }
+        if r.seq > floor {
+            state.decisions += 1;
+            // Fold membership deltas in append order — the same order
+            // `apply_member_delta` ran in when the records landed, so
+            // the derived roster reproduces what the ledger applied.
+            if let Some((kind, id, addr)) = r.member_delta() {
+                state.memberships += 1;
+                match kind {
+                    KIND_MEMBER_ADD => {
+                        if !state
+                            .banned
+                            .iter()
+                            .any(|(bid, baddr)| bid == id || baddr == addr)
+                        {
+                            // Dedup on either field — a member re-added
+                            // with a new id at the same address replaces
+                            // the stale claim.
+                            state.roster.retain(|nid, naddr| nid != id && naddr != addr);
+                            state.roster.insert(id.to_string(), addr.to_string());
+                        }
                     }
+                    KIND_MEMBER_REMOVE => {
+                        state.roster.retain(|nid, naddr| nid != id && naddr != addr);
+                        state.banned.insert((id.to_string(), addr.to_string()));
+                    }
+                    KIND_MEMBER_UNBAN => {
+                        state
+                            .banned
+                            .retain(|(bid, baddr)| bid != id && baddr != addr);
+                    }
+                    _ => {}
                 }
-                KIND_MEMBER_REMOVE => {
-                    state.roster.retain(|nid, naddr| nid != id && naddr != addr);
-                    state.banned.insert((id.to_string(), addr.to_string()));
-                }
-                KIND_MEMBER_UNBAN => {
-                    state
-                        .banned
-                        .retain(|(bid, baddr)| bid != id && baddr != addr);
-                }
-                _ => {}
+            }
+            if r.term > state.term {
+                state.term = r.term;
+                state.leader = r.leader.clone();
             }
         }
-        if r.term > state.term {
-            state.term = r.term;
-            state.leader = r.leader.clone();
-        }
+        // A record AT the floor (the retained anchor) doesn't fold —
+        // its effects are in the snapshot — but stays in `by_coord` as
+        // the boundary predecessor the first post-snapshot record's
+        // prev_epoch is checked against.
         by_coord.entry(r.coordinator.clone()).or_default().push(r);
     }
     for (coord, mut recs) in by_coord {
@@ -913,27 +987,210 @@ pub fn replay_records(records: &[CommitRecord]) -> ClusterState {
         }
         if let Some(high) = recs.iter().map(|r| r.seq).max() {
             let held: std::collections::BTreeSet<u64> = recs.iter().map(|r| r.seq).collect();
-            let missing: Vec<u64> = (1..high).filter(|s| !held.contains(s)).collect();
+            // Gaps below the snapshot floor are archived, not missing.
+            let floor = floors.get(&coord).copied().unwrap_or(0);
+            let missing: Vec<u64> = (floor + 1..high).filter(|s| !held.contains(s)).collect();
             if !missing.is_empty() {
                 state
                     .anomalies
                     .push(format!("sequence gap: {coord} missing seq {missing:?}"));
             }
-            state.coordinators.insert(coord, high);
+            let prev_high = state.coordinators.get(&coord).copied().unwrap_or(0);
+            state.coordinators.insert(coord, high.max(prev_high));
         }
     }
     state
 }
 
-/// Replay the local ledger into the cluster's consensus view.
+/// Replay the local ledger into the cluster's consensus view. When a
+/// compaction snapshot exists, its derived state seeds the replay and
+/// the per-coordinator high-water marks bound gap detection — the
+/// compacted and uncompacted views of the same history are identical.
 pub fn replay() -> ClusterState {
-    replay_records(&load())
+    let records = load();
+    let Some(snap) = load_snapshot() else {
+        return replay_records(&records);
+    };
+    let seed = ClusterState {
+        term: snap.term,
+        leader: snap.leader.clone(),
+        coordinators: snap.high_water.clone(),
+        decisions: snap.decisions,
+        memberships: snap.memberships,
+        roster: snap.roster.clone(),
+        banned: snap.banned.clone(),
+        anomalies: Vec::new(),
+    };
+    fold_records(seed, &records, &snap.high_water)
 }
 
 /// Where the ledger lives: `~/.susi/commit_log.jsonl` — one JSON record
 /// per line, append-only, shared with peers under the same cluster key.
 pub fn ledger_path() -> PathBuf {
     SusiDirs::config_dir().join("commit_log.jsonl")
+}
+
+/// A log-compaction snapshot (Raft's InstallSnapshot analog): the
+/// derived cluster state at the compaction point plus each
+/// coordinator's last-included seq (`high_water`). After `compact()`
+/// runs, the live ledger keeps only per-coordinator anchor records
+/// (the frontier record at `high_water`) and post-snapshot arrivals —
+/// everything older moves to `commit_log.archive.jsonl`.
+///
+/// Compaction is LOCAL storage management, not a consensus event: any
+/// node may fold its own copy — the snapshot is a pure function of the
+/// same records every member holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerSnapshot {
+    /// Snapshot format version.
+    pub version: u32,
+    /// Unix seconds when the snapshot was taken.
+    pub created_at: u64,
+    /// Per-coordinator last-included seq — records at or below this are
+    /// already represented in `state` and must not re-fold.
+    pub high_water: std::collections::BTreeMap<String, u64>,
+    /// Highest term observed through the snapshot point.
+    pub term: u64,
+    /// Leader stamped on the highest-term records.
+    pub leader: String,
+    /// Derived committed roster at the snapshot point.
+    pub roster: std::collections::BTreeMap<String, String>,
+    /// Derived banned members at the snapshot point.
+    pub banned: std::collections::BTreeSet<(String, String)>,
+    /// Verified-record count through the snapshot point.
+    pub decisions: usize,
+    /// Membership-delta count through the snapshot point.
+    pub memberships: usize,
+}
+
+/// Where the snapshot lives.
+pub fn snapshot_path() -> PathBuf {
+    SusiDirs::config_dir().join("commit_snapshot.json")
+}
+
+/// Where pre-snapshot records are archived — still served by
+/// `commit_log_fetch` so peers can repair gaps that span the boundary.
+pub fn archive_path() -> PathBuf {
+    SusiDirs::config_dir().join("commit_log.archive.jsonl")
+}
+
+/// Current snapshot; `None` when the file is absent or unreadable —
+/// uncompacted nodes simply have no floor.
+pub fn load_snapshot() -> Option<LedgerSnapshot> {
+    load_snapshot_from(&snapshot_path())
+}
+
+/// Test seam: load a snapshot from an explicit path.
+pub fn load_snapshot_from(path: &PathBuf) -> Option<LedgerSnapshot> {
+    let text = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Fold the live ledger into a snapshot and truncate. Keeps each
+/// coordinator's frontier record as the chain/seq anchor so sealing,
+/// `next_seq_for`, and anti-entropy `from_seq` need no snapshot
+/// awareness. Durability order: archive first, then snapshot, then the
+/// truncated live file — a crash mid-compact leaves a consistent
+/// (possibly redundant) state rather than a ledger with no roster.
+///
+/// Returns the number of records moved to the archive.
+pub fn compact() -> EaiResult<usize> {
+    compact_at(&ledger_path(), &snapshot_path(), &archive_path())
+}
+
+/// Test seam: compact explicit paths.
+pub fn compact_at(ledger: &PathBuf, snapshot: &PathBuf, archive: &PathBuf) -> EaiResult<usize> {
+    let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(_file_lock) = ledger
+        .parent()
+        .and_then(|dir| FileLock::acquire(dir, "commit_log"))
+    else {
+        return Err(EaiError::filesystem(
+            "commit ledger lock unavailable — possible wedged holder or extreme contention",
+        ));
+    };
+    let records = load_from(ledger);
+    if records.is_empty() {
+        return Ok(0);
+    }
+    let state = replay_records(&records);
+    // Anchor = each coordinator's highest-seq record — the frontier
+    // every post-snapshot seal/link/anti-entropy computation needs.
+    let mut anchors: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut by_coord: std::collections::BTreeMap<&str, Vec<(usize, &CommitRecord)>> =
+        std::collections::BTreeMap::new();
+    for (i, r) in records.iter().enumerate() {
+        by_coord
+            .entry(r.coordinator.as_str())
+            .or_default()
+            .push((i, r));
+    }
+    for recs in by_coord.values() {
+        if let Some((i, _)) = recs.iter().max_by_key(|(_, r)| r.seq) {
+            anchors.insert(*i);
+        }
+    }
+    let archived: Vec<&CommitRecord> = records
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !anchors.contains(i))
+        .map(|(_, r)| r)
+        .collect();
+    if archived.is_empty() {
+        return Ok(0);
+    }
+    if let Some(dir) = archive.parent() {
+        fs::create_dir_all(dir)
+            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
+    }
+    let mut out = String::new();
+    for r in &archived {
+        let line = serde_json::to_string(r)
+            .map_err(|e| EaiError::internal(format!("serialize archived record: {e}")))?;
+        out.push_str(&line);
+        out.push('\n');
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(archive)
+        .map_err(|e| EaiError::filesystem(format!("open {}: {e}", archive.display())))?;
+    file.write_all(out.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", archive.display())))?;
+    let snap = LedgerSnapshot {
+        version: 1,
+        created_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        high_water: state.coordinators.clone(),
+        term: state.term,
+        leader: state.leader.clone(),
+        roster: state.roster.clone(),
+        banned: state.banned.clone(),
+        decisions: state.decisions,
+        memberships: state.memberships,
+    };
+    let snap_text = serde_json::to_string_pretty(&snap)
+        .map_err(|e| EaiError::internal(format!("serialize ledger snapshot: {e}")))?;
+    let snap_tmp = snapshot.with_extension("tmp");
+    fs::write(&snap_tmp, snap_text)
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", snap_tmp.display())))?;
+    fs::rename(&snap_tmp, snapshot)
+        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", snap_tmp.display())))?;
+    let live: String = records
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| anchors.contains(i))
+        .filter_map(|(_, r)| serde_json::to_string(r).ok())
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let live_tmp = ledger.with_extension("tmp");
+    fs::write(&live_tmp, live)
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", live_tmp.display())))?;
+    fs::rename(&live_tmp, ledger)
+        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", live_tmp.display())))?;
+    Ok(archived.len())
 }
 
 /// Serializes the verify→dedup-check→write sequence in-process: two
@@ -988,6 +1245,32 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
         }
     } else if held.iter().any(|r| r == record) {
         return Ok(());
+    }
+    // Below-floor dedup: a record under the compaction high-water is
+    // covered by the snapshot. The archive decides — identical content
+    // is a redundant re-delivery (no-op), divergent content at an
+    // archived seq is equivocation against committed history.
+    let floor = snapshot_floor_at(path, &record.coordinator);
+    if record.seq > 0 && record.seq < floor {
+        if let Some(dir) = path.parent() {
+            match find_in_archive(
+                &dir.join("commit_log.archive.jsonl"),
+                &record.coordinator,
+                record.seq,
+            ) {
+                Some(archived) if &archived == record => return Ok(()),
+                Some(_) => {
+                    return Err(EaiError::protocol(format!(
+                        "commit equivocation: {} seq {} diverges from archived record",
+                        record.coordinator, record.seq
+                    )));
+                }
+                // Not in the archive — pre-snapshot history this node
+                // never received. Harmless to append: the fold skips
+                // records under the floor.
+                None => {}
+            }
+        }
     }
     // Epoch-aware intake: current-key records append normally. A record
     // signed only under the retired key (`cluster.key.prev`) is genuine

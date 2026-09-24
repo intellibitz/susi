@@ -52,6 +52,12 @@ pub enum CommitsCommands {
     /// the receive-path repair only fires when a *push* arrives, so a node
     /// that was offline during replication needs this to catch up
     Sync,
+    /// Fold the ledger into a snapshot and move pre-snapshot records to
+    /// commit_log.archive.jsonl — bounds the live file's growth (Raft's
+    /// InstallSnapshot analog). Local storage management, not a
+    /// consensus event: the compacted and uncompacted views of the same
+    /// history are identical
+    Compact,
 }
 
 pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()> {
@@ -71,7 +77,28 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
         CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
         CommitsCommands::Sync => sync(),
+        CommitsCommands::Compact => compact(),
     }
+}
+
+/// Fold the live ledger into `commit_snapshot.json` + archive
+/// pre-snapshot records. The retained per-coordinator anchors keep
+/// chain linkage and seq derivation intact; `commit_log_fetch` keeps
+/// serving the archive so peers can still repair across the boundary.
+fn compact() -> Result<()> {
+    let before = commit_log::load().len();
+    let archived =
+        commit_log::compact().map_err(|e| anyhow::anyhow!("ledger compaction failed: {e}"))?;
+    let after = commit_log::load().len();
+    if archived == 0 {
+        println!("ledger already minimal ({before} records) — nothing to compact");
+    } else {
+        println!(
+            "compacted: {archived} records archived to {}, {after} live (anchors + post-snapshot)",
+            commit_log::archive_path().display()
+        );
+    }
+    Ok(())
 }
 
 /// Pull every record each verified peer holds, verify + append locally.
@@ -93,9 +120,11 @@ fn sync() -> Result<()> {
 
     // Snapshot held records once — append() is idempotent on duplicates,
     // so "new" is determined by membership before the write, not the
-    // write's outcome.
+    // write's outcome. The compaction archive counts as held: archived
+    // records are still ours for dedup purposes.
     let mut held: std::collections::HashSet<String> = commit_log::load()
         .iter()
+        .chain(commit_log::load_from(&commit_log::archive_path()).iter())
         .filter_map(|r| serde_json::to_string(r).ok())
         .collect();
 
@@ -208,10 +237,15 @@ fn sync() -> Result<()> {
         // Symmetric repair: records we hold that the peer lacks are pushed
         // through `commit_record` — the receive path re-runs signature,
         // quorum, and term gates, so a rejected push is the protocol
-        // working, not a sync failure.
+        // working, not a sync failure. The archive is ours to serve: an
+        // uncompacted peer missing below-floor history can only get it
+        // from our cold storage.
         let mut pushed = 0usize;
         let mut push_rejected = 0usize;
-        for r in commit_log::load() {
+        for r in commit_log::load()
+            .into_iter()
+            .chain(commit_log::load_from(&commit_log::archive_path()))
+        {
             let key = serde_json::to_string(&r).unwrap_or_default();
             if theirs.contains(&key) {
                 continue;
@@ -325,7 +359,8 @@ fn list(
 }
 
 fn show(epoch_prefix: &str) -> Result<()> {
-    let records = commit_log::load();
+    let mut records = commit_log::load();
+    records.extend(commit_log::load_from(&commit_log::archive_path()));
     let matches: Vec<_> = records
         .iter()
         .filter(|r| r.epoch.starts_with(epoch_prefix))
@@ -349,8 +384,20 @@ fn show(epoch_prefix: &str) -> Result<()> {
 /// `coordinator != leader` is legitimate for per-node missions, so it is
 /// reported as an anomaly, not a violation.
 fn audit(strict: bool) -> Result<()> {
-    let records = commit_log::load();
-    let state = commit_log::replay_records(&records);
+    // Full history = live ledger + compaction archive — an audit that
+    // stops at the snapshot boundary would miss pre-snapshot
+    // anomalies. `replay()` seeds from the snapshot so gap detection
+    // stays honest on compacted ledgers.
+    let mut records = commit_log::load();
+    records.extend(commit_log::load_from(&commit_log::archive_path()));
+    let state = commit_log::replay();
+    if let Some(snap) = commit_log::load_snapshot() {
+        println!(
+            "snapshot: {} coordinators at/below high-water (created {})",
+            snap.high_water.len(),
+            snap.created_at
+        );
+    }
     let mut anomalies = state.anomalies.len();
 
     for a in &state.anomalies {

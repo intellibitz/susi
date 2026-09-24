@@ -673,8 +673,13 @@ impl CoreTools {
         // lost in transit — repair by pulling the missing records from
         // the coordinator's own ledger (anti-entropy), then report.
         let held = crate::susi_core::commit_log::load();
-        let missing =
-            crate::susi_core::commit_log::missing_seqs(&held, &record.coordinator, record.seq);
+        let floor = crate::susi_core::commit_log::snapshot_floor(&record.coordinator);
+        let missing = crate::susi_core::commit_log::missing_seqs_floored(
+            &held,
+            &record.coordinator,
+            record.seq,
+            floor,
+        );
         crate::susi_core::commit_log::append(&record)?;
         let mut out = format!(
             "commit {} accepted ({} / {} voters, seq {}, term {})",
@@ -723,13 +728,20 @@ impl CoreTools {
             .unwrap_or(500)
             .min(1000) as usize;
         let offset = arg.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-        let records: Vec<crate::susi_core::commit_log::CommitRecord> =
-            crate::susi_core::commit_log::load()
-                .into_iter()
-                .filter(|r| coordinator.is_none_or(|c| r.coordinator == c) && r.seq >= from_seq)
-                .skip(offset)
-                .take(limit)
-                .collect();
+        // Serve the compaction archive alongside the live ledger — a
+        // peer repairing a gap that spans the snapshot boundary needs
+        // records the live file no longer holds.
+        let mut records: Vec<crate::susi_core::commit_log::CommitRecord> =
+            crate::susi_core::commit_log::load();
+        records.extend(crate::susi_core::commit_log::load_from(
+            &crate::susi_core::commit_log::archive_path(),
+        ));
+        let records: Vec<_> = records
+            .into_iter()
+            .filter(|r| coordinator.is_none_or(|c| r.coordinator == c) && r.seq >= from_seq)
+            .skip(offset)
+            .take(limit)
+            .collect();
         serde_json::to_string(&records)
             .map_err(|e| EaiError::internal(format!("serialize commit records: {e}")))
     }

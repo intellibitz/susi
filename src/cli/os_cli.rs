@@ -64,6 +64,11 @@ fn status(json: bool) -> Result<()> {
             "ledger": {
                 "records": records.len(),
                 "last_commit_age_secs": last_commit_age,
+                "snapshot": commit_log::load_snapshot().map(|s| serde_json::json!({
+                    "created_at": s.created_at,
+                    "coordinators": s.high_water.len(),
+                    "archived_records": s.decisions,
+                })),
             },
             "daemon": daemon.as_ref().map(|d| serde_json::json!({
                 "pid": d.pid, "substrate_home": d.substrate_home,
@@ -134,11 +139,17 @@ fn status(json: bool) -> Result<()> {
         }
     );
     println!(
-        "ledger:      {} record(s), last commit {}",
+        "ledger:      {} record(s), last commit {}{}",
         records.len(),
         last_commit_age
             .map(|a| format!("{a}s ago"))
-            .unwrap_or_else(|| "never".to_string())
+            .unwrap_or_else(|| "never".to_string()),
+        commit_log::load_snapshot()
+            .map(|s| format!(
+                " — snapshot at {} ({} records archived)",
+                s.created_at, s.decisions
+            ))
+            .unwrap_or_default()
     );
     println!("services:    {}/{} leaf services up", up, services.len());
     println!(
