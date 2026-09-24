@@ -68,6 +68,26 @@ impl NativeInferenceEngine for SusiGgufEngine {
             return Ok("Simulated inference for test suite.".to_string());
         }
 
+        // Every early-? return must mark the task failed — otherwise the
+        // record lingers as a zombie until the watchdog's idle lease expires
+        // and logs a spurious LEASE_EXPIRED cancellation.
+        let result =
+            self.run_inference_stream_inner(prompt, callback, selected_model, &task_handle);
+        if let Err(e) = &result {
+            task_handle.mark_failed(&e.to_string());
+        }
+        result
+    }
+}
+
+impl SusiGgufEngine {
+    fn run_inference_stream_inner(
+        &self,
+        prompt: &str,
+        callback: &dyn Fn(String),
+        selected_model: Option<&str>,
+        task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
+    ) -> EaiResult<String> {
         let model_id = selected_model
             .map(str::to_owned)
             .or_else(|| ModelManager::get_selected_model_for_request(prompt))
@@ -90,14 +110,11 @@ impl NativeInferenceEngine for SusiGgufEngine {
         );
 
         println!("- [Inference Substrate] Acquiring model substrate shared handle...");
-        let substrate_shared = InferenceHost::get_model(&model_path, &device, &task_handle)?;
+        let substrate_shared = InferenceHost::get_model(&model_path, &device, task_handle)?;
 
         // Lock-Free Native Substrate (transition to non-blocking attempt)
         println!("- [Inference Substrate] Requesting exclusive access to model weights...");
         let _ = std::io::stdout().flush();
-
-        let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
-            .register_task("neural_inference", prompt);
 
         let mut substrate = substrate_shared.write();
         println!(" [Access Granted]");
@@ -153,7 +170,7 @@ impl NativeInferenceEngine for SusiGgufEngine {
                 max_tokens,
                 cfg.repeat_penalty(),
                 cfg.repeat_last_n(),
-                &task_handle,
+                task_handle,
                 callback,
             ) {
                 return result;
