@@ -17,11 +17,15 @@ pub enum OsCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Remove stray heavyweight files flagged in `~/.susi/bin` and
+    /// report reclaimed space
+    Clean,
 }
 
 pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(OsCommands::Status { json: false }) {
         OsCommands::Status { json } => status(json || top_json),
+        OsCommands::Clean => clean(),
     }
 }
 
@@ -406,13 +410,54 @@ fn stray_bin_warnings() -> Vec<String> {
         };
         if meta.is_file() && meta.len() >= STRAY_WARN_BYTES {
             warnings.push(format!(
-                "stray {name} ({}) in {} — remove or archive to reclaim space",
+                "stray {name} ({}) in {} — `susi os clean` removes it",
                 human_bytes(meta.len()),
                 bin_dir.display()
             ));
         }
     }
     warnings
+}
+
+/// Remove the same files `stray_bin_warnings` flags — stray binaries in
+/// `~/.susi/bin` at or above the warn threshold. Only files the warning
+/// predicate already names are touched; the live binary and `lib/` are
+/// never removed.
+fn clean() -> Result<()> {
+    const STRAY_WARN_BYTES: u64 = 256 * 1024 * 1024;
+    let bin_dir = susi_paths::SusiDirs::substrate_home().join("bin");
+    let mut reclaimed = 0u64;
+    let mut removed = 0usize;
+    let Ok(read) = std::fs::read_dir(&bin_dir) else {
+        println!("nothing to clean — {} not found", bin_dir.display());
+        return Ok(());
+    };
+    for entry in read.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if matches!(name.as_str(), "susi" | "susi.exe" | "lib") {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !(meta.is_file() && meta.len() >= STRAY_WARN_BYTES) {
+            continue;
+        }
+        let path = entry.path();
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                println!("removed {} ({})", path.display(), human_bytes(meta.len()));
+                reclaimed += meta.len();
+                removed += 1;
+            }
+            Err(e) => eprintln!("could not remove {}: {e}", path.display()),
+        }
+    }
+    println!(
+        "cleaned {removed} file(s), reclaimed {}",
+        human_bytes(reclaimed)
+    );
+    Ok(())
 }
 
 /// Free/total bytes on the filesystem holding `path` — a ledger or roster
