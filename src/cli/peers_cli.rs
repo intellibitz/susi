@@ -203,6 +203,11 @@ fn list() -> Result<()> {
 }
 
 fn remove(peer: &str) -> Result<()> {
+    // Held from the initial read through both writes — the lock drops
+    // before commit_membership pushes (its receiver-side apply takes
+    // the same lock).
+    let _peers_lock =
+        susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
     let nodes = load_registry();
     let kept: Vec<_> = nodes
         .iter()
@@ -243,16 +248,21 @@ fn remove(peer: &str) -> Result<()> {
                 "node_id": id, "address": addr, "banned_at": now,
             }));
         }
+    }
+    let bpath = banned_path();
+    let btmp = bpath.with_extension("json.tmp");
+    std::fs::write(&btmp, serde_json::to_string_pretty(&banned)?)?;
+    std::fs::rename(&btmp, &bpath)?;
+    drop(_peers_lock);
+    for n in &evicted {
+        let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let addr = n.get("address").and_then(|v| v.as_str()).unwrap_or("?");
         println!("evicted + banned: {id} ({addr})");
         // Commit the eviction — receivers drop the member and record the
         // ban on append, so the eviction takes effect cluster-wide, not
         // just where the operator ran the command.
         commit_membership(susi_core::commit_log::KIND_MEMBER_REMOVE, id, addr);
     }
-    let bpath = banned_path();
-    let btmp = bpath.with_extension("json.tmp");
-    std::fs::write(&btmp, serde_json::to_string_pretty(&banned)?)?;
-    std::fs::rename(&btmp, &bpath)?;
     println!(
         "{} verified member(s) remain; {} banned",
         kept.len(),
@@ -365,6 +375,14 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
                 "last_seen_secs": now_secs(),
             });
 
+            // Serialize the roster RMW with the daemon's apply/scout
+            // writers — released before commit_membership pushes over
+            // the network (the push path takes the same lock on the
+            // receiver side, and locally via append's apply).
+            let _peers_lock = susi_core::commit_log::FileLock::acquire(
+                &susi_paths::SusiDirs::config_dir(),
+                "peers",
+            );
             let mut nodes = load_registry();
             nodes.retain(|n| {
                 n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
@@ -419,6 +437,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             } else {
                 println!("verified + admitted: {node_id} ({address})");
             }
+            drop(_peers_lock);
             // Commit the admission to the replicated ledger — every verified
             // peer applies the same roster delta on append, so membership
             // converges without a `peers add` on each node.
@@ -433,6 +452,8 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
 }
 
 fn unban(peer: &str) -> Result<()> {
+    let _peers_lock =
+        susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
     let banned = load_banned();
     let kept: Vec<_> = banned
         .iter()
@@ -455,6 +476,7 @@ fn unban(peer: &str) -> Result<()> {
     let btmp = bpath.with_extension("json.tmp");
     std::fs::write(&btmp, serde_json::to_string_pretty(&kept)?)?;
     std::fs::rename(&btmp, &bpath)?;
+    drop(_peers_lock);
     for b in &lifted {
         let id = b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
         let addr = b.get("address").and_then(|v| v.as_str()).unwrap_or("?");

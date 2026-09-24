@@ -67,6 +67,11 @@ pub fn ban_peer(node_id: &str, address: &str) {
 
 /// Path-seamed variant of `ban_peer`.
 pub fn ban_peer_at(node_id: &str, address: &str, banned_path: &PathBuf, registry_path: &PathBuf) {
+    // One lock across the ban+roster pair — a concurrent committed
+    // member_add apply or scout persist must not interleave.
+    let _lock = banned_path
+        .parent()
+        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
     let mut banned = load_banned_peers_from(banned_path);
     if !is_banned_in(&banned, node_id, address) {
         banned.push(BannedPeer {
@@ -118,6 +123,14 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &PathBuf) {
     if !matches!(node.admission, PeerAdmission::Explicit) {
         return;
     }
+    // Serialize the roster read-modify-write across processes — the CLI
+    // (`peers add/remove`), committed-membership applies, and this scout
+    // admission all mutate peers.json; an unlocked load→write clobbers.
+    // Skipping on lock failure converges anyway — the peer re-verifies
+    // on its next signed handshake.
+    let _lock = path
+        .parent()
+        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
     let mut nodes = load_persisted_peers_from(path);
     if let Some(existing) = nodes.iter_mut().find(|n| n.address == node.address) {
         *existing = node.clone();
