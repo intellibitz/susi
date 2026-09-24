@@ -187,11 +187,14 @@ async fn handle_request(
     };
     // Owned header values — the body buffer below moves `req`, so the
     // SignedRequest borrows these, not the request.
-    let (node_h, ts_h, nonce_h, sig_h) = (
+    let (node_h, ts_h, nonce_h, sig_h, enc_h, enc_nonce_h, node_pub_h) = (
         hdr("x-susi-node"),
         hdr("x-susi-req-ts"),
         hdr("x-susi-req-nonce"),
         hdr("x-susi-req-sig"),
+        hdr("x-susi-enc"),
+        hdr("x-susi-enc-nonce"),
+        hdr("x-susi-node-pub"),
     );
     let signed = crate::susi_core::net_guard::SignedRequest {
         node: node_h.as_deref(),
@@ -203,7 +206,7 @@ async fn handle_request(
     // exact body bytes (v2 canonical), and `service.call` accepts any
     // Body so the buffered bytes rebuild into the same request shape
     // downstream — JSON-RPC bodies are small and bounded anyway.
-    let (parts, body) = req.into_parts();
+    let (mut parts, body) = req.into_parts();
     let body_bytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
         body,
         10 * 1024 * 1024,
@@ -218,7 +221,44 @@ async fn handle_request(
             ));
         }
     };
-    let req = Request::from_parts(parts, http_body_util::Full::new(body_bytes.clone()));
+    // Pairwise-sealed body (bound-member channel): open before auth so
+    // the v2 signature verifies against the plaintext hash the sender
+    // signed. Decryption uses the *roster-bound* pubkey when one exists;
+    // the self-asserted `x-susi-node-pub` covers the asymmetric window —
+    // AEAD tag failure or a swapped pubkey fails closed either way.
+    let effective = if enc_h.is_some() || enc_nonce_h.is_some() {
+        let open_key = node_h
+            .as_deref()
+            .and_then(crate::susi_config::cluster_key::bound_pubkey_for_node)
+            .or(node_pub_h);
+        match (
+            enc_h.as_deref(),
+            enc_nonce_h.as_deref(),
+            open_key.as_deref(),
+        ) {
+            (Some("v1"), Some(nonce), Some(pk)) => {
+                match crate::susi_config::cluster_key::member_open(pk, nonce, &body_bytes) {
+                    Some(pt) => {
+                        // rmcp requires application/json — the sealed wire
+                        // body travelled as octet-stream.
+                        parts.headers.insert(
+                            hyper::header::CONTENT_TYPE,
+                            hyper::header::HeaderValue::from_static("application/json"),
+                        );
+                        pt
+                    }
+                    None => return Ok(response(StatusCode::UNAUTHORIZED, "Unauthorized")),
+                }
+            }
+            _ => return Ok(response(StatusCode::UNAUTHORIZED, "Unauthorized")),
+        }
+    } else {
+        body_bytes.to_vec()
+    };
+    let req = Request::from_parts(
+        parts,
+        http_body_util::Full::new(hyper::body::Bytes::from(effective.clone())),
+    );
     let mut result = if req.method() == Method::OPTIONS {
         response(StatusCode::NO_CONTENT, "")
     } else if !crate::susi_core::net_guard::NetGuard::is_authorized(
@@ -229,7 +269,7 @@ async fn handle_request(
         &signed,
         req.method().as_str(),
         req.uri().path(),
-        Some(&body_bytes),
+        Some(&effective),
     ) {
         response(StatusCode::UNAUTHORIZED, "Unauthorized")
     } else if !crate::susi_core::net_guard::RateLimiter::global()

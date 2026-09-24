@@ -12,6 +12,8 @@ anyhow = { workspace = true }
 reqwest = { workspace = true }
 getrandom = { workspace = true }
 ed25519-dalek = { workspace = true }
+x25519-dalek = { workspace = true }
+chacha20poly1305 = { workspace = true }
 libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }

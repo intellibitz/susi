@@ -509,6 +509,123 @@ pub mod cluster_key {
         vk.verify_strict(msg.as_bytes(), &signature).is_ok()
     }
 
+    // ---- Pairwise channel encryption (bound members only) ----
+
+    /// This node's X25519 static secret, converted from `node.key` via the
+    /// standard birational map (libsodium `crypto_sign_ed25519_sk_to_
+    /// curve25519` convention: SHA-512 of the 32-byte seed, lower half —
+    /// clamping happens inside the Montgomery scalar multiply). Pairs
+    /// with `peer_x25519_public`'s `VerifyingKey::to_montgomery()`.
+    fn node_x25519_secret() -> Option<x25519_dalek::StaticSecret> {
+        let sk = node_signing_key()?;
+        let h = sha2::Sha512::digest(sk.to_bytes());
+        let mut b = [0u8; 32];
+        b.copy_from_slice(&h[..32]);
+        Some(x25519_dalek::StaticSecret::from(b))
+    }
+
+    /// A peer's X25519 public key from its roster-bound Ed25519 pubkey —
+    /// the same birational map `node_x25519_secret` uses on our side.
+    fn peer_x25519_public(pubkey_hex: &str) -> Option<x25519_dalek::PublicKey> {
+        let pk = hex::decode(pubkey_hex).ok()?;
+        let arr = <[u8; 32]>::try_from(pk.as_slice()).ok()?;
+        let vk = ed25519_dalek::VerifyingKey::from_bytes(&arr).ok()?;
+        Some(x25519_dalek::PublicKey::from(
+            vk.to_montgomery().to_bytes(),
+        ))
+    }
+
+    /// AEAD key shared by this node and the bound member `peer_pubkey_hex`:
+    /// X25519 ECDH run through HMAC-SHA-256 with a domain separator so the
+    /// channel key never coincides with another protocol's use of the same
+    /// shared point.
+    fn peer_channel_key(peer_pubkey_hex: &str) -> Option<[u8; 32]> {
+        let shared = node_x25519_secret()?.diffie_hellman(&peer_x25519_public(peer_pubkey_hex)?);
+        Some(hmac_sha256(shared.as_bytes(), b"susi-peer-enc-v1"))
+    }
+
+    /// Seal `plaintext` for the bound member `peer_pubkey_hex` →
+    /// `(nonce_hex, ciphertext)` under ChaCha20-Poly1305. `None` when this
+    /// node or the peer has no usable key material — callers degrade to
+    /// plaintext (unbound-member mode), never to a wrong key.
+    pub fn member_seal(peer_pubkey_hex: &str, plaintext: &[u8]) -> Option<(String, Vec<u8>)> {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        let key = peer_channel_key(peer_pubkey_hex)?;
+        let mut nonce = [0u8; 12];
+        getrandom::fill(&mut nonce).ok()?;
+        let cipher = chacha20poly1305::ChaCha20Poly1305::new((&key).into());
+        let ct = cipher
+            .encrypt(chacha20poly1305::Nonce::from_slice(&nonce), plaintext)
+            .ok()?;
+        Some((hex::encode(nonce), ct))
+    }
+
+    /// Open a `member_seal` ciphertext from the bound member
+    /// `peer_pubkey_hex`. `None` on any failure (bad key, tampered tag,
+    /// malformed nonce) — there is no partial plaintext.
+    pub fn member_open(
+        peer_pubkey_hex: &str,
+        nonce_hex: &str,
+        ciphertext: &[u8],
+    ) -> Option<Vec<u8>> {
+        use chacha20poly1305::aead::{Aead, KeyInit};
+        let key = peer_channel_key(peer_pubkey_hex)?;
+        let nonce = hex::decode(nonce_hex).ok()?;
+        let nonce: &[u8; 12] = nonce.as_slice().try_into().ok()?;
+        let cipher = chacha20poly1305::ChaCha20Poly1305::new((&key).into());
+        cipher
+            .decrypt(chacha20poly1305::Nonce::from_slice(nonce), ciphertext)
+            .ok()
+    }
+
+    /// The bound Ed25519 pubkey of the roster member registered at `addr`
+    /// (`host:port`); `None` when no bound member claims that address —
+    /// the client's signal to send plaintext instead of a seal nobody can
+    /// open.
+    pub fn bound_pubkey_for_addr(addr: &str) -> Option<String> {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
+        let text = fs::read_to_string(path).ok()?;
+        let roster = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        let host = addr.split(':').next()?;
+        let bound = |m: &serde_json::Value| {
+            let pk = m.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
+            (!pk.is_empty()).then(|| pk.to_string())
+        };
+        // Exact host:port first — two members on one host must not cross-seal
+        // — then a host-only fallback for legacy rows that stored bare IPs.
+        roster
+            .iter()
+            .find(|m| m.get("address").and_then(|v| v.as_str()) == Some(addr))
+            .and_then(bound)
+            .or_else(|| {
+                roster
+                    .iter()
+                    .find(|m| {
+                        m.get("address")
+                            .and_then(|v| v.as_str())
+                            .and_then(|a| a.split(':').next())
+                            == Some(host)
+                    })
+                    .and_then(bound)
+            })
+    }
+
+    /// The bound Ed25519 pubkey of roster member `node_id` — the receiver-
+    /// side mirror of `bound_pubkey_for_addr`, used to open sealed bodies
+    /// from members whose keys the ledger/handshake already attested.
+    pub fn bound_pubkey_for_node(node_id: &str) -> Option<String> {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("peers.json");
+        let text = fs::read_to_string(path).ok()?;
+        let roster = serde_json::from_str::<Vec<serde_json::Value>>(&text).ok()?;
+        roster.iter().find_map(|m| {
+            if m.get("node_id").and_then(|v| v.as_str()) != Some(node_id) {
+                return None;
+            }
+            let pk = m.get("pubkey").and_then(|v| v.as_str()).unwrap_or("");
+            (!pk.is_empty()).then(|| pk.to_string())
+        })
+    }
+
     /// Verified fields of a signed ping: `(node_id, caps_csv, checksum,
     /// bloom_hex, nonce, wants_v2)` — `node_id` is empty for pre-identity
     /// senders; `wants_v2` is true for `SUSI_PING_SIG2` senders, who must

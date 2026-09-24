@@ -51,8 +51,37 @@ fn post(
     for (name, value) in signed_headers(url, &body_bytes) {
         req = req.header(&name, value);
     }
-    req.header("content-type", "application/json")
-        .send(&body_bytes)
+    // Seal the body for receivers whose pubkey is bound in our roster.
+    // The signature binds the *plaintext* hash, so a relay that strips
+    // the enc headers cannot make the ciphertext verify — confidentiality
+    // failure fails closed, never downgrades to readable plaintext.
+    let mut wire = body_bytes;
+    let mut content_type = "application/json";
+    let addr = url
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split('/').next())
+        .unwrap_or("");
+    if let Some(peer_pk) = crate::susi_config::cluster_key::bound_pubkey_for_addr(addr) {
+        if let (Some((nonce, ct)), Some(our_pk)) = (
+            crate::susi_config::cluster_key::member_seal(&peer_pk, &wire),
+            crate::susi_config::cluster_key::node_pubkey_hex(),
+        ) {
+            req = req
+                .header("x-susi-enc", "v1")
+                .header("x-susi-enc-nonce", nonce)
+                // Our pubkey travels in the clear so the receiver can
+                // still open the body during asymmetric-roster windows
+                // (bound on our side, not yet committed on theirs);
+                // AEAD verification makes a swapped pubkey a hard
+                // failure, and auth still verifies the signature
+                // against the *roster-bound* key.
+                .header("x-susi-node-pub", our_pk);
+            wire = ct;
+            content_type = "application/octet-stream";
+        }
+    }
+    req.header("content-type", content_type)
+        .send(&wire)
         .map_err(|e| format!("POST {url}: {e}"))
 }
 
