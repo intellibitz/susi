@@ -96,15 +96,20 @@ impl Provider for HttpProvider {
                         model,
                         api_key
                     );
-                    let res = client.get(&url).send().await.map_err(|e| {
-                        crate::susi_core::susi_error::EaiError::network(e.to_string())
-                    })?;
+                    // A health probe that can't reach the endpoint is the
+                    // expected answer for an absent engine — `false`, not a
+                    // logged error. Constructing EaiError::network here wrote
+                    // a metrics record per absent provider per rediscovery
+                    // pass (perpetual noise on hosts without e.g. Ollama).
+                    let Ok(res) = client.get(&url).send().await else {
+                        return Ok(false);
+                    };
                     Ok(res.status().is_success())
                 }
                 InferenceProtocol::Triton => {
-                    let res = client.get(&api_base).send().await.map_err(|e| {
-                        crate::susi_core::susi_error::EaiError::network(e.to_string())
-                    })?;
+                    let Ok(res) = client.get(&api_base).send().await else {
+                        return Ok(false);
+                    };
                     Ok(res.status().is_success() || res.status().as_u16() == 405)
                 }
                 InferenceProtocol::OpenAiChat | InferenceProtocol::OpenAiCompletions => {
@@ -114,9 +119,9 @@ impl Provider for HttpProvider {
                         req = req.bearer_auth(&api_key);
                     }
                     req = apply_openrouter_attribution(req, &api_base);
-                    let res = req.send().await.map_err(|e| {
-                        crate::susi_core::susi_error::EaiError::network(e.to_string())
-                    })?;
+                    let Ok(res) = req.send().await else {
+                        return Ok(false);
+                    };
                     Ok(res.status().is_success())
                 }
             }
