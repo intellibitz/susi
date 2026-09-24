@@ -54,6 +54,28 @@ pub fn error_metrics_path() -> PathBuf {
     data_dir().join("error_metrics.jsonl")
 }
 
+/// The metrics sink is append-only — without a cap the file grows
+/// without bound (178MB observed). Past the cap it rotates one
+/// generation (`error_metrics.jsonl.1`); a racing writer may lose a
+/// line across the rename, which a metrics sink tolerates.
+const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+
+fn open_metrics_append() -> Option<std::fs::File> {
+    let path = error_metrics_path();
+    if std::fs::metadata(&path)
+        .map(|m| m.len() > METRICS_CAP_BYTES)
+        .unwrap_or(false)
+    {
+        let rotated = path.with_file_name("error_metrics.jsonl.1");
+        let _ = std::fs::rename(&path, rotated);
+    }
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .ok()
+}
+
 #[derive(Debug)]
 pub enum EaiError {
     Governance(String, Backtrace),
@@ -99,7 +121,6 @@ impl EaiError {
     impl_eai_err!(internal, Internal);
 
     fn log_to_metrics(&self) {
-        let metrics_file = error_metrics_path();
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -113,11 +134,7 @@ impl EaiError {
             "retryable": self.retryable(),
         });
 
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(metrics_file)
-        {
+        if let Some(mut f) = open_metrics_append() {
             use std::io::Write;
             let _ = writeln!(f, "{}", entry);
         }
@@ -292,11 +309,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             "retryable": event.retryable.unwrap_or(false),
         });
 
-        let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(error_metrics_path())
-        else {
+        let Some(mut f) = open_metrics_append() else {
             return StatusCode::INTERNAL_SERVER_ERROR;
         };
         use std::io::Write;

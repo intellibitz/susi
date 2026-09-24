@@ -161,14 +161,32 @@ fn post_event(entry: &serde_json::Value) -> bool {
     stream.write_all(req.as_bytes()).is_ok()
 }
 
-/// Local sink used when the `susi-error` service is unreachable.
-fn append_local(entry: &serde_json::Value) {
-    let metrics_file = metrics_path();
-    if let Ok(mut f) = std::fs::OpenOptions::new()
+/// The metrics sink is append-only and error paths are hot — without a
+/// cap the file grows without bound (178MB observed). Past the cap the
+/// file rotates one generation (`error_metrics.jsonl.1`); a racing
+/// writer may lose a line across the rename, which a metrics sink
+/// tolerates — bounded beats unbounded.
+const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+
+fn open_metrics_append() -> Option<std::fs::File> {
+    let path = metrics_path();
+    if std::fs::metadata(&path)
+        .map(|m| m.len() > METRICS_CAP_BYTES)
+        .unwrap_or(false)
+    {
+        let rotated = path.with_file_name("error_metrics.jsonl.1");
+        let _ = std::fs::rename(&path, rotated);
+    }
+    std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(metrics_file)
-    {
+        .open(path)
+        .ok()
+}
+
+/// Local sink used when the `susi-error` service is unreachable.
+fn append_local(entry: &serde_json::Value) {
+    if let Some(mut f) = open_metrics_append() {
         let _ = writeln!(f, "{entry}");
     }
 }
