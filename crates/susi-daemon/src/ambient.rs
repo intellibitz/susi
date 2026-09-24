@@ -31,7 +31,9 @@ pub fn start_ambient_indexer(workspace: &Path) {
 
 /// One-shot ambient pulse (also used by CLI).
 pub fn pulse(workspace: &Path) -> AmbientPulseReport {
-    let changed = scan_and_record(workspace);
+    let mut state = load_scan_state(workspace);
+    let changed = scan_with_state(workspace, &mut state);
+    save_scan_state(workspace, &state);
     let indexed = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
     AmbientPulseReport {
         files_changed: changed,
@@ -54,20 +56,60 @@ impl AmbientPulseReport {
     }
 }
 
+/// Per-workspace mtime state, persisted under substrate so a daemon
+/// restart or a one-shot `pulse` doesn't re-record every tracked file
+/// as "changed" — without it each boot flooded the graph with a
+/// full-tree ingest of files that never changed.
+fn scan_state_path() -> std::path::PathBuf {
+    crate::susi_paths::SusiDirs::substrate_home().join("ambient_scan_state.json")
+}
+
+fn load_scan_state(workspace: &Path) -> HashMap<String, u64> {
+    let ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf())
+        .display()
+        .to_string();
+    let Ok(text) = std::fs::read_to_string(scan_state_path()) else {
+        return HashMap::new();
+    };
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| v.get(ws).cloned())
+        .and_then(|v| serde_json::from_value::<HashMap<String, u64>>(v).ok())
+        .unwrap_or_default()
+}
+
+fn save_scan_state(workspace: &Path, state: &HashMap<String, u64>) {
+    let ws = workspace
+        .canonicalize()
+        .unwrap_or_else(|_| workspace.to_path_buf())
+        .display()
+        .to_string();
+    let path = scan_state_path();
+    let mut root = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    root[ws] = serde_json::to_value(state).unwrap_or_else(|_| serde_json::json!({}));
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(text) = serde_json::to_string(&root) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
 fn ambient_loop(workspace: PathBuf) {
-    let mut last: HashMap<String, u64> = HashMap::new();
+    let mut last = load_scan_state(&workspace);
     loop {
         let changed = scan_with_state(&workspace, &mut last);
         if changed > 0 {
+            save_scan_state(&workspace, &last);
             let _ = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(&workspace);
         }
         std::thread::sleep(Duration::from_secs(15));
     }
-}
-
-fn scan_and_record(workspace: &Path) -> usize {
-    let mut state = HashMap::new();
-    scan_with_state(workspace, &mut state)
 }
 
 fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize {
