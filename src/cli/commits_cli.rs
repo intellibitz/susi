@@ -26,6 +26,10 @@ pub enum CommitsCommands {
         /// Only records sealed under this consensus term
         #[arg(long)]
         term: Option<u64>,
+        /// Only records of this kind (decision, member_add,
+        /// member_remove, member_unban)
+        #[arg(long)]
+        kind: Option<String>,
     },
     /// Print the full record (including committed value) for an epoch prefix
     Show {
@@ -55,12 +59,14 @@ pub fn execute(action: Option<CommitsCommands>, _workspace: &Path) -> Result<()>
         limit: 20,
         coordinator: None,
         term: None,
+        kind: None,
     }) {
         CommitsCommands::List {
             limit,
             coordinator,
             term,
-        } => list(limit, coordinator.as_deref(), term),
+            kind,
+        } => list(limit, coordinator.as_deref(), term, kind.as_deref()),
         CommitsCommands::Show { epoch } => show(&epoch),
         CommitsCommands::Audit { strict } => audit(strict),
         CommitsCommands::Replay => replay_view(),
@@ -238,11 +244,27 @@ fn sync() -> Result<()> {
     Ok(())
 }
 
-fn list(limit: usize, coordinator: Option<&str>, term: Option<u64>) -> Result<()> {
+fn list(
+    limit: usize,
+    coordinator: Option<&str>,
+    term: Option<u64>,
+    kind: Option<&str>,
+) -> Result<()> {
+    // "decision" is the display name for records with no kind field —
+    // let the filter accept the same vocabulary the table prints.
     let records: Vec<_> = commit_log::load()
         .into_iter()
         .filter(|r| coordinator.is_none_or(|c| r.coordinator == c))
         .filter(|r| term.is_none_or(|t| r.term == t))
+        .filter(|r| {
+            kind.is_none_or(|k| {
+                if r.kind.is_empty() {
+                    k == "decision"
+                } else {
+                    r.kind == k
+                }
+            })
+        })
         .collect();
     println!(
         "{:<14} {:<5} {:<5} {:<18} {:<13} {:<7} {:<7} {:<12} {:<8} SUBJECT",
