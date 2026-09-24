@@ -1066,9 +1066,24 @@ impl CoreTools {
             .collect();
         record.endorsements = crate::susi_core::commit_log::collect_endorsements(&record, &targets);
         if !crate::susi_core::commit_log::endorsements_satisfied(&record) {
+            let signed: std::collections::HashSet<&str> = record
+                .endorsements
+                .iter()
+                .map(|e| e.node.as_str())
+                .collect();
+            let missing: Vec<&str> = targets
+                .iter()
+                .map(|(nid, _)| nid.as_str())
+                .filter(|nid| !signed.contains(nid))
+                .collect();
             return Err(EaiError::authorization(format!(
-                "insufficient endorsements for {kind} — a majority of the bound electorate must sign (got {} supporter(s)); dead members can only be dropped once the quorum question is resolvable",
-                record.endorsements.len() + 1
+                "insufficient endorsements for {kind} — a majority of the bound electorate must sign (got {} supporter(s)); non-signers: {}; dead members can only be dropped once the quorum question is resolvable",
+                record.endorsements.len() + 1,
+                if missing.is_empty() {
+                    "none (signatures collected but quorum still short)".to_string()
+                } else {
+                    missing.join(", ")
+                }
             )));
         }
         crate::susi_core::commit_log::append(&record)?;

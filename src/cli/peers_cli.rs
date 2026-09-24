@@ -217,11 +217,28 @@ fn commit_membership(
     // members' signatures (our member_sig is our own vote) before
     // committing — sealing short of quorum produces a record that can
     // never land, so fail here instead.
-    record.endorsements =
-        commit_log::collect_endorsements(&record, &endorse_targets(&roster, &self_id));
+    let targets = endorse_targets(&roster, &self_id);
+    record.endorsements = commit_log::collect_endorsements(&record, &targets);
     if !commit_log::endorsements_satisfied(&record) {
+        // Name the members that didn't sign — "insufficient" alone
+        // leaves the operator guessing who's offline vs refusing.
+        let signed: std::collections::HashSet<&str> = record
+            .endorsements
+            .iter()
+            .map(|e| e.node.as_str())
+            .collect();
+        let missing: Vec<&str> = targets
+            .iter()
+            .map(|(nid, _)| nid.as_str())
+            .filter(|nid| !signed.contains(nid))
+            .collect();
         eprintln!(
-            "note: insufficient endorsements for {kind} — a majority of the bound electorate must sign; the change was NOT committed"
+            "note: insufficient endorsements for {kind} — a majority of the bound electorate must sign; non-signers: {}; the change was NOT committed",
+            if missing.is_empty() {
+                "none (signatures collected but quorum still short)".to_string()
+            } else {
+                missing.join(", ")
+            }
         );
         return;
     }
@@ -593,10 +610,27 @@ fn rekey(force: bool) -> Result<()> {
     // Joint-consensus: collect the bound electorate's endorsements for
     // the prepare record — the receivers' append gate requires the same
     // quorum, so a short-sealed record would be refused everywhere.
-    record.endorsements =
-        commit_log::collect_endorsements(&record, &endorse_targets(&roster_now, &self_id));
+    let targets = endorse_targets(&roster_now, &self_id);
+    record.endorsements = commit_log::collect_endorsements(&record, &targets);
     if !commit_log::endorsements_satisfied(&record) {
-        bail!("insufficient endorsements for cluster_rekey — the bound electorate must agree to rotate");
+        let signed: std::collections::HashSet<&str> = record
+            .endorsements
+            .iter()
+            .map(|e| e.node.as_str())
+            .collect();
+        let missing: Vec<&str> = targets
+            .iter()
+            .map(|(nid, _)| nid.as_str())
+            .filter(|nid| !signed.contains(nid))
+            .collect();
+        bail!(
+            "insufficient endorsements for cluster_rekey — the bound electorate must agree to rotate; non-signers: {}",
+            if missing.is_empty() {
+                "none (signatures collected but quorum still short)".to_string()
+            } else {
+                missing.join(", ")
+            }
+        );
     }
     // Stage locally, then commit the prepare-phase record to our own
     // ledger — it documents which key the cluster agreed to stage and
@@ -683,10 +717,27 @@ fn rekey(force: bool) -> Result<()> {
     };
     // The activate record is a privileged delta too — collect the bound
     // electorate's endorsements before pushing it anywhere.
-    activate.endorsements =
-        commit_log::collect_endorsements(&activate, &endorse_targets(&roster_now, &self_id));
+    let act_targets = endorse_targets(&roster_now, &self_id);
+    activate.endorsements = commit_log::collect_endorsements(&activate, &act_targets);
     if !commit_log::endorsements_satisfied(&activate) {
-        bail!("insufficient endorsements for cluster_rekey_activate — members stay on the current epoch");
+        let signed: std::collections::HashSet<&str> = activate
+            .endorsements
+            .iter()
+            .map(|e| e.node.as_str())
+            .collect();
+        let missing: Vec<&str> = act_targets
+            .iter()
+            .map(|(nid, _)| nid.as_str())
+            .filter(|nid| !signed.contains(nid))
+            .collect();
+        bail!(
+            "insufficient endorsements for cluster_rekey_activate — members stay on the current epoch; non-signers: {}",
+            if missing.is_empty() {
+                "none (signatures collected but quorum still short)".to_string()
+            } else {
+                missing.join(", ")
+            }
+        );
     }
     let activate_args = serde_json::json!({ "record": &activate });
     let activate_results: Vec<bool> = targets
