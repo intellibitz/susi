@@ -136,6 +136,32 @@ pub struct CommitRecord {
     /// First write wins; re-binding requires remove + re-add.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub member_pubkey: String,
+    /// Member endorsements for privileged (member/rekey) records — the
+    /// joint-consensus half of roster safety: once a quorum of the
+    /// electorate's members have bound pubkeys, a privileged record is
+    /// admissible only when a majority of the members *bound at
+    /// `committed_at`* signed `susi-endorse-v1:{signature}` (the
+    /// coordinator's own `member_sig` counts as its endorsement). A
+    /// rogue or stale leader can no longer rewrite the roster alone —
+    /// a bound electorate must agree, the same quorum a Raft config
+    /// change asks of `C_old`. Endorsements sign the record's HMAC
+    /// signature, not the record, so they sit outside `signed_payload`.
+    /// Skipped when empty for wire compatibility with pre-endorsement
+    /// ledgers; the requirement itself is computed receiver-side from
+    /// roster bindings, never from field presence.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endorsements: Vec<MemberEndorsement>,
+}
+
+/// One member's endorsement of a privileged record: `sig` is the
+/// member's Ed25519 signature over `susi-endorse-v1:{record.signature}`,
+/// verifiable against the pubkey bound for `node` in the roster.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MemberEndorsement {
+    /// `node_id` of the endorsing member.
+    pub node: String,
+    /// `member_sign(endorsement_payload(record.signature))` hex.
+    pub sig: String,
 }
 
 /// Membership record kinds — roster deltas committed through the same
@@ -252,6 +278,7 @@ impl CommitRecord {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            endorsements: Vec::new(),
         };
         rec.signature =
             crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
@@ -395,6 +422,7 @@ impl CommitRecord {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            endorsements: Vec::new(),
         };
         rec.signature =
             crate::susi_config::cluster_key::hmac_sha256_hex(&key, rec.signed_payload().as_bytes());
@@ -1359,6 +1387,16 @@ pub fn append_to(path: &PathBuf, record: &CommitRecord) -> EaiResult<()> {
                 record.coordinator
             )));
         }
+        // Joint-consensus gate: a privileged roster/config delta sealed
+        // after a quorum of its electorate had bound keys must carry
+        // that bound majority's endorsements — one leader's signature
+        // alone no longer rewrites membership (see MemberEndorsement).
+        if !endorsements_satisfied_at(record, dir) {
+            return Err(EaiError::protocol(format!(
+                "refusing {} record: electorate endorsements below bound quorum",
+                record.kind
+            )));
+        }
     }
     // Chain check (Raft's prevLogIndex/prevLogTerm consistency): when the
     // record declares a predecessor link and we hold that predecessor
@@ -1542,6 +1580,132 @@ pub fn attribution_valid_at(record: &CommitRecord, dir: &Path) -> bool {
             &record.signature,
             &record.member_sig,
         )
+}
+
+/// The payload a member signs to endorse a privileged record — bound to
+/// the record's HMAC signature so an endorsement can never be transplanted
+/// onto a different record.
+pub fn endorsement_payload(signature: &str) -> String {
+    format!("susi-endorse-v1:{signature}")
+}
+
+/// Whether `kind` is a privileged roster/config delta — the record kinds
+/// the endorsement gate applies to. Quorum decisions (empty kind) are
+/// already electorate-tallied and stay ungated.
+pub fn privileged_kind_name(kind: &str) -> bool {
+    matches!(
+        kind,
+        KIND_MEMBER_ADD
+            | KIND_MEMBER_REMOVE
+            | KIND_MEMBER_UNBAN
+            | KIND_CLUSTER_REKEY
+            | KIND_CLUSTER_REKEY_ACTIVATE
+    )
+}
+
+/// Whether a privileged record carries the endorsements its electorate
+/// owes it — the receiver-side joint-consensus gate. The required count
+/// is the majority of electorate members whose pubkey was bound *at the
+/// record's `committed_at`*; when nothing was bound yet (the pre-PKI
+/// window) the requirement is zero and the record passes on its HMAC +
+/// attribution proof alone. Verified supporters are distinct: the
+/// coordinator counts through its own `member_sig`, and every other
+/// endorsement must verify under the key bound for its `node` at record
+/// time — endorsements from unbound, later-bound, or non-electorate
+/// signers cannot be counted (they're ignored, not penalized: a record
+/// can carry extra signatures harmlessly).
+pub fn endorsements_satisfied(record: &CommitRecord) -> bool {
+    endorsements_satisfied_at(record, &SusiDirs::config_dir())
+}
+
+/// Test seam: endorsement check against an explicit roster dir.
+pub fn endorsements_satisfied_at(record: &CommitRecord, dir: &Path) -> bool {
+    if !privileged_kind_name(&record.kind) {
+        return true;
+    }
+    let bound: Vec<(String, String)> = record
+        .electorate
+        .iter()
+        .filter_map(|m| {
+            let (pk, at) = bound_pubkey_at(m, dir)?;
+            (at <= record.committed_at).then(|| (m.clone(), pk))
+        })
+        .collect();
+    if bound.is_empty() {
+        return true;
+    }
+    let required = bound.len() / 2 + 1;
+    let mut supporters: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    // The coordinator's member_sig is its own endorsement — it signed
+    // `signature`, the very payload an endorsement covers.
+    if let Some((_, pk)) = bound.iter().find(|(m, _)| m == &record.coordinator) {
+        if crate::susi_config::cluster_key::member_verify(pk, &record.signature, &record.member_sig)
+        {
+            supporters.insert(record.coordinator.as_str());
+        }
+    }
+    let payload = endorsement_payload(&record.signature);
+    for e in &record.endorsements {
+        let Some((_, pk)) = bound.iter().find(|(m, _)| m == &e.node) else {
+            continue;
+        };
+        if crate::susi_config::cluster_key::member_verify(pk, &payload, &e.sig) {
+            supporters.insert(e.node.as_str());
+        }
+    }
+    supporters.len() >= required
+}
+
+/// Ask each `(node_id, gmcp_addr)` member to endorse `record` via its
+/// `member_endorse` tool — the leader-side half of the joint-consensus
+/// gate. Runs the calls on scoped threads so one dead member stalls a
+/// single worker, not the tally; members that don't answer simply
+/// produce no endorsement. The coordinator's own signature already
+/// counts as its vote, so callers pass the *other* electorate members.
+pub fn collect_endorsements(
+    record: &CommitRecord,
+    targets: &[(String, String)],
+) -> Vec<MemberEndorsement> {
+    let bearer = crate::susi_config::cluster_key::peer_bearer();
+    let args = serde_json::json!({"record": record});
+    let collected = std::sync::Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for (_, addr) in targets {
+            let args = args.clone();
+            let bearer = bearer.clone();
+            let collected = &collected;
+            s.spawn(move || {
+                let Ok(result) = crate::susi_core::mcp_client::call_tool(
+                    addr,
+                    "member_endorse",
+                    &args,
+                    bearer.as_deref(),
+                ) else {
+                    return;
+                };
+                let Some(text) = result.pointer("/content/0/text").and_then(|v| v.as_str()) else {
+                    return;
+                };
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+                    return;
+                };
+                let (Some(node), Some(sig)) = (
+                    v.get("node").and_then(|x| x.as_str()),
+                    v.get("sig").and_then(|x| x.as_str()),
+                ) else {
+                    return;
+                };
+                collected
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(MemberEndorsement {
+                        node: node.to_string(),
+                        sig: sig.to_string(),
+                    });
+            });
+        }
+    });
+    collected.into_inner().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Bind the member's signing key into a roster row when the committed
@@ -1840,6 +2004,7 @@ mod tests {
             signature: String::new(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            endorsements: Vec::new(),
         };
         assert!(append_to(&path, &unsigned).is_err());
         let _ = fs::remove_dir_all(&dir);
@@ -2099,6 +2264,7 @@ mod tests {
             signature: "s".into(),
             member_sig: String::new(),
             member_pubkey: String::new(),
+            endorsements: Vec::new(),
         };
         // An explicit member's delta is authorized; discovered peers and
         // unknown ids are not.

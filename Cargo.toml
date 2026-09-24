@@ -103,6 +103,7 @@ url = "2.5"
 criterion = "0.5"
 
 [dev-dependencies]
+ed25519-dalek = "2.2"
 serde_json = { workspace = true }
 
 [dependencies]

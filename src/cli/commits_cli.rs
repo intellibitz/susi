@@ -456,6 +456,20 @@ fn show(epoch_prefix: &str) -> Result<()> {
         }
     };
     println!("member_sig: {msig}");
+    if !r.kind.is_empty() {
+        let names: Vec<&str> = r.endorsements.iter().map(|e| e.node.as_str()).collect();
+        let gate = if susi_core::commit_log::endorsements_satisfied(r) {
+            "satisfied"
+        } else {
+            "BELOW bound quorum"
+        };
+        println!(
+            "endorsements: {} signer(s) [{}] — {}",
+            r.endorsements.len(),
+            names.join(", "),
+            gate
+        );
+    }
     Ok(())
 }
 

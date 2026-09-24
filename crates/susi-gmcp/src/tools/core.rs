@@ -1029,8 +1029,11 @@ impl CoreTools {
                 "{member} is not banned — nothing to unban"
             )));
         }
-        let electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
-        let Some(record) = crate::susi_core::commit_log::CommitRecord::seal_member(
+        // The leader votes in its own electorate — otherwise evicting a
+        // dead member would require the dead member's endorsement.
+        let mut electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
+        electorate.push(self_id.clone());
+        let Some(mut record) = crate::susi_core::commit_log::CommitRecord::seal_member(
             &self_id,
             &self_id,
             kind,
@@ -1042,6 +1045,23 @@ impl CoreTools {
                 "no cluster.key — cannot seal a member record",
             ));
         };
+        // Joint-consensus: collect the bound electorate's endorsements
+        // before committing — a bound-quorum requirement is evaluated
+        // receiver-side, so a record sealed short of it would be refused
+        // everywhere it lands. The leader's member_sig is its own vote;
+        // ask the other members.
+        let targets: Vec<(String, String)> = roster
+            .iter()
+            .filter(|(nid, a, _)| nid != &self_id && !a.starts_with("127."))
+            .map(|(nid, a, _)| (nid.clone(), a.clone()))
+            .collect();
+        record.endorsements = crate::susi_core::commit_log::collect_endorsements(&record, &targets);
+        if !crate::susi_core::commit_log::endorsements_satisfied(&record) {
+            return Err(EaiError::authorization(format!(
+                "insufficient endorsements for {kind} — a majority of the bound electorate must sign (got {} supporter(s)); dead members can only be dropped once the quorum question is resolvable",
+                record.endorsements.len() + 1
+            )));
+        }
         crate::susi_core::commit_log::append(&record)?;
         // Push to the roster plus the subject — the subject is not yet
         // in the leader's roster, and it must learn its own committed
@@ -1076,6 +1096,36 @@ impl CoreTools {
             "{kind} {member} committed (seq {}, term {}) — pushed to {pushed} peer(s)",
             record.seq, record.term
         ))
+    }
+
+    #[tool(
+        name = "member_endorse",
+        description = "Endorse a sealed privileged record (member/rekey kind) — the joint-consensus vote a leader collects before committing a roster/config delta. Args: {record: <CommitRecord json>}. Verifies the record's HMAC signature under this member's cluster.key and refuses non-privileged kinds, then returns {node, sig} where sig is this node's Ed25519 signature over susi-endorse-v1:{record.signature}. An endorsement is only a vote on that exact record — all intake gates still apply when it lands."
+    )]
+    pub fn member_endorse(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("member_endorse", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let rec_val = arg
+            .get("record")
+            .ok_or_else(|| EaiError::protocol("missing 'record' field"))?;
+        let record: crate::susi_core::commit_log::CommitRecord =
+            serde_json::from_value(rec_val.clone())
+                .map_err(|e| EaiError::protocol(format!("record does not parse: {e}")))?;
+        if !crate::susi_core::commit_log::privileged_kind_name(&record.kind) {
+            return Err(EaiError::protocol(
+                "only privileged (member/rekey) records need endorsements",
+            ));
+        }
+        if !record.verify() {
+            return Err(EaiError::protocol(
+                "refusing to endorse a record that fails signature or consistency verification",
+            ));
+        }
+        let node = crate::susi_config::cluster_key::wire_node_id();
+        let payload = crate::susi_core::commit_log::endorsement_payload(&record.signature);
+        let sig = crate::susi_config::cluster_key::member_sign(&payload)
+            .ok_or_else(|| EaiError::internal("no node.key — cannot sign an endorsement"))?;
+        Ok(serde_json::json!({"node": node, "sig": sig}).to_string())
     }
 }
 

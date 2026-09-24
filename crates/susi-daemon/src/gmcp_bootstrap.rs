@@ -205,6 +205,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "member_endorse",
+        "Endorse a sealed privileged record — joint-consensus vote for roster/config deltas",
+        MetaCategory::WorkspaceIo,
+        adapt(CoreTools::member_endorse),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "verify_model_download_agent",
         "Verify model download agent, network status, and model provisioning",
         MetaCategory::SystemPrimitive,

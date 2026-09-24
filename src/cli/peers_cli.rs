@@ -156,8 +156,11 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
         return;
     }
     // The roster as this node observed it at commit time — audit context
-    // for who was a member when the delta was decided.
-    let electorate: Vec<String> = roster
+    // for who was a member when the delta was decided. The coordinator
+    // counts as an electorate member (it leads its own roster view) so a
+    // bound-quorum endorsement gate doesn't need the removal subject's
+    // own signature to evict it.
+    let mut electorate: Vec<String> = roster
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -166,10 +169,11 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
                 .map(str::to_string)
         })
         .collect();
+    electorate.push(self_id.clone());
     // Seal under our own leadership claim — the intake gate
     // (member_coordinator_known) refuses privileged records whose
     // coordinator observed a different leader.
-    let Some(record) = commit_log::CommitRecord::seal_member(
+    let Some(mut record) = commit_log::CommitRecord::seal_member(
         &self_id,
         &self_id,
         kind,
@@ -180,6 +184,19 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
         eprintln!("note: no cluster.key — membership change not committed to ledger");
         return;
     };
+    // Joint-consensus: a bound-quorum of the electorate must endorse a
+    // privileged record or every receiver refuses it. Collect the other
+    // members' signatures (our member_sig is our own vote) before
+    // committing — sealing short of quorum produces a record that can
+    // never land, so fail here instead.
+    record.endorsements =
+        commit_log::collect_endorsements(&record, &endorse_targets(&roster, &self_id));
+    if !commit_log::endorsements_satisfied(&record) {
+        eprintln!(
+            "note: insufficient endorsements for {kind} — a majority of the bound electorate must sign; the change was NOT committed"
+        );
+        return;
+    }
     if let Err(e) = commit_log::append(&record) {
         eprintln!("note: membership record not appended — {e}");
         return;
@@ -233,6 +250,26 @@ fn commit_membership(kind: &str, node_id: &str, address: &str, member_pubkey: &s
         })
         .count();
     println!("membership delta committed to ledger; pushed to {pushed} peer(s)");
+}
+
+/// `(node_id, gmcp_addr)` pairs of the roster's explicit members minus
+/// `self_id` — the endorsement targets for a privileged record (the
+/// coordinator endorses through its own member_sig; loopback rows are
+/// self and unreachable by design).
+fn endorse_targets(roster: &[serde_json::Value], self_id: &str) -> Vec<(String, String)> {
+    roster
+        .iter()
+        .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
+        .filter_map(|n| {
+            let nid = n.get("node_id").and_then(|v| v.as_str())?;
+            let addr = n.get("address").and_then(|v| v.as_str())?;
+            (nid != self_id
+                && !addr.starts_with("127.")
+                && !addr.starts_with("::1")
+                && !addr.starts_with("localhost"))
+            .then(|| (nid.to_string(), addr.to_string()))
+        })
+        .collect()
 }
 
 /// Follower-side `member_add` delegation: the elected leader seals
@@ -345,7 +382,7 @@ fn rekey(force: bool) -> Result<()> {
         bail!("could not generate a new cluster key (getrandom failed)");
     };
     let fingerprint = susi_config::cluster_key::key_fingerprint(&new_key);
-    let electorate: Vec<String> = load_registry()
+    let mut electorate: Vec<String> = load_registry()
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -354,13 +391,22 @@ fn rekey(force: bool) -> Result<()> {
                 .map(str::to_string)
         })
         .collect();
+    electorate.push(self_id.clone());
     // Seal under our own leadership claim — the intake gate refuses
     // privileged records whose coordinator observed a different leader.
-    let Some(record) =
+    let Some(mut record) =
         commit_log::CommitRecord::seal_rekey(&self_id, &self_id, &fingerprint, electorate.clone())
     else {
         bail!("no cluster.key — cannot seal a rekey record");
     };
+    // Joint-consensus: collect the bound electorate's endorsements for
+    // the prepare record — the receivers' append gate requires the same
+    // quorum, so a short-sealed record would be refused everywhere.
+    record.endorsements =
+        commit_log::collect_endorsements(&record, &endorse_targets(&roster_now, &self_id));
+    if !commit_log::endorsements_satisfied(&record) {
+        bail!("insufficient endorsements for cluster_rekey — the bound electorate must agree to rotate");
+    }
     // Stage locally, then commit the prepare-phase record to our own
     // ledger — it documents which key the cluster agreed to stage and
     // chains the activate record that follows. No activation yet.
@@ -439,11 +485,18 @@ fn rekey(force: bool) -> Result<()> {
     // apply. Push it to members FIRST, then append locally: after our
     // own activation the derived bearer changes and pushes to
     // still-old members would stop authenticating.
-    let Some(activate) =
+    let Some(mut activate) =
         commit_log::CommitRecord::seal_rekey_activate(&self_id, &self_id, &fingerprint, electorate)
     else {
         bail!("could not seal the activate record");
     };
+    // The activate record is a privileged delta too — collect the bound
+    // electorate's endorsements before pushing it anywhere.
+    activate.endorsements =
+        commit_log::collect_endorsements(&activate, &endorse_targets(&roster_now, &self_id));
+    if !commit_log::endorsements_satisfied(&activate) {
+        bail!("insufficient endorsements for cluster_rekey_activate — members stay on the current epoch");
+    }
     let activate_args = serde_json::json!({ "record": &activate });
     let activate_results: Vec<bool> = targets
         .par_iter()
