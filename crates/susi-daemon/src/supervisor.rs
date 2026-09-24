@@ -234,6 +234,115 @@ const SIGTERM: i32 = 15;
 #[cfg(not(unix))]
 const SIGKILL: i32 = 9;
 
+/// Two metadata sets describe the same file. Device+inode on unix;
+/// size+mtime is the portable fallback (weaker, but only used where no
+/// inode concept exists).
+#[cfg(unix)]
+fn same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+#[cfg(not(unix))]
+fn same_file(a: &fs::Metadata, b: &fs::Metadata) -> bool {
+    a.len() == b.len() && a.modified().ok() == b.modified().ok()
+}
+
+/// What a pre-bound port holder is, relative to the binary this daemon
+/// would spawn for the service.
+enum HolderKind {
+    /// Same inode as the spawn target — our orphan, current build.
+    /// Adopted as supervised so health checks and respawn apply.
+    OursCurrent,
+    /// Our binary but a replaced inode (` (deleted)` exe) — a stale
+    /// orphan running pre-upgrade code. Killed and respawned so daemon
+    /// upgrades reach the leaf plane.
+    OursStale,
+    /// A foreign process or an unresolvable holder — observed only.
+    Foreign,
+}
+
+/// Classify the holder of a service port we did not spawn this boot.
+/// `ours` is decided by executable identity (path or inode) against the
+/// same resolution `spawn_service` uses; `stale` by the kernel's
+/// ` (deleted)` marker or a surviving exe whose inode no longer matches
+/// the spawn target.
+fn classify_holder(svc: &LeafService, pid: u32) -> HolderKind {
+    if pid == 0 {
+        return HolderKind::Foreign;
+    }
+    let Ok(link) = fs::read_link(format!("/proc/{pid}/exe")) else {
+        return HolderKind::Foreign;
+    };
+    let raw = link.to_string_lossy().into_owned();
+    let deleted = raw.ends_with(" (deleted)");
+    let stripped = raw.trim_end_matches(" (deleted)").to_owned();
+    let exe = PathBuf::from(&stripped);
+    // The binary this daemon would spawn for the service now.
+    let target = locate_binary(svc.binary).or_else(reexec_path);
+    let daemon_exe = reexec_path();
+    let known_path = target.as_ref().is_some_and(|t| exe == *t)
+        || daemon_exe.as_ref().is_some_and(|d| exe == *d);
+    if known_path {
+        return if deleted {
+            HolderKind::OursStale
+        } else {
+            HolderKind::OursCurrent
+        };
+    }
+    // A deleted susi-named binary holding a host-contract port is dead
+    // code walking — a stale orphan from a dev build or an older
+    // install — regardless of which path it was exec'd from. Reclaim
+    // it; a *live* susi binary at a foreign path stays foreign (it may
+    // belong to another workspace's daemon).
+    if deleted {
+        let name = exe
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if name == svc.binary || name == "susi" {
+            return HolderKind::OursStale;
+        }
+    }
+    // Different path: same file under another name (hardlink/bind mount)
+    // still counts as ours; anything else is foreign.
+    let same_file = target
+        .as_ref()
+        .is_some_and(|t| match (fs::metadata(&exe), fs::metadata(t)) {
+            (Ok(a), Ok(b)) => same_file(&a, &b),
+            _ => false,
+        });
+    if !same_file {
+        return HolderKind::Foreign;
+    }
+    if deleted {
+        HolderKind::OursStale
+    } else {
+        HolderKind::OursCurrent
+    }
+}
+
+/// Kill a stale orphan: SIGTERM with a short grace, then SIGKILL. The
+/// caller drops the service row so the missing-service path respawns a
+/// supervised current-binary child.
+fn kill_stale_orphan(svc: &LeafService, pid: u32) {
+    slog(&format!(
+        "[supervisor] {} held by stale susi orphan (pid {pid}); reclaiming",
+        svc.name
+    ));
+    let _ = signal(pid, SIGTERM);
+    for _ in 0..20 {
+        if !service_table::pid_alive(pid) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    if service_table::pid_alive(pid) {
+        let _ = signal(pid, SIGKILL);
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Boot pass: spawn any leaf service whose port is dead and record the
 /// supervised pid. Services already listening are left alone — the daemon
 /// adopts supervision of its own children only.
@@ -247,22 +356,38 @@ pub fn ensure_leaf_services() {
             continue;
         }
         if service_table::probe(svc.port()) {
-            // Port bound by a process we didn't spawn — record it as
-            // external so the table reflects reality; never killed by us.
-            if !table.iter().any(|r| r.name == svc.name) {
-                let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
-                service_table::record_external(&mut table, svc.name, pid, svc.port());
-                slog(&format!(
-                    "[supervisor] {} already bound externally{} — observing, not supervising",
-                    svc.name,
-                    if pid != 0 {
-                        format!(" (pid {pid})")
-                    } else {
-                        String::new()
+            let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
+            match classify_holder(svc, pid) {
+                // Our own orphan on the current build — supervise it.
+                HolderKind::OursCurrent => {
+                    if !table.iter().any(|r| r.name == svc.name) {
+                        service_table::record(&mut table, svc.name, pid, svc.port());
+                        slog(&format!(
+                            "[supervisor] adopted orphan {} (pid {pid})",
+                            svc.name
+                        ));
                     }
-                ));
+                    continue;
+                }
+                // Stale susi binary — reclaim the port and respawn below.
+                HolderKind::OursStale => kill_stale_orphan(svc, pid),
+                // Foreign listener — observed, never killed by us.
+                HolderKind::Foreign => {
+                    if !table.iter().any(|r| r.name == svc.name) {
+                        service_table::record_external(&mut table, svc.name, pid, svc.port());
+                        slog(&format!(
+                            "[supervisor] {} already bound externally{} — observing, not supervising",
+                            svc.name,
+                            if pid != 0 {
+                                format!(" (pid {pid})")
+                            } else {
+                                String::new()
+                            }
+                        ));
+                    }
+                    continue;
+                }
             }
-            continue;
         }
         if let Some(pid) = spawn_and_record(svc, &mut table, None) {
             slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
@@ -328,11 +453,25 @@ fn spawn_and_record(
         }
         Some(holder) => {
             let _ = signal(pid, SIGKILL);
-            service_table::record_external(table, svc.name, holder, svc.port());
-            slog(&format!(
-                "[supervisor] {} port held by pid {holder}; adopted as external",
-                svc.name
-            ));
+            match classify_holder(svc, holder) {
+                HolderKind::OursCurrent => {
+                    service_table::record(table, svc.name, holder, svc.port());
+                    slog(&format!(
+                        "[supervisor] {} port held by our orphan pid {holder}; adopted",
+                        svc.name
+                    ));
+                }
+                HolderKind::OursStale => {
+                    kill_stale_orphan(svc, holder);
+                }
+                HolderKind::Foreign => {
+                    service_table::record_external(table, svc.name, holder, svc.port());
+                    slog(&format!(
+                        "[supervisor] {} port held by pid {holder}; adopted as external",
+                        svc.name
+                    ));
+                }
+            }
             None
         }
         // Holder unresolvable — give our live spawn the benefit; a wrong
@@ -383,13 +522,23 @@ fn respawn(
             .is_some_and(|r| !service_table::pid_alive(r.pid));
         if recorded_dead && service_table::probe(svc.port()) {
             match service_table::pid_for_port(svc.port()) {
-                Some(holder) => {
-                    service_table::record_external(table, svc.name, holder, svc.port());
-                    slog(&format!(
-                        "[supervisor] {} port held by live pid {holder}; adopted as external",
-                        svc.name
-                    ));
-                }
+                Some(holder) => match classify_holder(svc, holder) {
+                    HolderKind::OursCurrent => {
+                        service_table::record(table, svc.name, holder, svc.port());
+                        slog(&format!(
+                            "[supervisor] {} port held by our orphan pid {holder}; adopted",
+                            svc.name
+                        ));
+                    }
+                    HolderKind::OursStale => kill_stale_orphan(svc, holder),
+                    HolderKind::Foreign => {
+                        service_table::record_external(table, svc.name, holder, svc.port());
+                        slog(&format!(
+                            "[supervisor] {} port held by live pid {holder}; adopted as external",
+                            svc.name
+                        ));
+                    }
+                },
                 None => slog(&format!(
                     "[supervisor] {} dead but port bound by unresolvable process; deferring respawn",
                     svc.name
@@ -447,21 +596,45 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 if due {
                     missing_retry.insert(svc.name, std::time::Instant::now());
                     if service_table::probe(svc.port()) {
-                        // Bound by a process we didn't spawn — record as
-                        // external so `susi services`/`susi os` can name it.
                         let pid = service_table::pid_for_port(svc.port()).unwrap_or(0);
-                        service_table::record_external(&mut table, svc.name, pid, svc.port());
-                        slog(&format!(
-                            "[supervisor] {} bound externally{} — observing",
-                            svc.name,
-                            if pid != 0 {
-                                format!(" (pid {pid})")
-                            } else {
-                                String::new()
+                        match classify_holder(svc, pid) {
+                            // Our own orphan — supervise it rather than
+                            // observe it as foreign.
+                            HolderKind::OursCurrent => {
+                                service_table::record(&mut table, svc.name, pid, svc.port());
+                                slog(&format!(
+                                    "[supervisor] adopted orphan {} (pid {pid})",
+                                    svc.name
+                                ));
+                                changed = true;
+                                continue;
                             }
-                        ));
-                        changed = true;
-                        continue;
+                            // Stale susi binary — reclaim and respawn below.
+                            HolderKind::OursStale => {
+                                kill_stale_orphan(svc, pid);
+                            }
+                            // Bound by a process we didn't spawn — record as
+                            // external so `susi services`/`susi os` can name it.
+                            HolderKind::Foreign => {
+                                service_table::record_external(
+                                    &mut table,
+                                    svc.name,
+                                    pid,
+                                    svc.port(),
+                                );
+                                slog(&format!(
+                                    "[supervisor] {} bound externally{} — observing",
+                                    svc.name,
+                                    if pid != 0 {
+                                        format!(" (pid {pid})")
+                                    } else {
+                                        String::new()
+                                    }
+                                ));
+                                changed = true;
+                                continue;
+                            }
+                        }
                     }
                     slog(&format!(
                         "[supervisor] {} not supervised; attempting spawn",
@@ -498,6 +671,18 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 continue;
             }
             if rec.external {
+                // A holder we once classified foreign can turn out to be
+                // a stale susi orphan — e.g. the binary was replaced
+                // under a live service after it was recorded. Reclaim it
+                // so the missing-service path respawns current code.
+                if matches!(classify_holder(svc, rec.pid), HolderKind::OursStale) {
+                    kill_stale_orphan(svc, rec.pid);
+                    table.retain(|r| r.name != svc.name);
+                    removed.push(svc.name.to_string());
+                    missing_retry.remove(svc.name);
+                    changed = true;
+                    continue;
+                }
                 // External listeners are observed, never signaled: health
                 // is the port alone. When it dies we drop the row so the
                 // missing-service path spawns a supervised child instead.
