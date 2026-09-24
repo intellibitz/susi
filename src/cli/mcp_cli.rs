@@ -42,6 +42,15 @@ pub enum McpCommands {
         #[arg(long)]
         token: Option<String>,
     },
+    /// List the tools a peer MCP endpoint exposes (`tools/list` over the
+    /// session-aware channel) — discover the surface before `mcp call`.
+    Tools {
+        /// Peer address, e.g. 127.0.0.1:9093
+        addr: String,
+        /// Bearer token (default: ~/.susi/api_token)
+        #[arg(long)]
+        token: Option<String>,
+    },
 }
 
 /// Returns `true` when the caller should run the native stdio MCP server.
@@ -69,6 +78,43 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                 susi_core::mcp_client::call_tool(&addr, &tool, &arguments, bearer.as_deref())
                     .map_err(|e| anyhow::anyhow!("{e}"))?;
             println!("{}", serde_json::to_string_pretty(&result)?);
+            Ok(false)
+        }
+        McpCommands::Tools { addr, token } => {
+            let bearer = match token {
+                Some(t) => Some(t),
+                None => {
+                    std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
+                        .ok()
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                }
+            };
+            let result = susi_core::mcp_client::session_call(
+                &addr,
+                "tools/list",
+                &serde_json::json!({}),
+                bearer.as_deref(),
+            )
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+            // Compact table when the standard {tools:[{name,description}]}
+            // shape comes back; raw JSON otherwise.
+            if let Some(tools) = result.get("tools").and_then(|t| t.as_array()) {
+                println!("{:<28} DESCRIPTION", "TOOL");
+                for t in tools {
+                    let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                    let desc = t
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .chars()
+                        .take(80)
+                        .collect::<String>();
+                    println!("{name:<28} {desc}");
+                }
+            } else {
+                println!("{}", serde_json::to_string_pretty(&result)?);
+            }
             Ok(false)
         }
         McpCommands::List | McpCommands::Status => {

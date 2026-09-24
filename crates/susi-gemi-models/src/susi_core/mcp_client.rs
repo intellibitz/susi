@@ -117,15 +117,76 @@ pub fn call_tool(
     )?;
 
     // 3. tools/call — the SSE body carries the response frame.
-    let resp = post(
+    session_request(
+        &url,
+        bearer,
+        &session,
+        "tools/call",
+        &json!({
+            "name": tool,
+            "arguments": arguments
+        }),
+    )
+}
+
+/// Run any session-scoped JSON-RPC method (`tools/list`, `resources/list`,
+/// `ping`, ...) through the same initialize → initialized → request
+/// handshake `call_tool` uses. Returns the frame's `result` object.
+pub fn session_call(
+    addr: &str,
+    method: &str,
+    params: &Value,
+    bearer: Option<&str>,
+) -> Result<Value, String> {
+    let url = format!("http://{addr}/mcp");
+    let init = post(
+        &url,
+        bearer,
+        None,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {},
+                "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
+            }
+        }),
+    )?;
+    let session = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .ok_or_else(|| format!("peer {addr} returned no Mcp-Session-Id"))?;
+    post(
         &url,
         bearer,
         Some(&session),
+        &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+    )?;
+    session_request(&url, bearer, &session, method, params)
+}
+
+/// POST one request inside an established session and parse the matching
+/// SSE response frame.
+fn session_request(
+    url: &str,
+    bearer: Option<&str>,
+    session: &str,
+    method: &str,
+    params: &Value,
+) -> Result<Value, String> {
+    let resp = post(
+        url,
+        bearer,
+        Some(session),
         &json!({
             "jsonrpc": "2.0",
             "id": 2,
-            "method": "tools/call",
-            "params": {"name": tool, "arguments": arguments}
+            "method": method,
+            "params": params
         }),
     )?;
     let text = resp
