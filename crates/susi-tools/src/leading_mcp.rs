@@ -303,8 +303,11 @@ fn env_value(key: &str) -> Option<String> {
 fn expand_args(args: &[String], workspace: &Path) -> Result<Vec<String>> {
     let mut out = Vec::with_capacity(args.len());
     for arg in args {
-        if arg == "{workspace}" {
-            out.push(workspace.to_string_lossy().into_owned());
+        if arg.contains("{workspace}") {
+            // Path-style args embed the placeholder ("{workspace}/.susi/x").
+            // Substituting only exact matches let a literal "{workspace}/"
+            // directory get created by the spawned server.
+            out.push(arg.replace("{workspace}", &workspace.to_string_lossy()));
             continue;
         }
         if let Some(key) = arg.strip_prefix("{env:").and_then(|s| s.strip_suffix('}')) {
@@ -474,6 +477,22 @@ mod tests {
         assert_eq!(args[1], "postgresql://localhost/db");
         assert_eq!(args[2], "literal");
         std::env::remove_var("SUSI_TEST_PG");
+    }
+
+    #[test]
+    fn expand_workspace_embedded_in_path_args() {
+        let args = expand_args(
+            &["--db-path".into(), "{workspace}/.susi/agent.sqlite".into()],
+            Path::new("/tmp/ws"),
+        )
+        .unwrap();
+        assert_eq!(args[1], "/tmp/ws/.susi/agent.sqlite");
+        // {env:} stays exact-match only — secrets must not splice into
+        // compound strings.
+        std::env::set_var("SUSI_TEST_EMBED", "sekrit");
+        let args = expand_args(&["x-{env:SUSI_TEST_EMBED}".into()], Path::new("/tmp")).unwrap();
+        assert_eq!(args[0], "x-{env:SUSI_TEST_EMBED}");
+        std::env::remove_var("SUSI_TEST_EMBED");
     }
 
     #[test]

@@ -61,7 +61,16 @@ pub async fn connect<H: ClientHandler>(
             command.envs(env);
         }
         if let Some(cwd) = config.extra.get("cwd").and_then(Value::as_str) {
-            command.current_dir(cwd);
+            // `{workspace}` in a cwd template means the caller's working
+            // directory (client.rs uses the same convention); passing it
+            // through verbatim made the child create a literal `{workspace}`
+            // directory.
+            if cwd.contains("{workspace}") {
+                let ws = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                command.current_dir(cwd.replace("{workspace}", &ws.to_string_lossy()));
+            } else {
+                command.current_dir(cwd);
+            }
         }
         let transport = TokioChildProcess::new(command).map_err(|e| e.to_string())?;
         handler.serve(transport).await.map_err(|e| e.to_string())
