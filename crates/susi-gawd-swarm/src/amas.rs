@@ -783,18 +783,15 @@ impl SusiSupervisor {
                 // cluster key, persist locally, and push it to every peer
                 // that voted — a coordinator crash no longer loses the
                 // committed value, and each voter holds an auditable copy.
-                if let Some(record) = {
+                if let Some(record) = Self::elect_leader(&cluster_nodes).and_then(|leader| {
                     // Term semantics (VC-200-001): claim leadership before
                     // sealing — a leader transition bumps the persisted
                     // cluster term, and the record stamps the current term
-                    // so receivers can reject stale-term coordinators.
-                    let leader = Self::elect_leader(&cluster_nodes).unwrap_or_default();
-                    // An empty leader (no verified roster on a standalone
-                    // node) must not claim a term — it would bump the
-                    // persisted term with a vacant leader slot.
-                    if !leader.is_empty() {
-                        crate::susi_core::commit_log::claim_leadership(&leader);
-                    }
+                    // so receivers can reject stale-term coordinators. A
+                    // node with no verified electorate (elect_leader →
+                    // None) seals nothing: a commit record with a vacant
+                    // leader field is not a quorum decision.
+                    crate::susi_core::commit_log::claim_leadership(&leader);
                     crate::susi_core::commit_log::CommitRecord::seal(
                         crate::susi_core::commit_log::CommitInput {
                             coordinator: "susi-local-master",
@@ -805,7 +802,7 @@ impl SusiSupervisor {
                             value: &quorum_output,
                         },
                     )
-                } {
+                }) {
                     if let Err(e) = crate::susi_core::commit_log::append(&record) {
                         eprintln!("- [Consensus Master] commit ledger append failed: {e}");
                     }
