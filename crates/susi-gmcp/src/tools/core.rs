@@ -445,6 +445,15 @@ impl CoreTools {
                         "{name} is not supervised by the daemon"
                     )));
                 };
+                // External rows are observability records, not children —
+                // the agent surface must never signal a process the daemon
+                // did not spawn.
+                if rec.external {
+                    return Err(EaiError::authorization(format!(
+                        "{name} is bound by an external process the daemon does \
+                         not supervise — restart is refused"
+                    )));
+                }
                 let ok = Command::new("kill")
                     .args(["-TERM", &rec.pid.to_string()])
                     .status()

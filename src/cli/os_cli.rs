@@ -53,6 +53,7 @@ fn status(json: bool) -> Result<()> {
             "services": services.iter().map(|s| serde_json::json!({
                 "name": s.name, "port": s.port, "pid": s.pid,
                 "restarts": s.restarts, "up": s.up, "external": s.external,
+                "stopped": s.stopped,
             })).collect::<Vec<_>>(),
             "peers": peers.iter().map(|p| serde_json::json!({
                 "node_id": &p.node_id, "address": &p.address,
@@ -125,7 +126,13 @@ fn status(json: bool) -> Result<()> {
             pid,
             s.restarts,
             s.uptime(),
-            if s.up { "yes" } else { "no" }
+            if s.stopped {
+                "stopped"
+            } else if s.up {
+                "yes"
+            } else {
+                "no"
+            }
         );
     }
     if any_external {
