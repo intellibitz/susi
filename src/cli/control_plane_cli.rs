@@ -51,6 +51,14 @@ use susi_daemon::SusiDaemon;
 pub(crate) fn dispatch(
     command: Option<Commands>,
 ) -> Result<std::process::ExitCode, Option<Commands>> {
+    // Dev-build deploy: every early-return control-plane path below
+    // (os, services, commits, peers, mcp) would otherwise never reach
+    // the auto-install call in main — an operator could rebuild, run
+    // only `susi os`, and silently keep the daemon on the stale staged
+    // binary. Harmless for non-dev binaries (the path check inside is
+    // a no-op for anything outside target/) and for `service-run`
+    // children, which re-exec the staged binary itself.
+    susi_sandbox::auto_install::push_to_hardware_if_dev_build();
     // Leaf-service mode: the daemon re-execs this binary as
     // `service-run <name>`; it must serve before anything else touches
     // the substrate (no daemon ensure, no mission pipeline).
