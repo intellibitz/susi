@@ -242,6 +242,17 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             }
             continue;
         };
+        // A loopback responder is this host's own daemon — only one
+        // process can bind the discovery port per host, so a signed
+        // pong from 127.0.0.1/::1 is always ourselves. A self-edge
+        // would let mission dispatch recurse into our own endpoint.
+        if src.ip().is_loopback() {
+            bail!(
+                "{node_id} answered from {} — that is this node's own daemon; \
+                 `peers add` needs a remote host",
+                src.ip()
+            );
+        }
 
         let address = format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
         // ClusterPeerNode shape, written structurally — the root crate

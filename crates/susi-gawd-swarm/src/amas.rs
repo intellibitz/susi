@@ -298,6 +298,14 @@ impl SusiSupervisor {
                                 if let Some((node_id, checksum, bloom_hex)) =
                                     crate::susi_config::cluster_key::verify_signed_pong(&msg, nonce)
                                 {
+                                    // Loopback is never a peer: only one
+                                    // daemon can bind 9092 on a host, so a
+                                    // loopback pong is always our own —
+                                    // admitting it would let mission
+                                    // dispatch recurse into ourselves.
+                                    if src.ip().is_loopback() {
+                                        continue;
+                                    }
                                     let addr_str = format!(
                                         "{}:{}",
                                         src.ip(),
