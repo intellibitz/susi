@@ -958,7 +958,8 @@ impl CoreTools {
         let state = doc
             .pointer("/result/task/status/state")
             .and_then(|s| s.as_str())
-            .unwrap_or("unknown");
+            .map(|s| s.trim_start_matches("TASK_STATE_").to_ascii_lowercase())
+            .unwrap_or_else(|| "unknown".to_string());
         if reply.is_empty() {
             Ok(format!("task {state} (no reply text): {text}"))
         } else {
