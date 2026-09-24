@@ -35,6 +35,16 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
+  vendor-sync:
+    name: Vendored Copy Sync
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Check vendored copies are byte-identical
+        run: ./scripts/check-vendored-sync.sh
+
   deny:
     name: cargo deny (licenses + advisories)
     runs-on: ubuntu-latest

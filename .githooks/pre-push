@@ -33,6 +33,14 @@ if [ -n "$PUSHED_RUST_FILES" ]; then
         exit 1
     fi
 
+    echo "- Checking vendored-copy sync..."
+    ./scripts/check-vendored-sync.sh
+    if [ $? -ne 0 ]; then
+        echo "❌ Compliance Violation: vendored copies drifted from canonical."
+        echo "👉 Re-mirror the changed module into every consumer crate."
+        exit 1
+    fi
+
     # `admin audit` runs static compliance analysis - fast and reliable when
     # already compiled, but compiling all dependencies from scratch takes
     # too long for a pre-push hook. Skip it entirely - CI's Test workflow

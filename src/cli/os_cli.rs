@@ -162,7 +162,7 @@ fn status(json: bool) -> Result<()> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        format!(" ({}s ago)", now.saturating_sub(term.updated_at))
+        format!(" (leader for {}s)", now.saturating_sub(term.updated_at))
     };
     println!(
         "consensus:   term {} / leader {}{} — {} decision(s), {} anomal{}",
