@@ -1206,6 +1206,11 @@ impl SusiSupervisor {
             .filter_map(|r| serde_json::to_string(r).ok())
             .collect();
         let mut offset = 0usize;
+        // The full remote set is retained for the push half of the
+        // exchange — records we hold that the peer lacks get pushed
+        // back, so convergence doesn't depend on the peer also running
+        // a sweep (mixed-version clusters still heal).
+        let mut their_records: Vec<crate::susi_core::commit_log::CommitRecord> = Vec::new();
         loop {
             let Ok(result) = crate::susi_core::mcp_client::call_tool(
                 addr,
@@ -1228,21 +1233,47 @@ impl SusiSupervisor {
             };
             let page = records.len();
             offset += page;
-            for r in records {
-                if !r.verify() {
-                    continue;
-                }
-                let key = serde_json::to_string(&r).unwrap_or_default();
-                if held.contains(&key) {
-                    continue;
-                }
-                if crate::susi_core::commit_log::append(&r).is_ok() {
-                    held.insert(key);
-                }
-            }
+            their_records.extend(records);
             if page < 1000 {
                 break;
             }
+        }
+        let theirs: std::collections::HashSet<String> = their_records
+            .iter()
+            .filter_map(|r| serde_json::to_string(r).ok())
+            .collect();
+        for r in &their_records {
+            if !r.verify() {
+                continue;
+            }
+            let key = serde_json::to_string(&r).unwrap_or_default();
+            if held.contains(&key) {
+                continue;
+            }
+            if crate::susi_core::commit_log::append(r).is_ok() {
+                held.insert(key);
+            }
+        }
+        // Symmetric repair: push our records the peer lacks through
+        // `commit_record` — their receive path re-runs signature, term,
+        // sequence, and chain gates, so a rejection is the protocol's
+        // gate working, not a sync failure.
+        for r in crate::susi_core::commit_log::load() {
+            let key = serde_json::to_string(&r).unwrap_or_default();
+            if theirs.contains(&key) {
+                continue;
+            }
+            // The tool's args ARE the record — commit_record deserializes
+            // the argument object directly into CommitRecord.
+            let Ok(args) = serde_json::to_value(&r) else {
+                continue;
+            };
+            let _ = crate::susi_core::mcp_client::call_tool(
+                addr,
+                "commit_record",
+                &args,
+                bearer.as_deref(),
+            );
         }
     }
 
