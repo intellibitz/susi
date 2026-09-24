@@ -228,7 +228,7 @@ pub fn ensure_leaf_services() {
             }
             continue;
         }
-        if let Some(pid) = spawn_and_record(svc, &mut table) {
+        if let Some(pid) = spawn_and_record(svc, &mut table, None) {
             slog(&format!("[supervisor] started {} (pid {})", svc.name, pid));
         } else if !table.iter().any(|r| r.name == svc.name) {
             slog(&format!(
@@ -266,13 +266,22 @@ pub fn ensure_leaf_services() {
 /// a lingering or foreign process makes `wait_for_port` pass while our
 /// spawn dies on EADDRINUSE; recording that dead pid crash-loops the
 /// monitor. On ownership mismatch the spawn is killed and a resolvable
-/// holder is adopted as external instead.
+/// holder is adopted as external instead. When `shutdown` is raised
+/// mid-wait the spawn is reaped and nothing is recorded — a child must
+/// never be created during teardown.
 fn spawn_and_record(
     svc: &LeafService,
     table: &mut Vec<service_table::ServiceRecord>,
+    shutdown: Option<&AtomicBool>,
 ) -> Option<u32> {
     let pid = spawn_service(svc)?;
     if !wait_for_port(svc.port(), STARTUP_WAIT) {
+        let _ = signal(pid, SIGKILL);
+        return None;
+    }
+    if shutdown.is_some_and(|f| f.load(Ordering::Acquire)) {
+        let _ = signal(pid, SIGTERM);
+        thread::sleep(Duration::from_millis(200));
         let _ = signal(pid, SIGKILL);
         return None;
     }
@@ -300,7 +309,11 @@ fn spawn_and_record(
 }
 
 /// Respawn one supervised service after a crash; returns the new record.
-fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
+fn respawn(
+    svc: &LeafService,
+    table: &mut Vec<service_table::ServiceRecord>,
+    shutdown: &AtomicBool,
+) {
     if let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) {
         if rec.restarts >= MAX_RESTARTS {
             let until = std::time::SystemTime::now()
@@ -349,7 +362,10 @@ fn respawn(svc: &LeafService, table: &mut Vec<service_table::ServiceRecord>) {
             return;
         }
     }
-    if let Some(pid) = spawn_and_record(svc, table) {
+    if shutdown.load(Ordering::Acquire) {
+        return;
+    }
+    if let Some(pid) = spawn_and_record(svc, table, Some(shutdown)) {
         let restarts = table
             .iter()
             .find(|r| r.name == svc.name)
@@ -380,6 +396,11 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         for svc in LEAF_SERVICES {
+            // Abort mid-pass the moment shutdown is raised — a respawn
+            // blocked in wait_for_port must not outlive the teardown.
+            if shutdown.load(Ordering::Acquire) {
+                break;
+            }
             let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) else {
                 // Never supervised (binary missing at boot, or pruned) —
                 // retry on a slow cadence so a binary appearing later is
@@ -410,7 +431,7 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                         "[supervisor] {} not supervised; attempting spawn",
                         svc.name
                     ));
-                    if let Some(pid) = spawn_and_record(svc, &mut table) {
+                    if let Some(pid) = spawn_and_record(svc, &mut table, Some(shutdown.as_ref())) {
                         slog(&format!("[supervisor] adopted {} (pid {})", svc.name, pid));
                         changed = true;
                     } else if table.iter().any(|r| r.name == svc.name) {
@@ -477,10 +498,12 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 probe_misses.remove(svc.name);
             }
             slog(&format!("[supervisor] {} unhealthy; respawning", svc.name));
-            respawn(svc, &mut table);
+            respawn(svc, &mut table, shutdown.as_ref());
             changed = true;
         }
-        if changed {
+        // Shutdown mid-pass: the table is about to be cleared by
+        // shutdown_all — saving our copy would resurrect stale rows.
+        if changed && !shutdown.load(Ordering::Acquire) {
             // Locked merge: `services stop`/`start` may have written
             // mid-pass — saving our stale copy wholesale would clobber
             // the operator's flag. Rows we touched overwrite wholesale
@@ -507,7 +530,14 @@ fn monitor_loop(shutdown: Arc<AtomicBool>) {
                 slog(&format!("[supervisor] persist process table: {e}"));
             }
         }
-        thread::sleep(PROBE_INTERVAL);
+        // Interruptible sleep — a raised shutdown ends the wait promptly
+        // so joining this thread doesn't block out the probe interval.
+        for _ in 0..(PROBE_INTERVAL.as_millis() / 100) {
+            if shutdown.load(Ordering::Acquire) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
     }
 }
 
