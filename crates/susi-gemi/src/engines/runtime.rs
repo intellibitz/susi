@@ -67,6 +67,17 @@ impl GemiEngine {
         Self::reason_internal(prompt, workspace, true, callback, None, None)
     }
 
+    /// Streaming reasoning honoring a caller-requested model name — the
+    /// `/v1/chat/completions` streaming path threads its `model` field here.
+    pub fn generate_reasoning_stream_with_model(
+        prompt: &str,
+        workspace: &Path,
+        callback: &dyn Fn(String),
+        model: &str,
+    ) -> String {
+        Self::reason_internal(prompt, workspace, true, callback, None, Some(model))
+    }
+
     /// Ultra-Latency Competitive Inference Racing
     #[allow(clippy::too_many_arguments)]
     fn reason_internal(

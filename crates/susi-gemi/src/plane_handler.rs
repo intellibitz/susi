@@ -237,12 +237,19 @@ impl PlaneHandler for GemiPlaneHandler {
                     .get("stream_id")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                let model = payload.get("model").and_then(|v| v.as_str());
                 let bus = PlaneBus::global();
-                let text = GemiEngine::generate_reasoning_stream(prompt, &ws, &|chunk| {
+                let emit = |chunk: String| {
                     if !stream_id.is_empty() {
                         bus.stream_emit(stream_id, json!(chunk));
                     }
-                });
+                };
+                let text = match model {
+                    Some(m) if !m.is_empty() => {
+                        GemiEngine::generate_reasoning_stream_with_model(prompt, &ws, &emit, m)
+                    }
+                    _ => GemiEngine::generate_reasoning_stream(prompt, &ws, &emit),
+                };
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_PLAN_PARTITION => {

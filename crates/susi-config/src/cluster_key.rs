@@ -1203,7 +1203,16 @@ mod tests {
             &bind_sig
         ));
         let mut bad = bind_sig.clone();
-        bad.replace_range(0..2, "00");
+        // Tamper deterministically — overwriting with a constant is a
+        // no-op when the fresh signature already starts with that byte.
+        bad.replace_range(
+            0..2,
+            if bind_sig.starts_with("00") {
+                "11"
+            } else {
+                "00"
+            },
+        );
         assert!(!verify_bind_attestation(&node_id, &pubkey, &bad));
         // The real attack: a member holding cluster.key mints a
         // correctly-MAC'd v3 pong claiming a key the subject never

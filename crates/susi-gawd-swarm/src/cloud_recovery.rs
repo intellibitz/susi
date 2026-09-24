@@ -48,7 +48,12 @@ fn eligible(report: &SusiMissionReport) -> bool {
 
 /// Recover using existing evidence. Previously executed tools are not replayed.
 /// Tries each cloud once, then falls back to local inference.
-pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
+///
+/// `model_hint` is an optional caller-requested model (`/v1/chat/completions`
+/// `model` field): a hint naming a failover provider moves that provider to
+/// the front of the attempt order; a hint naming a local model is loaded by
+/// the local fallback leg instead of the intent-classified default.
+pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path, model_hint: Option<&str>) {
     if !eligible(report) {
         return;
     }
@@ -95,6 +100,7 @@ pub(crate) fn recover(report: &mut SusiMissionReport, workspace: &Path) {
                     workspace,
                     Duration::from_secs(60),
                     true,
+                    model_hint,
                 ));
                 Ok(())
             })
@@ -283,10 +289,28 @@ async fn recover_with_providers(
     workspace: &Path,
     timeout: Duration,
     fallback_local: bool,
+    model_hint: Option<&str>,
 ) {
     if !eligible(report) {
         return;
     }
+    // Caller-requested model: when the hint names a failover provider, try
+    // that provider first — the request explicitly asked for it.
+    let hint_is_provider = model_hint
+        .map(|h| providers.iter().any(|p| p == h))
+        .unwrap_or(false);
+    let providers = if hint_is_provider {
+        let mut reordered = providers;
+        if let Some(h) = model_hint {
+            if let Some(pos) = reordered.iter().position(|p| p == h) {
+                let name = reordered.remove(pos);
+                reordered.insert(0, name);
+            }
+        }
+        reordered
+    } else {
+        providers
+    };
     let context = SecurityDetector::redact(&serde_json::to_string(report).unwrap_or_default());
     let context: String = context.chars().take(24_000).collect();
     // Receipts captured during the failed mission are the only evidence a
@@ -367,12 +391,16 @@ async fn recover_with_providers(
     eprintln!("[FAILOVER] Trying local inference");
     let prompt = recovery_prompt(&report.goal, &context);
     let workspace_owned = workspace.to_path_buf();
+    // A provider-name hint was already served by the cloud loop above; only
+    // a non-provider hint is a local model name to load here.
+    let local_model = if hint_is_provider { None } else { model_hint };
+    let local_model_name = local_model.unwrap_or("local").to_string();
     let local = tokio::time::timeout(timeout, async {
         let raw = tokio::task::spawn_blocking(move || {
             crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                 &prompt,
                 &workspace_owned,
-                "local",
+                &local_model_name,
             )
         })
         .await
@@ -565,6 +593,31 @@ mod tests {
     const COMPLETE: &str = r#"{"status":"complete","answer":"The observed result is available."}"#;
 
     #[tokio::test]
+    async fn model_hint_moves_named_provider_to_front() {
+        let ws = TempWorkspace::new();
+        let (registry, calls) = providers(&[
+            ("a-first", Reply::Error),
+            ("b-hinted", Reply::Text(COMPLETE)),
+        ]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["a-first".into(), "b-hinted".into()],
+            &ws.0,
+            Duration::from_secs(1),
+            false,
+            Some("b-hinted"),
+        )
+        .await;
+        // The hinted provider ran first even though it was listed last.
+        assert_eq!(
+            calls.lock().unwrap().first().map(String::as_str),
+            Some("b-hinted")
+        );
+    }
+
+    #[tokio::test]
     async fn model_agreement_without_evidence_never_completes_recovery() {
         let ws = TempWorkspace::new();
         let (registry, calls) = providers(&[
@@ -580,6 +633,7 @@ mod tests {
             &ws.0,
             Duration::from_secs(1),
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -624,6 +678,7 @@ mod tests {
             &ws.0,
             Duration::from_secs(1),
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -648,6 +703,7 @@ mod tests {
             &ws.0,
             Duration::from_secs(1),
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -669,6 +725,7 @@ mod tests {
             &ws.0,
             Duration::from_millis(20),
             false,
+            None,
         )
         .await;
         assert!(!report.is_success());
@@ -690,6 +747,7 @@ mod tests {
                 &ws.0,
                 Duration::from_secs(1),
                 false,
+                None,
             )
             .await;
             assert_eq!(report.status, status);
@@ -703,6 +761,7 @@ mod tests {
             &ws.0,
             Duration::from_secs(1),
             false,
+            None,
         )
         .await;
         assert!(calls.lock().unwrap().is_empty());
@@ -736,6 +795,7 @@ mod tests {
             &ws.0,
             Duration::from_secs(1),
             false,
+            None,
         )
         .await;
         assert!(report.is_success(), "{}", report.final_answer);

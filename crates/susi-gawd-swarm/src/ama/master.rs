@@ -75,7 +75,20 @@ impl SusiMasterAgent {
     /// Primary entry point for all natural language intents.
     /// Streams thinking and results back live in real-time.
     pub fn solve_clean(&self, goal: &str, workspace: &Path, version: &str) -> String {
-        self.solve_stream(goal, workspace, version, &|piece| {
+        self.solve_clean_with_model(goal, workspace, version, None)
+    }
+
+    /// `solve_clean` honoring a caller-requested model name — provider
+    /// failover tries the named provider first and the local fallback
+    /// loads the named model instead of the intent-classified default.
+    pub fn solve_clean_with_model(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+    ) -> String {
+        self.solve_stream_with_model(goal, workspace, version, model, &|piece| {
             print!("{}", piece);
             let _ = std::io::stdout().flush();
         })
@@ -88,7 +101,18 @@ impl SusiMasterAgent {
         version: &str,
         _callback: &dyn Fn(String),
     ) -> String {
-        self.solve_stream_report(goal, workspace, version, _callback)
+        self.solve_stream_with_model(goal, workspace, version, None, _callback)
+    }
+
+    pub fn solve_stream_with_model(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+        _callback: &dyn Fn(String),
+    ) -> String {
+        self.solve_stream_report_with_model(goal, workspace, version, model, _callback)
             .final_answer
     }
 
@@ -98,6 +122,21 @@ impl SusiMasterAgent {
         goal: &str,
         workspace: &Path,
         version: &str,
+        _callback: &dyn Fn(String),
+    ) -> SusiMissionReport {
+        self.solve_stream_report_with_model(goal, workspace, version, None, _callback)
+    }
+
+    /// `solve_stream_report` with an optional caller-requested model hint
+    /// (`/v1/chat/completions` `model` field). The hint is advisory inside
+    /// the governed pipeline: failover prioritizes a matching provider and
+    /// the local leg loads the named model — it never bypasses governance.
+    pub fn solve_stream_report_with_model(
+        &self,
+        goal: &str,
+        workspace: &Path,
+        version: &str,
+        model_hint: Option<&str>,
         _callback: &dyn Fn(String),
     ) -> SusiMissionReport {
         // Mission-scoped evidence ledger (same contract as `solve`): tool
@@ -117,9 +156,16 @@ impl SusiMasterAgent {
         let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
         let (_engine_type, active_model_id) = {
             let intent = crate::susi_core::plane_bus::gemi::IntentClassifier::classify(goal);
-            crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(
-                &intent,
-            ))
+            let resolved =
+                crate::susi_core::plane_bus::gemi::ModelManager::get_active_engine_and_model(Some(
+                    &intent,
+                ));
+            // A caller-requested model names the serving model; intent
+            // classification still picked the engine.
+            match model_hint {
+                Some(m) if !m.is_empty() => (resolved.0, m.to_string()),
+                _ => resolved,
+            }
         };
         let model_path_str =
             crate::susi_core::plane_bus::gemi::ModelManager::get_model_path(&active_model_id)
@@ -417,7 +463,7 @@ impl SusiMasterAgent {
                 interactions: Vec::new(),
                 final_answer,
             };
-            crate::cloud_recovery::recover(&mut report, workspace);
+            crate::cloud_recovery::recover(&mut report, workspace, model_hint);
             attach_evidence_ledger(&mut report, session.as_ref(), workspace);
             eprintln!("{}", report.completion_message());
             drop(_guard);
@@ -445,7 +491,7 @@ impl SusiMasterAgent {
 
         match res {
             Ok(mut report) => {
-                crate::cloud_recovery::recover(&mut report, workspace);
+                crate::cloud_recovery::recover(&mut report, workspace, model_hint);
                 attach_evidence_ledger(&mut report, session.as_ref(), workspace);
                 eprintln!("{}", report.completion_message());
                 drop(_guard);
@@ -461,7 +507,7 @@ impl SusiMasterAgent {
                     interactions: Vec::new(),
                     final_answer: format!("SUSI Engine Error: {}", e),
                 };
-                crate::cloud_recovery::recover(&mut err_report, workspace);
+                crate::cloud_recovery::recover(&mut err_report, workspace, model_hint);
                 attach_evidence_ledger(&mut err_report, session.as_ref(), workspace);
                 eprintln!("{}", err_report.completion_message());
                 drop(_guard);
@@ -616,7 +662,7 @@ impl SusiMasterAgent {
             .map(crate::susi_core::capture::EvidenceSession::activate);
         let _scope = crate::susi_core::capture::EvidenceSession::enter(session.clone());
         let mut report = self.solve_internal(goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut report, workspace);
+        crate::cloud_recovery::recover(&mut report, workspace, None);
         attach_evidence_ledger(&mut report, session.as_ref(), workspace);
         Ok(report)
     }
@@ -666,7 +712,7 @@ impl SusiMasterAgent {
                 step
             );
             let mut report = self.solve_internal(step, workspace, version, 0)?;
-            crate::cloud_recovery::recover(&mut report, workspace);
+            crate::cloud_recovery::recover(&mut report, workspace, None);
 
             let success = report.status == "COMPLETE" || report.status == "SUCCESS";
             let summary = format!(
@@ -723,7 +769,7 @@ impl SusiMasterAgent {
             )
         };
         let mut final_report = self.solve_internal(&synthesis_goal, workspace, version, 0)?;
-        crate::cloud_recovery::recover(&mut final_report, workspace);
+        crate::cloud_recovery::recover(&mut final_report, workspace, None);
         attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
         Ok(final_report)
     }

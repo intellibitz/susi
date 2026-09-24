@@ -332,6 +332,17 @@ pub mod gemi {
             workspace: &Path,
             on_chunk: &dyn Fn(String),
         ) -> String {
+            Self::generate_reasoning_stream_with_model(prompt, workspace, on_chunk, None)
+        }
+
+        /// Streaming reasoning with an optional caller-requested model —
+        /// the GEMI handler threads it into provider/model selection.
+        pub fn generate_reasoning_stream_with_model(
+            prompt: &str,
+            workspace: &Path,
+            on_chunk: &dyn Fn(String),
+            model: Option<&str>,
+        ) -> String {
             let bus = PlaneBus::global();
             let (stream_id, rx) = bus.open_stream();
             let result = req(
@@ -340,6 +351,7 @@ pub mod gemi {
                     "prompt": prompt,
                     "workspace": workspace.display().to_string(),
                     "stream_id": stream_id,
+                    "model": model,
                 }),
             );
             while let Ok(chunk) = rx.try_recv() {
@@ -556,12 +568,25 @@ pub mod gawd {
     use super::*;
 
     pub fn solve_mission(intent: &str, workspace: &Path, version: &str) -> String {
+        solve_mission_with_model(intent, workspace, version, None)
+    }
+
+    /// Mission solve with an optional caller-requested model hint —
+    /// `/v1/chat/completions` threads its `model` field here so failover
+    /// prioritizes the named provider/model instead of silently rerouting.
+    pub fn solve_mission_with_model(
+        intent: &str,
+        workspace: &Path,
+        version: &str,
+        model: Option<&str>,
+    ) -> String {
         req_ok(
             topics::GAWD_SOLVE,
             json!({
                 "intent": intent,
                 "workspace": workspace.display().to_string(),
-                "version": version
+                "version": version,
+                "model": model
             }),
         )
         .get("text")

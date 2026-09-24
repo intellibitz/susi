@@ -32,7 +32,9 @@ impl PlaneHandler for GawdPlaneHandler {
                     .get("version")
                     .and_then(|v| v.as_str())
                     .unwrap_or(env!("CARGO_PKG_VERSION"));
-                let text = crate::ama::SusiMasterAgent::new().solve_clean(intent, &ws, version);
+                let model = payload.get("model").and_then(|v| v.as_str());
+                let text = crate::ama::SusiMasterAgent::new()
+                    .solve_clean_with_model(intent, &ws, version, model);
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_SANITIZE => {

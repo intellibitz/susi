@@ -384,7 +384,19 @@ async fn handle_gemi_request(
                                     .and_then(|v| v.as_str())
                             })
                             .any(|id| {
-                                id == requested || id.rsplit('/').next() == Some(requested.as_str())
+                                // Accept the full id, the basename, or the
+                                // file stem — /v1/models ids are paths for
+                                // locally scanned GGUF weights.
+                                let stem = std::path::Path::new(id)
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or(id);
+                                id == requested
+                                    || stem == requested
+                                    || std::path::Path::new(id)
+                                        .file_name()
+                                        .and_then(|s| s.to_str())
+                                        == Some(requested.as_str())
                             })
                     })
                     .unwrap_or(false);
@@ -411,7 +423,11 @@ async fn handle_gemi_request(
             let is_streaming = completion.stream;
             let pulse_intent = completion.prompt;
             let intent = gemi::IntentClassifier::classify(&pulse_intent);
-            let active_model = gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1;
+            // A caller-requested model labels the response; intent
+            // classification only applies when no model was named.
+            let active_model = completion.model.clone().unwrap_or_else(|| {
+                gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1
+            });
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 &workspace,
                 "WEB_MISSION_START",
@@ -423,6 +439,7 @@ async fn handle_gemi_request(
                 Ok(build_streaming_response(
                     trimmed_prompt,
                     active_model,
+                    completion.model.clone(),
                     Arc::clone(&workspace),
                     path == "/v1/completions",
                     permit,
@@ -430,10 +447,15 @@ async fn handle_gemi_request(
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
+                let model_for_task = completion.model.clone();
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
-                    let final_resp =
-                        gawd::solve_mission(&prompt_for_task, &ws, env!("CARGO_PKG_VERSION"));
+                    let final_resp = gawd::solve_mission_with_model(
+                        &prompt_for_task,
+                        &ws,
+                        env!("CARGO_PKG_VERSION"),
+                        model_for_task.as_deref(),
+                    );
                     crate::susi_sandbox::manager::SusiMemory::save_interaction(
                         &ws,
                         &prompt_for_task,
@@ -771,15 +793,21 @@ async fn handle_gemi_request(
 fn build_streaming_response(
     prompt: String,
     model_name: String,
+    requested_model: Option<String>,
     workspace: Arc<PathBuf>,
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
     let rx = completion_stream(model_name, legacy, move |callback| {
         let _permit = permit;
-        gemi::GemiEngine::generate_reasoning_stream(&prompt, &workspace, &|chunk| {
-            callback(chunk);
-        })
+        gemi::GemiEngine::generate_reasoning_stream_with_model(
+            &prompt,
+            &workspace,
+            &|chunk| {
+                callback(chunk);
+            },
+            requested_model.as_deref(),
+        )
     });
     let stream =
         ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
