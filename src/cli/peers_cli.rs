@@ -29,6 +29,18 @@ pub enum PeersCommands {
         #[arg(long)]
         port: Option<u16>,
     },
+    /// Probe a peer without persisting anything: the same signed-ping →
+    /// signed-pong handshake `peers add` performs, reporting only the
+    /// responder's attested identity and its standing in this node's
+    /// roster. The non-destructive way to test reachability and
+    /// cluster.key compatibility before (or instead of) `peers add`.
+    Probe {
+        /// IP or hostname of the peer daemon to probe (may include :port)
+        host: String,
+        /// UDP discovery port (default: host-contract 9092)
+        #[arg(long)]
+        port: Option<u16>,
+    },
     /// Evict a peer: revoke persisted trust AND ban re-verification.
     /// The ban is enforced at the signed-pong handshake — the peer cannot
     /// rejoin until `susi peers unban` lifts it.
@@ -61,6 +73,7 @@ pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(PeersCommands::List { json: false }) {
         PeersCommands::List { json } => list(json),
         PeersCommands::Add { host, port } => add(&host, port),
+        PeersCommands::Probe { host, port } => probe(&host, port),
         PeersCommands::Remove { peer } => remove(&peer),
         PeersCommands::Unban { peer } => unban(&peer),
         PeersCommands::Rekey { force } => rekey(force),
@@ -702,13 +715,17 @@ fn remove(peer: &str) -> Result<()> {
     Ok(())
 }
 
-/// Join a peer by address: the same signed-ping → signed-pong handshake
-/// the swarm scout uses, directed at one host instead of LAN broadcast.
-/// A peer that can't produce a cluster-key-signed pong echoing our nonce
-/// is never persisted — admission stays cryptographic, not asserted.
-fn add(host: &str, port: Option<u16>) -> Result<()> {
-    // `host` may carry an inline :port — split it so `add 10.0.0.4:9092`
-    // works as naturally as `add 10.0.0.4 --port 9092`.
+/// The signed-ping → signed-pong handshake `peers add` and `peers
+/// probe` share, directed at one host instead of LAN broadcast. A peer
+/// that can't produce a cluster-key-signed pong echoing our nonce is
+/// never trusted — admission stays cryptographic, not asserted.
+/// Returns the verified pong fields plus the responder's source IP.
+fn handshake(
+    host: &str,
+    port: Option<u16>,
+) -> Result<(susi_config::cluster_key::VerifiedPong, std::net::IpAddr)> {
+    // `host` may carry an inline :port — split it so `10.0.0.4:9092`
+    // works as naturally as `--port 9092`.
     let (host, inline_port) = match host.rsplit_once(':') {
         Some((h, p)) if !h.is_empty() => match p.parse::<u16>() {
             Ok(n) => (h.to_string(), Some(n)),
@@ -723,7 +740,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
     // the CLI registers no tools, and the peer answers with its own bloom.
     // Identity-era ping first, then the pre-identity format — a daemon
     // that doesn't know the node_id field ignores the 7-field ping, so
-    // `peers add` falls back instead of dead-ending on version skew.
+    // the handshake falls back instead of dead-ending on version skew.
     let mut attempts: Vec<(String, String)> = Vec::new();
     if let Some(p) = susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000") {
         attempts.push(p);
@@ -756,137 +773,179 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
                 Err(e) => return Err(e.into()),
             };
             let msg = String::from_utf8_lossy(&buf[..amt]);
-            let Some((node_id, checksum, bloom_hex, roster)) =
-                susi_config::cluster_key::verify_signed_pong(&msg, &nonce)
-            else {
+            let Some(pong) = susi_config::cluster_key::verify_signed_pong(&msg, &nonce) else {
                 if std::time::Instant::now() >= deadline {
                     break;
                 }
                 continue;
             };
-            // Self-edge guards — a self-add would let mission dispatch
-            // recurse into our own endpoint. Three routes, one refusal:
-            // a loopback responder is this host's own daemon (only one
-            // process binds the discovery port per host); a responder at
-            // any of our own interface addresses is likewise ourselves —
-            // UDP to our LAN IP loops back (the bind check can only
-            // succeed on local addresses); and on the identity-era wire
-            // format the attested node_id is the strongest check of all.
+            // Self-edge guards — adding or probing ourselves is never a
+            // remote peer. Three routes, one refusal: a loopback responder
+            // is this host's own daemon (only one process binds the
+            // discovery port per host); a responder at any of our own
+            // interface addresses is likewise ourselves — UDP to our LAN
+            // IP loops back (the bind check can only succeed on local
+            // addresses); and on the identity-era wire format the
+            // attested node_id is the strongest check of all.
             if src.ip().is_loopback()
                 || std::net::TcpListener::bind((src.ip(), 0)).is_ok()
-                || node_id == susi_config::cluster_key::wire_node_id()
+                || pong.0 == susi_config::cluster_key::wire_node_id()
             {
                 bail!(
-                    "{node_id} answered from {} — that is this node's own daemon; \
-                 `peers add` needs a remote host",
+                    "{} answered from {} — that is this node's own daemon; \
+                 this command needs a remote host",
+                    pong.0,
                     src.ip()
                 );
             }
-
-            let address = format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
-            // A banned member was operator-evicted — re-adding must be a
-            // deliberate `peers unban` first, not an accidental re-add.
-            let banned = load_banned();
-            if banned.iter().any(|b| {
-                b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
-                    || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
-            }) {
-                bail!("{node_id} ({address}) is banned — `susi peers unban` it before re-adding");
-            }
-            // ClusterPeerNode shape, written structurally — the root crate
-            // takes no dependency on the swarm plane.
-            let bloom_words: Vec<u64> = (0..bloom_hex.len() / 16)
-                .filter_map(|i| u64::from_str_radix(&bloom_hex[i * 16..i * 16 + 16], 16).ok())
-                .collect();
-            let node = serde_json::json!({
-                "node_id": node_id,
-                "address": address,
-                "node_type": "PEER",
-                "is_active": true,
-                "capabilities": ["CORE"],
-                "registry_checksum": checksum,
-                "latency_ms": 0,
-                "uptime_secs": 0,
-                "trust_score": 0.8,
-                "capability_bloom": bloom_words,
-                "admission": "explicit",
-                "last_seen_secs": now_secs(),
-            });
-
-            // Serialize the roster RMW with the daemon's apply/scout
-            // writers — released before commit_membership pushes over
-            // the network (the push path takes the same lock on the
-            // receiver side, and locally via append's apply).
-            let _peers_lock = susi_core::commit_log::FileLock::acquire(
-                &susi_paths::SusiDirs::config_dir(),
-                "peers",
-            );
-            let mut nodes = load_registry();
-            nodes.retain(|n| {
-                n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
-                    && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
-            });
-            nodes.push(node);
-            // Roster gossip: the peer vouched for its own verified members.
-            // Record them `discovered` — visible to the operator, never
-            // load-bearing until the swarm's directed handshake upgrades
-            // them to explicit (persisted members only ever carry
-            // `explicit`; the swarm filters on read regardless).
-            let mut learned = 0usize;
-            for (gid, gaddr) in &roster {
-                let known = nodes.iter().any(|n| {
-                    n.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
-                        || n.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
-                });
-                let banned_hit = banned.iter().any(|b| {
-                    b.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
-                        || b.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
-                });
-                let looped = gaddr
-                    .split(':')
-                    .next()
-                    .and_then(|h| h.parse::<std::net::IpAddr>().ok())
-                    .is_some_and(|ip| ip.is_loopback());
-                if known || banned_hit || looped {
-                    continue;
-                }
-                nodes.push(serde_json::json!({
-                    "node_id": gid,
-                    "address": gaddr,
-                    "node_type": "PEER",
-                    "is_active": true,
-                    "capabilities": ["CORE"],
-                    "registry_checksum": 0,
-                    "latency_ms": 0,
-                    "uptime_secs": 0,
-                    "trust_score": 0.5,
-                    "capability_bloom": [],
-                    "admission": "discovered",
-                    "last_seen_secs": now_secs(),
-                }));
-                learned += 1;
-            }
-            let path = registry_path();
-            let tmp = path.with_extension("json.tmp");
-            std::fs::write(&tmp, serde_json::to_string_pretty(&nodes)?)?;
-            std::fs::rename(&tmp, &path)?;
-            if learned > 0 {
-                println!("verified + admitted: {node_id} ({address}); learned {learned} roster entr(ies) via gossip");
-            } else {
-                println!("verified + admitted: {node_id} ({address})");
-            }
-            drop(_peers_lock);
-            // Commit the admission to the replicated ledger — every verified
-            // peer applies the same roster delta on append, so membership
-            // converges without a `peers add` on each node.
-            commit_membership(susi_core::commit_log::KIND_MEMBER_ADD, &node_id, &address);
-            return Ok(());
+            return Ok((pong, src.ip()));
         }
     }
     bail!(
         "no signed pong from {host}:{port} — peer unreachable, not a susi daemon, \
          or doesn't share this cluster.key"
     )
+}
+
+/// Join a peer by address: verify the responder cryptographically via
+/// `handshake`, then persist it as an explicit member and commit the
+/// admission to the replicated ledger.
+fn add(host: &str, port: Option<u16>) -> Result<()> {
+    let ((node_id, checksum, bloom_hex, roster), ip) = handshake(host, port)?;
+    {
+        let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
+        // A banned member was operator-evicted — re-adding must be a
+        // deliberate `peers unban` first, not an accidental re-add.
+        let banned = load_banned();
+        if banned.iter().any(|b| {
+            b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
+                || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
+        }) {
+            bail!("{node_id} ({address}) is banned — `susi peers unban` it before re-adding");
+        }
+        // ClusterPeerNode shape, written structurally — the root crate
+        // takes no dependency on the swarm plane.
+        let bloom_words: Vec<u64> = (0..bloom_hex.len() / 16)
+            .filter_map(|i| u64::from_str_radix(&bloom_hex[i * 16..i * 16 + 16], 16).ok())
+            .collect();
+        let node = serde_json::json!({
+            "node_id": node_id,
+            "address": address,
+            "node_type": "PEER",
+            "is_active": true,
+            "capabilities": ["CORE"],
+            "registry_checksum": checksum,
+            "latency_ms": 0,
+            "uptime_secs": 0,
+            "trust_score": 0.8,
+            "capability_bloom": bloom_words,
+            "admission": "explicit",
+            "last_seen_secs": now_secs(),
+        });
+
+        // Serialize the roster RMW with the daemon's apply/scout
+        // writers — released before commit_membership pushes over
+        // the network (the push path takes the same lock on the
+        // receiver side, and locally via append's apply).
+        let _peers_lock =
+            susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
+        let mut nodes = load_registry();
+        nodes.retain(|n| {
+            n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
+                && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
+        });
+        nodes.push(node);
+        // Roster gossip: the peer vouched for its own verified members.
+        // Record them `discovered` — visible to the operator, never
+        // load-bearing until the swarm's directed handshake upgrades
+        // them to explicit (persisted members only ever carry
+        // `explicit`; the swarm filters on read regardless).
+        let mut learned = 0usize;
+        for (gid, gaddr) in &roster {
+            let known = nodes.iter().any(|n| {
+                n.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
+                    || n.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+            });
+            let banned_hit = banned.iter().any(|b| {
+                b.get("node_id").and_then(|v| v.as_str()) == Some(gid.as_str())
+                    || b.get("address").and_then(|v| v.as_str()) == Some(gaddr.as_str())
+            });
+            let looped = gaddr
+                .split(':')
+                .next()
+                .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+                .is_some_and(|ip| ip.is_loopback());
+            if known || banned_hit || looped {
+                continue;
+            }
+            nodes.push(serde_json::json!({
+                "node_id": gid,
+                "address": gaddr,
+                "node_type": "PEER",
+                "is_active": true,
+                "capabilities": ["CORE"],
+                "registry_checksum": 0,
+                "latency_ms": 0,
+                "uptime_secs": 0,
+                "trust_score": 0.5,
+                "capability_bloom": [],
+                "admission": "discovered",
+                "last_seen_secs": now_secs(),
+            }));
+            learned += 1;
+        }
+        let path = registry_path();
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&nodes)?)?;
+        std::fs::rename(&tmp, &path)?;
+        if learned > 0 {
+            println!("verified + admitted: {node_id} ({address}); learned {learned} roster entr(ies) via gossip");
+        } else {
+            println!("verified + admitted: {node_id} ({address})");
+        }
+        drop(_peers_lock);
+        // Commit the admission to the replicated ledger — every verified
+        // peer applies the same roster delta on append, so membership
+        // converges without a `peers add` on each node.
+        commit_membership(susi_core::commit_log::KIND_MEMBER_ADD, &node_id, &address);
+    }
+    Ok(())
+}
+
+/// `peers probe` — the same verified handshake `peers add` performs,
+/// without persisting anything. Reports the responder's attested
+/// identity and its standing in this node's roster — the
+/// non-destructive way to test reachability and cluster.key
+/// compatibility before (or instead of) `peers add`.
+fn probe(host: &str, port: Option<u16>) -> Result<()> {
+    let ((node_id, checksum, bloom_hex, roster), ip) = handshake(host, port)?;
+    let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
+    let banned = load_banned().iter().any(|b| {
+        b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
+            || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
+    });
+    let known = load_registry().iter().any(|n| {
+        n.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
+            || n.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
+    });
+    let standing = if banned {
+        "BANNED — `susi peers unban` before `peers add`"
+    } else if known {
+        "explicit member"
+    } else {
+        "not a member — `susi peers add` to admit"
+    };
+    let bloom = if bloom_hex.is_empty() || bloom_hex.chars().all(|c| c == '0') {
+        "none".to_string()
+    } else {
+        bloom_hex
+    };
+    println!("verified: {node_id} ({address})");
+    println!("  registry checksum: {checksum}");
+    println!("  capability bloom:  {bloom}");
+    println!("  gossip roster:     {} member(s) advertised", roster.len());
+    println!("  local standing:    {standing}");
+    Ok(())
 }
 
 fn unban(peer: &str) -> Result<()> {
