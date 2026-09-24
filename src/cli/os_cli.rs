@@ -217,6 +217,34 @@ fn status(json: bool) -> Result<()> {
             .map(|d| format!("running (pid {})", d.pid))
             .unwrap_or_else(|| "not running".to_string())
     );
+    {
+        use susi_paths::ports;
+        let probes: [(&str, u16); 4] = [
+            ("gmcp", ports::GMCP),
+            ("gemi", ports::GEMI),
+            ("gmcp-sse", ports::GMCP_HTTP),
+            ("a2a", ports::A2A_HTTP),
+        ];
+        let fields: Vec<String> = probes
+            .iter()
+            .map(|(name, port)| {
+                let up = std::net::TcpStream::connect_timeout(
+                    &std::net::SocketAddr::new(
+                        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                        *port,
+                    ),
+                    std::time::Duration::from_millis(150),
+                )
+                .is_ok();
+                format!("{name} :{port} {}", if up { "up" } else { "DOWN" })
+            })
+            .collect();
+        println!(
+            "endpoints:   {} (+a2a-udp :{})",
+            fields.join(" · "),
+            ports::UDP_DISCOVERY
+        );
+    }
     if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
         println!(
             "storage:     {} free / {} total on substrate_home",

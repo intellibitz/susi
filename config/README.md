@@ -9,7 +9,7 @@ opinions; see `ARCHITECTURE.md` plugin triad.
 
 | File | Role |
 |------|------|
-| `config.default.json` | Runtime knobs, routing, `bootstrap_mcp_servers` (small auto-enable set), non-managed `external_peer_agents` (CLI/HTTP/A2A only), governance. Port keys (`gmcp_port` / `gemi_port` / …) may appear for documentation but are **not** heal-merged into host `config.json` — accessors always return `susi_paths::ports` (9090–9093). **Managed** peers are derived from `execution-agents.json` + `agent-engines.json` `peer_name` fields at load time. |
+| `config.default.json` | Runtime knobs, routing, `bootstrap_mcp_servers` (small auto-enable set), non-managed `external_peer_agents` (CLI/HTTP/A2A only), governance. Port keys (`gmcp_port` / `gemi_port` / …) may appear for documentation but are **not** heal-merged into host `config.json` — accessors always return `susi_paths::ports` (9090–9094). **Managed** peers are derived from `execution-agents.json` + `agent-engines.json` `peer_name` fields at load time. |
 | `agents.default.json` | Native / DynamicAgent recruitment catalog (swarm ranks, anchors) |
 | `leading-mcp.json` | Editorial top MCP ranks for `susi mcp` |
 | `mcp.registry.default.json` | Broader scout corpus (many packages; not the same as bootstrap) |
