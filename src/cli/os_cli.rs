@@ -31,6 +31,17 @@ fn status(json: bool) -> Result<()> {
     let services = service_table::status();
     let peers = load_verified_peers();
     let up = services.iter().filter(|s| s.up).count();
+    // Ledger flow: raw record count + the newest commit's age — an
+    // operator watching replication health needs to see the log is
+    // moving, not just that consensus state parses.
+    let records = commit_log::load();
+    let last_commit_age = records.iter().map(|r| r.committed_at).max().map(|newest| {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        now.saturating_sub(newest)
+    });
     // A committed member_remove naming this node stands it down.
     let evicted = susi_paths::SusiDirs::config_dir()
         .join("cluster_evicted.json")
@@ -48,6 +59,10 @@ fn status(json: bool) -> Result<()> {
                 "decisions": state.decisions,
                 "anomalies": state.anomalies,
                 "coordinators": state.coordinators,
+            },
+            "ledger": {
+                "records": records.len(),
+                "last_commit_age_secs": last_commit_age,
             },
             "daemon": daemon.as_ref().map(|d| serde_json::json!({
                 "pid": d.pid, "substrate_home": d.substrate_home,
@@ -94,6 +109,13 @@ fn status(json: bool) -> Result<()> {
         } else {
             "ies"
         }
+    );
+    println!(
+        "ledger:      {} record(s), last commit {}",
+        records.len(),
+        last_commit_age
+            .map(|a| format!("{a}s ago"))
+            .unwrap_or_else(|| "never".to_string())
     );
     println!("services:    {}/{} leaf services up", up, services.len());
     println!("peers:       {} verified cluster member(s)", peers.len());
