@@ -30,6 +30,7 @@ fn status(json: bool) -> Result<()> {
     let term = commit_log::load_term();
     let services = service_table::status();
     let peers = load_verified_peers();
+    let banned_count = load_banned_count();
     let up = services.iter().filter(|s| s.up).count();
     // Ledger flow: raw record count + the newest commit's age — an
     // operator watching replication health needs to see the log is
@@ -81,6 +82,7 @@ fn status(json: bool) -> Result<()> {
                 "trust_score": p.trust_score, "fresh": p.fresh(),
                 "reachable": p.probe(),
             })).collect::<Vec<_>>(),
+            "banned_peers": banned_count,
         });
         println!("{}", serde_json::to_string_pretty(&body)?);
         return Ok(());
@@ -118,7 +120,15 @@ fn status(json: bool) -> Result<()> {
             .unwrap_or_else(|| "never".to_string())
     );
     println!("services:    {}/{} leaf services up", up, services.len());
-    println!("peers:       {} verified cluster member(s)", peers.len());
+    println!(
+        "peers:       {} verified cluster member(s){}",
+        peers.len(),
+        if banned_count > 0 {
+            format!(", {banned_count} banned")
+        } else {
+            String::new()
+        }
+    );
     if evicted {
         println!("cluster:     EVICTED — removed by a committed member_remove; standing down until a committed unban");
     }
@@ -293,6 +303,17 @@ impl PeerView {
         };
         std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok()
     }
+}
+
+/// Count of operator-evicted members — a nonzero value means
+/// `peers_banned.json` holds members blocked at handshake.
+fn load_banned_count() -> usize {
+    let path = susi_paths::SusiDirs::config_dir().join("peers_banned.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
+        .map(|v| v.len())
+        .unwrap_or(0)
 }
 
 fn load_verified_peers() -> Vec<PeerView> {
