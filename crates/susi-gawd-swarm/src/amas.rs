@@ -255,6 +255,8 @@ impl SusiSupervisor {
                     let mut last_ban_check = std::time::Instant::now();
                     // Persisted-roster rehydrate throttle — see below.
                     let mut last_rehydrate = std::time::Instant::now();
+                    // Commit-ledger anti-entropy throttle — see below.
+                    let mut last_commit_sync = std::time::Instant::now();
 
                     loop {
                         let registry_checksum =
@@ -318,7 +320,30 @@ impl SusiSupervisor {
                             }
                             last_rehydrate = std::time::Instant::now();
                         }
+                        // Commit-ledger anti-entropy (Raft's periodic
+                        // AppendEntries): every ~5 min pull each live
+                        // Explicit peer's ledger and append what we're
+                        // missing — a node offline during pushes
+                        // self-heals instead of waiting for a manual
+                        // `commits sync`. Membership records ride the
+                        // same pull: committed roster deltas apply on
+                        // append, so membership converges too.
+                        let mut sync_addrs: Vec<String> = Vec::new();
+                        if last_commit_sync.elapsed().as_secs() >= 300 {
+                            sync_addrs = peers
+                                .iter()
+                                .filter(|p| {
+                                    p.is_active && matches!(p.admission, PeerAdmission::Explicit)
+                                })
+                                .map(|p| p.address.clone())
+                                .collect();
+                            last_commit_sync = std::time::Instant::now();
+                        }
                         drop(peers);
+                        // Network I/O happens outside the roster lock.
+                        for addr in sync_addrs {
+                            Self::sync_commit_ledger_from(&addr);
+                        }
 
                         let ping_msg = format!(
                             "SUSI_PING:{}:{}:{}",
@@ -1155,6 +1180,62 @@ impl SusiSupervisor {
                 }
             }
             Err(e) => format!("[A2A Fallback]: Node '{}' unreachable ({e}).", addr),
+        }
+    }
+
+    /// Pull one peer's commit ledger and append any records we're
+    /// missing — the periodic anti-entropy half of replication. Paginates
+    /// like `commits sync`; each record is re-verified before append,
+    /// and member records apply their roster delta on append. History
+    /// fills bypass the term gate (terms gate new writes, not the log's
+    /// past).
+    fn sync_commit_ledger_from(addr: &str) {
+        let token = crate::susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .api_auth_token();
+        let bearer = (!token.is_empty()).then_some(token);
+        let mut held: std::collections::HashSet<String> = crate::susi_core::commit_log::load()
+            .iter()
+            .filter_map(|r| serde_json::to_string(r).ok())
+            .collect();
+        let mut offset = 0usize;
+        loop {
+            let Ok(result) = crate::susi_core::mcp_client::call_tool(
+                addr,
+                "commit_log_fetch",
+                &serde_json::json!({ "limit": 1000, "offset": offset }),
+                bearer.as_deref(),
+            ) else {
+                return;
+            };
+            if result.get("isError").and_then(|v| v.as_bool()) == Some(true) {
+                return;
+            }
+            let Some(text) = result.pointer("/content/0/text").and_then(|t| t.as_str()) else {
+                return;
+            };
+            let Ok(records) =
+                serde_json::from_str::<Vec<crate::susi_core::commit_log::CommitRecord>>(text)
+            else {
+                return;
+            };
+            let page = records.len();
+            offset += page;
+            for r in records {
+                if !r.verify() {
+                    continue;
+                }
+                let key = serde_json::to_string(&r).unwrap_or_default();
+                if held.contains(&key) {
+                    continue;
+                }
+                if crate::susi_core::commit_log::append(&r).is_ok() {
+                    held.insert(key);
+                }
+            }
+            if page < 1000 {
+                break;
+            }
         }
     }
 
