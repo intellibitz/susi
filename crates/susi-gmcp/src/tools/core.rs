@@ -798,6 +798,174 @@ impl CoreTools {
         .to_string())
     }
 
+    /// Resolve an `a2a_delegate` target to `http://{ip}:{port}`. Only
+    /// loopback and verified roster members resolve — an agent-supplied
+    /// URL otherwise becomes an SSRF primitive posting signed requests
+    /// at arbitrary hosts.
+    fn a2a_peer_url(peer: &str) -> EaiResult<String> {
+        use crate::susi_config::cluster_key;
+        use std::net::IpAddr;
+        const A2A_PORT: u16 = crate::susi_paths::ports::A2A_HTTP;
+        let p = peer.trim();
+        if p.eq_ignore_ascii_case("self") || p == "localhost" || p == "127.0.0.1" || p == "::1" {
+            return Ok(format!("http://127.0.0.1:{A2A_PORT}"));
+        }
+        // Split an explicit http(s) URL into host(+port); a bare host[:port]
+        // gets the canonical A2A port.
+        let stripped = p
+            .strip_prefix("http://")
+            .or_else(|| p.strip_prefix("https://"))
+            .unwrap_or(p);
+        let hostport = stripped.split('/').next().unwrap_or("");
+        let (host, port) =
+            hostport
+                .rsplit_once(':')
+                .map_or((hostport, A2A_PORT), |(h, ps)| match ps.parse::<u16>() {
+                    Ok(n) => (h, n),
+                    Err(_) => (hostport, A2A_PORT),
+                });
+        let ip: IpAddr = host
+            .parse()
+            .map_err(|_| EaiError::protocol(format!("a2a_delegate: bad peer address '{p}'")))?;
+        if ip.is_loopback() {
+            return Ok(format!("http://{ip}:{port}"));
+        }
+        // Verified roster members only: the row's `address` is
+        // `{ip}:{gmcp_port}` — the A2A surface is the same host on the
+        // canonical contract port.
+        let member = cluster_key::config_json_rows("peers.json").iter().any(|n| {
+            (n.get("node_id").and_then(|v| v.as_str()) == Some(peer)
+                || n.get("address")
+                    .and_then(|v| v.as_str())
+                    .and_then(|a| a.split(':').next())
+                    .and_then(|h| h.parse::<IpAddr>().ok())
+                    .is_some_and(|pip| pip == ip))
+                && n.get("admission").and_then(|v| v.as_str()) == Some("explicit")
+        });
+        if !member {
+            return Err(EaiError::authorization(format!(
+                "a2a_delegate: '{p}' is not a verified cluster member — delegation is roster-gated (SSRF guard)"
+            )));
+        }
+        // A node_id lookup still resolves to the member's registered IP.
+        let resolved_ip = cluster_key::config_json_rows("peers.json")
+            .iter()
+            .find_map(|n| {
+                if n.get("node_id").and_then(|v| v.as_str()) == Some(peer) {
+                    n.get("address")
+                        .and_then(|v| v.as_str())
+                        .and_then(|a| a.split(':').next())
+                        .map(str::to_string)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| ip.to_string());
+        Ok(format!("http://{resolved_ip}:{port}"))
+    }
+
+    #[tool(
+        name = "a2a_delegate",
+        description = "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. The request carries the host Bearer token plus this node's Ed25519 request signature, so a bound member authorizes us by signature. Returns the completed task's agent reply text."
+    )]
+    pub fn a2a_delegate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let peer = arg
+            .get("peer")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'peer'".to_string()))?;
+        let message = arg
+            .get("message")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'message'".to_string()))?;
+        let url = Self::a2a_peer_url(peer)?;
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "role": "ROLE_USER",
+                    "parts": [{ "kind": "text", "text": message }],
+                    "messageId": format!("susi-{}", crate::susi_config::cluster_key::random_nonce_hex()),
+                }
+            }
+        });
+        let body_bytes = serde_json::to_vec(&body)
+            .map_err(|e| EaiError::protocol(format!("a2a_delegate: encode: {e}")))?;
+        // Dedicated agent: the shared http_agent's 20s body timeout cuts
+        // real fleet missions short. Connect stays tight — delegation to a
+        // dead peer should fail fast, but the response may take minutes.
+        let agent = ureq::Agent::config_builder()
+            .timeout_connect(Some(std::time::Duration::from_secs(10)))
+            .timeout_recv_body(Some(std::time::Duration::from_secs(120)))
+            .timeout_send_body(Some(std::time::Duration::from_secs(20)))
+            .build();
+        let agent = ureq::Agent::new_with_config(agent);
+        let mut req = agent
+            .post(&format!("{url}/"))
+            .header("content-type", "application/json");
+        let token = crate::susi_config::SusiConfig::load_global()
+            .map(|c| c.api_auth_token())
+            .unwrap_or_default();
+        if !token.is_empty() {
+            req = req.header("authorization", format!("Bearer {token}"));
+        }
+        // Member signature over `susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{sha256(body)}`
+        // — a bound member's receiver authorizes us without the bearer.
+        use crate::susi_config::cluster_key;
+        use sha2::Digest;
+        let node = cluster_key::wire_node_id();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let nonce = cluster_key::random_nonce_hex();
+        let hash = hex::encode(sha2::Sha256::digest(&body_bytes));
+        let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{hash}");
+        if let Some(sig) = cluster_key::member_sign(&canonical) {
+            req = req
+                .header("x-susi-node", node)
+                .header("x-susi-req-ts", ts.to_string())
+                .header("x-susi-req-nonce", nonce)
+                .header("x-susi-req-sig", sig);
+        }
+        let mut resp = req
+            .send(&body_bytes)
+            .map_err(|e| EaiError::network(format!("a2a_delegate to {url}: {e}")))?;
+        let text = resp
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
+        let doc: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| EaiError::protocol(format!("a2a_delegate: bad JSON-RPC reply: {e}")))?;
+        if let Some(err) = doc.get("error") {
+            return Err(EaiError::network(format!("a2a_delegate rpc error: {err}")));
+        }
+        // Fold the completed task into its agent reply text.
+        let reply = doc
+            .pointer("/result/task/status/message/parts")
+            .and_then(|p| p.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .unwrap_or_default();
+        let state = doc
+            .pointer("/result/task/status/state")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+        if reply.is_empty() {
+            Ok(format!("task {state} (no reply text): {text}"))
+        } else {
+            Ok(format!("task {state}: {reply}"))
+        }
+    }
+
     #[tool(
         name = "commit_log_fetch",
         description = "Return local commit-ledger records for anti-entropy pulls. Args: {coordinator?: string, from_seq?: N, limit?: N, offset?: N} — up to `limit` (default 500, max 1000) records with seq >= from_seq from that coordinator (or all coordinators), skipping `offset` matches for pagination."

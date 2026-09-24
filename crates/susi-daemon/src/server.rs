@@ -705,12 +705,35 @@ impl SusiDaemon {
             }
         });
 
-        let a2a_bearer = SusiConfig::load_global()
-            .map(|cfg| cfg.api_auth_token())
-            .unwrap_or_default();
+        // Same zero-trust policy as GMCP/GEMI: a bound member's Ed25519
+        // signature over the exact body authorizes on its own, the bearer
+        // covers unbound/standalone callers, and everything else fails
+        // closed. The verifier closure receives the buffered body so v2
+        // (body-bound) signatures verify, not just v1.
+        let a2a_verifier: susi_gawd::a2a::server::Verifier =
+            std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
+                let h = ctx.headers;
+                let signed = susi_core::net_guard::SignedRequest {
+                    node: h.get("x-susi-node").and_then(|v| v.to_str().ok()),
+                    ts_secs: h
+                        .get("x-susi-req-ts")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.parse().ok()),
+                    nonce: h.get("x-susi-req-nonce").and_then(|v| v.to_str().ok()),
+                    sig: h.get("x-susi-req-sig").and_then(|v| v.to_str().ok()),
+                };
+                susi_core::net_guard::NetGuard::is_authorized(
+                    h.get("authorization").and_then(|v| v.to_str().ok()),
+                    ctx.peer,
+                    &signed,
+                    ctx.method,
+                    ctx.path,
+                    Some(ctx.body),
+                )
+            });
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Err(e) = susi_gawd::a2a::server::serve(a2a_http, a2a_bearer) {
+                if let Err(e) = susi_gawd::a2a::server::serve(a2a_http, a2a_verifier) {
                     eprintln!("[A2A] Server exited: {e}");
                 }
             })) {

@@ -226,6 +226,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "a2a_delegate",
+        "Delegate a task to a remote A2A agent endpoint (roster-gated: loopback or verified cluster members)",
+        MetaCategory::IntelligenceBridge,
+        adapt(CoreTools::a2a_delegate),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "verify_model_download_agent",
         "Verify model download agent, network status, and model provisioning",
         MetaCategory::SystemPrimitive,
