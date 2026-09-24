@@ -5,6 +5,7 @@
 //! - **9091** GEMI HTTP
 //! - **9092** A2A UDP discovery
 //! - **9093** GMCP HTTP (streamable / SSE alias)
+//! - **9094** A2A HTTP (JSON-RPC /rpc + REST / + agent card)
 
 use crate::susi_paths::ports;
 
@@ -188,9 +189,10 @@ impl SusiDaemon {
         Self::check_status_path(&global_lock)
     }
 
-    /// True when the public host-contract TCP surfaces (9090/9091/9093) accept connections.
+    /// True when the public host-contract TCP surfaces (9090/9091/9093/9094)
+    /// accept connections.
     pub fn host_contract_tcp_ready() -> bool {
-        [ports::GMCP, ports::GEMI, ports::GMCP_HTTP]
+        [ports::GMCP, ports::GEMI, ports::GMCP_HTTP, ports::A2A_HTTP]
             .iter()
             .all(|port| {
                 TcpStream::connect_timeout(
@@ -221,7 +223,7 @@ impl SusiDaemon {
         }
     }
 
-    /// Full host contract: TCP 9090/9091/9093 + UDP 9092 discovery.
+    /// Full host contract: TCP 9090/9091/9093/9094 + UDP 9092 discovery.
     pub fn host_contract_ready() -> bool {
         Self::host_contract_tcp_ready() && Self::host_contract_udp_ready()
     }
@@ -245,11 +247,13 @@ impl SusiDaemon {
              - GMCP/MCP  http://127.0.0.1:{}/mcp\n\
              - GEMI      http://127.0.0.1:{}/\n\
              - UDP disco 127.0.0.1:{}\n\
-             - GMCP alias http://127.0.0.1:{}/mcp",
+             - GMCP alias http://127.0.0.1:{}/mcp\n\
+             - A2A       http://127.0.0.1:{}/",
             ports::GMCP,
             ports::GEMI,
             ports::UDP_DISCOVERY,
-            ports::GMCP_HTTP
+            ports::GMCP_HTTP,
+            ports::A2A_HTTP
         )
     }
 
@@ -633,6 +637,8 @@ impl SusiDaemon {
             &global_dir,
             &bind_address,
         );
+        let a2a_http =
+            Self::bind_tcp_canonical(ports::A2A_HTTP, "A2A HTTP", &global_dir, &bind_address);
         let udp_socket = Self::bind_udp_canonical(
             ports::UDP_DISCOVERY,
             "A2A UDP discovery",
@@ -645,7 +651,8 @@ impl SusiDaemon {
              - GMCP/MCP  http://{}:{}/mcp\n\
              - GEMI      http://{}:{}/\n\
              - UDP disco {}:{}\n\
-             - GMCP alias http://{}:{}/mcp",
+             - GMCP alias http://{}:{}/mcp\n\
+             - A2A       http://{}:{}/",
             bind_address,
             ports::GMCP,
             bind_address,
@@ -653,7 +660,9 @@ impl SusiDaemon {
             bind_address,
             ports::UDP_DISCOVERY,
             bind_address,
-            ports::GMCP_HTTP
+            ports::GMCP_HTTP,
+            bind_address,
+            ports::A2A_HTTP
         );
 
         let workspace_gemi = workspace.clone();
@@ -688,6 +697,19 @@ impl SusiDaemon {
                 Self::start_udp_discovery_server(udp_socket, ports::GMCP);
             })) {
                 eprintln!("[UDP] Thread panicked: {:?}", e);
+            }
+        });
+
+        let a2a_bearer = SusiConfig::load_global()
+            .map(|cfg| cfg.api_auth_token())
+            .unwrap_or_default();
+        thread::spawn(move || {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Err(e) = susi_gawd::a2a::server::serve(a2a_http, a2a_bearer) {
+                    eprintln!("[A2A] Server exited: {e}");
+                }
+            })) {
+                eprintln!("[A2A] Thread panicked: {:?}", e);
             }
         });
 
@@ -761,6 +783,10 @@ impl SusiDaemon {
         cfg.settings.insert(
             "gmcp_http_port".to_string(),
             serde_json::json!(ports::GMCP_HTTP),
+        );
+        cfg.settings.insert(
+            "a2a_http_port".to_string(),
+            serde_json::json!(ports::A2A_HTTP),
         );
     }
 
@@ -1166,6 +1192,7 @@ mod tests {
         assert!(report.contains(":9091/"));
         assert!(report.contains(":9092"));
         assert!(report.contains(":9093/mcp"));
+        assert!(report.contains(":9094/"));
     }
 
     #[test]
@@ -1178,7 +1205,7 @@ mod tests {
         let ready = SusiDaemon::wait_for_host_contract(Duration::from_millis(250));
         assert!(
             !ready,
-            "wait_for_host_contract must return false when nothing owns 9090–9093"
+            "wait_for_host_contract must return false when nothing owns 9090–9094"
         );
     }
 
@@ -1195,11 +1222,13 @@ mod tests {
         assert_eq!(ports::GEMI, 9091);
         assert_eq!(ports::UDP_DISCOVERY, 9092);
         assert_eq!(ports::GMCP_HTTP, 9093);
+        assert_eq!(ports::A2A_HTTP, 9094);
         let cfg = SusiConfig::default();
         assert_eq!(cfg.gmcp_port(), ports::GMCP);
         assert_eq!(cfg.gemi_port(), ports::GEMI);
         assert_eq!(cfg.udp_discovery_port(), ports::UDP_DISCOVERY);
         assert_eq!(cfg.gmcp_http_port(), ports::GMCP_HTTP);
+        assert_eq!(cfg.a2a_http_port(), ports::A2A_HTTP);
     }
 
     #[test]

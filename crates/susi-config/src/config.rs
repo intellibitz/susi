@@ -30,6 +30,7 @@ const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
     "gmcp_http_port",
     "gemi_port",
     "udp_discovery_port",
+    "a2a_http_port",
 ];
 
 impl SusiConfig {
@@ -171,6 +172,10 @@ impl SusiConfig {
     pub fn udp_discovery_port(&self) -> u16 {
         let _ = self;
         crate::susi_paths::ports::UDP_DISCOVERY
+    }
+    pub fn a2a_http_port(&self) -> u16 {
+        let _ = self;
+        crate::susi_paths::ports::A2A_HTTP
     }
     pub fn execution_lease_secs(&self) -> u64 {
         self.get_or_bundled_default("execution_lease_secs")

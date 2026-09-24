@@ -68,6 +68,7 @@ impl SubstrateKernelLoader {
             ("GEMI HTTP", ports::GEMI, true),
             ("A2A UDP discovery", ports::UDP_DISCOVERY, false),
             ("GMCP HTTP alias", ports::GMCP_HTTP, true),
+            ("A2A HTTP", ports::A2A_HTTP, true),
         ];
 
         for (name, port, tcp) in checks {

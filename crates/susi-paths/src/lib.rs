@@ -92,13 +92,15 @@ pub mod ports {
     pub const GEMI: u16 = 9091;
     pub const UDP_DISCOVERY: u16 = 9092;
     pub const GMCP_HTTP: u16 = 9093;
+    pub const A2A_HTTP: u16 = 9094;
 
     /// Stable host contract advertised to external clients.
-    pub const ALL: [(u16, &str); 4] = [
+    pub const ALL: [(u16, &str); 5] = [
         (GMCP, "GMCP/MCP HTTP"),
         (GEMI, "GEMI HTTP"),
         (UDP_DISCOVERY, "A2A UDP discovery"),
         (GMCP_HTTP, "GMCP HTTP alias"),
+        (A2A_HTTP, "A2A HTTP (JSON-RPC + REST)"),
     ];
 }
 
@@ -126,6 +128,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
         gemi: u16,
         udp_discovery: u16,
         gmcp_http: u16,
+        a2a_http: u16,
     }
 
     async fn get_paths() -> Json<PathsResponse> {
@@ -144,6 +147,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             gemi: ports::GEMI,
             udp_discovery: ports::UDP_DISCOVERY,
             gmcp_http: ports::GMCP_HTTP,
+            a2a_http: ports::A2A_HTTP,
         })
     }
 
@@ -171,7 +175,8 @@ mod tests {
         assert_eq!(ports::GEMI, 9091);
         assert_eq!(ports::UDP_DISCOVERY, 9092);
         assert_eq!(ports::GMCP_HTTP, 9093);
-        assert_eq!(ports::ALL.len(), 4);
+        assert_eq!(ports::A2A_HTTP, 9094);
+        assert_eq!(ports::ALL.len(), 5);
         let mut seen = std::collections::BTreeSet::new();
         for (port, _) in ports::ALL {
             assert!(seen.insert(port), "duplicate host-contract port {port}");

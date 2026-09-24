@@ -8,6 +8,8 @@ publish = false
 [dependencies]
 susi-gawd-agents = { workspace = true }
 ra2a = { version = "0.10.1", features = ["server", "client"] }
+axum = "0.8.9"
+tokio = { version = "1.53", features = ["rt-multi-thread", "net", "sync"] }
 
 [features]
 default = []

@@ -20,12 +20,13 @@ External clients can trust these ports — the daemon never silently drifts them
 | **9091** | GEMI HTTP (inference / models) |
 | **9092** | A2A UDP discovery |
 | **9093** | GMCP HTTP alias (streamable / SSE) |
+| **9094** | A2A HTTP (`/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json`) |
 
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
-- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until 9090–9093 are ready and print the endpoints.
-- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on 9090/9091/9093 (except `/health` / CORS preflight).
+- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until 9090–9094 are ready and print the endpoints.
+- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on 9090/9091/9093/9094 (except `/health` / CORS preflight).
 
 ---
 
@@ -43,7 +44,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 8. **Governance-first** — Safety/Security before parallel fleet.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
-11. **Host contract** — fixed ports 9090–9093.
+11. **Host contract** — fixed ports 9090–9094.
 12. **Reflexes** — Wasm reflexes under the data dir.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.

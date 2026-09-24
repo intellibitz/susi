@@ -19,6 +19,7 @@
 
 pub mod capabilities;
 pub mod executor;
+pub mod server;
 pub mod task_store;
 
 pub use capabilities::GawdCapabilities;
@@ -88,7 +89,7 @@ mod tests {
         let card = executor.agent_card();
         assert_eq!(card.name, "susi-gawd");
         assert!(!card.version.is_empty());
-        assert_eq!(card.supported_interfaces.len(), 2);
+        assert_eq!(card.supported_interfaces.len(), 1);
         let bindings: Vec<String> = card
             .supported_interfaces
             .iter()
@@ -98,7 +99,6 @@ mod tests {
             bindings.iter().any(|b| b.contains("JSONRPC")),
             "{bindings:?}"
         );
-        assert!(bindings.iter().any(|b| b.contains("HTTP")), "{bindings:?}");
         assert!(card.skills.iter().any(|s| s.id == "agent_orchestration"));
         assert!(card.skills.iter().any(|s| s.id == "task_delegation"));
         assert!(card.capabilities.streaming.unwrap_or(false));

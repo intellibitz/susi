@@ -6911,8 +6911,10 @@ dependencies = [
 name = "susi-gawd-a2a"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "ra2a",
  "susi-gawd-agents",
+ "tokio",
 ]
 
 [[package]]

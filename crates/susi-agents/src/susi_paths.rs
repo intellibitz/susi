@@ -22,6 +22,7 @@ pub mod ports {
     pub const GEMI: u16 = 9091;
     pub const UDP_DISCOVERY: u16 = 9092;
     pub const GMCP_HTTP: u16 = 9093;
+    pub const A2A_HTTP: u16 = 9094;
 }
 
 const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);

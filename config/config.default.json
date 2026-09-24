@@ -65,6 +65,7 @@
     ]
   },
   "gmcp_http_port": 9093,
+  "a2a_http_port": 9094,
   "bind_address": "127.0.0.1",
   "openrouter_http_referer": "https://github.com/intellibitz/susi",
   "openrouter_app_title": "SUSI",

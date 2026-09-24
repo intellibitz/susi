@@ -198,7 +198,7 @@ Exactly two process-entry assembly paths:
 1. **CLI** — `susi_daemon::composition::wire_cli_substrate` (from `src/main.rs`)
    then command dispatch against cwd workspace.
 2. **Daemon** — `SusiDaemon::run` → `wire_engine_hooks` →
-   `bootstrap_zero_config_substrate` → bind host-contract ports 9090–9093.
+   `bootstrap_zero_config_substrate` → bind host-contract ports 9090–9094.
 
 Sequence (both paths, subset as applicable):
 
