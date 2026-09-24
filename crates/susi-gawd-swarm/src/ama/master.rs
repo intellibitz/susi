@@ -221,10 +221,12 @@ impl SusiMasterAgent {
         let global_dir = crate::susi_paths::SusiDirs::config_dir();
         let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
-            "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {}",
+            "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {} | GMCP HTTP Alias: {} | A2A HTTP Port: {}",
             cfg.gmcp_port(),
             cfg.gemi_port(),
-            cfg.udp_discovery_port()
+            cfg.udp_discovery_port(),
+            cfg.gmcp_http_port(),
+            cfg.a2a_http_port()
         );
         eprintln!(
             "- [Neural Defaults] Target Engine: {} | Selected Model ID: {}",
@@ -1257,7 +1259,7 @@ impl SusiMasterAgent {
 
         let mut report = String::new();
         report.push_str("# susi Substrate - Technical Report\n\n");
-        report.push_str("- **Engine**: susi EAI Substrate\n");
+        report.push_str("- **Engine**: susi substrate\n");
         report.push_str(&format!(
             "- **Version**: {}\n",
             susi_gawd_agents::AlphaSelf::VERSION

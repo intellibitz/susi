@@ -3343,7 +3343,7 @@ mod config {
                 let _ = cfg.save(&global_dir);
             }
             eprintln!(
-                "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP 9090/9091/9093)",
+                "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP 9090/9091/9093/9094)",
                 token_path.display()
             );
             token
