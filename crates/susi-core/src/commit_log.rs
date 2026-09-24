@@ -20,6 +20,21 @@
 //! ledger into `ClusterState`, so a restarted node reconstructs the
 //! cluster's consensus view as a pure function of the log.
 //!
+//! ## Committed membership
+//!
+//! `kind` carries `member_add`/`member_remove`/`member_unban` records —
+//! Raft's committed configuration-entry analog. They gate through the
+//! same signature/term/seq/chain checks, then apply their roster delta
+//! to `peers.json`/`peers_banned.json` beside the ledger (the ledger IS
+//! applied state). Two authority rules make eviction real: member
+//! deltas only apply when the sealing coordinator is a current explicit
+//! member (`member_coordinator_known` — an evicted node still holds
+//! cluster.key, so HMAC alone cannot authorize roster changes), and
+//! term adoption likewise only honors member coordinators
+//! (`coordinator_known`). A delta naming this node never writes a
+//! roster row: self-remove instead lands `cluster_evicted.json`, and
+//! the node stands down until a committed unban clears it.
+//!
 //! ## Byte-identical vendoring
 //!
 //! Copied into every consumer's `src/susi_core/` tree. Sign and verify
