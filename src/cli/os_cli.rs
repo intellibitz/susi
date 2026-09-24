@@ -405,6 +405,15 @@ fn stray_bin_warnings() -> Vec<String> {
             ));
         }
     }
+    // Pre-cap rotated metrics residue: the sink rotates one generation
+    // at 64MiB, so a `.1` larger than that can only be residue.
+    if let Some((path, len)) = susi_error::oversized_rotated_metrics() {
+        warnings.push(format!(
+            "oversized rotated metrics {} ({}) — `susi os clean` removes it",
+            path.display(),
+            human_bytes(len)
+        ));
+    }
     warnings
 }
 
@@ -417,8 +426,23 @@ fn clean() -> Result<()> {
     let bin_dir = susi_paths::SusiDirs::substrate_home().join("bin");
     let mut reclaimed = 0u64;
     let mut removed = 0usize;
+    // Same predicate as the warning: oversized rotated metrics residue —
+    // independent of the bin sweep so a missing bin dir cannot skip it.
+    if let Some((path, len)) = susi_error::oversized_rotated_metrics() {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                println!("removed {} ({})", path.display(), human_bytes(len));
+                reclaimed += len;
+                removed += 1;
+            }
+            Err(e) => eprintln!("could not remove {}: {e}", path.display()),
+        }
+    }
     let Ok(read) = std::fs::read_dir(&bin_dir) else {
-        println!("nothing to clean — {} not found", bin_dir.display());
+        println!(
+            "cleaned {removed} file(s), reclaimed {}",
+            human_bytes(reclaimed)
+        );
         return Ok(());
     };
     for entry in read.flatten() {

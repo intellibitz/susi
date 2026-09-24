@@ -703,6 +703,20 @@ impl HardwareProfiler {
             }
         }
 
+        // Rotated metrics generations beyond the 64MiB rotation cap are
+        // pre-cap residue — current rotation can never produce them.
+        const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+        let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
+        if let Ok(meta) = std::fs::metadata(&rotated) {
+            if meta.len() > METRICS_CAP_BYTES {
+                reclaimable += meta.len();
+                recommendations.push(format!(
+                    "Remove pre-cap rotated metrics ({:.1} GB reclaimable)",
+                    meta.len() as f64 / 1e9
+                ));
+            }
+        }
+
         if recommendations.is_empty() {
             recommendations.push("OS environment package and cache hygiene nominal.".to_string());
         }
@@ -737,6 +751,19 @@ impl HardwareProfiler {
                     }
                 }
             }
+        }
+
+        // Pre-cap residue: the metrics sink rotates one generation at 64MiB,
+        // so a `.1` larger than that can only come from before the cap
+        // existed (178MiB observed) — it is diagnostic history the current
+        // scheme will never produce again.
+        const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+        let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
+        if std::fs::metadata(&rotated)
+            .map(|m| m.len() > METRICS_CAP_BYTES)
+            .unwrap_or(false)
+        {
+            let _ = std::fs::remove_file(&rotated);
         }
 
         "SUCCESS: Executed OS environment care. Reclaimed space across OS caches.".to_string()

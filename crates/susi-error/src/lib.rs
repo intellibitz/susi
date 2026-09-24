@@ -60,6 +60,16 @@ pub fn error_metrics_path() -> PathBuf {
 /// line across the rename, which a metrics sink tolerates.
 const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
 
+/// Rotated metrics generation that predates the cap: a `.1` file larger
+/// than `METRICS_CAP_BYTES` is residue the current rotation can never
+/// produce again (178MB observed pre-cap). Surfaces like `susi os clean`
+/// may reclaim it without losing anything the scheme still writes.
+pub fn oversized_rotated_metrics() -> Option<(PathBuf, u64)> {
+    let rotated = error_metrics_path().with_file_name("error_metrics.jsonl.1");
+    let len = std::fs::metadata(&rotated).ok()?.len();
+    (len > METRICS_CAP_BYTES).then_some((rotated, len))
+}
+
 fn open_metrics_append() -> Option<std::fs::File> {
     let path = error_metrics_path();
     if std::fs::metadata(&path)
