@@ -266,6 +266,16 @@ impl SusiSupervisor {
                         std::time::Instant::now() - std::time::Duration::from_secs(270);
 
                     loop {
+                        // A committed member_remove naming this node
+                        // stands it down: no pings, no roster work, no
+                        // ledger sync — the cluster evicted us, so we
+                        // go silent until a committed unban clears the
+                        // marker. The marker check is a plain exists()
+                        // — cheap enough to run every pass.
+                        if Self::cluster_evicted() {
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                            continue;
+                        }
                         let registry_checksum =
                             susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
                         if registry_checksum != last_registry_checksum {
@@ -1102,7 +1112,19 @@ impl SusiSupervisor {
     }
 
     /// Cluster Intent Routing: Prioritizes peers with semantically relevant capabilities.
+    /// An evicted node stands down: a committed `member_remove` naming
+    /// this node id lands a marker the scout and dispatch paths honor
+    /// until a committed unban (or re-add) clears it.
+    fn cluster_evicted() -> bool {
+        crate::susi_paths::SusiDirs::config_dir()
+            .join("cluster_evicted.json")
+            .exists()
+    }
+
     pub fn rank_peers_for_goal(goal: &str) -> Vec<ClusterPeerNode> {
+        if Self::cluster_evicted() {
+            return Vec::new();
+        }
         let mut nodes = Self::list_cluster_nodes();
         let goal_tokens = tokenize_goal(goal);
 
@@ -1152,6 +1174,12 @@ impl SusiSupervisor {
     /// handshake — a bare POST to `/` is a 404 and was silently swallowed
     /// by the old implementation).
     pub fn dispatch_peer_task(addr: &str, tool_name: &str, arg: &str) -> String {
+        // An evicted node must not dispatch to former members — the
+        // same fallback label the unreachable path uses, so callers
+        // never mistake it for a peer output.
+        if Self::cluster_evicted() {
+            return "[A2A Fallback]: this node was evicted from the cluster.".to_string();
+        }
         let arg_val = serde_json::from_str(arg).unwrap_or(serde_json::json!(arg));
 
         // Only Local / Explicit peers may receive the host bearer. UDP-

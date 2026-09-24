@@ -169,6 +169,14 @@ fn list() -> Result<()> {
     // This node's wire identity — an operator verifying a member joined
     // needs the local id to match against the remote roster.
     println!("node: {}", susi_config::cluster_key::wire_node_id());
+    // A committed member_remove naming this node stands it down — the
+    // scout is silent until a committed unban clears the marker.
+    if susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists()
+    {
+        println!("status: EVICTED — this node was removed from the cluster; cluster traffic is suspended until a committed unban");
+    }
     if nodes.is_empty() && banned.is_empty() {
         println!("no verified peers — this node runs standalone");
         return Ok(());

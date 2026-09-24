@@ -887,19 +887,43 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
     let Some((kind, id, addr)) = record.member_delta() else {
         return;
     };
-    // A committed delta about ourselves or a loopback address is a
-    // no-op — a node never lists itself as a peer nor bans itself
-    // (the same self-edge rule the scout and `peers add` enforce).
-    // Membership pushes fan out to every peer including the subject,
-    // and anti-entropy eventually delivers every committed record, so
-    // this case is routine, not adversarial.
-    let self_subject = id == crate::susi_config::cluster_key::wire_node_id()
-        || addr
-            .split(':')
-            .next()
-            .and_then(|h| h.parse::<std::net::IpAddr>().ok())
-            .is_some_and(|ip| ip.is_loopback());
-    if self_subject {
+    // A committed delta naming our own node_id never touches the
+    // roster — a node never lists, evicts, or bans itself (the same
+    // self-edge rule the scout and `peers add` enforce). Membership
+    // pushes fan out to every peer including the subject, and
+    // anti-entropy eventually delivers every committed record, so
+    // this case is routine, not adversarial. But a self-remove is not
+    // a pure no-op: eviction means stand down — the marker file tells
+    // the scout to go silent and dispatch to see an empty cluster
+    // until a committed unban (or re-add) clears it. Only our node_id
+    // stands us down — a loopback address in a crafted remove must not.
+    if id == crate::susi_config::cluster_key::wire_node_id() {
+        let marker = dir.join("cluster_evicted.json");
+        match kind {
+            KIND_MEMBER_REMOVE => {
+                let _ = crate::susi_config::atomic_write_json_pretty(
+                    &marker,
+                    &serde_json::json!({
+                        "evicted_at": record.committed_at,
+                        "by": record.coordinator,
+                    }),
+                );
+            }
+            KIND_MEMBER_UNBAN | KIND_MEMBER_ADD => {
+                let _ = fs::remove_file(&marker);
+            }
+            _ => {}
+        }
+        return;
+    }
+    // Loopback addresses are never remote members either — a pong from
+    // 127.0.0.1 is always ourselves.
+    let looped = addr
+        .split(':')
+        .next()
+        .and_then(|h| h.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|ip| ip.is_loopback());
+    if looped {
         return;
     }
     // Serialize the roster read-modify-write across processes — same
@@ -1210,7 +1234,9 @@ mod tests {
         );
 
         // Self-subject remove: fan-out delivers a node its own eviction
-        // record — it must not write a ban entry against itself.
+        // record — it must not write a ban entry against itself, but it
+        // does stand down: the eviction marker the scout checks lands
+        // beside the ledger, and a committed unban clears it.
         let Some(self_rem) =
             seal_into_test(KIND_MEMBER_REMOVE, &format!("{self_id}@10.0.0.9:9090"))
         else {
@@ -1221,12 +1247,18 @@ mod tests {
             serde_json::from_str(&fs::read_to_string(dir.join("peers_banned.json")).unwrap())
                 .unwrap();
         assert!(banned.is_empty(), "a node must never ban itself");
+        let marker = dir.join("cluster_evicted.json");
+        assert!(marker.exists(), "self-remove must land the eviction marker");
         let Some(self_unban) =
             seal_into_test(KIND_MEMBER_UNBAN, &format!("{self_id}@10.0.0.9:9090"))
         else {
             return;
         };
         append_to(&path, &self_unban).expect("append self-unban");
+        assert!(
+            !marker.exists(),
+            "self-unban must clear the eviction marker"
+        );
 
         // Replay is the pure cluster view — the deltas were committed,
         // so the derived roster reports them even though the local

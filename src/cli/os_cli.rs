@@ -92,6 +92,12 @@ fn status(json: bool) -> Result<()> {
     );
     println!("services:    {}/{} leaf services up", up, services.len());
     println!("peers:       {} verified cluster member(s)", peers.len());
+    if susi_paths::SusiDirs::config_dir()
+        .join("cluster_evicted.json")
+        .exists()
+    {
+        println!("cluster:     EVICTED — removed by a committed member_remove; standing down until a committed unban");
+    }
     let daemon = susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
     println!(
         "daemon:      {}",
