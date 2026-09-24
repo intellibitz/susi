@@ -11,7 +11,12 @@ use susi_core::service_table;
 #[derive(Debug, Subcommand)]
 pub enum ServicesCommands {
     /// Show every leaf service, its supervised pid, and live health (default)
-    Status,
+    Status {
+        /// Emit machine-readable JSON — agent callers get the process
+        /// table as data instead of parsing the table view
+        #[arg(long)]
+        json: bool,
+    },
     /// Terminate a supervised service; the daemon respawns it on its next probe
     Restart {
         /// Service name: susi-paths, susi-error, susi-config, susi-sandbox, susi-native
@@ -41,8 +46,8 @@ pub enum ServicesCommands {
 }
 
 pub fn execute(action: Option<ServicesCommands>, _workspace: &Path) -> Result<()> {
-    match action.unwrap_or(ServicesCommands::Status) {
-        ServicesCommands::Status => status(),
+    match action.unwrap_or(ServicesCommands::Status { json: false }) {
+        ServicesCommands::Status { json } => status(json),
         ServicesCommands::Restart { name } => restart(&name),
         ServicesCommands::Stop { name } => stop(&name),
         ServicesCommands::Start { name } => start(&name),
@@ -50,12 +55,32 @@ pub fn execute(action: Option<ServicesCommands>, _workspace: &Path) -> Result<()
     }
 }
 
-fn status() -> Result<()> {
+fn status(json: bool) -> Result<()> {
+    let services = service_table::status();
+    if json {
+        let body: Vec<serde_json::Value> = services
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "name": s.name,
+                    "port": s.port,
+                    "pid": s.pid,
+                    "external": s.external,
+                    "restarts": s.restarts,
+                    "uptime": s.uptime(),
+                    "rss": s.rss(),
+                    "up": s.up,
+                    "stopped": s.stopped,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&body)?);
+        return Ok(());
+    }
     println!(
         "{:<14} {:<6} {:<8} {:<9} {:<8} {:<10} UP",
         "SERVICE", "PORT", "PID", "RESTARTS", "UPTIME", "RSS"
     );
-    let services = service_table::status();
     let any_external = services.iter().any(|s| s.external);
     for s in &services {
         let pid = match (s.external, s.pid) {
