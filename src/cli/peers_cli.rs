@@ -18,7 +18,7 @@ pub enum PeersCommands {
     /// ping to a host and persist the verified responder as an explicit
     /// member. Fails closed when the peer doesn't hold our cluster.key.
     Add {
-        /// IP or hostname of the peer daemon to join
+        /// IP or hostname of the peer daemon to join (may include :port)
         host: String,
         /// UDP discovery port (default: host-contract 9092)
         #[arg(long)]
@@ -193,7 +193,18 @@ fn remove(peer: &str) -> Result<()> {
 /// A peer that can't produce a cluster-key-signed pong echoing our nonce
 /// is never persisted — admission stays cryptographic, not asserted.
 fn add(host: &str, port: Option<u16>) -> Result<()> {
-    let port = port.unwrap_or(susi_paths::ports::UDP_DISCOVERY);
+    // `host` may carry an inline :port — split it so `add 10.0.0.4:9092`
+    // works as naturally as `add 10.0.0.4 --port 9092`.
+    let (host, inline_port) = match host.rsplit_once(':') {
+        Some((h, p)) if !h.is_empty() => match p.parse::<u16>() {
+            Ok(n) => (h.to_string(), Some(n)),
+            Err(_) => (host.to_string(), None),
+        },
+        _ => (host.to_string(), None),
+    };
+    let port = port
+        .or(inline_port)
+        .unwrap_or(susi_paths::ports::UDP_DISCOVERY);
     // Bloom field must be wire-safe (non-empty); a zero bloom is honest —
     // the CLI registers no tools, and the peer answers with its own bloom.
     let Some((ping, nonce)) = susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000")
@@ -202,7 +213,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
     };
     let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
     socket.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
-    socket.send_to(ping.as_bytes(), (host, port))?;
+    socket.send_to(ping.as_bytes(), (host.as_str(), port))?;
 
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
     let mut buf = [0u8; 1024];
