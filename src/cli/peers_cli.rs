@@ -14,6 +14,16 @@ use std::path::PathBuf;
 pub enum PeersCommands {
     /// List verified peers and banned members (default)
     List,
+    /// Bootstrap cluster membership: send a cluster-key-signed discovery
+    /// ping to a host and persist the verified responder as an explicit
+    /// member. Fails closed when the peer doesn't hold our cluster.key.
+    Add {
+        /// IP or hostname of the peer daemon to join
+        host: String,
+        /// UDP discovery port (default: host-contract 9092)
+        #[arg(long)]
+        port: Option<u16>,
+    },
     /// Evict a peer: revoke persisted trust AND ban re-verification.
     /// The ban is enforced at the signed-pong handshake — the peer cannot
     /// rejoin until `susi peers unban` lifts it.
@@ -31,6 +41,7 @@ pub enum PeersCommands {
 pub fn execute(action: Option<PeersCommands>, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(PeersCommands::List) {
         PeersCommands::List => list(),
+        PeersCommands::Add { host, port } => add(&host, port),
         PeersCommands::Remove { peer } => remove(&peer),
         PeersCommands::Unban { peer } => unban(&peer),
     }
@@ -175,6 +186,86 @@ fn remove(peer: &str) -> Result<()> {
         banned.len()
     );
     Ok(())
+}
+
+/// Join a peer by address: the same signed-ping → signed-pong handshake
+/// the swarm scout uses, directed at one host instead of LAN broadcast.
+/// A peer that can't produce a cluster-key-signed pong echoing our nonce
+/// is never persisted — admission stays cryptographic, not asserted.
+fn add(host: &str, port: Option<u16>) -> Result<()> {
+    let port = port.unwrap_or(susi_paths::ports::UDP_DISCOVERY);
+    // Bloom field must be wire-safe (non-empty); a zero bloom is honest —
+    // the CLI registers no tools, and the peer answers with its own bloom.
+    let Some((ping, nonce)) = susi_config::cluster_key::signed_ping("CORE", 0, "0000000000000000")
+    else {
+        bail!("no cluster key at ~/.susi/cluster.key — peers cannot be verified");
+    };
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    socket.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+    socket.send_to(ping.as_bytes(), (host, port))?;
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    let mut buf = [0u8; 1024];
+    loop {
+        let (amt, src) = match socket.recv_from(&mut buf) {
+            Ok(r) => r,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                bail!(
+                    "no signed pong from {host}:{port} — peer unreachable, not a susi daemon, \
+                     or doesn't share this cluster.key"
+                )
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let msg = String::from_utf8_lossy(&buf[..amt]);
+        let Some((node_id, checksum, bloom_hex)) =
+            susi_config::cluster_key::verify_signed_pong(&msg, &nonce)
+        else {
+            if std::time::Instant::now() >= deadline {
+                bail!("no signed pong from {host}:{port} within 3s");
+            }
+            continue;
+        };
+
+        let address = format!("{}:{}", src.ip(), susi_paths::ports::GMCP_HTTP);
+        // ClusterPeerNode shape, written structurally — the root crate
+        // takes no dependency on the swarm plane.
+        let bloom_words: Vec<u64> = (0..bloom_hex.len() / 16)
+            .filter_map(|i| u64::from_str_radix(&bloom_hex[i * 16..i * 16 + 16], 16).ok())
+            .collect();
+        let node = serde_json::json!({
+            "node_id": node_id,
+            "address": address,
+            "node_type": "PEER",
+            "is_active": true,
+            "capabilities": ["CORE"],
+            "registry_checksum": checksum,
+            "latency_ms": 0,
+            "uptime_secs": 0,
+            "trust_score": 0.8,
+            "capability_bloom": bloom_words,
+            "admission": "explicit",
+            "last_seen_secs": now_secs(),
+        });
+
+        let mut nodes = load_registry();
+        nodes.retain(|n| {
+            n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
+                && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
+        });
+        nodes.push(node);
+        let path = registry_path();
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serde_json::to_string_pretty(&nodes)?)?;
+        std::fs::rename(&tmp, &path)?;
+        println!("verified + admitted: {node_id} ({address})");
+        return Ok(());
+    }
 }
 
 fn unban(peer: &str) -> Result<()> {

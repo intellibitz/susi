@@ -789,7 +789,12 @@ impl SusiSupervisor {
                     // cluster term, and the record stamps the current term
                     // so receivers can reject stale-term coordinators.
                     let leader = Self::elect_leader(&cluster_nodes).unwrap_or_default();
-                    crate::susi_core::commit_log::claim_leadership(&leader);
+                    // An empty leader (no verified roster on a standalone
+                    // node) must not claim a term — it would bump the
+                    // persisted term with a vacant leader slot.
+                    if !leader.is_empty() {
+                        crate::susi_core::commit_log::claim_leadership(&leader);
+                    }
                     crate::susi_core::commit_log::CommitRecord::seal(
                         crate::susi_core::commit_log::CommitInput {
                             coordinator: "susi-local-master",
