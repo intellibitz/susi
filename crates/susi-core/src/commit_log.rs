@@ -224,6 +224,12 @@ impl CommitRecord {
         member: &str,
         electorate: Vec<String>,
     ) -> Option<Self> {
+        // A member spec must be `id@address` — sealing a malformed one
+        // would produce a record that fails verify on every receiver.
+        let (id, addr) = member.split_once('@')?;
+        if id.is_empty() || addr.is_empty() {
+            return None;
+        }
         let key = crate::susi_config::cluster_key::cluster_key()?;
         let committed_at = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -315,11 +321,15 @@ impl CommitRecord {
         // Internal consistency: a correctly-signed decision record can
         // still claim a tally that never reached quorum — check it.
         // Membership records carry no vote by design (leader-signed
-        // replication), so only decisions get the quorum check.
-        if self.kind.is_empty()
-            && (self.quorum_threshold != self.electorate.len() / 2 + 1
-                || self.tally < self.quorum_threshold)
-        {
+        // replication), so only decisions get the quorum check; member
+        // kinds instead require a well-formed `id@address` value.
+        if self.kind.is_empty() {
+            if self.quorum_threshold != self.electorate.len() / 2 + 1
+                || self.tally < self.quorum_threshold
+            {
+                return false;
+            }
+        } else if self.member_delta().is_none() {
             return false;
         }
         hex::encode(Sha256::digest(self.value.as_bytes())) == self.value_hash
@@ -1207,6 +1217,26 @@ mod tests {
         assert_eq!(state.memberships, 6);
         assert_eq!(state.roster.len(), 2);
         assert!(state.banned.is_empty());
+
+        // Malformed member specs can't seal, and a member record
+        // carrying one fails verify even when validly signed.
+        assert!(
+            CommitRecord::seal_member("c", "c", KIND_MEMBER_ADD, "no-address", vec![]).is_none()
+        );
+        let Some(mut bad) = seal_into_test(KIND_MEMBER_ADD, "node-x@10.0.0.5:9090") else {
+            return;
+        };
+        bad.value = "not-a-member-spec".into();
+        if let Some(k) = crate::susi_config::cluster_key::cluster_key() {
+            bad.signature = crate::susi_config::cluster_key::hmac_sha256_hex(
+                &k,
+                bad.signed_payload().as_bytes(),
+            );
+        }
+        assert!(
+            !bad.verify(),
+            "member record with malformed value must fail verify"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
