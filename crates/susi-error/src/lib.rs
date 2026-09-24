@@ -270,7 +270,7 @@ pub type EaiResult<T> = Result<T, EaiError>;
 /// them to the shared `error_metrics.jsonl` sink. Shared by the standalone
 /// `susi-error` binary and the root `susi` binary's `service-run` dispatch.
 pub fn serve(port: u16) -> std::io::Result<()> {
-    use axum::{http::StatusCode, routing::post, Json, Router};
+    use axum::{extract::Query, http::StatusCode, routing::get, routing::post, Json, Router};
     use serde::Deserialize;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
@@ -319,11 +319,55 @@ pub fn serve(port: u16) -> std::io::Result<()> {
         }
     }
 
+    #[derive(Deserialize)]
+    struct RecentQuery {
+        n: Option<usize>,
+    }
+
+    /// `GET /errors/recent?n=<limit>` — the read side of the metrics
+    /// sink. Bounded: never reads more than the last 512 KiB of the
+    /// (capped, rotated) file, never returns more than 500 entries.
+    async fn recent_errors(Query(q): Query<RecentQuery>) -> Json<serde_json::Value> {
+        let limit = q.n.unwrap_or(50).min(500);
+        let path = error_metrics_path();
+        let entries: Vec<serde_json::Value> = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = std::fs::File::open(&path).ok()?;
+                let skip = m.len().saturating_sub(512 * 1024);
+                if f.seek(SeekFrom::Start(skip)).is_err() {
+                    return None;
+                }
+                let mut buf = String::new();
+                if f.read_to_string(&mut buf).is_err() {
+                    return None;
+                }
+                // Starting mid-file leaves a partial first line — drop it.
+                let mut lines: Vec<&str> = buf.lines().collect();
+                if skip > 0 && !lines.is_empty() {
+                    lines.remove(0);
+                }
+                Some(
+                    lines
+                        .iter()
+                        .rev()
+                        .take(limit)
+                        .filter_map(|l| serde_json::from_str(l).ok())
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
+        Json(serde_json::json!({ "entries": entries, "returned": entries.len() }))
+    }
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
         .block_on(async {
-            let app = Router::new().route("/log_error", post(log_error));
+            let app = Router::new()
+                .route("/log_error", post(log_error))
+                .route("/errors/recent", get(recent_errors));
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
             let listener = tokio::net::TcpListener::bind(addr).await?;
             eprintln!("susi-error service listening on {addr}");

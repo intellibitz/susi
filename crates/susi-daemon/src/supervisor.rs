@@ -74,6 +74,25 @@ fn locate_binary(name: &str) -> Option<PathBuf> {
     None
 }
 
+/// The path used to re-execute this binary for `service-run <name>`.
+/// Prefers `/proc/self/exe` (the running inode, immune to in-place
+/// binary replacement); falls back to `current_exe`, stripping the
+/// kernel's ` (deleted)` suffix so a stale text resolves to the path
+/// it was replaced at — the new binary is the intended target anyway.
+fn reexec_path() -> Option<PathBuf> {
+    let proc_exe = PathBuf::from("/proc/self/exe");
+    if proc_exe.exists() {
+        return Some(proc_exe);
+    }
+    let exe = std::env::current_exe().ok()?;
+    if exe.exists() {
+        return Some(exe);
+    }
+    let s = exe.to_string_lossy();
+    let stripped = s.strip_suffix(" (deleted)").map(PathBuf::from);
+    stripped.filter(|p| p.exists()).or(Some(exe))
+}
+
 /// Spawn a leaf service detached, with stdout/stderr appended to
 /// `substrate_home/logs/<name>.log` instead of the daemon's own stderr.
 ///
@@ -85,7 +104,13 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
     let mut cmd = if let Some(bin) = locate_binary(svc.binary) {
         Command::new(bin)
     } else {
-        let exe = std::env::current_exe().ok()?;
+        // Reexec path: `/proc/self/exe` resolves the *running inode* —
+        // it survives the binary being replaced under a live daemon
+        // (`current_exe` then returns a `… (deleted)` path, and
+        // Command::new fails ENOENT, leaving the supervisor unable to
+        // spawn anything). Fall back to current_exe off-Linux, with the
+        // kernel's " (deleted)" suffix stripped if it still resolves.
+        let exe = reexec_path()?;
         let mut c = Command::new(exe);
         c.args(["service-run", svc.name]);
         c
