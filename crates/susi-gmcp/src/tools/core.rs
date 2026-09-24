@@ -941,7 +941,7 @@ impl CoreTools {
 
     #[tool(
         name = "member_propose",
-        description = "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a member_add. Args: {member: \"node_id@address\"}. Refuses unless this node is the currently claimed leader; refuses subjects already banned (an evicted node cannot re-enter via delegation) or this node itself. On success the record is sealed, appended, and pushed to the roster including the subject."
+        description = "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a roster delta. Args: {member: \"node_id@address\", kind?: \"member_add\"|\"member_remove\"|\"member_unban\" (default member_add)}. Refuses unless this node is the currently claimed leader. member_add refuses banned subjects or the leader itself; member_remove requires the subject in the leader's roster; member_unban requires the subject banned. On success the record is sealed, appended, and pushed to the roster including the subject."
     )]
     pub fn member_propose(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)
@@ -950,6 +950,20 @@ impl CoreTools {
             .get("member")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("missing 'member' field"))?;
+        let kind = arg
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or(crate::susi_core::commit_log::KIND_MEMBER_ADD);
+        if !matches!(
+            kind,
+            crate::susi_core::commit_log::KIND_MEMBER_ADD
+                | crate::susi_core::commit_log::KIND_MEMBER_REMOVE
+                | crate::susi_core::commit_log::KIND_MEMBER_UNBAN
+        ) {
+            return Err(EaiError::protocol(format!(
+                "unknown member kind '{kind}' — expected member_add, member_remove, or member_unban"
+            )));
+        }
         let (id, addr) = member
             .split_once('@')
             .filter(|(i, a)| !i.is_empty() && !a.is_empty())
@@ -968,38 +982,49 @@ impl CoreTools {
                 }
             )));
         }
-        if id == self_id {
+        if kind == crate::susi_core::commit_log::KIND_MEMBER_ADD && id == self_id {
             return Err(EaiError::protocol(
                 "leader cannot be proposed as a new member — self-edge",
             ));
         }
-        // A delegated add must not resurrect a banned member — the ban
-        // list is local state the proposer may not share.
         let banned: Vec<serde_json::Value> = std::fs::read_to_string(
             crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json"),
         )
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-        if banned.iter().any(|b| {
+        let is_banned = banned.iter().any(|b| {
             b.get("node_id").and_then(|v| v.as_str()) == Some(id)
                 || b.get("address").and_then(|v| v.as_str()) == Some(addr)
-        }) {
-            return Err(EaiError::authorization(format!(
-                "{member} is banned — a delegated add cannot lift a committed eviction"
-            )));
-        }
+        });
         // Electorate = this leader's explicit roster at seal time.
         let roster = gawd::cluster_roster().map_err(|e| {
             crate::susi_error::rewrap("internal", format!("cluster roster unavailable: {e}"))
         })?;
+        // A delegated add must not resurrect a banned member — the ban
+        // list is local state the proposer may not share.
+        if kind == crate::susi_core::commit_log::KIND_MEMBER_ADD && is_banned {
+            return Err(EaiError::authorization(format!(
+                "{member} is banned — a delegated add cannot lift a committed eviction"
+            )));
+        }
+        // Refuse phantom evictions — a remove for a subject the leader
+        // doesn't roster is a wasted committed record.
+        if kind == crate::susi_core::commit_log::KIND_MEMBER_REMOVE
+            && !roster.iter().any(|(nid, _, _)| nid.as_str() == id)
+        {
+            return Err(EaiError::protocol(format!(
+                "{id} is not in the leader's roster — nothing to remove"
+            )));
+        }
+        if kind == crate::susi_core::commit_log::KIND_MEMBER_UNBAN && !is_banned {
+            return Err(EaiError::protocol(format!(
+                "{member} is not banned — nothing to unban"
+            )));
+        }
         let electorate: Vec<String> = roster.iter().map(|(nid, _, _)| nid.clone()).collect();
         let Some(record) = crate::susi_core::commit_log::CommitRecord::seal_member(
-            &self_id,
-            &self_id,
-            crate::susi_core::commit_log::KIND_MEMBER_ADD,
-            member,
-            electorate,
+            &self_id, &self_id, kind, member, electorate,
         ) else {
             return Err(EaiError::internal(
                 "no cluster.key — cannot seal a member record",
@@ -1036,7 +1061,7 @@ impl CoreTools {
             }
         }
         Ok(format!(
-            "member_add {member} committed (seq {}, term {}) — pushed to {pushed} peer(s)",
+            "{kind} {member} committed (seq {}, term {}) — pushed to {pushed} peer(s)",
             record.seq, record.term
         ))
     }

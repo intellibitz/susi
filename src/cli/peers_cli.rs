@@ -9,6 +9,7 @@ use anyhow::{bail, Result};
 use clap::Subcommand;
 use std::path::Path;
 use std::path::PathBuf;
+use susi_core::commit_log;
 
 #[derive(Debug, Subcommand)]
 pub enum PeersCommands {
@@ -109,7 +110,6 @@ fn now_secs() -> u64 {
 /// converges membership cluster-wide. Push failures only delay
 /// convergence — `commits sync` and roster gossip carry the record.
 fn commit_membership(kind: &str, node_id: &str, address: &str) {
-    use susi_core::commit_log;
     // An evicted node can still seal member records locally, but no
     // member will accept them — coordinator authority requires current
     // explicit membership. Say so instead of reporting false pushes.
@@ -136,16 +136,10 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
             );
             return;
         }
-        if kind == commit_log::KIND_MEMBER_ADD {
-            propose_member_add(&term.leader, node_id, address, &roster);
-        } else {
-            eprintln!(
-                "note: this node is not the elected leader (leader: {}) — \
-                 member {} must be committed on the leader",
-                term.leader,
-                kind.strip_prefix("member_").unwrap_or(kind)
-            );
-        }
+        // Follower delegation: the elected leader seals every committed
+        // roster delta — ask it to via member_propose rather than
+        // sealing an unauthorized record locally.
+        propose_member(&term.leader, kind, node_id, address, &roster);
         return;
     }
     // The roster as this node observed it at commit time — audit context
@@ -231,7 +225,17 @@ fn commit_membership(kind: &str, node_id: &str, address: &str) {
 /// config changes, so a non-leader asks it via `member_propose`. The
 /// subject was verified locally already — the proposal carries only
 /// the attested `node_id@address`, never key material.
-fn propose_member_add(leader: &str, node_id: &str, address: &str, roster: &[serde_json::Value]) {
+/// Follower-side delegation: the elected leader seals every committed
+/// roster delta, so a non-leader asks it via `member_propose`. The
+/// subject was resolved locally already — the proposal carries only
+/// the attested `node_id@address` and the delta kind.
+fn propose_member(
+    leader: &str,
+    kind: &str,
+    node_id: &str,
+    address: &str,
+    roster: &[serde_json::Value],
+) {
     let Some(leader_addr) = roster.iter().find_map(|n| {
         (n.get("node_id").and_then(|v| v.as_str()) == Some(leader))
             .then(|| {
@@ -248,11 +252,14 @@ fn propose_member_add(leader: &str, node_id: &str, address: &str, roster: &[serd
         return;
     };
     let bearer = susi_config::cluster_key::peer_bearer();
-    let args = serde_json::json!({ "member": format!("{node_id}@{address}") });
+    let args = serde_json::json!({
+        "member": format!("{node_id}@{address}"),
+        "kind": kind,
+    });
     match susi_core::mcp_client::call_tool(&leader_addr, "member_propose", &args, bearer.as_deref())
     {
         Ok(result) if result.get("isError").and_then(|v| v.as_bool()) != Some(true) => {
-            println!("membership committed by leader {leader}");
+            println!("{kind} committed by leader {leader}");
         }
         Ok(result) => {
             let detail = result
@@ -565,22 +572,27 @@ fn list(json: bool) -> Result<()> {
 /// isn't itself must not mutate `peers.json`/`peers_banned.json`
 /// locally — the ledger would never carry the delta and this node's
 /// roster would silently diverge. Standalone nodes lead themselves.
-fn require_leadership(action: &str) -> Result<()> {
-    use susi_core::commit_log;
+/// Follower delegation check: returns `true` when the delta was handed
+/// to the elected leader (or no leader exists yet) and the caller must
+/// return WITHOUT mutating local roster/ban files — the committed
+/// record's apply is what updates them, on every node including this
+/// one. `false` means this node leads (or stands alone) and proceeds
+/// with the local commit path.
+fn delegate_membership(kind: &str, node_id: &str, address: &str) -> bool {
     let self_id = susi_config::cluster_key::wire_node_id();
     let term = commit_log::load_term();
     let we_lead = term.leader == self_id || (term.leader.is_empty() && load_registry().is_empty());
-    if !we_lead {
-        bail!(
-            "{action} is committed by the elected leader (currently {}) — run it there",
-            if term.leader.is_empty() {
-                "none yet — retry after the swarm elects"
-            } else {
-                &term.leader
-            }
-        );
+    if we_lead {
+        return false;
     }
-    Ok(())
+    if term.leader.is_empty() {
+        eprintln!(
+            "note: no elected leader yet — the swarm elects on a ~10s cadence; retry shortly"
+        );
+        return true;
+    }
+    propose_member(&term.leader, kind, node_id, address, &load_registry());
+    true
 }
 
 fn remove(peer: &str) -> Result<()> {
@@ -621,7 +633,25 @@ fn remove(peer: &str) -> Result<()> {
             names.join(", ")
         );
     }
-    require_leadership("member_remove")?;
+    // Follower path: the elected leader seals every committed roster
+    // delta — delegate before any local mutation, or this node's files
+    // would diverge from the ledger's applied state.
+    let (subject_id, subject_addr) = {
+        let m = matches[0];
+        (
+            m.get("node_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+            m.get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+        )
+    };
+    if delegate_membership(commit_log::KIND_MEMBER_REMOVE, &subject_id, &subject_addr) {
+        return Ok(());
+    }
     let evicted: Vec<serde_json::Value> = vec![matches[0].clone()];
     let kept: Vec<_> = nodes
         .iter()
@@ -894,7 +924,24 @@ fn unban(peer: &str) -> Result<()> {
             names.join(", ")
         );
     }
-    require_leadership("member_unban")?;
+    // Follower path — same early-delegation rule as `peers remove`:
+    // no local mutation until the leader commits the delta.
+    let (subject_id, subject_addr) = {
+        let m = matches[0];
+        (
+            m.get("node_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+            m.get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?")
+                .to_string(),
+        )
+    };
+    if delegate_membership(commit_log::KIND_MEMBER_UNBAN, &subject_id, &subject_addr) {
+        return Ok(());
+    }
     let lifted: Vec<serde_json::Value> = vec![matches[0].clone()];
     let kept: Vec<_> = banned
         .iter()
