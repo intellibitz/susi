@@ -26,8 +26,11 @@ impl SusiRuntimeAdmin {
                 // 1. Hardware Load Watchdog (High-Resolution)
                 Self::perform_hardware_watchdog_audit(&home);
 
-                // 2. Periodic host readiness (Every 5 minutes) — not project work
-                if last_pulse.elapsed() > Duration::from_secs(300) {
+                // 2. Periodic host readiness (hourly) — not project work.
+                // Each pulse runs a full 23-agent security-sweep mission;
+                // a 5-minute cadence burned inference failover and filled
+                // the journal with 12KB traces ~288x/day.
+                if last_pulse.elapsed() > Duration::from_secs(3600) {
                     let _ = Self::perform_substrate_audit(&home);
                     let _ = Self::perform_host_readiness(&home);
                     let _ = Self::consolidate_sovereign_memory(&home);
@@ -85,8 +88,14 @@ impl SusiRuntimeAdmin {
             env!("CARGO_PKG_VERSION"),
         );
         if sec_res.contains("VIOLATION") || sec_res.contains("MASKED") {
-            println!("\n[READINESS: SECURITY PROTOCOLS ENGAGED]");
-            println!("{}\n", sec_res);
+            // Detached daemon has no stdout — the audit chain is the
+            // only durable surface an operator can inspect.
+            SusiAuditLogger::log_event(
+                substrate_home,
+                "READINESS_VIOLATION",
+                "security pulse flagged exfiltration risk",
+            );
+            tracing::warn!("[READINESS: SECURITY PROTOCOLS ENGAGED]\n{sec_res}");
         }
         Ok(())
     }
