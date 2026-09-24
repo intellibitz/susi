@@ -1233,7 +1233,10 @@ mod tests {
                 bad.signed_payload().as_bytes(),
             );
         }
-        assert!(!bad.verify(), "member record with malformed value must fail verify");
+        assert!(
+            !bad.verify(),
+            "member record with malformed value must fail verify"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
