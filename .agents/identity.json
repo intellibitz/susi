@@ -98,7 +98,7 @@
     },
     {
       "id": 11,
-      "summary": "fixed ports 9090–9093; never silent drift.",
+      "summary": "fixed ports 9090–9094; never silent drift.",
       "title": "Host contract"
     },
     {
@@ -122,7 +122,7 @@
       "**`global susi`** — background daemon bound to the host substrate (`~/.susi` / `SusiDirs::substrate_home`), not to a project folder. Owns ports, models, and lock state.",
       "**`susi` CLI** — jailed to the caller's cwd; intents run against that workspace.",
       "**Canonical binary** — `~/.susi/bin/susi` (hot-reloads when `binary.hash` changes).",
-      "**Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090–9093 answer and print the endpoints.",
+      "**Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090–9094 answer and print the endpoints.",
       "Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.",
       "Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port."
     ],
@@ -142,6 +142,10 @@
       {
         "port": 9093,
         "surface": "GMCP HTTP alias (streamable / SSE)"
+      },
+      {
+        "port": 9094,
+        "surface": "A2A HTTP (JSON-RPC `/`; SSE `/stream`; agent card `/.well-known/agent-card.json`)"
       }
     ]
   },
@@ -169,7 +173,7 @@
           "tier": 1
         },
         {
-          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090–9093 and spawns from `~/.susi/bin/susi`.",
+          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090–9094 and spawns from `~/.susi/bin/susi`.",
           "symbol": "SusiDaemon",
           "tier": 1
         },
@@ -304,7 +308,7 @@
           "tier": 1
         },
         {
-          "function": "Host-contract REST on port **9091** (`susi_paths::ports::GEMI`). External clients may hard-code it; the daemon never randomizes or silently drifts this port (same contract as 9090/9092/9093).",
+          "function": "Host-contract REST on port **9091** (`susi_paths::ports::GEMI`). External clients may hard-code it; the daemon never randomizes or silently drifts this port (same contract as 9090/9092/9093/9094).",
           "symbol": "GEMI Server",
           "tier": 1
         },
@@ -393,7 +397,7 @@
         },
         {
           "id": 13,
-          "imperative": "Sustain a continuous, resilient background process bound to the host substrate, owning the hard-contract ports 9090–9093 (GMCP/GEMI/UDP/alias) plus models and lock state. Never silently remap those ports.",
+          "imperative": "Sustain a continuous, resilient background process bound to the host substrate, owning the hard-contract ports 9090–9094 (GMCP/GEMI/UDP/alias/A2A) plus models and lock state. Never silently remap those ports.",
           "title": "Daemon Persistence"
         },
         {
@@ -438,7 +442,7 @@
         },
         {
           "id": 22,
-          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives — if a foreign process owns 9090–9093, bind fails closed.",
+          "imperative": "Autonomously recover from structural pathologies, memory faults, or a *stale susi* process holding a host-contract port (Sovereign Eviction / reclaim). Host-contract ports themselves never randomize or drift to ephemeral alternatives — if a foreign process owns 9090–9094, bind fails closed.",
           "title": "Self-Healing Reflex"
         },
         {
@@ -483,7 +487,7 @@
         },
         {
           "id": 31,
-          "imperative": "The substrate exists in exactly two operational forms:\n- **`global susi` (The Background Service)**: The persistent background daemon (`susi.service` / `daemon-start`) bound to `SusiDirs::substrate_home` (`~/.susi`). Manages CPU/GPU saturation, OS environment care, hard-contract network ports (9090 GMCP `/mcp`, 9091 GEMI, 9092 A2A UDP, 9093 GMCP alias), and central model weights (`~/.susi/models`). World-facing HTTP is not jailed to cwd (see Mandate 40 and the Host contract section).\n- **`susi` (Workspace-Scoped CLI)**: The single canonical binary invocation (`~/.susi/bin/susi`) treats the active working directory (`cwd`) as the mission/workspace context for tasks, `susi admin` when operating on that tree, and `susi repo` when `cwd` is the engine source — staging intent bundles (`susi accept`) while the daemon owns ports, models, and lock state.\n\"Jailed to cwd\" means **workspace scoping for missions and local artifacts**, not an OS chroot/seccomp cage of the whole process. A bare \"unconditionally OS-jailed\" claim is forbidden by Mandate 1.",
+          "imperative": "The substrate exists in exactly two operational forms:\n- **`global susi` (The Background Service)**: The persistent background daemon (`susi.service` / `daemon-start`) bound to `SusiDirs::substrate_home` (`~/.susi`). Manages CPU/GPU saturation, OS environment care, hard-contract network ports (9090 GMCP `/mcp`, 9091 GEMI, 9092 A2A UDP, 9093 GMCP alias, 9094 A2A HTTP), and central model weights (`~/.susi/models`). World-facing HTTP is not jailed to cwd (see Mandate 40 and the Host contract section).\n- **`susi` (Workspace-Scoped CLI)**: The single canonical binary invocation (`~/.susi/bin/susi`) treats the active working directory (`cwd`) as the mission/workspace context for tasks, `susi admin` when operating on that tree, and `susi repo` when `cwd` is the engine source — staging intent bundles (`susi accept`) while the daemon owns ports, models, and lock state.\n\"Jailed to cwd\" means **workspace scoping for missions and local artifacts**, not an OS chroot/seccomp cage of the whole process. A bare \"unconditionally OS-jailed\" claim is forbidden by Mandate 1.",
           "title": "Strict 2-Form Substrate Axiom (Not OS Chroot)"
         },
         {
@@ -503,7 +507,7 @@
         },
         {
           "id": 35,
-          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source as the *only* admission path is prohibited. Adding a new model, tool, or provider must be doable via configuration or self-registering traits without editing core admission enums. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation — its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct — anything read from and, especially, written back to a user-editable JSON file — must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) — `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces — those are correctly typed and closed. **Exception (Host contract):** public ports 9090–9093 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable — Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract. A bare \"100% dynamic config / zero hardcoded structs\" slogan is forbidden by Mandate 1 while typed protocol structs and host-contract constants remain necessary.",
+          "imperative": "All models, providers, agents, tools, and MCP servers must be integrated via dynamic Traits, lock-free Registries (`DashMap`), and runtime JSON/TOML configuration (`config.json`). Hardcoding static vendor strings or model enums in Rust source as the *only* admission path is prohibited. Adding a new model, tool, or provider must be doable via configuration or self-registering traits without editing core admission enums. Concretely: `SusiConfig` (`crates/susi-sandbox/src/manager.rs`) is the reference implementation — its root is a `#[serde(flatten)] DynamicRegistry` (`HashMap<String, Value>`), not a closed struct with named fields, and even its nested typed sub-structs (e.g. `ModelLadderConfigStep`) pair named convenience fields with their own flatten catch-all so an unrecognized key is never silently dropped. Every config-shaped struct — anything read from and, especially, written back to a user-editable JSON file — must follow the same pattern. This is not a theoretical concern: `McpServerConfig`/`McpConfig` (`crates/susi-tools/src/config.rs`) had no flatten catch-all until found and fixed (`EV-2022920-046`) — `auto_configure_server`'s read-modify-write cycle on `mcp_config.json` would have silently deleted any field a user hand-added ahead of susi's own support for it. This does not extend to fixed-shape protocol or internal telemetry structs (JSON-RPC envelopes, hardware/evidence reports) that are not user-editable config surfaces — those are correctly typed and closed. **Exception (Host contract):** public ports 9090–9094 are intentional compile-time constants in `susi_paths::ports` and are not user-overridable — Mandate 35 forbids inventing *vendor/model* hardcodes, not freezing the external client port contract. A bare \"100% dynamic config / zero hardcoded structs\" slogan is forbidden by Mandate 1 while typed protocol structs and host-contract constants remain necessary.",
           "title": "Dynamic Config Registries (Not Zero Typed Structs)"
         },
         {
@@ -553,7 +557,7 @@
         },
         {
           "id": 45,
-          "imperative": "SUSI is the **operating layer for AI agents** on a machine — not a general-purpose host operating system. Concretely the layer means: persistent `global susi` daemon bound to `~/.susi`, fixed host-contract ports 9090–9093, evidence-gated agent-of-agents swarm (GAWD), model/MCP/peer admission and control planes, HMAC audit, Wasmer/Docker sandbox, reflexes, and crown-verifiable Tier S pillars. It runs **on** Linux / macOS / WSL (and Windows via installer), does not replace the host kernel, init, package manager, or desktop, and must never be documented or marketed as \"the computer's OS\" or a drop-in replacement for Linux/macOS/Windows. Public wording must prefer \"OS layer for AI agents\" / \"agent-of-agents substrate\" (as in `README.md` and verified product claims) over unbounded \"OS for AI\" slogans. Absolute replacement-OS language is forbidden by Mandate 1; this mandate is the citable DNA form of that product boundary.",
+          "imperative": "SUSI is the **operating layer for AI agents** on a machine — not a general-purpose host operating system. Concretely the layer means: persistent `global susi` daemon bound to `~/.susi`, fixed host-contract ports 9090–9094, evidence-gated agent-of-agents swarm (GAWD), model/MCP/peer admission and control planes, HMAC audit, Wasmer/Docker sandbox, reflexes, and crown-verifiable Tier S pillars. It runs **on** Linux / macOS / WSL (and Windows via installer), does not replace the host kernel, init, package manager, or desktop, and must never be documented or marketed as \"the computer's OS\" or a drop-in replacement for Linux/macOS/Windows. Public wording must prefer \"OS layer for AI agents\" / \"agent-of-agents substrate\" (as in `README.md` and verified product claims) over unbounded \"OS for AI\" slogans. Absolute replacement-OS language is forbidden by Mandate 1; this mandate is the citable DNA form of that product boundary.",
           "title": "OS Layer for AI Agents (Not a Host OS)"
         },
         {
@@ -633,7 +637,7 @@
         },
         {
           "id": 4,
-          "imperative": "- **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware/OS, provisions model ladder weights, owns host-contract ports 9090–9093, and maintains global evidence ledgers.\n- **`susi` Primes `AlphaWorld`**: Unconditionally jailed to `cwd`, `susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).\n- **`susi` Primes `susi repo`**: When `cwd` is the engine's source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`.",
+          "imperative": "- **`global susi` Primes `AlphaSelf`**: The background daemon profiles host hardware/OS, provisions model ladder weights, owns host-contract ports 9090–9094, and maintains global evidence ledgers.\n- **`susi` Primes `AlphaWorld`**: Unconditionally jailed to `cwd`, `susi` indexes local project files, runs unit test audits, and stages intent bundles (`susi accept`).\n- **`susi` Primes `susi repo`**: When `cwd` is the engine's source code, `susi` engages self-evolution, running tests, syncing version manifests (`susi admin sync`), and deploying compiled binaries to `~/.susi/bin/`.",
           "title": "The 3 Priming Spheres"
         }
       ],

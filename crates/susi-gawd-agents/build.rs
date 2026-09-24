@@ -92,7 +92,16 @@ fn validate_identity(doc: &Value) {
     let protocols = require_array(doc, "/pillars/engine/protocols");
     assert!(!protocols.is_empty(), "identity: engine.protocols empty");
     let ports = require_array(doc, "/host_contract/ports");
-    assert!(ports.len() >= 4, "identity: host_contract.ports needs ≥4");
+    // The host contract is compile-time constants in susi_paths::ports;
+    // this document must name exactly that set — a stale subset passed
+    // a bare >=4 check while omitting A2A 9094.
+    let mut listed: Vec<u64> = ports.iter().filter_map(|p| p["port"].as_u64()).collect();
+    listed.sort_unstable();
+    assert_eq!(
+        listed,
+        vec![9090, 9091, 9092, 9093, 9094],
+        "identity: host_contract.ports must equal susi_paths::ports::ALL"
+    );
     let foundation = require_array(doc, "/foundation_pillars");
     assert!(!foundation.is_empty(), "identity: foundation_pillars empty");
 }
