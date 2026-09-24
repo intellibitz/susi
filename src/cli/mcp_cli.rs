@@ -35,8 +35,8 @@ pub enum McpCommands {
         addr: String,
         /// Tool name as exposed by the peer's tools/list
         tool: String,
-        /// JSON arguments object (default {})
-        #[arg(long, default_value = "{}")]
+        /// JSON arguments object, e.g. '{"coordinator":"node-a"}' (default {})
+        #[arg(default_value = "{}")]
         args: String,
         /// Bearer token (default: ~/.susi/api_token)
         #[arg(long)]
@@ -64,7 +64,7 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
             token,
         } => {
             let arguments: serde_json::Value = serde_json::from_str(&args)
-                .map_err(|e| anyhow::anyhow!("--args must be a JSON object: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("args must be a JSON object: {e}"))?;
             let bearer = match token {
                 Some(t) => Some(t),
                 None => {

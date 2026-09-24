@@ -82,6 +82,26 @@ pub fn call_tool(
     arguments: &Value,
     bearer: Option<&str>,
 ) -> Result<Value, String> {
+    session_call(
+        addr,
+        "tools/call",
+        &json!({
+            "name": tool,
+            "arguments": arguments
+        }),
+        bearer,
+    )
+}
+
+/// Run any session-scoped JSON-RPC method (`tools/list`, `tools/call`,
+/// `resources/list`, `ping`, ...) through the initialize → initialized →
+/// request handshake. Returns the frame's `result` object.
+pub fn session_call(
+    addr: &str,
+    method: &str,
+    params: &Value,
+    bearer: Option<&str>,
+) -> Result<Value, String> {
     let url = format!("http://{addr}/mcp");
 
     // 1. initialize — the response header carries the session id.
@@ -116,56 +136,7 @@ pub fn call_tool(
         &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
     )?;
 
-    // 3. tools/call — the SSE body carries the response frame.
-    session_request(
-        &url,
-        bearer,
-        &session,
-        "tools/call",
-        &json!({
-            "name": tool,
-            "arguments": arguments
-        }),
-    )
-}
-
-/// Run any session-scoped JSON-RPC method (`tools/list`, `resources/list`,
-/// `ping`, ...) through the same initialize → initialized → request
-/// handshake `call_tool` uses. Returns the frame's `result` object.
-pub fn session_call(
-    addr: &str,
-    method: &str,
-    params: &Value,
-    bearer: Option<&str>,
-) -> Result<Value, String> {
-    let url = format!("http://{addr}/mcp");
-    let init = post(
-        &url,
-        bearer,
-        None,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": "susi", "version": env!("CARGO_PKG_VERSION")}
-            }
-        }),
-    )?;
-    let session = init
-        .headers()
-        .get("mcp-session-id")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string)
-        .ok_or_else(|| format!("peer {addr} returned no Mcp-Session-Id"))?;
-    post(
-        &url,
-        bearer,
-        Some(&session),
-        &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
-    )?;
+    // 3. the request — the SSE body carries the response frame.
     session_request(&url, bearer, &session, method, params)
 }
 
