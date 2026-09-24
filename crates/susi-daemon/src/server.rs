@@ -691,6 +691,20 @@ impl SusiDaemon {
             }
         });
 
+        // Cluster scout: discovery broadcasts, liveness decay, roster
+        // rehydration, and commit-ledger anti-entropy all live in the
+        // thread `list_cluster_nodes` lazily spawns. Without this kick it
+        // only ever starts when a mission happens to touch the roster —
+        // the daemon would answer inbound pings but never scout outbound,
+        // and ledger anti-entropy would stay dormant between missions.
+        thread::spawn(|| {
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
+            })) {
+                eprintln!("[SWARM] Scout thread failed to start: {:?}", e);
+            }
+        });
+
         // Continuous Interaction Substrate Worker
         // Each pulse carries the ingesting caller's cwd (`pulse.workspace`).
         // Never substitute the daemon's boot workspace — that made "susi" in
