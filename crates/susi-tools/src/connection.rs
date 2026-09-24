@@ -95,6 +95,14 @@ type Pool = tokio::sync::Mutex<HashMap<String, Slot>>;
 static RUNTIME: OnceLock<Result<tokio::runtime::Runtime, std::io::Error>> = OnceLock::new();
 static POOL: OnceLock<Pool> = OnceLock::new();
 
+/// Per-server connect-failure memory. A spawn/handshake failure is cooled
+/// for `CONNECT_COOLDOWN` so every subsequent caller doesn't re-pay the
+/// spawn cost of a remote that cannot start (e.g. a broken npx package
+/// fails the handshake deterministically until the package is fixed).
+static CONNECT_FAILURES: OnceLock<tokio::sync::Mutex<HashMap<String, std::time::Instant>>> =
+    OnceLock::new();
+const CONNECT_COOLDOWN: Duration = Duration::from_secs(300);
+
 pub(crate) fn call_blocking_result(
     config: McpServerConfig,
     name: String,
@@ -156,8 +164,14 @@ async fn acquire_pooled_connection(
     let key = serde_json::to_value(config)
         .map_err(|e| e.to_string())?
         .to_string();
+    let failures = CONNECT_FAILURES.get_or_init(Default::default);
+    if let Some(at) = failures.lock().await.get(&key) {
+        if at.elapsed() < CONNECT_COOLDOWN {
+            return Err("MCP server connect cooled after a recent failure".to_string());
+        }
+    }
     let pool = POOL.get_or_init(Default::default);
-    let slot = pool.lock().await.entry(key).or_default().clone();
+    let slot = pool.lock().await.entry(key.clone()).or_default().clone();
     let connection = {
         // Only this server's cold start is serialized; unrelated remotes remain concurrent.
         let mut slot = slot.lock().await;
@@ -167,9 +181,26 @@ async fn acquire_pooled_connection(
         {
             connection.clone()
         } else {
-            let connection = tokio::time::timeout(handshake, connect(config, ()))
-                .await
-                .map_err(|_| "MCP handshake timed out".to_string())??;
+            let connection = match tokio::time::timeout(handshake, connect(config, ())).await {
+                Ok(Ok(connection)) => connection,
+                Ok(Err(error)) => {
+                    let mut failures = failures.lock().await;
+                    if failures.len() > 64 {
+                        failures.clear();
+                    }
+                    failures.insert(key.clone(), std::time::Instant::now());
+                    return Err(error);
+                }
+                Err(_) => {
+                    let mut failures = failures.lock().await;
+                    if failures.len() > 64 {
+                        failures.clear();
+                    }
+                    failures.insert(key.clone(), std::time::Instant::now());
+                    return Err("MCP handshake timed out".to_string());
+                }
+            };
+            failures.lock().await.remove(&key);
             let connection = Arc::new(connection);
             *slot = Some(connection.clone());
             connection
@@ -253,5 +284,39 @@ async fn call(
             }
             Err(error.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connect_failure_cooldown_short_circuits_respawn() {
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        rt.block_on(async {
+            let config = McpServerConfig {
+                command: "/nonexistent-susi-test-binary-xyz".to_string(),
+                args: vec![],
+                env: None,
+                extra: HashMap::new(),
+            };
+            // A connect failure is remembered for CONNECT_COOLDOWN.
+            let first = acquire_pooled_connection(&config, Duration::from_secs(2)).await;
+            assert!(first.is_err());
+            let key = serde_json::to_value(&config).expect("json").to_string();
+            assert!(CONNECT_FAILURES
+                .get_or_init(Default::default)
+                .lock()
+                .await
+                .contains_key(&key));
+            // The cooled call returns immediately without another spawn attempt.
+            let start = std::time::Instant::now();
+            let second = acquire_pooled_connection(&config, Duration::from_secs(2)).await;
+            assert!(second
+                .unwrap_err()
+                .contains("connect cooled after a recent failure"));
+            assert!(start.elapsed() < Duration::from_secs(1));
+        });
     }
 }
