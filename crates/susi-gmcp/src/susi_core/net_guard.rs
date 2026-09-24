@@ -36,11 +36,41 @@ impl NetGuard {
                 if !token.is_empty() && Self::constant_time_eq(p.as_bytes(), token.as_bytes()) {
                     return true;
                 }
-                crate::susi_config::cluster_key::peer_bearer()
-                    .is_some_and(|pb| Self::constant_time_eq(p.as_bytes(), pb.as_bytes()))
+                crate::susi_config::cluster_key::peer_bearer().is_some_and(|pb| {
+                    Self::constant_time_eq(p.as_bytes(), pb.as_bytes())
+                        // The peer bearer derives from the shared
+                        // cluster.key — a banned member still holds it
+                        // and derives a valid credential. Membership
+                        // standing is the second half of the check:
+                        // refuse bearer calls arriving from a banned
+                        // member's registered address (TCP sources
+                        // can't be spoofed; a banned node re-homing to
+                        // a fresh address is the documented residual —
+                        // full revocation needs cluster re-key).
+                        && !Self::peer_address_banned(&peer)
+                })
             }
             None => token.is_empty() && peer.is_loopback(),
         }
+    }
+
+    /// Whether `ip` is the address of a member in `peers_banned.json` —
+    /// the standing check for the cluster peer bearer (see above).
+    fn peer_address_banned(ip: &IpAddr) -> bool {
+        let path = crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json");
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return false;
+        };
+        let Ok(banned) = serde_json::from_str::<Vec<serde_json::Value>>(&text) else {
+            return false;
+        };
+        banned.iter().any(|b| {
+            b.get("address")
+                .and_then(|a| a.as_str())
+                .and_then(|a| a.split(':').next())
+                .and_then(|h| h.parse::<IpAddr>().ok())
+                .is_some_and(|bip| bip == *ip)
+        })
     }
 
     /// Byte-for-byte comparison that always inspects every byte of both
