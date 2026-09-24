@@ -243,6 +243,32 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         ),
     ));
 
+    // --- GPU acceleration (non-critical host capability) ---
+    // A GPU host running a CPU-only build leaves the 17x inference
+    // speedup (EV-2022920-035) unrealized — worth surfacing, not
+    // worth failing the crown over.
+    let gpu_present = std::process::Command::new("nvidia-smi")
+        .arg("-L")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()
+        .is_some_and(|s| s.success());
+    let cuda_built = cfg!(feature = "cuda");
+    out.push(check(
+        "gpu_accel",
+        false,
+        !gpu_present || cuda_built,
+        if cuda_built {
+            "cuda feature compiled in"
+        } else if gpu_present {
+            "NVIDIA GPU present but binary is CPU-only — rebuild with ./build-gpu.sh"
+        } else {
+            "no NVIDIA GPU; CPU inference only"
+        },
+    ));
+
     // --- Concurrency ---
     out.push(check(
         "concurrency_first",
