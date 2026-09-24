@@ -122,7 +122,12 @@ fn launch(profile: &EngineProfile, manager: &AgentManager, id: &str, wait: bool)
     if wait {
         return run_worker(profile, manager.clone(), id);
     }
-    let mut command = Command::new(std::env::current_exe()?);
+    // `/proc/self/exe` re-executes the live inode; `current_exe` reports a
+    // `… (deleted)` path after an in-place binary replacement (ENOENT).
+    let exe = susi_daemon::supervisor::reexec_path()
+        .map(Ok)
+        .unwrap_or_else(std::env::current_exe)?;
+    let mut command = Command::new(exe);
     command
         .args(["frameworks", "worker", id])
         .current_dir(&manager.read(id)?.workspace)

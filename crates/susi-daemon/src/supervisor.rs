@@ -79,7 +79,7 @@ fn locate_binary(name: &str) -> Option<PathBuf> {
 /// binary replacement); falls back to `current_exe`, stripping the
 /// kernel's ` (deleted)` suffix so a stale text resolves to the path
 /// it was replaced at — the new binary is the intended target anyway.
-pub(crate) fn reexec_path() -> Option<PathBuf> {
+pub fn reexec_path() -> Option<PathBuf> {
     let proc_exe = PathBuf::from("/proc/self/exe");
     if proc_exe.exists() {
         return Some(proc_exe);
