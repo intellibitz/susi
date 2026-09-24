@@ -252,6 +252,14 @@ impl PlaneHandler for GemiPlaneHandler {
                 };
                 Ok(json!({ "text": text }))
             }
+            topics::GEMI_INFER_EMBED => {
+                let text = payload.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                let want = payload.get("model").and_then(|v| v.as_str());
+                match GemiEngine::embed_text(text, want) {
+                    Ok(v) => Ok(json!({ "embedding": v })),
+                    Err(e) => Ok(json!({ "error": e })),
+                }
+            }
             topics::GEMI_PLAN_PARTITION => {
                 let goal = payload.get("goal").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);

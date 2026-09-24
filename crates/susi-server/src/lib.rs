@@ -283,6 +283,7 @@ async fn handle_gemi_request(
                     "/v1/chat/completions",
                     "/v1/models",
                     "/v1/completions",
+                    "/v1/embeddings",
                     "/context-graph/stats",
                     "/context-graph/show",
                     "/context-graph/query",
@@ -354,6 +355,70 @@ async fn handle_gemi_request(
             })
             .await
             .unwrap_or_else(|_| json!({"error": "identity introspection failed"}));
+            Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::POST, "/v1/embeddings" | "/embeddings") => {
+            #[derive(serde::Deserialize)]
+            struct EmbedReq {
+                input: serde_json::Value,
+                #[serde(default)]
+                model: Option<String>,
+            }
+            let req: EmbedReq = match serde_json::from_slice(&body_bytes) {
+                Ok(r) => r,
+                Err(e) => {
+                    return Ok(api_error(
+                        StatusCode::BAD_REQUEST,
+                        &format!("invalid embeddings request: {e}"),
+                    ));
+                }
+            };
+            // OpenAI accepts a string or an array of strings.
+            let texts: Vec<String> = match &req.input {
+                serde_json::Value::String(s) => vec![s.clone()],
+                serde_json::Value::Array(a) => a
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect(),
+                serde_json::Value::Null
+                | serde_json::Value::Bool(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::Object(_) => Vec::new(),
+            };
+            if texts.is_empty() {
+                return Ok(api_error(
+                    StatusCode::BAD_REQUEST,
+                    "input must be a non-empty string or string array",
+                ));
+            }
+            let model = req.model.clone();
+            let out = tokio::task::spawn_blocking(move || {
+                texts
+                    .iter()
+                    .map(|t| gemi::GemiEngine::embed(t, model.as_deref()))
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            if out.iter().any(Option::is_none) {
+                return Ok(api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "no embedding-capable provider available",
+                ));
+            }
+            let data: Vec<serde_json::Value> = out
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, v)| {
+                    v.map(|e| json!({"object": "embedding", "index": i, "embedding": e}))
+                })
+                .collect();
+            let payload = json!({
+                "object": "list",
+                "data": data,
+                "model": req.model.unwrap_or_else(|| "susi-embed".to_string()),
+                "usage": {"prompt_tokens": 0, "total_tokens": 0},
+            });
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::POST, p)

@@ -69,6 +69,11 @@ pub async fn bootstrap_zero_config_substrate() {
         registry.register_provider(susi_gemi::candle_provider::CandleProvider);
     }
 
+    // 3b. Local embedder: susi-gmcp's vendored copy self-registers through
+    // the shared IPC rendezvous, so `gemi.infer.embed` and /v1/embeddings
+    // work with zero external configuration.
+    susi_gmcp::embed_provider::register_local_embed_provider();
+
     // 4. Background weight priming (hardware-optimal ladder) — idempotent.
     susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&substrate);
 

@@ -46,6 +46,14 @@ pub mod susi_sandbox;
 pub mod susi_core;
 
 pub mod catalog;
+#[cfg(feature = "tools-rich")]
+pub mod embed_provider;
+#[cfg(not(feature = "tools-rich"))]
+pub mod embed_provider {
+    /// No fastembed in this build — the embed surface refuses rather
+    /// than fabricating vectors.
+    pub fn register_local_embed_provider() {}
+}
 pub mod mcp_wrapper;
 pub mod protocol;
 pub mod reflexes;

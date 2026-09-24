@@ -30,6 +30,9 @@ pub mod topics {
     pub const GEMI_INFER_GENERATE_DEEP_MODEL: &str = "gemi.infer.generate_deep_model";
     pub const GEMI_INFER_VERIFY: &str = "gemi.infer.verify";
     pub const GEMI_INFER_STREAM: &str = "gemi.infer.stream";
+    /// Embedding vector for a text — the handler tries registered
+    /// providers in order and returns the first successful vector.
+    pub const GEMI_INFER_EMBED: &str = "gemi.infer.embed";
     pub const GEMI_PLAN_PARTITION: &str = "gemi.plan.partition";
     pub const GEMI_PLAN_MISSION: &str = "gemi.plan.mission";
     pub const GEMI_PLAN_REFINE: &str = "gemi.plan.refine";
@@ -411,6 +414,21 @@ pub mod gemi {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string()
+        }
+
+        /// Embed `text` via the first registered provider that can —
+        /// backs the OpenAI-compatible `/v1/embeddings` surface. Returns
+        /// the provider's raw vector; `None` when no provider can embed.
+        pub fn embed(text: &str, model: Option<&str>) -> Option<Vec<f32>> {
+            let v = req_ok(
+                topics::GEMI_INFER_EMBED,
+                json!({ "text": text, "model": model }),
+            );
+            v.get("embedding").and_then(|e| e.as_array()).map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_f64().map(|f| f as f32))
+                    .collect()
+            })
         }
 
         pub fn generate_reasoning_deep_with_min_complexity(

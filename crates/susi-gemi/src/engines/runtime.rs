@@ -235,6 +235,36 @@ impl GemiEngine {
         RT.get_or_init(tokio::runtime::Runtime::new).as_ref().ok()
     }
 
+    /// Embed `text` through the first registered provider that can serve
+    /// embeddings. `model_hint` names a preferred provider — it is tried
+    /// first, and every other provider still tries in order after it.
+    pub fn embed_text(text: &str, model_hint: Option<&str>) -> Result<Vec<f32>, String> {
+        crate::http_provider::register_configured_cloud_endpoints(
+            crate::susi_core::registry::CapabilityRegistry::global(),
+        );
+        let registry = crate::susi_core::registry::CapabilityRegistry::global();
+        let names = registry.list_providers();
+        let mut ordered: Vec<&str> = Vec::with_capacity(names.len());
+        if let Some(w) = model_hint {
+            ordered.extend(names.iter().map(String::as_str).filter(|n| *n == w));
+        }
+        ordered.extend(names.iter().map(String::as_str));
+        let runtime =
+            Self::provider_runtime().ok_or_else(|| "embed runtime unavailable".to_string())?;
+        let mut last_err = String::from("no embedding-capable provider registered");
+        for name in ordered {
+            let Some(provider) = registry.get_provider(name) else {
+                continue;
+            };
+            match runtime.block_on(provider.embed(text)) {
+                Ok(v) if !v.is_empty() => return Ok(v),
+                Ok(_) => last_err = format!("{name}: empty embedding"),
+                Err(e) => last_err = format!("{name}: {e}"),
+            }
+        }
+        Err(last_err)
+    }
+
     /// Rank discovered provider names: fast structured engines first, then
     /// other HTTP backends. Candle is excluded (see caller).
     pub(crate) fn rank_provider_name(name: &str) -> u8 {
