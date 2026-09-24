@@ -149,10 +149,18 @@ services missing from the table are retried every 30s (binary may
 appear after daemon boot); crashes respawn up to 10 restarts then
 suspend for a 5min `disabled_until` cooldown (fresh budget after) —
 never abandoned. SIGTERM→SIGKILL applies to the daemon's own children
-only — it never kills processes it did not spawn.
+only — it never kills processes it did not spawn. A port already bound
+by a foreign process (a `cargo run` dev binary, a manually launched
+service) is recorded as an `external` table row — `pid_for_port`
+resolves the holder via `/proc/net/tcp` inode → fd scan on Linux;
+external rows are health-probed by port only, never signaled, and when
+the external process dies the supervisor drops the row and spawns a
+managed service on the freed port.
 `susi services` (root CLI) prints the joined table/health view
-and `susi services restart <name>` SIGTERMs a supervised pid for the
-supervisor to respawn. `susi-gmcp` exposes the same surface to agents as
+(external rows marked `*`) and `susi services restart <name>` SIGTERMs
+a supervised pid for the supervisor to respawn — refusing external
+records, which are not ours to signal. `susi-gmcp` exposes the same
+surface to agents as
 governed tools (`os_services`, `os_ps`, `os_sysinfo`, `os_kill`), each
 behind `gawd_hooks::audit_action`; `os_kill` additionally fails closed to
 pids present in the process table only, so the tool can never signal an
@@ -337,7 +345,7 @@ operation log, and there is no cross-coordinator term ordering.
 | **Ordering + anti-entropy** | Per-coordinator monotonic `seq` (signed); a receiver detecting a gap resolves the coordinator via the `gawd.cluster.peers` roster topic and pulls missing records through `commit_log_fetch` (bounded, `offset`-paginated), verifying each before append and falling back through trust-sorted replicas. `susi commits sync` is the proactive form — a node that was offline during pushes catches up by pulling every verified peer's ledger. | `commit_log::missing_seqs`, `repair_commit_gap`, `commits_cli::sync` |
 | **State-machine replay** | `commit_log::replay()` folds the ledger into `ClusterState` (max term, leader, per-coordinator high-water seqs, anomalies) — the node's consensus view is a pure function of the log. | `commit_log::replay_records` |
 | **Audit** | `susi commits` lists the ledger newest-first with TERM column and `--coordinator`/`--term` filters; `show` dumps a record; `audit [--strict]` replays and flags signature/gap/duplicate/equivocation/term-regression/non-leader anomalies (nonzero exit under `--strict`); `replay` prints the reconstructed `ClusterState`; `sync` pulls missing records from verified peers. | `src/cli/commits_cli.rs` |
-| **OS view** | `susi os [--json]` — one-shot substrate status: consensus term/leader/age, decisions, anomalies, daemon liveness (substrate.lock pid), leaf-service table with uptime, verified peers with freshness + live TCP probes, and substrate_home disk free/total. `susi peers` lists/evicts (`remove` bans re-verification) / `unban`s roster members. | `src/cli/os_cli.rs`, `src/cli/peers_cli.rs` |
+| **OS view** | `susi os [--json]` — one-shot substrate status: consensus term/leader/age, decisions, anomalies, daemon liveness (substrate.lock pid), leaf-service table with uptime (external rows marked), verified peers with freshness + live TCP probes, and substrate_home disk free/total. `susi peers` lists/evicts (`remove` bans re-verification) / `unban`s roster members; `susi peers add <host[:port]>` bootstraps membership beyond LAN broadcast — a directed signed ping → verified signed pong persists the responder as `explicit`, and a peer that can't sign is never admitted. | `src/cli/os_cli.rs`, `src/cli/peers_cli.rs` |
 
 ## Migration roadmap (remaining)
 
