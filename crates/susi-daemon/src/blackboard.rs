@@ -164,6 +164,19 @@ impl SwarmBlackboard {
         crate::dashboard::render_health_dashboard(snapshot, &violations, &self.leaderboard())
     }
 
+    /// Text topology of registered cells and pheromone topic counts
+    /// (Bullet 63). Cell order is by id so the report is stable.
+    pub fn inspect(&self) -> String {
+        use std::collections::BTreeMap;
+        let mut counts = BTreeMap::new();
+        for entry in self.pheromones.iter() {
+            *counts.entry(entry.value().topic.clone()).or_default() += 1;
+        }
+        let mut cells = self.all_cells();
+        cells.sort_by(|left, right| left.cell_id.cmp(&right.cell_id));
+        crate::inspector::render(&cells, &counts)
+    }
+
     /// Projects how many cells could serve `capability_hash` after
     /// `change`, without registering or unregistering anyone (Bullet 76).
     pub fn project_cell_change(
@@ -379,5 +392,24 @@ mod tests {
         assert_eq!(projection.capable_before, 1);
         assert_eq!(projection.capable_after, 0);
         assert_eq!(board.leaderboard().len(), 1);
+    }
+
+    #[test]
+    fn inspect_lists_cells_and_pheromone_topics() {
+        let board = SwarmBlackboard::new();
+        board.register_cell(manifest("cell-a", 0.2));
+        board.deposit_pheromone(SwarmPheromone {
+            id: "p1".to_string(),
+            topic: "intent.deploy".to_string(),
+            emitter_id: "cell-a".to_string(),
+            kind: PheromoneKind::Intent,
+            intensity: 1.0,
+            payload: serde_json::json!({}),
+            ttl_ms: 60_000,
+            deposited_at: 0,
+        });
+        let report = board.inspect();
+        assert!(report.contains("cell-a"));
+        assert!(report.contains("intent.deploy: 1"));
     }
 }

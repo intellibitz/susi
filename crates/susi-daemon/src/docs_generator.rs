@@ -85,6 +85,7 @@ mod tests {
     fn cell_doc_includes_matching_spans() {
         let span = TraceSpan {
             trace_id: "t1".to_string(),
+            swarm_id: "swarm-1".to_string(),
             cell_id: "cell-a".to_string(),
             operation: "infer".to_string(),
             duration_ms: 120,
@@ -98,6 +99,7 @@ mod tests {
         let cells = vec![manifest("cell-a"), manifest("cell-b")];
         let spans = vec![TraceSpan {
             trace_id: "t1".to_string(),
+            swarm_id: "swarm-1".to_string(),
             cell_id: "cell-a".to_string(),
             operation: "infer".to_string(),
             duration_ms: 5,

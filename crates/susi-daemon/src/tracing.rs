@@ -1,7 +1,9 @@
-//! Universal Execution Tracing (Swarm OS Bullet 47)
+//! Universal Execution Tracing (Swarm OS Bullets 47 and 71)
 //!
 //! A standard tracing format (similar to OpenTelemetry) for cells
 //! to report their logical inference steps and reasoning graphs.
+//! Every span carries a `swarm_id` so logs, metrics, and traces for one
+//! swarm can be read back together.
 
 use serde::Serialize;
 use std::sync::RwLock;
@@ -9,6 +11,7 @@ use std::sync::RwLock;
 #[derive(Debug, Clone, Serialize)]
 pub struct TraceSpan {
     pub trace_id: String,
+    pub swarm_id: String,
     pub cell_id: String,
     pub operation: String,
     pub duration_ms: u64,
@@ -47,6 +50,17 @@ impl TracingCollector {
             .collect()
     }
 
+    /// Every span recorded for `swarm_id`, oldest first (Bullet 71).
+    pub fn spans_for_swarm(&self, swarm_id: &str) -> Vec<TraceSpan> {
+        self.spans
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .filter(|span| span.swarm_id == swarm_id)
+            .cloned()
+            .collect()
+    }
+
     /// Every span recorded, across all cells, oldest first.
     pub fn all_spans(&self) -> Vec<TraceSpan> {
         self.spans.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -60,6 +74,7 @@ mod tests {
     fn span(cell_id: &str, operation: &str) -> TraceSpan {
         TraceSpan {
             trace_id: "t1".to_string(),
+            swarm_id: "swarm-1".to_string(),
             cell_id: cell_id.to_string(),
             operation: operation.to_string(),
             duration_ms: 5,
