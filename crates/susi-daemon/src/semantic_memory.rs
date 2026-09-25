@@ -103,7 +103,11 @@ mod tests {
 
         assert_eq!(cosine_similarity(&a, &b), 0.0);
         assert_eq!(cosine_similarity(&a, &c), 1.0);
-        assert!((cosine_similarity(&a, &d) - 0.7071).abs() < 0.001);
+        // Expected cosine similarity of [1,0,0] vs [0.5,0.5,0]; incidentally
+        // close to FRAC_1_SQRT_2 but not standing in for it.
+        #[allow(clippy::approx_constant)]
+        let expected = 0.7071;
+        assert!((cosine_similarity(&a, &d) - expected).abs() < 0.001);
     }
 
     #[test]
