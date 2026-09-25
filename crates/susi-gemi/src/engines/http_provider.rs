@@ -770,6 +770,10 @@ pub(crate) fn is_non_chat_model_id(model_id: &str) -> bool {
         "whisper",
         "tts",
         "orpheus",
+        "realtime",
+        "transcribe",
+        "ocr",
+        "fim",
         "prompt-guard",
         "llama-guard",
         "shieldgemma",
@@ -872,6 +876,11 @@ mod tests {
             "gpt-4o-mini-tts",
             "canopylabs/orpheus-arabic-saudi",
             "canopylabs/orpheus-v1-english",
+            "mistral-ocr-2512",
+            "mistral-ocr-latest",
+            "codestral-fim-latest",
+            "voxtral-mini-transcribe-realtime",
+            "voxtral-mini-realtime-latest",
         ] {
             assert!(is_non_chat_model_id(id), "expected filtered: {id}");
         }
@@ -881,6 +890,10 @@ mod tests {
             "mistral-large-latest",
             "codestral-latest",
             "gemini-2.5-flash",
+            // Plain voxtral is a text+audio chat model — only its
+            // transcribe/realtime variants are speech-only.
+            "voxtral-mini-latest",
+            "voxtral-small-2507",
         ] {
             assert!(!is_non_chat_model_id(id), "expected kept: {id}");
         }
