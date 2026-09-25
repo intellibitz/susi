@@ -636,7 +636,7 @@ impl SusiDaemon {
         crate::privacy::wire_mac_policy(&workspace);
         crate::ambient::start_ambient_indexer(&workspace);
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
-        // susi_gemi::http_provider::apply_cloud_env_file();
+        susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
@@ -721,8 +721,8 @@ impl SusiDaemon {
         // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
         // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.
         match tokio::runtime::Runtime::new() {
-            Ok(_runtime) => {
-                // runtime.block_on(crate::auto_discovery::bootstrap_zero_config_substrate());
+            Ok(runtime) => {
+                runtime.block_on(crate::discovery_pipeline::bootstrap_zero_config_substrate());
             }
             Err(e) => {
                 eprintln!(
@@ -731,7 +731,7 @@ impl SusiDaemon {
                 );
             }
         }
-        // crate::auto_discovery::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
+        crate::discovery_pipeline::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
 
         // Hot-pluggable cell watcher (Swarm OS Bullet 6): monitors ~/.susi/cells/
         // for new/removed files and triggers auto-discovery without daemon restart.
@@ -767,7 +767,7 @@ impl SusiDaemon {
             .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
-        // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
+        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // Canonical public ports + the uniform port_offset — never fall back
         // to ephemeral ports.

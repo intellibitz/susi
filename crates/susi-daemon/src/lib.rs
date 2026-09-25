@@ -67,6 +67,7 @@ pub mod dashboard;
 pub mod db_index;
 pub mod dead_letter;
 pub mod discovery;
+pub mod discovery_pipeline;
 pub mod docs_generator;
 pub mod elastic_scheduler;
 pub mod encryption;
