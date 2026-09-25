@@ -1,6 +1,6 @@
 # susi
 
-![SUSI Version](https://img.shields.io/badge/version-v0.12.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
+![SUSI Version](https://img.shields.io/badge/version-v0.13.0-blue.svg) ![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)
 
 **The OS layer for AI agents** — a Tier S evidence-gated agent-of-agents substrate on your machine (not a replacement host OS; Mandate 45). Verify the crown with `susi crown`.
 

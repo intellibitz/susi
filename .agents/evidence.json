@@ -1290,6 +1290,16 @@
       "milestone": "daemon restart",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-135",
+      "milestone": "what is 2+2 --help",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
@@ -1297,5 +1307,5 @@
   "last_verification": "2026-09-24",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
-  "version": "0.12.0"
+  "version": "0.13.0"
 }
