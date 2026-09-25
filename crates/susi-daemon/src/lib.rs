@@ -88,6 +88,16 @@ pub mod nat;
 pub mod http_gateway;
 pub mod mount;
 pub mod gc;
+pub mod migration;
+pub mod db_index;
+pub mod tracing;
+pub mod sandbox_network;
+pub mod cron;
+pub mod signal;
+pub mod metrics_aggregator;
+pub mod dead_letter;
+pub mod secret_store;
+pub mod failover;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
