@@ -41,7 +41,6 @@ impl ReflexSynthesizer {
     /// `src/gmcp/reflexes/<intent>.rs`. `execute()` just echoes its argument
     /// back in a canned string — this scaffolds a reflex, it doesn't
     /// implement one.
-    #[allow(clippy::unwrap_used)]
     pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
         let slug = sanitize_reflex_slug(intent)?;
         let struct_name = intent
@@ -77,7 +76,9 @@ impl ReflexSynthesizer {
         // a join with a non-empty multi-segment relative path, so it always has
         // at least one path component beyond `workspace` and `.parent()` can
         // never be `None` here, regardless of what `workspace` itself is.
-        let _ = fs::create_dir_all(reflex_path.parent().unwrap());
+        if let Some(dir) = reflex_path.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
         fs::write(&reflex_path, code)?;
 
         Ok(format!(

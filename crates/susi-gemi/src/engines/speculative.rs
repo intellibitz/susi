@@ -275,7 +275,6 @@ impl SpeculativeDecoder {
     }
 
     #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
-    #[allow(clippy::unwrap_used)]
     fn run(
         target: &mut Qwen2Weights,
         draft: &mut Qwen2Weights,
@@ -486,7 +485,8 @@ impl SpeculativeDecoder {
             // `vec![anchor_token]` (never `vec![]`) and only ever grows via
             // `.push` afterward, so it's non-empty for the rest of this
             // scope and `.last()` can never return `None` here or below.
-            if all_tokens.len() >= max_tokens || eos_token_ids.contains(spec_chunk.last().unwrap())
+            if all_tokens.len() >= max_tokens
+                || eos_token_ids.contains(&spec_chunk.last().copied().unwrap_or(anchor_token))
             {
                 let output = tokenizer
                     .decode(&all_tokens, true)
@@ -497,7 +497,7 @@ impl SpeculativeDecoder {
             }
             draft
                 .forward(
-                    &single_token_tensor(*spec_chunk.last().unwrap())?,
+                    &single_token_tensor(spec_chunk.last().copied().unwrap_or(anchor_token))?,
                     round_start_pos + k - 1,
                 )
                 .map_err(|e| {
