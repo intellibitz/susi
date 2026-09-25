@@ -311,14 +311,33 @@ fn capture_workspace_file_read(
     } else {
         String::new()
     };
+    // Prefer a short certified answer when we already extracted the claim —
+    // dumping multi-KB manifests into the mission final poisons usability
+    // filters (e.g. the word "failures" in a rustc comment) and the UI.
+    let body = if !package_line.is_empty() {
+        format!(
+            "{package_line}Verified workspace read of `{rel_path}` \
+             (native confined, {} bytes, observed at Unix {observed_at})",
+            content.len()
+        )
+    } else if content.len() > 4_096 {
+        format!(
+            "Verified workspace read of `{rel_path}` \
+             (native confined, {} bytes, observed at Unix {observed_at}; truncated):\n{}",
+            content.len(),
+            &content[..4_096]
+        )
+    } else {
+        format!(
+            "Verified workspace read of `{rel_path}` \
+             (native confined, observed at Unix {observed_at}):\n{content}"
+        )
+    };
     Ok(VerifiedSystemRead {
         goal: normalized_goal.to_string(),
         workspace,
         captured_at,
-        answer: format!(
-            "{package_line}Verified workspace read of `{rel_path}` \
-             (native confined, observed at Unix {observed_at}):\n{content}"
-        ),
+        answer: body,
     })
 }
 
