@@ -729,6 +729,12 @@ impl SusiDaemon {
         }
         // crate::auto_discovery::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
 
+        // Hot-pluggable cell watcher (Swarm OS Bullet 6): monitors ~/.susi/cells/
+        // for new/removed files and triggers auto-discovery without daemon restart.
+        let _cell_watcher = crate::cell_watcher::start_cell_watcher(
+            crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
+        );
+
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 

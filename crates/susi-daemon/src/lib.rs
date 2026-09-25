@@ -49,6 +49,10 @@ pub mod server;
 pub mod supervisor;
 pub mod telemetry;
 pub mod tls;
+pub mod sandbox_wasm;
+pub mod security;
+pub mod cell_watcher;
+pub mod scheduler;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;

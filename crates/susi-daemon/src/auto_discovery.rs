@@ -16,6 +16,7 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
     if let Ok(entries) = std::fs::read_dir(&cells_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+            #[allow(clippy::collapsible_if)] // inner if-let guards a multi-branch match
             if path.is_file() {
                 // If the file is executable (or just a file in the cells dir), spawn it as a Swarm Cell
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -40,6 +41,33 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
                                 .arg(bind_addr)
                                 .arg(path_clone)
                                 .spawn();
+                        });
+                    } else if name.ends_with(".wasm") {
+                        // Spawn WASM cell via sandbox_wasm in a background thread.
+                        // The cell is loaded and its `_start` entry point is executed.
+                        let wasm_path = path.clone();
+                        std::thread::spawn(move || {
+                            match crate::sandbox_wasm::spawn_wasm_cell(wasm_path.clone()) {
+                                Ok(mut cell) => {
+                                    tracing::info!(
+                                        "[auto_discovery] Loaded WASM cell: {}",
+                                        wasm_path.display()
+                                    );
+                                    if let Err(e) = cell.execute("_start") {
+                                        tracing::warn!(
+                                            "[auto_discovery] WASM cell _start failed: {:#}",
+                                            e
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        "[auto_discovery] Failed to load WASM cell {}: {:#}",
+                                        wasm_path.display(),
+                                        e
+                                    );
+                                }
+                            }
                         });
                     }
                 }
