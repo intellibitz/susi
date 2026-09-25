@@ -936,27 +936,27 @@ impl SusiDaemon {
         // Never substitute the daemon's boot workspace — that made "susi" in
         // folder B silently operate on folder A whenever the daemon had been
         // started from A (same bug class as the cross-workspace binary restart).
-        // thread::spawn(move || {
-        //     let queue = SubstratePulseQueue::global();
-        //     let ama = SusiMasterAgent::new();
-        //
-        //     loop {
-        //         if let Some(pulse) = queue.pop() {
-        //             info!(
-        //                 "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
-        //                 pulse.intent,
-        //                 pulse.workspace.display()
-        //             );
-        //             let _ = ama.solve_stream(
-        //                 &pulse.intent,
-        //                 SubstratePulseQueue::execution_workspace(&pulse),
-        //                 &pulse.version,
-        //                 &|_| {},
-        //             );
-        //         }
-        //         thread::sleep(Duration::from_millis(100));
-        //     }
-        // });
+        thread::spawn(move || {
+            let queue = susi_gawd::queue::SubstratePulseQueue::global();
+            let ama = susi_gawd::ama::SusiMasterAgent::new();
+
+            loop {
+                if let Some(pulse) = queue.pop() {
+                    info!(
+                        "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
+                        pulse.intent,
+                        pulse.workspace.display()
+                    );
+                    let _ = ama.solve_stream(
+                        &pulse.intent,
+                        susi_gawd::queue::SubstratePulseQueue::execution_workspace(&pulse),
+                        &pulse.version,
+                        &|_| {},
+                    );
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        });
 
         // Process layer: bring the leaf services up and keep them up for
         // the life of the daemon. The supervisor terminates only pids it
