@@ -66,6 +66,8 @@ pub mod scratchfs;
 pub mod metrics;
 pub mod gossip;
 pub mod plugins;
+pub mod schema;
+pub mod rate_limit;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
