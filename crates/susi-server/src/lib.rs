@@ -335,7 +335,6 @@ impl GemiServer {
     }
 }
 
-#[allow(clippy::unwrap_used)]
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
@@ -759,11 +758,14 @@ async fn handle_gemi_request(
                 )
                 .header(
                     "Access-Control-Allow-Headers",
-                    HeaderValue::from_str(&allow_origin)
-                        .unwrap_or_else(|_| HeaderValue::from_static("*")),
+                    HeaderValue::from_static(
+                        "Authorization, Content-Type, X-Susi-Node, X-Susi-Req-Ts, X-Susi-Req-Nonce, X-Susi-Req-Sig",
+                    ),
                 )
                 .body(full_body(Vec::new()))
-                .unwrap())
+                .unwrap_or_else(|_| {
+                    api_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to build response")
+                }))
         }
         (&Method::GET, "/context-graph/stats") => {
             let payload = tokio::task::spawn_blocking(move || {
@@ -1066,7 +1068,6 @@ async fn handle_gemi_request(
     }
 }
 
-#[allow(clippy::unwrap_used)]
 #[allow(clippy::too_many_arguments)] // response constructor: the two
 // model strings serve different roles (response label vs routing hint)
 // and the permit must travel with the request — a struct adds a type
@@ -1123,7 +1124,12 @@ fn build_streaming_response(
             .unwrap_or_else(|_| HeaderValue::from_static("*")),
         )
         .body(body)
-        .unwrap()
+        .unwrap_or_else(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to build response",
+            )
+        })
 }
 
 fn completion_id() -> String {
