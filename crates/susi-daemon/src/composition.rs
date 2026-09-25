@@ -29,7 +29,7 @@ pub fn wire_plane_bus() {
 /// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
     wire_plane_bus();
-    // susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
+    susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
 
 /// CLI composition root: hooks → extension packs → cloud.env → auto-prime.

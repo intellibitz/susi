@@ -156,5 +156,6 @@ pub mod workloads;
 pub mod world_model;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
+pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs
