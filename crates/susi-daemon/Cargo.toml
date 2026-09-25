@@ -18,7 +18,7 @@ susi-tools = { workspace = true }
 susi-agents = { workspace = true }
 dashmap = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
-wasmtime = { version = "19.0", features = ["cranelift"] }
+wasmtime = { version = "24.0", features = ["cranelift"] }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 getrandom = { workspace = true }
