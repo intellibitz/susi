@@ -151,7 +151,9 @@ impl HardwareProfiler {
     fn get_disk_stats() -> (usize, u8) {
         use std::ffi::CString;
         if let Ok(c_path) = CString::new("/") {
+            // SAFETY: statvfs is a plain C struct; all-zero is a valid value that statvfs() overwrites.
             let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+            // SAFETY: `c_path` is a valid NUL-terminated string and `stat` is a live, writable statvfs.
             if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
                 let block_size = stat.f_frsize as u64;
                 let total_blocks = stat.f_blocks as u64;
@@ -199,7 +201,9 @@ impl HardwareProfiler {
         let Ok(c_path) = CString::new(path_str) else {
             return 0;
         };
+        // SAFETY: statvfs is a plain C struct; all-zero is a valid value that statvfs() overwrites.
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+        // SAFETY: `c_path` is a valid NUL-terminated string and `stat` is a live, writable statvfs.
         if unsafe { libc::statvfs(c_path.as_ptr(), &mut stat) } == 0 {
             (stat.f_bavail as u64) * (stat.f_frsize as u64)
         } else {
@@ -466,6 +470,7 @@ impl HardwareProfiler {
                 if let Ok(c_name) = CString::new("hw.memsize") {
                     let mut val: u64 = 0;
                     let mut size = std::mem::size_of::<u64>();
+                    // SAFETY: `c_name` is NUL-terminated and `val`/`size` describe a live u64 buffer of the stated size.
                     if unsafe {
                         libc::sysctlbyname(
                             c_name.as_ptr(),

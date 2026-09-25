@@ -113,6 +113,7 @@ impl DaemonLock {
             // doesn't access memory unsafely or take ownership.
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(300);
             loop {
+                // SAFETY: flock on a valid fd owned by `file`, which outlives the call; no memory is passed.
                 let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
                 if ret == 0 {
                     break;
@@ -137,7 +138,9 @@ impl DaemonLock {
             use winapi::um::minwinbase::{LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY};
 
             let handle = file.as_raw_handle();
+            // SAFETY: OVERLAPPED is a plain C struct for which all-zero is the documented initial state.
             let mut overlapped = unsafe { std::mem::zeroed() };
+            // SAFETY: `handle` is a valid open file handle owned by `file` and `overlapped` lives across the call.
             let ret = unsafe {
                 LockFileEx(
                     handle as _,
@@ -318,6 +321,7 @@ impl SusiDaemon {
         {
             #[cfg(unix)]
             {
+                // SAFETY: kill(pid, 0) sends no signal; it only probes whether the pid exists.
                 if unsafe { libc::kill(pid as i32, 0) } == 0 {
                     return Some(pid);
                 } else {
@@ -345,6 +349,7 @@ impl SusiDaemon {
         {
             #[cfg(unix)]
             {
+                // SAFETY: kill(pid, 0) sends no signal; it only probes whether the pid exists.
                 return unsafe { libc::kill(pid as i32, 0) == 0 };
             }
             #[cfg(windows)]
@@ -584,6 +589,7 @@ impl SusiDaemon {
             // _exit() without ever reaching execve(), so only the detached
             // grandchild becomes the running daemon. spawn() below then waits
             // on the already-exited middle process, not the daemon itself.
+            // SAFETY: the pre_exec closure only calls async-signal-safe libc functions (fork, _exit, setsid) between fork and exec.
             unsafe {
                 cmd.pre_exec(|| {
                     if libc::fork() > 0 {
@@ -1113,6 +1119,7 @@ impl SusiDaemon {
                             "[Self-Healing] Evicting stale susi process (PID: {}) holding port {}...",
                             pid, port
                         );
+                        // SAFETY: kill on a pid verified above to be a stale susi process holding our port; no memory is shared.
                         unsafe {
                             libc::kill(pid, libc::SIGKILL);
                         }
@@ -1384,6 +1391,7 @@ impl SusiDaemon {
                 && let Ok(pid) = content.lines().next().unwrap_or("").trim().parse::<i32>()
             {
                 #[cfg(unix)]
+                // SAFETY: kill with SIGTERM on the pid recorded in our own daemon lock file; no memory is shared.
                 unsafe {
                     libc::kill(pid, libc::SIGTERM);
                 }
@@ -1464,6 +1472,7 @@ impl SusiDaemon {
                     // cmdline is NUL-separated argv.
                     let is_daemon = cmdline.split(|b| *b == 0).any(|arg| arg == b"daemon-start");
                     if is_daemon && (!scoped_to_instance || Self::daemon_in_this_instance(pid)) {
+                        // SAFETY: kill with SIGTERM on a pid whose cmdline was just verified to be a susi daemon; no memory is shared.
                         unsafe {
                             libc::kill(pid, libc::SIGTERM);
                         }
