@@ -70,6 +70,8 @@ pub mod schema;
 pub mod rate_limit;
 pub mod vfs;
 pub mod logger;
+pub mod watchdog;
+pub mod cas;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
