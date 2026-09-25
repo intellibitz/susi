@@ -56,8 +56,9 @@ impl FallbackRouter {
         *guard = endpoint;
     }
 
-    /// Simulates executing an inference request with automatic fallback.
-    /// In a real implementation, this would make async HTTP/gRPC calls.
+    /// Execute an inference request against the primary endpoint, retrying
+    /// once on the fallback when the primary times out, errors, or is rate
+    /// limited. `executor` performs the actual call for an endpoint.
     pub fn execute_with_fallback<F>(&self, mut executor: F) -> Result<String, String>
     where
         F: FnMut(&InferenceEndpoint) -> InferenceResult,
