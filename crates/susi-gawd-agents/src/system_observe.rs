@@ -135,15 +135,12 @@ pub fn capture_verified_read(
     ) {
         return Some(capture_models_read(&normalized, workspace));
     }
-    // Workspace file reads (`run Read Cargo.toml …`) — mint a governed
-    // read_file receipt so the Fast-Path Read gate can pass without swarm.
+    // Workspace file reads (`run Read Cargo.toml …`) — native confined
+    // filesystem read (CLI has no Meta-Substrate tool registry; plane-bus
+    // read_file would CAPABILITY_GAP). Mints the same VerifiedSystemRead
+    // contract status/hostname use.
     if let Some(path) = extract_workspace_read_path(goal) {
-        return Some(capture_tool_read(
-            &normalized,
-            workspace,
-            "read_file",
-            serde_json::json!({ "path": path }),
-        ));
+        return Some(capture_workspace_file_read(&normalized, workspace, &path));
     }
     // Governed tool reads: the answer is the tool's own output verbatim,
     // which satisfies "evidence must be cited" only if the receipt binds
@@ -264,6 +261,83 @@ fn capture_models_read(
             "Active Model Substrates (Count: {count}, live scan observed at \
              Unix {observed_at}):\n\n{models}"
         ),
+    })
+}
+
+/// Native confined workspace file read — no plane-bus tool dependency.
+fn capture_workspace_file_read(
+    normalized_goal: &str,
+    workspace: &Path,
+    rel_path: &str,
+) -> crate::susi_error::EaiResult<VerifiedSystemRead> {
+    let workspace = workspace
+        .canonicalize()
+        .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
+    let target = crate::susi_core::evidence::confined_file(&workspace, Path::new(rel_path))
+        .ok_or_else(|| {
+            crate::susi_error::EaiError::filesystem(format!(
+                "file outside workspace or missing: {rel_path}"
+            ))
+        })?;
+    let captured_at = std::time::Instant::now();
+    let content = std::fs::read_to_string(&target)
+        .map_err(|e| crate::susi_error::EaiError::filesystem(e.to_string()))?;
+    if content.trim().is_empty() {
+        return Err(crate::susi_error::EaiError::governance(
+            "TRUTH_UNVERIFIED: file read produced no observation",
+        ));
+    }
+    let observed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| crate::susi_error::EaiError::process(e.to_string()))?
+        .as_secs();
+    let package_line = if rel_path.ends_with("Cargo.toml") {
+        content
+            .lines()
+            .skip_while(|l| !l.trim().eq_ignore_ascii_case("[package]"))
+            .skip(1)
+            .find_map(|l| {
+                let t = l.trim();
+                t.strip_prefix("name")
+                    .and_then(|r| r.trim().strip_prefix('='))
+                    .map(|v| {
+                        format!(
+                            "package.name = {}\n",
+                            v.trim().trim_matches('"').trim_matches('\'')
+                        )
+                    })
+            })
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    // Prefer a short certified answer when we already extracted the claim —
+    // dumping multi-KB manifests into the mission final poisons usability
+    // filters (e.g. the word "failures" in a rustc comment) and the UI.
+    let body = if !package_line.is_empty() {
+        format!(
+            "{package_line}Verified workspace read of `{rel_path}` \
+             (native confined, {} bytes, observed at Unix {observed_at})",
+            content.len()
+        )
+    } else if content.len() > 4_096 {
+        format!(
+            "Verified workspace read of `{rel_path}` \
+             (native confined, {} bytes, observed at Unix {observed_at}; truncated):\n{}",
+            content.len(),
+            &content[..4_096]
+        )
+    } else {
+        format!(
+            "Verified workspace read of `{rel_path}` \
+             (native confined, observed at Unix {observed_at}):\n{content}"
+        )
+    };
+    Ok(VerifiedSystemRead {
+        goal: normalized_goal.to_string(),
+        workspace,
+        captured_at,
+        answer: body,
     })
 }
 
