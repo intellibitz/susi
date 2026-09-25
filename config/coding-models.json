@@ -65,7 +65,7 @@
     "rank": 7,
     "documentation": "https://ai.google.dev/gemini-api/docs/models",
     "engine": "GoogleGemini",
-    "model": "gemini-2.5-pro",
+    "model": "gemini-2.5-flash",
     "protocol_type": "gemini",
     "api_key_env": "GEMINI_API_KEY"
   },

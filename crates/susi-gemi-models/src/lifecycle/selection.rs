@@ -140,6 +140,27 @@ impl ModelManager {
                 .then_some((m, size_gb))
             })
             .collect();
+
+        // Free VRAM (minus CUDA-context reserve), not total capacity —
+        // a model that fits the card on paper still OOMs at load when
+        // another process or the previous inference holds memory.
+        let vram_budget_gb =
+            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
+        // When any candidate fits VRAM, drop CPU-spill giants from the
+        // default pick: a 19GB Q4 on an 8GB Ada card "fits" RAM but runs
+        // at ~7 tok/s and trips cloud escalation. Keep oversize models
+        // only when nothing GPU-resident is available.
+        let any_vram_fit = hw.acceleration_active
+            && vram_budget_gb > 0.0
+            && sized_models.iter().any(|(_, size)| *size <= vram_budget_gb);
+        let sized_models: Vec<(ModelInfo, f32)> = if any_vram_fit {
+            sized_models
+                .into_iter()
+                .filter(|(_, size)| *size <= vram_budget_gb)
+                .collect()
+        } else {
+            sized_models
+        };
         let min_size_gb = sized_models
             .iter()
             .map(|(_, s)| *s)
@@ -148,12 +169,6 @@ impl ModelManager {
             .iter()
             .map(|(_, s)| *s)
             .fold(f32::NEG_INFINITY, f32::max);
-
-        // Free VRAM (minus CUDA-context reserve), not total capacity —
-        // a model that fits the card on paper still OOMs at load when
-        // another process or the previous inference holds memory.
-        let vram_budget_gb =
-            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
 
         for (m, model_size_gb) in sized_models {
@@ -161,7 +176,7 @@ impl ModelManager {
             score +=
                 Self::size_preference_score(model_size_gb, min_size_gb, max_size_gb, complexity);
             if hw.acceleration_active && vram_budget_gb > 0.0 && model_size_gb <= vram_budget_gb {
-                score += 20.0;
+                score += 50.0;
             }
             if m.provider() == "NativeCandle" {
                 score += heuristics.native_candle_bonus;

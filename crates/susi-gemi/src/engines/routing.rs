@@ -41,6 +41,11 @@ pub struct InferenceRouter;
 /// mission and spam the error sink.
 const PROVIDER_DOWN_COOLDOWN_SECS: u64 = 120;
 
+/// Model ID retired or never served (HTTP 404 / "No endpoints found" /
+/// "no longer available"). Longer than the generic per-provider cool:
+/// a stale catalog entry will not revive without an operator bump.
+const MODEL_GONE_COOLDOWN_SECS: u64 = 86_400;
+
 /// Scope-wide failures — credential (HTTP 401/402/403/429) and transport
 /// (connect refused, unreachable engine, timeout) — indict the vendor's
 /// key/account or the whole endpoint, not the individual model. Every
@@ -163,6 +168,16 @@ impl InferenceRouter {
     /// swarm recovery loop reports through.
     pub fn record_failure(name: &str, error: &str) {
         Self::record_provider_failure(name);
+        // Retired / unknown model IDs are model-scoped: cool this entry
+        // longer so a stale catalog does not burn a request every mission.
+        if Self::is_model_gone_error(error) {
+            let mut map = provider_down_map()
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            map.insert(name.to_string(), now_unix() + MODEL_GONE_COOLDOWN_SECS);
+            save_cooldowns(&map);
+            return;
+        }
         let scoped = [
             "HTTP 401",
             "HTTP 402",
@@ -178,6 +193,20 @@ impl InferenceRouter {
         if scoped {
             Self::record_vendor_failure(name);
         }
+    }
+
+    fn is_model_gone_error(error: &str) -> bool {
+        let lower = error.to_ascii_lowercase();
+        [
+            "http 404",
+            "no endpoints found",
+            "model not found",
+            "does not exist",
+            "no longer available",
+            "is not found for api version",
+        ]
+        .iter()
+        .any(|s| lower.contains(s))
     }
 
     /// Clear a provider's cooldown after a successful call. A live response
@@ -923,6 +952,8 @@ mod tests {
         InferenceRouter::record_failure(&down, "HTTP 404: model not found");
         assert!(InferenceRouter::provider_cooled(&down));
         assert!(!InferenceRouter::provider_cooled(&sibling));
+        // Model-gone errors must still clear on a later success (catalog fixed).
         InferenceRouter::record_provider_success(&down);
+        assert!(!InferenceRouter::provider_cooled(&down));
     }
 }

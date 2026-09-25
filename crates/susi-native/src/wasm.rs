@@ -114,7 +114,8 @@ mod tests {
 
     #[test]
     fn untrusted_wasm_cannot_open_host_files() {
-        let path = std::env::temp_dir().join(format!("susi_wasm_fs_probe_{}.wat", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("susi_wasm_fs_probe_{}.wat", std::process::id()));
         std::fs::write(&path, HOST_FS_PROBE_WAT).unwrap();
 
         let result = WasmHost::execute_untrusted_wasm(&path, "unused");

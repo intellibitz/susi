@@ -103,13 +103,13 @@
       "api_key_env": "MISTRAL_API_KEY"
     },
     {
-      "id": "llama-3.1-8b-instant",
+      "id": "openai/gpt-oss-20b",
       "engine": "Groq",
       "protocol_type": "chat",
       "api_key_env": "GROQ_API_KEY"
     },
     {
-      "id": "llama-3.3-70b-versatile",
+      "id": "qwen/qwen3-32b",
       "engine": "Groq",
       "protocol_type": "chat",
       "api_key_env": "GROQ_API_KEY"
@@ -145,7 +145,7 @@
       "api_key_env": "OPENROUTER_API_KEY"
     },
     {
-      "id": "anthropic/claude-3.5-haiku",
+      "id": "anthropic/claude-haiku-4.5",
       "engine": "OpenRouter",
       "protocol_type": "chat",
       "api_key_env": "OPENROUTER_API_KEY"
@@ -157,7 +157,7 @@
       "api_key_env": "OPENROUTER_API_KEY"
     },
     {
-      "id": "google/gemini-2.5-pro",
+      "id": "google/gemini-2.5-flash",
       "engine": "OpenRouter",
       "protocol_type": "chat",
       "api_key_env": "OPENROUTER_API_KEY"
