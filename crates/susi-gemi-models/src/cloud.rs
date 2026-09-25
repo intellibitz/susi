@@ -288,7 +288,41 @@ pub fn effective_inference_endpoints() -> Vec<crate::susi_sandbox::manager::Infe
     for endpoint in user {
         by_name.insert(endpoint.name.to_ascii_lowercase(), endpoint);
     }
-    by_name.into_values().collect()
+    by_name
+        .into_values()
+        .map(|mut endpoint| {
+            remap_retired_endpoint_model(&mut endpoint);
+            endpoint
+        })
+        .collect()
+}
+
+/// Host `config.json` often freezes an endpoint's `model` at first seed.
+/// When that ID has been retired by the vendor, substitute the current
+/// bundled default so registration does not advertise a known-404 name.
+fn remap_retired_endpoint_model(
+    endpoint: &mut crate::susi_sandbox::manager::InferenceEndpointItem,
+) {
+    let name = endpoint.name.to_ascii_lowercase();
+    let model = endpoint.model.as_str();
+    let replacement = match (name.as_str(), model) {
+        (
+            "groq",
+            "llama-3.3-70b-versatile"
+            | "llama-3.1-8b-instant"
+            | "llama-3.1-70b-versatile"
+            | "mixtral-8x7b-32768",
+        ) => Some("openai/gpt-oss-20b"),
+        (
+            "googlegemini" | "gemini" | "google",
+            "gemini-2.0-pro" | "gemini-1.5-pro" | "gemini-2.5-pro" | "gemini-2.5-flash"
+            | "gemini-2.0-flash" | "gemini-1.5-flash",
+        ) => Some("gemini-3.6-flash"),
+        _ => None,
+    };
+    if let Some(next) = replacement {
+        endpoint.model = next.to_string();
+    }
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
@@ -333,6 +367,31 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remap_retired_groq_and_gemini_models() {
+        let mut groq = crate::susi_sandbox::manager::InferenceEndpointItem {
+            name: "Groq".into(),
+            api_base: "https://api.groq.com/openai/v1".into(),
+            protocol_type: "chat".into(),
+            model: "llama-3.3-70b-versatile".into(),
+            api_key_env: "GROQ_API_KEY".into(),
+            ..Default::default()
+        };
+        remap_retired_endpoint_model(&mut groq);
+        assert_eq!(groq.model, "openai/gpt-oss-20b");
+
+        let mut gemini = crate::susi_sandbox::manager::InferenceEndpointItem {
+            name: "GoogleGemini".into(),
+            api_base: "https://generativelanguage.googleapis.com/v1beta".into(),
+            protocol_type: "gemini".into(),
+            model: "gemini-2.5-flash".into(),
+            api_key_env: "GEMINI_API_KEY".into(),
+            ..Default::default()
+        };
+        remap_retired_endpoint_model(&mut gemini);
+        assert_eq!(gemini.model, "gemini-3.6-flash");
+    }
 
     #[test]
     fn parse_env_file_supports_export_and_comments() {

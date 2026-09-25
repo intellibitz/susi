@@ -237,6 +237,7 @@ impl GemiEngine {
                 // Feed the latency gate so the next request can escalate if slow.
                 if engine_key == "llamacpp" {
                     crate::routing::InferenceRouter::record_local_sample(
+                        selected_model.as_deref().unwrap_or(""),
                         local_started.elapsed(),
                         res.len(),
                     );

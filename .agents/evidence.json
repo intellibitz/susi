@@ -1310,6 +1310,26 @@
       "milestone": "doctor",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-137",
+      "milestone": "providers",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-138",
+      "milestone": "run Say only: pong",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
