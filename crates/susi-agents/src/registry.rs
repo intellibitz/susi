@@ -92,6 +92,12 @@ impl AgentMetaRegistry {
                     let old_rank = agent.base_rank;
                     agent.base_rank = (agent.base_rank + delta).clamp(0.1, 1.0);
 
+                    // A clamped no-op (e.g. rank already at the 0.1 floor
+                    // absorbing another failure) is not a mutation — auditing
+                    // it floods the ledger with zero-delta entries.
+                    if agent.base_rank == old_rank {
+                        return;
+                    }
                     let log_msg = format!(
                         "Agent '{}' rank mutation: {:.2} -> {:.2} (Source: {})",
                         name_owned, old_rank, agent.base_rank, source_owned
