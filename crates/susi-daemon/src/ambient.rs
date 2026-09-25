@@ -34,7 +34,7 @@ pub fn pulse(workspace: &Path) -> AmbientPulseReport {
     let mut state = load_scan_state(workspace);
     let changed = scan_with_state(workspace, &mut state);
     save_scan_state(workspace, &state);
-    let indexed = 0; // susi_gmcp::tools::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
+    let indexed = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(workspace).unwrap_or(0);
     AmbientPulseReport {
         files_changed: changed,
         docs_indexed: indexed,
@@ -106,7 +106,7 @@ fn ambient_loop(workspace: PathBuf) {
         let changed = scan_with_state(&workspace, &mut last);
         if changed > 0 {
             save_scan_state(&workspace, &last);
-            // let _ = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(&workspace);
+            let _ = susi_gmcp::tools::semantic_index::SemanticIndex::refresh(&workspace);
         }
         std::thread::sleep(Duration::from_secs(15));
     }

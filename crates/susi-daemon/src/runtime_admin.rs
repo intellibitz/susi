@@ -126,17 +126,16 @@ impl SusiRuntimeAdmin {
     }
 
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
-    fn consolidate_sovereign_memory(_workspace: &Path) -> EaiResult<()> {
+    fn consolidate_sovereign_memory(workspace: &Path) -> EaiResult<()> {
         info!("[Sovereign Mind] Consolidating mission experience into PKB...");
-        // let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
+        let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
         Ok(())
     }
 
     /// Best-effort local scan of `substrate_home` for exfiltration risk:
     /// known credential/key files whose permissions grant group or other
     /// any access. This is the substrate-safety scan `perform_host_readiness`
-    /// promises — no LLM-driven analysis (`susi-daemon` cannot depend on
-    /// `susi-gawd`; crate leaf order), but a real, bounded, permission-based
+    /// promises — no LLM-driven analysis, but a real, bounded, permission-based
     /// check rather than an inert placeholder. A `*.key`/`*token*` file
     /// existing under `~/.susi` is expected (cluster/node identity); the
     /// risk is exposure via permissive bits, not mere existence.
@@ -205,7 +204,7 @@ impl SusiRuntimeAdmin {
     /// `substrate_home` as a coding project — project work is always cwd.
     pub fn perform_host_readiness(substrate_home: &Path) -> EaiResult<()> {
         info!("[Readiness] Auditing model substrate optimal state...");
-        // let _ = ModelManager::ensure_hardware_optimal_models(substrate_home);
+        let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(substrate_home);
 
         info!("[Readiness] Scanning substrate for exfiltration vectors...");
         let findings = Self::scan_for_exfiltration_risks(substrate_home);
@@ -229,11 +228,10 @@ impl SusiRuntimeAdmin {
     }
 
     /// Hardware saturation audit, drift detection, and model substrate tuning.
-    pub fn perform_substrate_audit(_workspace: &Path) -> EaiResult<()> {
-        // let profile = HardwareProfiler::get_profile();
+    pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
+        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
 
         // 1. Hardware Saturation Audit
-        /*
         if profile.acceleration_active {
             SusiAuditLogger::log_event(
                 workspace,
@@ -247,13 +245,12 @@ impl SusiRuntimeAdmin {
                 "System RAM sufficient for high-fidelity CPU inference.",
             );
         }
-        */
 
         // 2. Autonomous Drift Detection
-        // let _ = susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+        let _ = susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
 
         // 3. Model Substrate Tuning
-        // let _ = ModelManager::ensure_hardware_optimal_models(workspace);
+        let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);
 
         Ok(())
     }
