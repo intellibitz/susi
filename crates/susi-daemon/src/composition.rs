@@ -44,6 +44,18 @@ pub fn wire_plane_bus() {
         )
         .spawn();
     });
+    
+    // Spawn the DeepSeek Harness (DSH) Swarm Cell wrapper
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new(
+            std::env::current_exe()
+                .unwrap_or_else(|_| "susi-daemon".into())
+                .parent()
+                .unwrap()
+                .join("susi-dsh-cell"),
+        )
+        .spawn();
+    });
     // susi_tools::plane_handler::register();
     // susi_agents::plane_handler::register();
 }

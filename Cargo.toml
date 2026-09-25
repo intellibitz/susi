@@ -18,6 +18,7 @@ members = [
     "crates/susi-gawd-swarm",
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
+    "crates/susi-dsh-cell"
 ]
 
 [package]

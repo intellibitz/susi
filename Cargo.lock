@@ -6985,6 +6985,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-dsh-cell"
+version = "0.14.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "susi-abi",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
