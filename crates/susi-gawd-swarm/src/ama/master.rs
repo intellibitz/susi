@@ -522,8 +522,22 @@ impl SusiMasterAgent {
                     "FAILED"
                 }
                 .to_string(),
-                // Fast path: no agent fleet ran, so the report lists none.
-                agents: Vec::new(),
+                // Glass box: Safety/Security already audited this Read path —
+                // report them so "Agents Recruited" matches the telemetry.
+                agents: vec![
+                    susi_gawd_agents::GawdAgentInfo {
+                        name: "SafetyAgent".into(),
+                        provider: "Local Core".into(),
+                        url: String::new(),
+                        rank: 1.0,
+                    },
+                    susi_gawd_agents::GawdAgentInfo {
+                        name: "SecurityAgent".into(),
+                        provider: "Local Core".into(),
+                        url: String::new(),
+                        rank: 1.0,
+                    },
+                ],
                 interactions: Vec::new(),
                 final_answer,
             };

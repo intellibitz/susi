@@ -2635,26 +2635,67 @@ pub mod extensions {
         }
     }
 
-    /// Seed the default pack onto the host if missing (idempotent, never overwrites).
+    /// Seed the default pack onto the host. Missing files are created from
+    /// the bundled catalog. Existing files are refreshed only when they still
+    /// match the previously seeded digest (operator has not customized them).
     pub fn seed_default_pack() -> Result<PathBuf, String> {
+        use sha2::{Digest, Sha256};
         let root = extensions_root().join(DEFAULT_PACK_ID);
         private_dir(&root)?;
         let host_manifest = host_seed_manifest();
-        let manifest_path = root.join("manifest.json");
-        if !manifest_path.is_file() {
-            let text = serde_json::to_string_pretty(&host_manifest).map_err(|e| e.to_string())?;
-            write_private_file(&manifest_path, &format!("{text}\n"))?;
-        }
-        for name in host_manifest.files.keys() {
-            let dest = root.join(name);
-            if dest.is_file() {
-                continue;
+        let digests_path = root.join(".bundled-digests.json");
+        let prior: BTreeMap<String, String> = std::fs::read_to_string(&digests_path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let mut next = BTreeMap::new();
+        let digest_of = |bytes: &[u8]| hex::encode(Sha256::digest(bytes));
+
+        let sync_file = |name: &str,
+                         dest: &Path,
+                         bundled: &str,
+                         next: &mut BTreeMap<String, String>|
+         -> Result<(), String> {
+            let bundled_digest = digest_of(bundled.as_bytes());
+            if !dest.is_file() {
+                write_private_file(dest, bundled)?;
+                next.insert(name.to_string(), bundled_digest);
+                return Ok(());
             }
+            let Ok(current) = std::fs::read_to_string(dest) else {
+                next.insert(name.to_string(), bundled_digest);
+                return Ok(());
+            };
+            let current_digest = digest_of(current.as_bytes());
+            let refresh = prior
+                .get(name)
+                .is_some_and(|prev| prev == &current_digest && prev != &bundled_digest);
+            if refresh {
+                write_private_file(dest, bundled)?;
+                next.insert(name.to_string(), bundled_digest);
+            } else {
+                next.insert(name.to_string(), current_digest);
+            }
+            Ok(())
+        };
+
+        let manifest_text =
+            serde_json::to_string_pretty(&host_manifest).map_err(|e| e.to_string())? + "\n";
+        sync_file(
+            "manifest.json",
+            &root.join("manifest.json"),
+            &manifest_text,
+            &mut next,
+        )?;
+
+        for name in host_manifest.files.keys() {
             let Some(bytes) = bundled_bytes_for(name) else {
                 continue;
             };
-            write_private_file(&dest, bytes)?;
+            sync_file(name, &root.join(name), bytes, &mut next)?;
         }
+        let digests_json = serde_json::to_string_pretty(&next).map_err(|e| e.to_string())?;
+        write_private_file(&digests_path, &format!("{digests_json}\n"))?;
         Ok(root)
     }
 

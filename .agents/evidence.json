@@ -1300,6 +1300,16 @@
       "milestone": "what is 2+2 --help",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-136",
+      "milestone": "doctor",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

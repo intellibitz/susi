@@ -17,8 +17,8 @@
     "id": "claude-haiku",
     "name": "Claude Haiku (via OpenRouter)",
     "rank": 3,
-    "model": "anthropic/claude-3.5-haiku",
-    "documentation": "https://openrouter.ai/anthropic/claude-3.5-haiku"
+    "model": "anthropic/claude-haiku-4.5",
+    "documentation": "https://openrouter.ai/anthropic/claude-haiku-4.5"
   },
   {
     "id": "gpt-4o-mini",
