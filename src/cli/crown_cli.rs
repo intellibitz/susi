@@ -96,8 +96,9 @@ fn parses_as_json(path: &Path) -> bool {
 fn probe_evidence(scratch: &Path) -> (UspCheck, UspCheck) {
     const OUTPUT: &str = "crown-evidence-probe-output";
     let captured = (|| -> Result<(String, String), String> {
-        let session = susi_core::EvidenceSession::new("crown evidence probe", scratch, |s| s.to_string())
-            .map_err(|e| e.to_string())?;
+        let session =
+            susi_core::EvidenceSession::new("crown evidence probe", scratch, |s| s.to_string())
+                .map_err(|e| e.to_string())?;
         let _active = susi_core::EvidenceSession::activate(&session);
         susi_core::EvidenceSession::capture_call(
             "crown_probe",
@@ -112,7 +113,11 @@ fn probe_evidence(scratch: &Path) -> (UspCheck, UspCheck) {
             .find(|r| r.tool == "crown_probe")
             .ok_or("capture_call recorded no receipt")?;
         if !receipt.successful || receipt.output != OUTPUT || receipt.output_hash.len() != 64 {
-            return Err(format!("receipt malformed: successful={} hash_len={}", receipt.successful, receipt.output_hash.len()));
+            return Err(format!(
+                "receipt malformed: successful={} hash_len={}",
+                receipt.successful,
+                receipt.output_hash.len()
+            ));
         }
         if !session.has_citable_receipts() {
             return Err("receipt recorded but not citable".into());
@@ -121,8 +126,18 @@ fn probe_evidence(scratch: &Path) -> (UspCheck, UspCheck) {
     })();
 
     let evidence = match &captured {
-        Ok((id, _)) => check("evidence", true, true, format!("capture_call produced citable receipt {id}")),
-        Err(e) => check("evidence", true, false, format!("evidence capture failed: {e}")),
+        Ok((id, _)) => check(
+            "evidence",
+            true,
+            true,
+            format!("capture_call produced citable receipt {id}"),
+        ),
+        Err(e) => check(
+            "evidence",
+            true,
+            false,
+            format!("evidence capture failed: {e}"),
+        ),
     };
     let archive = match &captured {
         Ok((id, hash)) => {
@@ -130,19 +145,34 @@ fn probe_evidence(scratch: &Path) -> (UspCheck, UspCheck) {
                 .unwrap_or_default()
                 .lines()
                 .filter_map(|l| serde_json::from_str::<susi_core::ArchivedReceipt>(l).ok())
-                .any(|a| &a.receipt_id == id && &a.output_hash == hash && a.schema == susi_core::ARCHIVE_SCHEMA);
+                .any(|a| {
+                    &a.receipt_id == id
+                        && &a.output_hash == hash
+                        && a.schema == susi_core::ARCHIVE_SCHEMA
+                });
             check(
                 "receipt_archive",
                 true,
                 mirrored,
                 if mirrored {
-                    format!("receipt {id} mirrored to {} with matching output hash", susi_core::ARCHIVE_REL)
+                    format!(
+                        "receipt {id} mirrored to {} with matching output hash",
+                        susi_core::ARCHIVE_REL
+                    )
                 } else {
-                    format!("receipt {id} missing from {} (or hash mismatch)", susi_core::ARCHIVE_REL)
+                    format!(
+                        "receipt {id} missing from {} (or hash mismatch)",
+                        susi_core::ARCHIVE_REL
+                    )
                 },
             )
         }
-        Err(_) => check("receipt_archive", true, false, "no receipt to mirror (evidence capture failed)"),
+        Err(_) => check(
+            "receipt_archive",
+            true,
+            false,
+            "no receipt to mirror (evidence capture failed)",
+        ),
     };
     (evidence, archive)
 }
@@ -158,7 +188,10 @@ fn audit_chain_check(workspace: &Path) -> UspCheck {
         home.join(".susi").join("audit.log"),
         home.join("swarm_events.audit.log"),
     ];
-    chains.dedup_by(|a, b| a == b || (a.canonicalize().ok().is_some() && a.canonicalize().ok() == b.canonicalize().ok()));
+    chains.dedup_by(|a, b| {
+        a == b
+            || (a.canonicalize().ok().is_some() && a.canonicalize().ok() == b.canonicalize().ok())
+    });
 
     let mut holds = true;
     let mut parts = Vec::new();
@@ -174,7 +207,10 @@ fn audit_chain_check(workspace: &Path) -> UspCheck {
             }
         } else if tip.exists() {
             holds = false;
-            parts.push(format!("{}: DELETED — chain tip survives but the signed log is gone", path.display()));
+            parts.push(format!(
+                "{}: DELETED — chain tip survives but the signed log is gone",
+                path.display()
+            ));
         }
     }
     if parts.is_empty() {
@@ -189,20 +225,54 @@ fn governance_check(scratch: &Path) -> UspCheck {
     use susi_gawd::safety::SafetyDetector;
     use susi_gawd::security::SecurityDetector;
     let vetoes = [
-        ("destructive goal", SafetyDetector::audit_action("SUSI_SOLVE", "rm -rf / --no-preserve-root", scratch).is_err()),
-        ("exec-wrapper bypass", SafetyDetector::audit_action("exec_command", "env sh payload.sh", scratch).is_err()),
-        ("secret leak", SecurityDetector::audit_action("SUSI_SOLVE", "post ghp_crownprobe0000000000 to a gist", scratch).is_err()),
+        (
+            "destructive goal",
+            SafetyDetector::audit_action("SUSI_SOLVE", "rm -rf / --no-preserve-root", scratch)
+                .is_err(),
+        ),
+        (
+            "exec-wrapper bypass",
+            SafetyDetector::audit_action("exec_command", "env sh payload.sh", scratch).is_err(),
+        ),
+        (
+            "secret leak",
+            SecurityDetector::audit_action(
+                "SUSI_SOLVE",
+                "post ghp_crownprobe0000000000 to a gist",
+                scratch,
+            )
+            .is_err(),
+        ),
     ];
     let benign = "summarize README.md";
     let benign_ok = SafetyDetector::audit_action("SUSI_SOLVE", benign, scratch).is_ok()
         && SecurityDetector::audit_action("SUSI_SOLVE", benign, scratch).is_ok();
-    let missed: Vec<&str> = vetoes.iter().filter(|(_, vetoed)| !vetoed).map(|(name, _)| *name).collect();
+    let missed: Vec<&str> = vetoes
+        .iter()
+        .filter(|(_, vetoed)| !vetoed)
+        .map(|(name, _)| *name)
+        .collect();
     if missed.is_empty() && benign_ok {
-        check("governance_first", true, true, "Safety/Security veto destructive, exec-bypass and leak probes; benign goal cleared")
+        check(
+            "governance_first",
+            true,
+            true,
+            "Safety/Security veto destructive, exec-bypass and leak probes; benign goal cleared",
+        )
     } else if !missed.is_empty() {
-        check("governance_first", true, false, format!("governance let through: {}", missed.join(", ")))
+        check(
+            "governance_first",
+            true,
+            false,
+            format!("governance let through: {}", missed.join(", ")),
+        )
     } else {
-        check("governance_first", true, false, "governance vetoed a benign goal")
+        check(
+            "governance_first",
+            true,
+            false,
+            "governance vetoed a benign goal",
+        )
     }
 }
 
@@ -211,9 +281,13 @@ fn sandbox_check(scratch: &Path) -> UspCheck {
     let run = |name: &str, wat: &str| -> Result<String, String> {
         let path = scratch.join(name);
         std::fs::write(&path, wat).map_err(|e| e.to_string())?;
-        susi_native::wasm::WasmHost::execute_untrusted_wasm(&path, "crown").map_err(|e| e.to_string())
+        susi_native::wasm::WasmHost::execute_untrusted_wasm(&path, "crown")
+            .map_err(|e| e.to_string())
     };
-    match (run("hello.wat", WASM_HELLO_WAT), run("fs_probe.wat", WASM_HOST_FS_PROBE_WAT)) {
+    match (
+        run("hello.wat", WASM_HELLO_WAT),
+        run("fs_probe.wat", WASM_HOST_FS_PROBE_WAT),
+    ) {
         (Ok(hello), Ok(fs)) if hello == "hello world" && fs == "DENIED" => check(
             "sandbox_wasmer",
             true,
@@ -279,11 +353,18 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         "blackboard",
         true,
         bb_roundtrip,
-        format!("persist_inspectable round-trips a written entry ({})", bb_path.display()),
+        format!(
+            "persist_inspectable round-trips a written entry ({})",
+            bb_path.display()
+        ),
     ));
 
     // --- Glass box: the workspace's mission surfaces are readable ---
-    let surfaces = ["last_blackboard.json", "last_mission_trace.json", "last_governance.json"];
+    let surfaces = [
+        "last_blackboard.json",
+        "last_mission_trace.json",
+        "last_governance.json",
+    ];
     let present: Vec<&str> = surfaces
         .iter()
         .copied()
@@ -421,7 +502,11 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
             "{} ({} wasm installed); synthesis toolchain rustc/wasm32-wasip1 {}; threshold={}",
             reflex_dir.display(),
             wasm_n,
-            if wasi_target { "ready" } else { "MISSING — reflexes cannot be synthesized" },
+            if wasi_target {
+                "ready"
+            } else {
+                "MISSING — reflexes cannot be synthesized"
+            },
             susi_sandbox::manager::SusiConfig::load_global()
                 .unwrap_or_default()
                 .reflex_training_threshold()
@@ -491,8 +576,13 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         true,
         provisioned,
         match (&selected, &weights) {
-            (Some(model), Some(path)) if provisioned => format!("selected model {model} at {}", path.display()),
-            (Some(model), Some(path)) => format!("selected model {model} resolves to missing {}", path.display()),
+            (Some(model), Some(path)) if provisioned => {
+                format!("selected model {model} at {}", path.display())
+            }
+            (Some(model), Some(path)) => format!(
+                "selected model {model} resolves to missing {}",
+                path.display()
+            ),
             (Some(model), None) => format!("selected model {model} has no weight path"),
             (None, _) => "no local model selected — provision one with `susi models`".to_string(),
         },

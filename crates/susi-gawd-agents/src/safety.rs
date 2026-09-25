@@ -67,17 +67,31 @@ fn c4_block(reason: impl std::fmt::Display) -> EaiError {
 /// flags that turn an allowlisted read tool into an exec or write primitive.
 fn audit_exec_argv(command: &str) -> EaiResult<()> {
     let args = shlex::split(command).ok_or_else(|| c4_block("unparseable command line"))?;
-    let bin = args.first().ok_or_else(|| c4_block("empty command"))?.to_lowercase();
+    let bin = args
+        .first()
+        .ok_or_else(|| c4_block("empty command"))?
+        .to_lowercase();
     if !ALLOWED_EXEC_BINS.contains(&bin.as_str()) {
-        return Err(c4_block(format!("Executable '{bin}' not in strict allowlist")));
+        return Err(c4_block(format!(
+            "Executable '{bin}' not in strict allowlist"
+        )));
     }
     let rest = &args[1..];
     let has = |flags: &[&str]| rest.iter().find(|a| flags.contains(&a.as_str()));
-    let has_prefix = |prefixes: &[&str]| rest.iter().find(|a| prefixes.iter().any(|p| a.starts_with(p)));
+    let has_prefix = |prefixes: &[&str]| {
+        rest.iter()
+            .find(|a| prefixes.iter().any(|p| a.starts_with(p)))
+    };
 
     let violation = match bin.as_str() {
-        "find" => has(&["-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]).cloned(),
-        "fd" => has(&["-x", "-X"]).or_else(|| has_prefix(&["--exec"])).cloned(),
+        "find" => has(&[
+            "-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf",
+            "-fls",
+        ])
+        .cloned(),
+        "fd" => has(&["-x", "-X"])
+            .or_else(|| has_prefix(&["--exec"]))
+            .cloned(),
         "rg" => has(&["--pre"]).or_else(|| has_prefix(&["--pre="])).cloned(),
         "rustc" => rustc_linker_override(rest),
         "git" => git_exec_vector(rest),
@@ -85,7 +99,9 @@ fn audit_exec_argv(command: &str) -> EaiResult<()> {
         _ => None,
     };
     match violation {
-        Some(arg) => Err(c4_block(format!("'{bin}' argument '{arg}' can execute or write outside the governed tools"))),
+        Some(arg) => Err(c4_block(format!(
+            "'{bin}' argument '{arg}' can execute or write outside the governed tools"
+        ))),
         None => Ok(()),
     }
 }
@@ -95,7 +111,9 @@ fn rustc_linker_override(args: &[String]) -> Option<String> {
     while let Some(arg) = iter.next() {
         let value = match arg.as_str() {
             "-C" | "--codegen" => iter.peek().map(|v| v.as_str()),
-            a => a.strip_prefix("-C").or_else(|| a.strip_prefix("--codegen=")),
+            a => a
+                .strip_prefix("-C")
+                .or_else(|| a.strip_prefix("--codegen=")),
         };
         if value.is_some_and(|v| v.trim_start().starts_with("linker")) {
             return Some(arg.clone());
@@ -110,9 +128,15 @@ fn git_exec_vector(args: &[String]) -> Option<String> {
     for arg in args {
         let a = arg.as_str();
         if a == "-c"
-            || ["--config-env", "--exec-path", "--upload-pack", "--receive-pack", "--exec"]
-                .iter()
-                .any(|p| a.starts_with(p))
+            || [
+                "--config-env",
+                "--exec-path",
+                "--upload-pack",
+                "--receive-pack",
+                "--exec",
+            ]
+            .iter()
+            .any(|p| a.starts_with(p))
         {
             return Some(arg.clone());
         }
@@ -204,7 +228,10 @@ fn sed_script_is_safe(script: &str) -> bool {
         }
         // Addresses: line numbers, ranges, `$`, `!`, steps, /regex/, \cregexc.
         loop {
-            while i < n && (c[i].is_ascii_digit() || matches!(c[i], ',' | '$' | '!' | '~' | '+' | ' ' | '\t')) {
+            while i < n
+                && (c[i].is_ascii_digit()
+                    || matches!(c[i], ',' | '$' | '!' | '~' | '+' | ' ' | '\t'))
+            {
                 i += 1;
             }
             if i < n && c[i] == '/' {
@@ -231,8 +258,12 @@ fn sed_script_is_safe(script: &str) -> bool {
         match cmd {
             's' | 'y' => {
                 let Some(&delim) = c.get(i) else { return false };
-                let Some(j) = skip_delimited(&c, i + 1, delim) else { return false };
-                let Some(k) = skip_delimited(&c, j, delim) else { return false };
+                let Some(j) = skip_delimited(&c, i + 1, delim) else {
+                    return false;
+                };
+                let Some(k) = skip_delimited(&c, j, delim) else {
+                    return false;
+                };
                 i = k;
                 while i < n && !matches!(c[i], ';' | '\n' | '}') {
                     if cmd == 's' && matches!(c[i], 'e' | 'w' | 'W') {
@@ -251,7 +282,8 @@ fn sed_script_is_safe(script: &str) -> bool {
                     i += 1;
                 }
             }
-            'p' | 'P' | 'd' | 'D' | 'n' | 'N' | 'g' | 'G' | 'h' | 'H' | 'x' | 'l' | '=' | 'q' | 'Q' | '{' | '}' | 'z' | 'F' => {
+            'p' | 'P' | 'd' | 'D' | 'n' | 'N' | 'g' | 'G' | 'h' | 'H' | 'x' | 'l' | '=' | 'q'
+            | 'Q' | '{' | '}' | 'z' | 'F' => {
                 while i < n && c[i].is_ascii_digit() {
                     i += 1;
                 }

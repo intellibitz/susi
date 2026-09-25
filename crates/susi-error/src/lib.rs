@@ -456,7 +456,8 @@ mod tests {
     }
 
     fn audit_home(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("susi_flat_audit_{name}_{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("susi_flat_audit_{name}_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -470,7 +471,11 @@ mod tests {
     #[test]
     fn tracing_residue_is_reclaimable() {
         let home = audit_home("tracing");
-        std::fs::write(home.join("audit.log"), "{\"timestamp\":\"t\",\"level\":\"INFO\"}\n").unwrap();
+        std::fs::write(
+            home.join("audit.log"),
+            "{\"timestamp\":\"t\",\"level\":\"INFO\"}\n",
+        )
+        .unwrap();
         write_newer_dated_log(&home);
         assert!(stale_flat_audit_log_in(&home).is_some());
         let _ = std::fs::remove_dir_all(&home);
@@ -479,7 +484,11 @@ mod tests {
     #[test]
     fn signed_chain_is_never_reclaimable() {
         let home = audit_home("signed");
-        std::fs::write(home.join("audit.log"), "{\"ts\":1,\"entry_hash\":\"ab\",\"hmac\":\"cd\"}\n").unwrap();
+        std::fs::write(
+            home.join("audit.log"),
+            "{\"ts\":1,\"entry_hash\":\"ab\",\"hmac\":\"cd\"}\n",
+        )
+        .unwrap();
         write_newer_dated_log(&home);
         assert!(stale_flat_audit_log_in(&home).is_none());
         let _ = std::fs::remove_dir_all(&home);
