@@ -47,6 +47,7 @@ impl SusiAlphaModel {
         let device = crate::hardware::HardwareProfiler::get_candle_device();
 
         if weights_path.exists() {
+            // SAFETY: mmap of a weights file the substrate owns; it is not modified while mapped.
             if let Ok(vb) = unsafe {
                 VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device)
             } {

@@ -37,6 +37,7 @@ impl SusiReasoningModel {
         }
 
         let device = crate::hardware::HardwareProfiler::get_candle_device();
+        // SAFETY: mmap of a weights file the substrate owns; it is not modified while mapped.
         let vb =
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights_path], DType::F32, &device)? };
 
