@@ -8,7 +8,9 @@
 //! that edge never leaks into the vendored copies.
 
 use crate::capture::ToolReceipt;
-use susi_abi::evidence::ReceiptStatus;
+use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
+use std::path::Path;
+use susi_abi::evidence::{GroundedClaim, ReceiptStatus};
 
 impl ToolReceipt {
     /// This receipt's outcome in the universal ABI vocabulary. `successful`
@@ -19,6 +21,35 @@ impl ToolReceipt {
             ReceiptStatus::Success
         } else {
             ReceiptStatus::Failure
+        }
+    }
+}
+
+impl EvidenceRecord {
+    /// This record in the universal ABI vocabulary. Re-runs [`Self::assess`]
+    /// against `workspace` rather than trusting a caller-supplied verdict —
+    /// `verified` is only ever as fresh as the reality check backing it.
+    /// `receipt_citations` is non-empty only for [`EvidenceSource::ToolReceipt`]
+    /// sources; the other five source kinds (file/command/MCP/system/agent
+    /// observation) carry no live receipt id to cite.
+    pub fn to_grounded_claim(&self, workspace: &Path) -> GroundedClaim {
+        let receipt_citations = match &self.source {
+            EvidenceSource::ToolReceipt { receipt_id, .. } => vec![receipt_id.clone()],
+            EvidenceSource::File { .. }
+            | EvidenceSource::Command { .. }
+            | EvidenceSource::McpTool { .. }
+            | EvidenceSource::System { .. }
+            | EvidenceSource::AgentObservation { .. } => Vec::new(),
+        };
+        GroundedClaim {
+            claim_id: self.signature.clone(),
+            proposition: format!(
+                "{} {} {}",
+                self.claim.subject, self.claim.predicate, self.claim.value
+            ),
+            confidence: self.confidence,
+            receipt_citations,
+            verified: self.assess(workspace) == EvidenceAssessment::Verified,
         }
     }
 }
@@ -69,5 +100,65 @@ mod tests {
         let bad = receipts.iter().find(|r| r.tool == "bad_tool").unwrap();
         assert_eq!(ok.abi_status(), ReceiptStatus::Success);
         assert_eq!(bad.abi_status(), ReceiptStatus::Failure);
+    }
+
+    #[test]
+    fn grounded_claim_from_file_evidence_has_no_receipt_citation() {
+        let ws = Workspace::new();
+        std::fs::write(ws.0.join("source.txt"), "observed reality").unwrap();
+        let record = EvidenceRecord::capture_file(
+            "reader",
+            &ws.0,
+            Path::new("source.txt"),
+            "exists",
+            "true",
+        )
+        .unwrap();
+        let claim = record.to_grounded_claim(&ws.0);
+        assert_eq!(claim.claim_id, record.signature);
+        assert_eq!(claim.proposition, "source.txt exists true");
+        assert!(claim.verified);
+        assert!(claim.receipt_citations.is_empty());
+
+        let mut forged = record.clone();
+        forged.claim.value = "false".into();
+        forged.signature = String::new();
+        let claim = forged.to_grounded_claim(&ws.0);
+        assert!(!claim.verified, "unsigned/altered record must not verify");
+    }
+
+    #[test]
+    fn grounded_claim_from_tool_receipt_carries_its_citation() {
+        let ws = Workspace::new();
+        let session = EvidenceSession::new("mission", &ws.0, |s| s.to_string()).unwrap();
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call(
+            "weather",
+            &serde_json::json!({"place": "Chennai"}),
+            &ws.0,
+            || Ok(r#"{"current":{"temperature_2m":24.8}}"#.to_string()),
+        )
+        .unwrap();
+        let receipt = &session.receipts()[0];
+        let record = EvidenceRecord::new(
+            "search".into(),
+            1.0,
+            receipt.observed_at,
+            crate::evidence::Claim {
+                subject: "Chennai".into(),
+                predicate: "temperature".into(),
+                value: "24.8".into(),
+            },
+            EvidenceSource::ToolReceipt {
+                receipt_id: receipt.id.clone(),
+                tool: receipt.tool.clone(),
+                output_hash: receipt.output_hash.clone(),
+            },
+            1.0,
+        );
+        let claim = record.to_grounded_claim(&ws.0);
+        assert!(claim.verified);
+        assert_eq!(claim.receipt_citations, vec![receipt.id.clone()]);
+        assert_eq!(claim.confidence, 1.0);
     }
 }
