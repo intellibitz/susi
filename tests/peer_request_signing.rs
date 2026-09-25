@@ -4,7 +4,7 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Integration test for member-signed peer requests (`X-Susi-*`
 //! headers): once a member's pubkey is bound in the receiver's roster,

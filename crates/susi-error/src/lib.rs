@@ -157,7 +157,6 @@ pub enum EaiError {
     Authentication(String, Backtrace),
     Authorization(String, Backtrace),
     Internal(String, Backtrace),
-    #[allow(dead_code)]
     Unknown(Box<dyn StdError + Send + Sync>, Backtrace),
 }
 

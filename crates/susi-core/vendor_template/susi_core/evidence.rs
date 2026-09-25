@@ -74,7 +74,7 @@ pub(crate) fn confined_file(workspace: &Path, path: &Path) -> Option<PathBuf> {
 }
 
 impl EvidenceRecord {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
     pub fn new(
         agent_id: String,
         rank: f32,

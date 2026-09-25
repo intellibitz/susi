@@ -4,7 +4,7 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Integration test for ledger compaction (`susi commits compact` /
 //! `commit_log::compact`): fold to `commit_snapshot.json`, archive

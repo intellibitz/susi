@@ -183,7 +183,7 @@ fn recovery_prompt(goal: &str, context: &str) -> String {
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 async fn verify_recovery_answer(
     report: &SusiMissionReport,
     provider: &str,
@@ -347,7 +347,7 @@ fn extract_json_object(raw: &str) -> Option<&str> {
     None
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 async fn recover_with_providers(
     report: &mut SusiMissionReport,
     registry: &CapabilityRegistry,

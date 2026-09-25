@@ -40,7 +40,7 @@ impl Drop for OwnedChild {
     }
 }
 
-#[allow(clippy::wildcard_enum_match_arm)]
+#[allow(clippy::wildcard_enum_match_arm)] // only process adapters reach here; every other Adapter kind bails
 pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     let (program, args) = match &run.adapter {
         Adapter::Command { program, args } => (

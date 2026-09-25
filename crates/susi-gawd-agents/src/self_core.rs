@@ -62,7 +62,6 @@ impl AlphaSelf {
         }
     }
 
-    #[allow(dead_code)]
     pub fn inspect_compiled_binary_instructions() -> String {
         let mut out = format!(
             "SUSI Substrate Compiled Binary Instructions:\n- Version: {}\n- Paradigm: {}\n- Hardcoded Axiom Rules: {}\n",

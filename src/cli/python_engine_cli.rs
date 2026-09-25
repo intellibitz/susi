@@ -44,7 +44,7 @@ pub enum EngineCommands {
     },
 }
 
-#[allow(clippy::wildcard_enum_match_arm)]
+#[allow(clippy::wildcard_enum_match_arm)] // only the Python framework adapter applies; other Adapter kinds are rejected
 pub fn execute(
     profile: &EngineProfile,
     action: Option<EngineCommands>,

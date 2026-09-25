@@ -19,8 +19,7 @@
 //! `cli::plane_cli`/`cli::shell_cli`/`cli::keys_cli`/`cli::admin_cli` hold shared plumbing; the
 //! remaining `cli::*_cli` modules own per-domain subcommands.
 
-#![allow(unexpected_cfgs)]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // binary crate: internal CLI modules are not public API
 
 mod cli;
 mod cli_json;

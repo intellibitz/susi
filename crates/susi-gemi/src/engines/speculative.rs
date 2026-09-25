@@ -195,7 +195,7 @@ impl SpeculativeDecoder {
     /// mid-generation failure (propagated, not swallowed - some tokens may
     /// already have reached `callback` by then, matching how the classic
     /// loop treats a cancellation mid-stream).
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
     pub fn try_generate(
         target: &mut Qwen2Weights,
         target_model_path: &Path,
@@ -274,7 +274,7 @@ impl SpeculativeDecoder {
         ))
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
     #[allow(clippy::unwrap_used)]
     fn run(
         target: &mut Qwen2Weights,
@@ -519,7 +519,7 @@ impl SpeculativeDecoder {
         Ok(output)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
     fn emit(
         tokens: &[u32],
         all_tokens: &mut Vec<u32>,

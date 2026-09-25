@@ -7,7 +7,6 @@ use crate::susi_sandbox::manager::SusiConfig;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct AlphaBrainContext {
     pub self_version: &'static str,
     pub system_cpus: usize,
@@ -42,7 +41,6 @@ impl AlphaBrainContext {
         }
     }
 
-    #[allow(dead_code)]
     pub fn inspect_tri_state(&self) -> String {
         format!(
             "SUSI Core Substrate Status:\n\

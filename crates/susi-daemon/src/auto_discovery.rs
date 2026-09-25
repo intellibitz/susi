@@ -20,7 +20,6 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
             if path.is_file() {
                 // If the file is executable (or just a file in the cells dir), spawn it as a Swarm Cell
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    #[allow(clippy::collapsible_if)]
                     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
                         std::thread::spawn(move || {
                             let _ = std::process::Command::new(path).spawn();

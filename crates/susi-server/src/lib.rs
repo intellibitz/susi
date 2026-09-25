@@ -192,7 +192,7 @@ fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
         .boxed()
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err)] // the Err is the ready-to-send HTTP response; boxing it gains nothing on this cold path
 fn read_json_body(body_bytes: &hyper::body::Bytes) -> Result<serde_json::Value, Response<BoxBody>> {
     match serde_json::from_slice(body_bytes) {
         Ok(v) => Ok(v),

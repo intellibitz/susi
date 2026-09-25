@@ -4,7 +4,7 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Integration test for cluster-key rotation (`susi peers rekey`):
 //! the two-phase seal → stage → append → activate-record → rotate
