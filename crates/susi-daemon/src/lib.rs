@@ -113,6 +113,9 @@ pub mod metrics_export;
 pub mod p2p_router;
 pub mod task_queue;
 pub mod wasm_gas;
+pub mod code_signing;
+pub mod elastic_scheduler;
+pub mod leaderboard;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;

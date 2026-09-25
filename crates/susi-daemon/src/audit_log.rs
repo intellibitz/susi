@@ -1,35 +1,32 @@
-//! Tamper-proof Capability Audit Log (Swarm OS Bullet 77)
+//! Tamper-proof Capability Audit Log (Bullets 54, 77)
 //!
-//! Every capability grant is appended to a SHA-256 hash-chained ledger:
-//! each entry's hash covers its own fields plus the previous entry's hash,
-//! so editing, dropping, or reordering a past record breaks the chain and
-//! `verify_chain` catches it. Optionally mirrored to a tab-separated file
-//! for out-of-process inspection.
+//! Every capability grant is appended to an HMAC-SHA256-chained ledger:
+//! each entry's MAC covers its own fields plus the previous entry's MAC,
+//! so editing, dropping, or reordering a past record breaks the chain.
+//! Being *keyed* (not a plain hash chain) means a mismatch is actual
+//! evidence of tampering by someone without the key, satisfying VISION.md
+//! bullet 54's "HMAC-sealed audit log" rather than just a checksum anyone
+//! could recompute. The key is derived from the daemon's cluster key via
+//! the same domain-separated HMAC derivation `susi_config::member_seal`
+//! uses for its channel key, so no new secret needs provisioning.
+//! Optionally mirrored to a tab-separated file for out-of-process
+//! inspection.
 
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::RwLock;
 
-use sha2::{Digest, Sha256};
-
 use crate::susi_error::EaiError;
+
+const AUDIT_KEY_LABEL: &[u8] = b"susi-audit-log-v1";
 
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
     pub cell_id: String,
     pub capability: String,
     pub ts: u64,
-    pub prev_hash: [u8; 32],
-    pub hash: [u8; 32],
-}
-
-fn entry_hash(cell_id: &str, capability: &str, ts: u64, prev_hash: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(prev_hash);
-    hasher.update(cell_id.as_bytes());
-    hasher.update(capability.as_bytes());
-    hasher.update(ts.to_le_bytes());
-    hasher.finalize().into()
+    pub prev_mac: [u8; 32],
+    pub mac: [u8; 32],
 }
 
 fn now() -> u64 {
@@ -39,7 +36,37 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+/// Derives this logger's HMAC key from the daemon's cluster key. Falls
+/// back to a process-local random key when no cluster key is available
+/// (e.g. an unwritable home directory) — still HMAC-sealed and internally
+/// consistent for this process's lifetime, just not verifiable against a
+/// restart that would regenerate the fallback.
+fn derive_mac_key() -> [u8; 32] {
+    if let Some(cluster) = crate::susi_config::cluster_key::cluster_key() {
+        return crate::susi_config::cluster_key::hmac_sha256(&cluster, AUDIT_KEY_LABEL);
+    }
+    let mut key = [0u8; 32];
+    let _ = getrandom::fill(&mut key);
+    key
+}
+
+fn entry_mac(
+    mac_key: &[u8; 32],
+    cell_id: &str,
+    capability: &str,
+    ts: u64,
+    prev_mac: &[u8; 32],
+) -> [u8; 32] {
+    let mut message = Vec::with_capacity(32 + cell_id.len() + capability.len() + 8);
+    message.extend_from_slice(prev_mac);
+    message.extend_from_slice(cell_id.as_bytes());
+    message.extend_from_slice(capability.as_bytes());
+    message.extend_from_slice(&ts.to_le_bytes());
+    crate::susi_config::cluster_key::hmac_sha256(mac_key, &message)
+}
+
 pub struct AuditLogger {
+    mac_key: [u8; 32],
     path: Option<PathBuf>,
     entries: RwLock<Vec<AuditEntry>>,
 }
@@ -53,6 +80,7 @@ impl Default for AuditLogger {
 impl AuditLogger {
     pub fn new(path: Option<PathBuf>) -> Self {
         Self {
+            mac_key: derive_mac_key(),
             path,
             entries: RwLock::new(Vec::new()),
         }
@@ -61,12 +89,12 @@ impl AuditLogger {
     /// Appends a tamper-evident grant record, chaining it to the prior entry.
     pub fn log_grant(&self, cell_id: &str, capability: &str) -> Result<(), EaiError> {
         let mut entries = self.entries.write().unwrap_or_else(|e| e.into_inner());
-        let prev_hash = entries.last().map(|e| e.hash).unwrap_or([0u8; 32]);
+        let prev_mac = entries.last().map(|e| e.mac).unwrap_or([0u8; 32]);
         let ts = now();
-        let hash = entry_hash(cell_id, capability, ts, &prev_hash);
+        let mac = entry_mac(&self.mac_key, cell_id, capability, ts, &prev_mac);
 
         if let Some(path) = &self.path {
-            let line = format!("{ts}\t{cell_id}\t{capability}\t{}\n", hex::encode(hash));
+            let line = format!("{ts}\t{cell_id}\t{capability}\t{}\n", hex::encode(mac));
             let mut file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -80,25 +108,32 @@ impl AuditLogger {
             cell_id: cell_id.to_string(),
             capability: capability.to_string(),
             ts,
-            prev_hash,
-            hash,
+            prev_mac,
+            mac,
         });
         Ok(())
     }
 
-    /// Recomputes the hash chain over the in-memory log, returning `false`
+    /// Recomputes the HMAC chain over the in-memory log, returning `false`
     /// the instant a link is inconsistent with its recorded fields.
     pub fn verify_chain(&self) -> bool {
         let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
-        let mut prev_hash = [0u8; 32];
+        let mut prev_mac = [0u8; 32];
         for entry in entries.iter() {
-            if entry.prev_hash != prev_hash {
+            if entry.prev_mac != prev_mac {
                 return false;
             }
-            if entry_hash(&entry.cell_id, &entry.capability, entry.ts, &prev_hash) != entry.hash {
+            if entry_mac(
+                &self.mac_key,
+                &entry.cell_id,
+                &entry.capability,
+                entry.ts,
+                &prev_mac,
+            ) != entry.mac
+            {
                 return false;
             }
-            prev_hash = entry.hash;
+            prev_mac = entry.mac;
         }
         true
     }
@@ -132,9 +167,23 @@ mod tests {
         logger.log_grant("cell-b", "network.connect").unwrap();
 
         // Reach into the log (same-crate test module) and corrupt a field
-        // without recomputing its hash, simulating a tampered record.
+        // without recomputing its MAC, simulating a tampered record.
         logger.entries.write().unwrap()[0].capability = "filesystem.write".to_string();
         assert!(!logger.verify_chain());
+    }
+
+    #[test]
+    fn a_chain_forged_under_a_different_key_does_not_verify() {
+        let honest = AuditLogger::default();
+        honest.log_grant("cell-a", "filesystem.read").unwrap();
+
+        // Attacker without the real key: same fields, different (guessed)
+        // key. The plain-hash-chain design this replaced couldn't tell
+        // this apart from the honest entry; the HMAC design can.
+        let mut forger_key = [0u8; 32];
+        forger_key[0] = 0xFF;
+        let forged_mac = entry_mac(&forger_key, "cell-a", "filesystem.read", now(), &[0u8; 32]);
+        assert_ne!(forged_mac, honest.entries.read().unwrap()[0].mac);
     }
 
     #[test]

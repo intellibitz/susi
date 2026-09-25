@@ -10,6 +10,8 @@ use std::sync::RwLock;
 
 use wasmtime::{Engine, Module};
 
+use crate::code_signing::CodeSigningPolicy;
+
 pub struct PluginReloader {
     engine: Engine,
     loaded: RwLock<HashMap<String, Vec<u8>>>,
@@ -41,6 +43,24 @@ impl PluginReloader {
         Ok(())
     }
 
+    /// Same as [`reload_plugin`](Self::reload_plugin), but deny-by-default
+    /// (Swarm OS Bullet 51): `wasm_bytes` is only accepted after its
+    /// detached signature verifies against a publisher key `policy`
+    /// trusts. An untrusted publisher or a bad signature rejects the swap
+    /// before the bytes are even parsed as WASM.
+    #[allow(clippy::too_many_arguments)] // 5 independent facts the deny-by-default gate needs; a params struct would just move the count to every call site
+    pub fn reload_plugin_signed(
+        &self,
+        plugin_id: &str,
+        wasm_bytes: &[u8],
+        policy: &CodeSigningPolicy,
+        publisher_key: &[u8; 32],
+        signature: &[u8; 64],
+    ) -> Result<(), String> {
+        policy.verify(wasm_bytes, publisher_key, signature)?;
+        self.reload_plugin(plugin_id, wasm_bytes)
+    }
+
     pub fn get_loaded(&self, plugin_id: &str) -> Option<Vec<u8>> {
         self.loaded
             .read()
@@ -69,6 +89,45 @@ mod tests {
         let reloader = PluginReloader::new();
         reloader.reload_plugin("plugin-a", EMPTY_MODULE).unwrap();
         assert!(reloader.reload_plugin("plugin-a", b"not wasm").is_err());
+        assert_eq!(reloader.get_loaded("plugin-a"), Some(EMPTY_MODULE.to_vec()));
+    }
+
+    #[test]
+    fn signed_reload_requires_a_trusted_publisher() {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[9u8; 32]);
+        let policy = CodeSigningPolicy::new();
+        let reloader = PluginReloader::new();
+
+        let sig = signing_key.sign(EMPTY_MODULE);
+        // Not yet trusted: rejected even though the module and signature
+        // are both individually valid.
+        assert!(
+            reloader
+                .reload_plugin_signed(
+                    "plugin-a",
+                    EMPTY_MODULE,
+                    &policy,
+                    signing_key.verifying_key().as_bytes(),
+                    &sig.to_bytes(),
+                )
+                .is_err()
+        );
+        assert_eq!(reloader.get_loaded("plugin-a"), None);
+
+        policy.trust_publisher(*signing_key.verifying_key().as_bytes());
+        assert!(
+            reloader
+                .reload_plugin_signed(
+                    "plugin-a",
+                    EMPTY_MODULE,
+                    &policy,
+                    signing_key.verifying_key().as_bytes(),
+                    &sig.to_bytes(),
+                )
+                .is_ok()
+        );
         assert_eq!(reloader.get_loaded("plugin-a"), Some(EMPTY_MODULE.to_vec()));
     }
 }

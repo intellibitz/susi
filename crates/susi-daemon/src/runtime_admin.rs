@@ -2,6 +2,7 @@
 // Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
 use crate::blackboard::SwarmBlackboard;
+use crate::elastic_scheduler::ElasticScheduler;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
@@ -29,6 +30,8 @@ impl SusiRuntimeAdmin {
     pub fn start_administration_cycle(substrate_home: &Path, blackboard: Arc<SwarmBlackboard>) {
         let home = substrate_home.to_path_buf();
         std::thread::spawn(move || {
+            let elastic_scheduler = ElasticScheduler::default();
+
             // Mandate: Perform immediate Readiness Pulse on substrate boot
             let _ = Self::perform_substrate_audit(&home);
             let _ = Self::perform_host_readiness(&home);
@@ -36,7 +39,7 @@ impl SusiRuntimeAdmin {
             let mut last_pulse = std::time::Instant::now();
             loop {
                 // 1. Hardware Load Watchdog (High-Resolution)
-                Self::perform_hardware_watchdog_audit(&home, &blackboard);
+                Self::perform_hardware_watchdog_audit(&home, &blackboard, &elastic_scheduler);
 
                 // 2. Periodic host readiness (hourly) — not project work.
                 // Each pulse runs a full 23-agent security-sweep mission;
@@ -91,14 +94,35 @@ impl SusiRuntimeAdmin {
         })
     }
 
-    /// Hardware Watchdog: samples real host telemetry and, under stress,
-    /// deposits an observation onto the blackboard for concurrency-aware
-    /// consumers to react to.
-    fn perform_hardware_watchdog_audit(substrate_home: &Path, blackboard: &SwarmBlackboard) {
+    /// Hardware Watchdog: samples real host telemetry, deposits a
+    /// `hardware.stress` observation when it's under stress, and (Swarm OS
+    /// Bullet 28) feeds that observation into `elastic_scheduler` so the
+    /// resulting concurrency target is republished as its own
+    /// `scheduler.target_concurrency` observation for downstream consumers.
+    fn perform_hardware_watchdog_audit(
+        substrate_home: &Path,
+        blackboard: &SwarmBlackboard,
+        elastic_scheduler: &ElasticScheduler,
+    ) {
         let snapshot = crate::telemetry::sample_and_record(Some(substrate_home));
-        if let Some(pheromone) = Self::stress_pheromone_from_snapshot(&snapshot) {
-            blackboard.deposit_pheromone(pheromone);
-        }
+        let Some(pheromone) = Self::stress_pheromone_from_snapshot(&snapshot) else {
+            return;
+        };
+        blackboard.deposit_pheromone(pheromone.clone());
+
+        let Some(target) = elastic_scheduler.apply_pheromone(&pheromone) else {
+            return;
+        };
+        blackboard.deposit_pheromone(SwarmPheromone {
+            id: format!("scheduler-target-{}", now_secs()),
+            topic: "scheduler.target_concurrency".to_string(),
+            emitter_id: "susi-elastic-scheduler".to_string(),
+            kind: PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::json!({ "target_concurrency": target }),
+            ttl_ms: 60_000,
+            deposited_at: now_secs(),
+        });
     }
 
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.

@@ -6,8 +6,8 @@
 
 use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::broadcast;
 use susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
+use tokio::sync::broadcast;
 
 /// The global stigmergic blackboard and capability router.
 #[derive(Debug)]
@@ -50,7 +50,8 @@ impl SwarmBlackboard {
 
     /// Deposits a new pheromone into the environment (Point 25).
     pub fn deposit_pheromone(&self, pheromone: SwarmPheromone) {
-        self.pheromones.insert(pheromone.id.clone(), pheromone.clone());
+        self.pheromones
+            .insert(pheromone.id.clone(), pheromone.clone());
         // Broadcast the pheromone to all subscribers.
         let _ = self.bus.send(pheromone);
     }
@@ -70,8 +71,22 @@ impl SwarmBlackboard {
             }
         }
         // Sort by trust score (Point 22).
-        capable.sort_by(|a, b| b.trust_score.partial_cmp(&a.trust_score).unwrap_or(std::cmp::Ordering::Equal));
+        capable.sort_by(|a, b| {
+            b.trust_score
+                .partial_cmp(&a.trust_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         capable
+    }
+
+    /// Ranks currently registered cells by trust score (Bullet 79).
+    pub fn leaderboard(&self) -> Vec<crate::leaderboard::LeaderboardEntry> {
+        let cells: Vec<SwarmCellManifest> = self
+            .cells
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect();
+        crate::leaderboard::rank_by_trust(&cells)
     }
 
     /// Evaporates expired pheromones from the blackboard (Point 36).
@@ -97,5 +112,35 @@ impl SwarmBlackboard {
             }
         }
         results
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+
+    fn manifest(cell_id: &str, trust_score: f32) -> SwarmCellManifest {
+        SwarmCellManifest {
+            cell_id: cell_id.to_string(),
+            role: SwarmRole::ReflexCell,
+            capabilities: Vec::new(),
+            bloom_filter: CapabilityBloom::default(),
+            endpoint: "ipc:///tmp/test.sock".to_string(),
+            trust_score,
+            last_heartbeat: 0,
+        }
+    }
+
+    #[test]
+    fn leaderboard_ranks_registered_cells_by_trust() {
+        let board = SwarmBlackboard::new();
+        board.register_cell(manifest("low", 0.1));
+        board.register_cell(manifest("high", 0.9));
+
+        let ranking = board.leaderboard();
+        assert_eq!(ranking.len(), 2);
+        assert_eq!(ranking[0].cell_id, "high");
+        assert_eq!(ranking[1].cell_id, "low");
     }
 }
