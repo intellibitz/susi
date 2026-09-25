@@ -89,6 +89,20 @@ impl SwarmBlackboard {
         crate::leaderboard::rank_by_trust(&cells)
     }
 
+    /// Recommends up to `team_size` cells for `topic` (Bullet 78): capable
+    /// cells (by `capability_hash`) ranked by trust, tiebroken by how many
+    /// `Receipt` pheromones they've deposited on `topic` in the past.
+    pub fn recommend_composition(
+        &self,
+        capability_hash: u64,
+        topic: &str,
+        team_size: usize,
+    ) -> Vec<crate::composition_recommender::CompositionCandidate> {
+        let capable = self.find_capable_cells(capability_hash);
+        let history = self.query_topic(topic);
+        crate::composition_recommender::recommend_composition(&capable, &history, team_size)
+    }
+
     /// Evaporates expired pheromones from the blackboard (Point 36).
     pub fn evaporate_pheromones(&self) {
         let now = std::time::SystemTime::now()
@@ -118,7 +132,7 @@ impl SwarmBlackboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use susi_abi::swarm::{CapabilityBloom, PheromoneKind, SwarmRole};
 
     fn manifest(cell_id: &str, trust_score: f32) -> SwarmCellManifest {
         SwarmCellManifest {
@@ -142,5 +156,39 @@ mod tests {
         assert_eq!(ranking.len(), 2);
         assert_eq!(ranking[0].cell_id, "high");
         assert_eq!(ranking[1].cell_id, "low");
+    }
+
+    #[test]
+    fn recommend_composition_filters_by_capability_and_ranks_by_history() {
+        let board = SwarmBlackboard::new();
+        let target_hash: u64 = 0xC0FFEE;
+
+        let mut capable = manifest("proven", 0.5);
+        capable.bloom_filter.insert_hash(target_hash);
+        board.register_cell(capable);
+
+        let mut also_capable = manifest("untested", 0.5);
+        also_capable.bloom_filter.insert_hash(target_hash);
+        board.register_cell(also_capable);
+
+        // Registered but doesn't declare the target capability -- must be
+        // excluded regardless of trust or history.
+        board.register_cell(manifest("wrong-capability", 0.99));
+
+        board.deposit_pheromone(SwarmPheromone {
+            id: "receipt-1".to_string(),
+            topic: "intent.deploy".to_string(),
+            emitter_id: "proven".to_string(),
+            kind: PheromoneKind::Receipt,
+            intensity: 1.0,
+            payload: serde_json::json!({}),
+            ttl_ms: 60_000,
+            deposited_at: 0,
+        });
+
+        let recommended = board.recommend_composition(target_hash, "intent.deploy", 5);
+        let cell_ids: Vec<&str> = recommended.iter().map(|c| c.cell_id.as_str()).collect();
+        assert_eq!(cell_ids, vec!["proven", "untested"]);
+        assert_eq!(recommended[0].historical_successes, 1);
     }
 }
