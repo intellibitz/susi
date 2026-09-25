@@ -1207,7 +1207,7 @@ impl SusiDaemon {
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
             // host still gets legacy discovery but never roster admission.
-            if let Some((pinger_id, caps_csv, _checksum, _bloom_hex, nonce, wants_v2)) =
+            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
                 // Mutual admission: a correctly signed ping proves the
@@ -1237,7 +1237,7 @@ impl SusiDaemon {
                         .find_map(|c| c.strip_prefix("gmcp_http="))
                         .and_then(|p| p.parse::<u16>().ok())
                         .unwrap_or(crate::susi_paths::ports::GMCP_HTTP);
-                    let _pinger_addr = format!("{}:{}", src.ip(), peer_http);
+                    let pinger_addr = format!("{}:{}", src.ip(), peer_http);
                     // The verified signature proves the daemon at src holds
                     // cluster.key — Explicit standing for the ADDRESS is
                     // earned. The advertised node_id is self-asserted,
@@ -1253,45 +1253,45 @@ impl SusiDaemon {
                     // to verify us with. Without this the ban only stops
                     // our roster — the banned node could still treat us
                     // as a verified peer and harvest our roster gossip.
-                    // if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
-                    //     continue;
-                    // }
-                    // let node = susi_gawd::swarm::amas::ClusterPeerNode {
-                    //     node_id: format!("susi-peer-{}", src.ip()),
-                    //     address: pinger_addr,
-                    //     node_type: "PEER".into(),
-                    //     is_active: true,
-                    //     capabilities: caps_csv
-                    //         .split(',')
-                    //         .filter(|c| !c.is_empty())
-                    //         .map(str::to_string)
-                    //         .collect(),
-                    //     registry_checksum: checksum,
-                    //     latency_ms: 0,
-                    //     uptime_secs: 0,
-                    //     trust_score: 0.8,
-                    //     capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
-                    //         &bloom_hex,
-                    //     ),
-                    //     admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
-                    //     last_seen_secs: std::time::SystemTime::now()
-                    //         .duration_since(std::time::UNIX_EPOCH)
-                    //         .map(|d| d.as_secs())
-                    //         .unwrap_or(0),
-                    //     pubkey: String::new(),
-                    //     key_bound_at: 0,
-                    //     bind_sig: String::new(),
-                    // };
-                    // susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
+                    if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
+                        continue;
+                    }
+                    let node = susi_gawd::swarm::amas::ClusterPeerNode {
+                        node_id: format!("susi-peer-{}", src.ip()),
+                        address: pinger_addr,
+                        node_type: "PEER".into(),
+                        is_active: true,
+                        capabilities: caps_csv
+                            .split(',')
+                            .filter(|c| !c.is_empty())
+                            .map(str::to_string)
+                            .collect(),
+                        registry_checksum: checksum,
+                        latency_ms: 0,
+                        uptime_secs: 0,
+                        trust_score: 0.8,
+                        capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
+                            &bloom_hex,
+                        ),
+                        admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
+                        last_seen_secs: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0),
+                        pubkey: String::new(),
+                        key_bound_at: 0,
+                        bind_sig: String::new(),
+                    };
+                    susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
                 }
-                let bloom = "".to_string(); // susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
+                let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
                 // Gossip our verified roster so one handshake teaches the
                 // joiner the whole cluster — transitive membership.
-                let roster: Vec<(String, String)> = vec![];
-                //     susi_gawd::swarm::peer_registry::load_persisted_peers()
-                //         .into_iter()
-                //         .map(|p| (p.node_id, p.address))
-                //         .collect();
+                let roster: Vec<(String, String)> =
+                    susi_gawd::swarm::peer_registry::load_persisted_peers()
+                        .into_iter()
+                        .map(|p| (p.node_id, p.address))
+                        .collect();
                 // Identity-era pings get attested pongs — v3 (subject-
                 // signed binding) plus v2+v1 fallbacks so every requester
                 // generation finds a format it can verify.
