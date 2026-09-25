@@ -75,33 +75,39 @@ fn host_send(mut caller: Caller<'_, HostState>, ptr: i32, len: i32) -> i32 {
 
 impl WasmCell {
     /// Load a WASM binary from `module_path` and instantiate it.
+    ///
+    /// # Errors
+    /// Fails when the file cannot be read or compiled, or instantiation fails.
     pub fn load(module_path: impl Into<PathBuf>) -> Result<Self> {
         let module_path = module_path.into();
         let engine = Engine::default();
         let module = Module::from_file(&engine, &module_path)
             .map_err(anyhow::Error::from)
             .with_context(|| format!("Failed to load WASM module {}", module_path.display()))?;
-        Self::instantiate(engine, &module, module_path)
+        Self::instantiate(&engine, &module, module_path)
     }
 
     /// Instantiate a cell from in-memory WASM (binary or text format).
+    ///
+    /// # Errors
+    /// Fails when the bytes do not compile or instantiation fails.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let engine = Engine::default();
         let module = Module::new(&engine, bytes)
             .map_err(anyhow::Error::from)
             .context("Failed to compile WASM module")?;
-        Self::instantiate(engine, &module, PathBuf::from("<memory>"))
+        Self::instantiate(&engine, &module, PathBuf::from("<memory>"))
     }
 
-    fn instantiate(engine: Engine, module: &Module, module_path: PathBuf) -> Result<Self> {
-        let mut linker: Linker<HostState> = Linker::new(&engine);
+    fn instantiate(engine: &Engine, module: &Module, module_path: PathBuf) -> Result<Self> {
+        let mut linker: Linker<HostState> = Linker::new(engine);
         for namespace in ["env", "susi"] {
             linker
                 .func_wrap(namespace, "host_send", host_send)
                 .map_err(anyhow::Error::from)
                 .context("Failed to define host_send")?;
         }
-        let mut store = Store::new(&engine, HostState::default());
+        let mut store = Store::new(engine, HostState::default());
         let instance = linker
             .instantiate(&mut store, module)
             .map_err(anyhow::Error::from)
@@ -114,6 +120,7 @@ impl WasmCell {
     }
 
     /// Path the cell was loaded from (`<memory>` for [`WasmCell::from_bytes`]).
+    #[must_use]
     pub fn module_path(&self) -> &std::path::Path {
         &self.module_path
     }
@@ -125,11 +132,14 @@ impl WasmCell {
 
     /// Execute the `_start` function (or any exported function name).
     /// Returns the result of the function as a string for debugging.
+    ///
+    /// # Errors
+    /// Fails when the export is missing, is not `() -> i32`, or traps.
     pub fn execute(&mut self, func_name: &str) -> Result<String> {
         let func = self
             .instance
             .get_func(&mut self.store, func_name)
-            .with_context(|| format!("Function '{}' not found in WASM module", func_name))?;
+            .with_context(|| format!("Function '{func_name}' not found in WASM module"))?;
 
         // Entry points take no params and return an i32 status.
         let typed = func
@@ -137,7 +147,7 @@ impl WasmCell {
             .map_err(anyhow::Error::from)
             .with_context(|| "Failed to cast function signature")?;
         let ret = typed.call(&mut self.store, ())?;
-        Ok(format!("WASM function '{}' returned {}", func_name, ret))
+        Ok(format!("WASM function '{func_name}' returned {ret}"))
     }
 }
 
@@ -146,6 +156,9 @@ impl WasmCell {
 /// The cell is loaded and instantiated but not yet executed — the caller
 /// should invoke [`WasmCell::execute`] with the desired entry-point
 /// (typically `"_start"`).
+///
+/// # Errors
+/// See [`WasmCell::load`].
 pub fn spawn_wasm_cell(wasm_path: PathBuf) -> Result<WasmCell> {
     WasmCell::load(wasm_path)
 }

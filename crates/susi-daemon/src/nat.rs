@@ -36,6 +36,7 @@ impl Default for NatManager {
 }
 
 impl NatManager {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             status: RwLock::new(NatStatus::Unknown),
@@ -57,6 +58,10 @@ impl NatManager {
     /// the NAT keeps one mapping per socket and is reported as
     /// `PortRestricted` (the conservative cone class — distinguishing full
     /// and restricted cones needs CHANGE-REQUEST support from the server).
+    ///
+    /// # Errors
+    /// Fails when no servers are given, the socket cannot be set up, or no
+    /// server answers within `timeout`.
     pub fn discover(&self, servers: &[SocketAddr], timeout: Duration) -> Result<NatStatus, String> {
         let first = *servers.first().ok_or("no STUN servers configured")?;
         let bind: SocketAddr = if first.is_ipv4() {
@@ -97,6 +102,9 @@ impl NatManager {
 
     /// Generates a valid multiaddr for external peers to reach this daemon,
     /// factoring in the discovered NAT rules.
+    ///
+    /// # Errors
+    /// Fails behind a symmetric NAT or before a public IP is known.
     pub fn generate_external_multiaddr(&self, local_port: u16) -> Result<String, String> {
         let status = self.status.read().unwrap_or_else(|e| e.into_inner());
         let ip = self.public_ip.read().unwrap_or_else(|e| e.into_inner());
@@ -114,6 +122,9 @@ impl NatManager {
 }
 
 /// Send one STUN Binding request on `socket` and return the mapped address.
+///
+/// # Errors
+/// Fails on send/receive errors (including timeout) or a malformed reply.
 pub fn stun_binding(socket: &UdpSocket, server: SocketAddr) -> Result<SocketAddr, String> {
     let mut txid = [0u8; 12];
     getrandom::fill(&mut txid).map_err(|e| format!("STUN transaction id: {e}"))?;
