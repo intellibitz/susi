@@ -5,12 +5,13 @@
 //! This fulfills the core Swarm OS Vision (Points 5, 12, 21, 22, 25, 31).
 
 use dashmap::DashMap;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
 use tokio::sync::broadcast;
 
+use crate::webhook_dispatcher::WebhookDispatcher;
+
 /// The global stigmergic blackboard and capability router.
-#[derive(Debug)]
 pub struct SwarmBlackboard {
     /// Active Swarm Cells registered with the OS.
     cells: DashMap<String, SwarmCellManifest>,
@@ -18,6 +19,22 @@ pub struct SwarmBlackboard {
     pheromones: DashMap<String, SwarmPheromone>,
     /// Global event bus for pub/sub (Point 18, 21).
     bus: broadcast::Sender<SwarmPheromone>,
+    /// External webhook fan-out for deposited pheromones (Bullet 49).
+    /// `None` until `set_webhook_dispatcher` is called — every existing
+    /// caller of `deposit_pheromone` keeps its current (network-free)
+    /// behavior unless a dispatcher is explicitly configured.
+    webhook_dispatcher: RwLock<Option<Arc<WebhookDispatcher>>>,
+}
+
+// `ureq::Agent` (inside `WebhookDispatcher`) doesn't implement `Debug`, so
+// this is written by hand rather than derived.
+impl std::fmt::Debug for SwarmBlackboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SwarmBlackboard")
+            .field("cells", &self.cells)
+            .field("pheromones", &self.pheromones)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SwarmBlackboard {
@@ -28,7 +45,18 @@ impl SwarmBlackboard {
             cells: DashMap::new(),
             pheromones: DashMap::new(),
             bus,
+            webhook_dispatcher: RwLock::new(None),
         })
+    }
+
+    /// Configures external webhook fan-out (Bullet 49): every pheromone
+    /// deposited from now on is also POSTed to any subscriber whose topic
+    /// filter matches, via `dispatcher`.
+    pub fn set_webhook_dispatcher(&self, dispatcher: Arc<WebhookDispatcher>) {
+        *self
+            .webhook_dispatcher
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(dispatcher);
     }
 
     /// Registers a new cell in the Swarm OS (Point 12).
@@ -52,6 +80,16 @@ impl SwarmBlackboard {
     pub fn deposit_pheromone(&self, pheromone: SwarmPheromone) {
         self.pheromones
             .insert(pheromone.id.clone(), pheromone.clone());
+
+        if let Some(dispatcher) = self
+            .webhook_dispatcher
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            dispatcher.dispatch(&pheromone);
+        }
+
         // Broadcast the pheromone to all subscribers.
         let _ = self.bus.send(pheromone);
     }
@@ -156,6 +194,29 @@ mod tests {
         assert_eq!(ranking.len(), 2);
         assert_eq!(ranking[0].cell_id, "high");
         assert_eq!(ranking[1].cell_id, "low");
+    }
+
+    #[test]
+    fn deposit_routes_through_a_configured_webhook_dispatcher_with_no_subscribers() {
+        // A dispatcher with zero subscriptions makes no network calls (its
+        // dispatch loop has nothing to iterate), so this exercises the
+        // real deposit_pheromone -> WebhookDispatcher::dispatch wiring
+        // without depending on network access in the test environment.
+        let board = SwarmBlackboard::new();
+        board.set_webhook_dispatcher(Arc::new(WebhookDispatcher::new()));
+
+        board.deposit_pheromone(SwarmPheromone {
+            id: "p1".to_string(),
+            topic: "hardware.stress".to_string(),
+            emitter_id: "susi-runtime-admin".to_string(),
+            kind: PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::json!({}),
+            ttl_ms: 60_000,
+            deposited_at: 0,
+        });
+
+        assert_eq!(board.query_topic("hardware.stress").len(), 1);
     }
 
     #[test]

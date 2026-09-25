@@ -42,6 +42,7 @@ pub mod audit_log;
 pub mod auth;
 pub mod auto_discovery;
 pub mod blackboard;
+pub mod budget;
 pub mod cas;
 pub mod causal_ledger;
 pub mod cell_snapshot;
@@ -118,6 +119,7 @@ pub mod ttl;
 pub mod vfs;
 pub mod wasm_gas;
 pub mod watchdog;
+pub mod webhook_dispatcher;
 pub mod workflows;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
