@@ -149,7 +149,11 @@ impl ModelManager {
             .map(|(_, s)| *s)
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let vram_budget_gb = hw.gpu_vram_gb as f32;
+        // Free VRAM (minus CUDA-context reserve), not total capacity —
+        // a model that fits the card on paper still OOMs at load when
+        // another process or the previous inference holds memory.
+        let vram_budget_gb =
+            HardwareProfiler::gpu_vram_budget_bytes() as f32 / (1024.0 * 1024.0 * 1024.0);
         let mut scored_models: Vec<(f32, ModelInfo)> = Vec::new();
 
         for (m, model_size_gb) in sized_models {
