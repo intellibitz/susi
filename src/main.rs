@@ -51,26 +51,44 @@ fn command_near_miss(intent: &[String]) -> Vec<String> {
     let Some(first) = intent.first() else {
         return Vec::new();
     };
-    if !first.contains('-') {
-        return Vec::new();
-    }
     let Some(stem) = first.split('-').next() else {
         return Vec::new();
     };
     if stem.is_empty() {
         return Vec::new();
     }
+    // A bare token is only a near-miss when it is exactly the stem of a
+    // hyphenated command — `daemon` → `daemon-start`. Plain words stay
+    // mission intent. Hyphenated tokens keep the looser stem match.
+    let bare = !first.contains('-');
     let mut matches: Vec<String> = Cli::command()
         .get_subcommands()
         .flat_map(|c| {
             std::iter::once(c.get_name().to_string())
                 .chain(c.get_visible_aliases().map(str::to_string))
         })
-        .filter(|name| name.split('-').next() == Some(stem) || name.trim_end_matches('s') == stem)
+        .filter(|name| {
+            if bare {
+                name.contains('-') && name.split('-').next() == Some(stem)
+            } else {
+                name.split('-').next() == Some(stem) || name.trim_end_matches('s') == stem
+            }
+        })
         .collect();
     matches.sort();
     matches.dedup();
     matches
+}
+
+/// Internal spawn modes are never what a mistyping user wants —
+/// `susi daemon` should hear about the lifecycle verbs, not the
+/// supervisor's in-process `daemon-start` entry point.
+fn user_facing_suggestion(internal: &str) -> Option<&'static str> {
+    match internal {
+        "daemon-start" => Some("`susi start` · `susi restart` · `susi stop`"),
+        "service-run" => Some("`susi services status`"),
+        _ => None,
+    }
 }
 
 fn read_stdin_bounded() -> io::Result<Option<String>> {
@@ -116,14 +134,15 @@ fn main() -> std::process::ExitCode {
                 "`{}` is not a susi command — refusing to ingest it as mission intent.",
                 cli.intent.join(" ")
             );
-            eprintln!(
-                "did you mean: {}",
-                near_misses
-                    .iter()
-                    .map(|s| format!("`susi {s}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+            let suggestions: Vec<String> = near_misses
+                .iter()
+                .map(|s| {
+                    user_facing_suggestion(s)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("`susi {s}`"))
+                })
+                .collect();
+            eprintln!("did you mean: {}", suggestions.join(", "));
             eprintln!("substrate status: `susi os` · service health: `susi services status`");
             return std::process::ExitCode::from(2);
         }
