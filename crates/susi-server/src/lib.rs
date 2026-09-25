@@ -527,6 +527,7 @@ async fn handle_gemi_request(
                     completion.model.clone(),
                     completion.max_tokens,
                     completion.stop.clone(),
+                    completion.include_usage,
                     Arc::clone(&workspace),
                     path == "/v1/completions",
                     permit,
@@ -594,12 +595,19 @@ async fn handle_gemi_request(
                 let body_text = unwrap_inference_render(&content).unwrap_or(content);
                 let body_text = apply_stops(&body_text, &completion.stop);
                 let (body_text, capped) = cap_completion(&body_text, completion.max_tokens);
-                let payload = completion_response(
+                let mut payload = completion_response(
                     &served_model,
                     &body_text,
                     path == "/v1/completions",
                     if capped { "length" } else { "stop" },
                 );
+                let prompt_tokens = approx_tokens(&trimmed_prompt);
+                let completion_tokens = approx_tokens(&body_text);
+                payload["usage"] = json!({
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens
+                });
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
@@ -938,15 +946,19 @@ fn build_streaming_response(
     requested_model: Option<String>,
     max_tokens: Option<u32>,
     stop: Vec<String>,
+    include_usage: bool,
     workspace: Arc<PathBuf>,
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
+    let prompt_tokens = approx_tokens(&prompt);
     let rx = completion_stream(
         model_name,
         legacy,
         max_tokens,
         stop,
+        include_usage,
+        prompt_tokens,
         move |callback, meta| {
             let _permit = permit;
             gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
@@ -1190,11 +1202,15 @@ fn stream_chunk(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // response-shape params travel
+// together; a struct for one call site adds a type without clarity.
 fn completion_stream(
     model: String,
     legacy: bool,
     max_tokens: Option<u32>,
     stop: Vec<String>,
+    include_usage: bool,
+    prompt_tokens: u64,
     solve: impl FnOnce(&dyn Fn(String), &dyn Fn(&str)) -> String + Send + 'static,
 ) -> tokio::sync::mpsc::Receiver<String> {
     // Bound queued frames and split large frames so a slow client cannot
@@ -1232,6 +1248,11 @@ fn completion_stream(
         let emitted = std::cell::Cell::new(false);
         let emitted_words = std::cell::Cell::new(0usize);
         let emitted_chars = std::cell::Cell::new(0usize);
+        // Total emitted text for `usage` reporting — independent of the
+        // max_tokens budget counters above, which only advance when a
+        // budget exists.
+        let emitted_total_chars = std::cell::Cell::new(0u64);
+        let emitted_total_words = std::cell::Cell::new(0u64);
         let truncated = std::cell::Cell::new(false);
         let failed = std::cell::Cell::new(false);
         // `stop` sequences may span chunk boundaries — content is buffered
@@ -1265,6 +1286,9 @@ fn completion_stream(
                     return;
                 }
             }
+            emitted_total_chars.set(emitted_total_chars.get() + piece.len() as u64);
+            emitted_total_words
+                .set(emitted_total_words.get() + piece.split_whitespace().count() as u64);
             let mut remaining = piece.as_str();
             while !remaining.is_empty() {
                 let mut end = remaining.len().min(4096);
@@ -1350,10 +1374,28 @@ fn completion_stream(
                 json!({}),
                 Some(if truncated.get() { "length" } else { "stop" }),
             ))
-            .is_ok()
+            .is_err()
         {
-            let _ = tx.blocking_send("data: [DONE]\n\n".to_owned());
+            return;
         }
+        // `stream_options.include_usage`: a terminal choices:[] chunk
+        // carrying the token accounting between the finish chunk and
+        // [DONE], per the OpenAI streaming contract.
+        if include_usage {
+            let completion_tokens = (emitted_total_chars.get() / 4).max(emitted_total_words.get());
+            let _ = tx.blocking_send(format!(
+                "data: {}\n\n",
+                json!({"id": id, "created": created, "model": label(),
+                "object": if legacy { "text_completion" } else { "chat.completion.chunk" },
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": prompt_tokens + completion_tokens
+                }})
+            ));
+        }
+        let _ = tx.blocking_send("data: [DONE]\n\n".to_owned());
     });
     tokio::spawn(async move {
         if let Err(error) = task.await {
@@ -1394,6 +1436,9 @@ struct CompletionInput {
     model: Option<String>,
     max_tokens: Option<u32>,
     stop: Vec<String>,
+    /// `stream_options.include_usage` — OpenAI emits a final
+    /// `choices:[]` usage chunk before [DONE] only when requested.
+    include_usage: bool,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1506,13 +1551,26 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     {
         return Err("only n=1 completions are supported".into());
     }
+    let include_usage = object
+        .get("stream_options")
+        .and_then(|o| o.get("include_usage"))
+        .and_then(|u| u.as_bool())
+        .unwrap_or(false);
     Ok(CompletionInput {
         prompt,
         stream,
         model,
         max_tokens,
         stop,
+        include_usage,
     })
+}
+
+/// Token-count approximation for `usage` reporting — the true BPE count
+/// lives inside the engine and is not surfaced through the bus, so this
+/// uses the same words/chars≈4 estimate `cap_completion` enforces with.
+fn approx_tokens(text: &str) -> u64 {
+    (text.split_whitespace().count() as u64).max(text.len() as u64 / 4)
 }
 
 #[cfg(test)]
@@ -1666,9 +1724,15 @@ mod tests {
     }
     #[tokio::test]
     async fn streaming_delivers_returned_answer_and_escapes_model_names() {
-        let mut rx = completion_stream("quoted\"model".into(), false, None, Vec::new(), |_, _| {
-            "Hello 🦀".into()
-        });
+        let mut rx = completion_stream(
+            "quoted\"model".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            |_, _| "Hello 🦀".into(),
+        );
         let mut content = String::new();
         let mut stopped = false;
         while let Some(frame) = rx.recv().await {
@@ -1697,6 +1761,8 @@ mod tests {
             true,
             None,
             Vec::new(),
+            false,
+            0,
             move |callback, _| {
                 callback(answer.clone());
                 answer
@@ -1725,13 +1791,58 @@ mod tests {
         assert_eq!(second["choices"][0]["message"]["content"], "answer");
     }
     #[tokio::test]
+    async fn streaming_include_usage_emits_terminal_usage_chunk() {
+        let mut rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            true,
+            4,
+            move |callback, _| {
+                callback("hello there world".to_string());
+                String::new()
+            },
+        );
+        let mut usage: Option<serde_json::Value> = None;
+        let mut saw_finish = false;
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                break;
+            }
+            let value: serde_json::Value = serde_json::from_str(frame[6..].trim()).unwrap();
+            if let Some(u) = value.get("usage") {
+                // The usage chunk must come after the finish chunk and
+                // carry an empty choices array per the OpenAI contract.
+                assert!(saw_finish);
+                assert_eq!(value["choices"].as_array().unwrap().len(), 0);
+                usage = Some(u.clone());
+            }
+            saw_finish |= value["choices"][0]["finish_reason"] == "stop";
+        }
+        let u = usage.expect("include_usage must emit a usage chunk");
+        assert_eq!(u["prompt_tokens"], 4);
+        // 17 chars/4 = 4, 3 words -> max(4, 3) = 4
+        assert_eq!(u["completion_tokens"], 4);
+        assert_eq!(u["total_tokens"], 8);
+    }
+
+    #[tokio::test]
     async fn disconnected_stream_releases_admission() {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
-        let rx = completion_stream("m".into(), false, None, Vec::new(), move |_, _| {
-            let _permit = permit;
-            "answer".into()
-        });
+        let rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            move |_, _| {
+                let _permit = permit;
+                "answer".into()
+            },
+        );
         drop(rx);
         let permit = tokio::time::timeout(std::time::Duration::from_secs(5), admission.acquire())
             .await
@@ -1748,12 +1859,20 @@ mod tests {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let rx = completion_stream("m".into(), false, None, Vec::new(), move |callback, _| {
-            let _permit = permit;
-            let _ = started_tx.send(());
-            callback("x".repeat(4096 * 32));
-            "".into()
-        });
+        let rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            move |callback, _| {
+                let _permit = permit;
+                let _ = started_tx.send(());
+                callback("x".repeat(4096 * 32));
+                "".into()
+            },
+        );
         started_rx.await.unwrap();
         assert!(admission.clone().try_acquire_owned().is_err());
         drop(rx);
