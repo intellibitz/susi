@@ -84,6 +84,28 @@ impl CostAnalyzer {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Every cell's breakdown, for bulk export (e.g. to BI tooling —
+    /// Bullet 80) rather than one lookup per known key.
+    pub fn cell_breakdowns(&self) -> Vec<(String, CostBreakdown)> {
+        Self::all_entries(&self.by_cell)
+    }
+
+    pub fn model_breakdowns(&self) -> Vec<(String, CostBreakdown)> {
+        Self::all_entries(&self.by_model)
+    }
+
+    pub fn tool_breakdowns(&self) -> Vec<(String, CostBreakdown)> {
+        Self::all_entries(&self.by_tool)
+    }
+
+    fn all_entries(map: &RwLock<HashMap<String, CostBreakdown>>) -> Vec<(String, CostBreakdown)> {
+        map.read()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -126,6 +148,26 @@ mod tests {
         assert_eq!(
             analyzer.cell_breakdown("never-seen"),
             CostBreakdown::default()
+        );
+    }
+
+    #[test]
+    fn bulk_getters_return_every_recorded_key() {
+        let analyzer = CostAnalyzer::new(1.0);
+        analyzer.record_inference("cell-a", "gemi-7b", 100);
+        analyzer.record_inference("cell-b", "gemi-70b", 200);
+
+        let cells = analyzer.cell_breakdowns();
+        assert_eq!(cells.len(), 2);
+        assert!(
+            cells
+                .iter()
+                .any(|(id, b)| id == "cell-a" && b.tokens == 100)
+        );
+        assert!(
+            cells
+                .iter()
+                .any(|(id, b)| id == "cell-b" && b.tokens == 200)
         );
     }
 }

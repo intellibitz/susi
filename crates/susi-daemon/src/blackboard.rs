@@ -117,14 +117,39 @@ impl SwarmBlackboard {
         capable
     }
 
-    /// Ranks currently registered cells by trust score (Bullet 79).
-    pub fn leaderboard(&self) -> Vec<crate::leaderboard::LeaderboardEntry> {
-        let cells: Vec<SwarmCellManifest> = self
-            .cells
+    /// Snapshot of every currently registered cell's manifest.
+    fn all_cells(&self) -> Vec<SwarmCellManifest> {
+        self.cells
             .iter()
             .map(|entry| entry.value().clone())
-            .collect();
-        crate::leaderboard::rank_by_trust(&cells)
+            .collect()
+    }
+
+    /// Ranks currently registered cells by trust score (Bullet 79).
+    pub fn leaderboard(&self) -> Vec<crate::leaderboard::LeaderboardEntry> {
+        crate::leaderboard::rank_by_trust(&self.all_cells())
+    }
+
+    /// Renders every registered cell's manifest (and its spans from
+    /// `spans`) as one Markdown document (Bullet 70).
+    pub fn generate_docs(&self, spans: &[crate::tracing::TraceSpan]) -> String {
+        crate::docs_generator::render_fleet_doc(&self.all_cells(), spans)
+    }
+
+    /// Checks `snapshot` against `targets` (Bullet 75) and, on any
+    /// violation, deposits an `sla.violation` pheromone so it's
+    /// observable by anything watching the blackboard. Returns the
+    /// violations found, if any.
+    pub fn check_sla_and_alert(
+        &self,
+        snapshot: &crate::swarm_metrics::SwarmMetricsSnapshot,
+        targets: &crate::sla_monitor::SlaTargets,
+    ) -> Vec<crate::sla_monitor::SlaViolation> {
+        let violations = crate::sla_monitor::check_sla(snapshot, targets);
+        if let Some(pheromone) = crate::sla_monitor::violations_pheromone(&violations) {
+            self.deposit_pheromone(pheromone);
+        }
+        violations
     }
 
     /// Recommends up to `team_size` cells for `topic` (Bullet 78): capable
@@ -194,6 +219,47 @@ mod tests {
         assert_eq!(ranking.len(), 2);
         assert_eq!(ranking[0].cell_id, "high");
         assert_eq!(ranking[1].cell_id, "low");
+    }
+
+    #[test]
+    fn sla_violation_deposits_an_alert_pheromone() {
+        let board = SwarmBlackboard::new();
+        let snapshot = crate::swarm_metrics::SwarmMetricsSnapshot {
+            missions_started: 1,
+            missions_completed: 1,
+            missions_succeeded: 0,
+            distinct_solutions: 0,
+            avg_time_to_resolution_ms: 5000,
+        };
+        let targets = crate::sla_monitor::SlaTargets {
+            max_avg_resolution_ms: Some(1000),
+            min_success_rate: None,
+        };
+
+        let violations = board.check_sla_and_alert(&snapshot, &targets);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(board.query_topic("sla.violation").len(), 1);
+    }
+
+    #[test]
+    fn a_clean_snapshot_deposits_no_alert() {
+        let board = SwarmBlackboard::new();
+        let snapshot = crate::swarm_metrics::SwarmMetricsSnapshot::default();
+        let violations =
+            board.check_sla_and_alert(&snapshot, &crate::sla_monitor::SlaTargets::default());
+        assert!(violations.is_empty());
+        assert!(board.query_topic("sla.violation").is_empty());
+    }
+
+    #[test]
+    fn generate_docs_includes_every_registered_cell() {
+        let board = SwarmBlackboard::new();
+        board.register_cell(manifest("cell-a", 0.5));
+        board.register_cell(manifest("cell-b", 0.5));
+
+        let doc = board.generate_docs(&[]);
+        assert!(doc.contains("## cell-a"));
+        assert!(doc.contains("## cell-b"));
     }
 
     #[test]
