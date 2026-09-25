@@ -72,25 +72,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handle_infer(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
-    // We are simulating the inference call through GemiEngine
-    // For a real implementation, we extract the prompt from req.payload
     let prompt = req
         .payload
         .get("prompt")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
-
-    let ws = std::path::PathBuf::from(".");
-    let result = GemiEngine::generate_reasoning(prompt, &ws);
-
-    cell.record_success();
-
-    SyscallResponse {
-        id: req.id,
-        status: SyscallStatus::Success,
-        data: serde_json::json!({ "text": result }),
-        receipt: None,
-        latency_us: 5000,
-        message: None,
+        .unwrap_or("")
+        .to_string();
+    let started = std::time::Instant::now();
+    let latency = |started: std::time::Instant| {
+        u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
+    };
+    if prompt.trim().is_empty() {
+        cell.record_failure();
+        return SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Error,
+            data: serde_json::Value::Null,
+            receipt: None,
+            latency_us: latency(started),
+            message: Some("missing prompt in payload (`prompt`)".into()),
+        };
+    }
+    // Inference is CPU/GPU-bound and blocking: keep it off the async
+    // executor, and run it in the caller's workspace.
+    let ws = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
+    match tokio::task::spawn_blocking(move || GemiEngine::generate_reasoning(&prompt, &ws)).await {
+        Ok(text) => {
+            cell.record_success();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Success,
+                data: serde_json::json!({ "text": text }),
+                receipt: None,
+                latency_us: latency(started),
+                message: None,
+            }
+        }
+        Err(e) => {
+            cell.record_failure();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Error,
+                data: serde_json::Value::Null,
+                receipt: None,
+                latency_us: latency(started),
+                message: Some(format!("inference task failed: {e}")),
+            }
+        }
     }
 }

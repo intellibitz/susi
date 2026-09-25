@@ -124,9 +124,14 @@ async fn handle_external(
     }
     cmd.arg(&payload_str);
 
+    let started = std::time::Instant::now();
     match cmd.output().await {
         Ok(out) => {
-            cell.record_success();
+            if out.status.success() {
+                cell.record_success();
+            } else {
+                cell.record_failure();
+            }
             let result_text = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
 
@@ -139,7 +144,7 @@ async fn handle_external(
                 },
                 data: serde_json::json!({ "stdout": result_text, "stderr": stderr_text, "code": out.status.code() }),
                 receipt: None,
-                latency_us: 10000,
+                latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
                 message: if out.status.success() {
                     None
                 } else {
@@ -154,7 +159,7 @@ async fn handle_external(
                 status: SyscallStatus::Error,
                 data: serde_json::json!({ "error": e.to_string() }),
                 receipt: None,
-                latency_us: 1000,
+                latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
                 message: Some(format!("Failed to spawn ecosystem plugin: {}", e)),
             }
         }
