@@ -37,6 +37,7 @@ impl WasmCell {
         // Create a new engine (or reuse a global one in the future).
         let engine = Engine::default();
         let module = Module::from_file(&engine, &module_path)
+            .map_err(anyhow::Error::from)
             .with_context(|| format!("Failed to load WASM module {}", module_path.display()))?;
 
         // Define a simple host function that the WASM module can call to
@@ -58,6 +59,7 @@ impl WasmCell {
 
         // Instantiate the module with the host function in imports.
         let instance = Instance::new(&mut store, &module, &[host_send.into()])
+            .map_err(anyhow::Error::from)
             .with_context(|| "Failed to instantiate WASM module")?;
 
         Ok(Self {
@@ -79,6 +81,7 @@ impl WasmCell {
         // For now we assume the function takes no params and returns i32.
         let typed = func
             .typed::<(), i32>(&self.store)
+            .map_err(anyhow::Error::from)
             .with_context(|| "Failed to cast function signature")?;
         let ret = typed.call(&mut self.store, ())?;
         Ok(format!("WASM function '{}' returned {}", func_name, ret))
