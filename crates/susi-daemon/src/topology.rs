@@ -85,7 +85,22 @@ impl SwarmTopology {
                 }
             }
             TopologyKind::Tree => {
-                return Err("Tree topology auto-formation not yet implemented".to_string());
+                // Balanced binary tree in discovery order: node i's children
+                // are 2i+1 and 2i+2, so depth stays O(log n). The root leads;
+                // edges run both ways (parent <-> child).
+                leader = Some(nodes[0].cell_id.clone());
+                for (i, node) in nodes.iter().enumerate() {
+                    let mut neighbors = Vec::new();
+                    if i > 0 {
+                        neighbors.push(nodes[(i - 1) / 2].cell_id.clone());
+                    }
+                    for child in [2 * i + 1, 2 * i + 2] {
+                        if let Some(c) = nodes.get(child) {
+                            neighbors.push(c.cell_id.clone());
+                        }
+                    }
+                    edges.insert(node.cell_id.clone(), neighbors);
+                }
             }
         }
 
@@ -177,6 +192,44 @@ mod tests {
         assert_eq!(topo.edges.get("Center").unwrap().len(), 2);
         assert_eq!(topo.edges.get("Leaf1").unwrap().len(), 1);
         assert_eq!(topo.edges.get("Leaf1").unwrap()[0], "Center");
+    }
+
+    #[test]
+    fn test_tree_topology_formation() {
+        let nodes: Vec<_> = ["R", "L", "Rt", "LL", "LR"]
+            .iter()
+            .map(|id| dummy_node(id))
+            .collect();
+        let topo = SwarmTopology::form("tree-1".to_string(), TopologyKind::Tree, nodes).unwrap();
+
+        assert_eq!(topo.leader.as_deref(), Some("R"));
+        assert_eq!(topo.edges["R"], vec!["L".to_string(), "Rt".to_string()]);
+        assert_eq!(
+            topo.edges["L"],
+            vec!["R".to_string(), "LL".to_string(), "LR".to_string()]
+        );
+        assert_eq!(topo.edges["Rt"], vec!["R".to_string()]);
+        assert_eq!(topo.edges["LL"], vec!["L".to_string()]);
+        // Every edge is mirrored and the tree has exactly n-1 of them.
+        let directed: usize = topo.edges.values().map(Vec::len).sum();
+        assert_eq!(directed, 2 * (5 - 1));
+        for (node, neighbors) in &topo.edges {
+            for n in neighbors {
+                assert!(topo.edges[n].contains(node), "{n} -> {node} missing");
+            }
+        }
+    }
+
+    #[test]
+    fn test_single_node_tree_is_its_own_leader() {
+        let topo = SwarmTopology::form(
+            "t".to_string(),
+            TopologyKind::Tree,
+            vec![dummy_node("solo")],
+        )
+        .unwrap();
+        assert_eq!(topo.leader.as_deref(), Some("solo"));
+        assert!(topo.edges["solo"].is_empty());
     }
 
     #[test]
