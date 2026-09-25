@@ -242,18 +242,36 @@ impl SusiDaemon {
 
     /// Human-readable host-contract endpoints for CLI / logs.
     pub fn host_contract_endpoints_report() -> String {
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let bind = cfg
+            .get::<String>("bind_address")
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        // Every socket sniffs per-connection: http and https are both live
+        // whenever a cert exists. The report names the external surface only
+        // when the bind actually exposes one.
+        let remote_note = if crate::tls::is_loopback(&bind) {
+            String::new()
+        } else {
+            let https_only = cfg.get::<bool>("https_only").unwrap_or(false);
+            format!(
+                "\nRemote surface: http+https on {bind}:* (TLS auto-provisioned;\
+                 https_only={https_only} {} remote plaintext)",
+                if https_only { "refuses" } else { "permits" }
+            )
+        };
         format!(
             "Host contract endpoints:\n\
              - GMCP/MCP  http://127.0.0.1:{}/mcp\n\
              - GEMI      http://127.0.0.1:{}/\n\
              - UDP disco 127.0.0.1:{}\n\
              - GMCP alias http://127.0.0.1:{}/mcp\n\
-             - A2A       http://127.0.0.1:{}/",
+             - A2A       http://127.0.0.1:{}/{}",
             ports::GMCP,
             ports::GEMI,
             ports::UDP_DISCOVERY,
             ports::GMCP_HTTP,
-            ports::A2A_HTTP
+            ports::A2A_HTTP,
+            remote_note
         )
     }
 
@@ -695,13 +713,15 @@ impl SusiDaemon {
             &bind_address,
         );
 
-        let scheme = if tls_acceptor.is_some() {
-            "https"
+        let (scheme, transport) = if tls_acceptor.is_some() {
+            // Both are live on every socket — first-byte sniff picks per
+            // connection; https is the advertised scheme.
+            ("https", "http+https")
         } else {
-            "http"
+            ("http", "http")
         };
         eprintln!(
-            "[SusiDaemon] Public endpoints ready (http+https sniffed per connection):\n\
+            "[SusiDaemon] Public endpoints ready ({transport} on every socket):\n\
              - GMCP/MCP  {}://{}:{}/mcp\n\
              - GEMI      {}://{}:{}/\n\
              - UDP disco {}:{}\n\

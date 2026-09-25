@@ -147,11 +147,22 @@ impl AsyncWrite for MaybeTls {
     }
 }
 
-/// Peek at the connection's first byte and wrap it in TLS when it is a
-/// ClientHello. Returns `None` when the connection must be dropped.
+/// Decide the transport for one accepted connection. Every socket sniffs the
+/// first byte — a TLS ClientHello (`0x16`) is upgraded when a certificate is
+/// configured, anything else is plain HTTP. Sniffing (rather than a
+/// destination-based split) keeps the surface proxy-compatible: TLS can be
+/// terminated upstream, and a specific external bind still serves plaintext
+/// to peers that need it.
+///
+/// Plaintext policy is peer-based: loopback always passes; off-host
+/// (`remote`) plaintext is refused only when `require_tls_remote`
+/// (config `https_only`) is set — so an operator can force TLS on the
+/// external surface while internal `http://127.0.0.1` callers keep working.
+///
+/// Returns `None` when the connection must be dropped.
 async fn negotiate_transport(
     stream: tokio::net::TcpStream,
-    peer: std::net::IpAddr,
+    remote: bool,
     tls: Option<&TlsAcceptor>,
     require_tls_remote: bool,
 ) -> Option<MaybeTls> {
@@ -162,12 +173,12 @@ async fn negotiate_transport(
         return match acceptor.accept(stream).await {
             Ok(s) => Some(MaybeTls::Tls(Box::new(s))),
             Err(e) => {
-                eprintln!("[GEMI REST] TLS handshake failed for {peer}: {e}");
+                eprintln!("[GEMI REST] TLS handshake failed: {e}");
                 None
             }
         };
     }
-    if require_tls_remote && !peer.is_loopback() {
+    if remote && require_tls_remote {
         return None;
     }
     Some(MaybeTls::Plain(stream))
@@ -295,8 +306,9 @@ impl GemiServer {
                 let tls = tls.clone();
 
                 tokio::spawn(async move {
+                    let remote = !peer_ip.is_loopback();
                     let Some(io) =
-                        negotiate_transport(stream, peer_ip, tls.as_ref(), require_tls_remote).await
+                        negotiate_transport(stream, remote, tls.as_ref(), require_tls_remote).await
                     else {
                         return;
                     };
@@ -1702,8 +1714,12 @@ mod tests {
     use super::*;
 
     /// Drive one accepted connection through `negotiate_transport` after the
-    /// client pre-writes `first` bytes for the peek to classify.
-    async fn negotiate_with_prefix(first: &[u8], require_tls_remote: bool) -> Option<MaybeTls> {
+    /// client pre-writes `first` bytes for the loopback peek to classify.
+    async fn negotiate_with_prefix(
+        first: &[u8],
+        remote: bool,
+        require_tls_remote: bool,
+    ) -> Option<MaybeTls> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let first = first.to_vec();
@@ -1713,17 +1729,17 @@ mod tests {
             c.try_write(&first).unwrap();
             c
         });
-        let (stream, peer) = listener.accept().await.unwrap();
-        let out = negotiate_transport(stream, peer.ip(), None, require_tls_remote).await;
+        let (stream, _) = listener.accept().await.unwrap();
+        let out = negotiate_transport(stream, remote, None, require_tls_remote).await;
         let _client = client.await.unwrap();
         out
     }
 
     #[tokio::test]
-    async fn negotiate_transport_serves_plain_http() {
-        // ASCII 'G' of "GET" is not a TLS record — plain HTTP proceeds.
+    async fn negotiate_transport_serves_plain_http_on_loopback() {
+        // ASCII 'G' of "GET" is not a TLS record — loopback plain HTTP proceeds.
         assert!(
-            negotiate_with_prefix(b"GET /v1/models HTTP/1.1\r\n\r\n", false)
+            negotiate_with_prefix(b"GET /v1/models HTTP/1.1\r\n\r\n", false, false)
                 .await
                 .is_some()
         );
@@ -1732,35 +1748,36 @@ mod tests {
     #[tokio::test]
     async fn negotiate_transport_drops_tls_bytes_without_acceptor() {
         // 0x16 is a TLS handshake record; with no configured acceptor the
-        // connection must be refused rather than served plaintext-garbage.
+        // loopback connection must be refused rather than served garbage.
         assert!(
-            negotiate_with_prefix(&[0x16, 0x03, 0x01, 0x00, 0x2a], false)
+            negotiate_with_prefix(&[0x16, 0x03, 0x01, 0x00, 0x2a], false, false)
                 .await
                 .is_none()
         );
     }
 
     #[tokio::test]
-    async fn negotiate_transport_requires_tls_only_for_remote_peers() {
-        // require_tls_remote exempts loopback (internal callers use plain
-        // http on 127.0.0.1) but drops plaintext from off-host peers.
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let client = tokio::spawn(async move {
-            let c = tokio::net::TcpStream::connect(addr).await.unwrap();
-            c.writable().await.unwrap();
-            c.try_write(b"GET / HTTP/1.1\r\n\r\n").unwrap();
-            c
-        });
-        let (stream, _) = listener.accept().await.unwrap();
-        // Remote peer speaking plaintext under require_tls_remote: dropped.
-        let remote = std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7));
+    async fn negotiate_transport_remote_plaintext_policy() {
+        // Remote plaintext is allowed only when no TLS is configured and
+        // https_only is unset; https_only refuses it. (The remote-TLS-
+        // handshake path needs a cert and is covered by live verification.)
         assert!(
-            negotiate_transport(stream, remote, None, true)
+            negotiate_with_prefix(b"GET / HTTP/1.1\r\n\r\n", true, false)
+                .await
+                .is_some()
+        );
+        assert!(
+            negotiate_with_prefix(b"GET / HTTP/1.1\r\n\r\n", true, true)
                 .await
                 .is_none()
         );
-        let _client = client.await.unwrap();
+        // Loopback is always exempt — internal `http://127.0.0.1` callers
+        // must not die when https_only is on.
+        assert!(
+            negotiate_with_prefix(b"GET / HTTP/1.1\r\n\r\n", false, true)
+                .await
+                .is_some()
+        );
     }
 
     #[test]

@@ -126,23 +126,31 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 #   Authorization: Bearer "$(cat ~/.susi/api_token)"
 ```
 
-Remote access / HTTPS — every public listener sniffs each connection's first
-byte, so the same ports serve plain HTTP *and* HTTPS. Configure in
-`~/.susi/config.json`:
+Remote access / HTTPS — every socket sniffs each connection's first byte, so
+the same ports serve plain HTTP *and* HTTPS (a TLS ClientHello upgrades when
+a certificate is configured). The contract:
+
+- **Sniffing, not separate ports** — `https://host:9091` and
+  `http://host:9091` coexist, so TLS-terminating reverse proxies and
+  mixed-version peers keep working.
+- **`https_only`** refuses *remote* plaintext; loopback is always exempt so
+  internal `http://127.0.0.1` callers never break.
+- **Auto self-signed**: a non-loopback `bind_address` with no configured cert
+  generates `~/.susi/tls/cert.pem` on start — remote clients use `curl -k`
+  or pin the cert. For browser-trusted HTTPS, supply a real cert via
+  `tls_cert_path`/`tls_key_path` (e.g. Let's Encrypt).
+- **Dual-bind**: a specific `bind_address` (e.g. a LAN IP) binds loopback
+  *alongside* it, so local callers are never stranded. `0.0.0.0`/`::`
+  already cover both.
 
 ```jsonc
 {
-  "bind_address": "0.0.0.0",        // listen beyond loopback (default 127.0.0.1)
+  "bind_address": "0.0.0.0",         // listen beyond loopback (default 127.0.0.1)
   "tls_cert_path": "/path/cert.pem", // optional: real cert (e.g. Let's Encrypt)
   "tls_key_path": "/path/key.pem",
-  "https_only": false               // true: drop plaintext from remote peers
+  "https_only": false                // true: refuse remote plaintext even with no cert
 }
 ```
-
-With `bind_address` set to a non-loopback address and no cert configured, the
-daemon generates a self-signed certificate at `~/.susi/tls/cert.pem` on start —
-clients can then use `curl -k https://<host>:9091/v1/models` (or pin the cert).
-Loopback `http://127.0.0.1` always keeps working for the CLI and local tools.
 
 Stdio MCP for editors that prefer a subprocess:
 ```bash

@@ -126,6 +126,12 @@ impl axum::serve::Listener for DualListener {
                     continue;
                 }
             };
+            // Dual-protocol on every socket: a TLS ClientHello (0x16) is
+            // upgraded when a cert is configured, anything else is plain
+            // HTTP — so TLS-terminated-upstream deployments keep working.
+            // Off-host plaintext is refused only under `https_only`;
+            // loopback is always exempt (internal http://127.0.0.1 callers).
+            let remote = !addr.ip().is_loopback();
             let mut probe = [0u8; 1];
             let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
             if is_tls {
@@ -140,7 +146,7 @@ impl axum::serve::Listener for DualListener {
                 }
                 continue;
             }
-            if self.require_tls_remote && !addr.ip().is_loopback() {
+            if remote && self.require_tls_remote {
                 continue;
             }
             return (MaybeTls::Plain(stream), addr);
@@ -244,7 +250,9 @@ pub fn serve(
         // for follow-up JSON-RPC calls, not the relative forms the card
         // defaults to. https when TLS is configured (both protocols are
         // served on the port; the card should point at the safer one), and
-        // the non-loopback socket when one is bound.
+        // the non-loopback socket when one is bound. A wildcard bind
+        // (0.0.0.0/::) is not dialable — resolve it to the host's outbound
+        // address instead.
         let scheme = if tls.is_some() { "https" } else { "http" };
         let advertise = inner
             .iter()
@@ -252,8 +260,22 @@ pub fn serve(
             .find(|a| !a.ip().is_loopback())
             .or_else(|| inner.first().and_then(|l| l.local_addr().ok()));
         if let Some(addr) = advertise {
+            let host = if addr.ip().is_unspecified() {
+                // UDP "connect" sends no packets — it just resolves which
+                // local address the route would use. TEST-NET-3 is
+                // deliberately unreachable; only the source addr matters.
+                std::net::UdpSocket::bind((std::net::Ipv4Addr::UNSPECIFIED, 0))
+                    .and_then(|s| {
+                        s.connect((std::net::Ipv4Addr::new(203, 0, 113, 1), 1))?;
+                        s.local_addr()
+                    })
+                    .map(|a| a.ip())
+                    .unwrap_or_else(|_| addr.ip())
+            } else {
+                addr.ip()
+            };
             for interface in &mut card.supported_interfaces {
-                interface.url = format!("{scheme}://{addr}{}", interface.url);
+                interface.url = format!("{scheme}://{}:{}{}", host, addr.port(), interface.url);
             }
         }
         // `tap_io` wrap is what makes `ConnectInfo<SocketAddr>` resolve on a

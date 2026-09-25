@@ -98,11 +98,22 @@ impl AsyncWrite for MaybeTls {
     }
 }
 
-/// Peek at the connection's first byte and wrap it in TLS when it is a
-/// ClientHello. Returns `None` when the connection must be dropped.
+/// Decide the transport for one accepted connection. Every socket sniffs the
+/// first byte — a TLS ClientHello (`0x16`) is upgraded when a certificate is
+/// configured, anything else is plain HTTP. Sniffing (rather than a
+/// destination-based split) keeps the surface proxy-compatible: TLS can be
+/// terminated upstream, and a specific external bind still serves plaintext
+/// to peers that need it.
+///
+/// Plaintext policy is peer-based: loopback always passes; off-host
+/// (`remote`) plaintext is refused only when `require_tls_remote`
+/// (config `https_only`) is set — so an operator can force TLS on the
+/// external surface while internal `http://127.0.0.1` callers keep working.
+///
+/// Returns `None` when the connection must be dropped.
 async fn negotiate_transport(
     stream: tokio::net::TcpStream,
-    peer: std::net::IpAddr,
+    remote: bool,
     tls: Option<&TlsAcceptor>,
     require_tls_remote: bool,
 ) -> Option<MaybeTls> {
@@ -113,12 +124,12 @@ async fn negotiate_transport(
         return match acceptor.accept(stream).await {
             Ok(s) => Some(MaybeTls::Tls(Box::new(s))),
             Err(e) => {
-                eprintln!("[GMCP] TLS handshake failed for {peer}: {e}");
+                eprintln!("[GMCP] TLS handshake failed: {e}");
                 None
             }
         };
     }
-    if require_tls_remote && !peer.is_loopback() {
+    if remote && require_tls_remote {
         return None;
     }
     Some(MaybeTls::Plain(stream))
@@ -250,11 +261,12 @@ impl GmcpServer {
                         let service = service.clone();
                         let peer_ip = peer.ip();
                         let tls = tls.clone();
+                        let remote = !peer_ip.is_loopback();
                         tokio::spawn(async move {
                             let _permit = permit;
                             let Some(io) = negotiate_transport(
                                 stream,
-                                peer_ip,
+                                remote,
                                 tls.as_ref(),
                                 require_tls_remote,
                             )
@@ -468,4 +480,58 @@ async fn handle_request(
     }
     cors(&mut result, &cfg.allow_origin());
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+
+    /// Drive one accepted connection through `negotiate_transport` after the
+    /// client pre-writes `first` bytes for the sniff to classify.
+    async fn negotiate_with_prefix(
+        first: &[u8],
+        remote: bool,
+        require_tls_remote: bool,
+    ) -> Option<MaybeTls> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let first = first.to_vec();
+        let client = tokio::spawn(async move {
+            let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+            c.write_all(&first).await.unwrap();
+            c
+        });
+        let (stream, _) = listener.accept().await.unwrap();
+        let out = negotiate_transport(stream, remote, None, require_tls_remote).await;
+        let _client = client.await.unwrap();
+        out
+    }
+
+    #[tokio::test]
+    async fn negotiate_transport_contract() {
+        // Plain HTTP always passes from loopback, and from remote peers
+        // unless https_only refuses it.
+        assert!(
+            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", false, true)
+                .await
+                .is_some()
+        );
+        assert!(
+            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", true, false)
+                .await
+                .is_some()
+        );
+        assert!(
+            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", true, true)
+                .await
+                .is_none()
+        );
+        // TLS bytes with no acceptor are dropped, never served as garbage.
+        assert!(
+            negotiate_with_prefix(&[0x16, 0x03, 0x01, 0x00, 0x2a], false, false)
+                .await
+                .is_none()
+        );
+    }
 }

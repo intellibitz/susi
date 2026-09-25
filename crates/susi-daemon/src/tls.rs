@@ -1,9 +1,13 @@
 //! Optional TLS for the public HTTP endpoints (GEMI/GMCP/A2A).
 //!
-//! Every public listener sniffs the first byte of each connection: a TLS
-//! ClientHello (`0x16`) is served over TLS when an acceptor is configured;
-//! anything else is plain HTTP. Internal loopback callers are unaffected,
-//! and remote callers get `https://` without a separate port.
+//! Transport contract (first-byte sniffing on every socket):
+//!   - A TLS ClientHello (`0x16`) upgrades to TLS whenever an acceptor is
+//!     configured; anything else is plain HTTP. Loopback and remote sockets
+//!     behave identically — sniffing keeps the surface compatible with
+//!     TLS-terminating reverse proxies and mixed-version peers.
+//!   - Plaintext policy is peer-based: off-host plaintext is refused only
+//!     when `https_only` is set; loopback always passes so internal
+//!     `http://127.0.0.1` callers are never broken.
 //!
 //! Certificate resolution order:
 //!   1. `tls_cert_path` + `tls_key_path` in config.json (PEM pair)
@@ -11,9 +15,8 @@
 //!      cert persisted under `<global_dir>/tls/`
 //!   3. loopback bind with no cert → `None` (plain HTTP only)
 //!
-//! `https_only` (default false): when true, non-TLS bytes from non-loopback
-//! peers are dropped. Loopback plaintext is always allowed — internal
-//! callers use `http://127.0.0.1` unconditionally.
+//! `https_only` (default false): refuse remote plaintext even when no TLS
+//! certificate can be offered.
 
 use std::io::BufReader;
 use std::net::IpAddr;
@@ -132,8 +135,14 @@ pub fn endpoint_acceptor(bind_address: &str, global_dir: &Path) -> Option<TlsAcc
         Ok(acceptor) => Some(acceptor),
         Err(e) => {
             eprintln!(
-                "[TLS] Self-signed certificate unavailable: {} — endpoints stay HTTP-only",
-                e
+                "[TLS] Self-signed certificate unavailable: {} — \
+                 remote peers get plaintext HTTP{}",
+                e,
+                if https_only() {
+                    "; https_only refuses remote connections entirely"
+                } else {
+                    " (https_only is unset)"
+                }
             );
             None
         }
