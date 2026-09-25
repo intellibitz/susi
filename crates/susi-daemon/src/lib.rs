@@ -84,6 +84,10 @@ pub mod checkpoint;
 pub mod orchestrator;
 pub mod pubsub;
 pub mod telemetry_stream;
+pub mod nat;
+pub mod http_gateway;
+pub mod mount;
+pub mod gc;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
