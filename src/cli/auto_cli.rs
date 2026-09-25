@@ -113,8 +113,8 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
             let _ = std::fs::create_dir_all(&substrate);
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
             susi_gemi::http_provider::apply_cloud_env_file();
-            let report = susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
-            print_json(&report)?;
+            susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+            print_json(&())?;
         }
     }
     Ok(())

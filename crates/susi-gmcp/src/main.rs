@@ -18,23 +18,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SwarmRole::ToolDriver,
         "tcp://127.0.0.1:9090".to_string(),
     );
-    
+
     // Register capabilities
     cell.register_capability("mcp-protocol");
     cell.register_capability("system-tools");
-    
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
     cell.set_ready(now);
-    
+
     let cell = Arc::new(tokio::sync::Mutex::new(cell));
-    
+
     let listener = TcpListener::bind("127.0.0.1:9090").await?;
     println!("susi-gmcp Swarm Cell ready and listening...");
-    
+
     loop {
         let (mut socket, _) = listener.accept().await?;
         let cell_clone = Arc::clone(&cell);
-        
+
         tokio::spawn(async move {
             let mut buf = vec![0u8; 1024 * 1024]; // 1MB buffer
             loop {
@@ -43,10 +45,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(n) => {
                         if let Ok((frame, _)) = WireFrame::decode(&buf[..n]) {
                             if frame.msg_type == MessageType::SyscallRequest {
-                                if let Ok(req) = serde_json::from_slice::<SyscallRequest>(&frame.payload) {
-                                    let response = handle_tool(req, &mut *cell_clone.lock().await).await;
+                                if let Ok(req) =
+                                    serde_json::from_slice::<SyscallRequest>(&frame.payload)
+                                {
+                                    let response =
+                                        handle_tool(req, &mut *cell_clone.lock().await).await;
+                                    #[allow(clippy::unwrap_used)]
+                                    // SAFETY: serializing a known struct
                                     let resp_payload = serde_json::to_vec(&response).unwrap();
-                                    let resp_frame = WireFrame::new(MessageType::SyscallResponse, resp_payload);
+                                    let resp_frame =
+                                        WireFrame::new(MessageType::SyscallResponse, resp_payload);
                                     let encoded = resp_frame.encode();
                                     let _ = socket.write_all(&encoded).await;
                                 }
@@ -65,9 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_tool(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
     // We simulate tool execution for now.
     // Real implementation routes through `susi_gmcp::mcp_wrapper` etc.
-    
+
     cell.record_success();
-    
+
     SyscallResponse {
         id: req.id,
         status: SyscallStatus::Success,

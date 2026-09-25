@@ -49,9 +49,9 @@ impl SusiRuntimeAdmin {
         let snapshot = crate::telemetry::sample_and_record(Some(substrate_home));
         let load_1m = snapshot.load_avg_1m.unwrap_or(0.0);
         let cpu_threshold = 8.0; // Dummy threshold since profiler is moved
-        let thermal_stress = snapshot.max_temp_c().is_some_and(|t| t > 85.0);
-        let power_stress = snapshot.critical_battery();
-        let load_stress = load_1m > cpu_threshold;
+        let _thermal_stress = snapshot.max_temp_c().is_some_and(|t| t > 85.0);
+        let _power_stress = snapshot.critical_battery();
+        let _load_stress = load_1m > cpu_threshold;
         // if load_stress || thermal_stress || power_stress {
         //     // System is under stress. Ladder down concurrency.
         //     susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
@@ -61,7 +61,7 @@ impl SusiRuntimeAdmin {
     }
 
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
-    fn consolidate_sovereign_memory(workspace: &Path) -> EaiResult<()> {
+    fn consolidate_sovereign_memory(_workspace: &Path) -> EaiResult<()> {
         info!("[Sovereign Mind] Consolidating mission experience into PKB...");
         // let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
         Ok(())
@@ -96,7 +96,7 @@ impl SusiRuntimeAdmin {
     }
 
     /// Hardware saturation audit, drift detection, and model substrate tuning.
-    pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
+    pub fn perform_substrate_audit(_workspace: &Path) -> EaiResult<()> {
         // let profile = HardwareProfiler::get_profile();
 
         // 1. Hardware Saturation Audit

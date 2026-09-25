@@ -8,22 +8,41 @@
 use std::path::Path;
 
 /// Register in-process plane-bus handlers for gemi / gawd / tools / agents.
+#[allow(clippy::unwrap_used)] // SAFETY: current_exe and parent will always exist in a valid build
 pub fn wire_plane_bus() {
     // Spawn the decoupled GEMI micro-daemon as a Swarm Cell
     std::thread::spawn(|| {
-        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gemi"))
-            .spawn();
+        let _ = std::process::Command::new(
+            std::env::current_exe()
+                .unwrap_or_else(|_| "susi-daemon".into())
+                .parent()
+                .unwrap()
+                .join("susi-gemi"),
+        )
+        .spawn();
     });
-    
+
     // Spawn the decoupled GMCP micro-daemon as a Swarm Cell
     std::thread::spawn(|| {
-        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gmcp"))
-            .spawn();
+        let _ = std::process::Command::new(
+            std::env::current_exe()
+                .unwrap_or_else(|_| "susi-daemon".into())
+                .parent()
+                .unwrap()
+                .join("susi-gmcp"),
+        )
+        .spawn();
     });
     // Spawn the decoupled GAWD micro-daemon as a Swarm Cell
     std::thread::spawn(|| {
-        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gawd"))
-            .spawn();
+        let _ = std::process::Command::new(
+            std::env::current_exe()
+                .unwrap_or_else(|_| "susi-daemon".into())
+                .parent()
+                .unwrap()
+                .join("susi-gawd"),
+        )
+        .spawn();
     });
     // susi_tools::plane_handler::register();
     // susi_agents::plane_handler::register();

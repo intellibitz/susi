@@ -698,7 +698,7 @@ impl SusiDaemon {
         // plain HTTP (internal loopback callers) keeps working on the same
         // port. `https_only` drops non-TLS bytes from remote peers.
         let tls_acceptor = crate::tls::endpoint_acceptor(&bind_address, &global_dir);
-        let require_tls_remote = crate::tls::https_only();
+        let _require_tls_remote = crate::tls::https_only();
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
@@ -707,7 +707,7 @@ impl SusiDaemon {
         // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
         // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.
         match tokio::runtime::Runtime::new() {
-            Ok(runtime) => {
+            Ok(_runtime) => {
                 // runtime.block_on(crate::auto_discovery::bootstrap_zero_config_substrate());
             }
             Err(e) => {
@@ -731,17 +731,17 @@ impl SusiDaemon {
             cfg.a2a_http_port(),
             cfg.udp_discovery_port(),
         );
-        let gemi_server =
+        let _gemi_server =
             Self::bind_tcp_canonical(gemi_port, "GEMI HTTP", &global_dir, &bind_address);
-        let gmcp_primary =
+        let _gmcp_primary =
             Self::bind_tcp_canonical(gmcp_port, "GMCP/MCP HTTP", &global_dir, &bind_address);
-        let gmcp_alias = Self::bind_tcp_canonical(
+        let _gmcp_alias = Self::bind_tcp_canonical(
             gmcp_http_port,
             "GMCP HTTP alias",
             &global_dir,
             &bind_address,
         );
-        let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
+        let _a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
         let udp_socket =
             Self::bind_udp_canonical(udp_port, "A2A UDP discovery", &global_dir, &bind_address);
 
@@ -775,8 +775,8 @@ impl SusiDaemon {
             a2a_port
         );
 
-        let tls_gemi = tls_acceptor.clone();
-        let workspace_gemi = workspace.clone();
+        let _tls_gemi = tls_acceptor.clone();
+        let _workspace_gemi = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // GemiServer::start_http_server(
@@ -790,8 +790,8 @@ impl SusiDaemon {
             }
         });
 
-        let tls_gmcp = tls_acceptor.clone();
-        let workspace_gmcp = workspace.clone();
+        let _tls_gmcp = tls_acceptor.clone();
+        let _workspace_gmcp = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // GmcpServer::start_http_server(
@@ -805,8 +805,8 @@ impl SusiDaemon {
             }
         });
 
-        let tls_gmcp_alias = tls_acceptor.clone();
-        let workspace_gmcp_alias = workspace.clone();
+        let _tls_gmcp_alias = tls_acceptor.clone();
+        let _workspace_gmcp_alias = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // GmcpServer::start_http_server(
@@ -839,7 +839,7 @@ impl SusiDaemon {
         //     std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
         //         true
         //     });
-        let tls_a2a = tls_acceptor;
+        let _tls_a2a = tls_acceptor;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // if let Err(e) = susi_gawd::a2a::server::serve(
@@ -877,7 +877,7 @@ impl SusiDaemon {
         // thread::spawn(move || {
         //     let queue = SubstratePulseQueue::global();
         //     let ama = SusiMasterAgent::new();
-        // 
+        //
         //     loop {
         //         if let Some(pulse) = queue.pop() {
         //             info!(
@@ -1145,7 +1145,7 @@ impl SusiDaemon {
             // signed pong echoing the requester's nonce. Only peers that hold
             // ~/.susi/cluster.key can complete this — an unauthenticated LAN
             // host still gets legacy discovery but never roster admission.
-            if let Some((pinger_id, caps_csv, checksum, bloom_hex, nonce, wants_v2)) =
+            if let Some((pinger_id, caps_csv, _checksum, _bloom_hex, nonce, wants_v2)) =
                 crate::susi_config::cluster_key::verify_signed_ping(&msg)
             {
                 // Mutual admission: a correctly signed ping proves the
@@ -1175,7 +1175,7 @@ impl SusiDaemon {
                         .find_map(|c| c.strip_prefix("gmcp_http="))
                         .and_then(|p| p.parse::<u16>().ok())
                         .unwrap_or(crate::susi_paths::ports::GMCP_HTTP);
-                    let pinger_addr = format!("{}:{}", src.ip(), peer_http);
+                    let _pinger_addr = format!("{}:{}", src.ip(), peer_http);
                     // The verified signature proves the daemon at src holds
                     // cluster.key — Explicit standing for the ADDRESS is
                     // earned. The advertised node_id is self-asserted,

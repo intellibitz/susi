@@ -19,23 +19,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SwarmRole::InferenceDriver,
         "tcp://127.0.0.1:9091".to_string(),
     );
-    
+
     // Register capabilities
     cell.register_capability("inference");
     cell.register_capability("text-generation");
-    
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
     cell.set_ready(now);
-    
+
     let cell = Arc::new(tokio::sync::Mutex::new(cell));
-    
+
     let listener = TcpListener::bind("127.0.0.1:9091").await?;
     println!("susi-gemi Swarm Cell ready and listening...");
-    
+
     loop {
         let (mut socket, _) = listener.accept().await?;
         let cell_clone = Arc::clone(&cell);
-        
+
         tokio::spawn(async move {
             let mut buf = vec![0u8; 1024 * 1024]; // 1MB buffer
             loop {
@@ -44,10 +46,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(n) => {
                         if let Ok((frame, _consumed)) = WireFrame::decode(&buf[..n]) {
                             if frame.msg_type == MessageType::SyscallRequest {
-                                if let Ok(req) = serde_json::from_slice::<SyscallRequest>(&frame.payload) {
-                                    let response = handle_infer(req, &mut *cell_clone.lock().await).await;
+                                if let Ok(req) =
+                                    serde_json::from_slice::<SyscallRequest>(&frame.payload)
+                                {
+                                    let response =
+                                        handle_infer(req, &mut *cell_clone.lock().await).await;
+                                    #[allow(clippy::unwrap_used)]
+                                    // SAFETY: serializing a known struct
                                     let resp_payload = serde_json::to_vec(&response).unwrap();
-                                    let resp_frame = WireFrame::new(MessageType::SyscallResponse, resp_payload);
+                                    let resp_frame =
+                                        WireFrame::new(MessageType::SyscallResponse, resp_payload);
                                     let encoded = resp_frame.encode();
                                     let _ = socket.write_all(&encoded).await;
                                 }
@@ -66,13 +74,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn handle_infer(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
     // We are simulating the inference call through GemiEngine
     // For a real implementation, we extract the prompt from req.payload
-    let prompt = req.payload.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-    
+    let prompt = req
+        .payload
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
     let ws = std::path::PathBuf::from(".");
     let result = GemiEngine::generate_reasoning(prompt, &ws);
-    
+
     cell.record_success();
-    
+
     SyscallResponse {
         id: req.id,
         status: SyscallStatus::Success,
