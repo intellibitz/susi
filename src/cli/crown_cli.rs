@@ -571,9 +571,12 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         .as_deref()
         .and_then(susi_core::plane_bus::gemi::ModelManager::get_model_path);
     let provisioned = weights.as_ref().is_some_and(|p| p.is_file());
+    // A selected model whose weights are missing is a broken install and
+    // fails the gate; a fresh host that has not picked a model yet is host
+    // state (like Docker or a listening daemon), reported but not critical.
     out.push(check(
         "provision",
-        true,
+        selected.is_some(),
         provisioned,
         match (&selected, &weights) {
             (Some(model), Some(path)) if provisioned => {
