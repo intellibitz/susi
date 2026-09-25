@@ -63,6 +63,9 @@ pub mod topology;
 pub mod identity;
 pub mod fork;
 pub mod scratchfs;
+pub mod metrics;
+pub mod gossip;
+pub mod plugins;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
