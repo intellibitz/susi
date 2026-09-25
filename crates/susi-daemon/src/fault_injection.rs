@@ -33,7 +33,11 @@ impl ChaosMonkey {
         if getrandom::fill(&mut byte).is_err() {
             return false;
         }
-        (u32::from(byte[0]) * 100 / 255) < u32::from(self.drop_probability_pct)
+        // Threshold over the full 0..256 range (not 0..255) so pct == 100
+        // covers every possible byte, including 255 — `byte * 100 / 255`
+        // undercounts that top value (255*100/255 == 100, failing `< 100`).
+        let threshold = u32::from(self.drop_probability_pct) * 256 / 100;
+        u32::from(byte[0]) < threshold
     }
 }
 

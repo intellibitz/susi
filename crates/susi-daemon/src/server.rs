@@ -700,9 +700,6 @@ impl SusiDaemon {
         let tls_acceptor = crate::tls::endpoint_acceptor(&bind_address, &global_dir);
         let _require_tls_remote = crate::tls::https_only();
 
-        // Substrate Administration & Hardware Optimization (Pillar 1)
-        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
-
         // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
         let blackboard = crate::blackboard::SwarmBlackboard::new();
         let blackboard_evaporator = blackboard.clone();
@@ -712,6 +709,9 @@ impl SusiDaemon {
                 blackboard_evaporator.evaporate_pheromones();
             }
         });
+
+        // Substrate Administration & Hardware Optimization (Pillar 1)
+        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace, blackboard.clone());
 
         // Pillar 8: Zero-config discovery of local inference engines + MCP tools
         // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a

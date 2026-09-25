@@ -1,20 +1,32 @@
 // SUSI Runtime Admin: Autonomous Substrate Administration & Drift Correction
 // Reality Check Always On - Hardware-Aware Self-Tuning and Autonomous Experience Distillation
 
+use crate::blackboard::SwarmBlackboard;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
-// use susi_gemi::hardware::HardwareProfiler;
-// use susi_gemi::models::ModelManager;
+use susi_abi::swarm::{PheromoneKind, SwarmPheromone};
+use susi_core::telemetry::TelemetrySnapshot;
 use tracing::info;
+
+const CPU_LOAD_THRESHOLD: f32 = 8.0;
+const THERMAL_THRESHOLD_C: f32 = 85.0;
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 pub struct SusiRuntimeAdmin;
 
 impl SusiRuntimeAdmin {
     /// Bootstraps the administrative substrate background cycle.
     /// `substrate_home` is the host substrate root (`~/.susi`), never a project cwd.
-    pub fn start_administration_cycle(substrate_home: &Path) {
+    pub fn start_administration_cycle(substrate_home: &Path, blackboard: Arc<SwarmBlackboard>) {
         let home = substrate_home.to_path_buf();
         std::thread::spawn(move || {
             // Mandate: Perform immediate Readiness Pulse on substrate boot
@@ -24,7 +36,7 @@ impl SusiRuntimeAdmin {
             let mut last_pulse = std::time::Instant::now();
             loop {
                 // 1. Hardware Load Watchdog (High-Resolution)
-                Self::perform_hardware_watchdog_audit(&home);
+                Self::perform_hardware_watchdog_audit(&home, &blackboard);
 
                 // 2. Periodic host readiness (hourly) — not project work.
                 // Each pulse runs a full 23-agent security-sweep mission;
@@ -42,22 +54,51 @@ impl SusiRuntimeAdmin {
         });
     }
 
-    /// Hardware Watchdog: Autonomously adjusts substrate footprint based on
-    /// system load, temperature, and battery state.
-    fn perform_hardware_watchdog_audit(substrate_home: &Path) {
-        // let profile = HardwareProfiler::get_profile();
-        let snapshot = crate::telemetry::sample_and_record(Some(substrate_home));
+    /// Evaluates a telemetry snapshot against the watchdog's stress
+    /// thresholds and, if any are tripped, builds the `Observation`
+    /// pheromone the rest of the swarm can react to. `susi-daemon` can't
+    /// call `susi_gawd::agents::GawdAgentFleet::throttle_concurrency`
+    /// directly (crate leaf order forbids the edge); depositing onto the
+    /// shared blackboard lets a `gawd` process subscribed to
+    /// `hardware.stress` throttle itself instead.
+    fn stress_pheromone_from_snapshot(snapshot: &TelemetrySnapshot) -> Option<SwarmPheromone> {
         let load_1m = snapshot.load_avg_1m.unwrap_or(0.0);
-        let cpu_threshold = 8.0; // Dummy threshold since profiler is moved
-        let _thermal_stress = snapshot.max_temp_c().is_some_and(|t| t > 85.0);
-        let _power_stress = snapshot.critical_battery();
-        let _load_stress = load_1m > cpu_threshold;
-        // if load_stress || thermal_stress || power_stress {
-        //     // System is under stress. Ladder down concurrency.
-        //     susi_gawd::agents::GawdAgentFleet::throttle_concurrency(true);
-        // } else {
-        //     susi_gawd::agents::GawdAgentFleet::throttle_concurrency(false);
-        // }
+        let thermal_stress = snapshot
+            .max_temp_c()
+            .is_some_and(|t| t > THERMAL_THRESHOLD_C);
+        let power_stress = snapshot.critical_battery();
+        let load_stress = load_1m > CPU_LOAD_THRESHOLD;
+
+        if !(thermal_stress || power_stress || load_stress) {
+            return None;
+        }
+
+        Some(SwarmPheromone {
+            id: format!("hw-stress-{}", now_secs()),
+            topic: "hardware.stress".to_string(),
+            emitter_id: "susi-runtime-admin".to_string(),
+            kind: PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::json!({
+                "thermal_stress": thermal_stress,
+                "power_stress": power_stress,
+                "load_stress": load_stress,
+                "load_avg_1m": load_1m,
+                "max_temp_c": snapshot.max_temp_c(),
+            }),
+            ttl_ms: 60_000,
+            deposited_at: now_secs(),
+        })
+    }
+
+    /// Hardware Watchdog: samples real host telemetry and, under stress,
+    /// deposits an observation onto the blackboard for concurrency-aware
+    /// consumers to react to.
+    fn perform_hardware_watchdog_audit(substrate_home: &Path, blackboard: &SwarmBlackboard) {
+        let snapshot = crate::telemetry::sample_and_record(Some(substrate_home));
+        if let Some(pheromone) = Self::stress_pheromone_from_snapshot(&snapshot) {
+            blackboard.deposit_pheromone(pheromone);
+        }
     }
 
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
@@ -67,30 +108,98 @@ impl SusiRuntimeAdmin {
         Ok(())
     }
 
+    /// Best-effort local scan of `substrate_home` for exfiltration risk:
+    /// known credential/key files whose permissions grant group or other
+    /// any access. This is the substrate-safety scan `perform_host_readiness`
+    /// promises — no LLM-driven analysis (`susi-daemon` cannot depend on
+    /// `susi-gawd`; crate leaf order), but a real, bounded, permission-based
+    /// check rather than an inert placeholder. A `*.key`/`*token*` file
+    /// existing under `~/.susi` is expected (cluster/node identity); the
+    /// risk is exposure via permissive bits, not mere existence.
+    #[cfg(unix)]
+    fn scan_for_exfiltration_risks(substrate_home: &Path) -> Vec<String> {
+        use std::os::unix::fs::PermissionsExt;
+
+        const SENSITIVE_NAME_FRAGMENTS: &[&str] = &[
+            "key",
+            "token",
+            "secret",
+            "credential",
+            "id_rsa",
+            "id_ed25519",
+            ".pem",
+        ];
+        const MAX_ENTRIES: usize = 4096;
+
+        let mut findings = Vec::new();
+        let mut stack = vec![substrate_home.to_path_buf()];
+        let mut visited = 0usize;
+
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                visited += 1;
+                if visited > MAX_ENTRIES {
+                    return findings;
+                }
+                let path = entry.path();
+                let Ok(metadata) = entry.metadata() else {
+                    continue;
+                };
+                if metadata.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                    continue;
+                };
+                let lower = name.to_ascii_lowercase();
+                if !SENSITIVE_NAME_FRAGMENTS
+                    .iter()
+                    .any(|frag| lower.contains(frag))
+                {
+                    continue;
+                }
+                if metadata.permissions().mode() & 0o077 != 0 {
+                    findings.push(path.display().to_string());
+                }
+            }
+        }
+        findings
+    }
+
+    #[cfg(not(unix))]
+    fn scan_for_exfiltration_risks(_substrate_home: &Path) -> Vec<String> {
+        // Permission-based exposure checks are Unix-specific; nothing to
+        // flag on platforms without POSIX mode bits.
+        Vec::new()
+    }
+
     /// Host-only readiness (models, substrate safety). Never treats
     /// `substrate_home` as a coding project — project work is always cwd.
     pub fn perform_host_readiness(substrate_home: &Path) -> EaiResult<()> {
-        // let ama = susi_gawd::ama::SusiMasterAgent::new();
-
         info!("[Readiness] Auditing model substrate optimal state...");
         // let _ = ModelManager::ensure_hardware_optimal_models(substrate_home);
 
         info!("[Readiness] Scanning substrate for exfiltration vectors...");
-        // let sec_res = ama.solve_clean(
-        //     "admin pulse: scan workspace for high-risk exfiltration vectors and security leaks. Mask if found.",
-        //     substrate_home,
-        //     env!("CARGO_PKG_VERSION"),
-        // );
-        let sec_res = "";
-        if sec_res.contains("VIOLATION") || sec_res.contains("MASKED") {
+        let findings = Self::scan_for_exfiltration_risks(substrate_home);
+        if !findings.is_empty() {
             // Detached daemon has no stdout — the audit chain is the
             // only durable surface an operator can inspect.
             SusiAuditLogger::log_event(
                 substrate_home,
                 "READINESS_VIOLATION",
-                "security pulse flagged exfiltration risk",
+                &format!(
+                    "security pulse flagged {} exposed credential file(s)",
+                    findings.len()
+                ),
             );
-            tracing::warn!("[READINESS: SECURITY PROTOCOLS ENGAGED]\n{sec_res}");
+            tracing::warn!(
+                "[READINESS: SECURITY PROTOCOLS ENGAGED]\n{}",
+                findings.join("\n")
+            );
         }
         Ok(())
     }
@@ -123,5 +232,49 @@ impl SusiRuntimeAdmin {
         // let _ = ModelManager::ensure_hardware_optimal_models(workspace);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_stress_yields_no_pheromone() {
+        let snapshot = TelemetrySnapshot::empty();
+        assert!(SusiRuntimeAdmin::stress_pheromone_from_snapshot(&snapshot).is_none());
+    }
+
+    #[test]
+    fn high_load_deposits_an_observation_pheromone() {
+        let snapshot = TelemetrySnapshot {
+            thermal_zones: Vec::new(),
+            batteries: Vec::new(),
+            load_avg_1m: Some(99.0),
+        };
+        let pheromone = SusiRuntimeAdmin::stress_pheromone_from_snapshot(&snapshot).unwrap();
+        assert_eq!(pheromone.topic, "hardware.stress");
+        assert_eq!(pheromone.kind, PheromoneKind::Observation);
+        assert_eq!(pheromone.payload["load_stress"], serde_json::json!(true));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn readiness_scan_flags_world_readable_key_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("susi_readiness_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let key_path = dir.join("cluster.key");
+        std::fs::write(&key_path, b"secret").unwrap();
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        let findings = SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir);
+        assert_eq!(findings.len(), 1);
+
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(SusiRuntimeAdmin::scan_for_exfiltration_risks(&dir).is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
