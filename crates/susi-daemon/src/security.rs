@@ -171,6 +171,8 @@ fn required_capability_for_op(op: SyscallOp) -> &'static str {
         SyscallOp::AuditSeal => "audit:seal",
         SyscallOp::Heartbeat => "heartbeat", // unreachable in evaluate(), listed for exhaustiveness
         SyscallOp::TelemetryGet => "telemetry:read",
+        SyscallOp::Fork => "memory:fork",
+        SyscallOp::IdentityVerify => "identity:verify",
     }
 }
 

@@ -29,6 +29,10 @@ pub enum SyscallOp {
     Heartbeat = 0x09,
     /// 0x0A: Inspect hardware telemetry (GPU/CPU saturation, memory).
     TelemetryGet = 0x0A,
+    /// 0x0B: Clone cell memory state and parallelize (Bullet 83).
+    Fork = 0x0B,
+    /// 0x0C: Verify Ed25519 signature of an action (Bullet 56).
+    IdentityVerify = 0x0C,
 }
 
 impl SyscallOp {
@@ -52,6 +56,8 @@ impl SyscallOp {
             0x08 => Some(Self::AuditSeal),
             0x09 => Some(Self::Heartbeat),
             0x0A => Some(Self::TelemetryGet),
+            0x0B => Some(Self::Fork),
+            0x0C => Some(Self::IdentityVerify),
             _ => None,
         }
     }

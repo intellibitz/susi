@@ -49,7 +49,9 @@ impl SyscallTopic for SyscallOp {
             | SyscallOp::ReflexMount
             | SyscallOp::AuditSeal
             | SyscallOp::Heartbeat
-            | SyscallOp::TelemetryGet => None,
+            | SyscallOp::TelemetryGet
+            | SyscallOp::Fork
+            | SyscallOp::IdentityVerify => None,
         }
     }
 }
