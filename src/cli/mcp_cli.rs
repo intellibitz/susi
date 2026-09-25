@@ -31,7 +31,7 @@ pub enum McpCommands {
     /// Invoke a tool on a peer MCP endpoint (`host:port`) over the
     /// session-aware channel — the same path cluster replication uses.
     Call {
-        /// Peer address, e.g. 127.0.0.1:9093
+        /// Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
         addr: String,
         /// Tool name as exposed by the peer's tools/list
         tool: String,
@@ -46,7 +46,7 @@ pub enum McpCommands {
     /// List the tools a peer MCP endpoint exposes (`tools/list` over the
     /// session-aware channel) — discover the surface before `mcp call`.
     Tools {
-        /// Peer address, e.g. 127.0.0.1:9093
+        /// Peer address, e.g. 127.0.0.1:9093 (canonical GMCP-HTTP + port_offset)
         addr: String,
         /// Bearer token (default: cluster peer bearer for remote
         /// members, ~/.susi/api_token for loopback)

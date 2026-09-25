@@ -67,6 +67,7 @@
   "gmcp_http_port": 9093,
   "a2a_http_port": 9094,
   "bind_address": "127.0.0.1",
+  "port_offset": 0,
   "tls_cert_path": "",
   "tls_key_path": "",
   "https_only": false,

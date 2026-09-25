@@ -805,10 +805,14 @@ impl CoreTools {
     fn a2a_peer_url(peer: &str) -> EaiResult<String> {
         use crate::susi_config::cluster_key;
         use std::net::IpAddr;
-        const A2A_PORT: u16 = crate::susi_paths::ports::A2A_HTTP;
+        // Effective A2A port — canonical + port_offset. Used both for the
+        // local "self" route and as the same-config guess for bare hosts.
+        let a2a_port = crate::susi_config::SusiConfig::load_global()
+            .map(|c| c.a2a_http_port())
+            .unwrap_or(crate::susi_paths::ports::A2A_HTTP);
         let p = peer.trim();
         if p.eq_ignore_ascii_case("self") || p == "localhost" || p == "127.0.0.1" || p == "::1" {
-            return Ok(format!("http://127.0.0.1:{A2A_PORT}"));
+            return Ok(format!("http://127.0.0.1:{a2a_port}"));
         }
         // Split an explicit http(s) URL into host(+port); a bare host[:port]
         // gets the canonical A2A port.
@@ -820,9 +824,9 @@ impl CoreTools {
         let (host, port) =
             hostport
                 .rsplit_once(':')
-                .map_or((hostport, A2A_PORT), |(h, ps)| match ps.parse::<u16>() {
+                .map_or((hostport, a2a_port), |(h, ps)| match ps.parse::<u16>() {
                     Ok(n) => (h, n),
-                    Err(_) => (hostport, A2A_PORT),
+                    Err(_) => (hostport, a2a_port),
                 });
         // Operator-configured external A2A agents form a second, explicit
         // allowlist: `external_peer_agents` entries with protocol "a2a" are
@@ -847,8 +851,8 @@ impl CoreTools {
                     .unwrap_or("");
                 let (bh, bp) = base_host
                     .rsplit_once(':')
-                    .map_or((base_host, A2A_PORT), |(h, ps)| {
-                        ps.parse::<u16>().map_or((base_host, A2A_PORT), |n| (h, n))
+                    .map_or((base_host, a2a_port), |(h, ps)| {
+                        ps.parse::<u16>().map_or((base_host, a2a_port), |n| (h, n))
                     });
                 if host == bh && port == bp {
                     return Ok(base.to_string());

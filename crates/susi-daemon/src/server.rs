@@ -7,8 +7,6 @@
 //! - **9093** GMCP HTTP (streamable / SSE alias)
 //! - **9094** A2A HTTP (JSON-RPC / + SSE /stream + public agent card)
 
-use crate::susi_paths::ports;
-
 use std::fs;
 use std::io::{Seek, SeekFrom, Write};
 use std::net::{TcpStream, UdpSocket};
@@ -189,27 +187,34 @@ impl SusiDaemon {
         Self::check_status_path(&global_lock)
     }
 
-    /// True when the public host-contract TCP surfaces (9090/9091/9093/9094)
-    /// accept connections.
+    /// True when the public host-contract TCP surfaces (canonical 9090-9094
+    /// plus any `port_offset`) accept connections.
     pub fn host_contract_tcp_ready() -> bool {
-        [ports::GMCP, ports::GEMI, ports::GMCP_HTTP, ports::A2A_HTTP]
-            .iter()
-            .all(|port| {
-                TcpStream::connect_timeout(
-                    &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
-                    Duration::from_millis(200),
-                )
-                .is_ok()
-            })
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        [
+            cfg.gmcp_port(),
+            cfg.gemi_port(),
+            cfg.gmcp_http_port(),
+            cfg.a2a_http_port(),
+        ]
+        .iter()
+        .all(|port| {
+            TcpStream::connect_timeout(
+                &std::net::SocketAddr::from(([127, 0, 0, 1], *port)),
+                Duration::from_millis(200),
+            )
+            .is_ok()
+        })
     }
 
-    /// True when UDP discovery on 9092 answers a LAN ping (daemon owns the port).
+    /// True when UDP discovery answers a LAN ping (daemon owns the port).
     pub fn host_contract_udp_ready() -> bool {
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let Ok(sock) = UdpSocket::bind("127.0.0.1:0") else {
             return false;
         };
         let _ = sock.set_read_timeout(Some(Duration::from_millis(300)));
-        let target = std::net::SocketAddr::from(([127, 0, 0, 1], ports::UDP_DISCOVERY));
+        let target = std::net::SocketAddr::from(([127, 0, 0, 1], cfg.udp_discovery_port()));
         if sock.send_to(b"SUSI_LAN_PING", target).is_err() {
             return false;
         }
@@ -223,7 +228,8 @@ impl SusiDaemon {
         }
     }
 
-    /// Full host contract: TCP 9090/9091/9093/9094 + UDP 9092 discovery.
+    /// Full host contract: the four TCP surfaces + UDP discovery, at
+    /// canonical base 9090–9094 plus any `port_offset`.
     pub fn host_contract_ready() -> bool {
         Self::host_contract_tcp_ready() && Self::host_contract_udp_ready()
     }
@@ -265,13 +271,21 @@ impl SusiDaemon {
              - GEMI      http://127.0.0.1:{}/\n\
              - UDP disco 127.0.0.1:{}\n\
              - GMCP alias http://127.0.0.1:{}/mcp\n\
-             - A2A       http://127.0.0.1:{}/{}",
-            ports::GMCP,
-            ports::GEMI,
-            ports::UDP_DISCOVERY,
-            ports::GMCP_HTTP,
-            ports::A2A_HTTP,
-            remote_note
+             - A2A       http://127.0.0.1:{}/{}{}",
+            cfg.gmcp_port(),
+            cfg.gemi_port(),
+            cfg.udp_discovery_port(),
+            cfg.gmcp_http_port(),
+            cfg.a2a_http_port(),
+            remote_note,
+            if cfg.port_offset() == 0 {
+                String::new()
+            } else {
+                format!(
+                    "\nport_offset={} (canonical base 9090–9094)",
+                    cfg.port_offset()
+                )
+            }
         )
     }
 
@@ -426,8 +440,8 @@ impl SusiDaemon {
                 info!("{}", msg.replace("{}", &running.pid.to_string()));
                 Self::stop_daemon(&substrate_home, global_dir);
                 // SIGTERM is async — spawning immediately races the old
-                // daemon's port release; a new daemon that binds while
-                // 9090–9094 are still held dies on EADDRINUSE and nothing
+                // daemon's port release; a new daemon that binds while the
+                // contract ports are still held dies on EADDRINUSE and nothing
                 // retries, leaving the host contract permanently down
                 // (observed live). Wait for release before spawning.
                 let deadline = Instant::now() + Duration::from_secs(10);
@@ -497,15 +511,33 @@ impl SusiDaemon {
                 .map(|n| n.get())
                 .unwrap_or(1);
             let cpu_quota = (cores * 50).max(200);
-            let spawned_via_systemd = Command::new("systemd-run")
-                .args(["--user", "--collect", "--quiet", "--unit=susi-daemon"])
+            // `/proc/self/exe` only resolves to OUR binary when the child
+            // inherits our address space (fork/exec). systemd-run hands the
+            // path to the user manager, whose spawn helper resolves
+            // /proc/self/exe to *itself* — the unit exits instantly. The
+            // systemd path needs a concrete, canonicalized path.
+            let unit_bin =
+                std::fs::canonicalize(&bin_to_run).unwrap_or_else(|_| bin_to_run.clone());
+            let mut run = Command::new("systemd-run");
+            run.args(["--user", "--collect", "--quiet"])
+                .arg(format!("--unit={}", Self::daemon_unit_name()))
+                // Units get the service manager's environment, not ours —
+                // forward every SUSI_*/XDG_* var or a second instance
+                // (SUSI_HOME/SUSI_PORT_OFFSET/leaf ports) silently lands
+                // back on the primary's substrate root and canonical ports.
+                .args(std::env::vars_os().filter_map(|(k, v)| {
+                    let k = k.to_string_lossy();
+                    (k.starts_with("SUSI_") || k.starts_with("XDG_"))
+                        .then(|| format!("--setenv={k}={}", v.to_string_lossy()))
+                }));
+            let spawned_via_systemd = run
                 .arg(format!(
                     "--property=MemoryMax={}G",
                     mem_cap / (1024 * 1024 * 1024)
                 ))
                 .arg(format!("--property=CPUQuota={cpu_quota}%"))
                 .arg("--")
-                .arg(&bin_to_run)
+                .arg(&unit_bin)
                 .arg("daemon-start")
                 .arg("--workspace")
                 .arg(substrate_home.to_str().unwrap_or("."))
@@ -693,25 +725,28 @@ impl SusiDaemon {
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
-        // Canonical public ports — never fall back to ephemeral ports.
+        // Canonical public ports + the uniform port_offset — never fall back
+        // to ephemeral ports.
+        let (gemi_port, gmcp_port, gmcp_http_port, a2a_port, udp_port) = (
+            cfg.gemi_port(),
+            cfg.gmcp_port(),
+            cfg.gmcp_http_port(),
+            cfg.a2a_http_port(),
+            cfg.udp_discovery_port(),
+        );
         let gemi_server =
-            Self::bind_tcp_canonical(ports::GEMI, "GEMI HTTP", &global_dir, &bind_address);
+            Self::bind_tcp_canonical(gemi_port, "GEMI HTTP", &global_dir, &bind_address);
         let gmcp_primary =
-            Self::bind_tcp_canonical(ports::GMCP, "GMCP/MCP HTTP", &global_dir, &bind_address);
+            Self::bind_tcp_canonical(gmcp_port, "GMCP/MCP HTTP", &global_dir, &bind_address);
         let gmcp_alias = Self::bind_tcp_canonical(
-            ports::GMCP_HTTP,
+            gmcp_http_port,
             "GMCP HTTP alias",
             &global_dir,
             &bind_address,
         );
-        let a2a_http =
-            Self::bind_tcp_canonical(ports::A2A_HTTP, "A2A HTTP", &global_dir, &bind_address);
-        let udp_socket = Self::bind_udp_canonical(
-            ports::UDP_DISCOVERY,
-            "A2A UDP discovery",
-            &global_dir,
-            &bind_address,
-        );
+        let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
+        let udp_socket =
+            Self::bind_udp_canonical(udp_port, "A2A UDP discovery", &global_dir, &bind_address);
 
         let (scheme, transport) = if tls_acceptor.is_some() {
             // Both are live on every socket — first-byte sniff picks per
@@ -729,18 +764,18 @@ impl SusiDaemon {
              - A2A       {}://{}:{}/",
             scheme,
             bind_address,
-            ports::GMCP,
+            gmcp_port,
             scheme,
             bind_address,
-            ports::GEMI,
+            gemi_port,
             bind_address,
-            ports::UDP_DISCOVERY,
+            udp_port,
             scheme,
             bind_address,
-            ports::GMCP_HTTP,
+            gmcp_http_port,
             scheme,
             bind_address,
-            ports::A2A_HTTP
+            a2a_port
         );
 
         let tls_gemi = tls_acceptor.clone();
@@ -790,7 +825,9 @@ impl SusiDaemon {
 
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                Self::start_udp_discovery_server(udp_socket, ports::GMCP);
+                // The pong announces the effective GMCP port — a non-canonical
+                // instance (port_offset) still advertises the right port.
+                Self::start_udp_discovery_server(udp_socket, gmcp_port);
             })) {
                 eprintln!("[UDP] Thread panicked: {:?}", e);
             }
@@ -897,22 +934,20 @@ impl SusiDaemon {
     }
 
     fn force_canonical_ports(cfg: &mut SusiConfig) {
-        cfg.settings
-            .insert("gmcp_port".to_string(), serde_json::json!(ports::GMCP));
-        cfg.settings
-            .insert("gemi_port".to_string(), serde_json::json!(ports::GEMI));
-        cfg.settings.insert(
-            "udp_discovery_port".to_string(),
-            serde_json::json!(ports::UDP_DISCOVERY),
-        );
-        cfg.settings.insert(
-            "gmcp_http_port".to_string(),
-            serde_json::json!(ports::GMCP_HTTP),
-        );
-        cfg.settings.insert(
-            "a2a_http_port".to_string(),
-            serde_json::json!(ports::A2A_HTTP),
-        );
+        // The persisted per-port keys are documentation only (accessors
+        // derive effective ports from canonical base + port_offset) — write
+        // the effective values so config.json reflects what is bound.
+        let ports = [
+            ("gmcp_port", cfg.gmcp_port()),
+            ("gemi_port", cfg.gemi_port()),
+            ("udp_discovery_port", cfg.udp_discovery_port()),
+            ("gmcp_http_port", cfg.gmcp_http_port()),
+            ("a2a_http_port", cfg.a2a_http_port()),
+        ];
+        for (key, port) in ports {
+            cfg.settings
+                .insert(key.to_string(), serde_json::json!(port));
+        }
     }
 
     /// Bind a TCP port that external clients hard-code. Reclaims stale susi
@@ -1087,6 +1122,16 @@ impl SusiDaemon {
             return false;
         }
 
+        // Trust is per-instance: a sibling SUSI_HOME daemon runs the same
+        // trusted binary and would pass the hash check below, but evicting
+        // it to claim its port would kill a live independent node. Only
+        // processes whose environ places them in THIS instance are ours to
+        // reclaim.
+        #[cfg(target_os = "linux")]
+        if !Self::daemon_in_this_instance(pid) {
+            return false;
+        }
+
         let hash_file = Self::get_hash_file(global_dir);
         let trusted_hash = match fs::read_to_string(&hash_file) {
             Ok(h) => h.trim().to_string(),
@@ -1142,8 +1187,15 @@ impl SusiDaemon {
                     || (!pinger_id.is_empty()
                         && pinger_id == crate::susi_config::cluster_key::wire_node_id());
                 if !is_self {
-                    let pinger_addr =
-                        format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
+                    // Peers advertise their effective HTTP alias port in
+                    // `caps_csv` (`gmcp_http=`); offset-shifted nodes are
+                    // reachable on their real port, canonical otherwise.
+                    let peer_http = caps_csv
+                        .split(',')
+                        .find_map(|c| c.strip_prefix("gmcp_http="))
+                        .and_then(|p| p.parse::<u16>().ok())
+                        .unwrap_or(crate::susi_paths::ports::GMCP_HTTP);
+                    let pinger_addr = format!("{}:{}", src.ip(), peer_http);
                     // The verified signature proves the daemon at src holds
                     // cluster.key — Explicit standing for the ADDRESS is
                     // earned. The advertised node_id is self-asserted,
@@ -1248,6 +1300,37 @@ impl SusiDaemon {
         }
     }
 
+    /// systemd unit name for this instance — `susi-daemon` for the primary,
+    /// suffixed with a stable hash of `SUSI_HOME` for an isolated sibling so
+    /// two instances never share a unit (and stop only kills the right one).
+    /// The same absolute-path rule as `SusiDirs::instance_root` applies: a
+    /// relative `SUSI_HOME` selects no instance root anywhere, so it must not
+    /// mint a distinct unit either.
+    fn daemon_unit_name() -> String {
+        Self::unit_name_for(Self::instance_home().as_deref())
+    }
+
+    fn unit_name_for(home: Option<&Path>) -> String {
+        match home {
+            Some(home) => {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                home.hash(&mut hasher);
+                format!("susi-daemon-{:x}", hasher.finish())
+            }
+            None => "susi-daemon".to_string(),
+        }
+    }
+
+    /// The isolated instance root `SUSI_HOME` names, when it names one —
+    /// matching `SusiDirs::instance_root`'s absolute-path requirement so unit
+    /// naming, env propagation, and path resolution never disagree.
+    fn instance_home() -> Option<PathBuf> {
+        std::env::var_os("SUSI_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    }
+
     #[allow(dead_code)]
     #[allow(unsafe_code)]
     pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
@@ -1270,22 +1353,46 @@ impl SusiDaemon {
         }
     }
 
-    /// Stops every susi daemon for this user, including orphans whose lock
-    /// file is already gone (e.g. a prior uninstall removed substrate.lock
-    /// but left the daemon running). Used by `susi uninstall`, which must
-    /// leave zero running daemons behind so a later reinstall starts clean.
+    /// `susi stop` — kills only THIS instance's daemon: its systemd unit
+    /// (named after `SUSI_HOME`), its lock-file pid, and orphan
+    /// `daemon-start` processes whose environment matches this instance.
+    /// A sibling `SUSI_HOME` instance keeps running.
+    #[allow(unsafe_code)]
+    pub fn stop_instance_daemons(global_dir: &Path) -> usize {
+        Self::stop_daemons(global_dir, true)
+    }
+
+    /// Stops every susi daemon for this user — every `susi-daemon*` unit and
+    /// every orphan `daemon-start` process, including instances rooted at
+    /// other `SUSI_HOME`s. Used by `susi uninstall`, which must leave zero
+    /// running daemons behind so a later reinstall starts clean.
     /// Returns how many daemon processes were signalled.
     #[allow(unsafe_code)]
     pub fn stop_all_daemons(global_dir: &Path) -> usize {
+        Self::stop_daemons(global_dir, false)
+    }
+
+    #[allow(unsafe_code)]
+    fn stop_daemons(global_dir: &Path, scoped_to_instance: bool) -> usize {
         let mut killed = 0usize;
 
         // 1. The systemd transient unit spawned by ensure_daemon_running's
-        // systemd-run path (Linux only; no-op everywhere else).
+        // systemd-run path (Linux only; no-op everywhere else). Scoped stop
+        // targets only this instance's unit; uninstall sweeps every
+        // `susi-daemon*` unit regardless of the SUSI_HOME they were named for.
         #[cfg(target_os = "linux")]
         {
-            let _ = Command::new("systemctl")
-                .args(["--user", "stop", "susi-daemon.service"])
-                .status();
+            let units = if scoped_to_instance {
+                vec![format!("{}.service", Self::daemon_unit_name())]
+            } else {
+                Self::daemon_units()
+            };
+            for unit in units {
+                let _ = Command::new("systemctl")
+                    .args(["--user", "stop"])
+                    .arg(&unit)
+                    .status();
+            }
         }
 
         // 2. Lock-file path — the common case.
@@ -1293,9 +1400,10 @@ impl SusiDaemon {
             killed += 1;
         }
 
-        // 3. Orphan sweep: any surviving `daemon-start` process for this
-        // user, lock file or not. Scan /proc on Linux; on other platforms
-        // the lock file is the only handle we have.
+        // 3. Orphan sweep: surviving `daemon-start` processes for this user,
+        // lock file or not. Scoped stop keeps only the candidates whose
+        // environment places them in this instance — a sibling's daemon has
+        // a different SUSI_HOME, the primary's has none.
         #[cfg(target_os = "linux")]
         {
             if let Ok(entries) = fs::read_dir("/proc") {
@@ -1313,7 +1421,7 @@ impl SusiDaemon {
                     };
                     // cmdline is NUL-separated argv.
                     let is_daemon = cmdline.split(|b| *b == 0).any(|arg| arg == b"daemon-start");
-                    if is_daemon {
+                    if is_daemon && (!scoped_to_instance || Self::daemon_in_this_instance(pid)) {
                         unsafe {
                             libc::kill(pid, libc::SIGTERM);
                         }
@@ -1325,20 +1433,84 @@ impl SusiDaemon {
 
         killed
     }
+
+    /// Every loaded `susi-daemon*` user unit — instance siblings included.
+    /// Best-effort: an absent systemctl or an unreadable unit list yields
+    /// just this instance's unit so the common path still stops something.
+    #[cfg(target_os = "linux")]
+    fn daemon_units() -> Vec<String> {
+        let own = format!("{}.service", Self::daemon_unit_name());
+        let Ok(out) = Command::new("systemctl")
+            .args([
+                "--user",
+                "list-units",
+                "--all",
+                "--no-legend",
+                "--no-pager",
+                "susi-daemon.service",
+                "susi-daemon-*.service",
+            ])
+            .output()
+        else {
+            return vec![own];
+        };
+        let mut units: Vec<String> = String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.split_whitespace().next())
+            .filter(|u| u.starts_with("susi-daemon") && u.ends_with(".service"))
+            .map(str::to_string)
+            .collect();
+        if !units.iter().any(|u| u == &own) {
+            units.push(own);
+        }
+        units
+    }
+
+    /// Whether a `daemon-start` pid belongs to this instance, by comparing
+    /// the `SUSI_HOME` recorded in its `/proc/<pid>/environ` against ours.
+    /// A daemon with no `SUSI_HOME` is the primary instance; one with a
+    /// different root is a sibling and must survive `susi stop`.
+    /// Unreadable environ (permission, pid reused) answers false — the
+    /// scoped sweep errs toward leaving a foreign process alive.
+    #[cfg(target_os = "linux")]
+    fn daemon_in_this_instance(pid: i32) -> bool {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(environ) = fs::read(format!("/proc/{pid}/environ")) else {
+            return false;
+        };
+        let theirs = environ.split(|b| *b == 0).find_map(|kv| {
+            kv.strip_prefix(b"SUSI_HOME=")
+                .map(std::ffi::OsStr::from_bytes)
+                .map(PathBuf::from)
+        });
+        match (Self::instance_home(), theirs) {
+            (Some(mine), Some(t)) => {
+                // Compare canonicalized when both roots exist on disk (a
+                // symlinked SUSI_HOME is still the same instance), falling
+                // back to literal equality for not-yet-created roots.
+                let canon = |p: &PathBuf| fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+                canon(&t) == canon(&mine)
+            }
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::susi_paths::ports;
 
     #[test]
-    fn host_contract_endpoint_report_lists_canonical_ports() {
+    fn host_contract_endpoint_report_lists_effective_ports() {
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
         let report = SusiDaemon::host_contract_endpoints_report();
-        assert!(report.contains(":9090/mcp"));
-        assert!(report.contains(":9091/"));
-        assert!(report.contains(":9092"));
-        assert!(report.contains(":9093/mcp"));
-        assert!(report.contains(":9094/"));
+        assert!(report.contains(&format!(":{}/mcp", cfg.gmcp_port())));
+        assert!(report.contains(&format!(":{}/", cfg.gemi_port())));
+        assert!(report.contains(&format!(":{}", cfg.udp_discovery_port())));
+        assert!(report.contains(&format!(":{}/mcp", cfg.gmcp_http_port())));
+        assert!(report.contains(&format!(":{}/", cfg.a2a_http_port())));
     }
 
     #[test]
@@ -1351,8 +1523,18 @@ mod tests {
         let ready = SusiDaemon::wait_for_host_contract(Duration::from_millis(250));
         assert!(
             !ready,
-            "wait_for_host_contract must return false when nothing owns 9090–9094"
+            "wait_for_host_contract must return false when nothing owns the host-contract ports"
         );
+    }
+
+    #[test]
+    fn unit_name_is_instance_scoped() {
+        assert_eq!(SusiDaemon::unit_name_for(None), "susi-daemon");
+        let a = SusiDaemon::unit_name_for(Some(Path::new("/home/x/.susi-a")));
+        let b = SusiDaemon::unit_name_for(Some(Path::new("/home/x/.susi-b")));
+        assert!(a.starts_with("susi-daemon-"));
+        assert!(b.starts_with("susi-daemon-"));
+        assert_ne!(a, b, "distinct SUSI_HOME roots must get distinct units");
     }
 
     #[test]
@@ -1370,11 +1552,12 @@ mod tests {
         assert_eq!(ports::GMCP_HTTP, 9093);
         assert_eq!(ports::A2A_HTTP, 9094);
         let cfg = SusiConfig::default();
-        assert_eq!(cfg.gmcp_port(), ports::GMCP);
-        assert_eq!(cfg.gemi_port(), ports::GEMI);
-        assert_eq!(cfg.udp_discovery_port(), ports::UDP_DISCOVERY);
-        assert_eq!(cfg.gmcp_http_port(), ports::GMCP_HTTP);
-        assert_eq!(cfg.a2a_http_port(), ports::A2A_HTTP);
+        let offset = ports::env_port_offset();
+        assert_eq!(cfg.gmcp_port(), ports::GMCP + offset);
+        assert_eq!(cfg.gemi_port(), ports::GEMI + offset);
+        assert_eq!(cfg.udp_discovery_port(), ports::UDP_DISCOVERY + offset);
+        assert_eq!(cfg.gmcp_http_port(), ports::GMCP_HTTP + offset);
+        assert_eq!(cfg.a2a_http_port(), ports::A2A_HTTP + offset);
     }
 
     #[test]

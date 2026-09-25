@@ -115,6 +115,17 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         c.args(["service-run", svc.name]);
         c
     };
+    // Pin the resolved port and the effective offset into the child's
+    // environment: the standalone `susi-<name>` binaries resolve only env
+    // vars (they are dependency-free leaves), so a `port_offset` set only in
+    // config.json would otherwise be invisible to them while the daemon
+    // probes the shifted port. `SUSI_HOME` itself is inherited wholesale.
+    let resolved_port = svc.port();
+    let offset = crate::susi_sandbox::manager::SusiConfig::load_global()
+        .map(|c| c.port_offset())
+        .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+    cmd.env(svc.port_env, resolved_port.to_string())
+        .env("SUSI_PORT_OFFSET", offset.to_string());
     let log_dir = crate::susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let log_path = log_dir.join(format!("{}.log", svc.name));

@@ -98,7 +98,7 @@
     },
     {
       "id": 11,
-      "summary": "fixed ports 9090–9094; never silent drift.",
+      "summary": "canonical ports 9090–9094 plus a uniform port_offset (env/config); the relative block never drifts.",
       "title": "Host contract"
     },
     {
@@ -123,7 +123,7 @@
       "**`susi` CLI** — jailed to the caller's cwd; intents run against that workspace.",
       "**Canonical binary** — `~/.susi/bin/susi` (hot-reloads when `binary.hash` changes).",
       "**Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never natural-language missions). `start` / `restart` wait until ports 9090–9094 answer and print the endpoints.",
-      "Polluted `~/.susi/config.json` port fields are ignored; accessors always return the constants above.",
+      "Per-port config fields stay documentation-only; accessors return the canonical base + `port_offset` (`SUSI_PORT_OFFSET` env wins). `SUSI_HOME` roots a fully isolated second instance.",
       "Peer scouts must not bind 9092 — only the daemon owns the host-contract UDP port."
     ],
     "ports": [

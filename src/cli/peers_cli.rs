@@ -25,7 +25,7 @@ pub enum PeersCommands {
     Add {
         /// IP or hostname of the peer daemon to join (may include :port)
         host: String,
-        /// UDP discovery port (default: host-contract 9092)
+        /// UDP discovery port (default: host-contract 9092 + port_offset)
         #[arg(long)]
         port: Option<u16>,
     },
@@ -37,7 +37,7 @@ pub enum PeersCommands {
     Probe {
         /// IP or hostname of the peer daemon to probe (may include :port)
         host: String,
-        /// UDP discovery port (default: host-contract 9092)
+        /// UDP discovery port (default: host-contract 9092 + port_offset)
         #[arg(long)]
         port: Option<u16>,
     },
@@ -1065,9 +1065,14 @@ fn handshake(
         },
         _ => (host.to_string(), None),
     };
-    let port = port
-        .or(inline_port)
-        .unwrap_or(susi_paths::ports::UDP_DISCOVERY);
+    // Same-config assumption: a peer we ping by bare host is guessed at our
+    // effective discovery port — a `port_offset`-shifted cluster still finds
+    // its members; explicit `host:port` always wins.
+    let port = port.or(inline_port).unwrap_or_else(|| {
+        susi_config::SusiConfig::load_global()
+            .map(|c| c.udp_discovery_port())
+            .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
+    });
     // Bloom field must be wire-safe (non-empty); a zero bloom is honest —
     // the CLI registers no tools, and the peer answers with its own bloom.
     // Identity-era ping first, then the pre-identity format — a daemon
@@ -1212,10 +1217,19 @@ fn verify_endpoint(node_id: &str, address: &str) -> Result<serde_json::Value> {
 /// Join a peer by address: verify the responder cryptographically via
 /// `handshake`, then persist it as an explicit member and commit the
 /// admission to the replicated ledger.
+/// Best guess at a peer's GMCP-HTTP port when the handshake didn't announce
+/// one: same-config clusters share `port_offset`, so our effective port is
+/// the right default; canonical 9093 is the fallback.
+fn peer_http_port() -> u16 {
+    susi_config::SusiConfig::load_global()
+        .map(|c| c.gmcp_http_port())
+        .unwrap_or(susi_paths::ports::GMCP_HTTP)
+}
+
 fn add(host: &str, port: Option<u16>) -> Result<()> {
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     {
-        let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
+        let address = format!("{}:{}", ip, peer_http_port());
         // The pong attested an id — now prove the claimed endpoint is
         // live, serving, and owned by that same id before any local
         // state changes.
@@ -1345,7 +1359,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
 /// compatibility before (or instead of) `peers add`.
 fn probe(host: &str, port: Option<u16>) -> Result<()> {
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
-    let address = format!("{}:{}", ip, susi_paths::ports::GMCP_HTTP);
+    let address = format!("{}:{}", ip, peer_http_port());
     let banned = load_banned().iter().any(|b| {
         b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
             || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())

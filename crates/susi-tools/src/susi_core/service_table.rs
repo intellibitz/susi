@@ -70,12 +70,20 @@ pub const LEAF_SERVICES: &[LeafService] = &[
 ];
 
 impl LeafService {
-    /// Effective port: `port_env` override wins over the default.
+    /// Effective port: explicit `SUSI_<SVC>_PORT` env wins; otherwise the
+    /// default shifts by the instance `port_offset` (env or config key) so a
+    /// second instance's leaf services land beside the primary's instead of
+    /// colliding with them (offset 100 → 18180–18184).
     pub fn port(&self) -> u16 {
         std::env::var(self.port_env)
             .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(self.default_port)
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .unwrap_or_else(|| {
+                let offset = crate::susi_config::SusiConfig::load_global()
+                    .map(|c| c.port_offset())
+                    .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+                self.default_port.saturating_add(offset)
+            })
     }
 }
 
@@ -568,6 +576,27 @@ mod tests {
         assert!(remove(&mut loaded, "susi-native"));
         assert!(!remove(&mut loaded, "susi-native"));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn leaf_ports_ride_the_instance_offset() {
+        // With no per-service env override, every leaf port is
+        // default + the resolved instance offset — what the daemon probes
+        // and what the spawned child binds must be the same number.
+        let offset = crate::susi_config::SusiConfig::load_global()
+            .map(|c| c.port_offset())
+            .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+        for svc in LEAF_SERVICES {
+            if std::env::var_os(svc.port_env).is_some() {
+                continue; // explicit env wins — assert only the offset path
+            }
+            assert_eq!(
+                svc.port(),
+                svc.default_port.saturating_add(offset),
+                "{} must ride the uniform offset",
+                svc.name
+            );
+        }
     }
 
     #[test]

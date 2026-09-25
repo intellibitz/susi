@@ -475,44 +475,52 @@ mod tests {
         let _ = fs::create_dir_all(dir);
         let _ = SandboxManager::ensure_global_sandbox(dir);
         let cfg = SusiConfig::load(dir).expect("Failed to load config");
-        assert_eq!(cfg.gmcp_port(), 9090);
+        assert_eq!(
+            cfg.gmcp_port(),
+            crate::susi_paths::ports::GMCP + crate::susi_paths::ports::env_port_offset()
+        );
         let _ = fs::remove_dir_all(dir);
     }
 
     /// Every scalar accessor's only fallback is config.default.json itself
     /// (via get_or_bundled_default) — there is no second, Rust-literal copy
     /// of any default that could drift out of sync with it. Host-contract
-    /// ports are an exception: accessors always return `crate::susi_paths::ports`
-    /// (JSON port fields are documentation-only and are not heal-merged into
-    /// host `config.json`).
+    /// ports are a partial exception: accessors return
+    /// `crate::susi_paths::ports` canonical base + `port_offset` — the
+    /// per-port JSON fields stay documentation-only, only the single offset
+    /// integer is honored.
     #[test]
     fn test_config_accessors_match_bundled_default_single_source_of_truth() {
         let default = SusiConfig::default();
         let raw: serde_json::Value =
             serde_json::from_str(include_str!("../../../../config/config.default.json")).unwrap();
 
-        // Host contract: accessors ignore JSON; bundled docs must still match constants.
-        assert_eq!(default.gmcp_port(), crate::susi_paths::ports::GMCP);
+        // Host contract: per-port JSON fields are documentation-only and
+        // must stay at the canonical base; accessors add the offset (env
+        // first — a test host with SUSI_PORT_OFFSET set still asserts true).
+        let offset = crate::susi_paths::ports::env_port_offset();
+        assert_eq!(raw["port_offset"].as_u64().unwrap(), 0);
+        assert_eq!(default.gmcp_port(), crate::susi_paths::ports::GMCP + offset);
         assert_eq!(
             raw["gmcp_port"].as_u64().unwrap() as u16,
             crate::susi_paths::ports::GMCP
         );
         assert_eq!(
             default.gmcp_http_port(),
-            crate::susi_paths::ports::GMCP_HTTP
+            crate::susi_paths::ports::GMCP_HTTP + offset
         );
         assert_eq!(
             raw["gmcp_http_port"].as_u64().unwrap() as u16,
             crate::susi_paths::ports::GMCP_HTTP
         );
-        assert_eq!(default.gemi_port(), crate::susi_paths::ports::GEMI);
+        assert_eq!(default.gemi_port(), crate::susi_paths::ports::GEMI + offset);
         assert_eq!(
             raw["gemi_port"].as_u64().unwrap() as u16,
             crate::susi_paths::ports::GEMI
         );
         assert_eq!(
             default.udp_discovery_port(),
-            crate::susi_paths::ports::UDP_DISCOVERY
+            crate::susi_paths::ports::UDP_DISCOVERY + offset
         );
         assert_eq!(
             raw["udp_discovery_port"].as_u64().unwrap() as u16,
@@ -688,7 +696,10 @@ mod tests {
         let cfg = SusiConfig::load(dir).expect("Failed to load stale config");
 
         // Public ports are a hard contract — polluted values cannot override them.
-        assert_eq!(cfg.gmcp_port(), crate::susi_paths::ports::GMCP);
+        assert_eq!(
+            cfg.gmcp_port(),
+            crate::susi_paths::ports::GMCP + crate::susi_paths::ports::env_port_offset()
+        );
         // User's customized non-port scalar survives the merge untouched.
         assert_eq!(cfg.trust_level(), "paranoid");
 
@@ -723,6 +734,36 @@ mod tests {
         assert!(on_disk.contains("download_attempts"));
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    /// `port_offset` shifts the whole contract uniformly while the per-port
+    /// keys stay inert — a second instance lands on a clean, predictable
+    /// block (offset 100 → 9190–9194), and env `SUSI_PORT_OFFSET` outranks
+    /// the config key.
+    #[test]
+    fn test_port_offset_shifts_contract_uniformly() {
+        // When the env override is set in the test environment the env value
+        // is authoritative — the config-key assertions below only hold with
+        // the env knob unset.
+        if crate::susi_paths::ports::env_port_offset() != 0 {
+            return;
+        }
+        let mut cfg = SusiConfig::default();
+        cfg.settings
+            .insert("port_offset".to_string(), serde_json::json!(100));
+        assert_eq!(cfg.gmcp_port(), crate::susi_paths::ports::GMCP + 100);
+        assert_eq!(
+            cfg.a2a_http_port(),
+            crate::susi_paths::ports::A2A_HTTP + 100
+        );
+        assert_eq!(
+            cfg.udp_discovery_port(),
+            crate::susi_paths::ports::UDP_DISCOVERY + 100
+        );
+        // Offset saturates rather than overflowing u16.
+        cfg.settings
+            .insert("port_offset".to_string(), serde_json::json!(65535));
+        assert_eq!(cfg.a2a_http_port(), u16::MAX);
     }
 
     #[test]

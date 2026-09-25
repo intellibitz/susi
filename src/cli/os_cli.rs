@@ -116,7 +116,7 @@ fn status(json: bool) -> Result<()> {
             "endpoints": endpoint_probes().iter().map(|(name, port, up)| {
                 serde_json::json!({ "name": name, "port": port, "up": up })
             }).chain(std::iter::once(serde_json::json!({
-                "name": "a2a-udp", "port": susi_paths::ports::UDP_DISCOVERY,
+                "name": "a2a-udp", "port": udp_port(),
                 "up": null,
             }))).collect::<Vec<_>>(),
             "substrate_usage": substrate_usage().iter().take(8).map(|(name, bytes)| {
@@ -235,7 +235,7 @@ fn status(json: bool) -> Result<()> {
         println!(
             "endpoints:   {} (+a2a-udp :{})",
             fields.join(" · "),
-            susi_paths::ports::UDP_DISCOVERY
+            udp_port()
         );
     }
     if let Some((avail, total)) = disk_free(&susi_paths::SusiDirs::substrate_home()) {
@@ -582,16 +582,23 @@ impl PeerView {
     }
 }
 
+/// Effective UDP discovery port (canonical base + `port_offset`).
+fn udp_port() -> u16 {
+    susi_config::SusiConfig::load_global()
+        .map(|c| c.udp_discovery_port())
+        .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
+}
+
 /// Live TCP probes of the public host-contract endpoints — shared by the
 /// text view's `endpoints:` line and the `--json` payload. UDP discovery
 /// has no TCP probe; callers surface its port statically.
 fn endpoint_probes() -> Vec<(&'static str, u16, bool)> {
-    use susi_paths::ports;
+    let cfg = susi_config::SusiConfig::load_global().unwrap_or_default();
     let probes: [(&str, u16); 4] = [
-        ("gmcp", ports::GMCP),
-        ("gemi", ports::GEMI),
-        ("gmcp-sse", ports::GMCP_HTTP),
-        ("a2a", ports::A2A_HTTP),
+        ("gmcp", cfg.gmcp_port()),
+        ("gemi", cfg.gemi_port()),
+        ("gmcp-sse", cfg.gmcp_http_port()),
+        ("a2a", cfg.a2a_http_port()),
     ];
     probes
         .iter()

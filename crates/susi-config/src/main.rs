@@ -9,6 +9,8 @@ fn main() -> std::io::Result<()> {
     let port = std::env::var("SUSI_CONFIG_PORT")
         .ok()
         .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_PORT);
+        .unwrap_or_else(|| {
+            DEFAULT_PORT.saturating_add(susi_config::susi_paths::ports::env_port_offset())
+        });
     susi_config::serve(port)
 }

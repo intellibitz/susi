@@ -25,8 +25,20 @@ External clients can trust these ports — the daemon never silently drifts them
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
-- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until 9090–9094 are ready and print the endpoints.
-- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on 9090/9091/9093/9094 (except `/health` / CORS preflight).
+- **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until the host-contract ports are ready and print the endpoints.
+- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on every HTTP contract port (except `/health` / CORS preflight).
+
+**Port layout (`port_offset`)** — the five contract ports shift together, never
+individually (per-port overrides caused a real scramble once, so the relative
+shape is compile-time): `port_offset` in `config.json` (or `SUSI_PORT_OFFSET`
+env, which wins) moves all of them — offset `100` → `9190–9194`, and the leaf
+services shift too (`18080–18084` → `18180+`). LAN discovery announces the
+effective GMCP port in its pong, and signed pings carry `gmcp_http=` — peers
+on a different offset are still found and reachable; `peers add` against a
+nonstandard layout takes `host:port` explicitly. A *second instance on one
+host* needs its own root as well as its own ports: `SUSI_HOME=~/.susi-b`
+isolates config, lock, and state — `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100
+susi start` brings up a complete sibling node.
 
 ---
 
@@ -44,7 +56,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 8. **Governance-first** — Safety/Security before parallel fleet.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
-11. **Host contract** — fixed ports 9090–9094.
+11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
 12. **Reflexes** — Wasm reflexes under the data dir.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.

@@ -189,8 +189,8 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     // --- Host contract ---
     // ports::ALL is the single source of truth — pinning literal port numbers
     // here would silently skip any port added to the contract later (A2A 9094
-    // was already missed once). The drift guard asserts the contract set
-    // against the canonical 9090–9094 block instead.
+    // was already missed once). The drift guard asserts the canonical base
+    // block (port_offset shifts effective ports uniformly, never the base).
     let expected = [9090u16, 9091, 9092, 9093, 9094];
     let ports_ok = ports::ALL
         .iter()
@@ -200,7 +200,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
         "host_contract_ports",
         true,
         ports_ok,
-        "ports::ALL fixed at 9090–9094 (no silent drift)",
+        "ports::ALL canonical base 9090–9094 (effective ports = base + port_offset)",
     ));
     out.push(check(
         "host_contract_listening",

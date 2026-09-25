@@ -279,7 +279,9 @@ pub(crate) fn dispatch_mcp(
 }
 
 pub(crate) fn control_plane_stop(global_dir: &Path) {
-    let killed = SusiDaemon::stop_all_daemons(global_dir);
+    // Instance-scoped stop: under SUSI_HOME only this instance's unit,
+    // lock, and orphan daemons are signalled — siblings keep running.
+    let killed = SusiDaemon::stop_instance_daemons(global_dir);
     // Give listeners a moment to release the host-contract ports.
     for _ in 0..20 {
         if !SusiDaemon::host_contract_tcp_ready() {
@@ -294,7 +296,7 @@ pub(crate) fn control_plane_stop(global_dir: &Path) {
         );
     } else if SusiDaemon::host_contract_tcp_ready() {
         eprintln!(
-            "[SUSI Daemon] No lock/unit found, but ports 9090/9091/9093 are still listening."
+            "[SUSI Daemon] No lock/unit found, but host-contract TCP ports are still listening."
         );
         std::process::exit(1);
     } else {
@@ -333,7 +335,7 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
                     }
                     None => {
                         eprintln!(
-                            "[SUSI Daemon] Failed to start. Host-contract ports 9090–9093 are not listening."
+                            "[SUSI Daemon] Failed to start. Host-contract ports are not listening."
                         );
                         std::process::exit(1);
                     }
@@ -359,7 +361,7 @@ fn report_running(pid: u32) {
         );
     } else {
         eprintln!(
-            "[SUSI Daemon] Process {} is up but host-contract ports 9090–9093 are not ready.",
+            "[SUSI Daemon] Process {} is up but host-contract ports are not ready.",
             pid
         );
         std::process::exit(1);

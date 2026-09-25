@@ -59,16 +59,16 @@ impl SubstrateKernelLoader {
     /// Prints the configured GMCP/GEMI/UDP ports (no actual connectivity check).
     pub fn verify_port_endpoints(_workspace: &Path) -> EaiResult<()> {
         println!("  [Bootloader] Verifying core substrate port endpoints...");
-        use crate::susi_paths::ports;
         use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
         use std::time::Duration;
 
+        let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
         let checks: &[(&str, u16, bool)] = &[
-            ("GMCP/MCP HTTP", ports::GMCP, true),
-            ("GEMI HTTP", ports::GEMI, true),
-            ("A2A UDP discovery", ports::UDP_DISCOVERY, false),
-            ("GMCP HTTP alias", ports::GMCP_HTTP, true),
-            ("A2A HTTP", ports::A2A_HTTP, true),
+            ("GMCP/MCP HTTP", cfg.gmcp_port(), true),
+            ("GEMI HTTP", cfg.gemi_port(), true),
+            ("A2A UDP discovery", cfg.udp_discovery_port(), false),
+            ("GMCP HTTP alias", cfg.gmcp_http_port(), true),
+            ("A2A HTTP", cfg.a2a_http_port(), true),
         ];
 
         for (name, port, tcp) in checks {

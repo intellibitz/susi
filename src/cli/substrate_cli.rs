@@ -5,7 +5,6 @@ use clap::Subcommand;
 use std::path::Path;
 use std::process::Command;
 use susi_daemon::SusiDaemon;
-use susi_paths::ports;
 
 #[derive(Debug, Subcommand)]
 pub enum SubstrateCommands {
@@ -81,11 +80,12 @@ fn collect(workspace: &Path) -> serde_json::Value {
         },
         "host_contract": {
             "ports": {
-                "gmcp": ports::GMCP,
-                "gemi": ports::GEMI,
-                "udp": ports::UDP_DISCOVERY,
-                "gmcp_alias": ports::GMCP_HTTP,
-                "a2a_http": ports::A2A_HTTP,
+                "gmcp": cfg.gmcp_port(),
+                "gemi": cfg.gemi_port(),
+                "udp": cfg.udp_discovery_port(),
+                "gmcp_alias": cfg.gmcp_http_port(),
+                "a2a_http": cfg.a2a_http_port(),
+                "offset": cfg.port_offset(),
             },
             "ready": SusiDaemon::host_contract_ready(),
             "tcp_ready": SusiDaemon::host_contract_tcp_ready(),

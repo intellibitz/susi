@@ -17,12 +17,30 @@ use std::time::Duration;
 pub struct SusiDirs;
 
 /// Host-contract ports (kept in sync with `susi-paths`' `ports` module).
+/// A uniform `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins)
+/// shifts all five together — the contract shape stays fixed while a second
+/// instance or a nonstandard host layout gets clean ports.
 pub mod ports {
     pub const GMCP: u16 = 9090;
     pub const GEMI: u16 = 9091;
     pub const UDP_DISCOVERY: u16 = 9092;
     pub const GMCP_HTTP: u16 = 9093;
     pub const A2A_HTTP: u16 = 9094;
+
+    /// Offset from `SUSI_PORT_OFFSET` alone — leaf-safe resolution for code
+    /// without a `SusiConfig` in scope. `SusiConfig::port_offset()` additionally
+    /// honors the `port_offset` config key; env always wins.
+    pub fn env_port_offset() -> u16 {
+        std::env::var("SUSI_PORT_OFFSET")
+            .ok()
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .unwrap_or(0)
+    }
+
+    /// `base + env_offset`, saturating — never produces a port above u16::MAX.
+    pub fn effective(base: u16) -> u16 {
+        base.saturating_add(env_port_offset())
+    }
 }
 
 const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
@@ -42,10 +60,12 @@ impl SusiDirs {
     }
 
     fn fetch_paths_uncached() -> HashMap<String, PathBuf> {
+        // The leaf's own contract: explicit SUSI_PATHS_PORT wins, else the
+        // default rides the instance offset like every other susi port.
         let port = std::env::var("SUSI_PATHS_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(18080);
+            .unwrap_or_else(|| ports::effective(18080));
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
         let fetch = || -> Option<HashMap<String, PathBuf>> {
             let mut stream = TcpStream::connect_timeout(&addr, SERVICE_TIMEOUT).ok()?;
@@ -72,6 +92,14 @@ impl SusiDirs {
         if key == "home_dir" {
             return home;
         }
+        // `SUSI_HOME` selects a fully isolated instance root — the
+        // multi-instance knob (own config, lock, and state per node).
+        if let Some(root) = std::env::var_os("SUSI_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+        {
+            return root;
+        }
         let legacy = home.join(".susi");
         let use_xdg = if legacy.is_dir() {
             std::env::var("SUSI_XDG")
@@ -95,10 +123,12 @@ impl SusiDirs {
         legacy
     }
 
-    /// Explicit local env config (`SUSI_XDG`, `XDG_*_HOME`) beats the service —
-    /// a swapped HOME in tests must not leak the host substrate's paths.
+    /// Explicit local env config (`SUSI_HOME`, `SUSI_XDG`, `XDG_*_HOME`)
+    /// beats the service — a second instance's root must not resolve to the
+    /// primary host substrate's paths.
     fn local_override() -> bool {
         [
+            "SUSI_HOME",
             "SUSI_XDG",
             "XDG_CONFIG_HOME",
             "XDG_DATA_HOME",

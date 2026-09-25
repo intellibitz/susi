@@ -3213,28 +3213,35 @@ mod config {
                 .unwrap_or_else(|| Self::bundled_defaults().get(key).unwrap_or_default())
         }
 
-        // Public substrate ports are a hard contract with external clients.
-        // Accessors ignore any polluted ~/.susi/config.json values (legacy
-        // randomization) and always return the canonical ports.
+        /// Uniform shift applied to every host-contract port. One knob — a
+        /// second instance or a nonstandard host layout gets clean ports while
+        /// the relative contract shape stays fixed (the legacy per-port config
+        /// keys stay ignored: scrambled individual ports were the incident that
+        /// made the contract compile-time). `SUSI_PORT_OFFSET` env wins over
+        /// the `port_offset` config key.
+        pub fn port_offset(&self) -> u16 {
+            std::env::var("SUSI_PORT_OFFSET")
+            .ok()
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .unwrap_or_else(|| self.get_or_bundled_default("port_offset"))
+        }
+        // Public substrate ports are a hard contract with external clients:
+        // canonical base + the uniform offset. Individual per-port overrides
+        // are deliberately impossible (see port_offset).
         pub fn gmcp_port(&self) -> u16 {
-            let _ = self; // keep method signature; value is not user-overridable
-            crate::susi_paths::ports::GMCP
+            crate::susi_paths::ports::GMCP.saturating_add(self.port_offset())
         }
         pub fn gmcp_http_port(&self) -> u16 {
-            let _ = self;
-            crate::susi_paths::ports::GMCP_HTTP
+            crate::susi_paths::ports::GMCP_HTTP.saturating_add(self.port_offset())
         }
         pub fn gemi_port(&self) -> u16 {
-            let _ = self;
-            crate::susi_paths::ports::GEMI
+            crate::susi_paths::ports::GEMI.saturating_add(self.port_offset())
         }
         pub fn udp_discovery_port(&self) -> u16 {
-            let _ = self;
-            crate::susi_paths::ports::UDP_DISCOVERY
+            crate::susi_paths::ports::UDP_DISCOVERY.saturating_add(self.port_offset())
         }
         pub fn a2a_http_port(&self) -> u16 {
-            let _ = self;
-            crate::susi_paths::ports::A2A_HTTP
+            crate::susi_paths::ports::A2A_HTTP.saturating_add(self.port_offset())
         }
         pub fn execution_lease_secs(&self) -> u64 {
             self.get_or_bundled_default("execution_lease_secs")
@@ -3343,8 +3350,12 @@ mod config {
                 let _ = cfg.save(&global_dir);
             }
             eprintln!(
-                "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP 9090/9091/9093/9094)",
-                token_path.display()
+                "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP {}/{}/{}/{})",
+                token_path.display(),
+                cfg.gmcp_port(),
+                cfg.gemi_port(),
+                cfg.gmcp_http_port(),
+                cfg.a2a_http_port()
             );
             token
         }

@@ -209,11 +209,22 @@ pub(crate) fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Our effective GMCP-HTTP port — also the best guess for a same-config
+/// peer's (clusters share `port_offset`); canonical 9093 is the fallback
+/// when config can't be read at all.
+fn our_gmcp_http_port() -> u16 {
+    crate::susi_config::SusiConfig::load_global()
+        .map(|c| c.gmcp_http_port())
+        .unwrap_or(crate::susi_paths::ports::GMCP_HTTP)
+}
+
 pub struct SusiSupervisor;
 
 impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
-        crate::susi_paths::ports::UDP_DISCOVERY
+        crate::susi_config::SusiConfig::load_global()
+            .map(|c| c.udp_discovery_port())
+            .unwrap_or(crate::susi_paths::ports::UDP_DISCOVERY)
     }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
@@ -224,7 +235,12 @@ impl SusiSupervisor {
                 // node's coordinator seq chain, chain linkage, and
                 // leader election to live in its own id namespace.
                 node_id: crate::susi_config::cluster_key::wire_node_id(),
-                address: format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP),
+                address: format!(
+                    "127.0.0.1:{}",
+                    crate::susi_config::SusiConfig::load_global()
+                        .map(|c| c.gmcp_port())
+                        .unwrap_or(crate::susi_paths::ports::GMCP)
+                ),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
                 capabilities: vec![
@@ -272,7 +288,16 @@ impl SusiSupervisor {
                     // silently capping cluster growth by breaking
                     // signature verification on every oversized pong.
                     let mut buf = [0u8; 4096];
-                    let local_caps = HardwareProfiler::get_caps_string();
+                    // `gmcp_http=` advertises our effective HTTP port so
+                    // offset-shifted peers (port_offset) are reachable on
+                    // their real contract port, not canonical 9093.
+                    let local_caps = format!(
+                        "{},gmcp_http={}",
+                        HardwareProfiler::get_caps_string(),
+                        crate::susi_config::SusiConfig::load_global()
+                            .unwrap_or_default()
+                            .gmcp_http_port()
+                    );
                     let mut local_bloom = CapabilityBloom::local_snapshot();
                     let mut last_registry_checksum =
                         susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum();
@@ -504,11 +529,13 @@ impl SusiSupervisor {
                                     {
                                         continue;
                                     }
-                                    let addr_str = format!(
-                                        "{}:{}",
-                                        src.ip(),
-                                        crate::susi_paths::ports::GMCP_HTTP
-                                    );
+                                    // The signed pong carries no caps — best
+                                    // guess is our own effective port
+                                    // (same-config clusters share the
+                                    // offset). The peer's own ping carries
+                                    // `gmcp_http=` and corrects this record
+                                    // when the layouts differ.
+                                    let addr_str = format!("{}:{}", src.ip(), our_gmcp_http_port());
                                     // Operator eviction: a banned member's
                                     // handshake is cryptographically valid
                                     // but must not re-enter the roster.
@@ -690,8 +717,19 @@ impl SusiSupervisor {
                                 };
 
                                 let mut peers = t_shared.write();
-                                let addr_str =
-                                    format!("{}:{}", src.ip(), crate::susi_paths::ports::GMCP_HTTP);
+                                // `SUSI_LAN_PONG:<id>:<gmcp_port>` announces
+                                // the peer's effective GMCP port — the uniform
+                                // offset means their HTTP alias is +3.
+                                let peer_http = if msg.starts_with("SUSI_LAN_PONG") {
+                                    parts
+                                        .get(2)
+                                        .and_then(|p| p.parse::<u16>().ok())
+                                        .map(|g| g.saturating_add(3))
+                                        .unwrap_or_else(our_gmcp_http_port)
+                                } else {
+                                    our_gmcp_http_port()
+                                };
+                                let addr_str = format!("{}:{}", src.ip(), peer_http);
                                 if let Some(p) = peers.iter_mut().find(|p| p.address == addr_str) {
                                     p.trust_score = (p.trust_score + 0.05).min(1.0);
                                     p.is_active = true;
@@ -751,9 +789,20 @@ impl SusiSupervisor {
                                     PeerAdmission::Local => false,
                                 })
                                 .filter_map(|p| {
-                                    p.address.split(':').next().map(|h| {
-                                        format!("{h}:{}", crate::susi_paths::ports::UDP_DISCOVERY)
-                                    })
+                                    let mut parts = p.address.split(':');
+                                    let h = parts.next()?;
+                                    // Stored peer addresses carry the
+                                    // GMCP-HTTP port; the uniform contract
+                                    // puts UDP discovery one below it —
+                                    // derived from the peer's own port so a
+                                    // port_offset-shifted member stays
+                                    // reachable.
+                                    let udp = parts
+                                        .next()
+                                        .and_then(|s| s.parse::<u16>().ok())
+                                        .map(|p| p.saturating_sub(1))
+                                        .unwrap_or(crate::susi_paths::ports::UDP_DISCOVERY);
+                                    Some(format!("{h}:{udp}"))
                                 })
                                 .take(32)
                                 .collect();

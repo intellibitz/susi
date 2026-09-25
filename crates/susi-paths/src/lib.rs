@@ -15,8 +15,17 @@ use std::path::PathBuf;
 pub struct SusiDirs;
 
 impl SusiDirs {
+    /// `SUSI_HOME` selects a fully isolated instance root — the multi-instance
+    /// knob: `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start` runs a
+    /// second node beside the primary with its own config, lock, and state.
+    fn instance_root() -> Option<PathBuf> {
+        std::env::var_os("SUSI_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+    }
+
     fn legacy_base() -> PathBuf {
-        Self::home_dir().join(".susi")
+        Self::instance_root().unwrap_or_else(|| Self::home_dir().join(".susi"))
     }
 
     pub fn home_dir() -> PathBuf {
@@ -31,6 +40,9 @@ impl SusiDirs {
     }
 
     fn use_xdg() -> bool {
+        if Self::instance_root().is_some() {
+            return false;
+        }
         let legacy = Self::legacy_base();
         if legacy.is_dir() {
             std::env::var("SUSI_XDG")
@@ -86,7 +98,10 @@ impl SusiDirs {
 }
 
 /// Canonical public substrate ports. External clients may hard-code these;
-/// the daemon must never silently drift to ephemeral ports.
+/// the daemon must never silently drift to ephemeral ports. A *uniform*
+/// `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins) shifts all
+/// five together — the contract shape stays fixed while a second instance or
+/// a nonstandard host layout gets clean ports (e.g. offset 100 → 9190–9194).
 pub mod ports {
     pub const GMCP: u16 = 9090;
     pub const GEMI: u16 = 9091;
@@ -102,6 +117,21 @@ pub mod ports {
         (GMCP_HTTP, "GMCP HTTP alias"),
         (A2A_HTTP, "A2A HTTP (JSON-RPC + SSE + agent card)"),
     ];
+
+    /// Offset from `SUSI_PORT_OFFSET` alone — leaf-safe resolution for code
+    /// without a `SusiConfig` in scope. `SusiConfig::port_offset()` additionally
+    /// honors the `port_offset` config key; env always wins.
+    pub fn env_port_offset() -> u16 {
+        std::env::var("SUSI_PORT_OFFSET")
+            .ok()
+            .and_then(|v| v.trim().parse::<u16>().ok())
+            .unwrap_or(0)
+    }
+
+    /// `base + env_offset`, saturating — never produces a port above u16::MAX.
+    pub fn effective(base: u16) -> u16 {
+        base.saturating_add(env_port_offset())
+    }
 }
 
 /// Embedded REST service mode: serves the host path/port contract over
@@ -143,11 +173,11 @@ pub fn serve(port: u16) -> std::io::Result<()> {
 
     async fn get_ports() -> Json<PortsResponse> {
         Json(PortsResponse {
-            gmcp: ports::GMCP,
-            gemi: ports::GEMI,
-            udp_discovery: ports::UDP_DISCOVERY,
-            gmcp_http: ports::GMCP_HTTP,
-            a2a_http: ports::A2A_HTTP,
+            gmcp: ports::effective(ports::GMCP),
+            gemi: ports::effective(ports::GEMI),
+            udp_discovery: ports::effective(ports::UDP_DISCOVERY),
+            gmcp_http: ports::effective(ports::GMCP_HTTP),
+            a2a_http: ports::effective(ports::A2A_HTTP),
         })
     }
 
