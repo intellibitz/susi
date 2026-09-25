@@ -23,6 +23,9 @@ pub struct RoutingPreference {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct LocalInferenceStats {
+    /// Model the EMA was measured against. A different active model must
+    /// not inherit another model's slowness (e.g. CPU-spill 32B → GPU 7B).
+    pub model_id: String,
     pub ema_tokens_per_sec: f32,
     pub last_latency_ms: u64,
     pub samples: u64,
@@ -324,14 +327,31 @@ impl InferenceRouter {
             .unwrap_or_default()
     }
 
-    pub fn record_local_sample(latency: Duration, output_chars: usize) {
+    /// Stats for `model_id` only. Legacy unscoped files (empty `model_id`)
+    /// and measurements from a different model start cold so a GPU-fit
+    /// swap is not punished by a prior CPU-spill EMA.
+    pub fn load_stats_for(model_id: &str) -> LocalInferenceStats {
+        let stats = Self::load_stats();
+        if model_id.is_empty() {
+            return stats;
+        }
+        if stats.model_id.is_empty() || stats.model_id != model_id {
+            return LocalInferenceStats {
+                model_id: model_id.to_string(),
+                ..Default::default()
+            };
+        }
+        stats
+    }
+
+    pub fn record_local_sample(model_id: &str, latency: Duration, output_chars: usize) {
         let latency_ms = latency.as_millis() as u64;
         // Rough token estimate (~4 chars/token) — gate only, not billing.
         let approx_tokens = (output_chars / 4).max(1) as f32;
         let secs = latency.as_secs_f32().max(0.001);
         let tps = approx_tokens / secs;
 
-        let mut stats = Self::load_stats();
+        let mut stats = Self::load_stats_for(model_id);
         if stats.samples == 0 {
             stats.ema_tokens_per_sec = tps;
         } else {
@@ -340,6 +360,7 @@ impl InferenceRouter {
         }
         stats.last_latency_ms = latency_ms;
         stats.samples = stats.samples.saturating_add(1);
+        stats.model_id = model_id.to_string();
 
         let path = Self::stats_path();
         if let Some(parent) = path.parent() {
@@ -539,7 +560,9 @@ impl InferenceRouter {
             _ => {} // auto
         }
 
-        let stats = Self::load_stats();
+        let active_model =
+            crate::models::ModelManager::get_selected_model(None).unwrap_or_default();
+        let stats = Self::load_stats_for(&active_model);
         let slow = Self::local_is_slow(&cfg, &stats);
         let cpu_only = cfg.prefer_cloud_when_cpu_only && Self::cpu_only_host();
 
@@ -743,12 +766,14 @@ mod tests {
             ema_tokens_per_sec: 2.0,
             last_latency_ms: 1_000,
             samples: 3,
+            ..Default::default()
         };
         assert!(InferenceRouter::local_is_slow(&cfg, &slow));
         let fast = LocalInferenceStats {
             ema_tokens_per_sec: 40.0,
             last_latency_ms: 200,
             samples: 3,
+            ..Default::default()
         };
         assert!(!InferenceRouter::local_is_slow(&cfg, &fast));
         let cold = LocalInferenceStats::default();
