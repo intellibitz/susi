@@ -50,9 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 {
                                     let response =
                                         handle_plan(req, &mut *cell_clone.lock().await).await;
-                                    #[allow(clippy::unwrap_used)]
-                                    // SAFETY: serializing a known struct
-                                    let resp_payload = serde_json::to_vec(&response).unwrap();
+                                    let Ok(resp_payload) = serde_json::to_vec(&response) else {
+                                        continue;
+                                    };
                                     let resp_frame =
                                         WireFrame::new(MessageType::SyscallResponse, resp_payload);
                                     let encoded = resp_frame.encode();

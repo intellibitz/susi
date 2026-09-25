@@ -23,7 +23,6 @@ pub struct SusiAlphaModel {
 impl SusiAlphaModel {
     pub const DIM: usize = 128;
 
-    #[allow(clippy::unwrap_used)]
     pub fn global() -> &'static Self {
         static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
         MODEL.get_or_init(|| {
@@ -31,7 +30,11 @@ impl SusiAlphaModel {
                 let device = crate::hardware::HardwareProfiler::get_candle_device();
                 let varmap = VarMap::new();
                 let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+                // A fresh VarMap only allocates two DIM x DIM layers; failure is
+                // device OOM at bootstrap, and this &'static global has no error path.
+                #[allow(clippy::unwrap_used)]
                 let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")).unwrap();
+                #[allow(clippy::unwrap_used)] // same invariant as fc1
                 let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).unwrap();
                 Self { fc1, fc2 }
             })
