@@ -17,6 +17,7 @@ pub mod router;
 pub mod swarm;
 pub mod syscall;
 pub mod wire;
+pub mod memory;
 
 pub use cell::{CellState, SwarmCell};
 pub use evidence::{GroundedClaim, ReceiptStatus, ToolReceipt};

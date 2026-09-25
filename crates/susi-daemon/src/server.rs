@@ -738,7 +738,10 @@ impl SusiDaemon {
         // Durable workflow engine (Swarm OS Bullet 8): rehydrates pending tasks
         // from the JSONL append-only journal to survive daemon restarts.
         let workflow_engine = crate::workflows::WorkflowEngine::new(&workspace)
-            .expect("Failed to initialize durable workflow engine");
+            .unwrap_or_else(|e| {
+                eprintln!("[SusiDaemon] Failed to initialize durable workflow engine: {}", e);
+                std::process::exit(1);
+            });
         let pending_tasks = workflow_engine.get_pending_tasks();
         if !pending_tasks.is_empty() {
             println!("[SusiDaemon] Rehydrated {} pending workflow tasks", pending_tasks.len());
