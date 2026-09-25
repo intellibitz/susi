@@ -526,6 +526,7 @@ async fn handle_gemi_request(
                     active_model,
                     completion.model.clone(),
                     completion.max_tokens,
+                    completion.stop.clone(),
                     Arc::clone(&workspace),
                     path == "/v1/completions",
                     permit,
@@ -591,6 +592,7 @@ async fn handle_gemi_request(
                 // body carries the raw model output, matching the
                 // streaming path's shape.
                 let body_text = unwrap_inference_render(&content).unwrap_or(content);
+                let body_text = apply_stops(&body_text, &completion.stop);
                 let (body_text, capped) = cap_completion(&body_text, completion.max_tokens);
                 let payload = completion_response(
                     &served_model,
@@ -935,22 +937,29 @@ fn build_streaming_response(
     model_name: String,
     requested_model: Option<String>,
     max_tokens: Option<u32>,
+    stop: Vec<String>,
     workspace: Arc<PathBuf>,
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBody> {
-    let rx = completion_stream(model_name, legacy, max_tokens, move |callback, meta| {
-        let _permit = permit;
-        gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
-            &prompt,
-            &workspace,
-            &|chunk| {
-                callback(chunk);
-            },
-            requested_model.as_deref(),
-            meta,
-        )
-    });
+    let rx = completion_stream(
+        model_name,
+        legacy,
+        max_tokens,
+        stop,
+        move |callback, meta| {
+            let _permit = permit;
+            gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
+                &prompt,
+                &workspace,
+                &|chunk| {
+                    callback(chunk);
+                },
+                requested_model.as_deref(),
+                meta,
+            )
+        },
+    );
     let stream =
         ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
     let body = StreamBody::new(stream).boxed();
@@ -1110,6 +1119,38 @@ fn cap_completion(text: &str, max_tokens: Option<u32>) -> (String, bool) {
     }
 }
 
+/// Byte position of the earliest occurrence of any `stop` sequence in
+/// `text`, or `None`. Content before it is served; the stop sequence
+/// itself is never included in the output (OpenAI semantics).
+fn first_stop(text: &str, stops: &[String]) -> Option<usize> {
+    stops.iter().filter_map(|s| text.find(s.as_str())).min()
+}
+
+/// Truncate `text` at the earliest stop-sequence occurrence.
+fn apply_stops(text: &str, stops: &[String]) -> String {
+    match first_stop(text, stops) {
+        Some(pos) => text[..pos].to_string(),
+        None => text.to_string(),
+    }
+}
+
+/// Length of the longest suffix of `text` that is a proper prefix of any
+/// stop sequence. That many bytes must be held back before emitting so a
+/// stop sequence spanning a chunk boundary is still detected.
+fn partial_stop_hold(text: &str, stops: &[String]) -> usize {
+    let bytes = text.as_bytes();
+    let mut hold = 0;
+    for s in stops {
+        let sb = s.as_bytes();
+        for n in 1..sb.len().min(bytes.len() + 1) {
+            if n > hold && bytes.ends_with(&sb[..n]) {
+                hold = n;
+            }
+        }
+    }
+    hold
+}
+
 fn completion_response(
     model: &str,
     content: &str,
@@ -1153,6 +1194,7 @@ fn completion_stream(
     model: String,
     legacy: bool,
     max_tokens: Option<u32>,
+    stop: Vec<String>,
     solve: impl FnOnce(&dyn Fn(String), &dyn Fn(&str)) -> String + Send + 'static,
 ) -> tokio::sync::mpsc::Receiver<String> {
     // Bound queued frames and split large frames so a slow client cannot
@@ -1192,15 +1234,13 @@ fn completion_stream(
         let emitted_chars = std::cell::Cell::new(0usize);
         let truncated = std::cell::Cell::new(false);
         let failed = std::cell::Cell::new(false);
-        let callback = |piece: String| {
+        // `stop` sequences may span chunk boundaries — content is buffered
+        // and only the portion that cannot yet complete a match is emitted.
+        let pending = std::cell::RefCell::new(String::new());
+        let stopped = std::cell::Cell::new(false);
+        // Sends screened content through the token budget and chunk loop.
+        let send_content = |mut piece: String| {
             if piece.is_empty() || truncated.get() {
-                return;
-            }
-            // Engine failure markers are not content — suppress them and
-            // terminate the stream with an SSE error frame instead.
-            let head = piece.trim_start();
-            if head.starts_with("[FAIL]") || head.starts_with("[INFERENCE_FAILED]") {
-                failed.set(true);
                 return;
             }
             if !send_role(&tx) {
@@ -1209,7 +1249,6 @@ fn completion_stream(
             emitted.set(true);
             // `max_tokens` budget: cut this piece at the remaining word/char
             // allowance, then suppress the rest of the stream.
-            let mut piece = piece;
             if let Some(max) = max_tokens.map(|m| m as usize) {
                 let (keep, cut) = cap_piece(
                     &piece,
@@ -1248,10 +1287,45 @@ fn completion_stream(
                 remaining = rest;
             }
         };
+        let callback = |piece: String| {
+            if piece.is_empty() || truncated.get() || stopped.get() {
+                return;
+            }
+            // Engine failure markers are not content — suppress them and
+            // terminate the stream with an SSE error frame instead.
+            let head = piece.trim_start();
+            if head.starts_with("[FAIL]") || head.starts_with("[INFERENCE_FAILED]") {
+                failed.set(true);
+                return;
+            }
+            if stop.is_empty() {
+                send_content(piece);
+                return;
+            }
+            pending.borrow_mut().push_str(&piece);
+            let mut buf = pending.take();
+            if let Some(pos) = first_stop(&buf, &stop) {
+                buf.truncate(pos);
+                stopped.set(true);
+            } else {
+                let hold = partial_stop_hold(&buf, &stop);
+                let keep = buf.len() - hold;
+                let tail = buf.split_off(keep);
+                *pending.borrow_mut() = tail;
+            }
+            send_content(buf);
+        };
         let result = solve(&callback, &meta_cb);
         // Some solver paths return a complete answer without invoking callbacks.
-        if !emitted.get() && !failed.get() {
+        if !emitted.get() && !failed.get() && !stopped.get() {
             callback(result);
+        }
+        // Flush the held-back tail — it was verified stop-free each round.
+        if !stopped.get() && !failed.get() {
+            let rest = pending.take();
+            if !rest.is_empty() {
+                send_content(rest);
+            }
         }
         if failed.get() {
             let _ = tx.blocking_send(format!(
@@ -1319,6 +1393,7 @@ struct CompletionInput {
     stream: bool,
     model: Option<String>,
     max_tokens: Option<u32>,
+    stop: Vec<String>,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1406,11 +1481,37 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
                 .ok_or("max_tokens must be a positive integer")? as u32,
         ),
     };
+    // `stop`: a string or an array of strings; empty entries are no-ops.
+    let stop = match object.get("stop") {
+        None | Some(serde_json::Value::Null) => Vec::new(),
+        Some(serde_json::Value::String(s)) => vec![s.clone()],
+        Some(serde_json::Value::Array(items)) => {
+            let mut seqs = Vec::with_capacity(items.len());
+            for item in items {
+                seqs.push(
+                    item.as_str()
+                        .ok_or("stop entries must be strings")?
+                        .to_string(),
+                );
+            }
+            seqs
+        }
+        Some(_) => return Err("stop must be a string or an array of strings".into()),
+    };
+    let stop: Vec<String> = stop.into_iter().filter(|s| !s.is_empty()).collect();
+    // Only single-choice completions exist — reject multi-n rather than
+    // silently returning fewer choices than the client asked for.
+    if let Some(n) = object.get("n")
+        && n.as_u64() != Some(1)
+    {
+        return Err("only n=1 completions are supported".into());
+    }
     Ok(CompletionInput {
         prompt,
         stream,
         model,
         max_tokens,
+        stop,
     })
 }
 
@@ -1455,6 +1556,64 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn parses_stop_sequences_and_rejects_multi_n() {
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"stop":["\n\n","END"]}"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(input.stop, vec!["\n\n".to_string(), "END".to_string()]);
+        // A bare string stop is accepted; null disables; empty strings are dropped.
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"stop":"HALT"}"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(input.stop, vec!["HALT".to_string()]);
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"hi"}],"stop":[""]}"#,
+            false,
+        )
+        .unwrap();
+        assert!(input.stop.is_empty());
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"stop":42}"#,
+                false,
+            )
+            .is_err()
+        );
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"n":2}"#,
+                false,
+            )
+            .is_err()
+        );
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"n":1}"#,
+                false,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn stop_sequences_truncate_and_hold_partial_matches() {
+        let stops = vec!["END".to_string(), "\n\n".to_string()];
+        assert_eq!(first_stop("hello END world", &stops), Some(6));
+        assert_eq!(apply_stops("a\n\nb", &stops), "a");
+        assert_eq!(apply_stops("no stops here", &stops), "no stops here");
+        // A chunk ending in a proper stop prefix must hold those bytes back.
+        assert_eq!(partial_stop_hold("text EN", &stops), 2);
+        assert_eq!(partial_stop_hold("text\n", &stops), 1);
+        assert_eq!(partial_stop_hold("plain", &stops), 0);
+        // The full stop itself is not held — it was already matched.
+        assert_eq!(partial_stop_hold("all END", &stops), 0);
     }
 
     #[test]
@@ -1507,7 +1666,7 @@ mod tests {
     }
     #[tokio::test]
     async fn streaming_delivers_returned_answer_and_escapes_model_names() {
-        let mut rx = completion_stream("quoted\"model".into(), false, None, |_, _| {
+        let mut rx = completion_stream("quoted\"model".into(), false, None, Vec::new(), |_, _| {
             "Hello 🦀".into()
         });
         let mut content = String::new();
@@ -1533,10 +1692,16 @@ mod tests {
     async fn streaming_does_not_duplicate_callback_output_and_chunks_unicode() {
         let answer = "🦀".repeat(3000);
         let expected = answer.clone();
-        let mut rx = completion_stream("model".into(), true, None, move |callback, _| {
-            callback(answer.clone());
-            answer
-        });
+        let mut rx = completion_stream(
+            "model".into(),
+            true,
+            None,
+            Vec::new(),
+            move |callback, _| {
+                callback(answer.clone());
+                answer
+            },
+        );
         let mut content = String::new();
         while let Some(frame) = rx.recv().await {
             if frame == "data: [DONE]\n\n" {
@@ -1563,7 +1728,7 @@ mod tests {
     async fn disconnected_stream_releases_admission() {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
-        let rx = completion_stream("m".into(), false, None, move |_, _| {
+        let rx = completion_stream("m".into(), false, None, Vec::new(), move |_, _| {
             let _permit = permit;
             "answer".into()
         });
@@ -1583,7 +1748,7 @@ mod tests {
         let admission = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = admission.clone().try_acquire_owned().unwrap();
         let (started_tx, started_rx) = tokio::sync::oneshot::channel();
-        let rx = completion_stream("m".into(), false, None, move |callback, _| {
+        let rx = completion_stream("m".into(), false, None, Vec::new(), move |callback, _| {
             let _permit = permit;
             let _ = started_tx.send(());
             callback("x".repeat(4096 * 32));
