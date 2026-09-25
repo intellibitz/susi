@@ -55,19 +55,19 @@
       "api_key_env": "ANTHROPIC_API_KEY"
     },
     {
-      "id": "gemini-2.0-flash",
+      "id": "gemini-flash-latest",
       "engine": "GoogleGemini",
       "protocol_type": "gemini",
       "api_key_env": "GEMINI_API_KEY"
     },
     {
-      "id": "gemini-2.5-flash",
+      "id": "gemini-flash-lite-latest",
       "engine": "GoogleGemini",
       "protocol_type": "gemini",
       "api_key_env": "GEMINI_API_KEY"
     },
     {
-      "id": "gemini-2.5-pro",
+      "id": "gemini-pro-latest",
       "engine": "GoogleGemini",
       "protocol_type": "gemini",
       "api_key_env": "GEMINI_API_KEY"
