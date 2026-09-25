@@ -6963,6 +6963,7 @@ name = "susi-daemon"
 version = "0.14.0"
 dependencies = [
  "chacha20poly1305",
+ "dashmap",
  "ed25519-dalek",
  "getrandom 0.4.3",
  "hex",
@@ -6975,6 +6976,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "signal-hook",
+ "susi-abi",
  "susi-core",
  "tokio",
  "tokio-rustls",

@@ -703,6 +703,16 @@ impl SusiDaemon {
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
 
+        // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
+        let blackboard = crate::blackboard::SwarmBlackboard::new();
+        let blackboard_evaporator = blackboard.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                blackboard_evaporator.evaporate_pheromones();
+            }
+        });
+
         // Pillar 8: Zero-config discovery of local inference engines + MCP tools
         // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
         // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.

@@ -38,6 +38,7 @@ pub mod susi_sandbox;
 
 pub mod ambient;
 pub mod auto_discovery;
+pub mod blackboard;
 pub mod composition;
 pub mod context_adapters;
 pub mod engine_hooks;
