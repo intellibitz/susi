@@ -18,13 +18,13 @@
 //! `https_only` (default false): refuse remote plaintext even when no TLS
 //! certificate can be offered.
 
-use std::io::BufReader;
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio_rustls::TlsAcceptor;
 use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
 /// True when `bind_address` names a loopback-only interface.
@@ -37,25 +37,37 @@ pub fn is_loopback(bind_address: &str) -> bool {
 
 /// Load a PEM cert/key pair into a `TlsAcceptor`.
 fn build_acceptor(cert_path: &Path, key_path: &Path) -> std::io::Result<TlsAcceptor> {
-    let mut cert_reader = BufReader::new(std::fs::File::open(cert_path)?);
-    let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut cert_reader)
+    // Surface open/read failures with their original kind (e.g. NotFound);
+    // everything else is malformed PEM.
+    // `pem::Error` is `#[non_exhaustive]`, so test variants with `if let`
+    // rather than a wildcard match arm.
+    let invalid = |e: pem::Error| {
+        if let pem::Error::Io(io) = e {
+            io
+        } else {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
+        }
+    };
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_file_iter(cert_path)
+        .map_err(invalid)?
         .collect::<Result<_, _>>()
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        .map_err(invalid)?;
     if certs.is_empty() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("no PEM certificates in {}", cert_path.display()),
         ));
     }
-    let mut key_reader = BufReader::new(std::fs::File::open(key_path)?);
-    let key: PrivateKeyDer<'static> = rustls_pemfile::private_key(&mut key_reader)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
-        .ok_or_else(|| {
+    let key = PrivateKeyDer::from_pem_file(key_path).map_err(|e| {
+        if matches!(e, pem::Error::NoItemsFound) {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!("no PEM private key in {}", key_path.display()),
             )
-        })?;
+        } else {
+            invalid(e)
+        }
+    })?;
     // Exactly one provider may be feature-unified across the workspace —
     // install it explicitly so `builder()` never panics on ambiguity.
     let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
