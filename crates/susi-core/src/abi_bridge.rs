@@ -1,17 +1,23 @@
-//! Bridge from susi-core's internal receipt bookkeeping to the shared
-//! `susi-abi` wire vocabulary.
+//! Bridge from susi-core's internal machinery (receipts, evidence, the
+//! syscall-mapped `plane_bus`, and now MAC-gated context-graph reads) to the
+//! shared `susi-abi` wire vocabulary.
 //!
-//! Kept out of `capture.rs` on purpose: that file is vendored byte-identical
+//! Kept out of the vendored files it touches (`capture.rs`, `evidence.rs`,
+//! `context_graph.rs`, `mac_policy.rs`) on purpose: those are byte-identical
 //! into 9 zero-dependency consumer crates (`scripts/check-vendored-sync.sh`),
 //! and susi-core is currently the only crate with a real Cargo edge to
 //! `susi-abi`. This file stays outside the vendored `src/susi_core/` tree so
 //! that edge never leaks into the vendored copies.
 
 use crate::capture::ToolReceipt;
+use crate::context_graph::{ContextGraph, ContextGraphStats, Subgraph};
 use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
+use crate::mac_policy::{actions, MacPolicy};
 use crate::plane_bus::PlaneBus;
+use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::time::Instant;
+use susi_abi::cell::SwarmCell;
 use susi_abi::evidence::{GroundedClaim, ReceiptStatus};
 use susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
 
@@ -110,6 +116,67 @@ fn wrap_syscall_result(
             latency_us,
             message: Some(message),
         },
+    }
+}
+
+/// Vision #31 ("The OS provides a global shared context graph accessible
+/// (with MAC permissions) by all authorized cells"): [`ContextGraph`]
+/// already provides the global, typed, versioned graph, but every read
+/// method (`node`, `related`, `workspace_subgraph`, `stats`) is open to any
+/// in-process caller with no capability check — the "(with MAC permissions)"
+/// half was missing. This reuses the existing [`MacPolicy`] grant model
+/// (`MacPolicy::requirements_for_tool` already maps `context_graph*` tool
+/// names to `filesystem.read`) rather than inventing a new one, gated by
+/// `SwarmCell` identity instead of a bare string subject. Internal writers
+/// (`capture.rs`, `evidence.rs`) are untouched — this is a new, additive
+/// read path, and deny-by-default: a cell with no grant gets `Err`, matching
+/// `MacPolicy`'s existing posture (`seed_defaults` never grants an arbitrary
+/// cell id anything).
+pub trait AuthorizedContextGraph {
+    /// The workspace subgraph, or `Err` if `cell` lacks `filesystem.read` on
+    /// `workspace` — never a silently empty result, so a caller can tell "no
+    /// data" apart from "not allowed to see it".
+    fn authorized_workspace_subgraph(
+        &self,
+        cell: &SwarmCell,
+        workspace: &Path,
+    ) -> EaiResult<Subgraph>;
+
+    /// Graph-wide statistics, or `Err` if `cell` lacks `filesystem.read`.
+    fn authorized_stats(&self, cell: &SwarmCell) -> EaiResult<ContextGraphStats>;
+}
+
+impl AuthorizedContextGraph for ContextGraph {
+    fn authorized_workspace_subgraph(
+        &self,
+        cell: &SwarmCell,
+        workspace: &Path,
+    ) -> EaiResult<Subgraph> {
+        let subject = &cell.manifest.cell_id;
+        // Canonicalize to match the resource string `workspace_subgraph`
+        // itself keys nodes on (context_graph.rs's own `record_workspace`).
+        let canonical = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.to_path_buf());
+        let resource = canonical.to_string_lossy();
+        if !MacPolicy::global().is_permitted(subject, actions::FILESYSTEM_READ, &resource) {
+            return Err(EaiError::governance(format!(
+                "MAC DENY: cell `{subject}` lacks {} on {resource}",
+                actions::FILESYSTEM_READ
+            )));
+        }
+        Ok(self.workspace_subgraph(workspace))
+    }
+
+    fn authorized_stats(&self, cell: &SwarmCell) -> EaiResult<ContextGraphStats> {
+        let subject = &cell.manifest.cell_id;
+        if !MacPolicy::global().is_permitted(subject, actions::FILESYSTEM_READ, "*") {
+            return Err(EaiError::governance(format!(
+                "MAC DENY: cell `{subject}` lacks {}",
+                actions::FILESYSTEM_READ
+            )));
+        }
+        Ok(self.stats())
     }
 }
 
@@ -329,5 +396,71 @@ mod tests {
         assert_eq!(err.data, serde_json::Value::Null);
         assert_eq!(err.latency_us, 9);
         assert_eq!(err.message.as_deref(), Some("boom"));
+    }
+
+    // MacPolicy::global() is a process-wide OnceLock shared by every test in
+    // this binary, so each test below uses a cell_id unique to itself
+    // (AtomicU64-suffixed) — grants are keyed by exact subject string, so
+    // distinct ids can never see each other's grants even running in
+    // parallel. It never touches disk here: nothing in susi-core's own test
+    // surface calls MacPolicy::init_global/wired, so global() stays on the
+    // ephemeral, in-memory-only fallback (see mac_policy.rs).
+    fn unique_cell(role: susi_abi::swarm::SwarmRole) -> SwarmCell {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        SwarmCell::new(
+            format!(
+                "test-cell-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ),
+            role,
+            "ipc:///tmp/test-cell.sock".into(),
+        )
+    }
+
+    #[test]
+    fn authorized_workspace_subgraph_denies_a_cell_with_no_grant() {
+        let g = ContextGraph::new();
+        let ws = Workspace::new();
+        g.record_mission("m-mac-deny", "test", &ws.0, None);
+        let cell = unique_cell(susi_abi::swarm::SwarmRole::ExternalPeer);
+        let err = g.authorized_workspace_subgraph(&cell, &ws.0).unwrap_err();
+        assert!(err.to_string().contains("MAC DENY"));
+    }
+
+    #[test]
+    fn authorized_workspace_subgraph_allows_a_granted_cell() {
+        let g = ContextGraph::new();
+        let ws = Workspace::new();
+        g.record_mission("m-mac-allow", "test", &ws.0, None);
+        let cell = unique_cell(susi_abi::swarm::SwarmRole::PlannerCell);
+        let canonical = ws.0.canonicalize().unwrap();
+        MacPolicy::global().grant(
+            &cell.manifest.cell_id,
+            actions::FILESYSTEM_READ,
+            &canonical.to_string_lossy(),
+            None,
+        );
+        let subgraph = g.authorized_workspace_subgraph(&cell, &ws.0).unwrap();
+        assert!(!subgraph.nodes.is_empty());
+    }
+
+    #[test]
+    fn authorized_stats_respects_the_same_grant() {
+        let g = ContextGraph::new();
+        let ws = Workspace::new();
+        g.record_mission("m-mac-stats", "test", &ws.0, None);
+        let denied_cell = unique_cell(susi_abi::swarm::SwarmRole::ToolDriver);
+        assert!(g.authorized_stats(&denied_cell).is_err());
+
+        let allowed_cell = unique_cell(susi_abi::swarm::SwarmRole::ToolDriver);
+        MacPolicy::global().grant(
+            &allowed_cell.manifest.cell_id,
+            actions::FILESYSTEM_READ,
+            "*",
+            None,
+        );
+        let stats = g.authorized_stats(&allowed_cell).unwrap();
+        assert!(stats.node_count > 0);
     }
 }
