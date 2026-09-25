@@ -58,13 +58,11 @@ impl IdentityManager {
 
     /// Verifies the cryptographic signature of a payload.
     pub fn verify_signature(&self, cell_id: &str, payload: &[u8], signature_hex: &str) -> bool {
-        #[allow(clippy::collapsible_if)]
-        if let Some(vk) = self.keys.get(cell_id) {
-            if let Ok(sig_bytes) = hex::decode(signature_hex) {
-                if let Ok(signature) = Signature::from_slice(&sig_bytes) {
-                    return vk.verify(payload, &signature).is_ok();
-                }
-            }
+        if let Some(vk) = self.keys.get(cell_id)
+            && let Ok(sig_bytes) = hex::decode(signature_hex)
+            && let Ok(signature) = Signature::from_slice(&sig_bytes)
+        {
+            return vk.verify(payload, &signature).is_ok();
         }
         false
     }

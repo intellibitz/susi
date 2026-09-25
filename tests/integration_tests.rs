@@ -8,7 +8,7 @@
 //! SUSI Substrate Integration Tests
 //! 100% Rust-Native Validation of GAWD, GEMI & GMCP Pillars
 
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::fs;
 use std::sync::Once;

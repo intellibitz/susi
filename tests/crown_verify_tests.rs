@@ -7,7 +7,7 @@
 
 //! Integration smoke for `susi crown verify` (Tier S USP gate).
 
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::fs;
 use std::process::Command;

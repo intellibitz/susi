@@ -7,7 +7,7 @@
 
 //! Stable CI smoke for parser boundaries exercised by `fuzz/` targets (no nightly).
 
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 use susi_core::bus::SwarmEvent;
 use susi_core::evidence::{Claim, EvidenceRecord, EvidenceSource};

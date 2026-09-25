@@ -4,7 +4,7 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Integration test for the endorsement gate (joint-consensus half):
 //! once a majority of an electorate's members have bound pubkeys, a

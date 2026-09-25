@@ -73,13 +73,12 @@ impl NetworkFirewall {
             .insert(domain.to_string());
     }
 
-    #[allow(clippy::collapsible_if)]
     pub fn check_outbound(&self, cell_id: &str, requested_domain: &str) -> Result<(), String> {
         let map = self.allow_lists.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(allowed) = map.get(cell_id) {
-            if allowed.contains(requested_domain) {
-                return Ok(());
-            }
+        if let Some(allowed) = map.get(cell_id)
+            && allowed.contains(requested_domain)
+        {
+            return Ok(());
         }
         Err(format!(
             "Network firewall blocked outbound request to {}",

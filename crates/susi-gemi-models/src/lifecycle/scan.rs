@@ -83,7 +83,7 @@ impl ModelManager {
         Ok(hex::encode(hasher.finalize()))
     }
 
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::type_complexity)] // one-off function-local cache tuple; a named type would add no clarity
     pub fn scan_system_for_local_models(workspace: &Path) -> Vec<ModelInfo> {
         static MODEL_SCAN_CACHE: once_cell::sync::Lazy<
             parking_lot::RwLock<Option<(PathBuf, u64, std::time::Instant, Vec<ModelInfo>)>>,

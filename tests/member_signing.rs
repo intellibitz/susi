@@ -4,7 +4,7 @@
     clippy::panic,
     clippy::unreachable
 )]
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 //! Integration test for per-member signing keys (Ed25519 `node.key`):
 //! every sealed record carries `member_sig` over its HMAC signature,

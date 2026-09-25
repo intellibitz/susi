@@ -35,7 +35,7 @@ fn range_bounds(value: &str) -> Option<(u64, u64, u64)> {
     (start <= end && end < total).then_some((start, end, total))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // flat parameter list mirrors the call sites; a builder would only wrap them
 pub(crate) fn transfer(
     url: &str,
     destination: &Path,

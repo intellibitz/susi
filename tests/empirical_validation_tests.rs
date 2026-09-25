@@ -8,7 +8,7 @@
 //! SUSI Empirical Validation Test Suite
 //! Implements automated checks based on the architectural test plan
 
-#![allow(missing_docs)]
+#![allow(missing_docs)] // integration test crate: no public API to document
 
 use std::path::Path;
 use std::sync::Once;

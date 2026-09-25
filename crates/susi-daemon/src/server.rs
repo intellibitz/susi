@@ -1380,7 +1380,6 @@ impl SusiDaemon {
             .filter(|p| p.is_absolute())
     }
 
-    #[allow(dead_code)]
     #[allow(unsafe_code)]
     pub fn stop_daemon(_workspace: &Path, global_dir: &Path) -> bool {
         let global_lock = Self::get_lock_file(global_dir);
