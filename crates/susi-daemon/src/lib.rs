@@ -76,6 +76,8 @@ pub mod contract;
 pub mod replay;
 pub mod ring_buffer;
 pub mod admin;
+pub mod memory_quota;
+pub mod fallback;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
