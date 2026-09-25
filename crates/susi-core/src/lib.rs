@@ -49,6 +49,11 @@ mod susi_paths;
 #[rustfmt::skip]
 pub mod susi_config;
 
+// NOT vendored: susi-core is the only crate with a real Cargo edge to
+// susi-abi today, so this bridge (and its `susi_abi` import) stays out of
+// the byte-identical `src/susi_core/` tree consumer crates copy.
+pub mod abi_bridge;
+
 pub mod agent_tx;
 pub mod agent_types;
 pub mod broker;

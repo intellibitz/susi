@@ -1,0 +1,15 @@
+[package]
+name = "susi-abi"
+version = "0.14.0"
+license = "Apache-2.0"
+edition = "2021"
+authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
+description = "SUSI Swarm OS ABI: Universal 0-dependency AI syscall, stigmergic pheromone, and IPC wire protocol."
+publish = false
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

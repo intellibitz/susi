@@ -2,6 +2,7 @@
 members = [
     ".",
     "xtask",
+    "crates/susi-abi",
     "crates/susi-paths",
     "crates/susi-error",
     "crates/susi-core",
@@ -70,6 +71,7 @@ too_many_arguments = "warn"
 complexity = { level = "warn", priority = -1 }
 
 [workspace.dependencies]
+susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
 susi-sandbox = { path = "crates/susi-sandbox" }

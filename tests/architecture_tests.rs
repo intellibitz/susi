@@ -452,13 +452,20 @@ fn susi_core_must_not_depend_on_infra_or_features() {
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }
-    // susi-core has no remaining workspace deps: susi-config/susi-paths/
-    // susi-error are all vendored as local modules (`susi_config`/
-    // `susi_paths`/`susi_error` under src/) that reach the standalone
-    // services over HTTP — they no longer appear as workspace deps.
+    // susi-core has no remaining workspace deps except susi-abi:
+    // susi-config/susi-paths/susi-error are all vendored as local modules
+    // (`susi_config`/`susi_paths`/`susi_error` under src/) that reach the
+    // standalone services over HTTP — they no longer appear as workspace
+    // deps. susi-abi is the one sanctioned exception: a real Cargo edge is
+    // safe because susi-abi is itself zero-dependency (enforced above by
+    // `susi_abi_must_not_depend_on_workspace_crates`), so it can never
+    // reintroduce the coupling this test otherwise guards against. See
+    // `crates/susi-core/src/abi_bridge.rs`, kept out of the vendored tree so
+    // the 9 zero-dep consumer crates never gain this edge themselves.
     let deps = parse_workspace_deps(&text);
+    let allowed: HashSet<String> = ["susi-abi".to_string()].into_iter().collect();
     assert!(
-        deps.is_empty(),
+        deps.is_subset(&allowed),
         "susi-core workspace deps drifted: {deps:?}"
     );
 }
@@ -575,6 +582,18 @@ fn susi_native_must_not_depend_on_workspace_crates() {
     assert!(
         deps.is_empty(),
         "susi-native is a leaf REST service; workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_abi_must_not_depend_on_workspace_crates() {
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-abi/Cargo.toml"))
+        .expect("susi-abi Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert!(
+        deps.is_empty(),
+        "susi-abi is the universal zero-dependency ABI; workspace deps drifted: {deps:?}"
     );
 }
 
