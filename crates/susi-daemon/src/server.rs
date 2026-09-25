@@ -735,6 +735,19 @@ impl SusiDaemon {
             crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
         );
 
+        // Durable workflow engine (Swarm OS Bullet 8): rehydrates pending tasks
+        // from the JSONL append-only journal to survive daemon restarts.
+        let workflow_engine = crate::workflows::WorkflowEngine::new(&workspace)
+            .expect("Failed to initialize durable workflow engine");
+        let pending_tasks = workflow_engine.get_pending_tasks();
+        if !pending_tasks.is_empty() {
+            println!("[SusiDaemon] Rehydrated {} pending workflow tasks", pending_tasks.len());
+        }
+
+        // Time-Travel Debugger (Swarm OS Bullet 7): immutable HMAC-signed event log
+        let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
+        time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
+
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 

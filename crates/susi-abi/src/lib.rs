@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn test_wire_frame_invalid_magic() {
-        let bad_magic = [b'N', b'O', b'P', b'E', 1, 1, 0, 0, 0, 0];
+        let bad_magic = [b'N', b'O', b'P', b'E', 1, 1, 0, 0, 0, 0, 0, 0];
         let err = WireFrame::decode(&bad_magic).expect_err("should fail");
         assert_eq!(err, WireError::InvalidMagic(*b"NOPE"));
     }

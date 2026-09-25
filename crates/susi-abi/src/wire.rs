@@ -1,14 +1,16 @@
 //! SUSI Swarm OS IPC Wire Framing.
 //!
 //! High-throughput, framing protocol for Unix Domain Sockets and streaming pipes.
+//! Supports QoS flags for priority, reliability, and ordering guarantees.
 
 use std::fmt;
+use serde::{Deserialize, Serialize};
 
 /// Magic bytes preceding every valid SUSI wire frame (`b"SUSI"`).
 pub const SUSI_WIRE_MAGIC: [u8; 4] = *b"SUSI";
 
-/// Current wire protocol specification version.
-pub const SUSI_WIRE_VERSION: u8 = 1;
+/// Current wire protocol specification version (v2 adds QoS flags).
+pub const SUSI_WIRE_VERSION: u8 = 2;
 
 /// Maximum payload size allowed for a single wire frame (32 MiB).
 pub const MAX_WIRE_PAYLOAD_BYTES: usize = 32 * 1024 * 1024;
@@ -68,6 +70,10 @@ pub enum MessageType {
     Heartbeat = 0x04,
     /// Raw unparsed byte stream.
     RawBytes = 0x05,
+    /// Task Negotiation: Offer/Accept/Commit/Reject (Bullet 19).
+    TaskNegotiation = 0x06,
+    /// Durable event log entry for time-travel debugging (Bullet 7).
+    EventLog = 0x07,
 }
 
 impl MessageType {
@@ -80,10 +86,101 @@ impl MessageType {
             0x03 => Some(Self::SwarmPheromone),
             0x04 => Some(Self::Heartbeat),
             0x05 => Some(Self::RawBytes),
+            0x06 => Some(Self::TaskNegotiation),
+            0x07 => Some(Self::EventLog),
             _ => None,
         }
     }
 }
+
+// ──────────────────────────────────────────────────────────
+// QoS Flags (Swarm OS Vision – Bullet 5)
+// ──────────────────────────────────────────────────────────
+
+/// Quality-of-Service flags carried in the wire frame header.
+///
+/// Encoded as a 2-byte bitfield:
+///
+/// | Bits  | Field         | Description                               |
+/// |-------|---------------|-------------------------------------------|
+/// | 0-2   | Priority      | 0 = best-effort, 7 = critical             |
+/// | 3     | Reliable      | 1 = at-least-once delivery guarantee      |
+/// | 4     | Ordered       | 1 = strict per-sender ordering required   |
+/// | 5     | Idempotent    | 1 = safe to retry without side effects    |
+/// | 6-15  | Reserved      | Must be zero                              |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct QosFlags(pub u16);
+
+impl QosFlags {
+    /// Best-effort delivery, no ordering guarantees.
+    pub const BEST_EFFORT: Self = Self(0);
+
+    /// Critical priority, reliable, ordered.
+    pub const CRITICAL: Self = Self(0b0001_1111);
+
+    /// Creates QoS flags with the given priority (0-7).
+    #[must_use]
+    pub const fn with_priority(priority: u8) -> Self {
+        Self((priority & 0x07) as u16)
+    }
+
+    /// Returns the priority level (0 = best-effort, 7 = critical).
+    #[must_use]
+    pub const fn priority(self) -> u8 {
+        (self.0 & 0x07) as u8
+    }
+
+    /// Returns true if at-least-once delivery is requested.
+    #[must_use]
+    pub const fn is_reliable(self) -> bool {
+        (self.0 & 0x08) != 0
+    }
+
+    /// Returns true if strict per-sender ordering is required.
+    #[must_use]
+    pub const fn is_ordered(self) -> bool {
+        (self.0 & 0x10) != 0
+    }
+
+    /// Returns true if the message is idempotent (safe to retry).
+    #[must_use]
+    pub const fn is_idempotent(self) -> bool {
+        (self.0 & 0x20) != 0
+    }
+
+    /// Sets the reliable delivery flag.
+    #[must_use]
+    pub const fn set_reliable(self) -> Self {
+        Self(self.0 | 0x08)
+    }
+
+    /// Sets the ordered delivery flag.
+    #[must_use]
+    pub const fn set_ordered(self) -> Self {
+        Self(self.0 | 0x10)
+    }
+
+    /// Sets the idempotent flag.
+    #[must_use]
+    pub const fn set_idempotent(self) -> Self {
+        Self(self.0 | 0x20)
+    }
+
+    /// Encodes to 2 bytes (big-endian).
+    #[must_use]
+    pub const fn to_bytes(self) -> [u8; 2] {
+        self.0.to_be_bytes()
+    }
+
+    /// Decodes from 2 bytes (big-endian).
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 2]) -> Self {
+        Self(u16::from_be_bytes(bytes))
+    }
+}
+
+/// Header size in bytes for the v2 wire protocol.
+const HEADER_SIZE: usize = 12;
 
 /// A structured, framed message suitable for streaming over UDS or pipes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,36 +189,52 @@ pub struct WireFrame {
     pub version: u8,
     /// Type of the payload enclosed.
     pub msg_type: MessageType,
+    /// Quality-of-Service flags (v2).
+    pub qos: QosFlags,
     /// Raw payload bytes (typically UTF-8 JSON or binary data).
     pub payload: Vec<u8>,
 }
 
 impl WireFrame {
-    /// Creates a new wire frame with the current protocol version.
+    /// Creates a new wire frame with the current protocol version and best-effort QoS.
     #[must_use]
     pub fn new(msg_type: MessageType, payload: Vec<u8>) -> Self {
         Self {
             version: SUSI_WIRE_VERSION,
             msg_type,
+            qos: QosFlags::BEST_EFFORT,
+            payload,
+        }
+    }
+
+    /// Creates a new wire frame with explicit QoS flags.
+    #[must_use]
+    pub fn with_qos(msg_type: MessageType, qos: QosFlags, payload: Vec<u8>) -> Self {
+        Self {
+            version: SUSI_WIRE_VERSION,
+            msg_type,
+            qos,
             payload,
         }
     }
 
     /// Serializes this frame into a contiguous byte vector.
     ///
-    /// Header layout (10 bytes):
-    /// - 0..4: Magic `b"SUSI"`
-    /// - 4..5: Version (u8)
-    /// - 5..6: MessageType (u8)
-    /// - 6..10: Payload Length (u32, big-endian)
+    /// Header layout (12 bytes, v2):
+    /// - 0..4:   Magic `b"SUSI"`
+    /// - 4..5:   Version (u8)
+    /// - 5..6:   MessageType (u8)
+    /// - 6..8:   QoS Flags (u16, big-endian)
+    /// - 8..12:  Payload Length (u32, big-endian)
     ///   Followed by `payload`.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let payload_len = self.payload.len() as u32;
-        let mut buf = Vec::with_capacity(10 + self.payload.len());
+        let mut buf = Vec::with_capacity(HEADER_SIZE + self.payload.len());
         buf.extend_from_slice(&SUSI_WIRE_MAGIC);
         buf.push(self.version);
         buf.push(self.msg_type as u8);
+        buf.extend_from_slice(&self.qos.to_bytes());
         buf.extend_from_slice(&payload_len.to_be_bytes());
         buf.extend_from_slice(&self.payload);
         buf
@@ -131,7 +244,7 @@ impl WireFrame {
     ///
     /// Returns `Ok((frame, bytes_consumed))` on success, or an error if invalid/incomplete.
     pub fn decode(buf: &[u8]) -> Result<(Self, usize), WireError> {
-        if buf.len() < 10 {
+        if buf.len() < HEADER_SIZE {
             return Err(WireError::IncompleteHeader);
         }
 
@@ -151,25 +264,28 @@ impl WireFrame {
             None => return Err(WireError::UnsupportedVersion(msg_type_byte)),
         };
 
-        let len_bytes: [u8; 4] = [buf[6], buf[7], buf[8], buf[9]];
+        let qos = QosFlags::from_bytes([buf[6], buf[7]]);
+
+        let len_bytes: [u8; 4] = [buf[8], buf[9], buf[10], buf[11]];
         let payload_len = u32::from_be_bytes(len_bytes) as usize;
 
         if payload_len > MAX_WIRE_PAYLOAD_BYTES {
             return Err(WireError::PayloadTooLarge(payload_len));
         }
 
-        let total_frame_len = 10 + payload_len;
+        let total_frame_len = HEADER_SIZE + payload_len;
         if buf.len() < total_frame_len {
             return Err(WireError::IncompletePayload {
                 expected: payload_len,
-                available: buf.len() - 10,
+                available: buf.len() - HEADER_SIZE,
             });
         }
 
-        let payload = buf[10..total_frame_len].to_vec();
+        let payload = buf[HEADER_SIZE..total_frame_len].to_vec();
         let frame = Self {
             version,
             msg_type,
+            qos,
             payload,
         };
 
@@ -187,11 +303,13 @@ mod prop_tests {
         // frame, consuming exactly the bytes it produced.
         #[test]
         fn round_trip_preserves_frame(
-            msg_type_byte in 1u8..=5u8,
+            msg_type_byte in 1u8..=7u8,
+            qos_raw in any::<u16>(),
             payload in proptest::collection::vec(any::<u8>(), 0..4096),
         ) {
             let msg_type = MessageType::from_u8(msg_type_byte).unwrap();
-            let frame = WireFrame::new(msg_type, payload);
+            let qos = QosFlags(qos_raw);
+            let frame = WireFrame::with_qos(msg_type, qos, payload);
             let encoded = frame.encode();
             let (decoded, consumed) = WireFrame::decode(&encoded).unwrap();
             prop_assert_eq!(consumed, encoded.len());
@@ -200,14 +318,14 @@ mod prop_tests {
 
         // Property: decode never panics on arbitrary bytes — the eventual
         // consumer is a UDS/pipe stream, i.e. untrusted input. Buffers
-        // shorter than the fixed 10-byte header are the one length class
+        // shorter than the fixed 12-byte header are the one length class
         // that can only ever fail one way.
         #[test]
         fn decode_never_panics_on_arbitrary_bytes(
             buf in proptest::collection::vec(any::<u8>(), 0..600),
         ) {
             let result = WireFrame::decode(&buf);
-            if buf.len() < 10 {
+            if buf.len() < HEADER_SIZE {
                 prop_assert_eq!(result, Err(WireError::IncompleteHeader));
             }
         }
