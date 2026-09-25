@@ -38,6 +38,33 @@ impl ElasticScheduler {
         self.target.load(Ordering::Acquire)
     }
 
+    /// Moves the concurrency target by `delta`, floored at
+    /// `min_concurrency` and ceilinged at `max_concurrency`. Returns the
+    /// resulting target. Used by `auto_tune` (Bullet 74) so an SLA-derived
+    /// step lands on the same target Bullet 28's stress signal writes.
+    pub fn apply_delta(&self, delta: i64) -> i64 {
+        let mut current = self.target.load(Ordering::Acquire);
+        loop {
+            let shifted = current.saturating_add(delta);
+            let next = if delta < 0 {
+                shifted.max(self.min_concurrency)
+            } else if delta > 0 {
+                shifted.min(self.max_concurrency)
+            } else {
+                current
+            };
+            match self.target.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return next,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
     /// Applies one throttle/ramp step: halves the target under stress
     /// (floored at `min_concurrency`), or grows it by one step toward
     /// `max_concurrency` when clear. Returns the new target.

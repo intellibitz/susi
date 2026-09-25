@@ -152,6 +152,28 @@ impl SwarmBlackboard {
         violations
     }
 
+    /// Renders a swarm health report (Bullet 72) from `snapshot` checked
+    /// against `targets`, plus the current trust leaderboard. Does not
+    /// deposit an alert — that stays on [`check_sla_and_alert`](Self::check_sla_and_alert).
+    pub fn health_dashboard(
+        &self,
+        snapshot: &crate::swarm_metrics::SwarmMetricsSnapshot,
+        targets: &crate::sla_monitor::SlaTargets,
+    ) -> String {
+        let violations = crate::sla_monitor::check_sla(snapshot, targets);
+        crate::dashboard::render_health_dashboard(snapshot, &violations, &self.leaderboard())
+    }
+
+    /// Projects how many cells could serve `capability_hash` after
+    /// `change`, without registering or unregistering anyone (Bullet 76).
+    pub fn project_cell_change(
+        &self,
+        capability_hash: u64,
+        change: &crate::what_if::CellChange,
+    ) -> crate::what_if::RoutingProjection {
+        crate::what_if::project_cell_change(&self.all_cells(), capability_hash, change)
+    }
+
     /// Recommends up to `team_size` cells for `topic` (Bullet 78): capable
     /// cells (by `capability_hash`) ranked by trust, tiebroken by how many
     /// `Receipt` pheromones they've deposited on `topic` in the past.
@@ -317,5 +339,45 @@ mod tests {
         let cell_ids: Vec<&str> = recommended.iter().map(|c| c.cell_id.as_str()).collect();
         assert_eq!(cell_ids, vec!["proven", "untested"]);
         assert_eq!(recommended[0].historical_successes, 1);
+    }
+
+    #[test]
+    fn health_dashboard_names_registered_cells_and_an_sla_miss() {
+        let board = SwarmBlackboard::new();
+        board.register_cell(manifest("cell-a", 0.8));
+        let snapshot = crate::swarm_metrics::SwarmMetricsSnapshot {
+            missions_started: 1,
+            missions_completed: 1,
+            missions_succeeded: 0,
+            distinct_solutions: 0,
+            avg_time_to_resolution_ms: 10,
+        };
+        let targets = crate::sla_monitor::SlaTargets {
+            max_avg_resolution_ms: None,
+            min_success_rate: Some(1.0),
+        };
+        let report = board.health_dashboard(&snapshot, &targets);
+        assert!(report.contains("cell-a"));
+        assert!(report.contains("below target"));
+        assert!(board.query_topic("sla.violation").is_empty());
+    }
+
+    #[test]
+    fn project_cell_change_does_not_unregister_the_live_cell() {
+        let board = SwarmBlackboard::new();
+        const HASH: u64 = 0xA11CE;
+        let mut capable = manifest("keeper", 0.4);
+        capable.bloom_filter.insert_hash(HASH);
+        board.register_cell(capable);
+
+        let projection = board.project_cell_change(
+            HASH,
+            &crate::what_if::CellChange::Remove {
+                cell_id: "keeper".to_string(),
+            },
+        );
+        assert_eq!(projection.capable_before, 1);
+        assert_eq!(projection.capable_after, 0);
+        assert_eq!(board.leaderboard().len(), 1);
     }
 }

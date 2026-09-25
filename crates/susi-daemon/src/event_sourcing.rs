@@ -71,6 +71,16 @@ impl EventStore {
         events.iter().filter(|e| e.ts <= as_of).fold(init, reducer)
     }
 
+    /// Every stored event, oldest first. The bulk read `root_cause`
+    /// (Bullet 77) walks; `replay` folds but cannot hand the log to a
+    /// caller that needs the sequence numbers themselves.
+    pub fn events(&self) -> Vec<StoredEvent> {
+        self.events
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     pub fn len(&self) -> usize {
         self.events.read().unwrap_or_else(|e| e.into_inner()).len()
     }
