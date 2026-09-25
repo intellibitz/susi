@@ -19,7 +19,7 @@ members = [
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-dsh-cell"
-]
+, "crates/susi-universal-cell"]
 
 [package]
 name = "susi"
