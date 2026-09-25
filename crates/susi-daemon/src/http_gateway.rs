@@ -20,7 +20,8 @@ pub struct AgentHttpResponse {
     pub payload: Vec<u8>,
 }
 
-/// A simulated HTTP router that forwards requests to sandbox cells.
+/// HTTP router that forwards requests to exposed sandbox cells through an
+/// injected engine executor.
 pub struct HttpGateway {
     /// Maps cell IDs to a boolean indicating if they are exposed to the web.
     exposed_cells: RwLock<HashMap<String, bool>>,
@@ -48,7 +49,8 @@ impl HttpGateway {
         map.insert(cell_id.to_string(), true);
     }
 
-    /// Simulates receiving an HTTP POST and routing it to a cell.
+    /// Route an HTTP POST to its cell: 404 for unexposed cells, otherwise the
+    /// executor's result as 200 or its error as 500.
     pub fn route_request<F>(
         &self,
         request: AgentHttpRequest,
