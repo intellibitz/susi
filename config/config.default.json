@@ -499,7 +499,7 @@
   "repeat_last_n": 64,
   "speculative_decoding_enabled": false,
   "speculative_draft_tokens": 4,
-  "kv_cache_capacity_tokens": 2304,
+  "kv_cache_capacity_tokens": 8192,
   "axiomatic_risk_patterns": [
     "rm -rf /",
     "drop database",
