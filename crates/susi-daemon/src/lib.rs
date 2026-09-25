@@ -74,6 +74,8 @@ pub mod watchdog;
 pub mod cas;
 pub mod contract;
 pub mod replay;
+pub mod ring_buffer;
+pub mod admin;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;
