@@ -50,6 +50,8 @@ pub struct CapabilityPolicy {
     cell_id: String,
     /// Granted capabilities.
     grants: Vec<CapabilityGrant>,
+    /// Allowed IP addresses or CIDR blocks for network access.
+    network_access: Vec<String>,
 }
 
 impl CapabilityPolicy {
@@ -58,6 +60,25 @@ impl CapabilityPolicy {
         Self {
             cell_id: cell_id.into(),
             grants,
+            network_access: Vec::new(),
+        }
+    }
+
+    /// Creates a new policy with explicit network access whitelists.
+    pub fn with_network(cell_id: impl Into<String>, grants: Vec<CapabilityGrant>, network_access: Vec<String>) -> Self {
+        Self {
+            cell_id: cell_id.into(),
+            grants,
+            network_access,
+        }
+    }
+
+    /// Validates if an IP address is authorized to communicate with this cell.
+    pub fn is_network_authorized(&self, ip_addr: &str) -> PolicyVerdict {
+        if self.network_access.iter().any(|allowed| allowed == ip_addr || allowed == "*") {
+            PolicyVerdict::Allow
+        } else {
+            PolicyVerdict::Deny
         }
     }
 

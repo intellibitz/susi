@@ -58,6 +58,8 @@ pub mod event_log;
 pub mod suspend;
 pub mod semantic_memory;
 pub mod self_healing;
+pub mod tool_proxy;
+pub mod topology;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;

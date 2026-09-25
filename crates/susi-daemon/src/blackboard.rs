@@ -41,6 +41,13 @@ impl SwarmBlackboard {
         self.cells.remove(cell_id);
     }
 
+    /// Dynamically penalizes a cell's trust score for malformed syscalls (Point 41).
+    pub fn penalize_cell(&self, cell_id: &str, penalty: f32) {
+        if let Some(mut cell) = self.cells.get_mut(cell_id) {
+            cell.trust_score = (cell.trust_score - penalty).max(0.0);
+        }
+    }
+
     /// Deposits a new pheromone into the environment (Point 25).
     pub fn deposit_pheromone(&self, pheromone: SwarmPheromone) {
         self.pheromones.insert(pheromone.id.clone(), pheromone.clone());

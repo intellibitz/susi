@@ -751,6 +751,10 @@ impl SusiDaemon {
         let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
         time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
 
+        // Autonomous Topology Manager (Swarm OS Bullet 24)
+        let _topology_manager = crate::topology::TopologyManager::new();
+        time_travel_logger.log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
+
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
