@@ -518,12 +518,16 @@ fn susi_gmcp_must_not_depend_on_workspace_crates() {
     // crates/susi-core/vendor_template/) plus the leaf modules — fourth
     // consumer converted under the microkernel path. Its dev-dep on
     // susi-tools is test-only (MCP client round-trip), not a production edge.
+    // susi-abi is the same sanctioned exception as in susi-core: the
+    // micro-daemon binary (`src/main.rs`) speaks the ABI wire protocol, and
+    // susi-abi is zero-dependency so the edge cannot reintroduce coupling.
     let root = workspace_root();
     let text = std::fs::read_to_string(root.join("crates/susi-gmcp/Cargo.toml"))
         .expect("susi-gmcp Cargo.toml");
     let deps = parse_workspace_deps(&text);
+    let allowed: HashSet<String> = ["susi-abi".to_string()].into_iter().collect();
     assert!(
-        deps.is_empty(),
+        deps.is_subset(&allowed),
         "susi-gmcp vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
     );
 }
