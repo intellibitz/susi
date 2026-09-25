@@ -176,3 +176,40 @@ impl WireFrame {
         Ok((frame, total_frame_len))
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Property: every frame that encodes decodes back to an identical
+        // frame, consuming exactly the bytes it produced.
+        #[test]
+        fn round_trip_preserves_frame(
+            msg_type_byte in 1u8..=5u8,
+            payload in proptest::collection::vec(any::<u8>(), 0..4096),
+        ) {
+            let msg_type = MessageType::from_u8(msg_type_byte).unwrap();
+            let frame = WireFrame::new(msg_type, payload);
+            let encoded = frame.encode();
+            let (decoded, consumed) = WireFrame::decode(&encoded).unwrap();
+            prop_assert_eq!(consumed, encoded.len());
+            prop_assert_eq!(decoded, frame);
+        }
+
+        // Property: decode never panics on arbitrary bytes — the eventual
+        // consumer is a UDS/pipe stream, i.e. untrusted input. Buffers
+        // shorter than the fixed 10-byte header are the one length class
+        // that can only ever fail one way.
+        #[test]
+        fn decode_never_panics_on_arbitrary_bytes(
+            buf in proptest::collection::vec(any::<u8>(), 0..600),
+        ) {
+            let result = WireFrame::decode(&buf);
+            if buf.len() < 10 {
+                prop_assert_eq!(result, Err(WireError::IncompleteHeader));
+            }
+        }
+    }
+}

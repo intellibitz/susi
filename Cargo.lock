@@ -6883,6 +6883,7 @@ dependencies = [
 name = "susi-abi"
 version = "0.14.0"
 dependencies = [
+ "proptest",
  "serde",
  "serde_json",
 ]

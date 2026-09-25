@@ -91,6 +91,38 @@ impl CapabilityBloom {
     }
 }
 
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        // Property: a bloom filter never produces a false negative — a hash
+        // just inserted always tests as possibly present.
+        #[test]
+        fn inserted_hash_always_may_contain(hash in any::<u64>()) {
+            let mut bloom = CapabilityBloom::empty();
+            bloom.insert_hash(hash);
+            prop_assert!(bloom.may_contain_hash(hash));
+        }
+
+        // Property: bloom filters are monotonic — inserting more hashes can
+        // only set bits, never clear one an earlier insert set.
+        #[test]
+        fn membership_is_monotonic_under_more_inserts(
+            first in any::<u64>(),
+            rest in proptest::collection::vec(any::<u64>(), 0..32),
+        ) {
+            let mut bloom = CapabilityBloom::empty();
+            bloom.insert_hash(first);
+            for h in rest {
+                bloom.insert_hash(h);
+            }
+            prop_assert!(bloom.may_contain_hash(first));
+        }
+    }
+}
+
 /// Declaration card of an autonomous Swarm Cell within the OS.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwarmCellManifest {

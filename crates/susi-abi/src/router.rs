@@ -198,3 +198,42 @@ mod tests {
         assert_eq!(router.query_topic("intent.test").len(), 0);
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use crate::swarm::PheromoneKind;
+    use proptest::prelude::*;
+
+    fn pheromone(deposited_at: u64, ttl_ms: u64) -> SwarmPheromone {
+        SwarmPheromone {
+            id: "p".to_string(),
+            topic: "t".to_string(),
+            emitter_id: "e".to_string(),
+            kind: PheromoneKind::Observation,
+            intensity: 1.0,
+            payload: serde_json::Value::Null,
+            ttl_ms,
+            deposited_at,
+        }
+    }
+
+    proptest! {
+        // Property: evaporate_expired's survival decision matches its own
+        // age-vs-ttl formula exactly — never keeps a pheromone past its ttl,
+        // never drops one still inside it.
+        #[test]
+        fn evaporation_matches_ttl_exactly(
+            deposited_at in 0u64..1_000_000,
+            ttl_ms in 1u64..600_000,
+            now_secs in 0u64..1_000_000,
+        ) {
+            let mut router = PheromoneRouter::new();
+            router.deposit_pheromone(pheromone(deposited_at, ttl_ms));
+            router.evaporate_expired(now_secs);
+            let age_ms = now_secs.saturating_sub(deposited_at).saturating_mul(1000);
+            let expected = usize::from(age_ms < ttl_ms);
+            prop_assert_eq!(router.query_topic("t").len(), expected);
+        }
+    }
+}
