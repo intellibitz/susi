@@ -1,7 +1,7 @@
 //! Composition roots: the only places that assemble concrete adapters.
 //!
 //! - CLI: [`wire_cli_substrate`]
-//! - Daemon: [`wire_engine_hooks`] then [`crate::auto_discovery::bootstrap_zero_config_substrate`]
+//! - Daemon: [`wire_engine_hooks`] then [`crate::discovery_pipeline::bootstrap_zero_config_substrate`]
 //!
 //! See `ARCHITECTURE.md` at the repo root.
 

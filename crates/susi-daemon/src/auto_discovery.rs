@@ -76,7 +76,3 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
         }
     }
 }
-
-pub fn bootstrap_zero_config_substrate(_substrate: &Path) {
-    // Delegated to Swarm OS.
-}
