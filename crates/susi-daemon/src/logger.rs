@@ -7,7 +7,11 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const FILE_PREFIX: &str = "swarm_";
+const FILE_SUFFIX: &str = ".log";
 
 /// Configuration for the rotating logger.
 #[derive(Debug, Clone)]
@@ -32,6 +36,10 @@ pub struct RollingLogger {
     config: LoggerConfig,
     current_file: Mutex<Option<fs::File>>,
     current_size: Mutex<u64>,
+    /// Distinguishes rotations that land in the same wall-clock millisecond
+    /// (e.g. a test forcing rapid rotation, or a burst of large entries) so
+    /// they never collide on the same file name.
+    rotation_seq: AtomicU64,
 }
 
 impl RollingLogger {
@@ -44,19 +52,25 @@ impl RollingLogger {
             config,
             current_file: Mutex::new(None),
             current_size: Mutex::new(0),
+            rotation_seq: AtomicU64::new(0),
         };
 
         logger.rotate()?;
         Ok(logger)
     }
 
-    /// Rotates the log file when the maximum size is reached.
+    /// Rotates the log file when the maximum size is reached, then prunes
+    /// the oldest rotated files beyond `max_files`.
     fn rotate(&self) -> std::io::Result<()> {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
-        let file_path = self.config.log_dir.join(format!("swarm_{}.log", ts));
+            .as_millis();
+        let seq = self.rotation_seq.fetch_add(1, Ordering::AcqRel);
+        let file_path = self
+            .config
+            .log_dir
+            .join(format!("{FILE_PREFIX}{ts}_{seq}{FILE_SUFFIX}"));
 
         let file = OpenOptions::new()
             .create(true)
@@ -69,8 +83,34 @@ impl RollingLogger {
         let mut size_guard = self.current_size.lock().unwrap_or_else(|e| e.into_inner());
         *size_guard = 0;
 
-        // In a full implementation, we would also clean up old files > max_files
+        self.prune_old_files();
         Ok(())
+    }
+
+    /// Deletes the oldest rotated log files beyond `config.max_files`.
+    /// Millisecond-epoch timestamps stay a fixed digit width for centuries,
+    /// so a lexicographic sort of `swarm_<ts>_<seq>.log` names is also a
+    /// time-ascending sort.
+    fn prune_old_files(&self) {
+        let Ok(entries) = fs::read_dir(&self.config.log_dir) else {
+            return;
+        };
+        let mut files: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with(FILE_PREFIX) && n.ends_with(FILE_SUFFIX))
+            })
+            .collect();
+        if files.len() <= self.config.max_files {
+            return;
+        }
+        files.sort();
+        for stale in &files[..files.len() - self.config.max_files] {
+            let _ = fs::remove_file(stale);
+        }
     }
 
     /// Writes a log entry to the sink.
@@ -120,9 +160,33 @@ mod tests {
         logger.log("cell-1", "INFO", "Second message").unwrap(); // This should trigger rotation
         logger.log("cell-1", "INFO", "Third message").unwrap();
 
-        // Verify files exist
+        // Verify files exist. Deterministic now that rotation file names
+        // include a monotonic sequence number: two rotations always
+        // produce two distinct files, even within the same millisecond.
         let entries = fs::read_dir(&config.log_dir).unwrap().count();
-        assert!(entries >= 2); // Should have at least 2 log files now
+        assert_eq!(entries, 2);
+
+        fs::remove_dir_all(&config.log_dir).unwrap();
+    }
+
+    #[test]
+    fn old_rotations_are_pruned_beyond_max_files() {
+        let config = LoggerConfig {
+            max_file_size_bytes: 10, // rotate on almost every write
+            max_files: 2,
+            log_dir: std::env::temp_dir()
+                .join(format!("susi_logs_prune_test_{}", std::process::id())),
+        };
+
+        let logger = RollingLogger::new(config.clone()).unwrap();
+        for i in 0..10 {
+            logger
+                .log("cell-1", "INFO", &format!("message {i}"))
+                .unwrap();
+        }
+
+        let entries = fs::read_dir(&config.log_dir).unwrap().count();
+        assert_eq!(entries, config.max_files);
 
         fs::remove_dir_all(&config.log_dir).unwrap();
     }
