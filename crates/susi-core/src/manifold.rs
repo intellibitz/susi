@@ -31,45 +31,56 @@ pub struct IntentManifold {
 impl IntentManifold {
     pub fn analyze(intent: &str) -> Self {
         let lower = intent.to_lowercase();
+        // CLI bare intents are often prefixed with a verb token (`run …`).
+        // Strip it so "run Read Cargo.toml … Cite the file." stays Read —
+        // otherwise the trailing "file" word forces Write and burns a swarm.
+        let focused = lower
+            .strip_prefix("run ")
+            .or_else(|| lower.strip_prefix("automate "))
+            .unwrap_or(lower.as_str());
 
-        let scope_of_impact = if lower.contains("identity")
-            || lower.contains("status")
-            || lower.contains("models")
-            || lower.contains("version")
-            || lower.contains("dashboard")
-            || lower.contains("bloat")
-            || lower == "ls"
-            || lower.starts_with("ls ")
-            || lower == "dir"
-            || lower.contains("list directory")
-            || lower.contains("list files")
-            || lower.contains("who am i")
-            || lower.contains("whoami")
+        let scope_of_impact = if is_workspace_file_read(focused)
+            || focused.contains("identity")
+            || focused.contains("status")
+            || focused.contains("models")
+            || focused.contains("version")
+            || focused.contains("dashboard")
+            || focused.contains("bloat")
+            || focused == "ls"
+            || focused.starts_with("ls ")
+            || focused == "dir"
+            || focused.contains("list directory")
+            || focused.contains("list files")
+            || focused.contains("who am i")
+            || focused.contains("whoami")
         {
             ScopeOfImpact::Read
-        } else if lower.contains("write")
-            || lower.contains("save")
-            || lower.contains("edit")
-            || lower.contains("file")
+        } else if focused.contains("write")
+            || focused.contains("save")
+            || focused.contains("edit")
+            || focused.contains("file")
         {
             ScopeOfImpact::Write
-        } else if lower.contains("admin")
-            || lower.contains("sync")
-            || lower.contains("audit")
-            || lower.contains("release")
-            || lower.contains("verify")
+        } else if focused.contains("admin")
+            || focused.contains("sync")
+            || focused.contains("audit")
+            || focused.contains("release")
+            || focused.contains("verify")
         {
             ScopeOfImpact::Mutate
         } else {
             ScopeOfImpact::SelfExtend
         };
 
-        let risk_profile = if lower.contains("rm -rf")
-            || lower.contains("drop")
-            || lower.contains("delete /")
+        let risk_profile = if focused.contains("rm -rf")
+            || focused.contains("drop")
+            || focused.contains("delete /")
         {
             RiskProfile::Critical
-        } else if lower.contains("exec") || lower.contains("command") || lower.contains("install") {
+        } else if focused.contains("exec")
+            || focused.contains("command")
+            || focused.contains("install")
+        {
             RiskProfile::High
         } else if scope_of_impact == ScopeOfImpact::Mutate {
             RiskProfile::Medium
@@ -87,5 +98,44 @@ impl IntentManifold {
             requires_swarm,
             requires_verification,
         }
+    }
+}
+
+/// `read Cargo.toml` / `cat src/lib.rs` — zero-mutation path-shaped queries.
+fn is_workspace_file_read(focused: &str) -> bool {
+    let rest = focused
+        .trim()
+        .strip_prefix("read ")
+        .or_else(|| focused.trim().strip_prefix("cat "));
+    let Some(rest) = rest else {
+        return false;
+    };
+    let token = rest.split_whitespace().next().unwrap_or("");
+    !token.is_empty() && (token.contains('.') || token.contains('/'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_read_cargo_toml_is_read_not_write() {
+        let m = IntentManifold::analyze(
+            "run Read Cargo.toml in this workspace and reply with only the package name from [package]. Cite the file.",
+        );
+        assert_eq!(m.scope_of_impact, ScopeOfImpact::Read);
+        assert!(!m.requires_swarm);
+    }
+
+    #[test]
+    fn bare_read_path_is_read() {
+        let m = IntentManifold::analyze("read src/main.rs");
+        assert_eq!(m.scope_of_impact, ScopeOfImpact::Read);
+    }
+
+    #[test]
+    fn write_file_still_write() {
+        let m = IntentManifold::analyze("write a file named notes.md");
+        assert_eq!(m.scope_of_impact, ScopeOfImpact::Write);
     }
 }

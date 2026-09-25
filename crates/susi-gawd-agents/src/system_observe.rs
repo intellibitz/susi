@@ -45,6 +45,38 @@ fn looks_like_tool_failure(out: &str) -> bool {
         || trimmed.contains("Unknown tool")
 }
 
+/// Pull a path-shaped token from `read X` / `cat X` / `run read X` goals.
+fn extract_workspace_read_path(goal: &str) -> Option<String> {
+    let trimmed = goal.trim();
+    let focused = trimmed
+        .strip_prefix("run ")
+        .or_else(|| trimmed.strip_prefix("Run "))
+        .or_else(|| trimmed.strip_prefix("RUN "))
+        .unwrap_or(trimmed)
+        .trim();
+    let rest = focused
+        .strip_prefix("read ")
+        .or_else(|| focused.strip_prefix("Read "))
+        .or_else(|| focused.strip_prefix("READ "))
+        .or_else(|| focused.strip_prefix("cat "))
+        .or_else(|| focused.strip_prefix("Cat "))?;
+    let token = rest
+        .split_whitespace()
+        .next()?
+        .trim_matches(|c: char| matches!(c, '`' | '"' | '\'' | '(' | ')' | '[' | ']' | ',' | ';'));
+    if token.is_empty() {
+        return None;
+    }
+    if !(token.contains('.') || token.contains('/')) {
+        return None;
+    }
+    // Reject traversal / absolute escapes — secure_path will also confine.
+    if token.starts_with('/') || token.starts_with('~') || token.contains("..") {
+        return None;
+    }
+    Some(token.to_string())
+}
+
 /// An in-process receipt for a bounded native read. Private fields and no
 /// deserializer prevent model text or a stored JSON object from minting one.
 pub struct VerifiedSystemRead {
@@ -102,6 +134,16 @@ pub fn capture_verified_read(
         "models" | "list models" | "show models" | "model list"
     ) {
         return Some(capture_models_read(&normalized, workspace));
+    }
+    // Workspace file reads (`run Read Cargo.toml …`) — mint a governed
+    // read_file receipt so the Fast-Path Read gate can pass without swarm.
+    if let Some(path) = extract_workspace_read_path(goal) {
+        return Some(capture_tool_read(
+            &normalized,
+            workspace,
+            "read_file",
+            serde_json::json!({ "path": path }),
+        ));
     }
     // Governed tool reads: the answer is the tool's own output verbatim,
     // which satisfies "evidence must be cited" only if the receipt binds
@@ -446,5 +488,22 @@ mod tests {
             .verify("status", "invented status", &workspace)
             .is_err());
         assert!(capture_verified_read("check the status", &workspace).is_none());
+    }
+
+    #[test]
+    fn extract_path_from_run_read_cargo() {
+        assert_eq!(
+            extract_workspace_read_path(
+                "run Read Cargo.toml in this workspace and reply with only the package name from [package]. Cite the file."
+            )
+            .as_deref(),
+            Some("Cargo.toml")
+        );
+        assert_eq!(
+            extract_workspace_read_path("read src/main.rs").as_deref(),
+            Some("src/main.rs")
+        );
+        assert!(extract_workspace_read_path("read the manual").is_none());
+        assert!(extract_workspace_read_path("read ../etc/passwd").is_none());
     }
 }

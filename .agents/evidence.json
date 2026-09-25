@@ -1330,6 +1330,16 @@
       "milestone": "run Say only: pong",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-139",
+      "milestone": "run Read Cargo.toml in this workspace and reply with only the package name from [package]. Cite the file.",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
