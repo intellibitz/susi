@@ -99,18 +99,38 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
         }
         McpCommands::Tools { addr, token } => {
             let bearer = token.or_else(|| default_bearer(&addr));
-            let result = susi_core::mcp_client::session_call(
-                &addr,
-                "tools/list",
-                &serde_json::json!({}),
-                bearer.as_deref(),
-            )
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-            // Compact table when the standard {tools:[{name,description}]}
-            // shape comes back; raw JSON otherwise.
-            if let Some(tools) = result.get("tools").and_then(|t| t.as_array()) {
+            let mut params = serde_json::json!({});
+            let mut tools = Vec::new();
+            // GMCP pages tools/list at 100. Follow nextCursor so names past
+            // the first page (for example time:get_current_time) are visible.
+            for _ in 0..32 {
+                let result = susi_core::mcp_client::session_call(
+                    &addr,
+                    "tools/list",
+                    &params,
+                    bearer.as_deref(),
+                )
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+                let Some(page) = result.get("tools").and_then(|t| t.as_array()) else {
+                    if tools.is_empty() {
+                        println!("{}", serde_json::to_string_pretty(&result)?);
+                    }
+                    break;
+                };
+                tools.extend(page.iter().cloned());
+                let cursor = result
+                    .get("nextCursor")
+                    .or_else(|| result.get("next_cursor"))
+                    .and_then(|v| v.as_str())
+                    .filter(|cursor| !cursor.is_empty());
+                match cursor {
+                    Some(cursor) => params = serde_json::json!({ "cursor": cursor }),
+                    None => break,
+                }
+            }
+            if !tools.is_empty() {
                 println!("{:<28} DESCRIPTION", "TOOL");
-                for t in tools {
+                for t in &tools {
                     let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                     let desc = t
                         .get("description")
@@ -121,8 +141,6 @@ pub fn execute(action: Option<McpCommands>, workspace: &Path) -> Result<bool> {
                         .collect::<String>();
                     println!("{name:<28} {desc}");
                 }
-            } else {
-                println!("{}", serde_json::to_string_pretty(&result)?);
             }
             Ok(false)
         }

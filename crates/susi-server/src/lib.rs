@@ -737,13 +737,8 @@ async fn handle_gemi_request(
                     path == "/v1/completions",
                     if capped { "length" } else { "stop" },
                 );
-                let prompt_tokens = approx_tokens(&trimmed_prompt);
-                let completion_tokens = approx_tokens(&body_text);
-                payload["usage"] = json!({
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens
-                });
+                payload["usage"] =
+                    estimated_usage(approx_tokens(&trimmed_prompt), approx_tokens(&body_text));
                 Ok(json_response(StatusCode::OK, &payload))
             }
         }
@@ -1524,11 +1519,7 @@ fn completion_stream(
                 json!({"id": id, "created": created, "model": label(),
                 "object": if legacy { "text_completion" } else { "chat.completion.chunk" },
                 "choices": [],
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": prompt_tokens + completion_tokens
-                }})
+                "usage": estimated_usage(prompt_tokens, completion_tokens)})
             ));
         }
         let _ = tx.blocking_send("data: [DONE]\n\n".to_owned());
@@ -1707,6 +1698,18 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
 /// uses the same words/chars≈4 estimate `cap_completion` enforces with.
 fn approx_tokens(text: &str) -> u64 {
     (text.split_whitespace().count() as u64).max(text.len() as u64 / 4)
+}
+
+/// OpenAI-shaped `usage` from [`approx_tokens`] counts, flagged
+/// `estimated` so clients that bill or budget on it (and SUSI's own cost
+/// and budget ledgers) never mistake the estimate for tokenizer counts.
+fn estimated_usage(prompt_tokens: u64, completion_tokens: u64) -> serde_json::Value {
+    json!({
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+        "estimated": true
+    })
 }
 
 #[cfg(test)]
@@ -2028,6 +2031,7 @@ mod tests {
         // 17 chars/4 = 4, 3 words -> max(4, 3) = 4
         assert_eq!(u["completion_tokens"], 4);
         assert_eq!(u["total_tokens"], 8);
+        assert_eq!(u["estimated"], true);
     }
 
     #[tokio::test]

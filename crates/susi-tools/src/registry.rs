@@ -81,7 +81,7 @@ impl ToolRegistry {
             })
             .collect();
 
-        tools.extend(GmcpClient::list_external_tools());
+        tools.extend(GmcpClient::list_managed_tools());
 
         // Pillar 8: surface live-discovered MCP tools from CapabilityRegistry
         let caps = crate::susi_core::registry::CapabilityRegistry::global();

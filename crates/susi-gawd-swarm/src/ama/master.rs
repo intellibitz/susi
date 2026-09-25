@@ -522,6 +522,7 @@ impl SusiMasterAgent {
                     "FAILED"
                 }
                 .to_string(),
+                // Fast path: no agent fleet ran, so the report lists none.
                 agents: Vec::new(),
                 interactions: Vec::new(),
                 final_answer,

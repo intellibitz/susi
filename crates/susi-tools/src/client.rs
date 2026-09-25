@@ -20,19 +20,43 @@ impl GmcpClient {
         susi_dir.join("mcp_config.json")
     }
 
-    /// List all externally configured tools via dynamic mcp_config.json
+    /// List all externally configured tools via dynamic mcp_config.json.
+    /// Names are wildcards (`server:*`) — callers that dispatch tools use
+    /// [`Self::list_managed_tools`], which substitutes live `server:tool` names.
     pub fn list_external_tools() -> Vec<McpTool> {
+        wildcard_tools()
+    }
+
+    /// Tools the swarm can call. Live `server:tool` names replace `server:*`
+    /// for every server that answers `tools/list`. Unreachable servers stay
+    /// as a wildcard so they remain visible. The probe is cached against
+    /// `mcp_config.json`'s mtime so a tools/list does not respawn every server.
+    pub fn list_managed_tools() -> Vec<McpTool> {
+        if cfg!(test) {
+            return Self::list_external_tools();
+        }
+        if let Some(cached) = read_live_cache() {
+            return cached;
+        }
+        let live = Self::discover_live_tools();
+        let mut seen = std::collections::BTreeSet::new();
         let mut tools = Vec::new();
-        let config_path = Self::get_config_path();
-        if let Ok(content) = fs::read_to_string(&config_path) {
-            if let Ok(config) = serde_json::from_str::<McpConfig>(&content) {
-                for (name, _srv) in config.mcp_servers {
-                    tools.push(McpTool {
-                        name: format!("{}:*", name),
-                        description: format!("Dynamic Proxy for standard MCP server: {}", name),
-                    });
-                }
+        for (server, tool) in &live {
+            seen.insert(server.as_str());
+            tools.push(tool.clone());
+        }
+        for wild in wildcard_tools() {
+            let server = wild
+                .name
+                .split_once(':')
+                .map(|(name, _)| name)
+                .unwrap_or("");
+            if !seen.contains(server) {
+                tools.push(wild);
             }
+        }
+        if !live.is_empty() {
+            let _ = write_live_cache(&tools);
         }
         tools
     }
@@ -50,28 +74,49 @@ impl GmcpClient {
             Err(_) => return Vec::new(),
         };
 
+        let servers: Vec<(String, McpServerConfig)> = config.mcp_servers.into_iter().collect();
+        let (tx, rx) = std::sync::mpsc::channel();
+        for (server_name, srv) in servers {
+            let tx = tx.clone();
+            // Detached on purpose: tools/list must return inside the MCP HTTP
+            // read budget. Slow servers stay as wildcards; a later `server:*`
+            // call probes that one server.
+            let _probe = std::thread::Builder::new()
+                .name("mcp-probe".into())
+                .spawn(move || {
+                    let result = crate::connection::list_tools_blocking(srv);
+                    let _ = tx.send((server_name, result));
+                });
+        }
+        drop(tx);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
         let mut discovered = Vec::new();
-        for (server_name, srv) in config.mcp_servers {
-            match crate::connection::list_tools_blocking(srv) {
-                Ok(tools) => {
+        loop {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match rx.recv_timeout(remaining) {
+                Ok((server_name, Ok(tools))) => {
                     for (tool_name, description) in tools {
                         discovered.push((
                             server_name.clone(),
                             McpTool {
-                                name: format!("{}:{}", server_name, tool_name),
+                                name: format!("{server_name}:{tool_name}"),
                                 description,
                             },
                         ));
                     }
                 }
-                Err(e) => {
+                Ok((server_name, Err(e))) => {
                     if std::env::var("SUSI_VERBOSE").is_ok() {
                         eprintln!(
-                            "[AUTODISCOVER] MCP server '{}' tool probe skipped: {}",
-                            server_name, e
+                            "[AUTODISCOVER] MCP server '{server_name}' tool probe skipped: {e}"
                         );
                     }
                 }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+                | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
         discovered
@@ -290,6 +335,24 @@ impl GmcpClient {
             .mcp_servers
             .get(server_name)
             .ok_or_else(|| crate::susi_error::EaiError::protocol("MCP server not configured"))?;
+        if tool_name == "*" {
+            return match crate::connection::list_tools_blocking(srv.clone()) {
+                Ok(tools) if !tools.is_empty() => {
+                    let names = tools
+                        .iter()
+                        .map(|(name, _)| format!("{server_name}:{name}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Ok(format!(
+                        "wildcard is not a callable tool; use one of: {names}"
+                    ))
+                }
+                Ok(_) => Err(crate::susi_error::EaiError::protocol(format!(
+                    "MCP server '{server_name}' advertised no tools"
+                ))),
+                Err(e) => Err(crate::susi_error::EaiError::protocol(e)),
+            };
+        }
         let arguments = if tool_name == "reason" {
             json!({"intent": args, "workspace_context": Self::gather_workspace_context()})
         } else {
@@ -392,6 +455,81 @@ impl GmcpClient {
 
         (trust, latency)
     }
+}
+
+const LIVE_CACHE_TTL_SECS: u64 = 600;
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct LiveToolCache {
+    config_mtime_secs: u64,
+    probed_at_secs: u64,
+    tools: Vec<McpTool>,
+}
+
+fn unix_secs(time: std::time::SystemTime) -> u64 {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn now_secs() -> u64 {
+    unix_secs(std::time::SystemTime::now())
+}
+
+fn config_mtime_secs() -> Option<u64> {
+    fs::metadata(GmcpClient::get_config_path())
+        .and_then(|meta| meta.modified())
+        .ok()
+        .map(unix_secs)
+}
+
+fn live_cache_path() -> PathBuf {
+    crate::susi_paths::SusiDirs::cache_dir().join("mcp_live_tools.json")
+}
+
+fn read_live_cache() -> Option<Vec<McpTool>> {
+    let mtime = config_mtime_secs()?;
+    let content = fs::read_to_string(live_cache_path()).ok()?;
+    let cache: LiveToolCache = serde_json::from_str(&content).ok()?;
+    let fresh = cache.config_mtime_secs == mtime
+        && now_secs().saturating_sub(cache.probed_at_secs) < LIVE_CACHE_TTL_SECS
+        && !cache.tools.is_empty();
+    fresh.then_some(cache.tools)
+}
+
+fn write_live_cache(tools: &[McpTool]) -> std::io::Result<()> {
+    let Some(mtime) = config_mtime_secs() else {
+        return Ok(());
+    };
+    let path = live_cache_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let cache = LiveToolCache {
+        config_mtime_secs: mtime,
+        probed_at_secs: now_secs(),
+        tools: tools.to_vec(),
+    };
+    let body = serde_json::to_string(&cache).map_err(std::io::Error::other)?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, body)?;
+    fs::rename(tmp, path)
+}
+
+fn wildcard_tools() -> Vec<McpTool> {
+    let mut tools = Vec::new();
+    let config_path = GmcpClient::get_config_path();
+    if let Ok(content) = fs::read_to_string(&config_path) {
+        if let Ok(config) = serde_json::from_str::<McpConfig>(&content) {
+            for (name, _srv) in config.mcp_servers {
+                tools.push(McpTool {
+                    name: format!("{name}:*"),
+                    description: format!("Dynamic Proxy for standard MCP server: {name}"),
+                });
+            }
+        }
+    }
+    tools
 }
 
 #[cfg(test)]

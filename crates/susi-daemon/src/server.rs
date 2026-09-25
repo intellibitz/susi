@@ -33,7 +33,8 @@ use tracing::{info, warn};
 
 use crate::susi_error::EaiError;
 use crate::susi_sandbox::manager::SusiConfig;
-// use susi_server::GemiServer;
+use susi_gmcp::server::GmcpServer;
+use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
@@ -698,7 +699,7 @@ impl SusiDaemon {
         // plain HTTP (internal loopback callers) keeps working on the same
         // port. `https_only` drops non-TLS bytes from remote peers.
         let tls_acceptor = crate::tls::endpoint_acceptor(&bind_address, &global_dir);
-        let _require_tls_remote = crate::tls::https_only();
+        let require_tls_remote = crate::tls::https_only();
 
         // Initialize Global Stigmergic Blackboard (Swarm OS Points 5, 21, 25, 31)
         let blackboard = crate::blackboard::SwarmBlackboard::new();
@@ -777,17 +778,17 @@ impl SusiDaemon {
             cfg.a2a_http_port(),
             cfg.udp_discovery_port(),
         );
-        let _gemi_server =
+        let gemi_server =
             Self::bind_tcp_canonical(gemi_port, "GEMI HTTP", &global_dir, &bind_address);
-        let _gmcp_primary =
+        let gmcp_primary =
             Self::bind_tcp_canonical(gmcp_port, "GMCP/MCP HTTP", &global_dir, &bind_address);
-        let _gmcp_alias = Self::bind_tcp_canonical(
+        let gmcp_alias = Self::bind_tcp_canonical(
             gmcp_http_port,
             "GMCP HTTP alias",
             &global_dir,
             &bind_address,
         );
-        let _a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
+        let a2a_http = Self::bind_tcp_canonical(a2a_port, "A2A HTTP", &global_dir, &bind_address);
         let udp_socket =
             Self::bind_udp_canonical(udp_port, "A2A UDP discovery", &global_dir, &bind_address);
 
@@ -821,46 +822,49 @@ impl SusiDaemon {
             a2a_port
         );
 
-        let _tls_gemi = tls_acceptor.clone();
-        let _workspace_gemi = workspace.clone();
+        let tls_gemi = tls_acceptor.clone();
+        let workspace_gemi = workspace.clone();
+        let require_tls_gemi = require_tls_remote;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // GemiServer::start_http_server(
-                //     workspace_gemi,
-                //     gemi_server,
-                //     tls_gemi,
-                //     require_tls_remote,
-                // );
+                GemiServer::start_http_server(
+                    workspace_gemi,
+                    gemi_server,
+                    tls_gemi,
+                    require_tls_gemi,
+                );
             })) {
                 eprintln!("[GEMI] Thread panicked: {:?}", e);
             }
         });
 
-        let _tls_gmcp = tls_acceptor.clone();
-        let _workspace_gmcp = workspace.clone();
+        let tls_gmcp = tls_acceptor.clone();
+        let workspace_gmcp = workspace.clone();
+        let require_tls_gmcp = require_tls_remote;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // GmcpServer::start_http_server(
-                //     workspace_gmcp,
-                //     gmcp_primary,
-                //     tls_gmcp,
-                //     require_tls_remote,
-                // );
+                GmcpServer::start_http_server(
+                    workspace_gmcp,
+                    gmcp_primary,
+                    tls_gmcp,
+                    require_tls_gmcp,
+                );
             })) {
                 eprintln!("[GMCP] Thread panicked: {:?}", e);
             }
         });
 
-        let _tls_gmcp_alias = tls_acceptor.clone();
-        let _workspace_gmcp_alias = workspace.clone();
+        let tls_gmcp_alias = tls_acceptor.clone();
+        let workspace_gmcp_alias = workspace.clone();
+        let require_tls_gmcp_alias = require_tls_remote;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // GmcpServer::start_http_server(
-                //     workspace_gmcp_alias,
-                //     gmcp_alias,
-                //     tls_gmcp_alias,
-                //     require_tls_remote,
-                // );
+                GmcpServer::start_http_server(
+                    workspace_gmcp_alias,
+                    gmcp_alias,
+                    tls_gmcp_alias,
+                    require_tls_gmcp_alias,
+                );
             })) {
                 eprintln!("[GMCP alias] Thread panicked: {:?}", e);
             }
@@ -881,21 +885,33 @@ impl SusiDaemon {
         // covers unbound/standalone callers, and everything else fails
         // closed. The verifier closure receives the buffered body so v2
         // (body-bound) signatures verify, not just v1.
-        // let a2a_verifier: susi_gawd::a2a::server::Verifier =
-        //     std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
-        //         true
-        //     });
-        let _tls_a2a = tls_acceptor;
+        let a2a_verifier: susi_gawd::a2a::server::Verifier =
+            std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
+                let header = |name: &str| ctx.headers.get(name).and_then(|v| v.to_str().ok());
+                let signed = susi_gawd::net_guard::SignedRequest {
+                    node: header("x-susi-node"),
+                    ts_secs: header("x-susi-req-ts").and_then(|s| s.parse().ok()),
+                    nonce: header("x-susi-req-nonce"),
+                    sig: header("x-susi-req-sig"),
+                };
+                susi_gawd::net_guard::NetGuard::is_authorized(
+                    header("authorization"),
+                    ctx.peer,
+                    &signed,
+                    ctx.method,
+                    ctx.path,
+                    Some(ctx.body),
+                )
+            });
+        let tls_a2a = tls_acceptor;
+        let require_tls_a2a = require_tls_remote;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // if let Err(e) = susi_gawd::a2a::server::serve(
-                //     a2a_http,
-                //     a2a_verifier,
-                //     tls_a2a,
-                //     require_tls_remote,
-                // ) {
-                //     eprintln!("[A2A] Server exited: {e}");
-                // }
+                if let Err(e) =
+                    susi_gawd::a2a::server::serve(a2a_http, a2a_verifier, tls_a2a, require_tls_a2a)
+                {
+                    eprintln!("[A2A] Server exited: {e}");
+                }
             })) {
                 eprintln!("[A2A] Thread panicked: {:?}", e);
             }
@@ -909,7 +925,7 @@ impl SusiDaemon {
         // and ledger anti-entropy would stay dormant between missions.
         thread::spawn(|| {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                // let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
+                let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
             })) {
                 eprintln!("[SWARM] Scout thread failed to start: {:?}", e);
             }

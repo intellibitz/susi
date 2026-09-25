@@ -115,22 +115,13 @@ impl LeadingMcpManager {
     }
 
     /// Local readiness — does not start the MCP server or call remote APIs.
+    /// An already-enabled server is judged by the command saved in
+    /// `mcp_config.json` (for example `npx`), not the catalog runner
+    /// (`docker`) that was never what the user enabled.
     pub fn preflight(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
-        resolve_runner(&def.runner)
-            .with_context(|| format!("missing launcher executable: {}", def.runner))?;
-        for key in &def.env_keys {
-            if !env_satisfied(key) {
-                bail!("set {key} for {}", def.id);
-            }
-        }
-        // Expand args to catch missing {env:...} placeholders early.
-        let _ = expand_args(&def.args, &self.workspace)?;
-        let enabled = self.is_enabled(&def.id)?;
-        Ok(format!(
-            "launcher {} ready; credentials present; enabled={}",
-            def.runner, enabled
-        ))
+        let enabled = self.enabled_config(&def.id)?;
+        preflight_definition(&def, enabled.as_ref(), &self.workspace)
     }
 
     pub fn is_enabled(&self, id: &str) -> Result<bool> {
@@ -322,6 +313,43 @@ fn expand_args(args: &[String], workspace: &Path) -> Result<Vec<String>> {
         out.push(arg.clone());
     }
     Ok(out)
+}
+
+fn preflight_definition(
+    def: &LeadingMcpDefinition,
+    enabled: Option<&McpServerConfig>,
+    workspace: &Path,
+) -> Result<String> {
+    if let Some(cfg) = enabled.filter(|cfg| !cfg.command.trim().is_empty()) {
+        resolve_runner(&cfg.command)
+            .with_context(|| format!("missing launcher executable: {}", cfg.command))?;
+        for key in &def.env_keys {
+            let in_cfg = cfg
+                .env
+                .as_ref()
+                .is_some_and(|env| env.get(key).is_some_and(|value| !value.trim().is_empty()));
+            if !in_cfg && !env_satisfied(key) {
+                bail!("set {key} for {}", def.id);
+            }
+        }
+        return Ok(format!(
+            "launcher {} ready (enabled config); credentials present; enabled=true",
+            cfg.command
+        ));
+    }
+    resolve_runner(&def.runner)
+        .with_context(|| format!("missing launcher executable: {}", def.runner))?;
+    for key in &def.env_keys {
+        if !env_satisfied(key) {
+            bail!("set {key} for {}", def.id);
+        }
+    }
+    let _ = expand_args(&def.args, workspace)?;
+    let enabled_flag = enabled.is_some();
+    Ok(format!(
+        "launcher {} ready; credentials present; enabled={enabled_flag}",
+        def.runner
+    ))
 }
 
 fn resolve_runner(runner: &str) -> Option<PathBuf> {
@@ -526,6 +554,58 @@ mod tests {
             .unwrap();
         assert_eq!(updated.id, "filesystem");
         assert_eq!(manager.reset("filesystem").unwrap().id, "filesystem");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn enabled_config_launcher_overrides_catalog_runner() {
+        let root = std::env::temp_dir().join(format!(
+            "susi-mcp-preflight-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let bin = root.join("npx");
+        fs::write(&bin, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&bin, perms).unwrap();
+        }
+        let def = LeadingMcpDefinition {
+            id: "github".into(),
+            name: "GitHub MCP".into(),
+            rank: 2,
+            documentation: String::new(),
+            package: "ghcr.io/github/github-mcp-server".into(),
+            runner: "docker".into(),
+            args: vec!["run".into()],
+            env_keys: vec!["SUSI_TEST_MCP_ONLY".into()],
+            category: "vcs".into(),
+            notes: String::new(),
+        };
+        let cfg = McpServerConfig {
+            command: bin.display().to_string(),
+            args: vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
+            env: Some(HashMap::from([(
+                "SUSI_TEST_MCP_ONLY".into(),
+                "present".into(),
+            )])),
+            extra: HashMap::new(),
+        };
+        let msg = preflight_definition(&def, Some(&cfg), &root).unwrap();
+        assert!(msg.contains("enabled config"), "{msg}");
+        let err = preflight_definition(&def, None, &root)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("docker") || err.contains("SUSI_TEST_MCP_ONLY"),
+            "{err}"
+        );
         let _ = fs::remove_dir_all(root);
     }
 }

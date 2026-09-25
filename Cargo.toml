@@ -85,6 +85,7 @@ susi-gawd-a2a = { path = "crates/susi-gawd-a2a" }
 susi-gawd = { path = "crates/susi-gawd" }
 susi-agents = { path = "crates/susi-agents" }
 susi-tools = { path = "crates/susi-tools" }
+susi-server = { path = "crates/susi-server" }
 susi-paths = { path = "crates/susi-paths" }
 susi-error = { path = "crates/susi-error" }
 susi-config = { path = "crates/susi-config" }

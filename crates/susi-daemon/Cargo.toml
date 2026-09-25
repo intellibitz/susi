@@ -10,6 +10,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 susi-core = { workspace = true }
 susi-abi = { workspace = true }
+susi-gemi = { workspace = true }
+susi-gawd = { workspace = true }
+susi-gmcp = { workspace = true }
+susi-server = { workspace = true }
+susi-tools = { workspace = true }
+susi-agents = { workspace = true }
 dashmap = { workspace = true }
 ureq = { version = "3.4.2", features = ["json"] }
 wasmtime = { version = "19.0", features = ["cranelift"] }
@@ -33,7 +39,7 @@ rcgen = "0.14.10"
 [features]
 default = ["tools-rich"]
 tools-rich = []
-cuda = []
+cuda = ["susi-gemi/cuda", "susi-server/cuda", "susi-gawd/cuda"]
 
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.

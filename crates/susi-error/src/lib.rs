@@ -75,15 +75,27 @@ pub fn oversized_rotated_metrics() -> Option<(PathBuf, u64)> {
 /// `audit.YYYY-MM-DD.log` files. The flat file is still the Builder's
 /// *fallback* sink, so it is only reclaimable when a dated file is newer
 /// — proving the rotating sink is the live one and the flat file is dead.
+///
+/// The same path is also the HMAC-signed accountability chain of any
+/// workspace rooted at `$HOME` (`<workspace>/.susi/audit.log`), so it is
+/// never reported while it is, or ever was, a signed chain: a sibling
+/// `audit.chain.tip` or any `entry_hash` line means deleting it would
+/// destroy tamper-evident history, not reclaim tracing residue.
 pub fn stale_flat_audit_log() -> Option<(PathBuf, u64)> {
-    let home = data_dir();
+    stale_flat_audit_log_in(&data_dir())
+}
+
+fn stale_flat_audit_log_in(home: &std::path::Path) -> Option<(PathBuf, u64)> {
     let flat = home.join("audit.log");
     let flat_meta = std::fs::metadata(&flat).ok()?;
     if !flat_meta.is_file() {
         return None;
     }
+    if is_signed_audit_chain(&flat) {
+        return None;
+    }
     let flat_mtime = flat_meta.modified().ok()?;
-    let dated_is_newer = std::fs::read_dir(&home).ok()?.flatten().any(|e| {
+    let dated_is_newer = std::fs::read_dir(home).ok()?.flatten().any(|e| {
         let name = e.file_name();
         let name = name.to_string_lossy();
         name.starts_with("audit.")
@@ -95,6 +107,23 @@ pub fn stale_flat_audit_log() -> Option<(PathBuf, u64)> {
                 .unwrap_or(false)
     });
     dated_is_newer.then_some((flat, flat_meta.len()))
+}
+
+/// True when `path` is (or was) an HMAC-signed audit chain rather than
+/// plain tracing output: its chain tip sibling exists, or any line carries
+/// an `entry_hash`. Unreadable files count as signed — refusing to reclaim
+/// is the safe failure.
+fn is_signed_audit_chain(path: &std::path::Path) -> bool {
+    use std::io::BufRead;
+    if path.with_extension("chain.tip").exists() {
+        return true;
+    }
+    let Ok(file) = std::fs::File::open(path) else {
+        return true;
+    };
+    std::io::BufReader::new(file)
+        .lines()
+        .any(|line| line.map_or(true, |l| l.contains("\"entry_hash\"")))
 }
 
 fn open_metrics_append() -> Option<std::fs::File> {
@@ -424,5 +453,45 @@ mod tests {
         let gov = EaiError::governance("veto");
         assert_eq!(gov.code(), "susi.governance");
         assert!(!gov.retryable());
+    }
+
+    fn audit_home(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("susi_flat_audit_{name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_newer_dated_log(home: &std::path::Path) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(home.join("audit.2026-09-25.log"), "{\"timestamp\":\"t\"}\n").unwrap();
+    }
+
+    #[test]
+    fn tracing_residue_is_reclaimable() {
+        let home = audit_home("tracing");
+        std::fs::write(home.join("audit.log"), "{\"timestamp\":\"t\",\"level\":\"INFO\"}\n").unwrap();
+        write_newer_dated_log(&home);
+        assert!(stale_flat_audit_log_in(&home).is_some());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn signed_chain_is_never_reclaimable() {
+        let home = audit_home("signed");
+        std::fs::write(home.join("audit.log"), "{\"ts\":1,\"entry_hash\":\"ab\",\"hmac\":\"cd\"}\n").unwrap();
+        write_newer_dated_log(&home);
+        assert!(stale_flat_audit_log_in(&home).is_none());
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn chain_tip_alone_blocks_reclaim() {
+        let home = audit_home("tip");
+        std::fs::write(home.join("audit.log"), "{\"timestamp\":\"t\"}\n").unwrap();
+        std::fs::write(home.join("audit.chain.tip"), "ab").unwrap();
+        write_newer_dated_log(&home);
+        assert!(stale_flat_audit_log_in(&home).is_none());
+        let _ = std::fs::remove_dir_all(&home);
     }
 }
