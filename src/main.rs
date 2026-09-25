@@ -164,8 +164,11 @@ fn main() -> std::process::ExitCode {
         .unwrap_or_else(|_| tracing_appender::rolling::never(&global_dir, "audit.log"));
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
+    // tantivy logs every segment merge/commit at INFO — observed ~97% of a
+    // 74MB daily audit file was index churn. Governance events need susi at
+    // debug; third-party index internals only matter at warn.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi=debug"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info,susi=debug,tantivy=warn"));
 
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;

@@ -414,6 +414,15 @@ fn stray_bin_warnings() -> Vec<String> {
             human_bytes(len)
         ));
     }
+    // Same residue class: the flat audit.log is dead once dated rotation
+    // files exist and are newer (the fallback sink would be newer instead).
+    if let Some((path, len)) = susi_error::stale_flat_audit_log() {
+        warnings.push(format!(
+            "stale pre-rotation audit log {} ({}) — `susi os clean` removes it",
+            path.display(),
+            human_bytes(len)
+        ));
+    }
     warnings
 }
 
@@ -429,6 +438,16 @@ fn clean() -> Result<()> {
     // Same predicate as the warning: oversized rotated metrics residue —
     // independent of the bin sweep so a missing bin dir cannot skip it.
     if let Some((path, len)) = susi_error::oversized_rotated_metrics() {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                println!("removed {} ({})", path.display(), human_bytes(len));
+                reclaimed += len;
+                removed += 1;
+            }
+            Err(e) => eprintln!("could not remove {}: {e}", path.display()),
+        }
+    }
+    if let Some((path, len)) = susi_error::stale_flat_audit_log() {
         match std::fs::remove_file(&path) {
             Ok(()) => {
                 println!("removed {} ({})", path.display(), human_bytes(len));

@@ -70,6 +70,33 @@ pub fn oversized_rotated_metrics() -> Option<(PathBuf, u64)> {
     (len > METRICS_CAP_BYTES).then_some((rotated, len))
 }
 
+/// Pre-rotation audit sink residue: tracing used to append to a single
+/// `audit.log` (`rolling::never`); the daily-rotation builder now writes
+/// `audit.YYYY-MM-DD.log` files. The flat file is still the Builder's
+/// *fallback* sink, so it is only reclaimable when a dated file is newer
+/// — proving the rotating sink is the live one and the flat file is dead.
+pub fn stale_flat_audit_log() -> Option<(PathBuf, u64)> {
+    let home = data_dir();
+    let flat = home.join("audit.log");
+    let flat_meta = std::fs::metadata(&flat).ok()?;
+    if !flat_meta.is_file() {
+        return None;
+    }
+    let flat_mtime = flat_meta.modified().ok()?;
+    let dated_is_newer = std::fs::read_dir(&home).ok()?.flatten().any(|e| {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        name.starts_with("audit.")
+            && name.ends_with(".log")
+            && name.len() > "audit..log".len()
+            && e.metadata()
+                .and_then(|m| m.modified())
+                .map(|t| t > flat_mtime)
+                .unwrap_or(false)
+    });
+    dated_is_newer.then_some((flat, flat_meta.len()))
+}
+
 fn open_metrics_append() -> Option<std::fs::File> {
     let path = error_metrics_path();
     if std::fs::metadata(&path)
