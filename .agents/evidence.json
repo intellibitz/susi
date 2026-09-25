@@ -1340,11 +1340,21 @@
       "milestone": "run Read Cargo.toml in this workspace and reply with only the package name from [package]. Cite the file.",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-140",
+      "milestone": "Restored host wiring disabled by the micro-daemon refactor (6687882) and unblocked CI: SusiEngineHooks + gmcp tool bootstrap (intellibitz/susi#5), zero-config discovery / cloud.env / model provisioner (#7), SubstratePulseQueue worker (#8), peer ban check + Explicit admission + roster/bloom gossip in the signed-ping handler (#9, VC-200-001), semantic indexing + admin-cycle maintenance (#10), capability_gap_e2e restored and passing end to end (#11, VC-200-002); fmt, susi-gmcp arch test, wasmtime 24.0.7 -> 49.0.1 (RUSTSEC-2026-0094/0095/0096/0222/0269) and rustls-pemfile removal (RUSTSEC-2025-0134) (#3).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-24",
+  "last_verification": "2026-09-25",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
   "version": "0.14.0"
