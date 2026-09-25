@@ -17,7 +17,7 @@ fn wire_test_substrate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         susi_daemon::composition::wire_plane_bus();
-        // susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+        susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
         let _ = susi_tools::ToolRegistry::global();
     });
 }
