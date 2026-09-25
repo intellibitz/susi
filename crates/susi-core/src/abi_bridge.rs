@@ -11,6 +11,46 @@ use crate::capture::ToolReceipt;
 use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
 use std::path::Path;
 use susi_abi::evidence::{GroundedClaim, ReceiptStatus};
+use susi_abi::syscall::SyscallOp;
+
+/// Maps ABI syscall opcodes to susi-core's `plane_bus` topic-string dispatch,
+/// where a genuine 1:1 correspondence exists today.
+pub trait SyscallTopic {
+    /// The `plane_bus` topic this syscall currently routes to, or `None`
+    /// where no exact match exists. Only `Infer`/`ToolCall` map: every other
+    /// opcode was checked against its most plausible-looking topic's actual
+    /// handler and turned out either to bypass `plane_bus` entirely
+    /// (`ContextAlloc`, `BlackboardPost`/`BlackboardRead` touch
+    /// `HighDensityContextStore` directly; `ConsensusVote` is direct calls
+    /// in `susi-gawd-swarm`'s `amas.rs`; `Heartbeat` is the daemon's UDP
+    /// ping/pong, not a bus topic; `AuditSeal`'s real counterpart,
+    /// `susi_sandbox::audit_chain::append_signed_entry`, is called directly
+    /// from sandbox runtime code, never through the bus) or to only
+    /// superficially resemble a topic (`ReflexMount` vs `GAWD_TRAIN_REFLEX`:
+    /// that topic force-trains from patterns, not the hot-mount
+    /// synthesize-then-retry flow behind `GAWD_CAPABILITY_GAP`, and even
+    /// that only writes a `.wasm` file rather than mounting it; `TelemetryGet`
+    /// is ambiguous between `GEMI_HARDWARE_PROFILE` and
+    /// `GEMI_TELEMETRY_SAMPLE`, which report different things).
+    fn plane_bus_topic(&self) -> Option<&'static str>;
+}
+
+impl SyscallTopic for SyscallOp {
+    fn plane_bus_topic(&self) -> Option<&'static str> {
+        match self {
+            SyscallOp::Infer => Some(crate::plane_bus::topics::GEMI_INFER_GENERATE),
+            SyscallOp::ToolCall => Some(crate::plane_bus::topics::TOOLS_EXECUTE),
+            SyscallOp::ContextAlloc
+            | SyscallOp::BlackboardPost
+            | SyscallOp::BlackboardRead
+            | SyscallOp::ConsensusVote
+            | SyscallOp::ReflexMount
+            | SyscallOp::AuditSeal
+            | SyscallOp::Heartbeat
+            | SyscallOp::TelemetryGet => None,
+        }
+    }
+}
 
 impl ToolReceipt {
     /// This receipt's outcome in the universal ABI vocabulary. `successful`
@@ -160,5 +200,29 @@ mod tests {
         assert!(claim.verified);
         assert_eq!(claim.receipt_citations, vec![receipt.id.clone()]);
         assert_eq!(claim.confidence, 1.0);
+    }
+
+    #[test]
+    fn syscall_topic_maps_only_the_two_verified_opcodes() {
+        assert_eq!(
+            SyscallOp::Infer.plane_bus_topic(),
+            Some(crate::plane_bus::topics::GEMI_INFER_GENERATE)
+        );
+        assert_eq!(
+            SyscallOp::ToolCall.plane_bus_topic(),
+            Some(crate::plane_bus::topics::TOOLS_EXECUTE)
+        );
+        for unmapped in [
+            SyscallOp::ContextAlloc,
+            SyscallOp::BlackboardPost,
+            SyscallOp::BlackboardRead,
+            SyscallOp::ConsensusVote,
+            SyscallOp::ReflexMount,
+            SyscallOp::AuditSeal,
+            SyscallOp::Heartbeat,
+            SyscallOp::TelemetryGet,
+        ] {
+            assert_eq!(unmapped.plane_bus_topic(), None, "{unmapped:?}");
+        }
     }
 }
