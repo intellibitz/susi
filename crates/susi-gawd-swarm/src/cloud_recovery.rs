@@ -506,16 +506,27 @@ async fn recover_with_providers(
     };
     let workspace_owned = workspace.to_path_buf();
     // A provider-name hint was already served by the cloud loop above; only
-    // a non-provider hint is a local model name to load here.
-    let local_model = if hint_is_provider { None } else { model_hint };
-    let local_model_name = local_model.unwrap_or("local").to_string();
+    // a non-provider hint is a local model name to load here. With no hint
+    // the auto-select variant picks the default local model — passing a
+    // "local" sentinel resolves as a literal model id and fails.
+    let local_model = if hint_is_provider {
+        None
+    } else {
+        model_hint.map(str::to_owned)
+    };
     let local = tokio::time::timeout(timeout, async {
-        let raw = tokio::task::spawn_blocking(move || {
-            crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+        let raw = tokio::task::spawn_blocking(move || match local_model.as_deref() {
+            Some(model) => {
+                crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+                    &prompt,
+                    &workspace_owned,
+                    model,
+                )
+            }
+            None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
                 &prompt,
                 &workspace_owned,
-                &local_model_name,
-            )
+            ),
         })
         .await
         .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;

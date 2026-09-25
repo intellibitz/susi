@@ -410,7 +410,7 @@ impl GemiEngine {
         let mut names: Vec<String> = registry
             .list_providers()
             .into_iter()
-            .filter(|n| n != "Candle (Local)")
+            .filter(|n| n != "Candle (Local)" && !crate::http_provider::is_non_chat_model_id(n))
             .collect();
         if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
             names.retain(|n| !crate::routing::InferenceRouter::is_cloud_provider_name(n));

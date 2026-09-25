@@ -651,7 +651,10 @@ pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityR
     );
 
     for entry in entries {
-        if entry.id.trim().is_empty() || entry.engine.trim().is_empty() {
+        if entry.id.trim().is_empty()
+            || entry.engine.trim().is_empty()
+            || is_non_chat_model_id(&entry.id)
+        {
             continue;
         }
         let Some(endpoint) = by_name.get(&entry.engine.to_ascii_lowercase()) else {
@@ -725,6 +728,9 @@ pub async fn register_openai_compat_models(
         let Some(model_id) = model.get("id").and_then(|id| id.as_str()) else {
             continue;
         };
+        if is_non_chat_model_id(model_id) {
+            continue;
+        }
         let name = format!(
             "{}-{}",
             engine_label.to_ascii_lowercase().replace(' ', "-"),
@@ -749,6 +755,32 @@ pub async fn register_openai_compat_models(
         }
     }
     registered
+}
+
+/// Vendor `/models` listings include endpoints that can never serve chat
+/// completions — audio transcription, moderation/guard classifiers,
+/// embeddings, image generation. Registering them only wastes failover
+/// attempts (and would let an error or a class label pose as an answer),
+/// so they are filtered at discovery. The failover cascade applies the
+/// same predicate — registered non-`HttpProvider`s like `susi-fastembed`
+/// carry embedding-only names too.
+pub(crate) fn is_non_chat_model_id(model_id: &str) -> bool {
+    let l = model_id.to_ascii_lowercase();
+    const NON_CHAT: &[&str] = &[
+        "whisper",
+        "tts",
+        "orpheus",
+        "prompt-guard",
+        "llama-guard",
+        "shieldgemma",
+        "embed",
+        "moderation",
+        "dall-e",
+        "imagen",
+        "audio",
+        "transcription",
+    ];
+    NON_CHAT.iter().any(|p| l.contains(p))
 }
 
 /// Zero-Config Autonomous Engine Discovery
@@ -824,6 +856,35 @@ pub async fn auto_discover_local_engines(
 mod tests {
     use super::*;
     use crate::susi_core::registry::CapabilityRegistry;
+
+    #[test]
+    fn non_chat_model_ids_are_filtered() {
+        // The observed live leak: vendor /models listings registered
+        // audio transcription and moderation classifiers as chat providers.
+        for id in [
+            "whisper-large-v3",
+            "whisper-large-v3-turbo",
+            "meta-llama/llama-prompt-guard-2-86m",
+            "llama-guard-3-8b",
+            "text-embedding-3-large",
+            "allam-2-7b-embed",
+            "dall-e-3",
+            "gpt-4o-mini-tts",
+            "canopylabs/orpheus-arabic-saudi",
+            "canopylabs/orpheus-v1-english",
+        ] {
+            assert!(is_non_chat_model_id(id), "expected filtered: {id}");
+        }
+        for id in [
+            "llama-3.3-70b-versatile",
+            "qwen3.8-27b",
+            "mistral-large-latest",
+            "codestral-latest",
+            "gemini-2.5-flash",
+        ] {
+            assert!(!is_non_chat_model_id(id), "expected kept: {id}");
+        }
+    }
 
     #[test]
     fn test_universal_engine_registration() {
