@@ -3,10 +3,10 @@
 //! Provides a system where cells can dynamically load or interact with
 //! proprietary binary parsers and plugins on the host side.
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::RwLock;
-use serde::{Deserialize, Serialize};
 
 /// Metadata for a dynamically loaded plugin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +44,10 @@ impl PluginManager {
     /// Registers a new plugin manually (e.g., from host code).
     pub fn register_plugin(&self, plugin: Box<dyn HostPlugin>) {
         let name = plugin.metadata().name.clone();
-        self.plugins.write().unwrap_or_else(|e| e.into_inner()).insert(name, plugin);
+        self.plugins
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(name, plugin);
     }
 
     /// Invokes a plugin by name with the given input payload.
@@ -99,16 +102,18 @@ mod tests {
     fn test_plugin_system() {
         let temp_dir = std::env::temp_dir();
         let manager = PluginManager::new(&temp_dir);
-        
+
         manager.register_plugin(Box::new(MockBinaryParser));
-        
+
         let plugins = manager.list_plugins();
         assert_eq!(plugins.len(), 1);
         assert_eq!(plugins[0].name, "pdf_parser");
 
-        let output = manager.invoke_plugin("pdf_parser", b"dummy_pdf_data").unwrap();
+        let output = manager
+            .invoke_plugin("pdf_parser", b"dummy_pdf_data")
+            .unwrap();
         assert_eq!(output, b"extracted text from proprietary binary");
-        
+
         let missing = manager.invoke_plugin("unknown_parser", b"data");
         assert!(missing.is_err());
     }

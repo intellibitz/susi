@@ -43,8 +43,10 @@ impl PayloadSchema {
 
         // 1. Check all required fields are present and of the correct type
         for (field, expected_type) in &self.fields {
-            let val = obj.get(field).ok_or_else(|| format!("Missing required field: {}", field))?;
-            
+            let val = obj
+                .get(field)
+                .ok_or_else(|| format!("Missing required field: {}", field))?;
+
             let matches = match expected_type {
                 SchemaType::String => val.is_string(),
                 SchemaType::Number => val.is_number(),
@@ -55,7 +57,10 @@ impl PayloadSchema {
             };
 
             if !matches {
-                return Err(format!("Field '{}' has invalid type. Expected {:?}", field, expected_type));
+                return Err(format!(
+                    "Field '{}' has invalid type. Expected {:?}",
+                    field, expected_type
+                ));
             }
         }
 
@@ -63,7 +68,10 @@ impl PayloadSchema {
         if !self.allow_unknown {
             for key in obj.keys() {
                 if !self.fields.contains_key(key) {
-                    return Err(format!("Unknown field not allowed in strict schema: {}", key));
+                    return Err(format!(
+                        "Unknown field not allowed in strict schema: {}",
+                        key
+                    ));
                 }
             }
         }

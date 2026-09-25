@@ -44,16 +44,19 @@ impl CasManager {
     /// Puts content into the CAS, returning its deterministic hash ID.
     pub fn put(&self, content: Vec<u8>) -> String {
         let hash_id = Self::compute_hash(&content);
-        
+
         let mut map = self.store.write().unwrap_or_else(|e| e.into_inner());
         // Only insert if not already present to avoid redundant allocations
         if !map.contains_key(&hash_id) {
-            map.insert(hash_id.clone(), CasObject {
-                hash_id: hash_id.clone(),
-                content,
-            });
+            map.insert(
+                hash_id.clone(),
+                CasObject {
+                    hash_id: hash_id.clone(),
+                    content,
+                },
+            );
         }
-        
+
         hash_id
     }
 
@@ -76,20 +79,20 @@ mod tests {
     #[test]
     fn test_cas_put_get() {
         let cas = CasManager::new();
-        
+
         let prompt_text = b"You are a helpful assistant.";
-        
+
         // Put content
         let hash = cas.put(prompt_text.to_vec());
         assert_eq!(hash.len(), 16); // Hex representation of a 64-bit hash
-        
+
         // Get content
         let retrieved = cas.get(&hash).unwrap();
         assert_eq!(retrieved, prompt_text);
-        
+
         // Get unknown content
         assert!(cas.get("unknown_hash").is_none());
-        
+
         // Verify
         assert!(CasManager::verify(prompt_text, &hash));
         assert!(!CasManager::verify(b"different text", &hash));

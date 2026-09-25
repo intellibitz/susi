@@ -18,7 +18,7 @@ pub struct BusEvent {
 pub struct EventBus {
     /// Maps a topic name to a set of subscriber cell IDs.
     subscribers: RwLock<HashMap<String, HashSet<String>>>,
-    
+
     /// Abstracted queue of events (In a real system, this feeds into the RingBuffer or channels)
     event_log: RwLock<Vec<BusEvent>>,
 }
@@ -41,8 +41,8 @@ impl EventBus {
     pub fn subscribe(&self, cell_id: &str, topic: &str) {
         let mut map = self.subscribers.write().unwrap_or_else(|e| e.into_inner());
         map.entry(topic.to_string())
-           .or_default()
-           .insert(cell_id.to_string());
+            .or_default()
+            .insert(cell_id.to_string());
     }
 
     /// Unsubscribes a cell from a specific topic.
@@ -57,17 +57,17 @@ impl EventBus {
     /// Returns the number of cells that were notified.
     pub fn publish(&self, publisher_id: &str, topic: &str, payload: Vec<u8>) -> usize {
         let map = self.subscribers.read().unwrap_or_else(|e| e.into_inner());
-        
+
         let event = BusEvent {
             topic: topic.to_string(),
             publisher_id: publisher_id.to_string(),
             payload,
         };
-        
+
         // Log the event globally
         let mut log = self.event_log.write().unwrap_or_else(|e| e.into_inner());
         log.push(event);
-        
+
         // Return subscriber count (abstractly routing the message to them)
         if let Some(subs) = map.get(topic) {
             subs.len()
@@ -90,28 +90,28 @@ mod tests {
     #[test]
     fn test_pubsub_event_bus() {
         let bus = EventBus::new();
-        
+
         bus.subscribe("cell-a", "world/state/weather");
         bus.subscribe("cell-b", "world/state/weather");
         bus.subscribe("cell-c", "system/alerts");
-        
+
         // Publish to weather
         let notified = bus.publish("sensor-1", "world/state/weather", b"Rainy".to_vec());
         assert_eq!(notified, 2);
-        
+
         // Publish to alerts
         let notified2 = bus.publish("monitor-1", "system/alerts", b"Intrusion".to_vec());
         assert_eq!(notified2, 1);
-        
+
         // Publish to unknown
         let notified3 = bus.publish("unknown", "void", b"Null".to_vec());
         assert_eq!(notified3, 0);
-        
+
         // Unsubscribe
         bus.unsubscribe("cell-a", "world/state/weather");
         let notified4 = bus.publish("sensor-1", "world/state/weather", b"Sunny".to_vec());
         assert_eq!(notified4, 1);
-        
+
         let logs = bus.get_event_log();
         assert_eq!(logs.len(), 4);
     }

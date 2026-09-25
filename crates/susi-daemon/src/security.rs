@@ -65,7 +65,11 @@ impl CapabilityPolicy {
     }
 
     /// Creates a new policy with explicit network access whitelists.
-    pub fn with_network(cell_id: impl Into<String>, grants: Vec<CapabilityGrant>, network_access: Vec<String>) -> Self {
+    pub fn with_network(
+        cell_id: impl Into<String>,
+        grants: Vec<CapabilityGrant>,
+        network_access: Vec<String>,
+    ) -> Self {
         Self {
             cell_id: cell_id.into(),
             grants,
@@ -75,7 +79,11 @@ impl CapabilityPolicy {
 
     /// Validates if an IP address is authorized to communicate with this cell.
     pub fn is_network_authorized(&self, ip_addr: &str) -> PolicyVerdict {
-        if self.network_access.iter().any(|allowed| allowed == ip_addr || allowed == "*") {
+        if self
+            .network_access
+            .iter()
+            .any(|allowed| allowed == ip_addr || allowed == "*")
+        {
             PolicyVerdict::Allow
         } else {
             PolicyVerdict::Deny
@@ -84,7 +92,11 @@ impl CapabilityPolicy {
 
     /// Adds a capability grant at runtime (e.g. after consensus approval).
     pub fn grant(&mut self, g: CapabilityGrant) {
-        if !self.grants.iter().any(|existing| existing.capability == g.capability && existing.scope == g.scope) {
+        if !self
+            .grants
+            .iter()
+            .any(|existing| existing.capability == g.capability && existing.scope == g.scope)
+        {
             self.grants.push(g);
         }
     }
@@ -183,7 +195,7 @@ fn scope_matches(grant: &CapabilityGrant, req: &SyscallRequest) -> bool {
     match (&grant.scope, &req.workspace) {
         (Some(scope), Some(workspace)) => workspace.starts_with(scope.as_str()),
         (Some(_), None) => false, // scoped grant but no workspace in request
-        (None, _) => true,       // unscoped grant — matches everything
+        (None, _) => true,        // unscoped grant — matches everything
     }
 }
 
@@ -241,39 +253,42 @@ mod tests {
 
     #[test]
     fn exact_grant_allows() {
-        let policy = CapabilityPolicy::new("cell-1", vec![
-            CapabilityGrant {
+        let policy = CapabilityPolicy::new(
+            "cell-1",
+            vec![CapabilityGrant {
                 capability: "infer".to_string(),
                 scope: None,
                 ephemeral: false,
-            },
-        ]);
+            }],
+        );
         let req = make_request(SyscallOp::Infer, None);
         assert_eq!(policy.evaluate(&req), PolicyVerdict::Allow);
     }
 
     #[test]
     fn wildcard_grant_allows() {
-        let policy = CapabilityPolicy::new("cell-1", vec![
-            CapabilityGrant {
+        let policy = CapabilityPolicy::new(
+            "cell-1",
+            vec![CapabilityGrant {
                 capability: "tool:*".to_string(),
                 scope: None,
                 ephemeral: false,
-            },
-        ]);
+            }],
+        );
         let req = make_request(SyscallOp::ToolCall, None);
         assert_eq!(policy.evaluate(&req), PolicyVerdict::Allow);
     }
 
     #[test]
     fn scoped_grant_restricts_workspace() {
-        let policy = CapabilityPolicy::new("cell-1", vec![
-            CapabilityGrant {
+        let policy = CapabilityPolicy::new(
+            "cell-1",
+            vec![CapabilityGrant {
                 capability: "infer".to_string(),
                 scope: Some("/home/user/project".to_string()),
                 ephemeral: false,
-            },
-        ]);
+            }],
+        );
 
         let allowed = make_request(SyscallOp::Infer, Some("/home/user/project/src"));
         assert_eq!(policy.evaluate(&allowed), PolicyVerdict::Allow);

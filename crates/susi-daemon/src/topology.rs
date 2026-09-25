@@ -49,7 +49,7 @@ impl SwarmTopology {
                 // The first node acts as the center/leader
                 let center = nodes[0].cell_id.clone();
                 leader = Some(center.clone());
-                
+
                 let mut center_neighbors = Vec::new();
                 for node in nodes.iter().skip(1) {
                     center_neighbors.push(node.cell_id.clone());
@@ -64,7 +64,7 @@ impl SwarmTopology {
                     let current = nodes[i].cell_id.clone();
                     let next = nodes[(i + 1) % n].cell_id.clone();
                     let prev = nodes[(i + n - 1) % n].cell_id.clone();
-                    
+
                     let mut neighbors = vec![next];
                     if n > 2 {
                         neighbors.push(prev); // Bidirectional ring
@@ -111,15 +111,27 @@ impl TopologyManager {
     }
 
     /// Forms and registers a new topology.
-    pub fn create_topology(&self, id: String, kind: TopologyKind, nodes: Vec<TopologyNode>) -> Result<(), String> {
+    pub fn create_topology(
+        &self,
+        id: String,
+        kind: TopologyKind,
+        nodes: Vec<TopologyNode>,
+    ) -> Result<(), String> {
         let topo = SwarmTopology::form(id.clone(), kind, nodes)?;
-        self.active_topologies.write().unwrap_or_else(|e| e.into_inner()).insert(id, topo);
+        self.active_topologies
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, topo);
         Ok(())
     }
 
     /// Retrieves an active topology by ID.
     pub fn get_topology(&self, id: &str) -> Option<SwarmTopology> {
-        self.active_topologies.read().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+        self.active_topologies
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
     }
 }
 
@@ -145,7 +157,7 @@ mod tests {
     fn test_ring_topology_formation() {
         let nodes = vec![dummy_node("A"), dummy_node("B"), dummy_node("C")];
         let topo = SwarmTopology::form("ring-1".to_string(), TopologyKind::Ring, nodes).unwrap();
-        
+
         assert_eq!(topo.kind, TopologyKind::Ring);
         assert_eq!(topo.edges.get("A").unwrap().len(), 2);
         assert!(topo.edges.get("A").unwrap().contains(&"B".to_string()));
@@ -154,9 +166,13 @@ mod tests {
 
     #[test]
     fn test_star_topology_formation() {
-        let nodes = vec![dummy_node("Center"), dummy_node("Leaf1"), dummy_node("Leaf2")];
+        let nodes = vec![
+            dummy_node("Center"),
+            dummy_node("Leaf1"),
+            dummy_node("Leaf2"),
+        ];
         let topo = SwarmTopology::form("star-1".to_string(), TopologyKind::Star, nodes).unwrap();
-        
+
         assert_eq!(topo.leader.as_deref(), Some("Center"));
         assert_eq!(topo.edges.get("Center").unwrap().len(), 2);
         assert_eq!(topo.edges.get("Leaf1").unwrap().len(), 1);
@@ -167,7 +183,7 @@ mod tests {
     fn test_mesh_topology_formation() {
         let nodes = vec![dummy_node("N1"), dummy_node("N2"), dummy_node("N3")];
         let topo = SwarmTopology::form("mesh-1".to_string(), TopologyKind::Mesh, nodes).unwrap();
-        
+
         assert_eq!(topo.edges.get("N1").unwrap().len(), 2);
         assert!(topo.edges.get("N1").unwrap().contains(&"N2".to_string()));
         assert!(topo.edges.get("N1").unwrap().contains(&"N3".to_string()));

@@ -32,8 +32,12 @@ pub struct FallbackRouter {
 impl Default for FallbackRouter {
     fn default() -> Self {
         Self::new(
-            InferenceEndpoint::PrimaryCloud("https://api.openai.com/v1/chat/completions".to_string()),
-            InferenceEndpoint::LocalQuantized("localhost:8080/v1/models/llama-quantized".to_string()),
+            InferenceEndpoint::PrimaryCloud(
+                "https://api.openai.com/v1/chat/completions".to_string(),
+            ),
+            InferenceEndpoint::LocalQuantized(
+                "localhost:8080/v1/models/llama-quantized".to_string(),
+            ),
         )
     }
 }
@@ -58,26 +62,37 @@ impl FallbackRouter {
     where
         F: FnMut(&InferenceEndpoint) -> InferenceResult,
     {
-        let primary_ep = self.primary.read().unwrap_or_else(|e| e.into_inner()).clone();
-        
+        let primary_ep = self
+            .primary
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+
         // Attempt Primary
         match executor(&primary_ep) {
             InferenceResult::Success(response) => return Ok(response),
-            InferenceResult::Timeout | InferenceResult::ConnectionError(_) | InferenceResult::RateLimited => {
+            InferenceResult::Timeout
+            | InferenceResult::ConnectionError(_)
+            | InferenceResult::RateLimited => {
                 // Primary failed, proceed to fallback
             }
         }
-        
-        let fallback_ep = self.fallback.read().unwrap_or_else(|e| e.into_inner()).clone();
-        
+
+        let fallback_ep = self
+            .fallback
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+
         // Attempt Fallback
         match executor(&fallback_ep) {
             InferenceResult::Success(response) => Ok(response),
             err @ InferenceResult::Timeout
             | err @ InferenceResult::ConnectionError(_)
-            | err @ InferenceResult::RateLimited => {
-                Err(format!("Both primary and fallback endpoints failed. Last error: {:?}", err))
-            }
+            | err @ InferenceResult::RateLimited => Err(format!(
+                "Both primary and fallback endpoints failed. Last error: {:?}",
+                err
+            )),
         }
     }
 }
@@ -89,7 +104,7 @@ mod tests {
     #[test]
     fn test_graceful_degradation_fallback() {
         let router = FallbackRouter::default();
-        
+
         // Scenario 1: Primary succeeds
         let res1 = router.execute_with_fallback(|ep| {
             if let InferenceEndpoint::PrimaryCloud(_) = ep {
@@ -99,7 +114,7 @@ mod tests {
             }
         });
         assert_eq!(res1.unwrap(), "primary response");
-        
+
         // Scenario 2: Primary fails, fallback succeeds
         let res2 = router.execute_with_fallback(|ep| {
             if let InferenceEndpoint::PrimaryCloud(_) = ep {
@@ -109,11 +124,9 @@ mod tests {
             }
         });
         assert_eq!(res2.unwrap(), "local fallback response");
-        
+
         // Scenario 3: Both fail
-        let res3 = router.execute_with_fallback(|_| {
-            InferenceResult::RateLimited
-        });
+        let res3 = router.execute_with_fallback(|_| InferenceResult::RateLimited);
         assert!(res3.is_err());
     }
 }

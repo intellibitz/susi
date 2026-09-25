@@ -44,7 +44,7 @@ pub struct MemorySearchResult {
 pub trait EpisodicMemory: Send + Sync {
     /// Stores a new memory fragment.
     fn store(&self, fragment: MemoryFragment) -> Result<(), String>;
-    
+
     /// Searches for semantically similar memories.
     fn search(&self, req: MemorySearchRequest) -> Result<Vec<MemorySearchResult>, String>;
 }

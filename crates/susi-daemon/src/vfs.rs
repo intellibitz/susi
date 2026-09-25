@@ -61,15 +61,25 @@ impl VfsManager {
     }
 
     /// Attempts to open a pseudo-device on behalf of a cell.
-    pub fn open(&self, cell_id: &str, path: &str, policy: &CapabilityPolicy) -> Result<VfsHandle, String> {
+    pub fn open(
+        &self,
+        cell_id: &str,
+        path: &str,
+        policy: &CapabilityPolicy,
+    ) -> Result<VfsHandle, String> {
         let node = VfsNode::resolve(path).ok_or_else(|| format!("VFS node not found: {}", path))?;
-        
+
         // Mock a syscall request to check capabilities
         let required = node.required_capability();
-        
+
         let mut authorized = false;
         for grant in policy.grants() {
-            if grant.capability == required || (required.ends_with('*') && grant.capability.starts_with(&required[..required.len()-1])) {
+            if grant.capability == required
+                || (required.ends_with('*')
+                    && grant
+                        .capability
+                        .starts_with(&required[..required.len() - 1]))
+            {
                 authorized = true;
                 break;
             }
@@ -81,7 +91,10 @@ impl VfsManager {
                 cell_id: cell_id.to_string(),
             })
         } else {
-            Err(format!("Access Denied: Cell {} lacks capability '{}' to access {}", cell_id, required, path))
+            Err(format!(
+                "Access Denied: Cell {} lacks capability '{}' to access {}",
+                cell_id, required, path
+            ))
         }
     }
 }
@@ -94,21 +107,22 @@ mod tests {
     #[test]
     fn test_vfs_capability_enforcement() {
         let vfs = VfsManager::new();
-        
+
         // Deny-by-default policy
         let empty_policy = CapabilityPolicy::new("cell-1", vec![]);
         assert!(vfs.open("cell-1", "/dev/llm", &empty_policy).is_err());
         assert!(vfs.open("cell-1", "/dev/unknown", &empty_policy).is_err());
 
         // Granted policy
-        let granted_policy = CapabilityPolicy::new("cell-2", vec![
-            CapabilityGrant {
+        let granted_policy = CapabilityPolicy::new(
+            "cell-2",
+            vec![CapabilityGrant {
                 capability: "infer".to_string(),
                 scope: None,
                 ephemeral: false,
-            }
-        ]);
-        
+            }],
+        );
+
         assert!(vfs.open("cell-2", "/dev/llm", &granted_policy).is_ok());
         assert!(vfs.open("cell-2", "/dev/peers", &granted_policy).is_err()); // Not granted
     }

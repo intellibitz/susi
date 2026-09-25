@@ -36,8 +36,10 @@ impl SelfHealingManager {
             .unwrap_or_default()
             .as_secs();
 
-        let runbook_path = self.runbooks_dir.join(format!("incident_{}_{}.md", ctx.cell_id, ts));
-        
+        let runbook_path = self
+            .runbooks_dir
+            .join(format!("incident_{}_{}.md", ctx.cell_id, ts));
+
         let mut content = format!("# Incident Report: {}\n\n", ctx.cell_id);
         content.push_str(&format!("**Time:** {}\n", ts));
         content.push_str(&format!("**Failure Reason:** {}\n\n", ctx.failure_reason));

@@ -44,7 +44,7 @@ pub fn wire_plane_bus() {
         )
         .spawn();
     });
-    
+
     // Spawn the DeepSeek Harness (DSH) Swarm Cell wrapper
     std::thread::spawn(|| {
         let _ = std::process::Command::new(

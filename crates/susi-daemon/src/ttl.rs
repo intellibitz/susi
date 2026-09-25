@@ -65,15 +65,21 @@ impl TtlManager {
     /// Returns an error if the TTL has been completely exhausted.
     pub fn consume_step(&self, cell_id: &str) -> Result<(), String> {
         let mut map = self.ttls.write().unwrap_or_else(|e| e.into_inner());
-        
+
         if let Some(ttl) = map.get_mut(cell_id) {
             if ttl.consume_step() {
                 Ok(())
             } else {
-                Err(format!("TTL Exhausted: Cell '{}' has exceeded its maximum allowed logical inference steps.", cell_id))
+                Err(format!(
+                    "TTL Exhausted: Cell '{}' has exceeded its maximum allowed logical inference steps.",
+                    cell_id
+                ))
             }
         } else {
-            Err(format!("Cell {} is not registered with the TTL Manager.", cell_id))
+            Err(format!(
+                "Cell {} is not registered with the TTL Manager.",
+                cell_id
+            ))
         }
     }
 }
@@ -85,13 +91,13 @@ mod tests {
     #[test]
     fn test_logical_ttl_exhaustion() {
         let manager = TtlManager::new(3); // 3 steps max
-        
+
         manager.register_cell("agent-x", None);
-        
+
         assert!(manager.consume_step("agent-x").is_ok()); // step 1
         assert!(manager.consume_step("agent-x").is_ok()); // step 2
         assert!(manager.consume_step("agent-x").is_ok()); // step 3
-        
+
         // Step 4 should fail
         assert!(manager.consume_step("agent-x").is_err());
     }

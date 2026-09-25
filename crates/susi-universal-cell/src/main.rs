@@ -1,10 +1,10 @@
 #![forbid(unsafe_code)]
 
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::Command;
-use serde::Deserialize;
 
 use susi_abi::cell::SwarmCell;
 use susi_abi::swarm::SwarmRole;
@@ -30,11 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind_addr = &args[1];
     let manifest_path = &args[2];
-    
+
     let manifest_str = tokio::fs::read_to_string(manifest_path).await?;
     let manifest: PluginManifest = serde_json::from_str(&manifest_str)?;
 
-    println!("susi-universal-cell managing ecosystem plugin '{}' on {}", manifest.name, bind_addr);
+    println!(
+        "susi-universal-cell managing ecosystem plugin '{}' on {}",
+        manifest.name, bind_addr
+    );
 
     let role = match manifest.role.as_str() {
         "ToolDriver" => SwarmRole::ToolDriver,
@@ -80,8 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
                                 {
-                                    let response =
-                                        handle_external(req, &mut *cell_clone.lock().await, &manifest_clone).await;
+                                    let response = handle_external(
+                                        req,
+                                        &mut *cell_clone.lock().await,
+                                        &manifest_clone,
+                                    )
+                                    .await;
                                     #[allow(clippy::unwrap_used)]
                                     // SAFETY: serializing a known struct
                                     let resp_payload = serde_json::to_vec(&response).unwrap();
@@ -102,30 +109,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_external(req: SyscallRequest, cell: &mut SwarmCell, manifest: &PluginManifest) -> SyscallResponse {
+async fn handle_external(
+    req: SyscallRequest,
+    cell: &mut SwarmCell,
+    manifest: &PluginManifest,
+) -> SyscallResponse {
     // For MCP stdio protocols or CLI agents, we proxy the JSON request via stdin.
     // As a generic adapter, we just shell out with the payload.
     let payload_str = serde_json::to_string(&req.payload).unwrap_or_default();
-    
+
     let mut cmd = Command::new(&manifest.command);
     for arg in &manifest.args {
         cmd.arg(arg);
     }
     cmd.arg(&payload_str);
-    
+
     match cmd.output().await {
         Ok(out) => {
             cell.record_success();
             let result_text = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
-            
+
             SyscallResponse {
                 id: req.id,
-                status: if out.status.success() { SyscallStatus::Success } else { SyscallStatus::Error },
+                status: if out.status.success() {
+                    SyscallStatus::Success
+                } else {
+                    SyscallStatus::Error
+                },
                 data: serde_json::json!({ "stdout": result_text, "stderr": stderr_text, "code": out.status.code() }),
                 receipt: None,
                 latency_us: 10000,
-                message: if out.status.success() { None } else { Some("Ecosystem execution failed".into()) },
+                message: if out.status.success() {
+                    None
+                } else {
+                    Some("Ecosystem execution failed".into())
+                },
             }
         }
         Err(e) => {

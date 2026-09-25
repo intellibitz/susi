@@ -8,9 +8,9 @@
 //! while keeping the API simple for later extensions (e.g., capability
 //! enforcement, resource limits).
 
-use std::path::PathBuf;
 use anyhow::{Context, Result};
-use wasmtime::{Engine, Instance, Module, Store, Func, Caller};
+use std::path::PathBuf;
+use wasmtime::{Caller, Engine, Func, Instance, Module, Store};
 
 /// Represents a loaded WASM cell.
 ///
@@ -43,15 +43,18 @@ impl WasmCell {
         // send a message back to the kernel. In a full implementation this
         // would expose the full SUSI ABI.
         let mut store = Store::new(&engine, ());
-        let host_send = Func::wrap(&mut store, move |_caller: Caller<'_, ()>, ptr: i32, len: i32| {
-            // Placeholder: In a real cell we would read the memory at ptr/len
-            // and forward the payload via the SUSI message bus.
-            tracing::info!(
-                "[WasmCell] host_send called – payload at {} (len {})",
-                ptr,
-                len,
-            );
-        });
+        let host_send = Func::wrap(
+            &mut store,
+            move |_caller: Caller<'_, ()>, ptr: i32, len: i32| {
+                // Placeholder: In a real cell we would read the memory at ptr/len
+                // and forward the payload via the SUSI message bus.
+                tracing::info!(
+                    "[WasmCell] host_send called – payload at {} (len {})",
+                    ptr,
+                    len,
+                );
+            },
+        );
 
         // Instantiate the module with the host function in imports.
         let instance = Instance::new(&mut store, &module, &[host_send.into()])

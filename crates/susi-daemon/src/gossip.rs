@@ -3,10 +3,10 @@
 //! Implements a built-in gossip protocol (epidemic routing) for propagating
 //! capability discovery and swarm routing table information over UDP.
 
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
 use std::sync::{Arc, RwLock};
-use serde::{Deserialize, Serialize};
 
 /// A gossip message exchanged between Swarm OS nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,9 +18,7 @@ pub enum GossipMessage {
         timestamp: u64,
     },
     /// Requests peer routing table.
-    PeerDiscovery {
-        from_ip: String,
-    },
+    PeerDiscovery { from_ip: String },
 }
 
 /// Manages epidemic gossip state and UDP binding.
@@ -58,8 +56,15 @@ impl GossipManager {
         let msg: GossipMessage = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
 
         match msg {
-            GossipMessage::AdvertiseCapabilities { cell_id, capabilities, .. } => {
-                let mut map = self.peer_capabilities.write().unwrap_or_else(|e| e.into_inner());
+            GossipMessage::AdvertiseCapabilities {
+                cell_id,
+                capabilities,
+                ..
+            } => {
+                let mut map = self
+                    .peer_capabilities
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
                 let entry = map.entry(cell_id).or_default();
                 for cap in capabilities {
                     entry.insert(cap);
@@ -69,12 +74,17 @@ impl GossipManager {
                 // In a real deployment, we would respond with known peers.
             }
         }
-        
+
         Ok(())
     }
 
     /// Advertises this node's capabilities to a known peer.
-    pub fn advertise(&self, target_addr: &str, cell_id: &str, capabilities: Vec<String>) -> std::io::Result<()> {
+    pub fn advertise(
+        &self,
+        target_addr: &str,
+        cell_id: &str,
+        capabilities: Vec<String>,
+    ) -> std::io::Result<()> {
         if let Some(socket) = &self.socket {
             let msg = GossipMessage::AdvertiseCapabilities {
                 cell_id: cell_id.to_string(),
@@ -92,7 +102,10 @@ impl GossipManager {
 
     /// Returns whether a specific peer has a given capability.
     pub fn peer_has_capability(&self, cell_id: &str, capability: &str) -> bool {
-        let map = self.peer_capabilities.read().unwrap_or_else(|e| e.into_inner());
+        let map = self
+            .peer_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(caps) = map.get(cell_id) {
             caps.contains(capability)
         } else {
@@ -108,7 +121,7 @@ mod tests {
     #[test]
     fn test_gossip_capability_propagation() {
         let manager = GossipManager::new();
-        
+
         // Simulate receiving a gossip packet
         let msg = GossipMessage::AdvertiseCapabilities {
             cell_id: "remote-cell-1".to_string(),
@@ -116,9 +129,9 @@ mod tests {
             timestamp: 1600000000,
         };
         let payload = serde_json::to_vec(&msg).unwrap();
-        
+
         manager.handle_gossip(&payload).unwrap();
-        
+
         // Verify capability is recorded
         assert!(manager.peer_has_capability("remote-cell-1", "infer"));
         assert!(manager.peer_has_capability("remote-cell-1", "tool:git"));

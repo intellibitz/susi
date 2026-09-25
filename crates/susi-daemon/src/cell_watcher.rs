@@ -95,22 +95,19 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
         let current_files = scan_cell_files(&config.cells_dir);
 
         // Detect new files
-        let new_files: Vec<PathBuf> = current_files
-            .difference(&known_files)
-            .cloned()
-            .collect();
+        let new_files: Vec<PathBuf> = current_files.difference(&known_files).cloned().collect();
 
         // Detect removed files
-        let removed_files: Vec<PathBuf> = known_files
-            .difference(&current_files)
-            .cloned()
-            .collect();
+        let removed_files: Vec<PathBuf> = known_files.difference(&current_files).cloned().collect();
 
         if !new_files.is_empty() {
             tracing::info!(
                 "[cell_watcher] Detected {} new cell(s): {:?}",
                 new_files.len(),
-                new_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>(),
+                new_files
+                    .iter()
+                    .filter_map(|p| p.file_name())
+                    .collect::<Vec<_>>(),
             );
             // Re-run auto-discovery to pick up new cells.
             // The function is idempotent: already-running cells won't be re-spawned
@@ -124,7 +121,10 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
             tracing::info!(
                 "[cell_watcher] Detected {} removed cell(s): {:?}",
                 removed_files.len(),
-                removed_files.iter().filter_map(|p| p.file_name()).collect::<Vec<_>>(),
+                removed_files
+                    .iter()
+                    .filter_map(|p| p.file_name())
+                    .collect::<Vec<_>>(),
             );
             // Future: signal the blackboard to unregister these cells.
         }

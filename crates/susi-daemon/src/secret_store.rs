@@ -26,12 +26,13 @@ impl SecretStore {
     pub fn inject_secret(&self, cell_id: &str, key: &str, value: &str) {
         let mut map = self.vault.write().unwrap_or_else(|e| e.into_inner());
         map.entry(cell_id.to_string())
-           .or_default()
-           .insert(key.to_string(), value.to_string());
+            .or_default()
+            .insert(key.to_string(), value.to_string());
     }
 
     pub fn get_secret(&self, cell_id: &str, key: &str) -> Option<String> {
         let map = self.vault.read().unwrap_or_else(|e| e.into_inner());
-        map.get(cell_id).and_then(|secrets| secrets.get(key).cloned())
+        map.get(cell_id)
+            .and_then(|secrets| secrets.get(key).cloned())
     }
 }

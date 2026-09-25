@@ -30,7 +30,7 @@ impl TimeTravelDebugger {
             frame.qos,
             frame.payload.len()
         );
-        
+
         let _ = crate::susi_sandbox::audit_chain::append_signed_entry(
             &self.audit_file,
             "INFO",

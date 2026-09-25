@@ -3,8 +3,8 @@
 //! High-throughput, framing protocol for Unix Domain Sockets and streaming pipes.
 //! Supports QoS flags for priority, reliability, and ordering guarantees.
 
-use std::fmt;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Magic bytes preceding every valid SUSI wire frame (`b"SUSI"`).
 pub const SUSI_WIRE_MAGIC: [u8; 4] = *b"SUSI";

@@ -14,8 +14,8 @@
 //! and makes a decision with O(N) cell scan where N is the registered cell
 //! count. For 10 k cells this is sub‑millisecond.
 
-use susi_abi::swarm::SwarmCellManifest;
 use susi_abi::cell::compute_fnv1a_hash;
+use susi_abi::swarm::SwarmCellManifest;
 
 /// Scheduling strategy for distributing work to cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

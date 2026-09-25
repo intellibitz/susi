@@ -20,7 +20,7 @@ impl<T: Clone> RingBuffer<T> {
         for _ in 0..capacity {
             buffer.push(None);
         }
-        
+
         Self {
             buffer,
             capacity,
@@ -34,15 +34,15 @@ impl<T: Clone> RingBuffer<T> {
     pub fn push(&mut self, item: T) -> Result<(), T> {
         let current_tail = self.tail.load(Ordering::Relaxed);
         let next_tail = (current_tail + 1) % self.capacity;
-        
+
         if next_tail == self.head.load(Ordering::Acquire) {
             // Buffer is full
             return Err(item);
         }
-        
+
         self.buffer[current_tail] = Some(item);
         self.tail.store(next_tail, Ordering::Release);
-        
+
         Ok(())
     }
 
@@ -50,15 +50,16 @@ impl<T: Clone> RingBuffer<T> {
     /// Returns `None` if the buffer is empty.
     pub fn pop(&mut self) -> Option<T> {
         let current_head = self.head.load(Ordering::Relaxed);
-        
+
         if current_head == self.tail.load(Ordering::Acquire) {
             // Buffer is empty
             return None;
         }
-        
+
         let item = self.buffer[current_head].take();
-        self.head.store((current_head + 1) % self.capacity, Ordering::Release);
-        
+        self.head
+            .store((current_head + 1) % self.capacity, Ordering::Release);
+
         item
     }
 
@@ -66,12 +67,8 @@ impl<T: Clone> RingBuffer<T> {
     pub fn len(&self) -> usize {
         let h = self.head.load(Ordering::Relaxed);
         let t = self.tail.load(Ordering::Relaxed);
-        
-        if t >= h {
-            t - h
-        } else {
-            self.capacity - h + t
-        }
+
+        if t >= h { t - h } else { self.capacity - h + t }
     }
 
     /// Returns `true` if the buffer is empty.
@@ -87,21 +84,21 @@ mod tests {
     #[test]
     fn test_ring_buffer_operations() {
         let mut rb: RingBuffer<u32> = RingBuffer::new(3); // Capacity 3 means it holds 2 items (one slot for wrap logic)
-        
+
         assert!(rb.is_empty());
-        
+
         assert!(rb.push(10).is_ok());
         assert!(rb.push(20).is_ok());
-        
+
         // 3rd push should fail because capacity is N-1
         assert!(rb.push(30).is_err());
-        
+
         assert_eq!(rb.len(), 2);
-        
+
         assert_eq!(rb.pop(), Some(10));
         assert_eq!(rb.pop(), Some(20));
         assert_eq!(rb.pop(), None);
-        
+
         assert!(rb.is_empty());
     }
 }

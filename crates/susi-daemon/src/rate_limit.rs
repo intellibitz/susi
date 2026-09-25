@@ -17,7 +17,7 @@ pub struct RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            max_tokens: 100, // 100 burst
+            max_tokens: 100,         // 100 burst
             refill_rate_per_sec: 10, // 10 tokens per second
         }
     }
@@ -43,11 +43,11 @@ impl TokenBucket {
     fn try_consume(&mut self) -> bool {
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_refill).as_secs();
-        
+
         if elapsed > 0 {
             let generated = elapsed * self.config.refill_rate_per_sec;
             self.tokens = std::cmp::min(self.config.max_tokens, self.tokens + generated);
-            
+
             // Only update last_refill if we actually generated full second worth of tokens
             // To be precise we should keep the sub-second remainder, but for a simple OS rate limiter
             // this is sufficient.
@@ -93,7 +93,9 @@ impl RateLimitManager {
     /// Returns `true` if allowed, `false` if rate limited.
     pub fn check_allowance(&self, cell_id: &str) -> bool {
         let mut map = self.buckets.write().unwrap_or_else(|e| e.into_inner());
-        let bucket = map.entry(cell_id.to_string()).or_insert_with(|| TokenBucket::new(self.default_config));
+        let bucket = map
+            .entry(cell_id.to_string())
+            .or_insert_with(|| TokenBucket::new(self.default_config));
         bucket.try_consume()
     }
 }
@@ -110,7 +112,7 @@ mod tests {
             refill_rate_per_sec: 1,
         };
         let manager = RateLimitManager::new(config);
-        
+
         let cell_id = "test-cell";
 
         // Consume all 3 initial tokens
@@ -126,7 +128,7 @@ mod tests {
 
         // Now we should have 1 token
         assert!(manager.check_allowance(cell_id));
-        
+
         // 2nd should fail again
         assert!(!manager.check_allowance(cell_id));
     }

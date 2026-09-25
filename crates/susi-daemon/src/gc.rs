@@ -36,9 +36,7 @@ impl GarbageCollector {
     /// Records an allocation made by a cell.
     pub fn track_allocation(&self, cell_id: &str, resource: CellResource) {
         let mut map = self.allocations.write().unwrap_or_else(|e| e.into_inner());
-        map.entry(cell_id.to_string())
-           .or_default()
-           .insert(resource);
+        map.entry(cell_id.to_string()).or_default().insert(resource);
     }
 
     /// Executes the garbage collection sweep for a terminated cell, returning
@@ -67,22 +65,22 @@ mod tests {
     #[test]
     fn test_garbage_collector_sweep() {
         let gc = GarbageCollector::new();
-        
+
         // Track allocations
         gc.track_allocation("agent-1", CellResource::NetworkPort(8080));
         gc.track_allocation("agent-1", CellResource::MemoryBytes(1024));
         gc.track_allocation("agent-2", CellResource::NetworkPort(8081));
-        
+
         assert_eq!(gc.tracked_cells(), 2);
-        
+
         // Sweep agent-1
         let reclaimed = gc.sweep_cell("agent-1");
         assert_eq!(reclaimed.len(), 2);
         assert!(reclaimed.contains(&CellResource::NetworkPort(8080)));
         assert!(reclaimed.contains(&CellResource::MemoryBytes(1024)));
-        
+
         assert_eq!(gc.tracked_cells(), 1);
-        
+
         // Sweep again yields nothing
         assert_eq!(gc.sweep_cell("agent-1").len(), 0);
     }

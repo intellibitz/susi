@@ -25,7 +25,9 @@ impl NetworkFirewall {
 
     pub fn grant_access(&self, cell_id: &str, domain: &str) {
         let mut map = self.allow_lists.write().unwrap_or_else(|e| e.into_inner());
-        map.entry(cell_id.to_string()).or_default().insert(domain.to_string());
+        map.entry(cell_id.to_string())
+            .or_default()
+            .insert(domain.to_string());
     }
 
     #[allow(clippy::collapsible_if)]
@@ -36,6 +38,9 @@ impl NetworkFirewall {
                 return Ok(());
             }
         }
-        Err(format!("Network firewall blocked outbound request to {}", requested_domain))
+        Err(format!(
+            "Network firewall blocked outbound request to {}",
+            requested_domain
+        ))
     }
 }

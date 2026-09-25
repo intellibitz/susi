@@ -40,12 +40,15 @@ impl ServiceRegistry {
         for svc in services {
             service_set.insert(svc);
         }
-        
-        map.insert(cell_id.to_string(), PublishedService {
-            cell_id: cell_id.to_string(),
-            multiaddr: multiaddr.to_string(),
-            services: service_set,
-        });
+
+        map.insert(
+            cell_id.to_string(),
+            PublishedService {
+                cell_id: cell_id.to_string(),
+                multiaddr: multiaddr.to_string(),
+                services: service_set,
+            },
+        );
     }
 
     /// Removes a cell from the registry (e.g. upon graceful exit).
@@ -59,13 +62,13 @@ impl ServiceRegistry {
     pub fn discover_service(&self, service_name: &str) -> Vec<(String, String)> {
         let map = self.entries.read().unwrap_or_else(|e| e.into_inner());
         let mut results = Vec::new();
-        
+
         for (cell_id, entry) in map.iter() {
             if entry.services.contains(service_name) {
                 results.push((cell_id.clone(), entry.multiaddr.clone()));
             }
         }
-        
+
         results
     }
 }
@@ -77,18 +80,30 @@ mod tests {
     #[test]
     fn test_service_registry_discovery() {
         let registry = ServiceRegistry::new();
-        
-        registry.publish("cell-1", "/ip4/10.0.0.1/tcp/5001", vec!["parser:pdf".to_string(), "infer:llama".to_string()]);
-        registry.publish("cell-2", "/ip4/10.0.0.2/tcp/5001", vec!["parser:docx".to_string()]);
-        registry.publish("cell-3", "/ip4/10.0.0.3/tcp/5001", vec!["infer:llama".to_string()]);
+
+        registry.publish(
+            "cell-1",
+            "/ip4/10.0.0.1/tcp/5001",
+            vec!["parser:pdf".to_string(), "infer:llama".to_string()],
+        );
+        registry.publish(
+            "cell-2",
+            "/ip4/10.0.0.2/tcp/5001",
+            vec!["parser:docx".to_string()],
+        );
+        registry.publish(
+            "cell-3",
+            "/ip4/10.0.0.3/tcp/5001",
+            vec!["infer:llama".to_string()],
+        );
 
         let llama_providers = registry.discover_service("infer:llama");
         assert_eq!(llama_providers.len(), 2);
-        
+
         let pdf_providers = registry.discover_service("parser:pdf");
         assert_eq!(pdf_providers.len(), 1);
         assert_eq!(pdf_providers[0].1, "/ip4/10.0.0.1/tcp/5001");
-        
+
         let unknown = registry.discover_service("unknown:service");
         assert_eq!(unknown.len(), 0);
     }

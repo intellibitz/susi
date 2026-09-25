@@ -50,7 +50,10 @@ impl Orchestrator {
             pool.remove(pos);
             Ok(())
         } else {
-            Err(format!("Worker '{}' not found in orchestrator pool", worker_id))
+            Err(format!(
+                "Worker '{}' not found in orchestrator pool",
+                worker_id
+            ))
         }
     }
 
@@ -82,7 +85,10 @@ impl Orchestrator {
     pub fn pool_summary(&self) -> (usize, usize) {
         let pool = self.workers.read().unwrap_or_else(|e| e.into_inner());
         let total = pool.len();
-        let busy = pool.iter().filter(|w| w.status == WorkerStatus::Busy).count();
+        let busy = pool
+            .iter()
+            .filter(|w| w.status == WorkerStatus::Busy)
+            .count();
         (total, busy)
     }
 }
@@ -94,28 +100,28 @@ mod tests {
     #[test]
     fn test_orchestrator_scaling_and_assignment() {
         let orchestrator = Orchestrator::new("boss-cell");
-        
+
         // Scale up
         orchestrator.scale_up("worker-1");
         orchestrator.scale_up("worker-2");
-        
+
         assert_eq!(orchestrator.pool_summary(), (2, 0));
-        
+
         // Assign tasks
         let assigned1 = orchestrator.assign_task().unwrap();
         assert_eq!(assigned1, "worker-1");
-        
+
         let assigned2 = orchestrator.assign_task().unwrap();
         assert_eq!(assigned2, "worker-2");
-        
+
         // Pool exhausted
         assert!(orchestrator.assign_task().is_none());
         assert_eq!(orchestrator.pool_summary(), (2, 2));
-        
+
         // Complete task
         orchestrator.complete_task("worker-1");
         assert_eq!(orchestrator.pool_summary(), (2, 1));
-        
+
         // Scale down
         assert!(orchestrator.scale_down("worker-2").is_ok());
         assert_eq!(orchestrator.pool_summary(), (1, 0));

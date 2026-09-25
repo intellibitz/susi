@@ -49,9 +49,13 @@ impl ContractManager {
     }
 
     /// Validates if a cell is allowed to receive a specific payload type.
-    pub fn validate_input(&self, target_cell_id: &str, input_type: &MimeType) -> Result<(), String> {
+    pub fn validate_input(
+        &self,
+        target_cell_id: &str,
+        input_type: &MimeType,
+    ) -> Result<(), String> {
         let map = self.contracts.read().unwrap_or_else(|e| e.into_inner());
-        
+
         if let Some(contract) = map.get(target_cell_id) {
             if contract.accepted_inputs.contains(input_type) {
                 Ok(())
@@ -63,14 +67,21 @@ impl ContractManager {
             }
         } else {
             // If no contract is registered, we deny by default for strict boundary safety
-            Err(format!("Semantic violation: No contract registered for cell '{}'", target_cell_id))
+            Err(format!(
+                "Semantic violation: No contract registered for cell '{}'",
+                target_cell_id
+            ))
         }
     }
 
     /// Validates if a cell actually produced the output it promised.
-    pub fn validate_output(&self, source_cell_id: &str, output_type: &MimeType) -> Result<(), String> {
+    pub fn validate_output(
+        &self,
+        source_cell_id: &str,
+        output_type: &MimeType,
+    ) -> Result<(), String> {
         let map = self.contracts.read().unwrap_or_else(|e| e.into_inner());
-        
+
         if let Some(contract) = map.get(source_cell_id) {
             if contract.guaranteed_outputs.contains(output_type) {
                 Ok(())
@@ -81,7 +92,10 @@ impl ContractManager {
                 ))
             }
         } else {
-            Err(format!("Semantic violation: No contract registered for cell '{}'", source_cell_id))
+            Err(format!(
+                "Semantic violation: No contract registered for cell '{}'",
+                source_cell_id
+            ))
         }
     }
 }
@@ -93,27 +107,39 @@ mod tests {
     #[test]
     fn test_semantic_contract_validation() {
         let manager = ContractManager::new();
-        
+
         // Register cell
         manager.register(SemanticContract {
             cell_id: "agent-1".to_string(),
             accepted_inputs: vec![MimeType::Json],
             guaranteed_outputs: vec![MimeType::Markdown],
         });
-        
+
         // Valid input
         assert!(manager.validate_input("agent-1", &MimeType::Json).is_ok());
-        
+
         // Invalid input
-        assert!(manager.validate_input("agent-1", &MimeType::PlainText).is_err());
-        
+        assert!(
+            manager
+                .validate_input("agent-1", &MimeType::PlainText)
+                .is_err()
+        );
+
         // Valid output
-        assert!(manager.validate_output("agent-1", &MimeType::Markdown).is_ok());
-        
+        assert!(
+            manager
+                .validate_output("agent-1", &MimeType::Markdown)
+                .is_ok()
+        );
+
         // Invalid output
         assert!(manager.validate_output("agent-1", &MimeType::Json).is_err());
-        
+
         // Unknown cell
-        assert!(manager.validate_input("agent-unknown", &MimeType::Json).is_err());
+        assert!(
+            manager
+                .validate_input("agent-unknown", &MimeType::Json)
+                .is_err()
+        );
     }
 }

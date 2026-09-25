@@ -42,7 +42,10 @@ impl WatchdogManager {
             *last_seen = Instant::now();
             Ok(())
         } else {
-            Err(format!("Cell {} is not registered with the watchdog", cell_id))
+            Err(format!(
+                "Cell {} is not registered with the watchdog",
+                cell_id
+            ))
         }
     }
 
@@ -57,13 +60,13 @@ impl WatchdogManager {
         let map = self.heartbeats.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
         let mut dead = Vec::new();
-        
+
         for (id, last_seen) in map.iter() {
             if now.duration_since(*last_seen) > self.timeout {
                 dead.push(id.clone());
             }
         }
-        
+
         dead
     }
 }
@@ -75,27 +78,27 @@ mod tests {
     #[test]
     fn test_watchdog_timeout() {
         let watchdog = WatchdogManager::new(Duration::from_millis(50));
-        
+
         watchdog.register_cell("good-cell");
         watchdog.register_cell("bad-cell");
-        
+
         // Both should be alive initially
         assert_eq!(watchdog.find_dead_cells().len(), 0);
-        
+
         // Sleep to let them approach timeout
         std::thread::sleep(Duration::from_millis(30));
-        
+
         // Good cell pings
         watchdog.ping("good-cell").unwrap();
-        
+
         // Sleep past the timeout threshold
         std::thread::sleep(Duration::from_millis(30));
-        
+
         // Find dead cells
         let dead = watchdog.find_dead_cells();
         assert_eq!(dead.len(), 1);
         assert_eq!(dead[0], "bad-cell");
-        
+
         // Good cell should still be alive because it pinged
         assert!(!dead.contains(&"good-cell".to_string()));
     }

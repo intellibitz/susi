@@ -33,7 +33,12 @@ impl AdminServer {
 
     /// Fetches global diagnostics, but strictly requires the caller to possess
     /// the `root` capability.
-    pub fn get_diagnostics(&self, policy: &CapabilityPolicy, active_cells: usize, loaded_plugins: usize) -> Result<SwarmDiagnostics, String> {
+    pub fn get_diagnostics(
+        &self,
+        policy: &CapabilityPolicy,
+        active_cells: usize,
+        loaded_plugins: usize,
+    ) -> Result<SwarmDiagnostics, String> {
         // Enforce Root Capability
         let mut has_root = false;
         for grant in policy.grants() {
@@ -44,7 +49,10 @@ impl AdminServer {
         }
 
         if !has_root {
-            return Err(format!("Access Denied: Caller '{}' lacks the 'root' capability required for global diagnostics", policy.cell_id()));
+            return Err(format!(
+                "Access Denied: Caller '{}' lacks the 'root' capability required for global diagnostics",
+                policy.cell_id()
+            ));
         }
 
         Ok(SwarmDiagnostics {
@@ -63,18 +71,28 @@ mod tests {
     #[test]
     fn test_admin_root_enforcement() {
         let admin = AdminServer::new();
-        
-        let standard_policy = CapabilityPolicy::new("cell-standard", vec![
-            CapabilityGrant { capability: "infer".to_string(), scope: None, ephemeral: false }
-        ]);
-        
+
+        let standard_policy = CapabilityPolicy::new(
+            "cell-standard",
+            vec![CapabilityGrant {
+                capability: "infer".to_string(),
+                scope: None,
+                ephemeral: false,
+            }],
+        );
+
         // Should deny
         assert!(admin.get_diagnostics(&standard_policy, 10, 5).is_err());
-        
-        let root_policy = CapabilityPolicy::new("cell-admin", vec![
-            CapabilityGrant { capability: "root".to_string(), scope: None, ephemeral: false }
-        ]);
-        
+
+        let root_policy = CapabilityPolicy::new(
+            "cell-admin",
+            vec![CapabilityGrant {
+                capability: "root".to_string(),
+                scope: None,
+                ephemeral: false,
+            }],
+        );
+
         // Should allow
         let diag = admin.get_diagnostics(&root_policy, 10, 5).unwrap();
         assert_eq!(diag.active_cells, 10);

@@ -34,7 +34,7 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    
+
     let mut dot_product = 0.0;
     let mut norm_a = 0.0;
     let mut norm_b = 0.0;
@@ -55,14 +55,16 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 impl EpisodicMemory for VectorMemoryStore {
     fn store(&self, fragment: MemoryFragment) -> Result<(), String> {
         let mut map = self.store.write().map_err(|e| e.to_string())?;
-        let entry = map.entry(fragment.namespace.clone()).or_insert_with(Vec::new);
+        let entry = map
+            .entry(fragment.namespace.clone())
+            .or_insert_with(Vec::new);
         entry.push(fragment);
         Ok(())
     }
 
     fn search(&self, req: MemorySearchRequest) -> Result<Vec<MemorySearchResult>, String> {
         let map = self.store.read().map_err(|e| e.to_string())?;
-        
+
         let namespace_fragments = match map.get(&req.namespace) {
             Some(frags) => frags,
             None => return Ok(Vec::new()),
@@ -81,8 +83,12 @@ impl EpisodicMemory for VectorMemoryStore {
             .collect();
 
         // Sort by similarity descending
-        results.sort_by(|a, b| b.cosine_similarity.partial_cmp(&a.cosine_similarity).unwrap_or(std::cmp::Ordering::Equal));
-        
+        results.sort_by(|a, b| {
+            b.cosine_similarity
+                .partial_cmp(&a.cosine_similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Truncate to limit
         results.truncate(req.limit);
 

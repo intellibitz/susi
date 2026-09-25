@@ -32,12 +32,16 @@ impl HibernationManager {
 
     /// Suspends a cell by writing its linear memory / state to disk.
     /// In a full implementation for WASM, this serializes the Wasmtime Store.
-    pub fn suspend_cell(&self, cell_id: &str, memory_snapshot: &[u8]) -> std::io::Result<SuspendedCell> {
+    pub fn suspend_cell(
+        &self,
+        cell_id: &str,
+        memory_snapshot: &[u8],
+    ) -> std::io::Result<SuspendedCell> {
         let state_file = self.storage_dir.join(format!("{}.suspend", cell_id));
-        
+
         // Write the snapshot to disk to free RAM
         fs::write(&state_file, memory_snapshot)?;
-        
+
         let suspended_at = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -53,16 +57,16 @@ impl HibernationManager {
     /// Resumes a cell by reading its state back into memory.
     pub fn resume_cell(&self, cell_id: &str) -> std::io::Result<Vec<u8>> {
         let state_file = self.storage_dir.join(format!("{}.suspend", cell_id));
-        
+
         if !state_file.exists() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Suspended state not found for cell {}", cell_id)
+                format!("Suspended state not found for cell {}", cell_id),
             ));
         }
 
         let snapshot = fs::read(&state_file)?;
-        
+
         // Remove the state file once rehydrated
         let _ = fs::remove_file(&state_file);
 
@@ -76,9 +80,7 @@ impl HibernationManager {
             for entry in fs::read_dir(&self.storage_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.is_file()
-                    && path.extension().and_then(|s| s.to_str()) == Some("suspend")
-                {
+                if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("suspend") {
                     // Allow the inner if let to satisfy the linter while keeping it readable.
                     #[allow(clippy::collapsible_if)]
                     if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -98,11 +100,12 @@ mod tests {
 
     #[test]
     fn test_suspend_and_resume() {
-        let temp_dir = env::temp_dir().join(format!("susi_hibernation_test_{}", std::process::id()));
+        let temp_dir =
+            env::temp_dir().join(format!("susi_hibernation_test_{}", std::process::id()));
         let manager = HibernationManager::new(&temp_dir).unwrap();
 
         let dummy_memory = vec![0xDE, 0xAD, 0xBE, 0xEF];
-        
+
         // Suspend the cell
         let suspended = manager.suspend_cell("test-cell-1", &dummy_memory).unwrap();
         assert!(suspended.state_file.exists());

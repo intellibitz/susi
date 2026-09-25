@@ -711,7 +711,10 @@ impl SusiDaemon {
         });
 
         // Substrate Administration & Hardware Optimization (Pillar 1)
-        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace, blackboard.clone());
+        crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(
+            &workspace,
+            blackboard.clone(),
+        );
 
         // Pillar 8: Zero-config discovery of local inference engines + MCP tools
         // run_daemon_loop is sync (invoked from CLI `daemon-start`); spin up a
@@ -737,14 +740,20 @@ impl SusiDaemon {
 
         // Durable workflow engine (Swarm OS Bullet 8): rehydrates pending tasks
         // from the JSONL append-only journal to survive daemon restarts.
-        let workflow_engine = crate::workflows::WorkflowEngine::new(&workspace)
-            .unwrap_or_else(|e| {
-                eprintln!("[SusiDaemon] Failed to initialize durable workflow engine: {}", e);
+        let workflow_engine =
+            crate::workflows::WorkflowEngine::new(&workspace).unwrap_or_else(|e| {
+                eprintln!(
+                    "[SusiDaemon] Failed to initialize durable workflow engine: {}",
+                    e
+                );
                 std::process::exit(1);
             });
         let pending_tasks = workflow_engine.get_pending_tasks();
         if !pending_tasks.is_empty() {
-            println!("[SusiDaemon] Rehydrated {} pending workflow tasks", pending_tasks.len());
+            println!(
+                "[SusiDaemon] Rehydrated {} pending workflow tasks",
+                pending_tasks.len()
+            );
         }
 
         // Time-Travel Debugger (Swarm OS Bullet 7): immutable HMAC-signed event log
@@ -753,7 +762,8 @@ impl SusiDaemon {
 
         // Autonomous Topology Manager (Swarm OS Bullet 24)
         let _topology_manager = crate::topology::TopologyManager::new();
-        time_travel_logger.log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
+        time_travel_logger
+            .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
         // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);

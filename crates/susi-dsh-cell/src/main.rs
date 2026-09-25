@@ -90,14 +90,22 @@ async fn handle_dsh(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallRespons
             cell.record_success();
             let result_text = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
-            
+
             SyscallResponse {
                 id: req.id,
-                status: if out.status.success() { SyscallStatus::Success } else { SyscallStatus::Error },
+                status: if out.status.success() {
+                    SyscallStatus::Success
+                } else {
+                    SyscallStatus::Error
+                },
                 data: serde_json::json!({ "stdout": result_text, "stderr": stderr_text, "code": out.status.code() }),
                 receipt: None,
                 latency_us: 10000,
-                message: if out.status.success() { None } else { Some("dsh command failed".into()) },
+                message: if out.status.success() {
+                    None
+                } else {
+                    Some("dsh command failed".into())
+                },
             }
         }
         Err(e) => {

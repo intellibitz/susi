@@ -32,7 +32,7 @@ impl IdentityManager {
         getrandom::fill(&mut seed).map_err(|e| std::io::Error::other(e.to_string()))?;
         let signing_key = SigningKey::from_bytes(&seed);
         let verifying_key = signing_key.verifying_key();
-        
+
         let identity = CellIdentity {
             cell_id: cell_id.to_string(),
             public_key: hex::encode(verifying_key.as_bytes()),
@@ -44,7 +44,7 @@ impl IdentityManager {
     /// Registers a cell's public key with the Swarm OS.
     pub fn register_identity(&mut self, identity: &CellIdentity) -> Result<(), String> {
         let bytes = hex::decode(&identity.public_key).map_err(|e| e.to_string())?;
-        
+
         let mut key_bytes = [0u8; 32];
         if bytes.len() != 32 {
             return Err("Invalid Ed25519 public key length".into());
@@ -84,10 +84,10 @@ mod tests {
     #[test]
     fn test_identity_generation_and_verification() {
         let mut manager = IdentityManager::new();
-        
+
         // 1. Generate identity
         let (identity, signing_key) = IdentityManager::generate_identity("test-cell").unwrap();
-        
+
         // 2. Register identity
         manager.register_identity(&identity).unwrap();
 
@@ -98,10 +98,10 @@ mod tests {
 
         // 4. Verify signature
         assert!(manager.verify_signature("test-cell", payload, &sig_hex));
-        
+
         // 5. Spoofed payload should fail
         assert!(!manager.verify_signature("test-cell", b"spoofed swarm", &sig_hex));
-        
+
         // 6. Unknown cell should fail
         assert!(!manager.verify_signature("unknown-cell", payload, &sig_hex));
     }

@@ -66,8 +66,8 @@ impl ReplayManager {
     pub fn record_event(&self, target_cell_id: &str, event: ReplayEvent) {
         let mut map = self.history.write().unwrap_or_else(|e| e.into_inner());
         map.entry(target_cell_id.to_string())
-           .or_default()
-           .push(event);
+            .or_default()
+            .push(event);
     }
 
     /// Starts a time-travel replay session for a given cell.
@@ -88,32 +88,38 @@ mod tests {
     #[test]
     fn test_time_travel_replay() {
         let manager = ReplayManager::new();
-        
-        manager.record_event("agent-1", ReplayEvent {
-            timestamp: 1,
-            source_cell_id: "user".to_string(),
-            payload: b"Hello".to_vec(),
-        });
-        
-        manager.record_event("agent-1", ReplayEvent {
-            timestamp: 2,
-            source_cell_id: "system".to_string(),
-            payload: b"Context".to_vec(),
-        });
-        
+
+        manager.record_event(
+            "agent-1",
+            ReplayEvent {
+                timestamp: 1,
+                source_cell_id: "user".to_string(),
+                payload: b"Hello".to_vec(),
+            },
+        );
+
+        manager.record_event(
+            "agent-1",
+            ReplayEvent {
+                timestamp: 2,
+                source_cell_id: "system".to_string(),
+                payload: b"Context".to_vec(),
+            },
+        );
+
         let mut session = manager.start_session("agent-1").unwrap();
-        
+
         // Step 1
         let ev1 = session.step_forward().unwrap();
         assert_eq!(ev1.payload, b"Hello");
-        
+
         // Step 2
         let ev2 = session.step_forward().unwrap();
         assert_eq!(ev2.payload, b"Context");
-        
+
         // EOF
         assert!(session.step_forward().is_none());
-        
+
         // Time travel rewind
         session.reset();
         let ev1_again = session.step_forward().unwrap();

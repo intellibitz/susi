@@ -41,19 +41,29 @@ impl HttpGateway {
 
     /// Exposes a cell to external HTTP traffic.
     pub fn expose_cell(&self, cell_id: &str) {
-        let mut map = self.exposed_cells.write().unwrap_or_else(|e| e.into_inner());
+        let mut map = self
+            .exposed_cells
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         map.insert(cell_id.to_string(), true);
     }
 
     /// Simulates receiving an HTTP POST and routing it to a cell.
-    pub fn route_request<F>(&self, request: AgentHttpRequest, mut engine_executor: F) -> Result<AgentHttpResponse, String>
+    pub fn route_request<F>(
+        &self,
+        request: AgentHttpRequest,
+        mut engine_executor: F,
+    ) -> Result<AgentHttpResponse, String>
     where
         F: FnMut(&[u8]) -> Result<Vec<u8>, String>,
     {
         let map = self.exposed_cells.read().unwrap_or_else(|e| e.into_inner());
-        
+
         if !map.contains_key(&request.cell_id) {
-            return Err(format!("HTTP 404: Cell '{}' is not exposed or does not exist", request.cell_id));
+            return Err(format!(
+                "HTTP 404: Cell '{}' is not exposed or does not exist",
+                request.cell_id
+            ));
         }
 
         // Execute via the engine
@@ -77,29 +87,38 @@ mod tests {
     #[test]
     fn test_http_gateway_routing() {
         let gateway = HttpGateway::new();
-        
+
         gateway.expose_cell("agent-api");
-        
+
         // Unexposed cell
-        let res1 = gateway.route_request(AgentHttpRequest {
-            cell_id: "agent-internal".to_string(),
-            payload: b"{}".to_vec(),
-        }, |_| Ok(b"success".to_vec()));
+        let res1 = gateway.route_request(
+            AgentHttpRequest {
+                cell_id: "agent-internal".to_string(),
+                payload: b"{}".to_vec(),
+            },
+            |_| Ok(b"success".to_vec()),
+        );
         assert!(res1.is_err());
-        
+
         // Exposed cell
-        let res2 = gateway.route_request(AgentHttpRequest {
-            cell_id: "agent-api".to_string(),
-            payload: b"{}".to_vec(),
-        }, |_| Ok(b"success".to_vec()));
+        let res2 = gateway.route_request(
+            AgentHttpRequest {
+                cell_id: "agent-api".to_string(),
+                payload: b"{}".to_vec(),
+            },
+            |_| Ok(b"success".to_vec()),
+        );
         assert!(res2.is_ok());
         assert_eq!(res2.unwrap().status_code, 200);
-        
+
         // Exposed cell with error
-        let res3 = gateway.route_request(AgentHttpRequest {
-            cell_id: "agent-api".to_string(),
-            payload: b"{}".to_vec(),
-        }, |_| Err("crash".to_string()));
+        let res3 = gateway.route_request(
+            AgentHttpRequest {
+                cell_id: "agent-api".to_string(),
+                payload: b"{}".to_vec(),
+            },
+            |_| Err("crash".to_string()),
+        );
         let ok_res = res3.unwrap();
         assert_eq!(ok_res.status_code, 500);
         assert_eq!(ok_res.payload, b"crash");

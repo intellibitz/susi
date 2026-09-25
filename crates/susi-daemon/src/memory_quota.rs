@@ -4,8 +4,8 @@
 //! its predefined memory quota is instantly flagged for termination to protect host stability.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// Tracks memory allocations for a single sandboxed cell.
 pub struct CellMemoryTracker {
@@ -32,7 +32,7 @@ impl CellMemoryTracker {
                 self.max_quota_bytes
             ));
         }
-        
+
         self.allocated_bytes.fetch_add(bytes, Ordering::AcqRel);
         Ok(())
     }
@@ -42,7 +42,8 @@ impl CellMemoryTracker {
         // Prevent underflow
         let current = self.allocated_bytes.load(Ordering::Relaxed);
         let amount_to_sub = std::cmp::min(current, bytes);
-        self.allocated_bytes.fetch_sub(amount_to_sub, Ordering::AcqRel);
+        self.allocated_bytes
+            .fetch_sub(amount_to_sub, Ordering::AcqRel);
     }
 }
 
@@ -70,7 +71,10 @@ impl MemoryQuotaManager {
     pub fn register_cell(&self, cell_id: &str, custom_quota: Option<usize>) {
         let quota = custom_quota.unwrap_or(self.default_quota);
         let mut map = self.trackers.write().unwrap_or_else(|e| e.into_inner());
-        map.insert(cell_id.to_string(), std::sync::Arc::new(CellMemoryTracker::new(quota)));
+        map.insert(
+            cell_id.to_string(),
+            std::sync::Arc::new(CellMemoryTracker::new(quota)),
+        );
     }
 
     /// Requests memory allocation for a specific cell.
@@ -79,7 +83,10 @@ impl MemoryQuotaManager {
         if let Some(tracker) = map.get(cell_id) {
             tracker.try_allocate(bytes)
         } else {
-            Err(format!("Cell {} is not registered with the Memory Quota Manager", cell_id))
+            Err(format!(
+                "Cell {} is not registered with the Memory Quota Manager",
+                cell_id
+            ))
         }
     }
 
@@ -99,21 +106,21 @@ mod tests {
     #[test]
     fn test_memory_quota_enforcement() {
         let manager = MemoryQuotaManager::new(1024); // 1 KB quota
-        
+
         manager.register_cell("heavy-cell", None);
-        
+
         // Allocate 500 bytes (success)
         assert!(manager.allocate("heavy-cell", 500).is_ok());
-        
+
         // Allocate 500 more (success)
         assert!(manager.allocate("heavy-cell", 500).is_ok());
-        
+
         // Allocate 25 more (fail, exceeds quota)
         assert!(manager.allocate("heavy-cell", 25).is_err());
-        
+
         // Free 100 bytes
         manager.free("heavy-cell", 100);
-        
+
         // Allocate 50 bytes (success now)
         assert!(manager.allocate("heavy-cell", 50).is_ok());
     }

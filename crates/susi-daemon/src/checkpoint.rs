@@ -3,9 +3,9 @@
 //! Allows agents to checkpoint their internal KV cache and memory state to disk,
 //! enabling instantaneous resume across daemon restarts or host migrations.
 
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 
 /// Represents a serialized snapshot of a cell's execution state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,19 +33,22 @@ impl CheckpointManager {
         if !dir.exists() {
             let _ = fs::create_dir_all(&dir);
         }
-        Self { checkpoint_dir: dir }
+        Self {
+            checkpoint_dir: dir,
+        }
     }
 
     /// Computes the file path for a cell's checkpoint.
     fn get_path(&self, cell_id: &str) -> PathBuf {
-        self.checkpoint_dir.join(format!("{}.susi_checkpoint", cell_id))
+        self.checkpoint_dir
+            .join(format!("{}.susi_checkpoint", cell_id))
     }
 
     /// Saves a snapshot of the cell's memory to disk.
     pub fn save_checkpoint(&self, checkpoint: &CellCheckpoint) -> std::io::Result<()> {
-        let payload = serde_json::to_vec(checkpoint)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
-            
+        let payload =
+            serde_json::to_vec(checkpoint).map_err(|e| std::io::Error::other(e.to_string()))?;
+
         let path = self.get_path(&checkpoint.cell_id);
         fs::write(path, payload)
     }
@@ -54,15 +57,17 @@ impl CheckpointManager {
     pub fn load_checkpoint(&self, cell_id: &str) -> std::io::Result<CellCheckpoint> {
         let path = self.get_path(cell_id);
         if !path.exists() {
-            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Checkpoint not found"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "Checkpoint not found",
+            ));
         }
-        
+
         let payload = fs::read(path)?;
-        
-        serde_json::from_slice(&payload)
-            .map_err(|e| std::io::Error::other(e.to_string()))
+
+        serde_json::from_slice(&payload).map_err(|e| std::io::Error::other(e.to_string()))
     }
-    
+
     /// Removes a cell's checkpoint.
     pub fn clear_checkpoint(&self, cell_id: &str) -> std::io::Result<()> {
         let path = self.get_path(cell_id);
@@ -81,27 +86,27 @@ mod tests {
     fn test_checkpoint_save_and_load() {
         let dir = std::env::temp_dir().join(format!("susi_test_cp_{}", std::process::id()));
         let manager = CheckpointManager::new(dir.clone());
-        
+
         let cp = CellCheckpoint {
             cell_id: "resilient-agent".to_string(),
             timestamp: 1234567890,
             memory_state: vec![0xCA, 0xFE, 0xBA, 0xBE],
             step_counter: 42,
         };
-        
+
         // Save
         assert!(manager.save_checkpoint(&cp).is_ok());
-        
+
         // Load
         let loaded = manager.load_checkpoint("resilient-agent").unwrap();
         assert_eq!(loaded.cell_id, "resilient-agent");
         assert_eq!(loaded.memory_state, vec![0xCA, 0xFE, 0xBA, 0xBE]);
         assert_eq!(loaded.step_counter, 42);
-        
+
         // Clear
         assert!(manager.clear_checkpoint("resilient-agent").is_ok());
         assert!(manager.load_checkpoint("resilient-agent").is_err());
-        
+
         let _ = fs::remove_dir_all(dir);
     }
 }
