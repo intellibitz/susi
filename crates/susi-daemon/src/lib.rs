@@ -62,6 +62,7 @@ pub mod tool_proxy;
 pub mod topology;
 pub mod identity;
 pub mod fork;
+pub mod scratchfs;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use server::SusiDaemon;

@@ -33,6 +33,8 @@ pub enum SyscallOp {
     Fork = 0x0B,
     /// 0x0C: Verify Ed25519 signature of an action (Bullet 56).
     IdentityVerify = 0x0C,
+    /// 0x0D: Cooperative multitasking yield (Bullet 10).
+    Yield = 0x0D,
 }
 
 impl SyscallOp {
@@ -58,6 +60,7 @@ impl SyscallOp {
             0x0A => Some(Self::TelemetryGet),
             0x0B => Some(Self::Fork),
             0x0C => Some(Self::IdentityVerify),
+            0x0D => Some(Self::Yield),
             _ => None,
         }
     }

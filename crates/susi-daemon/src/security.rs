@@ -173,6 +173,7 @@ fn required_capability_for_op(op: SyscallOp) -> &'static str {
         SyscallOp::TelemetryGet => "telemetry:read",
         SyscallOp::Fork => "memory:fork",
         SyscallOp::IdentityVerify => "identity:verify",
+        SyscallOp::Yield => "process:yield",
     }
 }
 

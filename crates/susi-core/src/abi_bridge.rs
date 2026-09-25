@@ -51,7 +51,8 @@ impl SyscallTopic for SyscallOp {
             | SyscallOp::Heartbeat
             | SyscallOp::TelemetryGet
             | SyscallOp::Fork
-            | SyscallOp::IdentityVerify => None,
+            | SyscallOp::IdentityVerify
+            | SyscallOp::Yield => None,
         }
     }
 }
