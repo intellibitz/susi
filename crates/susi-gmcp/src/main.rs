@@ -71,17 +71,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handle_tool(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
-    // We simulate tool execution for now.
-    // Real implementation routes through `susi_gmcp::mcp_wrapper` etc.
-
-    cell.record_success();
-
-    SyscallResponse {
-        id: req.id,
-        status: SyscallStatus::Success,
-        data: serde_json::json!({ "result": "tool executed successfully" }),
-        receipt: None,
-        latency_us: 1000,
-        message: None,
+    // Dispatch through the same plane-bus tool path as the daemon. When no
+    // tools handler is registered in this process the call fails and the
+    // caller gets an Error status - never a fabricated success.
+    let name = req
+        .payload
+        .get("name")
+        .or_else(|| req.payload.get("tool"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let args = req
+        .payload
+        .get("args")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let workspace = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
+    let started = std::time::Instant::now();
+    let outcome = if name.is_empty() {
+        Err("missing tool name in payload (`name`)".to_string())
+    } else {
+        tokio::task::spawn_blocking(move || {
+            susi_gmcp::plane_tools::execute_tool(&name, &args, &workspace)
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .unwrap_or_else(|e| Err(format!("tool task failed: {e}")))
+    };
+    let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    match outcome {
+        Ok(text) => {
+            cell.record_success();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Success,
+                data: serde_json::json!({ "result": text }),
+                receipt: None,
+                latency_us,
+                message: None,
+            }
+        }
+        Err(e) => {
+            cell.record_failure();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Error,
+                data: serde_json::Value::Null,
+                receipt: None,
+                latency_us,
+                message: Some(e),
+            }
+        }
     }
 }
