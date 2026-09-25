@@ -96,20 +96,27 @@ impl SwarmCell {
         self.manifest.trust_score = (self.manifest.trust_score * 0.95).max(0.1);
     }
 
+    /// Health snapshot carried by heartbeat replies: identity, lifecycle
+    /// state, trust score, and mission counters.
+    #[must_use]
+    pub fn heartbeat_status(&self) -> serde_json::Value {
+        serde_json::json!({
+            "cell_id": self.manifest.cell_id,
+            "role": self.manifest.role,
+            "state": self.state,
+            "trust_score": self.manifest.trust_score,
+            "missions_completed": self.missions_completed,
+            "missions_failed": self.missions_failed,
+        })
+    }
+
     /// Formulates a baseline heartbeat syscall response for monitoring.
     #[must_use]
     pub fn heartbeat_response(&self, req: &SyscallRequest) -> SyscallResponse {
         SyscallResponse {
             id: req.id.clone(),
             status: SyscallStatus::Success,
-            data: serde_json::json!({
-                "cell_id": self.manifest.cell_id,
-                "role": self.manifest.role,
-                "state": self.state,
-                "trust_score": self.manifest.trust_score,
-                "missions_completed": self.missions_completed,
-                "missions_failed": self.missions_failed,
-            }),
+            data: self.heartbeat_status(),
             receipt: None,
             latency_us: 10,
             message: None,
@@ -164,5 +171,22 @@ mod tests {
         cell.record_failure();
         assert_eq!(cell.missions_failed, 1);
         assert!(cell.manifest.trust_score < 1.0);
+    }
+
+    #[test]
+    fn heartbeat_status_reflects_live_counters() {
+        let mut cell = SwarmCell::new(
+            "cell-hb".to_string(),
+            SwarmRole::ToolDriver,
+            "tcp://127.0.0.1:0".to_string(),
+        );
+        cell.set_ready(1);
+        cell.record_success();
+        cell.record_failure();
+        let status = cell.heartbeat_status();
+        assert_eq!(status["cell_id"], "cell-hb");
+        assert_eq!(status["missions_completed"], 1);
+        assert_eq!(status["missions_failed"], 1);
+        assert!(status["trust_score"].as_f64().is_some_and(|t| t < 1.0));
     }
 }

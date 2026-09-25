@@ -60,7 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let _ = socket.write_all(&encoded).await;
                                 }
                             } else if frame.msg_type == MessageType::Heartbeat {
-                                // Provide heartbeat response
+                                // Answer liveness probes with the cell's health snapshot.
+                                let status = cell_clone.lock().await.heartbeat_status();
+                                if let Ok(payload) = serde_json::to_vec(&status) {
+                                    let pong = WireFrame::new(MessageType::Heartbeat, payload);
+                                    let _ = socket.write_all(&pong.encode()).await;
+                                }
                             }
                         }
                     }
