@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-abi = { workspace = true }
 susi-gawd-agents = { workspace = true }
 susi-gawd-swarm = { workspace = true }
 susi-gawd-a2a = { workspace = true }

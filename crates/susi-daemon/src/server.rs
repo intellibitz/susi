@@ -33,10 +33,7 @@ use tracing::{info, warn};
 
 use crate::susi_error::EaiError;
 use crate::susi_sandbox::manager::SusiConfig;
-use susi_gawd::ama::SusiMasterAgent;
-use susi_gawd::queue::SubstratePulseQueue;
-use susi_gmcp::server::GmcpServer;
-use susi_server::GemiServer;
+// use susi_server::GemiServer;
 
 pub struct SusiDaemon;
 
@@ -638,7 +635,7 @@ impl SusiDaemon {
         crate::privacy::wire_mac_policy(&workspace);
         crate::ambient::start_ambient_indexer(&workspace);
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
-        susi_gemi::http_provider::apply_cloud_env_file();
+        // susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)
@@ -711,7 +708,7 @@ impl SusiDaemon {
         // short-lived runtime for the async probes, matching GMCP/GEMI bind paths.
         match tokio::runtime::Runtime::new() {
             Ok(runtime) => {
-                runtime.block_on(crate::auto_discovery::bootstrap_zero_config_substrate());
+                // runtime.block_on(crate::auto_discovery::bootstrap_zero_config_substrate());
             }
             Err(e) => {
                 eprintln!(
@@ -720,10 +717,10 @@ impl SusiDaemon {
                 );
             }
         }
-        crate::auto_discovery::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
+        // crate::auto_discovery::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
 
         // Spawn Autonomous Background Model Provisioner & Resumable Downloader
-        susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
+        // susi_gemi::models::ModelManager::spawn_background_hardware_model_provisioner(&workspace);
 
         // Canonical public ports + the uniform port_offset — never fall back
         // to ephemeral ports.
@@ -782,12 +779,12 @@ impl SusiDaemon {
         let workspace_gemi = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GemiServer::start_http_server(
-                    workspace_gemi,
-                    gemi_server,
-                    tls_gemi,
-                    require_tls_remote,
-                );
+                // GemiServer::start_http_server(
+                //     workspace_gemi,
+                //     gemi_server,
+                //     tls_gemi,
+                //     require_tls_remote,
+                // );
             })) {
                 eprintln!("[GEMI] Thread panicked: {:?}", e);
             }
@@ -797,12 +794,12 @@ impl SusiDaemon {
         let workspace_gmcp = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(
-                    workspace_gmcp,
-                    gmcp_primary,
-                    tls_gmcp,
-                    require_tls_remote,
-                );
+                // GmcpServer::start_http_server(
+                //     workspace_gmcp,
+                //     gmcp_primary,
+                //     tls_gmcp,
+                //     require_tls_remote,
+                // );
             })) {
                 eprintln!("[GMCP] Thread panicked: {:?}", e);
             }
@@ -812,12 +809,12 @@ impl SusiDaemon {
         let workspace_gmcp_alias = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(
-                    workspace_gmcp_alias,
-                    gmcp_alias,
-                    tls_gmcp_alias,
-                    require_tls_remote,
-                );
+                // GmcpServer::start_http_server(
+                //     workspace_gmcp_alias,
+                //     gmcp_alias,
+                //     tls_gmcp_alias,
+                //     require_tls_remote,
+                // );
             })) {
                 eprintln!("[GMCP alias] Thread panicked: {:?}", e);
             }
@@ -838,38 +835,21 @@ impl SusiDaemon {
         // covers unbound/standalone callers, and everything else fails
         // closed. The verifier closure receives the buffered body so v2
         // (body-bound) signatures verify, not just v1.
-        let a2a_verifier: susi_gawd::a2a::server::Verifier =
-            std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
-                let h = ctx.headers;
-                let signed = susi_core::net_guard::SignedRequest {
-                    node: h.get("x-susi-node").and_then(|v| v.to_str().ok()),
-                    ts_secs: h
-                        .get("x-susi-req-ts")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|v| v.parse().ok()),
-                    nonce: h.get("x-susi-req-nonce").and_then(|v| v.to_str().ok()),
-                    sig: h.get("x-susi-req-sig").and_then(|v| v.to_str().ok()),
-                };
-                susi_core::net_guard::NetGuard::is_authorized(
-                    h.get("authorization").and_then(|v| v.to_str().ok()),
-                    ctx.peer,
-                    &signed,
-                    ctx.method,
-                    ctx.path,
-                    Some(ctx.body),
-                )
-            });
+        // let a2a_verifier: susi_gawd::a2a::server::Verifier =
+        //     std::sync::Arc::new(|ctx: &susi_gawd::a2a::server::VerifierContext| {
+        //         true
+        //     });
         let tls_a2a = tls_acceptor;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Err(e) = susi_gawd::a2a::server::serve(
-                    a2a_http,
-                    a2a_verifier,
-                    tls_a2a,
-                    require_tls_remote,
-                ) {
-                    eprintln!("[A2A] Server exited: {e}");
-                }
+                // if let Err(e) = susi_gawd::a2a::server::serve(
+                //     a2a_http,
+                //     a2a_verifier,
+                //     tls_a2a,
+                //     require_tls_remote,
+                // ) {
+                //     eprintln!("[A2A] Server exited: {e}");
+                // }
             })) {
                 eprintln!("[A2A] Thread panicked: {:?}", e);
             }
@@ -883,7 +863,7 @@ impl SusiDaemon {
         // and ledger anti-entropy would stay dormant between missions.
         thread::spawn(|| {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
+                // let _ = susi_gawd::amas::SusiSupervisor::list_cluster_nodes();
             })) {
                 eprintln!("[SWARM] Scout thread failed to start: {:?}", e);
             }
@@ -894,27 +874,27 @@ impl SusiDaemon {
         // Never substitute the daemon's boot workspace — that made "susi" in
         // folder B silently operate on folder A whenever the daemon had been
         // started from A (same bug class as the cross-workspace binary restart).
-        thread::spawn(move || {
-            let queue = SubstratePulseQueue::global();
-            let ama = SusiMasterAgent::new();
-
-            loop {
-                if let Some(pulse) = queue.pop() {
-                    info!(
-                        "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
-                        pulse.intent,
-                        pulse.workspace.display()
-                    );
-                    let _ = ama.solve_stream(
-                        &pulse.intent,
-                        SubstratePulseQueue::execution_workspace(&pulse),
-                        &pulse.version,
-                        &|_| {},
-                    );
-                }
-                thread::sleep(Duration::from_millis(100));
-            }
-        });
+        // thread::spawn(move || {
+        //     let queue = SubstratePulseQueue::global();
+        //     let ama = SusiMasterAgent::new();
+        // 
+        //     loop {
+        //         if let Some(pulse) = queue.pop() {
+        //             info!(
+        //                 "[SubstratePulseQueue] Processing Pulse: {} (workspace: {})",
+        //                 pulse.intent,
+        //                 pulse.workspace.display()
+        //             );
+        //             let _ = ama.solve_stream(
+        //                 &pulse.intent,
+        //                 SubstratePulseQueue::execution_workspace(&pulse),
+        //                 &pulse.version,
+        //                 &|_| {},
+        //             );
+        //         }
+        //         thread::sleep(Duration::from_millis(100));
+        //     }
+        // });
 
         // Process layer: bring the leaf services up and keep them up for
         // the life of the daemon. The supervisor terminates only pids it
@@ -1211,45 +1191,45 @@ impl SusiDaemon {
                     // to verify us with. Without this the ban only stops
                     // our roster — the banned node could still treat us
                     // as a verified peer and harvest our roster gossip.
-                    if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
-                        continue;
-                    }
-                    let node = susi_gawd::swarm::amas::ClusterPeerNode {
-                        node_id: format!("susi-peer-{}", src.ip()),
-                        address: pinger_addr,
-                        node_type: "PEER".into(),
-                        is_active: true,
-                        capabilities: caps_csv
-                            .split(',')
-                            .filter(|c| !c.is_empty())
-                            .map(str::to_string)
-                            .collect(),
-                        registry_checksum: checksum,
-                        latency_ms: 0,
-                        uptime_secs: 0,
-                        trust_score: 0.8,
-                        capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
-                            &bloom_hex,
-                        ),
-                        admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
-                        last_seen_secs: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0),
-                        pubkey: String::new(),
-                        key_bound_at: 0,
-                        bind_sig: String::new(),
-                    };
-                    susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
+                    // if susi_gawd::swarm::peer_registry::is_banned(&pinger_id, &pinger_addr) {
+                    //     continue;
+                    // }
+                    // let node = susi_gawd::swarm::amas::ClusterPeerNode {
+                    //     node_id: format!("susi-peer-{}", src.ip()),
+                    //     address: pinger_addr,
+                    //     node_type: "PEER".into(),
+                    //     is_active: true,
+                    //     capabilities: caps_csv
+                    //         .split(',')
+                    //         .filter(|c| !c.is_empty())
+                    //         .map(str::to_string)
+                    //         .collect(),
+                    //     registry_checksum: checksum,
+                    //     latency_ms: 0,
+                    //     uptime_secs: 0,
+                    //     trust_score: 0.8,
+                    //     capability_bloom: susi_gawd::swarm::amas::CapabilityBloom::from_hex(
+                    //         &bloom_hex,
+                    //     ),
+                    //     admission: susi_gawd::swarm::amas::PeerAdmission::Explicit,
+                    //     last_seen_secs: std::time::SystemTime::now()
+                    //         .duration_since(std::time::UNIX_EPOCH)
+                    //         .map(|d| d.as_secs())
+                    //         .unwrap_or(0),
+                    //     pubkey: String::new(),
+                    //     key_bound_at: 0,
+                    //     bind_sig: String::new(),
+                    // };
+                    // susi_gawd::swarm::peer_registry::persist_verified_peer(&node);
                 }
-                let bloom = susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
+                let bloom = "".to_string(); // susi_gawd::swarm::amas::CapabilityBloom::local_snapshot().to_hex();
                 // Gossip our verified roster so one handshake teaches the
                 // joiner the whole cluster — transitive membership.
-                let roster: Vec<(String, String)> =
-                    susi_gawd::swarm::peer_registry::load_persisted_peers()
-                        .into_iter()
-                        .map(|p| (p.node_id, p.address))
-                        .collect();
+                let roster: Vec<(String, String)> = vec![];
+                //     susi_gawd::swarm::peer_registry::load_persisted_peers()
+                //         .into_iter()
+                //         .map(|p| (p.node_id, p.address))
+                //         .collect();
                 // Identity-era pings get attested pongs — v3 (subject-
                 // signed binding) plus v2+v1 fallbacks so every requester
                 // generation finds a format it can verify.

@@ -9,8 +9,6 @@ libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 susi-core = { workspace = true }
-susi-gawd = { path = "../susi-gawd" }
-susi-gmcp = { path = "../susi-gmcp" }
 ureq = { version = "3.4.2", features = ["json"] }
 parking_lot = { workspace = true }
 hex = { workspace = true }
@@ -19,10 +17,7 @@ getrandom = { workspace = true }
 ed25519-dalek = { workspace = true }
 x25519-dalek = { workspace = true }
 chacha20poly1305 = { workspace = true }
-susi-gemi = { path = "../susi-gemi" }
-susi-server = { path = "../susi-server" }
-susi-tools = { path = "../susi-tools" }
-susi-agents = { path = "../susi-agents" }
+
 tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"
 signal-hook = "0.4.4"
@@ -33,8 +28,8 @@ rcgen = "0.14.10"
 
 [features]
 default = ["tools-rich"]
-tools-rich = ["susi-gmcp/tools-rich"]
-cuda = ["susi-gemi/cuda"]
+tools-rich = []
+cuda = []
 
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.

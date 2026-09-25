@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-abi = { workspace = true }
 crossbeam = "0.8"
 regex = "1.13"
 dashmap = { workspace = true }

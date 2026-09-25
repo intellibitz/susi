@@ -9,10 +9,24 @@ use std::path::Path;
 
 /// Register in-process plane-bus handlers for gemi / gawd / tools / agents.
 pub fn wire_plane_bus() {
-    susi_gemi::plane_handler::register();
-    susi_gawd::plane_handler::register();
-    susi_tools::plane_handler::register();
-    susi_agents::plane_handler::register();
+    // Spawn the decoupled GEMI micro-daemon as a Swarm Cell
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gemi"))
+            .spawn();
+    });
+    
+    // Spawn the decoupled GMCP micro-daemon as a Swarm Cell
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gmcp"))
+            .spawn();
+    });
+    // Spawn the decoupled GAWD micro-daemon as a Swarm Cell
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new(std::env::current_exe().unwrap_or_else(|_| "susi-daemon".into()).parent().unwrap().join("susi-gawd"))
+            .spawn();
+    });
+    // susi_tools::plane_handler::register();
+    // susi_agents::plane_handler::register();
 }
 
 /// Wire `EngineHooks` so `ToolRegistry` and `susi-gmcp` tool handlers can reach
@@ -20,7 +34,7 @@ pub fn wire_plane_bus() {
 /// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
     wire_plane_bus();
-    susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
+    // susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
 
 /// CLI composition root: hooks → extension packs → cloud.env → auto-prime.
@@ -31,7 +45,7 @@ pub fn wire_cli_substrate(substrate: &Path) {
     wire_plane_bus();
     wire_engine_hooks();
     let _ = crate::susi_sandbox::extensions::ensure_extensions_substrate();
-    susi_gemi::http_provider::apply_cloud_env_file();
+    // susi_gemi::http_provider::apply_cloud_env_file();
     let _ = std::fs::create_dir_all(substrate);
     susi_core::context_graph::ContextGraph::init_global_storage(
         substrate.join("context_graph.jsonl"),

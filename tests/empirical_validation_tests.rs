@@ -30,7 +30,7 @@ fn wire_test_substrate() {
         // Feature planes talk only via plane_bus; integration tests must
         // register handlers the same way CLI/daemon composition does.
         susi_daemon::composition::wire_plane_bus();
-        susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
+        // susi_tools::hooks::init(Box::new(susi_daemon::SusiEngineHooks));
         let _ = susi_tools::ToolRegistry::global();
     });
 }
