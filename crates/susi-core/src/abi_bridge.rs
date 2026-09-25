@@ -9,9 +9,11 @@
 
 use crate::capture::ToolReceipt;
 use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
+use crate::plane_bus::PlaneBus;
 use std::path::Path;
+use std::time::Instant;
 use susi_abi::evidence::{GroundedClaim, ReceiptStatus};
-use susi_abi::syscall::SyscallOp;
+use susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
 
 /// Maps ABI syscall opcodes to susi-core's `plane_bus` topic-string dispatch,
 /// where a genuine 1:1 correspondence exists today.
@@ -49,6 +51,62 @@ impl SyscallTopic for SyscallOp {
             | SyscallOp::Heartbeat
             | SyscallOp::TelemetryGet => None,
         }
+    }
+}
+
+/// Executes a syscall request against `plane_bus`, for the opcodes
+/// [`SyscallTopic::plane_bus_topic`] maps. An opcode with no mapping yet
+/// returns `SyscallStatus::NotFound` rather than guessing a topic; a mapped
+/// opcode whose plane never registered (composition root didn't wire that
+/// feature crate in) surfaces as `SyscallStatus::Error` with `plane_bus`'s
+/// own "no handler for topic" message.
+pub fn dispatch_syscall(req: &SyscallRequest) -> SyscallResponse {
+    let Some(topic) = req.op.plane_bus_topic() else {
+        return SyscallResponse {
+            id: req.id.clone(),
+            status: SyscallStatus::NotFound,
+            data: serde_json::Value::Null,
+            receipt: None,
+            latency_us: 0,
+            message: Some(format!("{:?} has no plane_bus mapping yet", req.op)),
+        };
+    };
+    let start = Instant::now();
+    let result = PlaneBus::global().request(topic, req.payload.clone());
+    wrap_syscall_result(&req.id, result, start.elapsed())
+}
+
+/// Pure response-shaping split out of [`dispatch_syscall`] so it's unit
+/// testable without touching `PlaneBus::global()` — that bus is a real,
+/// machine-wide IPC rendezvous shared with any live `susi daemon-start`
+/// process, not an in-process mock, so a test must never dispatch through it
+/// with a real topic (either it silently calls into the live daemon, or
+/// registering a fake handler to make the test deterministic would advertise
+/// this test process as a real handler the live daemon could route
+/// production requests into).
+fn wrap_syscall_result(
+    id: &str,
+    result: Result<serde_json::Value, String>,
+    elapsed: std::time::Duration,
+) -> SyscallResponse {
+    let latency_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
+    match result {
+        Ok(data) => SyscallResponse {
+            id: id.to_string(),
+            status: SyscallStatus::Success,
+            data,
+            receipt: None,
+            latency_us,
+            message: None,
+        },
+        Err(message) => SyscallResponse {
+            id: id.to_string(),
+            status: SyscallStatus::Error,
+            data: serde_json::Value::Null,
+            receipt: None,
+            latency_us,
+            message: Some(message),
+        },
     }
 }
 
@@ -224,5 +282,49 @@ mod tests {
         ] {
             assert_eq!(unmapped.plane_bus_topic(), None, "{unmapped:?}");
         }
+    }
+
+    fn syscall_req(op: SyscallOp) -> SyscallRequest {
+        SyscallRequest {
+            id: "req-1".into(),
+            caller_id: "test".into(),
+            op,
+            token: None,
+            workspace: None,
+            payload: serde_json::json!({}),
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn dispatch_syscall_reports_not_found_for_unmapped_opcodes() {
+        let resp = dispatch_syscall(&syscall_req(SyscallOp::Heartbeat));
+        assert_eq!(resp.id, "req-1");
+        assert_eq!(resp.status, SyscallStatus::NotFound);
+        assert!(resp.message.unwrap().contains("Heartbeat"));
+    }
+
+    #[test]
+    fn wrap_syscall_result_maps_ok_and_err_correctly() {
+        let ok = wrap_syscall_result(
+            "id-1",
+            Ok(serde_json::json!({"x": 1})),
+            std::time::Duration::from_micros(5),
+        );
+        assert_eq!(ok.id, "id-1");
+        assert_eq!(ok.status, SyscallStatus::Success);
+        assert_eq!(ok.data, serde_json::json!({"x": 1}));
+        assert_eq!(ok.latency_us, 5);
+        assert!(ok.message.is_none());
+
+        let err = wrap_syscall_result(
+            "id-2",
+            Err("boom".to_string()),
+            std::time::Duration::from_micros(9),
+        );
+        assert_eq!(err.status, SyscallStatus::Error);
+        assert_eq!(err.data, serde_json::Value::Null);
+        assert_eq!(err.latency_us, 9);
+        assert_eq!(err.message.as_deref(), Some("boom"));
     }
 }
