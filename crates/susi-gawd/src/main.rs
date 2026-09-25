@@ -71,14 +71,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn handle_plan(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
-    cell.record_success();
-
-    SyscallResponse {
-        id: req.id,
-        status: SyscallStatus::Success,
-        data: serde_json::json!({ "result": "plan executed successfully" }),
-        receipt: None,
-        latency_us: 1000,
-        message: None,
+    // Run the mission through the real master agent; an empty goal is an
+    // error, never a fabricated "plan executed" success.
+    let goal = req
+        .payload
+        .get("goal")
+        .or_else(|| req.payload.get("intent"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let workspace = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
+    let started = std::time::Instant::now();
+    let outcome = if goal.trim().is_empty() {
+        Err("missing goal in payload (`goal`)".to_string())
+    } else {
+        tokio::task::spawn_blocking(move || {
+            susi_gawd::ama::SusiMasterAgent::new().solve_clean(
+                &goal,
+                &workspace,
+                env!("CARGO_PKG_VERSION"),
+            )
+        })
+        .await
+        .map_err(|e| format!("planner task failed: {e}"))
+    };
+    let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    match outcome {
+        Ok(answer) => {
+            cell.record_success();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Success,
+                data: serde_json::json!({ "result": answer }),
+                receipt: None,
+                latency_us,
+                message: None,
+            }
+        }
+        Err(e) => {
+            cell.record_failure();
+            SyscallResponse {
+                id: req.id,
+                status: SyscallStatus::Error,
+                data: serde_json::Value::Null,
+                receipt: None,
+                latency_us,
+                message: Some(e),
+            }
+        }
     }
 }
