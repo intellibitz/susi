@@ -39,7 +39,7 @@ jobs:
     # for production use. Re-add once there's a compliant Windows backend.
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -80,7 +80,7 @@ jobs:
         run: shasum -a 256 "${{ matrix.artifact }}" > "${{ matrix.artifact }}.sha256"
 
       - name: Upload Artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             ${{ matrix.artifact }}
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -170,7 +170,7 @@ jobs:
         run: shasum -a 256 susi-linux-x86_64-cuda.tar.gz > susi-linux-x86_64-cuda.tar.gz.sha256
 
       - name: Upload Artifacts
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             susi-linux-x86_64-cuda.tar.gz
@@ -186,7 +186,7 @@ jobs:
     if: success()
     steps:
       - name: Checkout Source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prune semver releases beyond retention
         env:

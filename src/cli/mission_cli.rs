@@ -131,18 +131,31 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             let bind_address: String = gemi_cfg
                 .get("bind_address")
                 .unwrap_or_else(|| "127.0.0.1".to_string());
-            let listener = match std::net::TcpListener::bind(format!(
-                "{}:{}",
-                bind_address,
-                gemi_cfg.gemi_port()
-            )) {
-                Ok(l) => l,
+            // A specific non-loopback bind would strand internal callers
+            // dialing 127.0.0.1 — keep a loopback socket alongside it.
+            // Wildcard binds already cover loopback.
+            let mut listeners = Vec::new();
+            let wildcard = matches!(bind_address.as_str(), "0.0.0.0" | "::");
+            if !wildcard && !susi_daemon::tls::is_loopback(&bind_address) {
+                match std::net::TcpListener::bind(format!("127.0.0.1:{}", gemi_cfg.gemi_port())) {
+                    Ok(l) => listeners.push(l),
+                    Err(e) => eprintln!(
+                        "[GEMI] Loopback bind on {} failed (external clients still served): {e}",
+                        gemi_cfg.gemi_port()
+                    ),
+                }
+            }
+            match std::net::TcpListener::bind(format!("{}:{}", bind_address, gemi_cfg.gemi_port()))
+            {
+                Ok(l) => listeners.push(l),
                 Err(e) => {
                     eprintln!("[GEMI] Failed to bind port {}: {e}", gemi_cfg.gemi_port());
                     return std::process::ExitCode::FAILURE;
                 }
             };
-            GemiServer::start_http_server((*cwd).to_path_buf(), listener);
+            let tls = susi_daemon::tls::endpoint_acceptor(&bind_address, global_dir);
+            let require_tls_remote = susi_daemon::tls::https_only();
+            GemiServer::start_http_server((*cwd).to_path_buf(), listeners, tls, require_tls_remote);
         }
         Commands::Status => {
             let id_file = global_dir.join("identity.key");

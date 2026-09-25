@@ -26,6 +26,10 @@ susi-agents = { path = "../susi-agents" }
 tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"
 signal-hook = "0.4.4"
+tokio-rustls = "0.26"
+rustls = "0.23"
+rustls-pemfile = "2"
+rcgen = "0.14.10"
 
 [features]
 default = ["tools-rich"]

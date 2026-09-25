@@ -15,11 +15,142 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use ra2a::server::{a2a_router, ServerState};
+use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use susi_gawd_agents::GawdAgentFleet;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_rustls::server::TlsStream;
+use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
+
+// Dual-protocol transport: the accept loop sniffs each connection's first
+// byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
+// configured; anything else is plain HTTP — internal `http://127.0.0.1`
+// callers are unaffected. `require_tls_remote` drops non-TLS bytes from
+// off-host peers; loopback plaintext is always allowed.
+enum MaybeTls {
+    Plain(tokio::net::TcpStream),
+    Tls(Box<TlsStream<tokio::net::TcpStream>>),
+}
+
+impl AsyncRead for MaybeTls {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for MaybeTls {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_shutdown(cx),
+        }
+    }
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[io::IoSlice<'_>],
+    ) -> std::task::Poll<io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write_vectored(cx, bufs),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write_vectored(cx, bufs),
+        }
+    }
+    fn is_write_vectored(&self) -> bool {
+        match self {
+            Self::Plain(s) => s.is_write_vectored(),
+            Self::Tls(s) => s.is_write_vectored(),
+        }
+    }
+}
+
+/// An axum `Listener` that serves both plain HTTP and TLS on each bound
+/// socket by peeking at the first byte before deciding the transport.
+/// `inner` is at most two sockets — loopback plus a specific external bind.
+struct DualListener {
+    inner: Vec<tokio::net::TcpListener>,
+    tls: Option<TlsAcceptor>,
+    require_tls_remote: bool,
+}
+
+impl axum::serve::Listener for DualListener {
+    type Io = MaybeTls;
+    type Addr = SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let accepted = if self.inner.len() > 1 {
+                tokio::select! {
+                    r = self.inner[0].accept() => r,
+                    r = self.inner[1].accept() => r,
+                }
+            } else {
+                self.inner[0].accept().await
+            };
+            let (stream, addr) = match accepted {
+                Ok(pair) => pair,
+                Err(e) => {
+                    eprintln!("[A2A] Accept failed: {e}");
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    continue;
+                }
+            };
+            let mut probe = [0u8; 1];
+            let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
+            if is_tls {
+                if let Some(acceptor) = &self.tls {
+                    match acceptor.accept(stream).await {
+                        Ok(s) => return (MaybeTls::Tls(Box::new(s)), addr),
+                        Err(e) => {
+                            eprintln!("[A2A] TLS handshake failed for {addr}: {e}");
+                            continue;
+                        }
+                    }
+                }
+                continue;
+            }
+            if self.require_tls_remote && !addr.ip().is_loopback() {
+                continue;
+            }
+            return (MaybeTls::Plain(stream), addr);
+        }
+    }
+
+    fn local_addr(&self) -> io::Result<Self::Addr> {
+        self.inner[0].local_addr()
+    }
+}
 
 /// The agent card is public discovery metadata; every task-bearing route
 /// (JSON-RPC, REST, SSE) requires the bearer token.
@@ -94,21 +225,47 @@ async fn auth_guard(
 /// dedicated OS threads (never on the axum runtime): the fleet's provider
 /// dispatch owns a `current_thread` runtime and `block_on`s it, which panics
 /// inside any enclosing tokio runtime.
-pub fn serve(listener: TcpListener, verifier: Verifier) -> std::io::Result<()> {
+pub fn serve(
+    listeners: Vec<TcpListener>,
+    verifier: Verifier,
+    tls: Option<TlsAcceptor>,
+    require_tls_remote: bool,
+) -> std::io::Result<()> {
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
-        listener.set_nonblocking(true)?;
-        let listener = tokio::net::TcpListener::from_std(listener)?;
+        let mut inner = Vec::with_capacity(listeners.len());
+        for listener in listeners {
+            listener.set_nonblocking(true)?;
+            inner.push(tokio::net::TcpListener::from_std(listener)?);
+        }
         let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
         let mut card = executor.agent_card();
         // Advertise the absolute endpoint — remote agents need a dialable URL
         // for follow-up JSON-RPC calls, not the relative forms the card
-        // defaults to.
-        if let Ok(addr) = listener.local_addr() {
+        // defaults to. https when TLS is configured (both protocols are
+        // served on the port; the card should point at the safer one), and
+        // the non-loopback socket when one is bound.
+        let scheme = if tls.is_some() { "https" } else { "http" };
+        let advertise = inner
+            .iter()
+            .filter_map(|l| l.local_addr().ok())
+            .find(|a| !a.ip().is_loopback())
+            .or_else(|| inner.first().and_then(|l| l.local_addr().ok()));
+        if let Some(addr) = advertise {
             for interface in &mut card.supported_interfaces {
-                interface.url = format!("http://{addr}{}", interface.url);
+                interface.url = format!("{scheme}://{addr}{}", interface.url);
             }
         }
+        // `tap_io` wrap is what makes `ConnectInfo<SocketAddr>` resolve on a
+        // custom listener: axum provides `Connected` impls for
+        // `IncomingStream<TapIo<L,_>>`, not for arbitrary listeners.
+        use axum::serve::ListenerExt;
+        let dual = DualListener {
+            inner,
+            tls,
+            require_tls_remote,
+        }
+        .tap_io(|_| {});
         // Own the task store so retention is bounded: ra2a's default
         // InMemoryTaskStore grows forever, and its TaskVersion/GetTaskFuture
         // types aren't exported so a bounded TaskStore impl can't be written
@@ -133,7 +290,7 @@ pub fn serve(listener: TcpListener, verifier: Verifier) -> std::io::Result<()> {
             "[A2A] HTTP available: JSON-RPC /, SSE /stream, card /.well-known/agent-card.json"
         );
         axum::serve(
-            listener,
+            dual,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .await

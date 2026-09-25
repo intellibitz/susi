@@ -73,6 +73,106 @@ use tokio_stream::wrappers::ReceiverStream;
 use susi_core::context_graph::ContextGraph;
 use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
 
+// Dual-protocol transport: the accept loop sniffs each connection's first
+// byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
+// configured; anything else is plain HTTP — internal `http://127.0.0.1`
+// callers are unaffected. `require_tls_remote` drops non-TLS bytes from
+// off-host peers; loopback plaintext is always allowed.
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::server::TlsStream;
+
+enum MaybeTls {
+    Plain(tokio::net::TcpStream),
+    Tls(Box<TlsStream<tokio::net::TcpStream>>),
+}
+
+impl AsyncRead for MaybeTls {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for MaybeTls {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_shutdown(cx),
+        }
+    }
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write_vectored(cx, bufs),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write_vectored(cx, bufs),
+        }
+    }
+    fn is_write_vectored(&self) -> bool {
+        match self {
+            Self::Plain(s) => s.is_write_vectored(),
+            Self::Tls(s) => s.is_write_vectored(),
+        }
+    }
+}
+
+/// Peek at the connection's first byte and wrap it in TLS when it is a
+/// ClientHello. Returns `None` when the connection must be dropped.
+async fn negotiate_transport(
+    stream: tokio::net::TcpStream,
+    peer: std::net::IpAddr,
+    tls: Option<&TlsAcceptor>,
+    require_tls_remote: bool,
+) -> Option<MaybeTls> {
+    let mut probe = [0u8; 1];
+    let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
+    if is_tls {
+        let acceptor = tls?;
+        return match acceptor.accept(stream).await {
+            Ok(s) => Some(MaybeTls::Tls(Box::new(s))),
+            Err(e) => {
+                eprintln!("[GEMI REST] TLS handshake failed for {peer}: {e}");
+                None
+            }
+        };
+    }
+    if require_tls_remote && !peer.is_loopback() {
+        return None;
+    }
+    Some(MaybeTls::Plain(stream))
+}
+
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 
 fn full_body<T: Into<Bytes>>(chunk: T) -> BoxBody {
@@ -120,16 +220,21 @@ fn json_response(status: StatusCode, payload: &serde_json::Value) -> Response<Bo
 pub struct GemiServer;
 
 impl GemiServer {
-    pub fn start_http_server(workspace: PathBuf, listener: std::net::TcpListener) {
-        let addr = listener
-            .local_addr()
-            .map(|a| a.to_string())
-            .unwrap_or_default();
-        eprintln!("[GEMI REST] Substrate active on {}", addr);
-        eprintln!(
-            "[GEMI Web] UI Interface: http://localhost:{}/app",
-            listener.local_addr().map(|a| a.port()).unwrap_or(0)
-        );
+    pub fn start_http_server(
+        workspace: PathBuf,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+    ) {
+        let scheme = if tls.is_some() { "https" } else { "http" };
+        for listener in &listeners {
+            let addr = listener
+                .local_addr()
+                .map(|a| a.to_string())
+                .unwrap_or_default();
+            eprintln!("[GEMI REST] Substrate active on {}", addr);
+            eprintln!("[GEMI Web] UI Interface: {}://{}/app", scheme, addr);
+        }
 
         // The vendored susi_core copy owns its own ContextGraph::global() —
         // bind the same workspace JSONL log the daemon binds for its copy so
@@ -152,23 +257,31 @@ impl GemiServer {
         };
 
         rt.block_on(async move {
-            if let Err(e) = listener.set_nonblocking(true) {
-                eprintln!("[GEMI REST] Failed to set listener non-blocking: {}. GEMI HTTP is unavailable.", e);
-                return;
-            }
-            let listener = match tokio::net::TcpListener::from_std(listener) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("[GEMI REST] Failed to adopt listener into tokio runtime: {}. GEMI HTTP is unavailable.", e);
-                    return;
-                }
-            };
             let workspace = Arc::new(workspace);
             let capacity = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default().gemi_max_concurrent_requests();
             let admission = Arc::new(tokio::sync::Semaphore::new(capacity.min(tokio::sync::Semaphore::MAX_PERMITS)));
 
-            loop {
+            // One accept loop per bound socket (loopback + external when the
+            // bind address is a specific non-loopback IP).
+            let mut accept_loops = Vec::new();
+            for std_listener in listeners {
+                if let Err(e) = std_listener.set_nonblocking(true) {
+                    eprintln!("[GEMI REST] Failed to set listener non-blocking: {}. Socket dropped.", e);
+                    continue;
+                }
+                let listener = match tokio::net::TcpListener::from_std(std_listener) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        eprintln!("[GEMI REST] Failed to adopt listener into tokio runtime: {}. Socket dropped.", e);
+                        continue;
+                    }
+                };
+                let workspace = Arc::clone(&workspace);
+                let admission = Arc::clone(&admission);
+                let tls = tls.clone();
+                accept_loops.push(tokio::spawn(async move {
+                    loop {
                 let (stream, peer) = match listener.accept().await {
                     Ok(pair) => pair,
                     Err(e) => {
@@ -179,9 +292,15 @@ impl GemiServer {
                 let workspace = Arc::clone(&workspace);
                 let peer_ip = peer.ip();
                 let admission = Arc::clone(&admission);
+                let tls = tls.clone();
 
                 tokio::spawn(async move {
-                    let io = TokioIo::new(stream);
+                    let Some(io) =
+                        negotiate_transport(stream, peer_ip, tls.as_ref(), require_tls_remote).await
+                    else {
+                        return;
+                    };
+                    let io = TokioIo::new(io);
                     let service = service_fn(move |req| {
                         let workspace = Arc::clone(&workspace);
                         let admission = Arc::clone(&admission);
@@ -194,6 +313,11 @@ impl GemiServer {
                         eprintln!("[GEMI REST] Connection error: {}", e);
                     }
                 });
+            }
+                }));
+            }
+            for accept_loop in accept_loops {
+                let _ = accept_loop.await;
             }
         });
     }
@@ -1576,6 +1700,68 @@ fn approx_tokens(text: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Drive one accepted connection through `negotiate_transport` after the
+    /// client pre-writes `first` bytes for the peek to classify.
+    async fn negotiate_with_prefix(first: &[u8], require_tls_remote: bool) -> Option<MaybeTls> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let first = first.to_vec();
+        let client = tokio::spawn(async move {
+            let c = tokio::net::TcpStream::connect(addr).await.unwrap();
+            c.writable().await.unwrap();
+            c.try_write(&first).unwrap();
+            c
+        });
+        let (stream, peer) = listener.accept().await.unwrap();
+        let out = negotiate_transport(stream, peer.ip(), None, require_tls_remote).await;
+        let _client = client.await.unwrap();
+        out
+    }
+
+    #[tokio::test]
+    async fn negotiate_transport_serves_plain_http() {
+        // ASCII 'G' of "GET" is not a TLS record — plain HTTP proceeds.
+        assert!(
+            negotiate_with_prefix(b"GET /v1/models HTTP/1.1\r\n\r\n", false)
+                .await
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn negotiate_transport_drops_tls_bytes_without_acceptor() {
+        // 0x16 is a TLS handshake record; with no configured acceptor the
+        // connection must be refused rather than served plaintext-garbage.
+        assert!(
+            negotiate_with_prefix(&[0x16, 0x03, 0x01, 0x00, 0x2a], false)
+                .await
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn negotiate_transport_requires_tls_only_for_remote_peers() {
+        // require_tls_remote exempts loopback (internal callers use plain
+        // http on 127.0.0.1) but drops plaintext from off-host peers.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let c = tokio::net::TcpStream::connect(addr).await.unwrap();
+            c.writable().await.unwrap();
+            c.try_write(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+            c
+        });
+        let (stream, _) = listener.accept().await.unwrap();
+        // Remote peer speaking plaintext under require_tls_remote: dropped.
+        let remote = std::net::IpAddr::V4(std::net::Ipv4Addr::new(203, 0, 113, 7));
+        assert!(
+            negotiate_transport(stream, remote, None, true)
+                .await
+                .is_none()
+        );
+        let _client = client.await.unwrap();
+    }
 
     #[test]
     fn cap_completion_enforces_word_and_char_budgets() {

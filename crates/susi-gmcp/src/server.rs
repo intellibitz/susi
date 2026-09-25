@@ -23,7 +23,106 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio_rustls::server::TlsStream;
+use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
+
+// Dual-protocol transport: the accept loop sniffs each connection's first
+// byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
+// configured; anything else is plain HTTP — internal `http://127.0.0.1`
+// callers are unaffected. `require_tls_remote` drops non-TLS bytes from
+// off-host peers; loopback plaintext is always allowed.
+enum MaybeTls {
+    Plain(tokio::net::TcpStream),
+    Tls(Box<TlsStream<tokio::net::TcpStream>>),
+}
+
+impl AsyncRead for MaybeTls {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for MaybeTls {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_shutdown(cx),
+        }
+    }
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => std::pin::Pin::new(s).poll_write_vectored(cx, bufs),
+            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write_vectored(cx, bufs),
+        }
+    }
+    fn is_write_vectored(&self) -> bool {
+        match self {
+            Self::Plain(s) => s.is_write_vectored(),
+            Self::Tls(s) => s.is_write_vectored(),
+        }
+    }
+}
+
+/// Peek at the connection's first byte and wrap it in TLS when it is a
+/// ClientHello. Returns `None` when the connection must be dropped.
+async fn negotiate_transport(
+    stream: tokio::net::TcpStream,
+    peer: std::net::IpAddr,
+    tls: Option<&TlsAcceptor>,
+    require_tls_remote: bool,
+) -> Option<MaybeTls> {
+    let mut probe = [0u8; 1];
+    let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
+    if is_tls {
+        let acceptor = tls?;
+        return match acceptor.accept(stream).await {
+            Ok(s) => Some(MaybeTls::Tls(Box::new(s))),
+            Err(e) => {
+                eprintln!("[GMCP] TLS handshake failed for {peer}: {e}");
+                None
+            }
+        };
+    }
+    if require_tls_remote && !peer.is_loopback() {
+        return None;
+    }
+    Some(MaybeTls::Plain(stream))
+}
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;
@@ -89,7 +188,12 @@ impl GmcpServer {
         });
     }
 
-    pub fn start_http_server(workspace: PathBuf, listener: std::net::TcpListener) {
+    pub fn start_http_server(
+        workspace: PathBuf,
+        listeners: Vec<std::net::TcpListener>,
+        tls: Option<TlsAcceptor>,
+        require_tls_remote: bool,
+    ) {
         let runtime = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
             Err(e) => {
@@ -98,17 +202,6 @@ impl GmcpServer {
             }
         };
         runtime.block_on(async move {
-            if let Err(e) = listener.set_nonblocking(true) {
-                eprintln!("[GMCP] Listener failed: {e}");
-                return;
-            }
-            let listener = match tokio::net::TcpListener::from_std(listener) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("[GMCP] Listener failed: {e}");
-                    return;
-                }
-            };
             let cfg =
                 crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
             let permits = Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrent_agents()));
@@ -119,33 +212,71 @@ impl GmcpServer {
             }
             let service = http_service(application);
             eprintln!("[GMCP] Streamable HTTP available at /mcp (alias /messages)");
-            loop {
-                let (stream, peer) = match listener.accept().await {
-                    Ok(pair) => pair,
+
+            // One accept loop per bound socket (loopback + external when the
+            // bind address is a specific non-loopback IP).
+            let mut accept_loops = Vec::new();
+            for std_listener in listeners {
+                if let Err(e) = std_listener.set_nonblocking(true) {
+                    eprintln!("[GMCP] Listener failed: {e}");
+                    continue;
+                }
+                let listener = match tokio::net::TcpListener::from_std(std_listener) {
+                    Ok(l) => l,
                     Err(e) => {
-                        eprintln!("[GMCP] Accept failed: {e}");
+                        eprintln!("[GMCP] Listener failed: {e}");
                         continue;
                     }
                 };
-                let permit = match permits.clone().try_acquire_owned() {
-                    Ok(p) => p,
-                    Err(_) => {
-                        drop(stream);
-                        continue;
-                    }
-                };
+                let permits = Arc::clone(&permits);
                 let service = service.clone();
-                tokio::spawn(async move {
-                    let _permit = permit;
-                    let svc =
-                        service_fn(move |req| handle_request(req, service.clone(), peer.ip()));
-                    if let Err(e) = Builder::new(TokioExecutor::new())
-                        .serve_connection(TokioIo::new(stream), svc)
-                        .await
-                    {
-                        eprintln!("[GMCP] Connection failed: {e}");
+                let tls = tls.clone();
+                accept_loops.push(tokio::spawn(async move {
+                    loop {
+                        let (stream, peer) = match listener.accept().await {
+                            Ok(pair) => pair,
+                            Err(e) => {
+                                eprintln!("[GMCP] Accept failed: {e}");
+                                continue;
+                            }
+                        };
+                        let permit = match permits.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                drop(stream);
+                                continue;
+                            }
+                        };
+                        let service = service.clone();
+                        let peer_ip = peer.ip();
+                        let tls = tls.clone();
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            let Some(io) = negotiate_transport(
+                                stream,
+                                peer_ip,
+                                tls.as_ref(),
+                                require_tls_remote,
+                            )
+                            .await
+                            else {
+                                return;
+                            };
+                            let svc = service_fn(move |req| {
+                                handle_request(req, service.clone(), peer_ip)
+                            });
+                            if let Err(e) = Builder::new(TokioExecutor::new())
+                                .serve_connection(TokioIo::new(io), svc)
+                                .await
+                            {
+                                eprintln!("[GMCP] Connection failed: {e}");
+                            }
+                        });
                     }
-                });
+                }));
+            }
+            for accept_loop in accept_loops {
+                let _ = accept_loop.await;
             }
         });
     }

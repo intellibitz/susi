@@ -47,6 +47,7 @@ pub mod runtime_admin;
 pub mod server;
 pub mod supervisor;
 pub mod telemetry;
+pub mod tls;
 
 pub use composition::{wire_cli_substrate, wire_engine_hooks};
 pub use engine_hooks::SusiEngineHooks;

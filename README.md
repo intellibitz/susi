@@ -126,6 +126,24 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 #   Authorization: Bearer "$(cat ~/.susi/api_token)"
 ```
 
+Remote access / HTTPS — every public listener sniffs each connection's first
+byte, so the same ports serve plain HTTP *and* HTTPS. Configure in
+`~/.susi/config.json`:
+
+```jsonc
+{
+  "bind_address": "0.0.0.0",        // listen beyond loopback (default 127.0.0.1)
+  "tls_cert_path": "/path/cert.pem", // optional: real cert (e.g. Let's Encrypt)
+  "tls_key_path": "/path/key.pem",
+  "https_only": false               // true: drop plaintext from remote peers
+}
+```
+
+With `bind_address` set to a non-loopback address and no cert configured, the
+daemon generates a self-signed certificate at `~/.susi/tls/cert.pem` on start —
+clients can then use `curl -k https://<host>:9091/v1/models` (or pin the cert).
+Loopback `http://127.0.0.1` always keeps working for the CLI and local tools.
+
 Stdio MCP for editors that prefer a subprocess:
 ```bash
 susi mcp

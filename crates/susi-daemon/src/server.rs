@@ -645,6 +645,14 @@ impl SusiDaemon {
             .get("bind_address")
             .unwrap_or_else(|| "127.0.0.1".to_string());
 
+        // TLS for the public endpoints: configured cert/key, or an
+        // auto-generated self-signed cert whenever the bind is reachable
+        // off-host. Each listener sniffs the first byte per connection, so
+        // plain HTTP (internal loopback callers) keeps working on the same
+        // port. `https_only` drops non-TLS bytes from remote peers.
+        let tls_acceptor = crate::tls::endpoint_acceptor(&bind_address, &global_dir);
+        let require_tls_remote = crate::tls::https_only();
+
         // Substrate Administration & Hardware Optimization (Pillar 1)
         crate::runtime_admin::SusiRuntimeAdmin::start_administration_cycle(&workspace);
 
@@ -687,47 +695,74 @@ impl SusiDaemon {
             &bind_address,
         );
 
+        let scheme = if tls_acceptor.is_some() {
+            "https"
+        } else {
+            "http"
+        };
         eprintln!(
-            "[SusiDaemon] Public endpoints ready:\n\
-             - GMCP/MCP  http://{}:{}/mcp\n\
-             - GEMI      http://{}:{}/\n\
+            "[SusiDaemon] Public endpoints ready (http+https sniffed per connection):\n\
+             - GMCP/MCP  {}://{}:{}/mcp\n\
+             - GEMI      {}://{}:{}/\n\
              - UDP disco {}:{}\n\
-             - GMCP alias http://{}:{}/mcp\n\
-             - A2A       http://{}:{}/",
+             - GMCP alias {}://{}:{}/mcp\n\
+             - A2A       {}://{}:{}/",
+            scheme,
             bind_address,
             ports::GMCP,
+            scheme,
             bind_address,
             ports::GEMI,
             bind_address,
             ports::UDP_DISCOVERY,
+            scheme,
             bind_address,
             ports::GMCP_HTTP,
+            scheme,
             bind_address,
             ports::A2A_HTTP
         );
 
+        let tls_gemi = tls_acceptor.clone();
         let workspace_gemi = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GemiServer::start_http_server(workspace_gemi, gemi_server);
+                GemiServer::start_http_server(
+                    workspace_gemi,
+                    gemi_server,
+                    tls_gemi,
+                    require_tls_remote,
+                );
             })) {
                 eprintln!("[GEMI] Thread panicked: {:?}", e);
             }
         });
 
+        let tls_gmcp = tls_acceptor.clone();
         let workspace_gmcp = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(workspace_gmcp, gmcp_primary);
+                GmcpServer::start_http_server(
+                    workspace_gmcp,
+                    gmcp_primary,
+                    tls_gmcp,
+                    require_tls_remote,
+                );
             })) {
                 eprintln!("[GMCP] Thread panicked: {:?}", e);
             }
         });
 
+        let tls_gmcp_alias = tls_acceptor.clone();
         let workspace_gmcp_alias = workspace.clone();
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                GmcpServer::start_http_server(workspace_gmcp_alias, gmcp_alias);
+                GmcpServer::start_http_server(
+                    workspace_gmcp_alias,
+                    gmcp_alias,
+                    tls_gmcp_alias,
+                    require_tls_remote,
+                );
             })) {
                 eprintln!("[GMCP alias] Thread panicked: {:?}", e);
             }
@@ -767,9 +802,15 @@ impl SusiDaemon {
                     Some(ctx.body),
                 )
             });
+        let tls_a2a = tls_acceptor;
         thread::spawn(move || {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Err(e) = susi_gawd::a2a::server::serve(a2a_http, a2a_verifier) {
+                if let Err(e) = susi_gawd::a2a::server::serve(
+                    a2a_http,
+                    a2a_verifier,
+                    tls_a2a,
+                    require_tls_remote,
+                ) {
                     eprintln!("[A2A] Server exited: {e}");
                 }
             })) {
@@ -856,15 +897,36 @@ impl SusiDaemon {
 
     /// Bind a TCP port that external clients hard-code. Reclaims stale susi
     /// holders; never randomizes — exit if a foreign process owns the port.
+    ///
+    /// Returns every socket to serve: a specific non-loopback `bind_address`
+    /// would strand internal callers dialing 127.0.0.1, so loopback is always
+    /// bound alongside it. Wildcard binds already cover loopback.
     fn bind_tcp_canonical(
         port: u16,
         name: &str,
         global_dir: &Path,
         bind_address: &str,
+    ) -> Vec<std::net::TcpListener> {
+        let wildcard = matches!(bind_address, "0.0.0.0" | "::");
+        let mut addrs = Vec::new();
+        if !wildcard && !crate::tls::is_loopback(bind_address) {
+            addrs.push(format!("127.0.0.1:{port}"));
+        }
+        addrs.push(format!("{bind_address}:{port}"));
+        addrs
+            .iter()
+            .map(|addr| Self::bind_tcp_with_retry(port, name, global_dir, addr))
+            .collect()
+    }
+
+    fn bind_tcp_with_retry(
+        port: u16,
+        name: &str,
+        global_dir: &Path,
+        addr: &str,
     ) -> std::net::TcpListener {
-        let addr = format!("{}:{}", bind_address, port);
         for attempt in 1..=5 {
-            match std::net::TcpListener::bind(&addr) {
+            match std::net::TcpListener::bind(addr) {
                 Ok(listener) => return listener,
                 Err(e) => {
                     eprintln!(
@@ -881,9 +943,9 @@ impl SusiDaemon {
         }
         eprintln!(
             "[SusiDaemon] Fatal: canonical port {} ({}) is unavailable.\n\
-             External clients trust {}:{} — free the port (or stop the foreign process) and restart susi.\n\
+             External clients trust {} — free the port (or stop the foreign process) and restart susi.\n\
              Port randomization is disabled by contract.",
-            port, name, bind_address, port
+            port, name, addr
         );
         std::process::exit(1);
     }
