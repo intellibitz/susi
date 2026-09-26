@@ -1510,6 +1510,26 @@
       "milestone": "LRU model eviction under VRAM pressure. Verified live on the CUDA release daemon (8 GB card): with 0.5B, 1.5B and 3B loaded fully on GPU (3994 MiB used) and 0.5B touched last, loading qwen2.5-coder-7b evicted 1.5B then 3B in LRU order (re-measuring free VRAM after each), kept the most-recent 0.5B, and the 7B landed 28/28 layers on GPU — previously 25/28 when the daemon held its auto-loaded models. Unit tests cover the eviction plan (no eviction when it fits, LRU until it fits, evict-all when short) and idle_lru ordering (skips in-use and excluded entries). fmt, clippy -D warnings (default and --features cuda), 2975 workspace tests, xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-157",
+      "milestone": "config --help",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-157",
+      "milestone": "Idle model unloading (model_idle_timeout_secs, default 1800, 0 disables, SUSI_MODEL_IDLE_TIMEOUT_SECS override). Verified live on the CUDA release daemon with a 20s timeout: a loaded 0.5B model was unloaded at t=24s and the daemon's VRAM returned 554 -> 106 MiB; a model touched at t=15s was still loaded at t=30s and unloaded at t=39s (use resets the idle clock). Daemon then restarted without the override (default applies). Unit tests cover idle_since cutoff selection (in-use entries never idle) and the sweep interval bounds. fmt, clippy -D warnings (default and --features cuda), 2979 workspace tests, xtask verify-architecture pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
