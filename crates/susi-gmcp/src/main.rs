@@ -56,8 +56,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
                                 {
-                                    let response =
-                                        handle_tool(req, &mut *cell_clone.lock().await).await;
+                                    let response = handle_tool(req).await;
+                                    // Hold the cell lock only to record the outcome, never across the
+                                    // work itself, so heartbeats and other connections are not blocked.
+                                    {
+                                        let mut cell = cell_clone.lock().await;
+                                        if response.status == SyscallStatus::Success {
+                                            cell.record_success();
+                                        } else {
+                                            cell.record_failure();
+                                        }
+                                    }
                                     let Ok(resp_payload) = serde_json::to_vec(&response) else {
                                         continue;
                                     };
@@ -83,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_tool(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
+async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
     // Dispatch through the same plane-bus tool path as the daemon. When no
     // tools handler is registered in this process the call fails and the
     // caller gets an Error status - never a fabricated success.
@@ -113,27 +122,21 @@ async fn handle_tool(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallRespon
     };
     let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     match outcome {
-        Ok(text) => {
-            cell.record_success();
-            SyscallResponse {
-                id: req.id,
-                status: SyscallStatus::Success,
-                data: serde_json::json!({ "result": text }),
-                receipt: None,
-                latency_us,
-                message: None,
-            }
-        }
-        Err(e) => {
-            cell.record_failure();
-            SyscallResponse {
-                id: req.id,
-                status: SyscallStatus::Error,
-                data: serde_json::Value::Null,
-                receipt: None,
-                latency_us,
-                message: Some(e),
-            }
-        }
+        Ok(text) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Success,
+            data: serde_json::json!({ "result": text }),
+            receipt: None,
+            latency_us,
+            message: None,
+        },
+        Err(e) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Error,
+            data: serde_json::Value::Null,
+            receipt: None,
+            latency_us,
+            message: Some(e),
+        },
     }
 }

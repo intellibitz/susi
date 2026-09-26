@@ -57,8 +57,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
                                 {
-                                    let response =
-                                        handle_infer(req, &mut *cell_clone.lock().await).await;
+                                    let response = handle_infer(req).await;
+                                    // Hold the cell lock only to record the outcome, never across the
+                                    // work itself, so heartbeats and other connections are not blocked.
+                                    {
+                                        let mut cell = cell_clone.lock().await;
+                                        if response.status == SyscallStatus::Success {
+                                            cell.record_success();
+                                        } else {
+                                            cell.record_failure();
+                                        }
+                                    }
                                     let Ok(resp_payload) = serde_json::to_vec(&response) else {
                                         continue;
                                     };
@@ -84,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_infer(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallResponse {
+async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
     let prompt = req
         .payload
         .get("prompt")
@@ -96,7 +105,6 @@ async fn handle_infer(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallRespo
         u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
     };
     if prompt.trim().is_empty() {
-        cell.record_failure();
         return SyscallResponse {
             id: req.id,
             status: SyscallStatus::Error,
@@ -110,27 +118,21 @@ async fn handle_infer(req: SyscallRequest, cell: &mut SwarmCell) -> SyscallRespo
     // executor, and run it in the caller's workspace.
     let ws = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
     match tokio::task::spawn_blocking(move || GemiEngine::generate_reasoning(&prompt, &ws)).await {
-        Ok(text) => {
-            cell.record_success();
-            SyscallResponse {
-                id: req.id,
-                status: SyscallStatus::Success,
-                data: serde_json::json!({ "text": text }),
-                receipt: None,
-                latency_us: latency(started),
-                message: None,
-            }
-        }
-        Err(e) => {
-            cell.record_failure();
-            SyscallResponse {
-                id: req.id,
-                status: SyscallStatus::Error,
-                data: serde_json::Value::Null,
-                receipt: None,
-                latency_us: latency(started),
-                message: Some(format!("inference task failed: {e}")),
-            }
-        }
+        Ok(text) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Success,
+            data: serde_json::json!({ "text": text }),
+            receipt: None,
+            latency_us: latency(started),
+            message: None,
+        },
+        Err(e) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Error,
+            data: serde_json::Value::Null,
+            receipt: None,
+            latency_us: latency(started),
+            message: Some(format!("inference task failed: {e}")),
+        },
     }
 }
