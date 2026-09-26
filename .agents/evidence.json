@@ -1500,6 +1500,16 @@
       "milestone": "Daemon model load/unload with real VRAM release: `susi os manage model load|unload` over POST /runtime/models/load|unload; uninstall refuses a daemon-loaded model (verified: exit 1, file kept; unload then uninstall removed it). Unload exposed a leak: cudarc CudaSlice drop frees without binding the CUDA context, so weights dropped on a daemon request thread recorded CUDA_ERROR_INVALID_CONTEXT and leaked (measured on the pre-fix daemon: 554 -> 1002 -> 1418 MiB over three load/unload cycles). release_on_device binds the context, drops, synchronizes and trims the device mempool. Verified live on the CUDA release daemon: three cycles each 106 -> 554 -> 106 MiB with gpu_pool=trimmed. GPU regression test evicts on a second thread; with the bind removed it fails with the original CUDA_ERROR_INVALID_CONTEXT. fmt, clippy -D warnings (default and --features cuda), 2972 workspace tests, xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-156",
+      "milestone": "LRU model eviction under VRAM pressure. Verified live on the CUDA release daemon (8 GB card): with 0.5B, 1.5B and 3B loaded fully on GPU (3994 MiB used) and 0.5B touched last, loading qwen2.5-coder-7b evicted 1.5B then 3B in LRU order (re-measuring free VRAM after each), kept the most-recent 0.5B, and the 7B landed 28/28 layers on GPU — previously 25/28 when the daemon held its auto-loaded models. Unit tests cover the eviction plan (no eviction when it fits, LRU until it fits, evict-all when short) and idle_lru ordering (skips in-use and excluded entries). fmt, clippy -D warnings (default and --features cuda), 2975 workspace tests, xtask verify-architecture pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
