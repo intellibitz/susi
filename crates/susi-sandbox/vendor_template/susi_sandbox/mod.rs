@@ -177,7 +177,9 @@ pub(crate) mod service {
     }
 }
 
+#[path = "../../src/audit_chain.rs"]
 pub mod audit_chain;
+#[path = "../../src/auto_install.rs"]
 pub mod auto_install;
 pub mod daemon_state;
 pub mod manager;

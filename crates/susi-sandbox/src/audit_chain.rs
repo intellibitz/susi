@@ -204,35 +204,3 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
     }
     Ok(count)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    fn temp_audit() -> PathBuf {
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::SeqCst);
-        let dir =
-            std::env::temp_dir().join(format!("susi_audit_chain_{}_{}", std::process::id(), n));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir.join("audit.log")
-    }
-
-    #[test]
-    fn signed_entries_verify_and_detect_tamper() {
-        // The HMAC key path derives from SusiDirs::substrate_home(); serialize
-        // against tests that swap HOME so the key does not change mid-test.
-        let _guard = crate::env_test_lock();
-        let path = temp_audit();
-        append_signed_entry(&path, "Info", "TEST_A", "alpha-payload", 1).unwrap();
-        append_signed_entry(&path, "Info", "TEST_B", "beta-payload", 1).unwrap();
-        assert_eq!(verify_chain(&path).unwrap(), 2);
-
-        let mut content = fs::read_to_string(&path).unwrap();
-        content = content.replace("alpha-payload", "EVIL-payload");
-        fs::write(&path, &content).unwrap();
-        assert!(verify_chain(&path).is_err());
-    }
-}

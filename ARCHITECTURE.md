@@ -46,14 +46,14 @@ Concrete implementations are assembled only at composition roots.
 | `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | vendored paths/error/config IPC; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **canonical source-mounted `susi_core`**: registry/capture/mac_policy over the bus rendezvous; source-mounted sandbox/config/native/error IPC, rmcp/reqwest | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **canonical source-mounted `susi_core`**: registry/task_manager/agent_types over the bus rendezvous; source-mounted sandbox/config IPC | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **vendored `susi_core` subset** (`src/susi_core/`): task_manager only; vendored sandbox/config IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **vendored `susi_core` subset**, vendored sandbox/config IPC | **all workspace crates** | providers | model weights | yes |
-| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **vendored `susi_core` subset** (`src/susi_core/`); vendored sandbox/config IPC | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + **vendored `susi_core` subset**, vendored sandbox/config IPC | **all workspace crates** | no | blackboard | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **canonical source-mounted `susi_core`**: task_manager only; vendored sandbox/config IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **canonical source-mounted `susi_core`**, vendored sandbox/config IPC | **all workspace crates** | providers | model weights | yes |
+| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **canonical source-mounted `susi_core`**; vendored sandbox/config IPC | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + **canonical source-mounted `susi_core`**, vendored sandbox/config IPC | **all workspace crates** | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | locally compiled agents-tier source | **all workspace crates** | transport | tasks | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + **vendored `susi_core` subset** + vendored native IPC | **all workspace crates** | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **vendored `susi_core` subset** (`src/susi_core/`): plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; vendored sandbox/config IPC, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **vendored `susi_core` subset** (`src/susi_core/`): plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; vendored sandbox/config/paths/error IPC | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + **canonical source-mounted `susi_core`** + vendored native IPC | **all workspace crates** | no | genome/reflexes | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **canonical source-mounted `susi_core`**: plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; vendored sandbox/config IPC, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **canonical source-mounted `susi_core`**: plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; vendored sandbox/config/paths/error IPC | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real deps, not vendored) | — | — | cwd workspace | yes |
 
@@ -98,11 +98,11 @@ global registries (`MacPolicy` — already file-keyed via
 `~/.susi/mac.hmac.key`, `IpcBroker`, `IntentBus`, …) become service- or
 endpoint-backed the same way when consumers vendor `susi_core`.
 
-**Vendored consumers: `susi-server`, `susi-tools`, `susi-agents`,
+**Mounting consumers: `susi-server`, `susi-tools`, `susi-agents`,
 `susi-gmcp`, `susi-gawd-agents`, `susi-gawd-swarm`, `susi-gawd`,
-`susi-gemi`.** Each carries a
-`src/susi_core/` tree (canonical:
-`crates/susi-core/vendor_template/susi_core/`) — `plane_bus` facades with
+`susi-gemi`.** Each mounts `crates/susi-core/src/embedded.rs` as its own
+`susi_core` module via `#[path]` (one checked-in source, a distinct type
+namespace per consumer) — `plane_bus` facades with
 `PlaneBus` delegating to `IpcPlaneBus`, `plane_bus_ipc`, a file-backed
 `IpcBroker` under `<cache>/bus/<pid>/broker/` (grants/requests/inbox as
 JSON files — the in-crate `susi_core::broker::IpcBroker` is the same
