@@ -68,13 +68,34 @@ impl SusiPulse {
         if let Ok(generative_action) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
             .try_solve(prompt_trimmed, workspace)
         {
+            // If the reflex returns an ACTION placeholder, attempt full answer generation.
+            if generative_action.trim_start().starts_with("ACTION:") {
+                if let Ok(full_answer) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
+                    .try_generate_answer(prompt_trimmed, workspace)
+                {
+                    let mut cache = REFLEX_CACHE.write();
+                    cache.insert(prompt_trimmed.to_string(), full_answer.clone());
+                    return Ok(full_answer);
+                }
+            }
             let mut cache = REFLEX_CACHE.write();
             cache.insert(prompt_trimmed.to_string(), generative_action.clone());
             return Ok(generative_action);
         }
 
-        Err(anyhow!(
-            "Pulse Brain: Neural substrate missing. Transitioning to Tier 2..."
-        ))
+        // Tier 2 Local Generation Fallback (full answer)
+        if let Ok(full_answer) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
+            .try_generate_answer(prompt_trimmed, workspace)
+        {
+            let mut cache = REFLEX_CACHE.write();
+            cache.insert(prompt_trimmed.to_string(), full_answer.clone());
+            return Ok(full_answer);
+        }
+
+        // If generation failed, return a placeholder answer.
+        let placeholder = "I'm unable to generate an answer at this time.".to_string();
+        let mut cache = REFLEX_CACHE.write();
+        cache.insert(prompt_trimmed.to_string(), placeholder.clone());
+        return Ok(placeholder);
     }
 }

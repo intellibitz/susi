@@ -131,4 +131,117 @@ impl GenerativeReflexEngine {
         task_handle.mark_completed("Reflex routing successful.");
         Ok(format!("ACTION: {}", output.trim()))
     }
+
+    /// Generates a full answer for the given intent using the Reflex model.
+    /// Used as a Tier‑2 fallback when fast‑path ACTION routing does not produce a result.
+    pub fn try_generate_answer(&self, intent: &str, _workspace: &Path) -> Result<String> {
+        // Register a task for observability.
+        let task_handle = SwarmTaskManager::global()
+            .register_task("tier1_reflex_answer", "Generative Reflex Full‑Answer");
+
+        // Resolve model and tokenizer paths.
+        let model_path = ModelManager::get_model_path(Self::REFLEX_MODEL_ID).ok_or_else(|| {
+            anyhow!("Tier 1 Reflex Model '{}' not provisioned.", Self::REFLEX_MODEL_ID)
+        })?;
+        let tokenizer_path = ModelManager::get_tokenizer_path(Self::REFLEX_MODEL_ID)
+            .ok_or_else(|| anyhow!("Tokenizer missing for Reflex Model."))?;
+
+        // Determine device based on model size.
+        let file_size = std::fs::metadata(&model_path)
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
+        let device = HardwareProfiler::get_dynamic_device(file_size);
+
+        // Load (or reuse) the model via InferenceHost.
+        let substrate_shared = InferenceHost::get_model(&model_path, &device, &task_handle)
+            .map_err(|e| anyhow!("Failed to load reflex model: {}", e))?;
+        let mut substrate = substrate_shared.write();
+
+        // Load tokenizer.
+        let tokenizer = Tokenizer::from_file(tokenizer_path)
+            .map_err(|e| anyhow!("Tokenizer Error: {}", e))?;
+
+        // Prompt for full answer generation.
+        let full_prompt = format!(
+            "<|im_start|>system\nYou are a concise assistant. Answer the user's request directly without any pre‑ambles or formatting tags.\n<|im_end|>\n<|im_start|>user\n{}\n<|im_end|>\n<|im_start|>assistant\n",
+            intent
+        );
+
+        let tokens = tokenizer
+            .encode(full_prompt, true)
+            .map_err(|e| anyhow!("Tokenization Error: {}", e))?;
+        let prompt_tokens = tokens.get_ids();
+        let mut all_tokens = vec![];
+        let mut tokens_to_process = prompt_tokens.to_vec();
+
+        let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
+        let max_tokens = 256; // Allow longer generation for full answers.
+        let mut eos_token_ids = cfg.eos_token_ids();
+        eos_token_ids.extend(substrate.eos_token_ids.iter().copied());
+
+        for i in 0..max_tokens {
+            let input = candle_core::Tensor::new(tokens_to_process.as_slice(), &device)
+                .map_err(|e| anyhow!("Tensor error: {}", e))?
+                .unsqueeze(0)
+                .map_err(|e| anyhow!("Tensor Error: {}", e))?;
+
+            let pos = if i == 0 { 0 } else { prompt_tokens.len() + i - 1 };
+
+            let logits = substrate
+                .weights
+                .forward(&input, pos)
+                .map_err(|e| anyhow!("Model forward failed: {}", e))?;
+
+            let logits_slice = logits.squeeze(0).map_err(|e| anyhow!("Squeeze Error: {}", e))?;
+            let last_logits_tensor = if logits_slice.rank() == 2 {
+                let seq_len = logits_slice
+                    .dim(0)
+                    .map_err(|e| anyhow!("Dim Error: {}", e))?;
+                logits_slice
+                    .get(seq_len - 1)
+                    .map_err(|e| anyhow!("Get Error: {}", e))?
+            } else if logits_slice.rank() == 1 {
+                logits_slice
+            } else {
+                logits_slice
+                    .flatten_all()
+                    .map_err(|e| anyhow!("Flatten Error: {}", e))?
+            };
+
+            let logits_v = last_logits_tensor
+                .to_vec1::<f32>()
+                .map_err(|e| anyhow!("ToVec Error: {}", e))?;
+
+            // Greedy decoding – pick the highest‑logit token.
+            let mut next_token = 0u32;
+            let mut max_logit = f32::NEG_INFINITY;
+            for (id, &logit) in logits_v.iter().enumerate() {
+                if logit > max_logit {
+                    max_logit = logit;
+                    next_token = id as u32;
+                }
+            }
+            all_tokens.push(next_token);
+
+            if eos_token_ids.contains(&next_token) {
+                break;
+            }
+            tokens_to_process = vec![next_token];
+        }
+
+        let output = tokenizer
+            .decode(&all_tokens, true)
+            .map_err(|e| anyhow!("Decoding Error: {}", e))?;
+
+        // Ensure we generated non‑empty output
+        let trimmed = output.trim();
+        let final_output = if trimmed.is_empty() {
+            "I'm unable to generate an answer at this time."
+        } else {
+            trimmed
+        };
+        task_handle.mark_completed("Reflex full answer generation successful.");
+        Ok(final_output.to_string())
+    }
 }
+
