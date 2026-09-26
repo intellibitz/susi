@@ -130,6 +130,17 @@ impl PromptFormat {
 
 pub struct InferenceHost;
 
+/// How often the idle sweeper checks: a quarter of the timeout, clamped to
+/// 5-60 seconds (a disabled timeout re-checks the config every minute).
+fn sweep_interval(timeout_secs: u64) -> std::time::Duration {
+    let secs = if timeout_secs == 0 {
+        60
+    } else {
+        (timeout_secs / 4).clamp(5, 60)
+    };
+    std::time::Duration::from_secs(secs)
+}
+
 /// Estimated VRAM for a model: its weights plus 1/8 headroom for the KV
 /// cache and activations. A heuristic — if it undershoots, the loader's
 /// live-budget layer split still keeps the load from failing.
@@ -207,7 +218,56 @@ pub(super) fn release_on_device<T>(
 impl InferenceHost {
     pub(super) fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
         static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
-        CACHE.get_or_init(Default::default)
+        CACHE.get_or_init(|| {
+            // Only processes that actually load models run the sweeper.
+            let spawned = std::thread::Builder::new()
+                .name("model-idle-sweeper".to_string())
+                .spawn(Self::idle_sweeper);
+            if let Err(error) = spawned {
+                tracing::warn!(%error, "model idle sweeper did not start; idle models stay loaded");
+            }
+            crate::model_cache::ModelCache::default()
+        })
+    }
+
+    /// Background loop: unload models idle longer than
+    /// `model_idle_timeout_secs`, re-read every pass so a config change
+    /// applies without a restart. Checks at a quarter of the timeout
+    /// (5-60s), so a model outlives its timeout by at most that interval.
+    fn idle_sweeper() {
+        loop {
+            let timeout = crate::susi_sandbox::manager::SusiConfig::load_global()
+                .unwrap_or_default()
+                .model_idle_timeout_secs();
+            std::thread::sleep(sweep_interval(timeout));
+            if timeout > 0 {
+                Self::evict_idle(std::time::Duration::from_secs(timeout));
+            }
+        }
+    }
+
+    /// Unload every model unused for longer than `timeout` and not serving a
+    /// request. Returns the unloaded paths.
+    pub fn evict_idle(timeout: std::time::Duration) -> Vec<std::path::PathBuf> {
+        let Some(cutoff) = std::time::SystemTime::now().checked_sub(timeout) else {
+            return Vec::new();
+        };
+        let mut unloaded = Vec::new();
+        for path in Self::cache().idle_since(cutoff) {
+            let Ok(Some((weights, device))) = Self::cache().evict(&path) else {
+                continue;
+            };
+            println!(
+                "- [Inference Substrate] Idle for over {}s: unloading {}",
+                timeout.as_secs(),
+                path.display()
+            );
+            if let Err(error) = release_on_device(weights, &device) {
+                tracing::warn!(%error, model = %path.display(), "idle unload release failed");
+            }
+            unloaded.push(path);
+        }
+        unloaded
     }
 
     /// LRU eviction under VRAM pressure: before a new model loads onto a
@@ -607,6 +667,15 @@ mod eviction_tests {
     fn evicts_everything_idle_when_even_that_is_short() {
         assert_eq!(plan_evictions(0, 10_000, &lru()).len(), 3);
         assert!(plan_evictions(0, 10, &[]).is_empty());
+    }
+
+    #[test]
+    fn sweep_interval_is_a_quarter_of_the_timeout_within_bounds() {
+        use std::time::Duration;
+        assert_eq!(sweep_interval(0), Duration::from_secs(60));
+        assert_eq!(sweep_interval(8), Duration::from_secs(5));
+        assert_eq!(sweep_interval(120), Duration::from_secs(30));
+        assert_eq!(sweep_interval(1800), Duration::from_secs(60));
     }
 
     #[test]

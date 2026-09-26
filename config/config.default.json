@@ -504,6 +504,7 @@
   "speculative_decoding_enabled": false,
   "speculative_draft_tokens": 4,
   "kv_cache_capacity_tokens": 8192,
+  "model_idle_timeout_secs": 1800,
   "axiomatic_risk_patterns": [
     "rm -rf /",
     "drop database",

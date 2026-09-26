@@ -136,22 +136,20 @@ impl<T> ModelCache<T> {
         slot.try_lock().is_none_or(|entry| entry.is_some())
     }
 
-    /// Idle entries on devices matching `on_device`, least recently used
-    /// first, as `(path, weight bytes)`. Idle means no request holds the
-    /// weights; entries mid-load or mid-generation are never candidates.
-    pub fn idle_lru(
+    /// Idle entries (no request holds the weights) on devices matching
+    /// `on_device`, as `(last_used, path, weight bytes)`, least recently
+    /// used first. Entries mid-load or mid-generation are never included.
+    fn idle_entries(
         &self,
-        exclude: &Path,
+        exclude: Option<&Path>,
         on_device: impl Fn(&Device) -> bool,
-    ) -> Vec<(PathBuf, u64)> {
-        let exclude = exclude
-            .canonicalize()
-            .unwrap_or_else(|_| exclude.to_path_buf());
+    ) -> Vec<(SystemTime, PathBuf, u64)> {
+        let exclude = exclude.map(|p| p.canonicalize().unwrap_or_else(|_| p.to_path_buf()));
         let slots: Vec<(PathBuf, Slot<T>)> = self
             .slots
             .lock()
             .iter()
-            .filter(|(path, _)| **path != exclude)
+            .filter(|(path, _)| exclude.as_deref() != Some(path.as_path()))
             .map(|(path, slot)| (path.clone(), Arc::clone(slot)))
             .collect();
         let mut idle: Vec<(SystemTime, PathBuf, u64)> = slots
@@ -167,8 +165,28 @@ impl<T> ModelCache<T> {
             })
             .collect();
         idle.sort_by_key(|(last_used, _, _)| *last_used);
-        idle.into_iter()
+        idle
+    }
+
+    /// Idle entries on devices matching `on_device`, least recently used
+    /// first, as `(path, weight bytes)` — the LRU eviction order.
+    pub fn idle_lru(
+        &self,
+        exclude: &Path,
+        on_device: impl Fn(&Device) -> bool,
+    ) -> Vec<(PathBuf, u64)> {
+        self.idle_entries(Some(exclude), on_device)
+            .into_iter()
             .map(|(_, path, bytes)| (path, bytes))
+            .collect()
+    }
+
+    /// Idle entries last used before `cutoff` — the idle-timeout victims.
+    pub fn idle_since(&self, cutoff: SystemTime) -> Vec<PathBuf> {
+        self.idle_entries(None, |_| true)
+            .into_iter()
+            .take_while(|(last_used, _, _)| *last_used < cutoff)
+            .map(|(_, path, _)| path)
             .collect()
     }
 
@@ -401,6 +419,37 @@ mod tests {
         assert!(cache.is_loaded(&a.0));
         drop(cache.evict(&a.0).unwrap());
         assert!(!cache.is_loaded(&a.0));
+    }
+
+    #[test]
+    fn idle_since_returns_only_entries_unused_before_the_cutoff() {
+        let (old, fresh) = (Fixture::new(), Fixture::new());
+        let cache = ModelCache::<u32>::default();
+        drop(
+            cache
+                .get_or_load(&old.0, &Device::Cpu, 32, |_| Ok(1))
+                .unwrap(),
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let cutoff = SystemTime::now();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        drop(
+            cache
+                .get_or_load(&fresh.0, &Device::Cpu, 32, |_| Ok(2))
+                .unwrap(),
+        );
+        assert_eq!(
+            cache.idle_since(cutoff),
+            vec![old.0.canonicalize().unwrap()]
+        );
+        // In use is never idle, however old.
+        let _held = cache
+            .get_or_load(&old.0, &Device::Cpu, 32, |_| panic!("hit"))
+            .unwrap();
+        assert!(cache
+            .idle_since(SystemTime::now())
+            .iter()
+            .all(|p| *p != old.0.canonicalize().unwrap()));
     }
 
     #[test]

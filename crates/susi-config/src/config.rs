@@ -561,6 +561,16 @@ impl SusiConfig {
     pub fn kv_cache_capacity_tokens(&self) -> usize {
         self.get_or_bundled_default("kv_cache_capacity_tokens")
     }
+    /// Seconds a loaded model may sit unused before the inference cache's
+    /// sweeper unloads it and returns its memory (VRAM included). `0`
+    /// disables idle unloading. `SUSI_MODEL_IDLE_TIMEOUT_SECS` env wins over
+    /// the config key.
+    pub fn model_idle_timeout_secs(&self) -> u64 {
+        std::env::var("SUSI_MODEL_IDLE_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or_else(|| self.get_or_bundled_default("model_idle_timeout_secs"))
+    }
     /// Risk substrings that block reasoning OUTPUT before it's returned as a
     /// final answer — a distinct security layer from `governance()`'s
     /// `destructive_commands` (which gates COMMANDS before execution); the
