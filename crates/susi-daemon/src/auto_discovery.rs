@@ -4,6 +4,11 @@
 
 use std::path::Path;
 
+/// Token spawned Swarm Cells require on every syscall: the host API token.
+fn cell_token() -> String {
+    crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded()
+}
+
 /// Orchestrate dynamic capabilities on engine boot.
 pub fn auto_prime_ecosystem(substrate: &Path) {
     let cells_dir = substrate.join("cells");
@@ -21,7 +26,9 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
                         std::thread::spawn(move || {
-                            let _ = std::process::Command::new(path).spawn();
+                            let _ = std::process::Command::new(path)
+                                .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
+                                .spawn();
                         });
                     } else if name.ends_with(".json") {
                         static PORT_COUNTER: std::sync::atomic::AtomicU16 =
@@ -37,6 +44,7 @@ pub fn auto_prime_ecosystem(substrate: &Path) {
                         let path_clone = path.clone();
                         std::thread::spawn(move || {
                             let _ = std::process::Command::new(universal_cell_path)
+                                .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
                                 .arg(bind_addr)
                                 .arg(path_clone)
                                 .spawn();
