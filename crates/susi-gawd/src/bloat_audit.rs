@@ -168,7 +168,15 @@ impl BloatAuditor {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            // Symlinks are skipped: a link cycle would recurse until the
+            // stack overflows, and links can point outside the tree.
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
                 Self::walk_rust_files(&path, out);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 out.push(path);
@@ -190,7 +198,15 @@ impl BloatAuditor {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_dir() {
+            // Symlinks are skipped: a link cycle would recurse until the
+            // stack overflows, and links can point outside the tree.
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() {
                 Self::walk_size(&path, bytes, count);
             } else if let Ok(meta) = entry.metadata() {
                 *bytes += meta.len();
