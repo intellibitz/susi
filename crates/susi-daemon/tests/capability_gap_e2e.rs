@@ -28,10 +28,23 @@ fn capability_gap_synthesizes_and_executes_reflex_through_execute_tool() {
     // global_mcp_registry healing can't touch the real ~/.susi.
     let tmp = std::env::temp_dir().join(format!("susi_gap_e2e_{}", std::process::id()));
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
+    // A daemon-supervised susi-native enforces the host bearer token, which
+    // the client reads from the (soon isolated) config dir. Carry it over so
+    // the reflex leg authenticates; a bare CI service has no token and is open.
+    let host_token = susi_paths::host_token();
     unsafe {
         std::env::set_var("HOME", &tmp);
         std::env::set_var("USERPROFILE", &tmp);
         std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+    }
+    if let Some(token) = host_token {
+        let path = susi_paths::SusiDirs::config_dir().join("api_token");
+        std::fs::write(&path, token).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
     }
     let workspace = tmp.join("ws");
     let _ = std::fs::create_dir_all(&workspace);
