@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use susi_abi::cell::SwarmCell;
 use susi_abi::swarm::SwarmRole;
 use susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus};
-use susi_abi::wire::{MessageType, WireFrame};
+use susi_abi::wire::{FrameStream, MessageType, WireFrame};
 use susi_gemi::engine::GemiEngine;
 
 #[tokio::main]
@@ -39,12 +39,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let cell_clone = Arc::clone(&cell);
 
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 1024 * 1024]; // 1MB buffer
-            loop {
+            let mut buf = vec![0u8; 64 * 1024];
+            let mut frames = FrameStream::new();
+            'conn: loop {
                 match socket.read(&mut buf).await {
                     Ok(0) => break, // Connection closed
                     Ok(n) => {
-                        if let Ok((frame, _consumed)) = WireFrame::decode(&buf[..n]) {
+                        frames.push(&buf[..n]);
+                        loop {
+                            let frame = match frames.next_frame() {
+                                Ok(Some(frame)) => frame,
+                                Ok(None) => break,
+                                // Corrupt stream: framing is lost, drop the connection.
+                                Err(_) => break 'conn,
+                            };
                             if frame.msg_type == MessageType::SyscallRequest {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
