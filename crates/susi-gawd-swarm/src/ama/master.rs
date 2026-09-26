@@ -1051,7 +1051,7 @@ impl SusiMasterAgent {
                 // longer, correction-annotated goal happens to land low
                 // again - it forces a strictly bigger model each attempt.
                 let reasoning_prompt = format!(
-                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference.{}",
+                    "MISSION_GOAL: {}\n\nLOCAL_SWARM_CONTEXT:\n{}\n\n[INSTRUCTION]: Resolve this mission using native local model inference. If you need to execute a shell command, provide it in a ```bash codeblock.{}",
                     current_goal, swarm_context, evidence_prompt
                 );
 
@@ -1072,7 +1072,7 @@ impl SusiMasterAgent {
                 let model_name = selected_model
                     .as_deref()
                     .unwrap_or("automatic provisioning");
-                let local_inference = match selected_model.as_deref() {
+                let mut local_inference = match selected_model.as_deref() {
                     Some(model) => {
                         crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
                             &reasoning_prompt,
@@ -1095,6 +1095,28 @@ impl SusiMasterAgent {
                         }
                     }
                 };
+                
+                let mut executed_scripts = String::new();
+                for block in local_inference.split("```").skip(1).step_by(2) {
+                    let block_trimmed = block.trim();
+                    if block_trimmed.starts_with("bash\n") || block_trimmed.starts_with("sh\n") || block_trimmed.starts_with("shell\n") {
+                        let cmd = block_trimmed.trim_start_matches("bash").trim_start_matches("sh").trim_start_matches("shell").trim();
+                        if !cmd.is_empty() && !cmd.starts_with('!') {
+                            eprintln!("[Local Agent] Detected shell block. Executing native tool...");
+                            let result = bus_tool("exec_command", &serde_json::Value::String(cmd.to_string()), workspace);
+                            executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
+                        }
+                    }
+                }
+                
+                if !executed_scripts.is_empty() {
+                    local_inference.push_str(&executed_scripts);
+                    if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                        local_inference.push_str("\n\n");
+                        local_inference.push_str(&citations);
+                    }
+                }
+
                 format!(
                     "SUSI-Tier2-Mission-Synthesis ({} via {}):\n\n{}",
                     version, model_name, local_inference
