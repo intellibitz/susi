@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22"
 crossbeam = "0.8"
 regex = "1.13"
 hyper = { version = "1.0", features = ["full"] }

@@ -296,16 +296,13 @@ async fn handle_gemi_request(
             &path,
             Some(&body_bytes),
         ) {
-            return Ok(json_response(
-                StatusCode::UNAUTHORIZED,
-                &json!({"error": "Unauthorized"}),
-            ));
+            return Ok(api_error(StatusCode::UNAUTHORIZED, "Unauthorized"));
         }
         if !susi_core::net_guard::RateLimiter::global().check(peer_ip, cfg.rate_limit_per_minute())
         {
-            return Ok(json_response(
+            return Ok(api_error(
                 StatusCode::TOO_MANY_REQUESTS,
-                &json!({"error": "Rate limit exceeded"}),
+                "Rate limit exceeded",
             ));
         }
     }
@@ -412,6 +409,8 @@ async fn handle_gemi_request(
                 input: serde_json::Value,
                 #[serde(default)]
                 model: Option<String>,
+                #[serde(default)]
+                encoding_format: Option<String>,
             }
             let req: EmbedReq = match serde_json::from_slice(&body_bytes) {
                 Ok(r) => r,
@@ -422,24 +421,21 @@ async fn handle_gemi_request(
                     ));
                 }
             };
-            // OpenAI accepts a string or an array of strings.
-            let texts: Vec<String> = match &req.input {
-                serde_json::Value::String(s) => vec![s.clone()],
-                serde_json::Value::Array(a) => a
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect(),
-                serde_json::Value::Null
-                | serde_json::Value::Bool(_)
-                | serde_json::Value::Number(_)
-                | serde_json::Value::Object(_) => Vec::new(),
+            let texts = match embedding_texts(&req.input) {
+                Ok(texts) => texts,
+                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
             };
-            if texts.is_empty() {
-                return Ok(api_error(
-                    StatusCode::BAD_REQUEST,
-                    "input must be a non-empty string or string array",
-                ));
-            }
+            let base64 = match req.encoding_format.as_deref() {
+                None | Some("float") => false,
+                Some("base64") => true,
+                Some(_) => {
+                    return Ok(api_error(
+                        StatusCode::BAD_REQUEST,
+                        "encoding_format must be 'float' or 'base64'",
+                    ));
+                }
+            };
+            let prompt_tokens = texts.iter().map(|t| approx_tokens(t)).sum::<u64>();
             let model = req.model.clone();
             let out = tokio::task::spawn_blocking(move || {
                 texts
@@ -459,14 +455,25 @@ async fn handle_gemi_request(
                 .into_iter()
                 .enumerate()
                 .filter_map(|(i, v)| {
-                    v.map(|e| json!({"object": "embedding", "index": i, "embedding": e}))
+                    v.map(|e| {
+                        let embedding = if base64 {
+                            json!(embedding_base64(&e))
+                        } else {
+                            json!(e)
+                        };
+                        json!({"object": "embedding", "index": i, "embedding": embedding})
+                    })
                 })
                 .collect();
             let payload = json!({
                 "object": "list",
                 "data": data,
                 "model": req.model.unwrap_or_else(|| "susi-embed".to_string()),
-                "usage": {"prompt_tokens": 0, "total_tokens": 0},
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "total_tokens": prompt_tokens,
+                    "estimated": true
+                },
             });
             Ok(json_response(StatusCode::OK, &payload))
         }
@@ -964,10 +971,7 @@ async fn handle_gemi_request(
             };
             Ok(json_response(StatusCode::OK, &payload))
         }
-        _ => Ok(json_response(
-            StatusCode::NOT_FOUND,
-            &json!({"error": "Endpoint not found"}),
-        )),
+        _ => Ok(api_error(StatusCode::NOT_FOUND, "Endpoint not found")),
     }
 }
 
@@ -1457,13 +1461,34 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// OpenAI-shaped error envelope (`error.{message,type,param,code}`) whose
+/// `type`/`code` follow the status the way the OpenAI API reports them, so
+/// SDK error classes map correctly. A 401 carries its `WWW-Authenticate`
+/// challenge (RFC 9110 §15.5.2) and a 429 its `Retry-After` (RFC 6585 §4).
 fn api_error(status: StatusCode, message: &str) -> Response<BoxBody> {
-    json_response(
+    let (kind, code) = match status {
+        StatusCode::UNAUTHORIZED => ("invalid_request_error", json!("invalid_api_key")),
+        StatusCode::NOT_FOUND => ("invalid_request_error", json!("not_found")),
+        StatusCode::TOO_MANY_REQUESTS => ("requests", json!("rate_limit_exceeded")),
+        s if s.is_server_error() => ("server_error", serde_json::Value::Null),
+        _ => ("invalid_request_error", serde_json::Value::Null),
+    };
+    let mut response = json_response(
         status,
         &json!({"error": {
-            "message": message, "type": "invalid_request_error", "param": null, "code": null
+            "message": message, "type": kind, "param": null, "code": code
         }}),
-    )
+    );
+    let headers = response.headers_mut();
+    if status == StatusCode::UNAUTHORIZED {
+        headers.insert(
+            hyper::header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"susi-gemi\""),
+        );
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        headers.insert(hyper::header::RETRY_AFTER, HeaderValue::from_static("60"));
+    }
+    response
 }
 
 struct CompletionInput {
@@ -1602,6 +1627,48 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
     })
 }
 
+/// Texts of an embeddings `input`: a non-empty string or a non-empty array
+/// of non-empty strings. Pre-tokenized input (integer arrays) needs the
+/// provider's tokenizer, which the bus does not expose — it is refused
+/// rather than silently dropped.
+fn embedding_texts(input: &serde_json::Value) -> Result<Vec<String>, &'static str> {
+    const SHAPE: &str = "input must be a non-empty string or array of non-empty strings";
+    let texts = match input {
+        serde_json::Value::String(s) => vec![s.clone()],
+        serde_json::Value::Array(items) => {
+            let mut texts = Vec::with_capacity(items.len());
+            for item in items {
+                match item {
+                    serde_json::Value::String(s) => texts.push(s.clone()),
+                    serde_json::Value::Number(_) | serde_json::Value::Array(_) => {
+                        return Err("token-array input is not supported; send text");
+                    }
+                    serde_json::Value::Null
+                    | serde_json::Value::Bool(_)
+                    | serde_json::Value::Object(_) => return Err(SHAPE),
+                }
+            }
+            texts
+        }
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::Object(_) => return Err(SHAPE),
+    };
+    if texts.is_empty() || texts.iter().any(String::is_empty) {
+        return Err(SHAPE);
+    }
+    Ok(texts)
+}
+
+/// `encoding_format: "base64"` — the vector's little-endian f32 bytes,
+/// standard base64, as the OpenAI API returns it.
+fn embedding_base64(embedding: &[f32]) -> String {
+    use base64::Engine;
+    let bytes: Vec<u8> = embedding.iter().flat_map(|v| v.to_le_bytes()).collect();
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
 /// Token-count approximation for `usage` reporting — the true BPE count
 /// lives inside the engine and is not surfaced through the bus, so this
 /// uses the same words/chars≈4 estimate `cap_completion` enforces with.
@@ -1690,6 +1757,58 @@ mod tests {
                 .await
                 .is_some()
         );
+    }
+
+    #[tokio::test]
+    async fn api_errors_are_openai_shaped_with_rfc_headers() {
+        let unauthorized = api_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+        assert_eq!(
+            unauthorized.headers()[hyper::header::WWW_AUTHENTICATE],
+            "Bearer realm=\"susi-gemi\""
+        );
+        let limited = api_error(StatusCode::TOO_MANY_REQUESTS, "slow down");
+        assert_eq!(limited.headers()[hyper::header::RETRY_AFTER], "60");
+        for (status, kind, code) in [
+            (StatusCode::BAD_GATEWAY, "server_error", json!(null)),
+            (
+                StatusCode::UNAUTHORIZED,
+                "invalid_request_error",
+                json!("invalid_api_key"),
+            ),
+            (
+                StatusCode::BAD_REQUEST,
+                "invalid_request_error",
+                json!(null),
+            ),
+        ] {
+            let bytes = api_error(status, "msg")
+                .into_body()
+                .collect()
+                .await
+                .unwrap()
+                .to_bytes();
+            let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(v["error"]["type"], kind, "{status}");
+            assert_eq!(v["error"]["code"], code, "{status}");
+            assert_eq!(v["error"]["message"], "msg");
+        }
+    }
+
+    #[test]
+    fn embedding_input_is_strict_and_base64_is_le_f32() {
+        assert_eq!(embedding_texts(&json!("a")).unwrap(), vec!["a"]);
+        assert_eq!(embedding_texts(&json!(["a", "b"])).unwrap(), vec!["a", "b"]);
+        assert!(
+            embedding_texts(&json!([1, 2, 3]))
+                .unwrap_err()
+                .contains("token-array")
+        );
+        assert!(embedding_texts(&json!([[1, 2]])).is_err());
+        assert!(embedding_texts(&json!(["a", null])).is_err());
+        assert!(embedding_texts(&json!([])).is_err());
+        assert!(embedding_texts(&json!("")).is_err());
+        // 1.0f32 = 00 00 80 3F little-endian.
+        assert_eq!(embedding_base64(&[1.0]), "AACAPw==");
     }
 
     #[test]
