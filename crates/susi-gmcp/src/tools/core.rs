@@ -362,8 +362,31 @@ impl CoreTools {
                 EaiError::process(format!("Exec failed: {}", e))
             })?;
 
-        let mut stdout = child.stdout.take();
-        let mut stderr = child.stderr.take();
+        // Drain both pipes concurrently: reading only after exit deadlocks
+        // any command that writes more than a pipe buffer (~64 KiB) — the
+        // child blocks on write and never exits. Keep at most 8 MiB each.
+        fn drain(
+            pipe: Option<impl std::io::Read + Send + 'static>,
+        ) -> std::thread::JoinHandle<Vec<u8>> {
+            std::thread::spawn(move || {
+                const CAP: usize = 8 * 1024 * 1024;
+                let mut kept = Vec::new();
+                let Some(mut pipe) = pipe else {
+                    return kept;
+                };
+                let mut chunk = [0u8; 8192];
+                while let Ok(n) = pipe.read(&mut chunk) {
+                    if n == 0 {
+                        break;
+                    }
+                    let room = CAP.saturating_sub(kept.len());
+                    kept.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
+                }
+                kept
+            })
+        }
+        let mut stdout = Some(drain(child.stdout.take()));
+        let mut stderr = Some(drain(child.stderr.take()));
 
         let mut stdout_buf = Vec::new();
         let mut stderr_buf = Vec::new();
@@ -379,13 +402,11 @@ impl CoreTools {
             }
 
             if let Ok(Some(status)) = child.try_wait() {
-                if let Some(mut reader) = stdout.take() {
-                    use std::io::Read;
-                    let _ = reader.read_to_end(&mut stdout_buf);
+                if let Some(reader) = stdout.take() {
+                    stdout_buf = reader.join().unwrap_or_default();
                 }
-                if let Some(mut reader) = stderr.take() {
-                    use std::io::Read;
-                    let _ = reader.read_to_end(&mut stderr_buf);
+                if let Some(reader) = stderr.take() {
+                    stderr_buf = reader.join().unwrap_or_default();
                 }
 
                 let stdout_str = String::from_utf8_lossy(&stdout_buf).to_string();
