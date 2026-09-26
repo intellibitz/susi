@@ -74,6 +74,16 @@ pub struct ToolReceipt {
     captured_at: Instant,
 }
 
+impl ToolReceipt {
+    /// Ambient diagnostics collected by supervisory agents describe SUSI's
+    /// health, not the user's requested outcome. Letting them participate in
+    /// the crown gate allows an unrelated `status` receipt to certify any
+    /// mission merely because it happened during the same swarm run.
+    fn is_citable_for_mission(&self) -> bool {
+        self.tool != "status"
+    }
+}
+
 /// Cross-copy receipt wire record: a `ToolReceipt` without `Instant`
 /// (non-transferable). Vendored `susi_core` copies write these into the
 /// owning session's rendezvous `inbox/`; the owner drains them on read and
@@ -469,9 +479,11 @@ impl EvidenceSession {
     /// True when at least one successful, unexpired receipt may be cited.
     pub fn has_citable_receipts(&self) -> bool {
         self.drain_inbox();
-        self.receipts
-            .iter()
-            .any(|entry| entry.successful && entry.captured_at.elapsed() <= MAX_AGE)
+        self.receipts.iter().any(|entry| {
+            entry.is_citable_for_mission()
+                && entry.successful
+                && entry.captured_at.elapsed() <= MAX_AGE
+        })
     }
 
     pub fn has_citable_receipts_for(workspace: &Path) -> bool {
@@ -510,7 +522,12 @@ impl EvidenceSession {
     }
 
     pub fn prompt(&self) -> String {
-        let evidence = serde_json::to_string(&self.receipts()).unwrap_or_default();
+        let evidence: Vec<_> = self
+            .receipts()
+            .into_iter()
+            .filter(ToolReceipt::is_citable_for_mission)
+            .collect();
+        let evidence = serde_json::to_string(&evidence).unwrap_or_default();
         // The format description must stay non-parseable as a GroundedAnswer:
         // this block can end up inside a reasoning trace that citation
         // resolution later scans for embedded objects.
@@ -535,6 +552,16 @@ impl EvidenceSession {
         if let Some(resolved) = Self::resolve_citations(result, workspace) {
             return Some(resolved);
         }
+        // A model that starts the citation protocol but emits malformed JSON
+        // has not produced narrative; it has produced an invalid proof. Do
+        // not let the permissive no-receipt path promote that text to a
+        // completed mission. Returning an error lets recovery advance to the
+        // next local model tier.
+        if result.contains("\"citations\"") {
+            return Some(Err(EaiError::governance(
+                "TRUTH_UNVERIFIED: malformed citation answer",
+            )));
+        }
         if Self::has_citable_receipts_for(workspace) {
             return Some(Err(EaiError::governance(
                 "TRUTH_UNVERIFIED: mission captured tool evidence that must be cited; narrative alone cannot complete it",
@@ -548,7 +575,11 @@ impl EvidenceSession {
     /// containing all live receipts, aligning ungrounded prose back into verifiable truth.
     pub fn auto_format_truth(workspace: &Path) -> Option<String> {
         let session = Self::for_workspace(workspace)?;
-        let receipts = session.receipts();
+        let receipts: Vec<_> = session
+            .receipts()
+            .into_iter()
+            .filter(ToolReceipt::is_citable_for_mission)
+            .collect();
         if receipts.is_empty() {
             return None;
         }
@@ -601,6 +632,11 @@ impl EvidenceSession {
             let receipt = self.receipts.get(&citation.receipt_id).ok_or_else(|| {
                 EaiError::governance("TRUTH_UNVERIFIED: citation not captured in this mission")
             })?;
+            if !receipt.is_citable_for_mission() {
+                return Err(EaiError::governance(
+                    "TRUTH_UNVERIFIED: ambient diagnostic receipts cannot prove mission completion",
+                ));
+            }
             if !receipt.successful || receipt.captured_at.elapsed() > MAX_AGE {
                 return Err(EaiError::governance(
                     "TRUTH_UNVERIFIED: unsuccessful or expired tool receipt",
@@ -879,6 +915,18 @@ mod tests {
     }
 
     #[test]
+    fn malformed_citation_attempt_is_rejected_without_receipts() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        let malformed = r#"{"citations":[null, null,"#;
+        let err = EvidenceSession::verify_answer(malformed, &ws.0)
+            .unwrap()
+            .unwrap_err();
+        assert!(err.to_string().contains("malformed citation"));
+    }
+
+    #[test]
     fn resolve_renders_receipts_and_rejects_forged_or_stale_citations() {
         let ws = Workspace::new();
         let session = session(&ws);
@@ -978,6 +1026,31 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(rendered.contains("susi-host") && rendered.contains("output_hash"));
+    }
+
+    #[test]
+    fn ambient_status_receipts_cannot_certify_a_mission() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("status", &serde_json::json!(null), &ws.0, || {
+            Ok("daemon healthy".into())
+        })
+        .unwrap();
+
+        assert!(!session.has_citable_receipts());
+        assert!(EvidenceSession::verify_answer("378", &ws.0).is_none());
+        assert!(EvidenceSession::auto_format_truth(&ws.0).is_none());
+
+        let cited = format!(
+            r#"{{"citations":[{{"receipt_id":"{}"}}]}}"#,
+            first_receipt_id(&session)
+        );
+        let err = EvidenceSession::resolve_citations(&cited, &ws.0)
+            .unwrap()
+            .unwrap_err();
+        assert!(err.to_string().contains("ambient diagnostic"));
+        assert!(!session.prompt().contains("daemon healthy"));
     }
 
     #[test]

@@ -12,7 +12,7 @@ impl SusiTruthAgent {
     /// Existence alone does not establish who wrote a file or what changed.
     #[allow(clippy::expect_used)]
     pub fn verify_mission_reality(
-        _goal: &str,
+        goal: &str,
         _tool_name: &str,
         result: &str,
         workspace: &Path,
@@ -21,6 +21,29 @@ impl SusiTruthAgent {
             return Err(EaiError::governance("TRUTH_UNVERIFIED: empty result"));
         }
         let mut violations = Vec::new();
+
+        // A write mission must leave its named target in the workspace. Tool
+        // stdout alone (for example `echo hello` without a redirect) is not
+        // evidence that the requested file was created.
+        static GOAL_FILE_WRITES: OnceLock<regex::Regex> = OnceLock::new();
+        let goal_file_writes = GOAL_FILE_WRITES.get_or_init(|| {
+            regex::Regex::new(
+                r#"(?i)\b(?:create|write|save)\s+(?:a\s+|an\s+)?(?:new\s+)?file(?:\s+named|\s+called)?\s+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s,;]+))"#,
+            )
+            .expect("static goal write pattern")
+        });
+        for capture in goal_file_writes.captures_iter(goal) {
+            let path = (1..=4)
+                .find_map(|index| capture.get(index))
+                .map(|value| value.as_str())
+                .unwrap_or_default();
+            if crate::susi_core::evidence::confined_file(workspace, Path::new(path)).is_none() {
+                violations.push(format!(
+                    "Reality Mismatch: requested file '{}' was not created as a regular workspace file.",
+                    path
+                ));
+            }
+        }
 
         // Inspect every explicit write claim, rather than the first path-looking
         // word anywhere in the result. Quoting supports paths containing spaces.
@@ -332,6 +355,29 @@ mod tests {
         .is_err());
         assert!(SusiTruthAgent::verify_mission_reality("", "", "Wrote to ", &tmp).is_err());
         std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn write_goal_requires_the_named_workspace_file() {
+        let ws = TempWorkspace::new();
+        let goal = "Create a file named greeting.txt containing exactly: hello from susi";
+        let err = SusiTruthAgent::verify_mission_reality(
+            goal,
+            "exec_command",
+            "Tool reported:\n> hello from susi",
+            &ws.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("greeting.txt"));
+
+        std::fs::write(ws.0.join("greeting.txt"), "hello from susi").unwrap();
+        assert!(SusiTruthAgent::verify_mission_reality(
+            goal,
+            "exec_command",
+            "Tool reported:\n> hello from susi",
+            &ws.0,
+        )
+        .is_ok());
     }
 
     #[test]

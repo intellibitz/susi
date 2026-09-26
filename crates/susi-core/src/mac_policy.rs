@@ -239,12 +239,22 @@ impl MacPolicy {
 
     pub fn global() -> &'static Self {
         POLICY.get_or_init(|| {
-            // Ephemeral key for tests / unwired contexts — still enforces MAC.
-            let mut key = [0u8; 32];
-            let seed = format!("susi-mac-ephemeral:{}", std::process::id());
-            let digest = Sha256::digest(seed.as_bytes());
-            key.copy_from_slice(&digest[..32]);
-            Self::new(key, PrivacyMode::Balanced, false)
+            // Production leaf crates embed this module independently and do
+            // not pass through the daemon composition root. They must join
+            // the shared substrate policy here; an ephemeral Balanced policy
+            // silently bypasses a live `local_only` switch in those copies.
+            #[cfg(not(test))]
+            {
+                Self::wired()
+            }
+            #[cfg(test)]
+            {
+                let mut key = [0u8; 32];
+                let seed = format!("susi-mac-ephemeral:{}", std::process::id());
+                let digest = Sha256::digest(seed.as_bytes());
+                key.copy_from_slice(&digest[..32]);
+                Self::new(key, PrivacyMode::Balanced, false)
+            }
         })
     }
 
