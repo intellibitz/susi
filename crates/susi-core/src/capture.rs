@@ -552,12 +552,15 @@ impl EvidenceSession {
         if receipts.is_empty() {
             return None;
         }
-        let citations: Vec<_> = receipts.iter().map(|r| {
-            serde_json::json!({
-                "receipt_id": r.id,
-                "json_pointer": serde_json::Value::Null
+        let citations: Vec<_> = receipts
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "receipt_id": r.id,
+                    "json_pointer": serde_json::Value::Null
+                })
             })
-        }).collect();
+            .collect();
         Some(serde_json::json!({ "citations": citations }).to_string())
     }
 

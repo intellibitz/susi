@@ -2712,18 +2712,25 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("goal is required"))?;
         let context = arg.get("context").and_then(|v| v.as_str()).unwrap_or("");
-        
+
         let delegations_dir = crate::susi_paths::SusiDirs::data_dir().join("delegations");
-        std::fs::create_dir_all(&delegations_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        
-        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        std::fs::create_dir_all(&delegations_dir)
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let req_path = delegations_dir.join(format!("ide_request_{ts}.md"));
         let res_path = delegations_dir.join(format!("ide_response_{ts}.md"));
-        
+
         let content = format!("# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}\n\nWrite your response to: {}", goal, context, res_path.display());
         std::fs::write(&req_path, content).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        
-        Ok(format!("Delegation request written to {}. The Swarm will await the IDE's response.", req_path.display()))
+
+        Ok(format!(
+            "Delegation request written to {}. The Swarm will await the IDE's response.",
+            req_path.display()
+        ))
     }
 }
 

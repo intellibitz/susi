@@ -425,9 +425,15 @@ impl SusiMasterAgent {
                 || lower_goal == "bloat-audit"
             {
                 bus_tool("bloat_audit", &serde_json::json!(null), workspace)
-            } else if lower_goal.trim() == "version" || lower_goal == "susi version" || lower_goal == "show version" {
+            } else if lower_goal.trim() == "version"
+                || lower_goal == "susi version"
+                || lower_goal == "show version"
+            {
                 format!("SUSI Engine Version: v{}", version)
-            } else if lower_goal.trim() == "status" || lower_goal == "susi status" || lower_goal == "show status" {
+            } else if lower_goal.trim() == "status"
+                || lower_goal == "susi status"
+                || lower_goal == "show status"
+            {
                 format!(
                     "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
                     hw.cpu_brand, hw.ram_gb
@@ -684,16 +690,19 @@ impl SusiMasterAgent {
                 }
             };
 
-        let mut verified_final_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
-            &goal,
-            "SUSI_SOLVE",
-            &verified,
-            workspace,
-        );
+        let mut verified_final_attempt =
+            crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                &goal,
+                "SUSI_SOLVE",
+                &verified,
+                workspace,
+            );
 
         if let Err(e) = &verified_final_attempt {
             if e.to_string().contains("narrative alone cannot complete it") {
-                if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                if let Some(auto_cited) =
+                    crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
+                {
                     eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
                     verified_final_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &goal,
@@ -705,23 +714,22 @@ impl SusiMasterAgent {
             }
         }
 
-        let verified_final =
-            match verified_final_attempt {
-                Ok(v) => {
-                    eprintln!(
+        let verified_final = match verified_final_attempt {
+            Ok(v) => {
+                eprintln!(
                     "- [Reality Integrity Check] Status: SUCCESS | Reality verification passed."
                 );
-                    v
-                }
-                Err(e) => {
-                    verification_failed = true;
-                    eprintln!(
-                        "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
-                        e
-                    );
-                    format!("Reality Violation: {}", e)
-                }
-            };
+                v
+            }
+            Err(e) => {
+                verification_failed = true;
+                eprintln!(
+                    "- [Reality Integrity Check] Status: VIOLATION | Error: {}",
+                    e
+                );
+                format!("Reality Violation: {}", e)
+            }
+        };
 
         Ok(SusiMissionReport {
             goal: goal.to_string(),
@@ -1095,24 +1103,42 @@ impl SusiMasterAgent {
                         }
                     }
                 };
-                
+
                 let mut executed_scripts = String::new();
                 for block in local_inference.split("```").skip(1).step_by(2) {
                     let block_trimmed = block.trim();
-                    if block_trimmed.starts_with("bash\n") || block_trimmed.starts_with("sh\n") || block_trimmed.starts_with("shell\n") {
-                        let cmd = block_trimmed.trim_start_matches("bash").trim_start_matches("sh").trim_start_matches("shell").trim();
+                    if block_trimmed.starts_with("bash\n")
+                        || block_trimmed.starts_with("sh\n")
+                        || block_trimmed.starts_with("shell\n")
+                    {
+                        let cmd = block_trimmed
+                            .trim_start_matches("bash")
+                            .trim_start_matches("sh")
+                            .trim_start_matches("shell")
+                            .trim();
                         if !cmd.is_empty() && !cmd.starts_with('!') {
-                            eprintln!("[Local Agent] Detected shell block. Executing native tool...");
+                            eprintln!(
+                                "[Local Agent] Detected shell block. Executing native tool..."
+                            );
                             let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                            let result = bus_tool("exec_command", &serde_json::Value::String(wrapped_cmd), workspace);
-                            executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
+                            let result = bus_tool(
+                                "exec_command",
+                                &serde_json::Value::String(wrapped_cmd),
+                                workspace,
+                            );
+                            executed_scripts.push_str(&format!(
+                                "\n\nExecution Result for `{cmd}`:\n{}\n",
+                                result
+                            ));
                         }
                     }
                 }
-                
+
                 if !executed_scripts.is_empty() {
                     local_inference.push_str(&executed_scripts);
-                    if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                    if let Some(citations) =
+                        crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
+                    {
                         local_inference.push_str("\n\n");
                         local_inference.push_str(&citations);
                     }
@@ -1140,7 +1166,11 @@ impl SusiMasterAgent {
 
                     if let Err(e) = &verified_answer_attempt {
                         if e.to_string().contains("narrative alone cannot complete it") {
-                            if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                            if let Some(auto_cited) =
+                                crate::susi_core::capture::EvidenceSession::auto_format_truth(
+                                    workspace,
+                                )
+                            {
                                 eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
                                 verified_answer_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                                     &current_goal,
@@ -1361,9 +1391,16 @@ impl SusiMasterAgent {
                 // Truth Formatter hook: if the model failed the JSON gate but there are live receipts,
                 // auto-align the ungrounded narrative by synthesizing the missing citations.
                 if e.to_string().contains("narrative alone cannot complete it") {
-                    if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                    if let Some(auto_cited) =
+                        crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
+                    {
                         eprintln!("[TruthFormatter] Intercepting ungrounded narrative. Auto-aligning missing citations...");
-                        if let Some(Ok(rendered)) = crate::susi_core::capture::EvidenceSession::verify_answer(&auto_cited, workspace) {
+                        if let Some(Ok(rendered)) =
+                            crate::susi_core::capture::EvidenceSession::verify_answer(
+                                &auto_cited,
+                                workspace,
+                            )
+                        {
                             return ("COMPLETE".to_string(), rendered);
                         }
                     }
@@ -1372,7 +1409,7 @@ impl SusiMasterAgent {
                     "FAILED".to_string(),
                     format!("TRUTH_UNVERIFIED: {e}\n\n{joined}"),
                 )
-            },
+            }
             None => {
                 // No live receipts requiring citation — children already absolute.
                 // Still run the crown gate so fabricated join text cannot slip.

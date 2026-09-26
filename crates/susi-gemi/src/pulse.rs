@@ -48,27 +48,29 @@ impl SusiPulse {
 
         let global_dir = crate::susi_paths::SusiDirs::config_dir();
 
-        // Neural Reflex Attempt
+        // Neural Reflex Attempt (Tier 0 Classifier)
         if let Ok(model) = SusiAlphaModel::load(&global_dir) {
-            match model.predict_intent(prompt_trimmed) {
-                Ok(neural_action) => {
-                    let mut final_action = neural_action;
-                    if final_action.contains("list_directory") {
-                        final_action = format!("ACTION: list_directory {}", workspace.display());
-                    }
-
-                    // Populate Cache
-                    let mut cache = REFLEX_CACHE.write();
-                    cache.insert(prompt_trimmed.to_string(), final_action.clone());
-
-                    return Ok(final_action);
+            if let Ok(neural_action) = model.predict_intent(prompt_trimmed) {
+                let mut final_action = neural_action;
+                if final_action.contains("list_directory") {
+                    final_action = format!("ACTION: list_directory {}", workspace.display());
                 }
-                Err(_e) => {
-                    return Err(anyhow!(
-                        "Low confidence reflex. Escalating to Tier 2 Deep Reasoning..."
-                    ));
-                }
+
+                // Populate Cache
+                let mut cache = REFLEX_CACHE.write();
+                cache.insert(prompt_trimmed.to_string(), final_action.clone());
+
+                return Ok(final_action);
             }
+        }
+
+        // Generative Reflex Attempt (Tier 1 LLM)
+        if let Ok(generative_action) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
+            .try_solve(prompt_trimmed, workspace)
+        {
+            let mut cache = REFLEX_CACHE.write();
+            cache.insert(prompt_trimmed.to_string(), generative_action.clone());
+            return Ok(generative_action);
         }
 
         Err(anyhow!(

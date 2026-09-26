@@ -213,15 +213,21 @@ async fn verify_recovery_answer(
         };
     // Crown gate: citations resolve from the ledger; if receipts exist and
     // were not cited, fail — never promote narrative over captured evidence.
-    let mut resolved_attempt = crate::susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace);
-    
+    let mut resolved_attempt =
+        crate::susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace);
+
     // Truth Formatter hook: If the model generated prose but there are live receipts,
     // auto-align the ungrounded narrative by synthesizing the missing citations.
     if let Some(Err(e)) = &resolved_attempt {
         if e.to_string().contains("narrative alone cannot complete it") {
-            if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+            if let Some(auto_cited) =
+                crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace)
+            {
                 eprintln!("[TruthFormatter] Intercepting ungrounded recovery narrative. Auto-aligning missing citations...");
-                resolved_attempt = crate::susi_core::capture::EvidenceSession::verify_answer(&auto_cited, workspace);
+                resolved_attempt = crate::susi_core::capture::EvidenceSession::verify_answer(
+                    &auto_cited,
+                    workspace,
+                );
             }
         }
     }
@@ -591,40 +597,63 @@ async fn recover_with_providers(
     // ULTIMATE FALLBACK: IDE and Protocol-Compliant External Agents
     eprintln!("[FAILOVER] Trying external agent fallbacks");
     let fallback_agents = [
-        "antigravity", "cursor", "codex", "claude", "devin", 
-        "deepseek_harness", "aider", "openhands"
+        "antigravity",
+        "cursor",
+        "codex",
+        "claude",
+        "devin",
+        "deepseek_harness",
+        "aider",
+        "openhands",
     ];
     let mut delegated = Vec::new();
-    
+
     for agent in fallback_agents {
         // Try IDE delegation protocol for IDE agents
         if ["antigravity", "cursor", "codex", "claude", "devin"].contains(&agent) {
             let delegations_dir = crate::susi_paths::SusiDirs::data_dir().join("delegations");
             let _ = std::fs::create_dir_all(&delegations_dir);
-            let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
             let req_path = delegations_dir.join(format!("{agent}_request_{ts}.md"));
-            let content = format!("# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}", report.goal, context);
+            let content = format!(
+                "# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}",
+                report.goal, context
+            );
             if std::fs::write(&req_path, content).is_ok() {
                 delegated.push(agent);
                 continue;
             }
         }
-        
+
         // Try executing CLI agents via plane bus
-        if let Ok(_) = crate::susi_core::plane_bus::agents::external_run(workspace, "execution", agent, &report.goal) {
+        if let Ok(_) = crate::susi_core::plane_bus::agents::external_run(
+            workspace,
+            "execution",
+            agent,
+            &report.goal,
+        ) {
             delegated.push(agent);
         }
     }
-    
+
     if !delegated.is_empty() {
         record_attempt(
             report,
             "external_agents",
             "EXTERNAL_ATTEMPT_VERIFIED",
-            format!("Delegated mission to external agents: {}", delegated.join(", ")),
+            format!(
+                "Delegated mission to external agents: {}",
+                delegated.join(", ")
+            ),
         );
         report.status = "COMPLETE".into();
-        report.final_answer = format!("Delegated mission to external agents: {}", delegated.join(", "));
+        report.final_answer = format!(
+            "Delegated mission to external agents: {}",
+            delegated.join(", ")
+        );
         return;
     }
 

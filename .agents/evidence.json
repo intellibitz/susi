@@ -1400,6 +1400,26 @@
       "milestone": "solve execute a shell command to write 'susi local models work again' to a file called proof.txt",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-146",
+      "milestone": "solve execute a shell command to write 'susi local models work definitively' to a file called final_proof.txt",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-147",
+      "milestone": "solve execute a shell command that prints the current working directory",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

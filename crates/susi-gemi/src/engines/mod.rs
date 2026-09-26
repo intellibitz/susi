@@ -15,6 +15,7 @@ pub mod mcp_provider;
 pub mod qwen2_split;
 pub mod reasoning;
 pub mod reflex;
+pub mod reflex_llm;
 pub mod routing;
 /// Core local/cloud inference runtime (`GemiEngine`, `NeuralBackend`, …).
 pub mod runtime;
