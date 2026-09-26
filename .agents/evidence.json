@@ -1370,6 +1370,16 @@
       "milestone": "solve Please check system status and delegate this task to the IDE agent.",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-143",
+      "milestone": "solve execute ./build-gpu.sh",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
