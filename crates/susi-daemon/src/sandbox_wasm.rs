@@ -44,6 +44,17 @@ struct HostState {
 /// daemon's own memory without bound.
 pub const MAX_CELL_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
+/// Instruction budget (Wasmtime fuel) per cell: an infinite loop traps
+/// instead of pinning a daemon thread forever.
+pub const CELL_FUEL: u64 = 10_000_000_000;
+
+/// Engine with fuel metering enabled; every cell store is given [`CELL_FUEL`].
+fn cell_engine() -> Result<Engine> {
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true);
+    Engine::new(&config).map_err(anyhow::Error::from)
+}
+
 /// Represents a loaded WASM cell.
 ///
 /// * `module_path` – path to the compiled `.wasm` file.
@@ -87,7 +98,7 @@ impl WasmCell {
     /// Fails when the file cannot be read or compiled, or instantiation fails.
     pub fn load(module_path: impl Into<PathBuf>) -> Result<Self> {
         let module_path = module_path.into();
-        let engine = Engine::default();
+        let engine = cell_engine()?;
         let module = Module::from_file(&engine, &module_path)
             .map_err(anyhow::Error::from)
             .with_context(|| format!("Failed to load WASM module {}", module_path.display()))?;
@@ -99,7 +110,7 @@ impl WasmCell {
     /// # Errors
     /// Fails when the bytes do not compile or instantiation fails.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        let engine = Engine::default();
+        let engine = cell_engine()?;
         let module = Module::new(&engine, bytes)
             .map_err(anyhow::Error::from)
             .context("Failed to compile WASM module")?;
@@ -125,6 +136,10 @@ impl WasmCell {
             },
         );
         store.limiter(|state| &mut state.limits);
+        store
+            .set_fuel(CELL_FUEL)
+            .map_err(anyhow::Error::from)
+            .context("Failed to set cell fuel")?;
         let instance = linker
             .instantiate(&mut store, module)
             .map_err(anyhow::Error::from)
@@ -222,6 +237,16 @@ mod tests {
                 (call $send (i32.const 0) (i32.const 1))))"#;
         let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -2"));
+    }
+
+    #[test]
+    fn infinite_loops_run_out_of_fuel() {
+        let wat = r#"(module
+            (func (export "_start") (result i32)
+                (loop $l (br $l))
+                (i32.const 0)))"#;
+        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        assert!(cell.execute("_start").is_err(), "must trap, not hang");
     }
 
     #[test]
