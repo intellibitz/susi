@@ -125,7 +125,13 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
         .map(|c| c.port_offset())
         .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
     cmd.env(svc.port_env, resolved_port.to_string())
-        .env("SUSI_PORT_OFFSET", offset.to_string());
+        .env("SUSI_PORT_OFFSET", offset.to_string())
+        // Dependency-free leaves (susi-native, susi-error) cannot locate the
+        // token file themselves; they enforce the bearer they are handed.
+        .env(
+            "SUSI_HOST_TOKEN",
+            crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded(),
+        );
     let log_dir = crate::susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let log_path = log_dir.join(format!("{}.log", svc.name));
