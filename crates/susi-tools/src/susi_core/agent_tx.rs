@@ -51,19 +51,11 @@ fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
     if rel.is_empty() || rel.contains("..") {
         return Err(EaiError::governance(format!("tx path escape: {rel}")));
     }
-    let candidate = workspace.join(&rel);
-    let ws = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf());
-    let file = candidate
-        .canonicalize()
-        .unwrap_or_else(|_| candidate.clone());
-    if !file.starts_with(&ws) && candidate.exists() {
-        return Err(EaiError::governance(format!(
-            "tx path outside workspace: {rel}"
-        )));
-    }
-    Ok(candidate)
+    // Resolve through the deepest existing ancestor: files a transaction
+    // creates under a symlinked dir must not escape the workspace (the old
+    // check waved through every path that did not exist yet).
+    crate::susi_config::confined_workspace_join(workspace, &rel)
+        .map_err(|e| EaiError::governance(format!("tx path outside workspace: {rel} ({e})")))
 }
 
 /// Process-wide transaction registry.
