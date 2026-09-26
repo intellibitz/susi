@@ -6,7 +6,9 @@ use tokio::net::TcpListener;
 
 use susi_abi::cell::SwarmCell;
 use susi_abi::swarm::SwarmRole;
-use susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus};
+use susi_abi::syscall::{
+    token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
+};
 use susi_abi::wire::{FrameStream, MessageType, WireFrame};
 
 #[tokio::main]
@@ -31,12 +33,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cell = Arc::new(tokio::sync::Mutex::new(cell));
 
+    // Every syscall must present the token from SUSI_CELL_TOKEN; without
+    // it the cell denies all syscalls. Heartbeats stay open for liveness.
+    let expected_token: Arc<str> = std::env::var(CELL_TOKEN_ENV).unwrap_or_default().into();
+    if expected_token.trim().is_empty() {
+        eprintln!("SUSI_CELL_TOKEN is not set: every syscall will be denied");
+    }
+
     let listener = TcpListener::bind("127.0.0.1:9093").await?;
     println!("susi-dsh-cell Swarm Cell ready and listening...");
 
     loop {
         let (mut socket, _) = listener.accept().await?;
         let cell_clone = Arc::clone(&cell);
+        let expected_token = Arc::clone(&expected_token);
 
         tokio::spawn(async move {
             let mut buf = vec![0u8; 64 * 1024];
@@ -57,15 +67,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
                                 {
-                                    let response = handle_dsh(req).await;
+                                    let response =
+                                        if token_matches(req.token.as_deref(), &expected_token) {
+                                            handle_dsh(req).await
+                                        } else {
+                                            SyscallResponse {
+                                                id: req.id,
+                                                status: SyscallStatus::Denied,
+                                                data: serde_json::Value::Null,
+                                                receipt: None,
+                                                latency_us: 0,
+                                                message: Some(
+                                                    "missing or invalid cell token".into(),
+                                                ),
+                                            }
+                                        };
                                     // Hold the cell lock only to record the outcome, never across the
                                     // work itself, so heartbeats and other connections are not blocked.
                                     {
                                         let mut cell = cell_clone.lock().await;
-                                        if response.status == SyscallStatus::Success {
-                                            cell.record_success();
-                                        } else {
-                                            cell.record_failure();
+                                        match response.status {
+                                            SyscallStatus::Success => cell.record_success(),
+                                            // Auth denials are the caller's fault; they must not let an
+                                            // unauthenticated peer drive the cell's trust score down.
+                                            SyscallStatus::Denied => {}
+                                            SyscallStatus::NotFound
+                                            | SyscallStatus::Timeout
+                                            | SyscallStatus::Error => cell.record_failure(),
                                         }
                                     }
                                     let Ok(resp_payload) = serde_json::to_vec(&response) else {

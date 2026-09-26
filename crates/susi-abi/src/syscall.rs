@@ -117,3 +117,38 @@ pub struct SyscallResponse {
     /// Optional human-readable error or diagnosis message.
     pub message: Option<String>,
 }
+
+/// Environment variable carrying the bearer token a Swarm Cell requires on
+/// every syscall. Spawners set it from the host API token.
+pub const CELL_TOKEN_ENV: &str = "SUSI_CELL_TOKEN";
+
+/// Constant-time check that a request presented the expected cell token.
+///
+/// An empty `expected` never authorizes (fail closed), and a missing token
+/// never matches.
+#[must_use]
+pub fn token_matches(presented: Option<&str>, expected: &str) -> bool {
+    let Some(presented) = presented else {
+        return false;
+    };
+    let (a, b) = (presented.as_bytes(), expected.as_bytes());
+    if b.is_empty() || a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::token_matches;
+
+    #[test]
+    fn token_matching_is_exact_and_fails_closed() {
+        assert!(token_matches(Some("s3cret"), "s3cret"));
+        assert!(!token_matches(Some("s3creT"), "s3cret"));
+        assert!(!token_matches(Some("s3cret-extra"), "s3cret"));
+        assert!(!token_matches(None, "s3cret"));
+        assert!(!token_matches(Some(""), ""));
+        assert!(!token_matches(Some("anything"), ""));
+    }
+}
