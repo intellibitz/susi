@@ -78,7 +78,7 @@ through `#[path]` (no Cargo edge):
 | Canonical source | What it is | Mounted by |
 |---|---|---|
 | `crates/susi-core/src/embedded.rs` | `susi_core` microkernel subset, incl. `mcp_client` (MCP Streamable HTTP peer client), `a2a_wire` (A2A v1.0 `message/send`), `inference_wire` (provider request/reply shapes) | feature crates |
-| `crates/susi-core/src/susi_{error,paths,config}.rs` | error contract, paths and config IPC clients; `susi_config.rs` mounts the `susi-config` crate's own module files and adds only the IPC service hook | every crate |
+| `crates/susi-core/src/susi_{error,paths,config}.rs` | IPC clients for the error, paths and config services. Each mounts the service crate's own sources — `susi-error/src/{contract,redact}.rs`, `susi-paths/src/ports.rs`, `susi-config/src/*.rs` — and adds only its client-side hook (`record_event`, `service`) | every crate |
 | `crates/susi-sandbox/vendor_template/susi_sandbox/` | sandbox IPC client; mounts `susi-sandbox/src` for audit chain, auto-install and local daemon state | feature crates |
 | `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GEMI REST, GMCP, A2A |
 | `crates/susi-abi/src/cell_server.rs` | swarm-cell TCP server (framing, token auth, trust scoring, heartbeat) | the five cell binaries |
