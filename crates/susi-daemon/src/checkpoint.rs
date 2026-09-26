@@ -17,6 +17,21 @@ pub struct CellCheckpoint {
     pub step_counter: u64,
 }
 
+/// File-name stem for a cell id: only `[A-Za-z0-9_-]` survive, so a
+/// hostile id (`../../x`, `/etc/y`) can never add path components.
+pub(crate) fn cell_file_stem(cell_id: &str) -> String {
+    cell_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Manages saving and loading of cell state checkpoints.
 pub struct CheckpointManager {
     checkpoint_dir: PathBuf,
@@ -43,7 +58,7 @@ impl CheckpointManager {
     /// Computes the file path for a cell's checkpoint.
     fn get_path(&self, cell_id: &str) -> PathBuf {
         self.checkpoint_dir
-            .join(format!("{}.susi_checkpoint", cell_id))
+            .join(format!("{}.susi_checkpoint", cell_file_stem(cell_id)))
     }
 
     /// Saves a snapshot of the cell's memory to disk.
@@ -83,6 +98,12 @@ impl CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cell_file_stems_cannot_traverse() {
+        assert_eq!(cell_file_stem("../../etc/x"), "______etc_x");
+        assert_eq!(cell_file_stem("cell-01_a"), "cell-01_a");
+    }
 
     #[test]
     fn test_checkpoint_save_and_load() {

@@ -37,7 +37,10 @@ impl HibernationManager {
         cell_id: &str,
         memory_snapshot: &[u8],
     ) -> std::io::Result<SuspendedCell> {
-        let state_file = self.storage_dir.join(format!("{}.suspend", cell_id));
+        let state_file = self.storage_dir.join(format!(
+            "{}.suspend",
+            crate::checkpoint::cell_file_stem(cell_id)
+        ));
 
         // Write the snapshot to disk to free RAM
         fs::write(&state_file, memory_snapshot)?;
@@ -56,7 +59,10 @@ impl HibernationManager {
 
     /// Resumes a cell by reading its state back into memory.
     pub fn resume_cell(&self, cell_id: &str) -> std::io::Result<Vec<u8>> {
-        let state_file = self.storage_dir.join(format!("{}.suspend", cell_id));
+        let state_file = self.storage_dir.join(format!(
+            "{}.suspend",
+            crate::checkpoint::cell_file_stem(cell_id)
+        ));
 
         if !state_file.exists() {
             return Err(std::io::Error::new(
