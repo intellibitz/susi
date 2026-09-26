@@ -19,81 +19,16 @@ use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::sync::Arc;
 use susi_gawd_agents::GawdAgentFleet;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
 
-// Dual-protocol transport: the accept loop sniffs each connection's first
-// byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
-// configured; anything else is plain HTTP — internal `http://127.0.0.1`
-// callers are unaffected. `require_tls_remote` drops non-TLS bytes from
-// off-host peers; loopback plaintext is always allowed.
-enum MaybeTls {
-    Plain(tokio::net::TcpStream),
-    Tls(Box<TlsStream<tokio::net::TcpStream>>),
-}
-
-impl AsyncRead for MaybeTls {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_read(cx, buf),
-        }
-    }
-}
-
-impl AsyncWrite for MaybeTls {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<io::Result<usize>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write(cx, buf),
-        }
-    }
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_flush(cx),
-        }
-    }
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_shutdown(cx),
-        }
-    }
-    fn poll_write_vectored(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        bufs: &[io::IoSlice<'_>],
-    ) -> std::task::Poll<io::Result<usize>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_write_vectored(cx, bufs),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write_vectored(cx, bufs),
-        }
-    }
-    fn is_write_vectored(&self) -> bool {
-        match self {
-            Self::Plain(s) => s.is_write_vectored(),
-            Self::Tls(s) => s.is_write_vectored(),
-        }
-    }
-}
+// Canonical dual-protocol (TLS-sniffing) transport shared with the GEMI
+// REST and GMCP servers.
+#[rustfmt::skip]
+#[path = "../../susi-server/src/dual_transport.rs"]
+mod dual_transport;
+use dual_transport::{negotiate_transport, MaybeTls};
 
 /// An axum `Listener` that serves both plain HTTP and TLS on each bound
 /// socket by peeking at the first byte before deciding the transport.
@@ -126,30 +61,20 @@ impl axum::serve::Listener for DualListener {
                     continue;
                 }
             };
-            // Dual-protocol on every socket: a TLS ClientHello (0x16) is
-            // upgraded when a cert is configured, anything else is plain
-            // HTTP — so TLS-terminated-upstream deployments keep working.
             // Off-host plaintext is refused only under `https_only`;
             // loopback is always exempt (internal http://127.0.0.1 callers).
             let remote = !addr.ip().is_loopback();
-            let mut probe = [0u8; 1];
-            let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
-            if is_tls {
-                if let Some(acceptor) = &self.tls {
-                    match acceptor.accept(stream).await {
-                        Ok(s) => return (MaybeTls::Tls(Box::new(s)), addr),
-                        Err(e) => {
-                            eprintln!("[A2A] TLS handshake failed for {addr}: {e}");
-                            continue;
-                        }
-                    }
-                }
-                continue;
+            if let Some(io) = negotiate_transport(
+                stream,
+                remote,
+                self.tls.as_ref(),
+                self.require_tls_remote,
+                "[A2A]",
+            )
+            .await
+            {
+                return (io, addr);
             }
-            if remote && self.require_tls_remote {
-                continue;
-            }
-            return (MaybeTls::Plain(stream), addr);
         }
     }
 

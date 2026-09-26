@@ -23,117 +23,15 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
 
-// Dual-protocol transport: the accept loop sniffs each connection's first
-// byte. A TLS ClientHello (0x16) is served over TLS when an acceptor is
-// configured; anything else is plain HTTP — internal `http://127.0.0.1`
-// callers are unaffected. `require_tls_remote` drops non-TLS bytes from
-// off-host peers; loopback plaintext is always allowed.
-enum MaybeTls {
-    Plain(tokio::net::TcpStream),
-    Tls(Box<TlsStream<tokio::net::TcpStream>>),
-}
-
-impl AsyncRead for MaybeTls {
-    fn poll_read(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_read(cx, buf),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_read(cx, buf),
-        }
-    }
-}
-
-impl AsyncWrite for MaybeTls {
-    fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_write(cx, buf),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write(cx, buf),
-        }
-    }
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_flush(cx),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_flush(cx),
-        }
-    }
-    fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_shutdown(cx),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_shutdown(cx),
-        }
-    }
-    fn poll_write_vectored(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        bufs: &[std::io::IoSlice<'_>],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        match self.get_mut() {
-            Self::Plain(s) => std::pin::Pin::new(s).poll_write_vectored(cx, bufs),
-            Self::Tls(s) => std::pin::Pin::new(&mut **s).poll_write_vectored(cx, bufs),
-        }
-    }
-    fn is_write_vectored(&self) -> bool {
-        match self {
-            Self::Plain(s) => s.is_write_vectored(),
-            Self::Tls(s) => s.is_write_vectored(),
-        }
-    }
-}
-
-/// Decide the transport for one accepted connection. Every socket sniffs the
-/// first byte — a TLS ClientHello (`0x16`) is upgraded when a certificate is
-/// configured, anything else is plain HTTP. Sniffing (rather than a
-/// destination-based split) keeps the surface proxy-compatible: TLS can be
-/// terminated upstream, and a specific external bind still serves plaintext
-/// to peers that need it.
-///
-/// Plaintext policy is peer-based: loopback always passes; off-host
-/// (`remote`) plaintext is refused only when `require_tls_remote`
-/// (config `https_only`) is set — so an operator can force TLS on the
-/// external surface while internal `http://127.0.0.1` callers keep working.
-///
-/// Returns `None` when the connection must be dropped.
-async fn negotiate_transport(
-    stream: tokio::net::TcpStream,
-    remote: bool,
-    tls: Option<&TlsAcceptor>,
-    require_tls_remote: bool,
-) -> Option<MaybeTls> {
-    let mut probe = [0u8; 1];
-    let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
-    if is_tls {
-        let acceptor = tls?;
-        return match acceptor.accept(stream).await {
-            Ok(s) => Some(MaybeTls::Tls(Box::new(s))),
-            Err(e) => {
-                eprintln!("[GMCP] TLS handshake failed: {e}");
-                None
-            }
-        };
-    }
-    if remote && require_tls_remote {
-        return None;
-    }
-    Some(MaybeTls::Plain(stream))
-}
+// Canonical dual-protocol (TLS-sniffing) transport shared with the GEMI
+// REST and A2A servers.
+#[rustfmt::skip]
+#[path = "../../susi-server/src/dual_transport.rs"]
+mod dual_transport;
+use dual_transport::negotiate_transport;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;
@@ -278,6 +176,7 @@ impl GmcpServer {
                                 remote,
                                 tls.as_ref(),
                                 require_tls_remote,
+                                "[GMCP]",
                             )
                             .await
                             else {
@@ -496,28 +395,6 @@ async fn handle_request(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncWriteExt;
-
-    /// Drive one accepted connection through `negotiate_transport` after the
-    /// client pre-writes `first` bytes for the sniff to classify.
-    async fn negotiate_with_prefix(
-        first: &[u8],
-        remote: bool,
-        require_tls_remote: bool,
-    ) -> Option<MaybeTls> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let first = first.to_vec();
-        let client = tokio::spawn(async move {
-            let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
-            c.write_all(&first).await.unwrap();
-            c
-        });
-        let (stream, _) = listener.accept().await.unwrap();
-        let out = negotiate_transport(stream, remote, None, require_tls_remote).await;
-        let _client = client.await.unwrap();
-        out
-    }
 
     #[test]
     fn rejections_carry_rfc_challenge_headers() {
@@ -532,32 +409,5 @@ mod tests {
         assert!(!missing
             .headers()
             .contains_key(hyper::header::WWW_AUTHENTICATE));
-    }
-
-    #[tokio::test]
-    async fn negotiate_transport_contract() {
-        // Plain HTTP always passes from loopback, and from remote peers
-        // unless https_only refuses it.
-        assert!(
-            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", false, true)
-                .await
-                .is_some()
-        );
-        assert!(
-            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", true, false)
-                .await
-                .is_some()
-        );
-        assert!(
-            negotiate_with_prefix(b"GET /mcp HTTP/1.1\r\n\r\n", true, true)
-                .await
-                .is_none()
-        );
-        // TLS bytes with no acceptor are dropped, never served as garbage.
-        assert!(
-            negotiate_with_prefix(&[0x16, 0x03, 0x01, 0x00, 0x2a], false, false)
-                .await
-                .is_none()
-        );
     }
 }
