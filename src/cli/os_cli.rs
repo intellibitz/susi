@@ -31,6 +31,13 @@ pub enum OsCommands {
         #[arg(long)]
         doctor: bool,
     },
+    /// Live runtime view: AI processes by owner (SUSI vs external), managed
+    /// models with observed residency, and per-process GPU memory
+    Runtime {
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Unified lifecycle facade for local AI ecosystem components
     Manage {
         #[command(subcommand)]
@@ -192,6 +199,7 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
         OsCommands::Status { json } => status(json || top_json),
         OsCommands::Clean => clean(),
         OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
+        OsCommands::Runtime { json } => super::os_runtime::print(json || top_json),
         OsCommands::Manage { resource } => manage(resource, _workspace),
     }
 }
@@ -407,39 +415,6 @@ fn runtime_inventory() -> Vec<serde_json::Value> {
     .collect()
 }
 
-fn running_ai_processes() -> Vec<serde_json::Value> {
-    const NAMES: &[&str] = &[
-        "ollama",
-        "llama-server",
-        "vllm",
-        "sglang",
-        "tritonserver",
-        "lmdeploy",
-        "susi",
-        "python",
-        "node",
-    ];
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let pid = entry.file_name().to_string_lossy().parse::<u32>().ok()?;
-            let bytes = std::fs::read(entry.path().join("cmdline")).ok()?;
-            let command = String::from_utf8_lossy(&bytes).replace('\0', " ");
-            let lower = command.to_ascii_lowercase();
-            NAMES.iter().any(|name| lower.contains(name)).then(|| {
-                serde_json::json!({
-                    "pid": pid,
-                    "command": command.chars().take(500).collect::<String>(),
-                })
-            })
-        })
-        .take(256)
-        .collect()
-}
-
 fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
     let hardware = susi_gemi::hardware::HardwareProfiler::get_profile();
     let runtimes = runtime_inventory();
@@ -478,7 +453,8 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
         })
         .collect();
     let mcp = susi_tools::LeadingMcpManager::new(workspace)?.status()?;
-    let processes = running_ai_processes();
+    let runtime = super::os_runtime::view();
+    let processes = runtime["processes"].as_array().cloned().unwrap_or_default();
     let installed_runtimes = runtimes
         .iter()
         .filter(|runtime| runtime["installed"].as_bool() == Some(true))
@@ -507,6 +483,7 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
             "running_ai_processes": processes.len(),
         },
         "control": {
+            "runtime": "susi os runtime [--json]",
             "services": "susi os manage service <status|start|stop|restart|logs>",
             "models": "susi os manage model <list|doctor|install|uninstall|configure|reset|prefer|local>",
             "agents": "susi os manage agent <list|doctor|configure|reset|run|tasks|cancel>",
