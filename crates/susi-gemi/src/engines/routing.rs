@@ -483,6 +483,36 @@ impl InferenceRouter {
         clouds
     }
 
+    /// PHASE 2: Dynamic Model Router based on requested capabilities and constraints.
+    pub fn resolve_model_for_capabilities(
+        requires: Option<&str>,
+        max_cost: Option<f64>,
+        registry: &crate::susi_core::registry::CapabilityRegistry,
+    ) -> Option<String> {
+        let mut clouds = Self::cloud_failover_order(registry);
+
+        // Capability constraint: Vision
+        if requires == Some("vision") {
+            clouds.retain(|name| {
+                let n = name.to_ascii_lowercase();
+                n.contains("gpt-4o") || n.contains("claude-3-5-sonnet") || n.contains("gemini")
+            });
+        }
+
+        // Financial constraint: Max Cost per request/token proxy
+        if let Some(cost) = max_cost {
+            if cost <= 0.01 {
+                // Filter out frontier expensive models
+                clouds.retain(|name| {
+                    let n = name.to_ascii_lowercase();
+                    !n.contains("opus") && !n.contains("gpt-4-") // Allows gpt-4o-mini
+                });
+            }
+        }
+
+        clouds.first().cloned()
+    }
+
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
         if let Some(until) = pref.force_local_until_unix {
             let now = std::time::SystemTime::now()

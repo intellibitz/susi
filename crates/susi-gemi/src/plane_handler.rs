@@ -183,6 +183,16 @@ impl PlaneHandler for GemiPlaneHandler {
                     )
                 }))
             }
+            "gemi.models.router.resolve" => {
+                let requires = payload.get("requires").and_then(|v| v.as_str());
+                let max_cost = payload.get("max_cost").and_then(|v| v.as_f64());
+                let resolved = InferenceRouter::resolve_model_for_capabilities(
+                    requires,
+                    max_cost,
+                    CapabilityRegistry::global(),
+                );
+                Ok(json!({ "model": resolved }))
+            }
             topics::GEMI_MODELS_SCAN => {
                 let dir = path_field(&payload, "global_dir");
                 match ModelManager::deep_scan_home_and_register(&dir) {
