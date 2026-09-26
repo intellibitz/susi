@@ -73,6 +73,23 @@ pub fn serve(port: u16) -> std::io::Result<()> {
         crate::susi_paths::SusiDirs::config_dir()
     }
 
+    /// Every route requires the host bearer token: these endpoints read or
+    /// write the user's substrate, and loopback is shared by all local users.
+    async fn require_bearer(
+        req: axum::extract::Request,
+        next: axum::middleware::Next,
+    ) -> axum::response::Response {
+        let header = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok());
+        if crate::susi_paths::bearer_authorized(header) {
+            next.run(req).await
+        } else {
+            axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED)
+        }
+    }
+
     async fn get_config() -> Result<Json<SusiConfig>, StatusCode> {
         SusiConfig::load_global()
             .map(Json)
@@ -98,7 +115,8 @@ pub fn serve(port: u16) -> std::io::Result<()> {
         .block_on(async {
             let app = Router::new()
                 .route("/config", get(get_config).post(save_config))
-                .route("/config/reload", post(reload_config));
+                .route("/config/reload", post(reload_config))
+                .layer(axum::middleware::from_fn(require_bearer));
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
             let listener = tokio::net::TcpListener::bind(addr).await?;
             eprintln!("susi-config service listening on {addr}");

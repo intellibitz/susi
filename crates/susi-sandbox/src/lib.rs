@@ -60,6 +60,24 @@ pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
 /// Embedded REST service mode: sandbox ensure/docker-exec and daemon
 /// integrity helpers over HTTP. Shared by the standalone `susi-sandbox`
 /// binary and the root `susi` binary's `service-run` dispatch.
+/// Every route requires the host bearer token: `docker_exec` runs commands
+/// and the rest touch the user's substrate; loopback is shared by all local
+/// users.
+async fn require_bearer(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let header = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if crate::susi_paths::bearer_authorized(header) {
+        next.run(req).await
+    } else {
+        axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED)
+    }
+}
+
 pub fn serve(port: u16) -> std::io::Result<()> {
     use crate::daemon_state::SusiDaemonState;
     use crate::SandboxManager;
@@ -134,7 +152,8 @@ pub fn serve(port: u16) -> std::io::Result<()> {
                 .route("/sandbox/docker_exec", post(docker_exec))
                 .route("/daemon/status", get(daemon_status))
                 .route("/daemon/verify_integrity", post(verify_integrity))
-                .route("/daemon/hash_cached", post(hash_cached));
+                .route("/daemon/hash_cached", post(hash_cached))
+                .layer(axum::middleware::from_fn(require_bearer));
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
             let listener = tokio::net::TcpListener::bind(addr).await?;
             eprintln!("susi-sandbox service listening on {addr}");
