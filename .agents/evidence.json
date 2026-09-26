@@ -1440,6 +1440,16 @@
       "milestone": "solve tell me a joke about a recursive function",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-150",
+      "milestone": "solve tell me a joke about recursive functions",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
