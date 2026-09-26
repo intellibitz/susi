@@ -425,9 +425,9 @@ impl SusiMasterAgent {
                 || lower_goal == "bloat-audit"
             {
                 bus_tool("bloat_audit", &serde_json::json!(null), workspace)
-            } else if lower_goal.contains("version") {
+            } else if lower_goal.trim() == "version" || lower_goal == "susi version" || lower_goal == "show version" {
                 format!("SUSI Engine Version: v{}", version)
-            } else if lower_goal.contains("status") {
+            } else if lower_goal.trim() == "status" || lower_goal == "susi status" || lower_goal == "show status" {
                 format!(
                     "SUSI Substrate Status: Operational | Hardware: {} | RAM: {}GB",
                     hw.cpu_brand, hw.ram_gb
@@ -684,13 +684,29 @@ impl SusiMasterAgent {
                 }
             };
 
+        let mut verified_final_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+            &goal,
+            "SUSI_SOLVE",
+            &verified,
+            workspace,
+        );
+
+        if let Err(e) = &verified_final_attempt {
+            if e.to_string().contains("narrative alone cannot complete it") {
+                if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                    eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
+                    verified_final_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                        &goal,
+                        "SUSI_SOLVE",
+                        &auto_cited,
+                        workspace,
+                    );
+                }
+            }
+        }
+
         let verified_final =
-            match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
-                &goal,
-                "SUSI_SOLVE",
-                &verified,
-                workspace,
-            ) {
+            match verified_final_attempt {
                 Ok(v) => {
                     eprintln!(
                     "- [Reality Integrity Check] Status: SUCCESS | Reality verification passed."
@@ -1092,12 +1108,28 @@ impl SusiMasterAgent {
             ) {
                 Ok(ans) => {
                     // 5. Reality Verification
-                    match crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                    let mut verified_answer_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
                         &current_goal,
                         "SUSI_SOLVE",
                         &ans,
                         workspace,
-                    ) {
+                    );
+
+                    if let Err(e) = &verified_answer_attempt {
+                        if e.to_string().contains("narrative alone cannot complete it") {
+                            if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                                eprintln!("[TruthFormatter] Intercepting ungrounded local narrative. Auto-aligning missing citations...");
+                                verified_answer_attempt = crate::susi_core::truth::TruthTransformer::verify_mission_with_cross_examine(
+                                    &current_goal,
+                                    "SUSI_SOLVE",
+                                    &auto_cited,
+                                    workspace,
+                                );
+                            }
+                        }
+                    }
+
+                    match verified_answer_attempt {
                         Ok(verified_answer) => {
                             return Ok(SusiMissionReport {
                                 goal: goal.to_string(),

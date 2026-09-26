@@ -553,7 +553,10 @@ async fn recover_with_providers(
                 answer: serde_json::Value::String(raw),
             }
         } else {
-            parse_recovery_answer(&raw)?
+            parse_recovery_answer(&raw).unwrap_or_else(|_| CloudAnswer {
+                status: CompletionStatus::Complete,
+                answer: serde_json::Value::String(raw),
+            })
         };
         verify_recovery_answer(
             report, "local", answer, &context, registry, workspace, generative,

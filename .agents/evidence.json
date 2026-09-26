@@ -1350,6 +1350,26 @@
       "milestone": "Restored host wiring disabled by the micro-daemon refactor (6687882) and unblocked CI: SusiEngineHooks + gmcp tool bootstrap (intellibitz/susi#5), zero-config discovery / cloud.env / model provisioner (#7), SubstratePulseQueue worker (#8), peer ban check + Explicit admission + roster/bloom gossip in the signed-ping handler (#9, VC-200-001), semantic indexing + admin-cycle maintenance (#10), capability_gap_e2e restored and passing end to end (#11, VC-200-002); fmt, susi-gmcp arch test, wasmtime 24.0.7 -> 49.0.1 (RUSTSEC-2026-0094/0095/0096/0222/0269) and rustls-pemfile removal (RUSTSEC-2025-0134) (#3).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-141",
+      "milestone": "solve Please delegate this task to the IDE agent, tell them we are testing the new delegation protocol.",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-142",
+      "milestone": "solve Please check system status and delegate this task to the IDE agent.",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

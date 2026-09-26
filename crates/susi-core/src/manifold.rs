@@ -40,19 +40,22 @@ impl IntentManifold {
             .unwrap_or(lower.as_str());
 
         let scope_of_impact = if is_workspace_file_read(focused)
-            || focused.contains("identity")
-            || focused.contains("status")
-            || focused.contains("models")
-            || focused.contains("version")
-            || focused.contains("dashboard")
-            || focused.contains("bloat")
+            || focused.trim() == "identity"
+            || focused.trim() == "status"
+            || focused.trim() == "susi status"
+            || focused.trim() == "models"
+            || focused.trim() == "list models"
+            || focused.trim() == "version"
+            || focused.trim() == "susi version"
+            || focused.trim() == "dashboard"
+            || focused.trim() == "bloat audit"
             || focused == "ls"
             || focused.starts_with("ls ")
             || focused == "dir"
-            || focused.contains("list directory")
-            || focused.contains("list files")
-            || focused.contains("who am i")
-            || focused.contains("whoami")
+            || focused == "list directory"
+            || focused == "list files"
+            || focused == "who am i"
+            || focused == "whoami"
         {
             ScopeOfImpact::Read
         } else if focused.contains("write")
