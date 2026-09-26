@@ -141,7 +141,10 @@ impl GenerativeReflexEngine {
 
         // Resolve model and tokenizer paths.
         let model_path = ModelManager::get_model_path(Self::REFLEX_MODEL_ID).ok_or_else(|| {
-            anyhow!("Tier 1 Reflex Model '{}' not provisioned.", Self::REFLEX_MODEL_ID)
+            anyhow!(
+                "Tier 1 Reflex Model '{}' not provisioned.",
+                Self::REFLEX_MODEL_ID
+            )
         })?;
         let tokenizer_path = ModelManager::get_tokenizer_path(Self::REFLEX_MODEL_ID)
             .ok_or_else(|| anyhow!("Tokenizer missing for Reflex Model."))?;
@@ -158,8 +161,8 @@ impl GenerativeReflexEngine {
         let mut substrate = substrate_shared.write();
 
         // Load tokenizer.
-        let tokenizer = Tokenizer::from_file(tokenizer_path)
-            .map_err(|e| anyhow!("Tokenizer Error: {}", e))?;
+        let tokenizer =
+            Tokenizer::from_file(tokenizer_path).map_err(|e| anyhow!("Tokenizer Error: {}", e))?;
 
         // Prompt for full answer generation.
         let full_prompt = format!(
@@ -185,14 +188,20 @@ impl GenerativeReflexEngine {
                 .unsqueeze(0)
                 .map_err(|e| anyhow!("Tensor Error: {}", e))?;
 
-            let pos = if i == 0 { 0 } else { prompt_tokens.len() + i - 1 };
+            let pos = if i == 0 {
+                0
+            } else {
+                prompt_tokens.len() + i - 1
+            };
 
             let logits = substrate
                 .weights
                 .forward(&input, pos)
                 .map_err(|e| anyhow!("Model forward failed: {}", e))?;
 
-            let logits_slice = logits.squeeze(0).map_err(|e| anyhow!("Squeeze Error: {}", e))?;
+            let logits_slice = logits
+                .squeeze(0)
+                .map_err(|e| anyhow!("Squeeze Error: {}", e))?;
             let last_logits_tensor = if logits_slice.rank() == 2 {
                 let seq_len = logits_slice
                     .dim(0)
@@ -244,4 +253,3 @@ impl GenerativeReflexEngine {
         Ok(final_output.to_string())
     }
 }
-

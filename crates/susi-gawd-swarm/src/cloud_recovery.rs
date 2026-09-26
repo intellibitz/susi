@@ -82,7 +82,8 @@ fn eligible(report: &SusiMissionReport) -> bool {
 }
 
 /// Recover using existing evidence. Previously executed tools are not replayed.
-/// Tries each cloud once, then falls back to local inference.
+/// Tries local inference first, then each cloud once, then delegates to an
+/// available external agent when every synchronous recovery path fails.
 ///
 /// `model_hint` is an optional caller-requested model (`/v1/chat/completions`
 /// `model` field): a hint naming a failover provider moves that provider to
@@ -277,7 +278,9 @@ async fn verify_recovery_answer(
     )
     .map_err(EaiError::governance)?;
     // Absolute gate only — no soft verify_mission_reality + model cross-examine.
-    let verified = TruthTransformer::verify_mission_with_cross_examine(
+    // Recovery answers must have evidence (strict gate) — ungrounded provider
+    // narrative is never promoted to COMPLETE status.
+    let verified = TruthTransformer::verify_mission_with_cross_examine_strict(
         &report.goal,
         provider,
         &answer_text,
@@ -416,6 +419,100 @@ async fn recover_with_providers(
         "{context}{}",
         crate::susi_core::capture::EvidenceSession::evidence_prompt_for(workspace)
     );
+
+    // ── Local-first policy ────────────────────────────────────────────
+    // Try local GGUF inference BEFORE any cloud provider. This gives the
+    // user the fastest, most private answer and avoids network round-trips
+    // when a local model is available. Cloud is only tried when local
+    // genuinely fails (no model, empty output, or [FAIL] marker).
+    //
+    // Exception: generative missions that named a specific cloud provider
+    // must honor that request — the response is labeled with the named
+    // model, so substituting a local model would mislabel the generator.
+    let local_eligible = fallback_local && !(generative && hint_is_provider);
+    if local_eligible {
+        eprintln!("[LOCAL-FIRST] Trying local inference before cloud");
+        let prompt = if generative {
+            report.goal.clone()
+        } else {
+            recovery_prompt(&report.goal, &context)
+        };
+        let workspace_owned = workspace.to_path_buf();
+        let local_model = if hint_is_provider {
+            None
+        } else {
+            model_hint.map(str::to_owned)
+        };
+        let local = tokio::time::timeout(timeout, async {
+            let raw = tokio::task::spawn_blocking(move || match local_model.as_deref() {
+                Some(model) => {
+                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+                        &prompt,
+                        &workspace_owned,
+                        model,
+                    )
+                }
+                None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                    &prompt,
+                    &workspace_owned,
+                ),
+            })
+            .await
+            .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
+            if raw.trim().is_empty() || raw.contains("[FAIL]") {
+                return Err(EaiError::inference(format!(
+                    "Local inference produced no usable recovery answer: {}",
+                    raw.chars().take(200).collect::<String>()
+                )));
+            }
+            let answer = if generative {
+                CloudAnswer {
+                    status: CompletionStatus::Complete,
+                    answer: serde_json::Value::String(raw),
+                }
+            } else {
+                parse_recovery_answer(&raw).unwrap_or(CloudAnswer {
+                    status: CompletionStatus::Complete,
+                    answer: serde_json::Value::String(raw),
+                })
+            };
+            verify_recovery_answer(
+                report, "local", answer, &context, registry, workspace, generative,
+            )
+            .await
+        })
+        .await;
+
+        match local {
+            Ok(Ok((answer, evidence))) => {
+                record_attempt(
+                    report,
+                    "local",
+                    "LOCAL_ATTEMPT_VERIFIED",
+                    evidence.render_for_gemi(),
+                );
+                report.status = "COMPLETE".into();
+                report.final_answer = answer;
+                return;
+            }
+            Ok(Err(error)) => {
+                record_attempt(report, "local", "LOCAL_ATTEMPT_FAILED", error.to_string());
+                eprintln!("[LOCAL-FIRST] Local failed, escalating to cloud providers");
+            }
+            Err(_) => {
+                record_attempt(
+                    report,
+                    "local",
+                    "LOCAL_ATTEMPT_FAILED",
+                    "Local recovery attempt timed out".into(),
+                );
+                eprintln!("[LOCAL-FIRST] Local timed out, escalating to cloud providers");
+            }
+        }
+    }
+
+    // ── Cloud provider cascade ────────────────────────────────────────
+    // Only reached when local inference is unavailable or failed.
     let mut attempted = HashSet::new();
     let mut ghosts = 0usize;
     for name in providers {
@@ -470,20 +567,10 @@ async fn recover_with_providers(
                 return;
             }
             Ok(Err(error)) => {
-                // A registry ghost — a provider name the failover order
-                // enumerated but no live process serves (stale cap file,
-                // dead owner, unswept rendezvous) — is not a provider
-                // attempt. A failed mission otherwise logs hundreds of
-                // instant "no handler" failures (observed: 547 ghost
-                // providers from a dead rediscovery sweep), drowning the
-                // real attempts in the report.
                 let msg = error.to_string();
                 if msg.contains("no handler for topic") || msg.contains("no longer available") {
                     ghosts += 1;
                 } else {
-                    // Report through the bus so the GEMI plane's cooldown
-                    // router skips this provider (and its credential/
-                    // endpoint scope) on later missions and restarts.
                     crate::susi_core::plane_bus::gemi::note_provider_failure(&name, &msg);
                     record_attempt(report, &name, "CLOUD_ATTEMPT_FAILED", msg)
                 }
@@ -503,95 +590,15 @@ async fn recover_with_providers(
         eprintln!("[FAILOVER] skipped {ghosts} ghost provider registration(s) — no live owner");
     }
 
-    // Last resort: local GGUF / llamacpp path (skips cloud escalation).
-    // Generative missions that named a provider must not silently
-    // substitute a different local model — the response is labeled with
-    // the requested model, so the fallback would mislabel the generator.
-    if !fallback_local || (generative && hint_is_provider) {
+    // A caller that disables local fallback is asking for a bounded cloud-only
+    // attempt. A generative request naming a cloud provider has the same
+    // strict honoring contract and must not be handed to a different agent.
+    if !local_eligible && !report.is_success() {
         report.final_answer.push_str(&format!(
             "\nFailover exhausted {} cloud provider(s); mission remains failed. See attempt details in the mission trace.",
             attempted.len().saturating_sub(ghosts)
         ));
         return;
-    }
-
-    eprintln!("[FAILOVER] Trying local inference");
-    let prompt = if generative {
-        report.goal.clone()
-    } else {
-        recovery_prompt(&report.goal, &context)
-    };
-    let workspace_owned = workspace.to_path_buf();
-    // A provider-name hint was already served by the cloud loop above; only
-    // a non-provider hint is a local model name to load here. With no hint
-    // the auto-select variant picks the default local model — passing a
-    // "local" sentinel resolves as a literal model id and fails.
-    let local_model = if hint_is_provider {
-        None
-    } else {
-        model_hint.map(str::to_owned)
-    };
-    let local = tokio::time::timeout(timeout, async {
-        let raw = tokio::task::spawn_blocking(move || match local_model.as_deref() {
-            Some(model) => {
-                crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
-                    &prompt,
-                    &workspace_owned,
-                    model,
-                )
-            }
-            None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                &prompt,
-                &workspace_owned,
-            ),
-        })
-        .await
-        .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
-        if raw.trim().is_empty() || raw.contains("[FAIL]") {
-            return Err(EaiError::inference(format!(
-                "Local inference produced no usable recovery answer: {}",
-                raw.chars().take(200).collect::<String>()
-            )));
-        }
-        let answer = if generative {
-            CloudAnswer {
-                status: CompletionStatus::Complete,
-                answer: serde_json::Value::String(raw),
-            }
-        } else {
-            parse_recovery_answer(&raw).unwrap_or_else(|_| CloudAnswer {
-                status: CompletionStatus::Complete,
-                answer: serde_json::Value::String(raw),
-            })
-        };
-        verify_recovery_answer(
-            report, "local", answer, &context, registry, workspace, generative,
-        )
-        .await
-    })
-    .await;
-
-    match local {
-        Ok(Ok((answer, evidence))) => {
-            record_attempt(
-                report,
-                "local",
-                "LOCAL_ATTEMPT_VERIFIED",
-                evidence.render_for_gemi(),
-            );
-            report.status = "COMPLETE".into();
-            report.final_answer = answer;
-            return;
-        }
-        Ok(Err(error)) => {
-            record_attempt(report, "local", "LOCAL_ATTEMPT_FAILED", error.to_string())
-        }
-        Err(_) => record_attempt(
-            report,
-            "local",
-            "LOCAL_ATTEMPT_FAILED",
-            "Local recovery attempt timed out".into(),
-        ),
     }
 
     // ULTIMATE FALLBACK: IDE and Protocol-Compliant External Agents
@@ -615,8 +622,7 @@ async fn recover_with_providers(
             let _ = std::fs::create_dir_all(&delegations_dir);
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
+                .map_or(0, |duration| duration.as_secs());
             let req_path = delegations_dir.join(format!("{agent}_request_{ts}.md"));
             let content = format!(
                 "# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}",
@@ -629,12 +635,14 @@ async fn recover_with_providers(
         }
 
         // Try executing CLI agents via plane bus
-        if let Ok(_) = crate::susi_core::plane_bus::agents::external_run(
+        if crate::susi_core::plane_bus::agents::external_run(
             workspace,
             "execution",
             agent,
             &report.goal,
-        ) {
+        )
+        .is_ok()
+        {
             delegated.push(agent);
         }
     }
@@ -643,15 +651,18 @@ async fn recover_with_providers(
         record_attempt(
             report,
             "external_agents",
-            "EXTERNAL_ATTEMPT_VERIFIED",
+            "EXTERNAL_DELEGATED",
             format!(
-                "Delegated mission to external agents: {}",
+                "Recovery delegated; completion is pending from: {}",
                 delegated.join(", ")
             ),
         );
-        report.status = "COMPLETE".into();
+        // Dispatch is not completion evidence. Keep this non-successful so
+        // callers never receive a zero exit code for work that has only been
+        // queued in an external agent's inbox.
+        report.status = "DELEGATED".into();
         report.final_answer = format!(
-            "Delegated mission to external agents: {}",
+            "Recovery is pending with external agents: {}",
             delegated.join(", ")
         );
         return;
@@ -1065,6 +1076,51 @@ mod tests {
             .final_answer
             .contains("The observed result is available."));
         assert_eq!(*calls.lock().unwrap(), ["a-gen"]);
+    }
+
+    #[tokio::test]
+    async fn local_recovery_precedes_cloud_cascade() {
+        wire_verify_stub();
+        let ws = TempWorkspace::new();
+        let session = crate::susi_core::capture::EvidenceSession::new(
+            "Reply with exactly: local",
+            &ws.0,
+            |s| s.to_string(),
+        )
+        .unwrap();
+        let _activation = crate::susi_core::capture::EvidenceSession::activate(&session);
+
+        let (registry, calls) = providers(&[("cloud-unused", Reply::Text(COMPLETE))]);
+        let mut report = report();
+        recover_with_providers(
+            &mut report,
+            &registry,
+            vec!["cloud-unused".into()],
+            &ws.0,
+            Duration::from_secs(1),
+            true,
+            None,
+            true,
+        )
+        .await;
+
+        assert!(report.is_success(), "{}", report.final_answer);
+        let local_position = report
+            .interactions
+            .iter()
+            .position(|entry| entry.action.starts_with("LOCAL_ATTEMPT"))
+            .expect("local recovery must be attempted");
+        let cloud_position = report
+            .interactions
+            .iter()
+            .position(|entry| entry.action.starts_with("CLOUD_ATTEMPT"));
+        assert!(cloud_position.is_none_or(|position| local_position < position));
+        if calls.lock().unwrap().is_empty() {
+            assert!(report
+                .interactions
+                .iter()
+                .any(|entry| entry.action == "LOCAL_ATTEMPT_VERIFIED"));
+        }
     }
 
     /// The promotion is scoped to generative missions: the same prose

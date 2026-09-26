@@ -2,7 +2,7 @@
 // 100% Neural implementation - Zero Hardcoded Heuristics.
 
 use super::alpha::SusiAlphaModel;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -70,8 +70,9 @@ impl SusiPulse {
         {
             // If the reflex returns an ACTION placeholder, attempt full answer generation.
             if generative_action.trim_start().starts_with("ACTION:") {
-                if let Ok(full_answer) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
-                    .try_generate_answer(prompt_trimmed, workspace)
+                if let Ok(full_answer) =
+                    crate::engines::reflex_llm::GenerativeReflexEngine::global()
+                        .try_generate_answer(prompt_trimmed, workspace)
                 {
                     let mut cache = REFLEX_CACHE.write();
                     cache.insert(prompt_trimmed.to_string(), full_answer.clone());

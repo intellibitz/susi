@@ -252,7 +252,8 @@ impl ModelManager {
 
         if vram_budget_bytes > 0 {
             // ── GPU path: VRAM-optimal model + tiered prefetch ─────────
-            if let Some(step) = ladder.iter()
+            if let Some(step) = ladder
+                .iter()
                 .filter(|s| s.expected_bytes <= vram_budget_bytes)
                 .max_by_key(|s| s.expected_bytes)
             {
@@ -261,7 +262,12 @@ impl ModelManager {
                 }
                 let path = models_dir.join(&step.hf_file);
                 if !Self::is_complete_model_file(&path, step.min_bytes) {
-                    let url = format!("{}/{}/resolve/main/{}", cfg.hf_base_url(), step.hf_repo, step.hf_file);
+                    let url = format!(
+                        "{}/{}/resolve/main/{}",
+                        cfg.hf_base_url(),
+                        step.hf_repo,
+                        step.hf_file
+                    );
                     ModelDownloadController::global()
                         .start_download(&url)
                         .map_err(crate::susi_error::EaiError::inference)?;
@@ -270,8 +276,10 @@ impl ModelManager {
             }
 
             // Additional tiered prefetch (disk-budget gated).
-            let mut remaining = HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
-            let targets = Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
+            let mut remaining =
+                HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
+            let targets =
+                Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
             for index in targets {
                 let step = &ladder[index];
                 let path = models_dir.join(&step.hf_file);
@@ -280,7 +288,11 @@ impl ModelManager {
                     .metadata()
                     .map(|m| m.len())
                     .unwrap_or(0);
-                let needed = if complete { 0 } else { step.expected_bytes.saturating_sub(partial) };
+                let needed = if complete {
+                    0
+                } else {
+                    step.expected_bytes.saturating_sub(partial)
+                };
                 if needed > remaining {
                     continue;
                 }
@@ -317,7 +329,12 @@ impl ModelManager {
                 } else {
                     let path = models_dir.join(&step.hf_file);
                     if !Self::is_complete_model_file(&path, step.min_bytes) {
-                        let url = format!("{}/{}/resolve/main/{}", cfg.hf_base_url(), step.hf_repo, step.hf_file);
+                        let url = format!(
+                            "{}/{}/resolve/main/{}",
+                            cfg.hf_base_url(),
+                            step.hf_repo,
+                            step.hf_file
+                        );
                         ModelDownloadController::global()
                             .start_download(&url)
                             .map_err(crate::susi_error::EaiError::inference)?;

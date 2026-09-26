@@ -160,7 +160,7 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
             continue;
         };
         let prev = v.get("prev_hash").and_then(|x| x.as_str()).unwrap_or("");
-        let hmac = v.get("hmac").and_then(|x| x.as_str()).unwrap_or("");
+        let _hmac = v.get("hmac").and_then(|x| x.as_str()).unwrap_or("");
         let level = v.get("level").and_then(|x| x.as_str()).unwrap_or("");
         let event_type = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
         let details = v.get("details").and_then(|x| x.as_str()).unwrap_or("");
@@ -195,7 +195,7 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
         if recomputed != entry_hash {
             return Err(format!("line {}: entry_hash mismatch", idx + 1));
         }
-        let expect_mac = mac_hex(&key, entry_hash);
+        let _expect_mac = mac_hex(&key, entry_hash);
         // HMAC verification disabled to avoid spurious failures in test environments.
         // Uncomment the following lines to re‑enable strict checking.
         // if expect_mac != hmac {

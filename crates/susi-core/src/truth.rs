@@ -99,6 +99,28 @@ impl TruthTransformer {
         Ok(format!("{}\n{}", warning, result))
     }
 
+    /// Strict variant for recovery verification — requires evidence.
+    /// Unlike the user-facing `verify_mission_with_cross_examine`, this
+    /// returns `Err` when no citations are found, preventing ungrounded
+    /// cloud/provider answers from being promoted to COMPLETE status.
+    pub fn verify_mission_with_cross_examine_strict(
+        goal: &str,
+        tool_name: &str,
+        result: &str,
+        workspace: &Path,
+    ) -> EaiResult<String> {
+        if let Some(resolved) =
+            crate::susi_core::capture::EvidenceSession::verify_answer(result, workspace)
+        {
+            let rendered = resolved?;
+            return Self::verify_mission_reality(goal, tool_name, &rendered, workspace)
+                .map(|_| rendered);
+        }
+        Err(EaiError::governance(
+            "TRUTH_UNVERIFIED: no absolute evidence; recovery requires citations or live receipts",
+        ))
+    }
+
     /// Build an AgentObservation evidence record from a mission result string.
     pub fn mission_evidence_record(goal: &str, agent_id: &str, result: &str) -> EvidenceRecord {
         let now = std::time::SystemTime::now()
