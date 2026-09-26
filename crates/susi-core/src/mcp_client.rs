@@ -136,7 +136,7 @@ fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
 /// `susi-peer-req-v2:{node}:{ts}:{nonce}:{method}:{path}:{sha256(body)}`.
 /// Empty when no `node.key` exists (standalone host) — receivers treat
 /// the request as an unsigned call and apply the bearer/token rules.
-fn signed_headers(method: &str, url: &str, body_bytes: &[u8]) -> Vec<(String, String)> {
+pub fn signed_headers(method: &str, url: &str, body_bytes: &[u8]) -> Vec<(String, String)> {
     use crate::susi_config::cluster_key;
     use sha2::Digest;
     let node = cluster_key::wire_node_id();

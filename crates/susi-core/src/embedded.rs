@@ -4,6 +4,8 @@
 //! its independent types and process-local statics while compiling exactly one
 //! checked-in implementation of every contract.
 
+#[path = "a2a_wire.rs"]
+pub mod a2a_wire;
 #[path = "agent_tx.rs"]
 pub mod agent_tx;
 #[path = "agent_types.rs"]

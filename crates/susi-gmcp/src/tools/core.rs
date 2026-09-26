@@ -961,18 +961,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("a2a_delegate requires 'message'".to_string()))?;
         let url = Self::a2a_peer_url(peer)?;
-        let body = serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "message/send",
-            "params": {
-                "message": {
-                    "role": "ROLE_USER",
-                    "parts": [{ "kind": "text", "text": message }],
-                    "messageId": format!("susi-{}", crate::susi_config::cluster_key::random_nonce_hex()),
-                }
-            }
-        });
+        let body = crate::susi_core::a2a_wire::message_send_request(message);
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: encode: {e}")))?;
         // Dedicated agent: the shared http_agent's 20s body timeout cuts
@@ -984,9 +973,11 @@ impl CoreTools {
             .timeout_send_body(Some(std::time::Duration::from_secs(20)))
             .build();
         let agent = ureq::Agent::new_with_config(agent);
+        let endpoint = format!("{url}/");
         let mut req = agent
-            .post(&format!("{url}/"))
-            .header("content-type", "application/json");
+            .post(&endpoint)
+            .header("content-type", "application/json")
+            .header("a2a-version", crate::susi_core::a2a_wire::A2A_VERSION);
         // The host token is for our own A2A surface (loopback) only; peers
         // authorize us by the member signature below, and a configured
         // third-party agent must never receive it.
@@ -1006,22 +997,10 @@ impl CoreTools {
         }
         // Member signature over `susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{sha256(body)}`
         // — a bound member's receiver authorizes us without the bearer.
-        use crate::susi_config::cluster_key;
-        use sha2::Digest;
-        let node = cluster_key::wire_node_id();
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let nonce = cluster_key::random_nonce_hex();
-        let hash = hex::encode(sha2::Sha256::digest(&body_bytes));
-        let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{hash}");
-        if let Some(sig) = cluster_key::member_sign(&canonical) {
-            req = req
-                .header("x-susi-node", node)
-                .header("x-susi-req-ts", ts.to_string())
-                .header("x-susi-req-nonce", nonce)
-                .header("x-susi-req-sig", sig);
+        for (name, value) in
+            crate::susi_core::mcp_client::signed_headers("POST", &endpoint, &body_bytes)
+        {
+            req = req.header(&name, value);
         }
         let mut resp = req
             .send(&body_bytes)
@@ -1032,31 +1011,8 @@ impl CoreTools {
             .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
         let doc: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: bad JSON-RPC reply: {e}")))?;
-        if let Some(err) = doc.get("error") {
-            return Err(EaiError::network(format!("a2a_delegate rpc error: {err}")));
-        }
-        // Fold the completed task into its agent reply text.
-        let reply = doc
-            .pointer("/result/task/status/message/parts")
-            .and_then(|p| p.as_array())
-            .map(|parts| {
-                parts
-                    .iter()
-                    .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            })
-            .unwrap_or_default();
-        let state = doc
-            .pointer("/result/task/status/state")
-            .and_then(|s| s.as_str())
-            .map(|s| s.trim_start_matches("TASK_STATE_").to_ascii_lowercase())
-            .unwrap_or_else(|| "unknown".to_string());
-        if reply.is_empty() {
-            Ok(format!("task {state} (no reply text): {text}"))
-        } else {
-            Ok(format!("task {state}: {reply}"))
-        }
+        crate::susi_core::a2a_wire::reply_summary(&doc)
+            .map_err(|e| EaiError::network(format!("a2a_delegate {e}")))
     }
 
     #[tool(

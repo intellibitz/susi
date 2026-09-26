@@ -238,26 +238,15 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
             spec.name
         )));
     }
-    use crate::susi_config::cluster_key;
-    use sha2::Digest;
-    let payload = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "message/send",
-        "params": {
-            "message": {
-                "role": "ROLE_USER",
-                "parts": [{"kind": "text", "text": goal}],
-                "messageId": format!("susi-{}", cluster_key::random_nonce_hex()),
-            }
-        }
-    });
+    use crate::susi_core::a2a_wire;
+    let payload = a2a_wire::message_send_request(goal);
     let body =
         serde_json::to_vec(&payload).map_err(|e| EaiError::process(format!("a2a encode: {e}")))?;
     let url = format!("{base}/");
     let mut req = crate::susi_sandbox::manager::http_agent()
         .post(&url)
-        .header("Content-Type", "application/json");
+        .header("Content-Type", "application/json")
+        .header("A2A-Version", a2a_wire::A2A_VERSION);
     // Only the credential configured for this external agent. Never fall
     // back to our own host API token: that would hand the key to every
     // local surface to a third-party service. Susi peers authorize us by
@@ -266,21 +255,9 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     if !bearer.is_empty() {
         req = req.header("Authorization", format!("Bearer {bearer}"));
     }
-    // Member signature over susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{sha256(body)}
-    let node = cluster_key::wire_node_id();
-    let ts = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let nonce = cluster_key::random_nonce_hex();
-    let hash = hex::encode(sha2::Sha256::digest(&body));
-    let canonical = format!("susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{hash}");
-    if let Some(sig) = cluster_key::member_sign(&canonical) {
-        req = req
-            .header("x-susi-node", node)
-            .header("x-susi-req-ts", ts.to_string())
-            .header("x-susi-req-nonce", nonce)
-            .header("x-susi-req-sig", sig);
+    // Member signature over susi-peer-req-v2:{node}:{ts}:{nonce}:POST:{path}:{sha256(body)}
+    for (name, value) in crate::susi_core::mcp_client::signed_headers("POST", &url, &body) {
+        req = req.header(&name, value);
     }
     match req.send(&body) {
         Ok(mut resp) => {
@@ -297,30 +274,7 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
             }
             let doc: serde_json::Value = serde_json::from_str(&text)
                 .map_err(|e| EaiError::process(format!("a2a peer: bad JSON-RPC reply: {e}")))?;
-            if let Some(err) = doc.get("error") {
-                return Err(EaiError::process(format!("a2a peer rpc error: {err}")));
-            }
-            let reply = doc
-                .pointer("/result/task/status/message/parts")
-                .and_then(|p| p.as_array())
-                .map(|parts| {
-                    parts
-                        .iter()
-                        .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })
-                .unwrap_or_default();
-            let state = doc
-                .pointer("/result/task/status/state")
-                .and_then(|s| s.as_str())
-                .map(|s| s.trim_start_matches("TASK_STATE_").to_ascii_lowercase())
-                .unwrap_or_else(|| "unknown".to_string());
-            if reply.is_empty() {
-                Ok(format!("task {state} (no reply text): {text}"))
-            } else {
-                Ok(format!("task {state}: {reply}"))
-            }
+            a2a_wire::reply_summary(&doc).map_err(|e| EaiError::process(format!("a2a peer {e}")))
         }
         Err(e) => Err(EaiError::process(format!("a2a peer failed: {e}"))),
     }

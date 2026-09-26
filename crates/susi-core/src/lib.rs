@@ -56,6 +56,7 @@ pub mod abi_bridge;
 #[path = "../../susi-abi/src/lib.rs"]
 pub mod susi_abi;
 
+pub mod a2a_wire;
 pub mod agent_tx;
 pub mod agent_types;
 pub mod broker;

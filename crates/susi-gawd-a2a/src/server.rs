@@ -319,3 +319,83 @@ pub fn serve(
         .await
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::susi_core::a2a_wire;
+    use ra2a::server::{AgentExecutor, Event, EventQueue, RequestContext};
+    use ra2a::types::{Message, Part, PartContent, Task, TaskState, TaskStatus};
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Arc;
+
+    /// Replies with the received text, uppercased, as a completed task.
+    struct Shout;
+
+    impl AgentExecutor for Shout {
+        fn execute<'a>(
+            &'a self,
+            ctx: &'a RequestContext,
+            queue: &'a EventQueue,
+        ) -> Pin<Box<dyn Future<Output = ra2a::error::Result<()>> + Send + 'a>> {
+            Box::pin(async move {
+                let text = ctx
+                    .message
+                    .as_ref()
+                    .and_then(|m| m.parts.first())
+                    .and_then(|p| match &p.content {
+                        PartContent::Text(t) => Some(t.to_uppercase()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let mut task = Task::new(&ctx.task_id, &ctx.context_id);
+                task.status = TaskStatus::with_message(
+                    TaskState::Completed,
+                    Message::agent(vec![Part::text(text)]),
+                );
+                queue.send(Event::Task(task))?;
+                Ok(())
+            })
+        }
+
+        fn cancel<'a>(
+            &'a self,
+            _ctx: &'a RequestContext,
+            _queue: &'a EventQueue,
+        ) -> Pin<Box<dyn Future<Output = ra2a::error::Result<()>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    /// The shared outbound `message/send` shape round-trips through the real
+    /// ra2a JSON-RPC router: the v1.0 part is decoded as text and the task
+    /// result folds back into its reply.
+    #[test]
+    fn shared_message_send_round_trips_through_ra2a() {
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let addr = runtime.block_on(async {
+            let card =
+                crate::executor::GawdA2AExecutor::new(Arc::new(susi_gawd_agents::GawdAgentFleet))
+                    .agent_card();
+            let handler = ra2a::server::DefaultRequestHandler::new(Shout, card.clone());
+            let app =
+                ra2a::server::a2a_router(ra2a::server::ServerState::new(Arc::new(handler), card));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move { axum::serve(listener, app).await });
+            addr
+        });
+        let reply: serde_json::Value = ureq::post(format!("http://{addr}/"))
+            .header("A2A-Version", a2a_wire::A2A_VERSION)
+            .send_json(a2a_wire::message_send_request("ping"))
+            .unwrap()
+            .body_mut()
+            .read_json()
+            .unwrap();
+        assert_eq!(
+            a2a_wire::reply_summary(&reply).unwrap(),
+            "task completed: PING",
+            "{reply}"
+        );
+    }
+}
