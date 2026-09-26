@@ -20,9 +20,29 @@ impl ScratchFs {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("susi_scratch_{}_{}", cell_id, ts));
+        // The cell id only names the dir: keep it to a safe charset so it
+        // can never add path components (`../`).
+        let safe_id: String = cell_id
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let path = std::env::temp_dir().join(format!("susi_scratch_{safe_id}_{ts}"));
 
-        fs::create_dir_all(&path)?;
+        // Exclusive create, owner-only: in the shared temp dir an existing
+        // entry (e.g. a planted symlink) must fail rather than be reused.
+        let mut builder = fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&path)?;
 
         Ok(Self {
             cell_id: cell_id.to_string(),
@@ -96,6 +116,13 @@ impl Default for ScratchFsManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cell_ids_cannot_escape_the_temp_dir() {
+        let fs = ScratchFs::mount("../../evil").unwrap();
+        assert_eq!(fs.path().parent(), Some(std::env::temp_dir().as_path()));
+        let _ = fs.wipe();
+    }
 
     #[test]
     fn test_scratchfs_lifecycle() {
