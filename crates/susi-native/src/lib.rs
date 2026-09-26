@@ -29,6 +29,38 @@ pub mod wasm;
 /// There is no local fallback in vendored clients — Wasm execution
 /// requires this service. Shared by the standalone `susi-native` binary
 /// and the root `susi` binary's `service-run` dispatch.
+/// Bearer check for a dependency-free leaf service. The daemon's supervisor
+/// passes the host token in `SUSI_HOST_TOKEN`; a bare instance started
+/// without it (local dev, CI harness) stays open.
+fn leaf_authorized(header: Option<&str>) -> bool {
+    let Some(expected) = std::env::var("SUSI_HOST_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    else {
+        return true;
+    };
+    let Some(presented) = header.and_then(|h| h.strip_prefix("Bearer ")) else {
+        return false;
+    };
+    let (a, b) = (presented.trim().as_bytes(), expected.trim().as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+async fn require_bearer(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let header = req
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    if leaf_authorized(header) {
+        next.run(req).await
+    } else {
+        axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED)
+    }
+}
+
 pub fn serve(port: u16) -> std::io::Result<()> {
     use crate::wasm::WasmHost;
     use axum::{http::StatusCode, routing::post, Json, Router};
@@ -65,7 +97,9 @@ pub fn serve(port: u16) -> std::io::Result<()> {
         .enable_all()
         .build()?
         .block_on(async {
-            let app = Router::new().route("/wasm/execute", post(wasm_execute));
+            let app = Router::new()
+                .route("/wasm/execute", post(wasm_execute))
+                .layer(axum::middleware::from_fn(require_bearer));
             let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
             let listener = tokio::net::TcpListener::bind(addr).await?;
             eprintln!("susi-native service listening on {addr}");

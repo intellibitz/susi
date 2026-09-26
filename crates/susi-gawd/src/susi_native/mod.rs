@@ -43,6 +43,7 @@ pub(crate) mod service {
         let mut stream = TcpStream::connect_timeout(&addr(), WASM_TIMEOUT).ok()?;
         let _ = stream.set_read_timeout(Some(WASM_TIMEOUT));
         let _ = stream.set_write_timeout(Some(WASM_TIMEOUT));
+        let req = crate::susi_paths::with_bearer(&req);
         stream.write_all(req.as_bytes()).ok()?;
         let mut buf = String::new();
         stream.read_to_string(&mut buf).ok()?;
