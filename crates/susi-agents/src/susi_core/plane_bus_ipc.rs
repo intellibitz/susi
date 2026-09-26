@@ -503,6 +503,10 @@ fn serve_conn(
     streams: StreamMap,
     secret: &str,
 ) {
+    // Each connection holds a thread: a peer that never finishes its
+    // request (or never reads the answer) must not pin it forever.
+    let _ = conn.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = conn.set_write_timeout(Some(Duration::from_secs(30)));
     let Some((path, presented, body)) = read_request(&mut conn, secret) else {
         return;
     };
