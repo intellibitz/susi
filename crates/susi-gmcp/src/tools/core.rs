@@ -941,7 +941,7 @@ impl CoreTools {
 
     #[tool(
         name = "a2a_delegate",
-        description = "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. The request carries the host Bearer token plus this node's Ed25519 request signature, so a bound member authorizes us by signature. Returns the completed task's agent reply text."
+        description = "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. Every request carries this node's Ed25519 request signature, which is how bound members authorize us; the host Bearer token is sent only to this node's own A2A port. Returns the completed task's agent reply text."
     )]
     pub fn a2a_delegate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)
@@ -981,9 +981,20 @@ impl CoreTools {
         let mut req = agent
             .post(&format!("{url}/"))
             .header("content-type", "application/json");
-        let token = crate::susi_config::SusiConfig::load_global()
-            .map(|c| c.api_auth_token())
-            .unwrap_or_default();
+        // The host token is for our own A2A surface (loopback) only; peers
+        // authorize us by the member signature below, and a configured
+        // third-party agent must never receive it.
+        let cfg = crate::susi_config::SusiConfig::load_global().ok();
+        let local_a2a = format!(
+            "http://127.0.0.1:{}",
+            cfg.as_ref()
+                .map_or(crate::susi_paths::ports::A2A_HTTP, |c| c.a2a_http_port())
+        );
+        let token = if url == local_a2a || url.starts_with("http://[::1]:") {
+            cfg.map(|c| c.api_auth_token()).unwrap_or_default()
+        } else {
+            String::new()
+        };
         if !token.is_empty() {
             req = req.header("authorization", format!("Bearer {token}"));
         }
