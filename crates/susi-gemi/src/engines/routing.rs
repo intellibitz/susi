@@ -37,6 +37,21 @@ pub struct CloudEscalation {
     pub reason: String,
 }
 
+/// Explainable local/cloud placement chosen by the inference router.
+///
+/// This is the single operator-facing view of the same decision used by the
+/// live runtime; callers must not recreate routing policy from config fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementDecision {
+    pub target: String,
+    pub provider: Option<String>,
+    pub reason: String,
+    pub policy: String,
+    pub local_model: Option<String>,
+    pub local_stats: LocalInferenceStats,
+    pub cloud_candidates: Vec<String>,
+}
+
 pub struct InferenceRouter;
 
 /// A provider that just failed is skipped for this long — dead endpoints
@@ -544,20 +559,32 @@ impl InferenceRouter {
             && !profile.gpu_info.to_ascii_lowercase().contains("metal")
     }
 
-    /// Decide whether to escalate to cloud before local inference.
-    /// Returns `None` when local path should proceed as usual.
-    pub fn maybe_escalate_to_cloud(available_providers: &[String]) -> Option<CloudEscalation> {
-        // Hard edge-privacy gate: local_only MAC mode never escalates unless
-        // an explicit cloud.inference capability token was granted.
-        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
-            return None;
-        }
-
+    /// Produce the placement decision used by live inference. The result is
+    /// deliberately serializable so CLI, MCP, and control-plane surfaces can
+    /// explain *why* a request stays local or leaves the host.
+    pub fn plan_placement(available_providers: &[String]) -> PlacementDecision {
         let cfg = SusiConfig::load_global()
             .unwrap_or_default()
             .inference_routing();
         let pref = Self::load_preference();
         let policy = Self::effective_policy(&cfg, &pref);
+        let local_model = crate::models::ModelManager::get_selected_model(None);
+        let stats = Self::load_stats_for(local_model.as_deref().unwrap_or(""));
+
+        // Hard edge-privacy gate: local_only MAC mode never escalates unless
+        // an explicit cloud.inference capability token was granted.
+        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+            return PlacementDecision {
+                target: "local".to_string(),
+                provider: None,
+                reason: "privacy policy blocks cloud inference".to_string(),
+                policy,
+                local_model,
+                local_stats: stats,
+                cloud_candidates: Vec::new(),
+            };
+        }
+
         // Prefer registry HTTPS remotes (any OpenAI-compat vendor); fall back
         // to name heuristics when only bare names are supplied (tests).
         let mut clouds = Self::list_cloud_providers_from_registry(
@@ -568,36 +595,49 @@ impl InferenceRouter {
         }
 
         if clouds.is_empty() {
-            return None;
+            return PlacementDecision {
+                target: "local".to_string(),
+                provider: None,
+                reason: "no ready cloud provider is registered".to_string(),
+                policy,
+                local_model,
+                local_stats: stats,
+                cloud_candidates: clouds,
+            };
         }
 
-        match policy.as_str() {
-            "local_only" => return None,
-            "cloud_first" => {
-                let provider = Self::pick_cloud(&clouds, &pref, &cfg);
-                return Some(CloudEscalation {
-                    provider,
-                    reason: "cloud_first policy".to_string(),
-                });
-            }
-            "ask" => {
-                let provider = Self::pick_cloud(&clouds, &pref, &cfg);
-                return Some(CloudEscalation {
-                    provider,
-                    reason: "ask policy — using cloud".to_string(),
-                });
-            }
-            _ => {} // auto
+        let forced_reason = match policy.as_str() {
+            "local_only" => Some(("local", "local_only policy")),
+            "cloud_first" => Some(("cloud", "cloud_first policy")),
+            "ask" => Some(("cloud", "ask policy — using cloud")),
+            _ => None,
+        };
+        if let Some((target, reason)) = forced_reason {
+            let provider = (target == "cloud").then(|| Self::pick_cloud(&clouds, &pref, &cfg));
+            return PlacementDecision {
+                target: target.to_string(),
+                provider,
+                reason: reason.to_string(),
+                policy,
+                local_model,
+                local_stats: stats,
+                cloud_candidates: clouds,
+            };
         }
 
-        let active_model =
-            crate::models::ModelManager::get_selected_model(None).unwrap_or_default();
-        let stats = Self::load_stats_for(&active_model);
         let slow = Self::local_is_slow(&cfg, &stats);
         let cpu_only = cfg.prefer_cloud_when_cpu_only && Self::cpu_only_host();
 
         if !slow && !cpu_only {
-            return None;
+            return PlacementDecision {
+                target: "local".to_string(),
+                provider: None,
+                reason: "local inference is within policy thresholds".to_string(),
+                policy,
+                local_model,
+                local_stats: stats,
+                cloud_candidates: clouds,
+            };
         }
 
         let reason = if slow {
@@ -610,7 +650,25 @@ impl InferenceRouter {
         };
 
         let provider = Self::pick_cloud(&clouds, &pref, &cfg);
-        Some(CloudEscalation { provider, reason })
+        PlacementDecision {
+            target: "cloud".to_string(),
+            provider: Some(provider),
+            reason,
+            policy,
+            local_model,
+            local_stats: stats,
+            cloud_candidates: clouds,
+        }
+    }
+
+    /// Decide whether to escalate to cloud before local inference.
+    /// Returns `None` when local path should proceed as usual.
+    pub fn maybe_escalate_to_cloud(available_providers: &[String]) -> Option<CloudEscalation> {
+        let decision = Self::plan_placement(available_providers);
+        decision.provider.map(|provider| CloudEscalation {
+            provider,
+            reason: decision.reason,
+        })
     }
 
     fn pick_cloud(

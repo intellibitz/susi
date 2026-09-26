@@ -38,6 +38,12 @@ pub enum OsCommands {
         #[arg(long)]
         json: bool,
     },
+    /// Explain the live local-versus-cloud inference placement decision
+    Route {
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Unified lifecycle facade for local AI ecosystem components
     Manage {
         #[command(subcommand)]
@@ -208,8 +214,35 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
         OsCommands::Clean => clean(),
         OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
         OsCommands::Runtime { json } => super::os_runtime::print(json || top_json),
+        OsCommands::Route { json } => route(json || top_json),
         OsCommands::Manage { resource } => manage(resource, _workspace),
     }
+}
+
+fn route(json: bool) -> Result<()> {
+    susi_gemi::http_provider::register_configured_cloud_endpoints(
+        susi_gemi::susi_core::registry::CapabilityRegistry::global(),
+    );
+    let providers = susi_gemi::susi_core::registry::CapabilityRegistry::global().list_providers();
+    let decision = susi_gemi::routing::InferenceRouter::plan_placement(&providers);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&decision)?);
+        return Ok(());
+    }
+    println!("SUSI OS — inference placement");
+    println!("target:    {}", decision.target);
+    println!("policy:    {}", decision.policy);
+    println!(
+        "provider:  {}",
+        decision.provider.as_deref().unwrap_or("local runtime")
+    );
+    println!(
+        "model:     {}",
+        decision.local_model.as_deref().unwrap_or("auto-select")
+    );
+    println!("reason:    {}", decision.reason);
+    println!("clouds:    {}", decision.cloud_candidates.len());
+    Ok(())
 }
 
 fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
