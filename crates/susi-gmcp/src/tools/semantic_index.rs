@@ -170,7 +170,15 @@ impl SemanticIndex {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let name = entry.file_name().to_string_lossy().to_string();
-                if path.is_dir() {
+                // Never follow symlinks: a link to `/` or `~/.ssh` would pull
+                // outside content into the index, and a link cycle never ends.
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if file_type.is_symlink() {
+                    continue;
+                }
+                if file_type.is_dir() {
                     if name != ".git" && name != "target" && name != ".susi" {
                         stack.push(path);
                     }
