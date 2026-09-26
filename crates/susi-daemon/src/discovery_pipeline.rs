@@ -205,12 +205,19 @@ fn try_awaken_local_engines() {
     }
     // Ollama: `ollama serve` when binary present and :11434 is closed.
     if port_closed("127.0.0.1:11434") && binary_on_path("ollama") {
-        let _ = Command::new("ollama")
+        let spawned = Command::new("ollama")
             .arg("serve")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+        // The daemon parents this child for its whole life: reap it when it
+        // exits, or it lingers as a zombie.
+        if let Ok(mut child) = spawned {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
         if std::env::var("SUSI_VERBOSE").is_ok() {
             eprintln!("[BOOTSTRAP] Awakened local engine: ollama serve");
         }
