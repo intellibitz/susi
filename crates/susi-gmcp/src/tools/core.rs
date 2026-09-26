@@ -268,9 +268,15 @@ impl CoreTools {
         let content_s = arg.get("content").and_then(|v| v.as_str());
 
         if let (Some(p), Some(content)) = (path_s, content_s) {
-            let dest = secure_path(workspace, p)?;
+            // confined_workspace_join resolves through the deepest existing
+            // ancestor, so new parent dirs are allowed (secure_path demanded
+            // the parent already exist, making the create_dir_all below dead
+            // and `newdir/file` unwritable) while symlinks still cannot
+            // escape the workspace.
+            let dest = crate::susi_config::confined_workspace_join(workspace, p)
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
             if let Some(parent) = dest.parent() {
-                let _ = fs::create_dir_all(parent);
+                fs::create_dir_all(parent).map_err(|e| EaiError::filesystem(e.to_string()))?;
             }
             // O_NOFOLLOW (Unix): refuse to open if a symlink raced in after secure_path.
             #[cfg(unix)]
@@ -2828,6 +2834,36 @@ mod unwired_governance_tests {
         let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         assert!(CoreTools::reason(&serde_json::json!("hi"), Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn write_file_creates_new_dirs_but_never_escapes() {
+        let ws = std::env::temp_dir().join(format!("susi_write_file_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        let out = CoreTools::write_file(
+            &serde_json::json!({"path": "newdir/deeper/a.txt", "content": "hi"}),
+            &ws,
+        );
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(
+            std::fs::read_to_string(ws.join("newdir/deeper/a.txt")).unwrap(),
+            "hi"
+        );
+        #[cfg(unix)]
+        {
+            let outside = ws.with_extension("outside");
+            std::fs::create_dir_all(&outside).unwrap();
+            std::os::unix::fs::symlink(&outside, ws.join("dirlink")).unwrap();
+            let escaped = CoreTools::write_file(
+                &serde_json::json!({"path": "dirlink/pwn.txt", "content": "x"}),
+                &ws,
+            );
+            assert!(escaped.is_err());
+            assert!(!outside.join("pwn.txt").exists());
+            let _ = std::fs::remove_dir_all(&outside);
+        }
+        let _ = std::fs::remove_dir_all(&ws);
     }
 
     #[test]
