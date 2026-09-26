@@ -167,7 +167,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        crate::atomic_write_json_pretty(path, &val)?;
+        super::atomic_write_json_pretty(path, &val)?;
 
         let final_modified = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -232,7 +232,7 @@ impl<T: Clone + serde::de::DeserializeOwned + serde::Serialize> VersionedJsonSto
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            crate::atomic_write_json_pretty(path, &val)?;
+            super::atomic_write_json_pretty(path, &val)?;
         }
 
         Ok(val)

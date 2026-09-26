@@ -754,17 +754,17 @@ pub fn manifest_for(pack_id: &str) -> ExtensionManifest {
 /// Cloud vendors from the active pack (host override or bundled default).
 pub fn load_cloud_vendors() -> Vec<CloudVendorEntry> {
     let _ = ensure_extensions_substrate();
-    let gen = CACHE_GEN.load(Ordering::SeqCst);
+    let generation = CACHE_GEN.load(Ordering::SeqCst);
     {
         let cache = CLOUD_VENDOR_CACHE.lock();
         if let Some((cached_gen, vendors)) = cache.as_ref() {
-            if *cached_gen == gen {
+            if *cached_gen == generation {
                 return vendors.clone();
             }
         }
     }
     let vendors: Vec<CloudVendorEntry> =
         load_json_or_bundled("cloud-vendors.json", BUNDLED_CLOUD_VENDORS);
-    *CLOUD_VENDOR_CACHE.lock() = Some((gen, vendors.clone()));
+    *CLOUD_VENDOR_CACHE.lock() = Some((generation, vendors.clone()));
     vendors
 }

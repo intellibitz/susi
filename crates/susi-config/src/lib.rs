@@ -36,12 +36,28 @@ pub mod susi_error;
 #[path = "../../susi-core/src/susi_paths.rs"]
 pub mod susi_paths;
 
+// The shared modules below are also `#[path]`-mounted by every other crate
+// (via `crates/susi-core/src/susi_config.rs`), so they name siblings with
+// `super::` and reach the service through `super::service`.
 pub mod cluster_key;
 mod config;
 pub mod extensions;
 mod json_util;
 mod types;
 pub mod versioned_store;
+
+/// Service hook seen by the shared `config` module. This process *is* the
+/// `susi-config` service — the canonical writer of the global config file —
+/// so the global path always resolves against the local files, never through
+/// an IPC hop back to itself.
+mod service {
+    pub fn get_global() -> Option<super::SusiConfig> {
+        None
+    }
+    pub fn save_global(_cfg: &super::SusiConfig) -> bool {
+        false
+    }
+}
 
 pub use config::SusiConfig;
 pub use json_util::{

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::json_util::{
+use super::json_util::{
     merge_missing_json_defaults, merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
     StringRegistry,
 };
@@ -334,9 +334,9 @@ impl SusiPrompts {
     pub fn load_global() -> Self {
         let prompts_file = crate::susi_paths::SusiDirs::config_dir().join("prompts.json");
 
-        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiPrompts>> =
+        static STORE: std::sync::OnceLock<super::versioned_store::VersionedJsonStore<SusiPrompts>> =
             std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
+        let store = STORE.get_or_init(super::versioned_store::VersionedJsonStore::new);
 
         let mut prompts = store
             .load_with_healing(
@@ -452,9 +452,9 @@ impl SusiMessages {
         let msgs_file = crate::susi_paths::SusiDirs::config_dir().join("messages.json");
 
         static STORE: std::sync::OnceLock<
-            crate::versioned_store::VersionedJsonStore<SusiMessages>,
+            super::versioned_store::VersionedJsonStore<SusiMessages>,
         > = std::sync::OnceLock::new();
-        let store = STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new);
+        let store = STORE.get_or_init(super::versioned_store::VersionedJsonStore::new);
 
         store
             .load_with_healing(

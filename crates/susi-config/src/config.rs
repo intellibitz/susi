@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::json_util::{
+use super::json_util::{
     atomic_write_json_pretty, merge_missing_registry_defaults, DynamicRegistry,
 };
-use crate::types::*;
+use super::types::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SusiConfig {
@@ -66,10 +66,10 @@ impl SusiConfig {
         changed
     }
 
-    fn store() -> &'static crate::versioned_store::VersionedJsonStore<Self> {
-        static STORE: std::sync::OnceLock<crate::versioned_store::VersionedJsonStore<SusiConfig>> =
+    fn store() -> &'static super::versioned_store::VersionedJsonStore<Self> {
+        static STORE: std::sync::OnceLock<super::versioned_store::VersionedJsonStore<SusiConfig>> =
             std::sync::OnceLock::new();
-        STORE.get_or_init(crate::versioned_store::VersionedJsonStore::new)
+        STORE.get_or_init(super::versioned_store::VersionedJsonStore::new)
     }
 
     pub fn get_config_path(global_dir: &Path) -> PathBuf {
@@ -113,11 +113,17 @@ impl SusiConfig {
     }
 
     pub fn load_global() -> EaiResult<Self> {
+        if let Some(cfg) = super::service::get_global() {
+            return Ok(cfg);
+        }
         Self::load(&crate::susi_paths::SusiDirs::config_dir())
     }
 
     /// Process-global config snapshot shared across hot request paths.
     pub fn load_global_arc() -> EaiResult<std::sync::Arc<Self>> {
+        if let Some(cfg) = super::service::get_global() {
+            return Ok(std::sync::Arc::new(cfg));
+        }
         Self::load_arc(&crate::susi_paths::SusiDirs::config_dir())
     }
 
@@ -129,6 +135,11 @@ impl SusiConfig {
     /// writers to the same config.json from multiple processes routine rather
     /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
+        if global_dir == crate::susi_paths::SusiDirs::config_dir()
+            && super::service::save_global(self)
+        {
+            return Ok(());
+        }
         fs::create_dir_all(global_dir)?;
         atomic_write_json_pretty(&Self::get_config_path(global_dir), self)
     }
@@ -617,7 +628,7 @@ fn managed_peers_from_catalogs() -> Vec<ExternalPeerAgentSpec> {
     ];
     for (logical, bundled) in catalogs {
         let entries: Vec<CatalogPeerHint> =
-            crate::extensions::load_json_or_bundled(logical, bundled);
+            super::extensions::load_json_or_bundled(logical, bundled);
         for entry in entries {
             let peer = entry.peer_name.trim();
             if peer.is_empty() {
