@@ -12,6 +12,34 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
+/// Rebuild a handler's displayed error (`"Protocol Error: ..."`) as the
+/// same `EaiError` kind instead of wrapping it in another layer, which
+/// rendered "Protocol Error: Protocol Error: ..." and lost the real kind.
+fn remote_error(display: &str) -> crate::susi_error::EaiError {
+    const KINDS: [(&str, &str); 13] = [
+        ("Governance Violation: ", "Governance"),
+        ("Hardware Error: ", "Hardware"),
+        ("Protocol Error: ", "Protocol"),
+        ("Inference Error: ", "Inference"),
+        ("Sandbox Error: ", "Sandbox"),
+        ("Configuration Error: ", "Config"),
+        ("I/O Error: ", "Io"),
+        ("Network Error: ", "Network"),
+        ("Filesystem Error: ", "Filesystem"),
+        ("Process Error: ", "Process"),
+        ("Authentication Error: ", "Authentication"),
+        ("Authorization Error: ", "Authorization"),
+        ("Internal Engine Error: ", "Internal"),
+    ];
+    KINDS
+        .iter()
+        .find(|(prefix, _)| display.starts_with(prefix))
+        .map_or_else(
+            || crate::susi_error::EaiError::protocol(display),
+            |(_, kind)| crate::susi_error::rewrap(kind, display.to_string()),
+        )
+}
+
 /// Topic namespaces owned by each feature plane.
 pub mod topics {
     pub const GEMI_HARDWARE_PROFILE: &str = "gemi.hardware.profile";
@@ -856,7 +884,7 @@ pub mod tools {
         )
         .map_err(EaiError::protocol)?;
         if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
-            return Err(EaiError::protocol(e));
+            return Err(super::remote_error(e));
         }
         Ok(v.get("text")
             .and_then(|x| x.as_str())
@@ -914,7 +942,7 @@ pub mod tools {
         )
         .map_err(EaiError::protocol)?;
         if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
-            return Err(EaiError::protocol(e));
+            return Err(super::remote_error(e));
         }
         Ok(v.get("text")
             .and_then(|x| x.as_str())
@@ -1106,7 +1134,7 @@ pub mod gawd_hooks {
         }))
         .map_err(EaiError::governance)?;
         if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
-            return Err(EaiError::governance(e));
+            return Err(super::remote_error(e));
         }
         Ok(serde_json::to_string_pretty(&v).unwrap_or_else(|_| v.to_string()))
     }
@@ -1137,5 +1165,24 @@ mod tests {
             .expect("handler");
         assert_eq!(v["topic"], "test.echo");
         assert_eq!(v["payload"]["x"], 1);
+    }
+}
+
+#[cfg(test)]
+mod remote_error_tests {
+    use super::remote_error;
+
+    #[test]
+    fn remote_errors_keep_their_kind_without_double_prefix() {
+        let e = remote_error("Protocol Error: task_id is required");
+        assert_eq!(e.kind_name(), "Protocol");
+        assert_eq!(e.to_string(), "Protocol Error: task_id is required");
+        let e = remote_error("Governance Violation: denied");
+        assert_eq!(e.kind_name(), "Governance");
+        assert_eq!(e.to_string(), "Governance Violation: denied");
+        let e = remote_error("Sandbox Error: escape");
+        assert_eq!(e.kind_name(), "Sandbox");
+        let e = remote_error("no handler for topic");
+        assert_eq!(e.to_string(), "Protocol Error: no handler for topic");
     }
 }

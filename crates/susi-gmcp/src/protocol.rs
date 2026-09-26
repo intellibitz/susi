@@ -731,8 +731,9 @@ async fn execute_registry(
 
 fn is_tool_result_error(text: &str) -> bool {
     let text = text.trim_start();
-    [
+    if [
         "Error:",
+        "[Error]",
         "[FAIL]",
         "[CAPABILITY_GAP]",
         "Protocol Error:",
@@ -742,6 +743,13 @@ fn is_tool_result_error(text: &str) -> bool {
     ]
     .iter()
     .any(|prefix| text.starts_with(prefix))
+    {
+        return true;
+    }
+    // Any other flattened `EaiError` display ("Sandbox Error: ...",
+    // "I/O Error: ...") near the head; later mentions are content.
+    let head: String = text.chars().take(64).collect();
+    head.contains(" Error:") || head.contains(" Violation:")
 }
 
 #[cfg(test)]
@@ -757,10 +765,16 @@ mod tests {
             "Reflex Error:",
             "Governance Violation:",
             "[RECOVERY]",
+            "[Error]",
+            "Sandbox Error:",
+            "I/O Error:",
         ] {
             assert!(is_tool_result_error(&format!("  {prefix} detail")));
         }
         assert!(!is_tool_result_error("ok content"));
+        assert!(!is_tool_result_error(
+            "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
+        ));
     }
     #[test]
     fn pagination_rejects_stale_and_invalid_cursors() {
