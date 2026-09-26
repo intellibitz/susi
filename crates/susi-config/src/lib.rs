@@ -52,6 +52,19 @@ pub use json_util::{
 pub use types::*;
 pub use versioned_store::VersionedJsonStore;
 
+#[cfg(test)]
+#[path = "tests/cluster_key.rs"]
+mod cluster_key_tests;
+#[cfg(test)]
+#[path = "tests/extensions.rs"]
+mod extensions_tests;
+#[cfg(test)]
+#[path = "tests/json_util.rs"]
+mod json_util_tests;
+#[cfg(test)]
+#[path = "tests/versioned_store.rs"]
+mod versioned_store_tests;
+
 /// Serializes tests that mutate or read process-global environment-derived
 /// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock
 /// for the whole env-swap window; readers of `SusiDirs`-derived paths must
