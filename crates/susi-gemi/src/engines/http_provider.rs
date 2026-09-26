@@ -187,7 +187,12 @@ impl Provider for HttpProvider {
                     "Embeddings only supported on OpenAI-compatible providers",
                 ));
             }
-            let client = reqwest::Client::new();
+            // Bounded like the chat path: a stalled endpoint must not hang
+            // the embedding caller (semantic index refresh) forever.
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .unwrap_or_default();
             let url = format!("{}/embeddings", api_base);
             let body = serde_json::json!({
                 "model": model,
