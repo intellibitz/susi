@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 /// Cap on request head bytes read while hunting for `\r\n\r\n`.
 const MAX_HEAD: usize = 64 * 1024;
+/// Cap on an IPC request body; larger declared lengths are refused unread.
+const MAX_BODY: usize = 64 * 1024 * 1024;
 /// Header carrying the per-substrate bus secret on every IPC request.
 const BUS_KEY_HEADER: &str = "X-Susi-Bus-Key";
 
@@ -429,7 +431,10 @@ fn post(addr: SocketAddr, path: &str, body: &str, secret: &str) -> Option<String
 
 /// Read one HTTP/1.0 request: headers, then exactly Content-Length bytes.
 /// Returns `(path, presented bus key, body)`.
-fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
+/// The body is only read once the bus key matches `secret` and its declared
+/// length is within [`MAX_BODY`], so an unauthenticated peer cannot make
+/// the server buffer arbitrary data.
+fn read_request(stream: &mut TcpStream, secret: &str) -> Option<(String, String, String)> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 8192];
     let head_end = loop {
@@ -465,6 +470,9 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
                 .then(|| l[bus_key_prefix.len()..].trim().to_string())
         })
         .unwrap_or_default();
+    if !key_matches(&presented, secret) || content_len > MAX_BODY {
+        return Some((path, presented, String::new()));
+    }
     let mut body = buf[head_end..].to_vec();
     while body.len() < content_len {
         let n = stream.read(&mut tmp).ok()?;
@@ -495,7 +503,7 @@ fn serve_conn(
     streams: StreamMap,
     secret: &str,
 ) {
-    let Some((path, presented, body)) = read_request(&mut conn) else {
+    let Some((path, presented, body)) = read_request(&mut conn, secret) else {
         return;
     };
     // Loopback is reachable by every local user and by web pages (no-CORS
