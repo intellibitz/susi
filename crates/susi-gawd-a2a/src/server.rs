@@ -188,6 +188,18 @@ pub struct VerifierContext<'a> {
 /// return whether it is admitted. Invoked for every non-card route.
 pub type Verifier = Arc<dyn for<'a> Fn(&VerifierContext<'a>) -> bool + Send + Sync>;
 
+/// RFC 9110 §15.5.2: a 401 MUST carry a challenge naming the scheme the
+/// client should retry with.
+fn unauthorized() -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::UNAUTHORIZED;
+    response.headers_mut().insert(
+        axum::http::header::WWW_AUTHENTICATE,
+        axum::http::HeaderValue::from_static("Bearer realm=\"susi-a2a\""),
+    );
+    response
+}
+
 async fn auth_guard(
     axum::extract::State(verifier): axum::extract::State<Verifier>,
     req: Request<Body>,
@@ -215,7 +227,7 @@ async fn auth_guard(
         body: &bytes,
     };
     if !(verifier)(&ctx) {
-        return Err(StatusCode::UNAUTHORIZED);
+        return Ok(unauthorized());
     }
     Ok(next
         .run(Request::from_parts(parts, Body::from(bytes)))
@@ -365,6 +377,16 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = ra2a::error::Result<()>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
+    }
+
+    #[test]
+    fn unauthorized_carries_bearer_challenge() {
+        let response = super::unauthorized();
+        assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response.headers()[axum::http::header::WWW_AUTHENTICATE],
+            "Bearer realm=\"susi-a2a\""
+        );
     }
 
     /// The shared outbound `message/send` shape round-trips through the real
