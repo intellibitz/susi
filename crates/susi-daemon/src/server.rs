@@ -739,6 +739,10 @@ impl SusiDaemon {
         }
         crate::discovery_pipeline::spawn_periodic_rediscovery(cfg.capability_rediscovery_secs());
 
+        // Spawn the cells already present once; the watcher below spawns
+        // only cells added afterwards.
+        crate::auto_discovery::spawn_all_cells(&workspace);
+
         // Hot-pluggable cell watcher (Swarm OS Bullet 6): monitors ~/.susi/cells/
         // for new/removed files and triggers auto-discovery without daemon restart.
         let _cell_watcher = crate::cell_watcher::start_cell_watcher(
