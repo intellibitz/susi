@@ -124,7 +124,11 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
                     .filter_map(|p| p.file_name())
                     .collect::<Vec<_>>(),
             );
-            // Future: signal the blackboard to unregister these cells.
+            for path in &removed_files {
+                if crate::auto_discovery::stop_cell(path) {
+                    tracing::info!("[cell_watcher] Stopped cell {}", path.display());
+                }
+            }
         }
 
         known_files = current_files;

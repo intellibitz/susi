@@ -4,7 +4,51 @@
 //! per newly added file from the cell watcher ([`spawn_cell`]). Catalog and
 //! capability priming lives in [`crate::discovery_pipeline`].
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::process::Child;
+use std::sync::{Mutex, OnceLock};
+
+/// Child processes of spawned process cells, keyed by their cell file.
+fn running_cells() -> &'static Mutex<HashMap<PathBuf, Child>> {
+    static CELLS: OnceLock<Mutex<HashMap<PathBuf, Child>>> = OnceLock::new();
+    CELLS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn track(path: PathBuf, spawned: std::io::Result<Child>) {
+    match spawned {
+        Ok(child) => {
+            let mut cells = running_cells().lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(mut previous) = cells.insert(path, child) {
+                // A re-added file replaces its old process.
+                let _ = previous.kill();
+                let _ = previous.wait();
+            }
+        }
+        Err(e) => tracing::warn!(
+            "[auto_discovery] Failed to spawn cell {}: {e}",
+            path.display()
+        ),
+    }
+}
+
+/// Stop the process cell spawned for `path` (its file was removed).
+/// Returns `true` when a running process was found and terminated.
+/// In-process WASM cells run to completion and are not tracked.
+pub fn stop_cell(path: &Path) -> bool {
+    let child = running_cells()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(path);
+    match child {
+        Some(mut child) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            true
+        }
+        None => false,
+    }
+}
 
 /// Token spawned Swarm Cells require on every syscall: the host API token.
 fn cell_token() -> String {
@@ -42,9 +86,10 @@ pub fn spawn_cell(path: &Path) -> bool {
     let path = path.to_path_buf();
     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
         std::thread::spawn(move || {
-            let _ = std::process::Command::new(path)
+            let spawned = std::process::Command::new(&path)
                 .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
                 .spawn();
+            track(path, spawned);
         });
     } else if name.ends_with(".json") {
         static PORT_COUNTER: std::sync::atomic::AtomicU16 =
@@ -57,11 +102,12 @@ pub fn spawn_cell(path: &Path) -> bool {
             .and_then(|exe| exe.parent().map(|dir| dir.join("susi-universal-cell")))
             .unwrap_or_else(|| "susi-universal-cell".into());
         std::thread::spawn(move || {
-            let _ = std::process::Command::new(universal_cell_path)
+            let spawned = std::process::Command::new(universal_cell_path)
                 .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
                 .arg(bind_addr)
-                .arg(path)
+                .arg(&path)
                 .spawn();
+            track(path, spawned);
         });
     } else if name.ends_with(".wasm") {
         // Load the cell in-process and run its `_start` entry point.
@@ -102,5 +148,25 @@ mod tests {
         assert!(!spawn_cell(&dir)); // directories are never cells
         assert!(!spawn_cell(&dir.join("missing.cell")));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removed_process_cells_are_stopped() {
+        let cell = std::path::PathBuf::from(format!("/tmp/susi-cell-stop-{}", std::process::id()));
+        let child = std::process::Command::new("sleep")
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        track(cell.clone(), Ok(child));
+        assert!(stop_cell(&cell), "tracked cell must be stopped");
+        assert!(!stop_cell(&cell), "already stopped");
+        // Killed and reaped: the pid is gone.
+        let alive = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string()])
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(!alive, "cell process {pid} still running");
     }
 }
