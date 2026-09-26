@@ -17,7 +17,9 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
-use wasmtime::{Caller, Engine, Extern, Instance, Linker, Module, Store};
+use wasmtime::{
+    Caller, Engine, Extern, Instance, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
+};
 
 /// Largest single `host_send` payload the host accepts.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
@@ -35,7 +37,12 @@ const SEND_OUTBOX_FULL: i32 = -4;
 #[derive(Default)]
 struct HostState {
     outbox: Vec<Vec<u8>>,
+    limits: StoreLimits,
 }
+
+/// Linear-memory cap per cell: a runaway cell traps instead of growing the
+/// daemon's own memory without bound.
+pub const MAX_CELL_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
 /// Represents a loaded WASM cell.
 ///
@@ -107,7 +114,17 @@ impl WasmCell {
                 .map_err(anyhow::Error::from)
                 .context("Failed to define host_send")?;
         }
-        let mut store = Store::new(engine, HostState::default());
+        let mut store = Store::new(
+            engine,
+            HostState {
+                outbox: Vec::new(),
+                limits: StoreLimitsBuilder::new()
+                    .memory_size(MAX_CELL_MEMORY_BYTES)
+                    .instances(1)
+                    .build(),
+            },
+        );
+        store.limiter(|state| &mut state.limits);
         let instance = linker
             .instantiate(&mut store, module)
             .map_err(anyhow::Error::from)
@@ -205,6 +222,18 @@ mod tests {
                 (call $send (i32.const 0) (i32.const 1))))"#;
         let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
         assert!(cell.execute("_start").unwrap().ends_with("returned -2"));
+    }
+
+    #[test]
+    fn memory_growth_beyond_the_cap_is_refused() {
+        // 1 page initially; memory.grow by 8192 pages (512 MiB) must fail
+        // (returns -1) instead of growing the daemon's memory.
+        let wat = r#"(module
+            (memory (export "memory") 1)
+            (func (export "_start") (result i32)
+                (memory.grow (i32.const 8192))))"#;
+        let mut cell = WasmCell::from_bytes(wat.as_bytes()).unwrap();
+        assert!(cell.execute("_start").unwrap().ends_with("returned -1"));
     }
 
     #[test]
