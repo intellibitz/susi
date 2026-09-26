@@ -55,6 +55,8 @@ struct Entry<T> {
     device: Device,
     kv_capacity: usize,
     loaded_at: SystemTime,
+    /// Last cache hit or load — the LRU eviction key.
+    last_used: SystemTime,
     value: Arc<RwLock<T>>,
 }
 
@@ -106,6 +108,11 @@ impl<T> ModelCache<T> {
                         .duration_since(SystemTime::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(0),
+                    "last_used": entry
+                        .last_used
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
                     // The cache holds one reference; the rest are requests
                     // currently using these weights.
                     "in_flight_users": Arc::strong_count(&entry.value).saturating_sub(1),
@@ -115,6 +122,54 @@ impl<T> ModelCache<T> {
             .collect();
         out.sort_by(|a, b| a["path"].to_string().cmp(&b["path"].to_string()));
         out
+    }
+
+    /// True when `path` currently has weights in the cache (any version).
+    /// A slot mid-load counts as loaded: its memory is already committed.
+    pub fn is_loaded(&self, path: &Path) -> bool {
+        let Ok(path) = path.canonicalize() else {
+            return false;
+        };
+        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+            return false;
+        };
+        slot.try_lock().is_none_or(|entry| entry.is_some())
+    }
+
+    /// Idle entries on devices matching `on_device`, least recently used
+    /// first, as `(path, weight bytes)`. Idle means no request holds the
+    /// weights; entries mid-load or mid-generation are never candidates.
+    pub fn idle_lru(
+        &self,
+        exclude: &Path,
+        on_device: impl Fn(&Device) -> bool,
+    ) -> Vec<(PathBuf, u64)> {
+        let exclude = exclude
+            .canonicalize()
+            .unwrap_or_else(|_| exclude.to_path_buf());
+        let slots: Vec<(PathBuf, Slot<T>)> = self
+            .slots
+            .lock()
+            .iter()
+            .filter(|(path, _)| **path != exclude)
+            .map(|(path, slot)| (path.clone(), Arc::clone(slot)))
+            .collect();
+        let mut idle: Vec<(SystemTime, PathBuf, u64)> = slots
+            .into_iter()
+            .filter_map(|(path, slot)| {
+                let guard = slot.try_lock()?;
+                let entry = guard.as_ref()?;
+                (Arc::strong_count(&entry.value) == 1 && on_device(&entry.device)).then_some((
+                    entry.last_used,
+                    path,
+                    entry.version.weights.len,
+                ))
+            })
+            .collect();
+        idle.sort_by_key(|(last_used, _, _)| *last_used);
+        idle.into_iter()
+            .map(|(_, path, bytes)| (path, bytes))
+            .collect()
     }
 
     /// Remove the cached weights for `path` and hand them to the caller, who
@@ -149,11 +204,12 @@ impl<T> ModelCache<T> {
         let slot = self.slots.lock().entry(path.clone()).or_default().clone();
         let mut entry = slot.lock();
         let version = ModelVersion::read(&path)?;
-        if let Some(cached) = entry.as_ref() {
+        if let Some(cached) = entry.as_mut() {
             if cached.version == version
                 && cached.device.same_device(device)
                 && cached.kv_capacity == kv_capacity
             {
+                cached.last_used = SystemTime::now();
                 return Ok(Arc::clone(&cached.value));
             }
         }
@@ -172,6 +228,7 @@ impl<T> ModelCache<T> {
             device: device.clone(),
             kv_capacity,
             loaded_at: SystemTime::now(),
+            last_used: SystemTime::now(),
             value: Arc::clone(&value),
         });
         Ok(value)
@@ -301,6 +358,49 @@ mod tests {
             .is_err());
         // A failed load leaves an empty slot, which is not reported.
         assert_eq!(cache.snapshot(|_| serde_json::json!({})).len(), 1);
+    }
+
+    #[test]
+    fn idle_lru_orders_by_last_use_and_skips_busy_and_excluded() {
+        let (a, b, c) = (Fixture::new(), Fixture::new(), Fixture::new());
+        let cache = ModelCache::<u32>::default();
+        for (i, f) in [&a, &b, &c].into_iter().enumerate() {
+            drop(
+                cache
+                    .get_or_load(&f.0, &Device::Cpu, 32, |_| Ok(i as u32))
+                    .unwrap(),
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        // Touch `a`: it becomes most recently used.
+        drop(
+            cache
+                .get_or_load(&a.0, &Device::Cpu, 32, |_| panic!("hit"))
+                .unwrap(),
+        );
+        let order: Vec<_> = cache
+            .idle_lru(&c.0, |_| true)
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(
+            order,
+            vec![b.0.canonicalize().unwrap(), a.0.canonicalize().unwrap()]
+        );
+        // A model a request still holds is not idle.
+        let _held = cache
+            .get_or_load(&b.0, &Device::Cpu, 32, |_| panic!("hit"))
+            .unwrap();
+        let order: Vec<_> = cache
+            .idle_lru(&c.0, |_| true)
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        assert_eq!(order, vec![a.0.canonicalize().unwrap()]);
+        assert!(cache.idle_lru(&c.0, |_| false).is_empty());
+        assert!(cache.is_loaded(&a.0));
+        drop(cache.evict(&a.0).unwrap());
+        assert!(!cache.is_loaded(&a.0));
     }
 
     #[test]

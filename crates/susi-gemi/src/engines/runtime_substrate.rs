@@ -130,6 +130,32 @@ impl PromptFormat {
 
 pub struct InferenceHost;
 
+/// Estimated VRAM for a model: its weights plus 1/8 headroom for the KV
+/// cache and activations. A heuristic — if it undershoots, the loader's
+/// live-budget layer split still keeps the load from failing.
+fn estimated_vram_bytes(file_len: u64) -> u64 {
+    file_len.saturating_add(file_len / 8)
+}
+
+/// Which idle models (LRU order, with their weight sizes) to evict so that
+/// `free + reclaimed >= need`. Empty when the model already fits; all
+/// candidates when even that is not enough (evict as much as possible).
+fn plan_evictions(
+    free: u64,
+    need: u64,
+    lru: &[(std::path::PathBuf, u64)],
+) -> Vec<std::path::PathBuf> {
+    let mut reclaimed = free;
+    lru.iter()
+        .take_while(|(_, bytes)| {
+            let short = reclaimed < need;
+            reclaimed = reclaimed.saturating_add(*bytes);
+            short
+        })
+        .map(|(path, _)| path.clone())
+        .collect()
+}
+
 /// Free evicted weights on `device` and return the memory to the driver.
 ///
 /// cudarc's `CudaSlice` drop calls `cuMemFreeAsync` without binding the
@@ -182,6 +208,40 @@ impl InferenceHost {
     pub(super) fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
         static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
         CACHE.get_or_init(Default::default)
+    }
+
+    /// LRU eviction under VRAM pressure: before a new model loads onto a
+    /// CUDA device, evict idle cached models (least recently used first)
+    /// until live free VRAM covers its estimated footprint, so it lands
+    /// fully on the GPU instead of being split onto the CPU. Models serving
+    /// a request are never evicted. Best effort: when nothing idle remains,
+    /// the loader splits layers exactly as before.
+    fn make_room(model_path: &Path, device: &candle_core::Device) {
+        if !device.is_cuda() || Self::cache().is_loaded(model_path) {
+            return;
+        }
+        let Ok(meta) = std::fs::metadata(model_path) else {
+            return;
+        };
+        let need = estimated_vram_bytes(meta.len());
+        let free = HardwareProfiler::gpu_vram_budget_bytes();
+        let candidates = Self::cache().idle_lru(model_path, candle_core::Device::is_cuda);
+        for victim in plan_evictions(free, need, &candidates) {
+            // Re-measure: the estimate is by file size, the truth is live.
+            if HardwareProfiler::gpu_vram_budget_bytes() >= need {
+                break;
+            }
+            let Ok(Some((weights, victim_device))) = Self::cache().evict(&victim) else {
+                continue;
+            };
+            println!(
+                "- [Inference Substrate] VRAM pressure: evicting least-recently-used {}",
+                victim.display()
+            );
+            if let Err(error) = release_on_device(weights, &victim_device) {
+                tracing::warn!(%error, victim = %victim.display(), "LRU eviction release failed");
+            }
+        }
     }
 
     /// Resolve an operator-supplied model id (a stem or file name, never a
@@ -285,6 +345,7 @@ impl InferenceHost {
         let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
+        Self::make_room(model_path, device);
         Self::cache()
             .get_or_load(model_path, device, kv_capacity, |path| {
                 if task_handle.is_cancelled() {
@@ -514,3 +575,43 @@ pub fn apply_repeat_penalty(logits: &mut [f32], penalty: f32, context: &[u32]) {
 pub struct ContextSummarizer;
 
 impl ContextSummarizer {}
+
+#[cfg(test)]
+mod eviction_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn lru() -> Vec<(PathBuf, u64)> {
+        vec![
+            ("old".into(), 400),
+            ("mid".into(), 300),
+            ("new".into(), 200),
+        ]
+    }
+
+    #[test]
+    fn no_eviction_when_the_model_fits() {
+        assert!(plan_evictions(1000, 900, &lru()).is_empty());
+    }
+
+    #[test]
+    fn evicts_least_recently_used_until_it_fits() {
+        assert_eq!(plan_evictions(300, 600, &lru()), vec![PathBuf::from("old")]);
+        assert_eq!(
+            plan_evictions(0, 650, &lru()),
+            vec![PathBuf::from("old"), PathBuf::from("mid")]
+        );
+    }
+
+    #[test]
+    fn evicts_everything_idle_when_even_that_is_short() {
+        assert_eq!(plan_evictions(0, 10_000, &lru()).len(), 3);
+        assert!(plan_evictions(0, 10, &[]).is_empty());
+    }
+
+    #[test]
+    fn estimate_adds_headroom_without_overflow() {
+        assert_eq!(estimated_vram_bytes(800), 900);
+        assert_eq!(estimated_vram_bytes(u64::MAX), u64::MAX);
+    }
+}
