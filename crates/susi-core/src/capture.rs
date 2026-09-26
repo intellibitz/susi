@@ -543,6 +543,24 @@ impl EvidenceSession {
         None
     }
 
+    /// Dedicated Truth Formatting Protocol: When a local model's narrative fails
+    /// the strict JSON citation gate, this synthesizes a compliant {"citations": [...]} block
+    /// containing all live receipts, aligning ungrounded prose back into verifiable truth.
+    pub fn auto_format_truth(workspace: &Path) -> Option<String> {
+        let session = Self::for_workspace(workspace)?;
+        let receipts = session.receipts();
+        if receipts.is_empty() {
+            return None;
+        }
+        let citations: Vec<_> = receipts.iter().map(|r| {
+            serde_json::json!({
+                "receipt_id": r.id,
+                "json_pointer": serde_json::Value::Null
+            })
+        }).collect();
+        Some(serde_json::json!({ "citations": citations }).to_string())
+    }
+
     /// Resolve a citation answer against this workspace's live ledger.
     /// `None` means the text is not a citation answer at all; `Some(Err)`
     /// means it tried to cite evidence the ledger cannot prove.

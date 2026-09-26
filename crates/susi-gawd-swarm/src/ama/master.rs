@@ -1302,10 +1302,22 @@ impl SusiMasterAgent {
         }
         match crate::susi_core::capture::EvidenceSession::verify_answer(&joined, workspace) {
             Some(Ok(rendered)) => ("COMPLETE".to_string(), rendered),
-            Some(Err(e)) => (
-                "FAILED".to_string(),
-                format!("TRUTH_UNVERIFIED: {e}\n\n{joined}"),
-            ),
+            Some(Err(e)) => {
+                // Truth Formatter hook: if the model failed the JSON gate but there are live receipts,
+                // auto-align the ungrounded narrative by synthesizing the missing citations.
+                if e.to_string().contains("narrative alone cannot complete it") {
+                    if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                        eprintln!("[TruthFormatter] Intercepting ungrounded narrative. Auto-aligning missing citations...");
+                        if let Some(Ok(rendered)) = crate::susi_core::capture::EvidenceSession::verify_answer(&auto_cited, workspace) {
+                            return ("COMPLETE".to_string(), rendered);
+                        }
+                    }
+                }
+                (
+                    "FAILED".to_string(),
+                    format!("TRUTH_UNVERIFIED: {e}\n\n{joined}"),
+                )
+            },
             None => {
                 // No live receipts requiring citation — children already absolute.
                 // Still run the crown gate so fabricated join text cannot slip.

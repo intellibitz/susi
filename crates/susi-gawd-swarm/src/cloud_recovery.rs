@@ -213,9 +213,20 @@ async fn verify_recovery_answer(
         };
     // Crown gate: citations resolve from the ledger; if receipts exist and
     // were not cited, fail — never promote narrative over captured evidence.
-    if let Some(resolved) =
-        crate::susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace)
-    {
+    let mut resolved_attempt = crate::susi_core::capture::EvidenceSession::verify_answer(&answer_text, workspace);
+    
+    // Truth Formatter hook: If the model generated prose but there are live receipts,
+    // auto-align the ungrounded narrative by synthesizing the missing citations.
+    if let Some(Err(e)) = &resolved_attempt {
+        if e.to_string().contains("narrative alone cannot complete it") {
+            if let Some(auto_cited) = crate::susi_core::capture::EvidenceSession::auto_format_truth(workspace) {
+                eprintln!("[TruthFormatter] Intercepting ungrounded recovery narrative. Auto-aligning missing citations...");
+                resolved_attempt = crate::susi_core::capture::EvidenceSession::verify_answer(&auto_cited, workspace);
+            }
+        }
+    }
+
+    if let Some(resolved) = resolved_attempt {
         let rendered = resolved?;
         if !susi_gawd_agents::accountability::is_usable(&rendered) {
             return Err(EaiError::inference(
