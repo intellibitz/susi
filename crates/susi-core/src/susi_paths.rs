@@ -16,32 +16,8 @@ use std::time::Duration;
 /// local XDG/legacy fallback when it is unreachable.
 pub struct SusiDirs;
 
-/// Host-contract ports (kept in sync with `susi-paths`' `ports` module).
-/// A uniform `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins)
-/// shifts all five together — the contract shape stays fixed while a second
-/// instance or a nonstandard host layout gets clean ports.
-pub mod ports {
-    pub const GMCP: u16 = 9090;
-    pub const GEMI: u16 = 9091;
-    pub const UDP_DISCOVERY: u16 = 9092;
-    pub const GMCP_HTTP: u16 = 9093;
-    pub const A2A_HTTP: u16 = 9094;
-
-    /// Offset from `SUSI_PORT_OFFSET` alone — leaf-safe resolution for code
-    /// without a `SusiConfig` in scope. `SusiConfig::port_offset()` additionally
-    /// honors the `port_offset` config key; env always wins.
-    pub fn env_port_offset() -> u16 {
-        std::env::var("SUSI_PORT_OFFSET")
-            .ok()
-            .and_then(|v| v.trim().parse::<u16>().ok())
-            .unwrap_or(0)
-    }
-
-    /// `base + env_offset`, saturating — never produces a port above u16::MAX.
-    pub fn effective(base: u16) -> u16 {
-        base.saturating_add(env_port_offset())
-    }
-}
+#[path = "../../susi-paths/src/ports.rs"]
+pub mod ports;
 
 const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
 

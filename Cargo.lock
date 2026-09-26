@@ -7266,7 +7266,6 @@ dependencies = [
  "axum",
  "directories 6.0.0",
  "proptest",
- "regex",
  "serde",
  "serde_json",
  "tokio",

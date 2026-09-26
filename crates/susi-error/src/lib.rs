@@ -11,6 +11,9 @@
 )]
 
 pub mod redact;
+#[cfg(test)]
+#[path = "redact_tests.rs"]
+mod redact_test_suite;
 
 use std::backtrace::Backtrace;
 use std::error::Error as StdError;
