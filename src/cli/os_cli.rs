@@ -6,6 +6,7 @@
 //! kernel state, so it is accurate even when the daemon is down.
 
 use anyhow::Result;
+use clap::Subcommand;
 use std::path::Path;
 use susi_core::{commit_log, service_table};
 
@@ -30,6 +31,152 @@ pub enum OsCommands {
         #[arg(long)]
         doctor: bool,
     },
+    /// Unified lifecycle facade for local AI ecosystem components
+    Manage {
+        #[command(subcommand)]
+        resource: OsManageCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsManageCommands {
+    /// Manage a supervised SUSI service
+    Service {
+        #[command(subcommand)]
+        action: OsServiceAction,
+    },
+    /// Manage a local or cloud model definition
+    Model {
+        #[command(subcommand)]
+        action: OsModelAction,
+    },
+    /// Manage an MCP tool server
+    Mcp {
+        #[command(subcommand)]
+        action: OsMcpAction,
+    },
+    /// Manage an external execution agent
+    Agent {
+        #[command(subcommand)]
+        action: OsAgentAction,
+    },
+    /// Manage an agent framework
+    Framework {
+        #[command(subcommand)]
+        action: OsFrameworkAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsServiceAction {
+    Status,
+    Start {
+        name: String,
+    },
+    Stop {
+        name: String,
+    },
+    Restart {
+        name: String,
+    },
+    Logs {
+        name: String,
+        #[arg(short = 'n', long, default_value_t = 50)]
+        lines: usize,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsModelAction {
+    List,
+    Doctor {
+        name: Option<String>,
+    },
+    Prefer {
+        name: String,
+    },
+    Configure {
+        name: String,
+        file: std::path::PathBuf,
+    },
+    Reset {
+        name: String,
+    },
+    Local,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsMcpAction {
+    List,
+    Doctor {
+        name: Option<String>,
+    },
+    /// Install/admit a managed MCP server into the active configuration
+    Install {
+        name: String,
+    },
+    /// Uninstall/remove a managed MCP server from the active configuration
+    Uninstall {
+        name: String,
+    },
+    Configure {
+        name: String,
+        file: std::path::PathBuf,
+    },
+    Reset {
+        name: String,
+    },
+    Status,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsAgentAction {
+    List,
+    Doctor {
+        name: Option<String>,
+    },
+    Configure {
+        name: String,
+        file: std::path::PathBuf,
+    },
+    Reset {
+        name: String,
+    },
+    Run {
+        name: String,
+        #[arg(long)]
+        wait: bool,
+        prompt: String,
+    },
+    Tasks,
+    Cancel {
+        task_id: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OsFrameworkAction {
+    List,
+    Doctor {
+        name: Option<String>,
+    },
+    Configure {
+        name: String,
+        file: std::path::PathBuf,
+    },
+    Reset {
+        name: String,
+    },
+    Run {
+        name: String,
+        #[arg(long)]
+        wait: bool,
+        prompt: String,
+    },
+    Tasks,
+    Cancel {
+        task_id: String,
+    },
 }
 
 pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) -> Result<()> {
@@ -37,6 +184,98 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
         OsCommands::Status { json } => status(json || top_json),
         OsCommands::Clean => clean(),
         OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
+        OsCommands::Manage { resource } => manage(resource, _workspace),
+    }
+}
+
+fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
+    use super::{agent_cli, framework_cli, mcp_cli, model_cli, services_cli};
+    match resource {
+        OsManageCommands::Service { action } => {
+            let action = match action {
+                OsServiceAction::Status => services_cli::ServicesCommands::Status { json: false },
+                OsServiceAction::Start { name } => services_cli::ServicesCommands::Start { name },
+                OsServiceAction::Stop { name } => services_cli::ServicesCommands::Stop { name },
+                OsServiceAction::Restart { name } => {
+                    services_cli::ServicesCommands::Restart { name }
+                }
+                OsServiceAction::Logs { name, lines } => {
+                    services_cli::ServicesCommands::Logs { name, lines }
+                }
+            };
+            services_cli::execute(Some(action), workspace)
+        }
+        OsManageCommands::Model { action } => {
+            let action = match action {
+                OsModelAction::List => model_cli::ModelCommands::List,
+                OsModelAction::Doctor { name } => model_cli::ModelCommands::Doctor { model: name },
+                OsModelAction::Prefer { name } => model_cli::ModelCommands::Prefer { model: name },
+                OsModelAction::Configure { name, file } => {
+                    model_cli::ModelCommands::Configure { model: name, file }
+                }
+                OsModelAction::Reset { name } => model_cli::ModelCommands::Reset { model: name },
+                OsModelAction::Local => model_cli::ModelCommands::Local,
+            };
+            model_cli::execute(Some(action), workspace)
+        }
+        OsManageCommands::Mcp { action } => {
+            let action = match action {
+                OsMcpAction::List => mcp_cli::McpCommands::List,
+                OsMcpAction::Doctor { name } => mcp_cli::McpCommands::Doctor { server: name },
+                OsMcpAction::Install { name } => mcp_cli::McpCommands::Enable { server: name },
+                OsMcpAction::Uninstall { name } => mcp_cli::McpCommands::Disable { server: name },
+                OsMcpAction::Configure { name, file } => {
+                    mcp_cli::McpCommands::Configure { server: name, file }
+                }
+                OsMcpAction::Reset { name } => mcp_cli::McpCommands::Reset { server: name },
+                OsMcpAction::Status => mcp_cli::McpCommands::Status,
+            };
+            mcp_cli::execute(Some(action), workspace).map(|_| ())
+        }
+        OsManageCommands::Agent { action } => {
+            let action = match action {
+                OsAgentAction::List => agent_cli::AgentCommands::List,
+                OsAgentAction::Doctor { name } => agent_cli::AgentCommands::Doctor { agent: name },
+                OsAgentAction::Configure { name, file } => {
+                    agent_cli::AgentCommands::Configure { agent: name, file }
+                }
+                OsAgentAction::Reset { name } => agent_cli::AgentCommands::Reset { agent: name },
+                OsAgentAction::Run { name, wait, prompt } => agent_cli::AgentCommands::Run {
+                    agent: name,
+                    wait,
+                    prompt,
+                },
+                OsAgentAction::Tasks => agent_cli::AgentCommands::Tasks,
+                OsAgentAction::Cancel { task_id } => agent_cli::AgentCommands::Cancel { task_id },
+            };
+            agent_cli::execute(action, workspace)
+        }
+        OsManageCommands::Framework { action } => {
+            let action = match action {
+                OsFrameworkAction::List => framework_cli::FrameworkCommands::List,
+                OsFrameworkAction::Doctor { name } => {
+                    framework_cli::FrameworkCommands::Doctor { engine: name }
+                }
+                OsFrameworkAction::Configure { name, file } => {
+                    framework_cli::FrameworkCommands::Configure { engine: name, file }
+                }
+                OsFrameworkAction::Reset { name } => {
+                    framework_cli::FrameworkCommands::Reset { engine: name }
+                }
+                OsFrameworkAction::Run { name, wait, prompt } => {
+                    framework_cli::FrameworkCommands::Run {
+                        engine: name,
+                        wait,
+                        prompt,
+                    }
+                }
+                OsFrameworkAction::Tasks => framework_cli::FrameworkCommands::Tasks,
+                OsFrameworkAction::Cancel { task_id } => {
+                    framework_cli::FrameworkCommands::Cancel { task_id }
+                }
+            };
+            framework_cli::execute(action, workspace)
+        }
     }
 }
 
@@ -198,11 +437,11 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
             "running_ai_processes": processes.len(),
         },
         "control": {
-            "services": "susi services <status|start|stop|restart|logs>",
-            "models": "susi models <list|doctor|setup|configure|reset|prefer|probe|local>",
-            "agents": "susi agents <list|doctor|setup|configure|reset|run|tasks|status|logs|cancel|retry>",
-            "frameworks": "susi frameworks <list|doctor|setup|configure|reset|run|tasks|status|logs|cancel|retry>",
-            "mcp": "susi mcp <list|doctor|setup|enable|disable|configure|reset|status>",
+            "services": "susi os manage service <status|start|stop|restart|logs>",
+            "models": "susi os manage model <list|doctor|configure|reset|prefer|local>",
+            "agents": "susi os manage agent <list|doctor|configure|reset|run|tasks|cancel>",
+            "frameworks": "susi os manage framework <list|doctor|configure|reset|run|tasks|cancel>",
+            "mcp": "susi os manage mcp <list|doctor|install|uninstall|configure|reset|status>",
             "privacy": "susi privacy <status|mode|grant|revoke>",
         }
     });
@@ -253,7 +492,7 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
             processes.len()
         );
         println!();
-        println!("Manage: `susi services`, `susi models`, `susi agents`, `susi frameworks`, `susi mcp`, `susi privacy`");
+        println!("Manage: `susi os manage <service|model|mcp|agent|framework> …`");
     }
     if doctor && unhealthy_installed > 0 {
         anyhow::bail!("{unhealthy_installed} installed AI runtime(s) failed their version probe");
