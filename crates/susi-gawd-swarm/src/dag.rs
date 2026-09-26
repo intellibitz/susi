@@ -84,10 +84,32 @@ impl MissionDag {
                         agent_name: node.title.clone(),
                     });
 
-                    let prompt = format!("Execute task node '{}': {}", node.title, node.goal);
-                    let res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
+                    let prompt = format!("Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock.", node.title, node.goal);
+                    let mut res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
                         &prompt, &ws,
                     );
+
+                    let mut executed_scripts = String::new();
+                    for block in res.split("```").skip(1).step_by(2) {
+                        let block_trimmed = block.trim();
+                        if block_trimmed.starts_with("bash\n") || block_trimmed.starts_with("sh\n") || block_trimmed.starts_with("shell\n") {
+                            let cmd = block_trimmed.trim_start_matches("bash").trim_start_matches("sh").trim_start_matches("shell").trim();
+                            if !cmd.is_empty() && !cmd.starts_with('!') {
+                                eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
+                                let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
+                                let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &serde_json::Value::String(wrapped_cmd), &ws).unwrap_or_else(|e| format!("[Error] {e}"));
+                                executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
+                            }
+                        }
+                    }
+
+                    if !executed_scripts.is_empty() {
+                        res.push_str(&executed_scripts);
+                        if let Some(citations) = crate::susi_core::capture::EvidenceSession::auto_format_truth(&ws) {
+                            res.push_str("\n\n");
+                            res.push_str(&citations);
+                        }
+                    }
 
                     let elapsed = start.elapsed().as_millis() as u64;
                     (idx, Ok(res), elapsed)

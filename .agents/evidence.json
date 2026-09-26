@@ -1380,6 +1380,26 @@
       "milestone": "solve execute ./build-gpu.sh",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-144",
+      "milestone": "solve execute a shell command to write 'susi local models work' to a file called proof.txt",
+      "proof": "STAGED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022925-145",
+      "milestone": "solve execute a shell command to write 'susi local models work again' to a file called proof.txt",
+      "proof": "STAGED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -1103,7 +1103,8 @@ impl SusiMasterAgent {
                         let cmd = block_trimmed.trim_start_matches("bash").trim_start_matches("sh").trim_start_matches("shell").trim();
                         if !cmd.is_empty() && !cmd.starts_with('!') {
                             eprintln!("[Local Agent] Detected shell block. Executing native tool...");
-                            let result = bus_tool("exec_command", &serde_json::Value::String(cmd.to_string()), workspace);
+                            let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
+                            let result = bus_tool("exec_command", &serde_json::Value::String(wrapped_cmd), workspace);
                             executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
                         }
                     }
