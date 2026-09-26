@@ -704,7 +704,7 @@ impl CoreTools {
         crate::susi_core::commit_log::append(&record)?;
         let mut out = format!(
             "commit {} accepted ({} / {} voters, seq {}, term {})",
-            &record.epoch[..12.min(record.epoch.len())],
+            record.epoch.get(..12).unwrap_or(&record.epoch),
             record.tally,
             record.electorate.len(),
             record.seq,
@@ -1476,7 +1476,7 @@ impl CoreTools {
                 .or_insert_with(|| serde_json::json!({"seq": 0u64, "epoch": ""}));
             if r.seq > entry.get("seq").and_then(|v| v.as_u64()).unwrap_or(0) {
                 entry["seq"] = serde_json::json!(r.seq);
-                entry["epoch"] = serde_json::json!(&r.epoch[..r.epoch.len().min(12)]);
+                entry["epoch"] = serde_json::json!(r.epoch.get(..12).unwrap_or(&r.epoch));
             }
         }
         let roster = gawd::cluster_roster().unwrap_or_default();
@@ -1501,12 +1501,12 @@ impl CoreTools {
             "leader": term.leader,
             "records": records.len(),
             "heads": heads,
-            "key_epoch": &key_epoch[..key_epoch.len().min(12)],
+            "key_epoch": key_epoch.get(..12).unwrap_or(&key_epoch),
             "roster": roster.len(),
             "banned": banned,
             "bound": bound,
             "pubkey": crate::susi_config::cluster_key::node_pubkey_hex()
-                .map(|p| p[..p.len().min(12)].to_string())
+                .map(|p| p.get(..12).unwrap_or(&p).to_string())
                 .unwrap_or_default(),
         })
         .to_string())
@@ -1634,7 +1634,7 @@ fn remote_result_is_error(text: &str) -> bool {
     if t.contains("[FAIL]") {
         return true;
     }
-    let head = &t[..t.len().min(64)];
+    let head: String = t.chars().take(64).collect();
     head.contains(" Error:")
         || head.contains(" Violation:")
         || head.contains("Mcp error")
@@ -1657,7 +1657,7 @@ impl CoreTools {
         for r in records.iter().rev().take(limit) {
             lines.push(format!(
                 "{}\t{}\t{}\t{}\t{}",
-                &r.epoch[..12.min(r.epoch.len())],
+                r.epoch.get(..12).unwrap_or(&r.epoch),
                 r.coordinator,
                 r.tally,
                 r.quorum_threshold,

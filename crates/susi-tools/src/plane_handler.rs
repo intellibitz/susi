@@ -96,7 +96,7 @@ fn looks_like_tool_error(text: &str) -> bool {
     if t.starts_with("[FAIL]") || (t.starts_with('[') && t.contains("Error")) {
         return true;
     }
-    let head = &t[..t.len().min(64)];
+    let head: String = t.chars().take(64).collect();
     head.contains(" Error:")
         || head.contains(" Violation:")
         || head.contains("Mcp error")

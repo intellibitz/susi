@@ -436,7 +436,7 @@ fn list(
                         .map(|(_, id, addr)| format!("{id}@{addr}"))
                         .or_else(|| {
                             r.rekey_fingerprint()
-                                .map(|fp| format!("key:{}", &fp[..12.min(fp.len())]))
+                                .map(|fp| format!("key:{}", fp.get(..12).unwrap_or(fp)))
                         }),
                 })
             })
@@ -466,12 +466,12 @@ fn list(
             .map(|(_, id, addr)| format!("{id}@{addr}"))
             .or_else(|| {
                 r.rekey_fingerprint()
-                    .map(|fp| format!("key:{}", &fp[..12.min(fp.len())]))
+                    .map(|fp| format!("key:{}", fp.get(..12).unwrap_or(fp)))
             })
             .unwrap_or_else(|| "-".to_string());
         println!(
             "{:<14} {:<5} {:<5} {:<18} {:<24} {:<7} {:<7} {:<12} {:<8} {}",
-            &r.epoch[..12.min(r.epoch.len())],
+            r.epoch.get(..12).unwrap_or(&r.epoch),
             r.seq,
             r.term,
             r.coordinator,
@@ -637,7 +637,7 @@ fn audit(strict: bool, json: bool) -> Result<()> {
                 r.coordinator,
                 r.seq,
                 r.leader,
-                &r.epoch[..12.min(r.epoch.len())]
+                r.epoch.get(..12).unwrap_or(&r.epoch)
             ));
         }
     }

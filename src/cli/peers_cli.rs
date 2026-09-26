@@ -340,11 +340,11 @@ fn local_cluster_status() -> serde_json::Value {
         "term": term.term,
         "leader": term.leader,
         "records": records.len(),
-        "key_epoch": &key_epoch[..key_epoch.len().min(12)],
+        "key_epoch": key_epoch.get(..12).unwrap_or(&key_epoch),
         "roster": roster.len(),
         "bound": bound,
         "pubkey": susi_config::cluster_key::node_pubkey_hex()
-            .map(|p| p[..p.len().min(12)].to_string())
+            .map(|p| p.get(..12).unwrap_or(&p).to_string())
             .unwrap_or_default(),
         "self": true,
     })

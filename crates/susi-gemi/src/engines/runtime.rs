@@ -395,7 +395,7 @@ impl GemiEngine {
         {
             return true;
         }
-        let head = &t[..t.len().min(64)];
+        let head: String = t.chars().take(64).collect();
         head.contains(" Error:")
             || head.contains(" Violation:")
             || head.contains("Mcp error")
@@ -676,6 +676,9 @@ mod tests {
             "Governance Violation: blocked"
         ));
         assert!(!GemiEngine::looks_like_error_text("the answer is 42"));
+        // A multi-byte char straddling byte 64 must not panic the check.
+        let tricky = format!("{}é tail", "a".repeat(63));
+        assert!(!GemiEngine::looks_like_error_text(&tricky));
         assert!(!GemiEngine::looks_like_error_text(
             "Later in the text an error: is discussed"
         ));

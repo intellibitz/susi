@@ -1535,9 +1535,9 @@ fn append_checked(
                     "chain divergence: {} seq {} links to epoch {} but held seq {} is {}",
                     record.coordinator,
                     record.seq,
-                    &record.prev_epoch[..12.min(record.prev_epoch.len())],
+                    record.prev_epoch.get(..12).unwrap_or(&record.prev_epoch),
                     record.seq - 1,
-                    &pred.epoch[..12.min(pred.epoch.len())]
+                    pred.epoch.get(..12).unwrap_or(&pred.epoch)
                 )));
             }
         }
