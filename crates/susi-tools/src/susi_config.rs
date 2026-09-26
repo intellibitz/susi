@@ -1205,20 +1205,34 @@ mod json_util {
         let canonical_workspace = workspace
             .canonicalize()
             .map_err(|e| EaiError::config(format!("Workspace error: {e}")))?;
-        // For not-yet-existing leaves, canonicalize the parent and re-join the name.
-        let parent = full.parent().unwrap_or(workspace);
-        let canonical_parent = parent
+        // Resolve through the deepest existing ancestor (the full path when it
+        // exists, so a symlinked leaf is judged by where it really points), then
+        // re-append the not-yet-created components unchanged. Missing parent
+        // dirs must not collapse onto the workspace root.
+        let mut existing = full.as_path();
+        let mut pending = Vec::new();
+        while std::fs::symlink_metadata(existing).is_err() {
+            let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else {
+                break;
+            };
+            pending.push(name.to_os_string());
+            existing = parent;
+        }
+        let mut resolved = existing
             .canonicalize()
-            .unwrap_or_else(|_| canonical_workspace.clone());
-        if !canonical_parent.starts_with(&canonical_workspace) {
+            .map_err(|e| EaiError::config(format!("Path resolution error for {user_path}: {e}")))?;
+        if !resolved.starts_with(&canonical_workspace) {
             return Err(EaiError::config(format!(
                 "Path escape attempt: {user_path}"
             )));
         }
-        let leaf = full
-            .file_name()
-            .ok_or_else(|| EaiError::config(format!("Path has no file name: {user_path}")))?;
-        Ok(canonical_parent.join(leaf))
+        for name in pending.iter().rev() {
+            resolved.push(name);
+        }
+        if resolved.file_name().is_none() {
+            return Err(EaiError::config(format!("Path has no file name: {user_path}")));
+        }
+        Ok(resolved)
     }
 
     /// Recursively backfills any key (object) or element (same-length array)
