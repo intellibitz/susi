@@ -2702,6 +2702,29 @@ impl CoreTools {
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
+    #[tool(
+        name = "delegate_to_ide",
+        description = "Delegate a complex, ambiguous, or IDE-level task to an overarching IDE Agent like Antigravity. Use this when the swarm encounters a problem requiring a full IDE environment or human interaction."
+    )]
+    pub fn delegate_to_ide(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let goal = arg
+            .get("goal")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| EaiError::protocol("goal is required"))?;
+        let context = arg.get("context").and_then(|v| v.as_str()).unwrap_or("");
+        
+        let delegations_dir = crate::susi_paths::SusiDirs::data_dir().join("delegations");
+        std::fs::create_dir_all(&delegations_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        
+        let ts = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let req_path = delegations_dir.join(format!("ide_request_{ts}.md"));
+        let res_path = delegations_dir.join(format!("ide_response_{ts}.md"));
+        
+        let content = format!("# IDE Delegation Request\n\n## Goal\n{}\n\n## Context\n{}\n\nWrite your response to: {}", goal, context, res_path.display());
+        std::fs::write(&req_path, content).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        
+        Ok(format!("Delegation request written to {}. The Swarm will await the IDE's response.", req_path.display()))
+    }
 }
 
 #[cfg(test)]

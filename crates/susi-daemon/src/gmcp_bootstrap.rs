@@ -233,6 +233,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "delegate_to_ide",
+        "Delegate a complex task to an overarching IDE Agent like Antigravity",
+        MetaCategory::IntelligenceBridge,
+        adapt(CoreTools::delegate_to_ide),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "verify_model_download_agent",
         "Verify model download agent, network status, and model provisioning",
         MetaCategory::SystemPrimitive,
