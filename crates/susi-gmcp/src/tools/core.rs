@@ -884,11 +884,29 @@ impl CoreTools {
             .parse()
             .map_err(|_| EaiError::protocol(format!("a2a_delegate: bad peer address '{p}'")))?;
         if ip.is_loopback() {
+            // The request carries the host bearer token: only our own A2A
+            // port may receive it, never another local listener (another
+            // user's process would harvest the token).
+            if port != a2a_port {
+                return Err(EaiError::authorization(format!(
+                    "a2a_delegate: loopback delegation is limited to the local A2A port {a2a_port}"
+                )));
+            }
             return Ok(format!("http://{ip}:{port}"));
         }
         // Verified roster members only: the row's `address` is
         // `{ip}:{gmcp_port}` — the A2A surface is the same host on the
         // canonical contract port.
+        // A member's A2A surface is its registered GMCP HTTP port + 1 (the
+        // contract's fixed shape under any port offset). The bearer token
+        // goes to that port only, not to any port the caller names.
+        let member_a2a_port = |n: &serde_json::Value| {
+            n.get("address")
+                .and_then(|v| v.as_str())
+                .and_then(|a| a.rsplit_once(':'))
+                .and_then(|(_, p)| p.parse::<u16>().ok())
+                .map(|p| p.saturating_add(1))
+        };
         let member = cluster_key::config_json_rows("peers.json").iter().any(|n| {
             (n.get("node_id").and_then(|v| v.as_str()) == Some(peer)
                 || n.get("address")
@@ -897,6 +915,7 @@ impl CoreTools {
                     .and_then(|h| h.parse::<IpAddr>().ok())
                     .is_some_and(|pip| pip == ip))
                 && n.get("admission").and_then(|v| v.as_str()) == Some("explicit")
+                && (port == a2a_port || member_a2a_port(n) == Some(port))
         });
         if !member {
             return Err(EaiError::authorization(format!(
@@ -2798,6 +2817,19 @@ mod unwired_governance_tests {
         let _audit_lock = AUDIT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         isolate_bus_root();
         assert!(CoreTools::reason(&serde_json::json!("hi"), Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn a2a_delegate_never_sends_the_token_to_other_loopback_ports() {
+        // Any other local listener (e.g. another user's process) would
+        // receive the host bearer token.
+        let err = CoreTools::a2a_peer_url("127.0.0.1:18083").unwrap_err();
+        assert!(
+            err.to_string().contains("limited to the local A2A port"),
+            "{err}"
+        );
+        assert!(CoreTools::a2a_peer_url("http://127.0.0.1:4444/x").is_err());
+        assert!(CoreTools::a2a_peer_url("self").is_ok());
     }
 
     #[test]
