@@ -91,17 +91,21 @@ impl Provider for HttpProvider {
                         return Ok(false);
                     }
                     let url = format!(
-                        "{}/models/{}?key={}",
+                        "{}/models/{}",
                         api_base.trim_end_matches('/'),
-                        model,
-                        api_key
+                        gemini_model_path(&model)
                     );
                     // A health probe that can't reach the endpoint is the
                     // expected answer for an absent engine — `false`, not a
                     // logged error. Constructing EaiError::network here wrote
                     // a metrics record per absent provider per rediscovery
                     // pass (perpetual noise on hosts without e.g. Ollama).
-                    let Ok(res) = client.get(&url).send().await else {
+                    let Ok(res) = client
+                        .get(&url)
+                        .header("x-goog-api-key", &api_key)
+                        .send()
+                        .await
+                    else {
                         return Ok(false);
                     };
                     Ok(res.status().is_success())
@@ -196,7 +200,8 @@ impl Provider for HttpProvider {
             let url = format!("{}/embeddings", api_base);
             let body = serde_json::json!({
                 "model": model,
-                "input": text
+                "input": text,
+                "encoding_format": "float"
             });
             let mut req = client.post(&url).json(&body);
             if !api_key.is_empty() {
@@ -216,12 +221,20 @@ impl Provider for HttpProvider {
                 .json()
                 .await
                 .map_err(|e| crate::susi_core::susi_error::EaiError::network(e.to_string()))?;
-            let embedding = json["data"][0]["embedding"]
+            let embedding: Vec<f32> = json["data"][0]["embedding"]
                 .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .filter_map(|v| v.as_f64().map(|f| f as f32))
-                .collect();
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if embedding.is_empty() {
+                return Err(crate::susi_core::susi_error::EaiError::process(
+                    "embeddings response carried no data[0].embedding vector",
+                ));
+            }
             Ok(embedding)
         })
     }
@@ -251,19 +264,40 @@ async fn generate_openai_chat(
     req = apply_openrouter_attribution(req, api_base);
     let res = req.send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(format!(
-            "HTTP {}: {}",
-            status,
-            body.chars().take(200).collect::<String>()
-        ));
+        return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string())
+    let message = &json["choices"][0]["message"];
+    if let Some(refusal) = message["refusal"].as_str() {
+        return Err(format!("model refused: {refusal}"));
+    }
+    non_empty(message["content"].as_str(), "choices[0].message.content")
+}
+
+/// Provider text, or an error when the response carried none — an empty
+/// answer must fail over to the next provider, not pass as a reply.
+fn non_empty(text: Option<&str>, field: &str) -> Result<String, String> {
+    match text {
+        Some(text) if !text.is_empty() => Ok(text.to_string()),
+        Some(_) | None => Err(format!("response carried no {field} text")),
+    }
+}
+
+/// HTTP failure with the provider's (truncated) error body.
+async fn http_failure(res: reqwest::Response) -> String {
+    let status = res.status();
+    let body = res.text().await.unwrap_or_default();
+    format!(
+        "HTTP {}: {}",
+        status,
+        body.chars().take(200).collect::<String>()
+    )
+}
+
+/// Gemini model resource segment: config may name `gemini-x` or the full
+/// `models/gemini-x` resource.
+fn gemini_model_path(model: &str) -> &str {
+    model.strip_prefix("models/").unwrap_or(model)
 }
 
 async fn generate_openai_completions(
@@ -286,13 +320,10 @@ async fn generate_openai_completions(
     req = apply_openrouter_attribution(req, api_base);
     let res = req.send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        return Err(format!("HTTP {}", res.status()));
+        return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json["choices"][0]["text"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string())
+    non_empty(json["choices"][0]["text"].as_str(), "choices[0].text")
 }
 
 fn apply_openrouter_attribution(
@@ -332,26 +363,25 @@ async fn generate_anthropic(
         .await
         .map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(format!(
-            "HTTP {}: {}",
-            status,
-            body.chars().take(200).collect::<String>()
-        ));
+        return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    // content is an array of blocks; take first text block
-    if let Some(parts) = json["content"].as_array() {
-        for part in parts {
-            if part.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                    return Ok(text.to_string());
-                }
-            }
-        }
-    }
-    Ok(String::new())
+    non_empty(Some(&anthropic_text(&json)), "content[].text")
+}
+
+/// All `text` blocks of a Messages API response, in order — a reply may
+/// span several blocks (e.g. around tool_use or after thinking blocks).
+fn anthropic_text(json: &serde_json::Value) -> String {
+    json["content"]
+        .as_array()
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<String>()
+        })
+        .unwrap_or_default()
 }
 
 async fn generate_gemini(
@@ -364,9 +394,13 @@ async fn generate_gemini(
     if api_key.is_empty() {
         return Err("GEMINI_API_KEY / GOOGLE_API_KEY (or api_key_env) not set".into());
     }
+    // Key travels in `x-goog-api-key`, never the URL: reqwest errors
+    // render the request URL, which would leak a query-string key into
+    // error strings and logs.
     let url = format!(
-        "{}/models/{}:generateContent?key={}",
-        api_base, model, api_key
+        "{}/models/{}:generateContent",
+        api_base,
+        gemini_model_path(model)
     );
     let body = serde_json::json!({
         "contents": [{
@@ -375,24 +409,35 @@ async fn generate_gemini(
     });
     let res = client
         .post(&url)
+        .header("x-goog-api-key", api_key)
         .json(&body)
         .send()
         .await
         .map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        return Err(format!(
-            "HTTP {}: {}",
-            status,
-            body.chars().take(200).collect::<String>()
-        ));
+        return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
+    non_empty(
+        Some(&gemini_text(&json)),
+        "candidates[0].content.parts[].text",
+    )
+}
+
+/// Answer text of a `generateContent` response: every non-thought part of
+/// the first candidate, in order (thinking models emit `thought: true`
+/// parts ahead of the answer).
+fn gemini_text(json: &serde_json::Value) -> String {
+    json["candidates"][0]["content"]["parts"]
+        .as_array()
+        .map(|parts| {
+            parts
+                .iter()
+                .filter(|p| p.get("thought").and_then(|t| t.as_bool()) != Some(true))
+                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
+                .collect::<String>()
+        })
         .unwrap_or_default()
-        .to_string())
 }
 
 async fn generate_triton(
@@ -411,14 +456,15 @@ async fn generate_triton(
         .await
         .map_err(|e| e.to_string())?;
     if !res.status().is_success() {
-        return Err(format!("HTTP {}", res.status()));
+        return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    Ok(json["text_output"]
-        .as_str()
-        .or_else(|| json["outputs"][0]["data"][0].as_str())
-        .unwrap_or_default()
-        .to_string())
+    non_empty(
+        json["text_output"]
+            .as_str()
+            .or_else(|| json["outputs"][0]["data"][0].as_str()),
+        "text_output",
+    )
 }
 
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
@@ -886,6 +932,27 @@ mod tests {
         assert!(!key_required_but_missing("OPENAI_API_KEY", "sk-live"));
         // No key env declared: local/self-hosted engines stay admitted.
         assert!(!key_required_but_missing("", ""));
+    }
+
+    #[test]
+    fn provider_text_extraction_is_complete_and_never_silently_empty() {
+        let anthropic = serde_json::json!({"content": [
+            {"type": "thinking", "thinking": "hmm"},
+            {"type": "text", "text": "Hello, "},
+            {"type": "text", "text": "world"}
+        ]});
+        assert_eq!(anthropic_text(&anthropic), "Hello, world");
+        let gemini = serde_json::json!({"candidates": [{"content": {"parts": [
+            {"text": "plan", "thought": true},
+            {"text": "An"},
+            {"text": "swer"}
+        ]}}]});
+        assert_eq!(gemini_text(&gemini), "Answer");
+        assert_eq!(gemini_model_path("models/gemini-2.5-pro"), "gemini-2.5-pro");
+        assert_eq!(gemini_model_path("gemini-2.5-pro"), "gemini-2.5-pro");
+        assert!(non_empty(Some(""), "x").is_err());
+        assert!(non_empty(None, "x").is_err());
+        assert_eq!(non_empty(Some("ok"), "x").unwrap(), "ok");
     }
 
     #[test]
