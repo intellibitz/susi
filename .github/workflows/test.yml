@@ -35,15 +35,18 @@ jobs:
       - name: cargo fmt --all --check
         run: cargo fmt --all --check
 
-  vendor-sync:
-    name: Vendored Copy Sync
+  architecture:
+    name: Architecture Isolation
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source
         uses: actions/checkout@v6
 
-      - name: Check vendored copies are byte-identical
-        run: ./scripts/check-vendored-sync.sh
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify zero-dependency boundaries and source integrity
+        run: cargo run -p xtask --locked -- verify-architecture
 
   deny:
     name: cargo deny (licenses + advisories)

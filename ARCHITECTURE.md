@@ -66,7 +66,11 @@ through **`susi_core::plane_bus`** (topics + JSON DTOs) and shared foundation
 on `127.0.0.1:18080–18084`). **`susi-daemon`** and the root **`susi`** package
 register `plane_handler` implementations and may link every plane; the root
 package may still Cargo-depend on `susi-sandbox` / `susi-native` as
-composition-root re-exports.
+composition-root re-exports. Run `cargo run -p xtask --locked --
+verify-architecture` to enforce the exact composition-root allowlist across
+normal, development, build, and target-specific dependencies and to verify
+every vendored Rust source tree byte-for-byte. CI runs the same command; no
+platform-specific shell or checksum utility is part of this boundary.
 
 `susi-core` is the final leaf-service conversion (`127.0.0.1:18085`,
 `SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`

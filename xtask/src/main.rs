@@ -15,6 +15,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
+mod architecture;
+
 fn get_home_dir() -> PathBuf {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
@@ -68,6 +70,15 @@ fn detect_gpu_features() -> (Vec<String>, Option<String>) {
 fn main() {
     let mut args: Vec<String> = env::args().collect();
     args.remove(0);
+
+    if args.first().map(String::as_str) == Some("verify-architecture") {
+        if let Err(error) = architecture::verify() {
+            eprintln!("architecture verification failed:\n{error}");
+            exit(1);
+        }
+        println!("architecture verified: Cargo edges are isolated and shared sources are in sync");
+        return;
+    }
 
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
