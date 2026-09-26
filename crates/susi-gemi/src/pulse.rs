@@ -97,6 +97,6 @@ impl SusiPulse {
         let placeholder = "I'm unable to generate an answer at this time.".to_string();
         let mut cache = REFLEX_CACHE.write();
         cache.insert(prompt_trimmed.to_string(), placeholder.clone());
-        return Ok(placeholder);
+        Ok(placeholder)
     }
 }

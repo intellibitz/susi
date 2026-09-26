@@ -315,8 +315,13 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 "[Substrate Download Agent] Connecting to {} in foreground...",
                 cfg.hf_base_url()
             );
-            let res = susi_gemi::models::ModelManager::install_model(&url);
-            println!("{}", res);
+            match susi_gemi::models::ModelManager::install_model_foreground(&url) {
+                Ok(result) => println!("{result}"),
+                Err(error) => {
+                    eprintln!("Model installation failed: {error}");
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::Eval => {
             let report = susi_gemi::eval::EvalRunner::run_evaluations(cwd);

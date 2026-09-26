@@ -92,6 +92,14 @@ pub enum OsModelAction {
     Doctor {
         name: Option<String>,
     },
+    /// Download a GGUF model from an HTTPS URL into SUSI-managed storage
+    Install {
+        source: String,
+    },
+    /// Remove a GGUF model and paired tokenizer from SUSI-managed storage
+    Uninstall {
+        name: String,
+    },
     Prefer {
         name: String,
     },
@@ -209,6 +217,16 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
             let action = match action {
                 OsModelAction::List => model_cli::ModelCommands::List,
                 OsModelAction::Doctor { name } => model_cli::ModelCommands::Doctor { model: name },
+                OsModelAction::Install { source } => {
+                    let installed = susi_gemi::ModelManager::install_model_foreground(&source)
+                        .map_err(anyhow::Error::msg)?;
+                    println!("{installed}");
+                    return Ok(());
+                }
+                OsModelAction::Uninstall { name } => {
+                    uninstall_managed_model(&name)?;
+                    return Ok(());
+                }
                 OsModelAction::Prefer { name } => model_cli::ModelCommands::Prefer { model: name },
                 OsModelAction::Configure { name, file } => {
                     model_cli::ModelCommands::Configure { model: name, file }
@@ -277,6 +295,58 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
             framework_cli::execute(action, workspace)
         }
     }
+}
+
+fn uninstall_managed_model(name: &str) -> Result<()> {
+    let requested = std::path::Path::new(name);
+    if requested.components().count() != 1
+        || requested.extension().and_then(|ext| ext.to_str()) != Some("gguf")
+    {
+        anyhow::bail!("model uninstall accepts one managed .gguf filename, not a path");
+    }
+    let models_dir = susi_gemi::ModelManager::get_models_dir()
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("resolve managed model directory: {error}"))?;
+    let canonical = models_dir
+        .join(requested)
+        .canonicalize()
+        .map_err(|error| anyhow::anyhow!("managed model `{name}` not found: {error}"))?;
+    if canonical.parent() != Some(models_dir.as_path()) || !canonical.is_file() {
+        anyhow::bail!("refusing to remove a model outside SUSI-managed storage");
+    }
+    if susi_gemi::ModelManager::get_selected_model(None)
+        .as_deref()
+        .is_some_and(|selected| selected == name || selected == canonical.to_string_lossy())
+    {
+        anyhow::bail!("`{name}` is selected; prefer another model before uninstalling it");
+    }
+    std::fs::remove_file(&canonical)
+        .map_err(|error| anyhow::anyhow!("remove {}: {error}", canonical.display()))?;
+    let stem = requested
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    let tokenizer = models_dir.join(format!("{stem}.tokenizer.json"));
+    let tokenizer_removed = match std::fs::remove_file(&tokenizer) {
+        Ok(()) => true,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => {
+            return Err(anyhow::anyhow!(
+                "model removed, but paired tokenizer {} could not be removed: {error}",
+                tokenizer.display()
+            ));
+        }
+    };
+    println!(
+        "uninstalled {}{}",
+        canonical.display(),
+        if tokenizer_removed {
+            " and its paired tokenizer"
+        } else {
+            ""
+        }
+    );
+    Ok(())
 }
 
 fn command_path(name: &str) -> Option<std::path::PathBuf> {
@@ -438,7 +508,7 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
         },
         "control": {
             "services": "susi os manage service <status|start|stop|restart|logs>",
-            "models": "susi os manage model <list|doctor|configure|reset|prefer|local>",
+            "models": "susi os manage model <list|doctor|install|uninstall|configure|reset|prefer|local>",
             "agents": "susi os manage agent <list|doctor|configure|reset|run|tasks|cancel>",
             "frameworks": "susi os manage framework <list|doctor|configure|reset|run|tasks|cancel>",
             "mcp": "susi os manage mcp <list|doctor|install|uninstall|configure|reset|status>",

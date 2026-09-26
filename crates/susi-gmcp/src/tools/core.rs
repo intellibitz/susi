@@ -2719,8 +2719,8 @@ impl CoreTools {
 
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let req_path = delegations_dir.join(format!("ide_request_{ts}.md"));
         let res_path = delegations_dir.join(format!("ide_response_{ts}.md"));
 

@@ -197,6 +197,26 @@ impl ModelManager {
         }
     }
 
+    /// Install a model in the calling process. CLI commands must use this
+    /// path: a detached thread is terminated when the short-lived CLI exits,
+    /// leaving a partial download while claiming installation started.
+    pub fn install_model_foreground(url: &str) -> Result<String, String> {
+        let target = url.trim();
+        let parsed = url::Url::parse(target).map_err(|error| error.to_string())?;
+        if parsed.scheme() != "https" {
+            return Err("model installation requires an HTTPS URL".to_string());
+        }
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("model_download_foreground", target);
+        Self::execute_download_stream(target, &task)?;
+        let file_name = crate::download::artifact_name(target)?;
+        Ok(format!(
+            "Installed and verified {} in {}",
+            file_name,
+            Self::get_models_dir().display()
+        ))
+    }
+
     pub fn execute_download_stream(target: &str, task_handle: &TaskHandle) -> Result<(), String> {
         if cfg!(test) {
             task_handle.mark_completed("Simulated download for test");
@@ -592,5 +612,13 @@ mod tests {
         assert!(audit.contains("NETWORK STATS"));
         assert!(audit.contains("BACKGROUND DOWNLOAD CONTROLLER STATS"));
         let _ = fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn foreground_install_rejects_non_https_sources() {
+        let error =
+            ModelManager::install_model_foreground("http://example.test/model.gguf").unwrap_err();
+        assert!(error.contains("HTTPS"));
+        assert!(ModelManager::install_model_foreground("not a URL").is_err());
     }
 }
