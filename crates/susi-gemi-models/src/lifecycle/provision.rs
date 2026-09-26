@@ -235,74 +235,99 @@ impl ModelManager {
         }
         let models_dir = Self::get_models_dir();
 
-        // VRAM‑aware provisioning: select the largest model that fits free VRAM.
+        // ── Tiered download policy ──────────────────────────────────────
+        // GPU present  → download the largest model that fits free VRAM,
+        //                then prefetch additional tiers from the ladder.
+        // No GPU, ≥8GB RAM → download only the smallest model (CPU fallback).
+        // No GPU, <8GB RAM  → skip all local downloads; cloud-only path.
         let vram_budget_bytes = HardwareProfiler::gpu_vram_budget_bytes();
+        let available_ram_gb = HardwareProfiler::determine_available_ram_gb();
+
+        /// Minimum system RAM (GB) required to justify downloading the
+        /// smallest model for CPU-only inference when no GPU is present.
+        const CPU_FALLBACK_MIN_RAM_GB: usize = 8;
+
+        let mut queued: usize = 0;
+        let mut errors: Vec<String> = Vec::new();
+
         if vram_budget_bytes > 0 {
+            // ── GPU path: VRAM-optimal model + tiered prefetch ─────────
             if let Some(step) = ladder.iter()
                 .filter(|s| s.expected_bytes <= vram_budget_bytes)
                 .max_by_key(|s| s.expected_bytes)
             {
-                // Ensure tokenizer is present.
                 if let Err(e) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
                     return Err(crate::susi_error::EaiError::inference(e.to_string()));
                 }
                 let path = models_dir.join(&step.hf_file);
-                let complete = Self::is_complete_model_file(&path, step.min_bytes);
-                if !complete {
+                if !Self::is_complete_model_file(&path, step.min_bytes) {
                     let url = format!("{}/{}/resolve/main/{}", cfg.hf_base_url(), step.hf_repo, step.hf_file);
                     ModelDownloadController::global()
                         .start_download(&url)
                         .map_err(crate::susi_error::EaiError::inference)?;
+                    queued += 1;
+                }
+            }
+
+            // Additional tiered prefetch (disk-budget gated).
+            let mut remaining = HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
+            let targets = Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
+            for index in targets {
+                let step = &ladder[index];
+                let path = models_dir.join(&step.hf_file);
+                let complete = Self::is_complete_model_file(&path, step.min_bytes);
+                let partial = PathBuf::from(format!("{}.part", path.display()))
+                    .metadata()
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+                let needed = if complete { 0 } else { step.expected_bytes.saturating_sub(partial) };
+                if needed > remaining {
+                    continue;
+                }
+                // Re-admit each tier: RAM can change while tokenizer requests run.
+                if !HardwareProfiler::get_progressive_model_ladder()
+                    .iter()
+                    .any(|s| s.hf_repo == step.hf_repo && s.hf_file == step.hf_file)
+                {
+                    continue;
+                }
+                if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
+                    errors.push(error.to_string());
+                    continue;
+                }
+                if !complete {
+                    let url = format!(
+                        "{}/{}/resolve/main/{}",
+                        cfg.hf_base_url(),
+                        step.hf_repo,
+                        step.hf_file
+                    );
+                    ModelDownloadController::global()
+                        .start_download(&url)
+                        .map_err(crate::susi_error::EaiError::inference)?;
+                    remaining = remaining.saturating_sub(needed);
+                    queued += 1;
+                }
+            }
+        } else if available_ram_gb >= CPU_FALLBACK_MIN_RAM_GB {
+            // ── No GPU, sufficient RAM: download only the smallest model ──
+            if let Some(step) = ladder.iter().min_by_key(|s| s.expected_bytes) {
+                if let Err(e) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
+                    errors.push(e.to_string());
+                } else {
+                    let path = models_dir.join(&step.hf_file);
+                    if !Self::is_complete_model_file(&path, step.min_bytes) {
+                        let url = format!("{}/{}/resolve/main/{}", cfg.hf_base_url(), step.hf_repo, step.hf_file);
+                        ModelDownloadController::global()
+                            .start_download(&url)
+                            .map_err(crate::susi_error::EaiError::inference)?;
+                        queued += 1;
+                    }
                 }
             }
         }
+        // else: No GPU + low RAM → skip local downloads entirely (cloud-only).
 
-        let mut remaining = HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
-        let targets = Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
-        let mut queued = 0;
-        let mut errors = Vec::new();
-
-        for index in targets {
-            let step = &ladder[index];
-            let path = models_dir.join(&step.hf_file);
-            let complete = Self::is_complete_model_file(&path, step.min_bytes);
-            let partial = PathBuf::from(format!("{}.part", path.display()))
-                .metadata()
-                .map(|m| m.len())
-                .unwrap_or(0);
-            let needed = if complete {
-                0
-            } else {
-                step.expected_bytes.saturating_sub(partial)
-            };
-            if needed > remaining {
-                continue;
-            }
-            // Re-admit each tier: RAM can change while tokenizer requests run.
-            if !HardwareProfiler::get_progressive_model_ladder()
-                .iter()
-                .any(|s| s.hf_repo == step.hf_repo && s.hf_file == step.hf_file)
-            {
-                continue;
-            }
-            if let Err(error) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
-                errors.push(error.to_string());
-                continue;
-            }
-            if !complete {
-                let url = format!(
-                    "{}/{}/resolve/main/{}",
-                    cfg.hf_base_url(),
-                    step.hf_repo,
-                    step.hf_file
-                );
-                ModelDownloadController::global()
-                    .start_download(&url)
-                    .map_err(crate::susi_error::EaiError::inference)?;
-                remaining = remaining.saturating_sub(needed);
-                queued += 1;
-            }
-        }
         if queued == 0 && !errors.is_empty() {
             return Err(crate::susi_error::EaiError::inference(errors.join("; ")));
         }
