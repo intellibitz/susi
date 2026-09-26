@@ -37,24 +37,6 @@ const COMPOSITION_ROOTS: &[(&str, &[&str])] = &[
     ),
 ];
 
-const VENDORED_TREES: &[(&str, &str)] = &[
-    ("crates/susi-core/vendor_template/susi_core", "susi_core"),
-    (
-        "crates/susi-sandbox/vendor_template/susi_sandbox",
-        "susi_sandbox",
-    ),
-    (
-        "crates/susi-native/vendor_template/susi_native",
-        "susi_native",
-    ),
-];
-
-const FLAT_MODULES: &[(&str, &str)] = &[
-    ("crates/susi-core/src/susi_error.rs", "susi_error.rs"),
-    ("crates/susi-core/src/susi_paths.rs", "susi_paths.rs"),
-    ("crates/susi-core/src/susi_config.rs", "susi_config.rs"),
-];
-
 #[derive(Deserialize)]
 struct Metadata {
     packages: Vec<Package>,
@@ -81,7 +63,7 @@ pub fn verify() -> Result<(), String> {
     let metadata = cargo_metadata()?;
     let mut failures = Vec::new();
     verify_dependency_edges(&metadata, &mut failures);
-    verify_vendored_sources(&metadata.workspace_root, &mut failures)?;
+    verify_source_mounts(&metadata.workspace_root, &mut failures)?;
 
     if failures.is_empty() {
         Ok(())
@@ -158,68 +140,91 @@ fn verify_dependency_edges(metadata: &Metadata, failures: &mut Vec<String>) {
     }
 }
 
-fn verify_vendored_sources(root: &Path, failures: &mut Vec<String>) -> Result<(), String> {
-    for (template, module) in VENDORED_TREES {
-        let template = root.join(template);
-        let template_files = rust_files(&template)?;
-        if template_files.is_empty() {
+fn verify_source_mounts(root: &Path, failures: &mut Vec<String>) -> Result<(), String> {
+    let canonical_mounts = [
+        root.join("crates/susi-core/src/embedded.rs"),
+        root.join("crates/susi-sandbox/vendor_template/susi_sandbox/mod.rs"),
+        root.join("crates/susi-native/vendor_template/susi_native/mod.rs"),
+        root.join("crates/susi-core/src/susi_error.rs"),
+        root.join("crates/susi-core/src/susi_paths.rs"),
+        root.join("crates/susi-core/src/susi_config.rs"),
+    ];
+    for canonical in canonical_mounts {
+        if !canonical.is_file() {
             failures.push(format!(
-                "vendored template is empty: {}",
-                template.display()
-            ));
-            continue;
-        }
-
-        let mut consumers = 0_usize;
-        for crate_dir in crate_directories(root)? {
-            let consumer = crate_dir.join("src").join(module);
-            if !consumer.is_dir() {
-                continue;
-            }
-            consumers += 1;
-            compare_trees(&template, &consumer, failures)?;
-        }
-        if consumers == 0 {
-            failures.push(format!(
-                "vendored template has no consumers: {}",
-                template.display()
+                "canonical shared source is missing: {}",
+                canonical.display()
             ));
         }
     }
 
-    compare_matching_files(
-        &root.join("crates/susi-core/vendor_template/susi_core"),
-        &root.join("crates/susi-core/src"),
-        failures,
-    )?;
+    let crates = root.join("crates");
+    for relative in rust_files(&crates)? {
+        let source = crates.join(&relative);
+        let text = fs::read_to_string(&source)
+            .map_err(|error| format!("could not read {}: {error}", source.display()))?;
+        for line in text.lines() {
+            let Some(rest) = line.split_once("#[path = \"").map(|(_, rest)| rest) else {
+                continue;
+            };
+            let Some((mount, _)) = rest.split_once("\"") else {
+                failures.push(format!(
+                    "malformed source mount in {}: {line}",
+                    source.display()
+                ));
+                continue;
+            };
+            let Some(parent) = source.parent() else {
+                failures.push(format!(
+                    "source has no parent directory: {}",
+                    source.display()
+                ));
+                continue;
+            };
+            let target = parent.join(mount);
+            if !target.is_file() {
+                failures.push(format!(
+                    "source mount in {} points to missing file: {}",
+                    source.display(),
+                    target.display()
+                ));
+            }
+        }
+    }
 
-    for (canonical, file_name) in FLAT_MODULES {
-        let canonical = root.join(canonical);
-        for crate_dir in crate_directories(root)? {
-            let consumer = crate_dir.join("src").join(file_name);
-            if consumer.is_file() && consumer != canonical {
-                compare_files(&canonical, &consumer, failures)?;
+    for crate_dir in fs::read_dir(&crates)
+        .map_err(|error| format!("could not read {}: {error}", crates.display()))?
+    {
+        let crate_dir = crate_dir
+            .map_err(|error| format!("could not read {} entry: {error}", crates.display()))?
+            .path();
+        let src = crate_dir.join("src");
+        if crate_dir
+            .file_name()
+            .is_some_and(|name| name == "susi-core")
+        {
+            continue;
+        }
+        for module in ["susi_core", "susi_sandbox", "susi_native"] {
+            let duplicate = src.join(module);
+            if duplicate.exists() {
+                failures.push(format!(
+                    "duplicate shared source tree must be a canonical #[path] mount: {}",
+                    duplicate.display()
+                ));
+            }
+        }
+        for module in ["susi_error.rs", "susi_paths.rs", "susi_config.rs"] {
+            let duplicate = src.join(module);
+            if duplicate.exists() {
+                failures.push(format!(
+                    "duplicate shared source file must be a canonical #[path] mount: {}",
+                    duplicate.display()
+                ));
             }
         }
     }
     Ok(())
-}
-
-fn crate_directories(root: &Path) -> Result<Vec<PathBuf>, String> {
-    let crates = root.join("crates");
-    let entries = fs::read_dir(&crates)
-        .map_err(|error| format!("could not read {}: {error}", crates.display()))?;
-    let mut directories = Vec::new();
-    for entry in entries {
-        let path = entry
-            .map_err(|error| format!("could not read {} entry: {error}", crates.display()))?
-            .path();
-        if path.is_dir() {
-            directories.push(path);
-        }
-    }
-    directories.sort();
-    Ok(directories)
 }
 
 fn rust_files(directory: &Path) -> Result<BTreeSet<PathBuf>, String> {
@@ -247,71 +252,6 @@ fn collect_rust_files(
                 .map_err(|error| format!("could not relativize {}: {error}", path.display()))?;
             files.insert(relative.to_path_buf());
         }
-    }
-    Ok(())
-}
-
-fn compare_trees(
-    reference: &Path,
-    consumer: &Path,
-    failures: &mut Vec<String>,
-) -> Result<(), String> {
-    let reference_files = rust_files(reference)?;
-    let consumer_files = rust_files(consumer)?;
-    for missing in reference_files.difference(&consumer_files) {
-        failures.push(format!(
-            "missing vendored source: {}",
-            consumer.join(missing).display()
-        ));
-    }
-    for orphan in consumer_files.difference(&reference_files) {
-        failures.push(format!(
-            "orphan vendored source: {}",
-            consumer.join(orphan).display()
-        ));
-    }
-    for relative in reference_files.intersection(&consumer_files) {
-        compare_files(
-            &reference.join(relative),
-            &consumer.join(relative),
-            failures,
-        )?;
-    }
-    Ok(())
-}
-
-fn compare_matching_files(
-    reference: &Path,
-    consumer: &Path,
-    failures: &mut Vec<String>,
-) -> Result<(), String> {
-    let reference_files = rust_files(reference)?;
-    let consumer_files = rust_files(consumer)?;
-    for relative in reference_files.intersection(&consumer_files) {
-        compare_files(
-            &reference.join(relative),
-            &consumer.join(relative),
-            failures,
-        )?;
-    }
-    Ok(())
-}
-
-fn compare_files(
-    reference: &Path,
-    consumer: &Path,
-    failures: &mut Vec<String>,
-) -> Result<(), String> {
-    let reference_bytes = fs::read(reference)
-        .map_err(|error| format!("could not read {}: {error}", reference.display()))?;
-    let consumer_bytes = fs::read(consumer)
-        .map_err(|error| format!("could not read {}: {error}", consumer.display()))?;
-    if reference_bytes != consumer_bytes {
-        failures.push(format!(
-            "vendored source drift: {} != {}",
-            consumer.display(),
-            reference.display()
-        ));
     }
     Ok(())
 }

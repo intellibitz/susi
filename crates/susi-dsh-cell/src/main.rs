@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/embedded.rs"]
+#[allow(dead_code)] // A cell embeds the complete stable ABI, not only today's handlers.
 mod susi_abi;
 
 use std::sync::Arc;

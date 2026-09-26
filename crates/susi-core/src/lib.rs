@@ -52,6 +52,8 @@ pub mod susi_config;
 // The ABI source is compiled locally, keeping this package Cargo-independent
 // from every other SUSI package.
 pub mod abi_bridge;
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/lib.rs"]
 pub mod susi_abi;
 
 pub mod agent_tx;

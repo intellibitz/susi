@@ -4,7 +4,7 @@
 //!
 //! Kept out of the vendored files it touches (`capture.rs`, `evidence.rs`,
 //! `context_graph.rs`, `mac_policy.rs`) on purpose: those are byte-identical
-//! into 9 zero-dependency consumer crates (`scripts/check-vendored-sync.sh`),
+//! into zero-dependency consumer namespaces through canonical `#[path]` mounts,
 //! and susi-core is currently the only crate with a real Cargo edge to
 //! `susi-abi`. This file stays outside the vendored `src/susi_core/` tree so
 //! that edge never leaks into the vendored copies.

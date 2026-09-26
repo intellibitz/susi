@@ -19,17 +19,17 @@
 
 extern crate self as susi_gawd_agents;
 
-#[path = "../../susi-gawd-agents/src/susi_error.rs"]
+#[path = "../../susi-core/src/susi_error.rs"]
 pub mod susi_error;
 #[allow(dead_code)]
-#[path = "../../susi-gawd-agents/src/susi_paths.rs"]
+#[path = "../../susi-core/src/susi_paths.rs"]
 mod susi_paths;
 #[rustfmt::skip]
-#[path = "../../susi-gawd-agents/src/susi_config.rs"] pub mod susi_config;
+#[path = "../../susi-core/src/susi_config.rs"] pub mod susi_config;
 #[rustfmt::skip]
-#[path = "../../susi-gawd-agents/src/susi_sandbox/mod.rs"] pub mod susi_sandbox;
+#[path = "../../susi-sandbox/vendor_template/susi_sandbox/mod.rs"] pub mod susi_sandbox;
 #[rustfmt::skip]
-#[path = "../../susi-gawd-agents/src/susi_core/mod.rs"] pub mod susi_core;
+#[path = "../../susi-core/src/embedded.rs"] pub mod susi_core;
 #[path = "../../susi-gawd-agents/src/accountability.rs"]
 pub mod accountability;
 #[path = "../../susi-gawd-agents/src/admin_hooks.rs"]
@@ -130,6 +130,10 @@ mod tests {
         assert_eq!(card.name, "susi-gawd");
         assert!(!card.version.is_empty());
         assert_eq!(card.supported_interfaces.len(), 1);
+        assert_eq!(
+            card.supported_interfaces[0].protocol_version,
+            ra2a::PROTOCOL_VERSION
+        );
         let bindings: Vec<String> = card
             .supported_interfaces
             .iter()
@@ -166,9 +170,9 @@ mod tests {
     }
 
     #[test]
-    fn execute_without_message_still_completes() {
-        // No message => empty content => fleet error maps to a Completed task
-        // carrying the failure text, never a panic or silent drop.
+    fn execute_without_message_reports_failed_task() {
+        // No message => empty content => fleet error maps to an A2A `failed`
+        // task carrying the failure text, never a panic or silent drop.
         let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
@@ -179,11 +183,11 @@ mod tests {
         let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("event") else {
             panic!("expected Task event");
         };
-        assert_eq!(task.status.state, TaskState::Completed);
+        assert_eq!(task.status.state, TaskState::Failed);
     }
 
     #[test]
-    fn execute_with_non_text_part_completes_gracefully() {
+    fn execute_with_non_text_part_reports_failed_task() {
         let executor = GawdA2AExecutor::new(Arc::new(GawdAgentFleet));
         let queue = EventQueue::new(8);
         let mut rx = queue.subscribe();
@@ -194,7 +198,7 @@ mod tests {
         let ra2a::types::StreamResponse::Task(task) = rx.try_recv().expect("event") else {
             panic!("expected Task event");
         };
-        assert_eq!(task.status.state, TaskState::Completed);
+        assert_eq!(task.status.state, TaskState::Failed);
     }
 
     #[test]

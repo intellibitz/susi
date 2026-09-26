@@ -5,12 +5,9 @@
     clippy::unreachable
 )]
 
-//! Vendored `susi_core` drift check: every `crates/*/src/susi_core/<file>.rs`
-//! (and the vendor template) must be byte-identical to the canonical
-//! `crates/susi-core/src/<file>.rs`. The canonical crate self-aliases as
-//! `susi_core`, so `crate::susi_core::…` paths resolve identically in both
-//! contexts — no path rewriting or test stripping is permitted. `mod.rs`
-//! is exempt: each consumer declares its own subset.
+//! Shared contracts are mounted from canonical source files. These tests make
+//! physical copies a regression: a consumer must compile the canonical source
+//! through `#[path]`, keeping one implementation without a Cargo crate edge.
 
 use std::path::{Path, PathBuf};
 
@@ -19,88 +16,105 @@ fn workspace_root() -> PathBuf {
 }
 
 #[test]
-fn vendored_susi_core_files_are_byte_identical_to_canonical() {
+fn shared_contracts_have_no_consumer_copies() {
     let root = workspace_root();
-    let canon_dir = root.join("crates/susi-core/src");
-    let mut checked = 0usize;
-    let mut drift = Vec::new();
+    let crates = root.join("crates");
+    let mut duplicates = Vec::new();
 
-    let mut vendor_dirs = Vec::new();
-    for entry in std::fs::read_dir(root.join("crates")).expect("read crates/") {
-        let dir = entry.expect("dir entry").path().join("src/susi_core");
-        if dir.is_dir() {
-            vendor_dirs.push(dir);
+    for entry in std::fs::read_dir(&crates).expect("read crates directory") {
+        let crate_dir = entry.expect("read crate entry").path();
+        if crate_dir.file_name().and_then(|name| name.to_str()) == Some("susi-core") {
+            continue;
+        }
+        let src = crate_dir.join("src");
+        for module in ["susi_core", "susi_sandbox", "susi_native"] {
+            let path = src.join(module);
+            if path.exists() {
+                duplicates.push(path);
+            }
+        }
+        for module in ["susi_error.rs", "susi_paths.rs", "susi_config.rs"] {
+            let path = src.join(module);
+            if path.exists() {
+                duplicates.push(path);
+            }
         }
     }
-    vendor_dirs.push(root.join("crates/susi-core/vendor_template/susi_core"));
 
-    for dir in vendor_dirs {
-        for entry in std::fs::read_dir(&dir).expect("read vendored dir") {
-            let path = entry.expect("dir entry").path();
-            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+    assert!(
+        duplicates.is_empty(),
+        "shared contracts must use canonical #[path] mounts; duplicate paths: {duplicates:?}"
+    );
+}
+
+#[test]
+fn every_declared_source_mount_resolves() {
+    let root = workspace_root();
+    let mut pending = vec![root.join("crates"), root.join("src"), root.join("tests")];
+    let mut checked = 0_usize;
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read source directory") {
+            let path = entry.expect("read source entry").path();
+            if path.is_dir() {
+                pending.push(path);
                 continue;
             }
-            if path.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
+            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
                 continue;
             }
-            let canon = canon_dir.join(path.file_name().expect("file name"));
-            if !canon.exists() {
-                drift.push(format!("{}: no canonical counterpart", path.display()));
-                continue;
-            }
-            checked += 1;
-            let vendored = std::fs::read(&path).expect("read vendored file");
-            let canonical = std::fs::read(&canon).expect("read canonical file");
-            if vendored != canonical {
-                drift.push(format!("{}: differs from canonical", path.display()));
+            let source = std::fs::read_to_string(&path).expect("read Rust source");
+            for line in source.lines() {
+                let Some(rest) = line.split_once("#[path = \"").map(|(_, rest)| rest) else {
+                    continue;
+                };
+                let (mount, _) = rest.split_once('\"').expect("well-formed path attribute");
+                checked += 1;
+                let target = path.parent().expect("source parent").join(mount);
+                assert!(
+                    target.is_file(),
+                    "source mount in {} does not resolve: {}",
+                    path.display(),
+                    target.display()
+                );
             }
         }
     }
 
     assert!(
         checked > 100,
-        "expected to check many vendored files, got {checked}"
-    );
-    assert!(
-        drift.is_empty(),
-        "vendored susi_core drift detected — re-sync from crates/susi-core/src:\n{}",
-        drift.join("\n")
+        "expected broad canonical source reuse, got {checked}"
     );
 }
 
-/// Leaf vendored modules (`susi_config`, `susi_error`, `susi_paths`) are
-/// single-file subsets — not byte-identical to the real leaf crates — but
-/// every copy across consumers must match susi-core's canonical vendored
-/// copy exactly.
 #[test]
-fn vendored_leaf_modules_are_byte_identical_to_susi_core_copies() {
+fn checked_in_rust_implementations_are_not_byte_duplicates() {
     let root = workspace_root();
-    let mut drift = Vec::new();
+    let mut pending = vec![
+        root.join("crates"),
+        root.join("src"),
+        root.join("tests"),
+        root.join("xtask"),
+    ];
+    let mut unique = std::collections::HashMap::<Vec<u8>, PathBuf>::new();
+    let mut duplicates = Vec::new();
 
-    for leaf in ["susi_config", "susi_error", "susi_paths"] {
-        let canon = root.join(format!("crates/susi-core/src/{leaf}.rs"));
-        let canonical = std::fs::read(&canon).expect("read canonical leaf");
-        let mut checked = 0usize;
-        for entry in std::fs::read_dir(root.join("crates")).expect("read crates/") {
-            let path = entry
-                .expect("dir entry")
-                .path()
-                .join("src")
-                .join(format!("{leaf}.rs"));
-            if path == canon || !path.exists() {
-                continue;
-            }
-            checked += 1;
-            if std::fs::read(&path).expect("read vendored leaf") != canonical {
-                drift.push(format!("{}: differs from canonical {leaf}", path.display()));
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read source directory") {
+            let path = entry.expect("read source entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+                let source = std::fs::read(&path).expect("read Rust source");
+                if let Some(first) = unique.insert(source, path.clone()) {
+                    duplicates.push((first, path));
+                }
             }
         }
-        assert!(checked > 5, "expected several {leaf} copies, got {checked}");
     }
 
     assert!(
-        drift.is_empty(),
-        "vendored leaf-module drift detected — re-sync from crates/susi-core/src:\n{}",
-        drift.join("\n")
+        duplicates.is_empty(),
+        "byte-identical Rust files must be consolidated through a canonical source mount: {duplicates:?}"
     );
 }

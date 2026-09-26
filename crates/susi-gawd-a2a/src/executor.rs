@@ -84,7 +84,7 @@ impl GawdA2AExecutor {
                     ra2a::types::TransportProtocol::JSONRPC,
                 ),
                 tenant: None,
-                protocol_version: "1.0".to_string(),
+                protocol_version: ra2a::PROTOCOL_VERSION.to_string(),
             }],
             provider: None,
             documentation_url: Some("https://github.com/intellibitz/susi".to_string()),
@@ -159,20 +159,22 @@ impl AgentExecutor for GawdA2AExecutor {
 
             // Route to appropriate agent based on message content. The fleet
             // must not run on this executor's tokio worker — see `run_fleet`.
-            let _permit = InflightPermit::try_acquire();
-            let response_content = match _permit {
-                Some(_) => run_fleet(Arc::clone(&self.agent_fleet), content)
-                    .await
-                    .unwrap_or_else(|_| "Request processing failed".to_string()),
-                None => "Request rejected: fleet at capacity".to_string(),
+            let permit = InflightPermit::try_acquire();
+            let (state, response_content) = match permit {
+                Some(_) => match run_fleet(Arc::clone(&self.agent_fleet), content).await {
+                    Ok(response) => (TaskState::Completed, response),
+                    Err(error) => (TaskState::Failed, error),
+                },
+                None => (
+                    TaskState::Rejected,
+                    "Request rejected: fleet at capacity".to_string(),
+                ),
             };
 
             // Create task with response
             let mut task = Task::new(&ctx.task_id, &ctx.context_id);
-            task.status = TaskStatus::with_message(
-                TaskState::Completed,
-                Message::agent(vec![Part::text(response_content)]),
-            );
+            task.status =
+                TaskStatus::with_message(state, Message::agent(vec![Part::text(response_content)]));
 
             queue.send(Event::Task(task))?;
             Ok(())

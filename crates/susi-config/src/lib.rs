@@ -26,12 +26,14 @@
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 #[allow(dead_code)]
+#[path = "../../susi-core/src/susi_error.rs"]
 pub mod susi_error;
 // Vendored `susi-paths` IPC client: full surface kept identical
 // across crates; per-crate dead_code allowance is the audit trail.
 // `pub` so the standalone service binary (main.rs) can resolve the
 // global config dir through the same contract as every consumer.
 #[allow(dead_code)]
+#[path = "../../susi-core/src/susi_paths.rs"]
 pub mod susi_paths;
 
 pub mod cluster_key;

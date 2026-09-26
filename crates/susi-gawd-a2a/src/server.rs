@@ -295,7 +295,8 @@ pub fn serve(
         // through the exported list/delete surface.
         let task_store = Arc::new(ra2a::server::InMemoryTaskStore::new());
         let handler = ra2a::server::DefaultRequestHandler::new(executor, card.clone())
-            .with_task_store(task_store.clone());
+            .with_task_store(task_store.clone())
+            .with_push_sender(Arc::new(ra2a::server::HttpPushSender::new()));
         let state = ServerState::new(Arc::new(handler), card);
         tokio::spawn(crate::task_store::reaper(task_store));
         // `a2a_router`, not `a2a_full_router`: the REST binding registers

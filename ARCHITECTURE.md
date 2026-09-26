@@ -44,8 +44,8 @@ Concrete implementations are assembled only at composition roots.
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | `WasmHost` | vendored error IPC; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | vendored paths/error IPC; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | vendored paths/error/config IPC; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **vendored `susi_core` subset** (`src/susi_core/`): registry/capture/mac_policy over the bus rendezvous; vendored sandbox/config/native/error IPC, rmcp/reqwest | **all workspace crates** (zero-dep consumer); peers via vendored `plane_bus` | tools | registry | yes |
-| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **vendored `susi_core` subset** (`src/susi_core/`): registry/task_manager/agent_types over the bus rendezvous; vendored sandbox/config IPC | **all workspace crates** (zero-dep consumer); peers via vendored `plane_bus` | peers | registries | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **canonical source-mounted `susi_core`**: registry/capture/mac_policy over the bus rendezvous; source-mounted sandbox/config/native/error IPC, rmcp/reqwest | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | tools | registry | yes |
+| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **canonical source-mounted `susi_core`**: registry/task_manager/agent_types over the bus rendezvous; source-mounted sandbox/config IPC | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **vendored `susi_core` subset** (`src/susi_core/`): task_manager only; vendored sandbox/config IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **vendored `susi_core` subset**, vendored sandbox/config IPC | **all workspace crates** | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **vendored `susi_core` subset** (`src/susi_core/`); vendored sandbox/config IPC | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
@@ -69,13 +69,13 @@ package may still Cargo-depend on `susi-sandbox` / `susi-native` as
 composition-root re-exports. Run `cargo run -p xtask --locked --
 verify-architecture` to enforce the exact composition-root allowlist across
 normal, development, build, and target-specific dependencies and to verify
-every vendored Rust source tree byte-for-byte. CI runs the same command; no
+every canonical `#[path]` source mount and rejects physical consumer copies. CI runs the same command; no
 platform-specific shell or checksum utility is part of this boundary.
 
 `susi-core` is the final leaf-service conversion (`127.0.0.1:18085`,
 `SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`
-copies cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
-statics (each vendored module is a distinct type), so vendored trees back
+mounts cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
+statics (each mounted module is a distinct type), so embedded modules back
 `plane_bus` with **`plane_bus_ipc::IpcPlaneBus`**: a filesystem
 rendezvous under `<cache>/bus/<pid>/` (endpoint files for exact topics and
 prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
@@ -84,7 +84,7 @@ prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
 files are pruned on connect failure and dead pid dirs swept via `/proc`.
 Writes stay scoped to the owning process's pid dir (ownership/liveness),
 while **reads scan every numeric-named sibling pid dir** — own dir first,
-then sorted siblings — so vendored copies *and separate plane processes*
+then sorted siblings — so embedded modules *and separate plane processes*
 resolve each other's registrations through the same `bus/` root. Exact
 topic registrations outrank prefix handlers process-wide.
 **`registry_ipc::IpcCapabilityRegistry`**

@@ -1,6 +1,9 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/embedded.rs"]
+#[allow(dead_code)] // A universal cell must retain every ABI operation it can be assigned.
 mod susi_abi;
 
 use serde::Deserialize;

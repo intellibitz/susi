@@ -19,7 +19,7 @@
 //! `reflex_synth::tests::test_wasm_reflex_hot_patch_end_to_end`.
 
 #[allow(dead_code)]
-#[path = "../src/susi_paths.rs"]
+#[path = "../../susi-core/src/susi_paths.rs"]
 mod susi_paths;
 
 #[test]
