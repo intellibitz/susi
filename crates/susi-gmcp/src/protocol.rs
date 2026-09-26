@@ -60,6 +60,21 @@ enum Change {
     Resource(String),
 }
 
+/// MCP Gateway Proxy: The control plane intercepts all MCP requests
+/// (from local or external BYOA agents) to enforce capability tokens and policies.
+pub struct McpGatewayProxy;
+impl McpGatewayProxy {
+    pub fn evaluate_tool_policy(tool_name: &str) -> Result<(), String> {
+        // In Phase 1, we lay the foundation for capability checks.
+        // If a tool name requires high privilege (e.g., restricted ops),
+        // we assert the presence of a minted CapabilityToken (simulated here).
+        if tool_name.starts_with("susi_restricted_") || tool_name.starts_with("system_") {
+            return Err(format!("Agent lacks CapabilityToken for privileged tool '{}'. Please request a token from the Capability Mint Agent.", tool_name));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 struct RegisteredTool {
     definition: Tool,
@@ -390,6 +405,16 @@ impl ServerHandler for GmcpService {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
+        // --- PHASE 1: MCP GATEWAY PROXY ---
+        // Intercepts tool calls to enforce SUSI Swarm OS capability tokens and governance policy.
+        if let Err(violation) = McpGatewayProxy::evaluate_tool_policy(&request.name) {
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
+                "Governance Violation: {}",
+                violation
+            ))])
+            .into());
+        }
+        // --- END GATEWAY ---
         let registered = self
             .catalog
             .read()
