@@ -40,6 +40,8 @@ impl SandboxManager {
                 cap_drop: Some(vec!["ALL".to_string()]),
                 memory: Some(256 * 1024 * 1024),
                 nano_cpus: Some(500_000_000), // 0.5 CPU
+                // Fork bombs stay inside the container's pid budget.
+                pids_limit: Some(128),
                 auto_remove: Some(true),
                 security_opt: Some(vec!["no-new-privileges:true".to_string()]),
                 ..Default::default()
@@ -66,18 +68,32 @@ impl SandboxManager {
                 ..Default::default()
             }),
         );
+        // Bound wall time and captured output: a `sleep infinity` or an
+        // endless printer must not hold the request (or daemon memory) open.
+        const MAX_RUNTIME: std::time::Duration = std::time::Duration::from_secs(120);
+        const MAX_OUTPUT: usize = 1024 * 1024;
         let mut output = String::new();
-        while let Some(log) = logs.next().await {
-            match log {
-                Ok(LogOutput::StdOut { message }) | Ok(LogOutput::StdErr { message }) => {
-                    output.push_str(&String::from_utf8_lossy(&message));
-                }
-                Ok(_) => {}
-                Err(e) => {
-                    output.push_str(&format!("\n[docker log error: {e}]"));
-                    break;
+        let collect = async {
+            while let Some(log) = logs.next().await {
+                match log {
+                    Ok(LogOutput::StdOut { message }) | Ok(LogOutput::StdErr { message }) => {
+                        output.push_str(&String::from_utf8_lossy(&message));
+                        if output.len() > MAX_OUTPUT {
+                            output.truncate(MAX_OUTPUT);
+                            output.push_str("\n[output truncated at 1 MiB]");
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        output.push_str(&format!("\n[docker log error: {e}]"));
+                        break;
+                    }
                 }
             }
+        };
+        if tokio::time::timeout(MAX_RUNTIME, collect).await.is_err() {
+            output.push_str("\n[sandbox command timed out after 120s; container killed]");
         }
 
         // Best-effort cleanup if auto_remove did not fire (e.g. never started).
