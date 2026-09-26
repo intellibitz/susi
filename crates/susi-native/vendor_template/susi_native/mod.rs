@@ -29,6 +29,20 @@ pub(crate) mod service {
     /// `POST /wasm/execute` — run a WASI module under Wasmer inside the
     /// substrate process. `None` on transport failure; `Some(Err)` carries
     /// the service-side error message.
+    /// Bodyless rejections (e.g. the bearer middleware's bare 401) would
+    /// otherwise surface as an empty message; name the HTTP status instead.
+    fn error_message(head: &str, msg: String) -> String {
+        if !msg.is_empty() {
+            return msg;
+        }
+        let status = head.lines().next().unwrap_or(head).trim();
+        if status.contains(" 401") {
+            format!("{status} (bearer token rejected; check SUSI_HOST_TOKEN / api_token)")
+        } else {
+            status.to_string()
+        }
+    }
+
     pub fn execute(wasm_path: &Path, arg: &str) -> Option<Result<String, String>> {
         let payload = serde_json::to_string(&serde_json::json!({
             "wasm_path": wasm_path.to_string_lossy(),
@@ -61,8 +75,26 @@ pub(crate) mod service {
                         .and_then(|e| e.as_str())
                         .map(str::to_string)
                 })
-                .unwrap_or_else(|| body.to_string());
-            Some(Err(msg))
+                .unwrap_or_else(|| body.trim().to_string());
+            Some(Err(error_message(head, msg)))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::error_message;
+
+        #[test]
+        fn empty_rejection_names_the_http_status() {
+            let head = "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0";
+            let msg = error_message(head, String::new());
+            assert!(msg.starts_with("HTTP/1.1 401 Unauthorized"), "{msg}");
+            assert!(msg.contains("bearer"), "{msg}");
+            assert_eq!(
+                error_message("HTTP/1.1 500 Internal Server Error", String::new()),
+                "HTTP/1.1 500 Internal Server Error"
+            );
+            assert_eq!(error_message(head, "boom".into()), "boom");
         }
     }
 }
