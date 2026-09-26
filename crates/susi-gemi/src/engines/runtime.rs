@@ -386,7 +386,8 @@ impl GemiEngine {
     /// failures into `Ok(String)`, so the markers must be detected textually.
     /// Display prefixes are checked only near the head so legitimate output
     /// that merely mentions an error is not misclassified.
-    pub(crate) fn looks_like_error_text(text: &str) -> bool {
+    #[must_use]
+    pub fn looks_like_error_text(text: &str) -> bool {
         let t = text.trim_start();
         if t.contains("[FAIL]")
             || t.contains("[CAPABILITY_GAP]")

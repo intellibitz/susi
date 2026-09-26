@@ -118,6 +118,16 @@ async fn handle_infer(req: SyscallRequest) -> SyscallResponse {
     // executor, and run it in the caller's workspace.
     let ws = std::path::PathBuf::from(req.workspace.as_deref().unwrap_or("."));
     match tokio::task::spawn_blocking(move || GemiEngine::generate_reasoning(&prompt, &ws)).await {
+        // Engines flatten failures into text; classify with the engine's own
+        // marker check instead of reporting failure prose as a success.
+        Ok(text) if GemiEngine::looks_like_error_text(&text) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Error,
+            data: serde_json::json!({ "text": text }),
+            receipt: None,
+            latency_us: latency(started),
+            message: Some("inference failed".into()),
+        },
         Ok(text) => SyscallResponse {
             id: req.id,
             status: SyscallStatus::Success,
