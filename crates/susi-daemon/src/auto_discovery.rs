@@ -109,10 +109,20 @@ pub fn spawn_cell(path: &Path) -> bool {
             track(path, spawned);
         });
     } else if name.ends_with(".json") {
-        static PORT_COUNTER: std::sync::atomic::AtomicU16 =
-            std::sync::atomic::AtomicU16::new(10000);
-        let port = PORT_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let bind_addr = format!("127.0.0.1:{port}");
+        // Let the OS pick a free loopback port; a fixed counter handed out
+        // ports without checking them and collided with anything already
+        // listening there.
+        let Some(bind_addr) = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .ok()
+            .map(|a| a.to_string())
+        else {
+            tracing::warn!(
+                "[auto_discovery] No free loopback port for {}",
+                path.display()
+            );
+            return false;
+        };
         // Sibling of the running binary; bare name (PATH lookup) otherwise.
         let universal_cell_path = std::env::current_exe()
             .ok()
