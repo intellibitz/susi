@@ -1490,6 +1490,16 @@
       "milestone": "Daemon-loaded model reporting: GET /runtime/models on the GEMI port (bearer-gated; 401 without token verified) returns a non-blocking ModelCache snapshot via the gemi.models.loaded bus topic. Verified live on the CUDA release daemon: empty cache after restart, then a /v1/chat/completions request for qwen2.5-0.5b-instruct-q4_k_m was served locally and the endpoint reported it loaded on Cuda gpu 0 with 24/24 layers GPU-resident, 8192-token KV capacity, served by the daemon pid; `susi os runtime` marks it [loaded] while the /proc mapping scan showed no mapping for the same file, confirming the heuristic alone would have missed it. fmt, clippy -D warnings, 2969 workspace tests, xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-155",
+      "milestone": "Daemon model load/unload with real VRAM release: `susi os manage model load|unload` over POST /runtime/models/load|unload; uninstall refuses a daemon-loaded model (verified: exit 1, file kept; unload then uninstall removed it). Unload exposed a leak: cudarc CudaSlice drop frees without binding the CUDA context, so weights dropped on a daemon request thread recorded CUDA_ERROR_INVALID_CONTEXT and leaked (measured on the pre-fix daemon: 554 -> 1002 -> 1418 MiB over three load/unload cycles). release_on_device binds the context, drops, synchronizes and trims the device mempool. Verified live on the CUDA release daemon: three cycles each 106 -> 554 -> 106 MiB with gpu_pool=trimmed. GPU regression test evicts on a second thread; with the bind removed it fails with the original CUDA_ERROR_INVALID_CONTEXT. fmt, clippy -D warnings (default and --features cuda), 2972 workspace tests, xtask verify-architecture pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
