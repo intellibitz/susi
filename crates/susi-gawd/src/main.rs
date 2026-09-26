@@ -108,10 +108,11 @@ async fn handle_plan(req: SyscallRequest) -> SyscallResponse {
         Err("missing goal in payload (`goal`)".to_string())
     } else {
         tokio::task::spawn_blocking(move || {
-            susi_gawd::ama::SusiMasterAgent::new().solve_clean(
+            susi_gawd::ama::SusiMasterAgent::new().solve_stream_report(
                 &goal,
                 &workspace,
                 env!("CARGO_PKG_VERSION"),
+                &|_| {},
             )
         })
         .await
@@ -119,14 +120,25 @@ async fn handle_plan(req: SyscallRequest) -> SyscallResponse {
     };
     let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
     match outcome {
-        Ok(answer) => SyscallResponse {
-            id: req.id,
-            status: SyscallStatus::Success,
-            data: serde_json::json!({ "result": answer }),
-            receipt: None,
-            latency_us,
-            message: None,
-        },
+        // Outcome comes from the mission report, never from the prose.
+        Ok(report) => {
+            let ok = report.is_success();
+            SyscallResponse {
+                id: req.id,
+                status: if ok {
+                    SyscallStatus::Success
+                } else {
+                    SyscallStatus::Error
+                },
+                data: serde_json::json!({
+                    "result": report.final_answer,
+                    "mission_status": report.status,
+                }),
+                receipt: None,
+                latency_us,
+                message: (!ok).then(|| format!("mission ended {}", report.status)),
+            }
+        }
         Err(e) => SyscallResponse {
             id: req.id,
             status: SyscallStatus::Error,
