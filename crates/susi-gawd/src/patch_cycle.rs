@@ -50,19 +50,12 @@ fn confined_path(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
             "patch path attempts escape: {rel}"
         )));
     }
-    let candidate = workspace.join(&rel);
-    let canonical_ws = workspace
-        .canonicalize()
-        .unwrap_or_else(|_| workspace.to_path_buf());
-    let canonical_file = candidate
-        .canonicalize()
-        .unwrap_or_else(|_| candidate.clone());
-    if !canonical_file.starts_with(&canonical_ws) {
-        return Err(EaiError::governance(format!(
-            "patch path outside workspace: {rel}"
-        )));
-    }
-    Ok(candidate)
+    // Resolve through the deepest existing ancestor so a symlinked dir or
+    // leaf is judged by its real target, including for files the patch
+    // creates (the old canonicalize-or-raw fallback let `dirlink/new.rs`
+    // write through a symlink out of the workspace).
+    crate::susi_config::confined_workspace_join(workspace, &rel)
+        .map_err(|e| EaiError::governance(format!("patch path outside workspace: {rel} ({e})")))
 }
 
 fn backup_dir(workspace: &Path) -> PathBuf {
