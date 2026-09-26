@@ -137,7 +137,7 @@ mod tests {
             "Sandbox Error: path escapes workspace"
         ));
         assert!(looks_like_tool_failure("Governance Violation: denied"));
-        assert!(!looks_like_tool_failure("SUSI Engine Version: 0.14.0"));
+        assert!(!looks_like_tool_failure("SUSI Engine Version: 0.14.1"));
         assert!(!looks_like_tool_failure(
             "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
         ));
