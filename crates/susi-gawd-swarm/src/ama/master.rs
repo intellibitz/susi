@@ -62,7 +62,7 @@ impl SusiMasterAgent {
         }
 
         // 2. Block high-risk shell/injection patterns
-        let risk_patterns = ["$(", "`", "> /dev/", "| nc ", "| netcat ", "0xCC", "\\x"];
+        let risk_patterns = ["$(", "> /dev/", "| nc ", "| netcat ", "0xCC", "\\x"];
         for pattern in risk_patterns {
             if trimmed.contains(pattern) {
                 return Err(crate::susi_error::EaiError::governance(format!("High-risk sequence '{}' detected in input. Potential injection attempt blocked.", pattern)));
