@@ -7,7 +7,7 @@
 //! carry yet, so this stays honestly scoped to trust rather than faking
 //! the other columns.
 
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 /// One leaderboard row: a cell's rank (1-based) alongside its manifest.
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ pub fn rank_by_trust(cells: &[SwarmCellManifest]) -> Vec<LeaderboardEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn manifest(cell_id: &str, trust_score: f32, last_heartbeat: u64) -> SwarmCellManifest {
         SwarmCellManifest {

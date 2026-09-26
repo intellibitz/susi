@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Duration;
 
-use susi_abi::swarm::SwarmPheromone;
+use crate::susi_abi::swarm::SwarmPheromone;
 
 #[derive(Debug, Clone)]
 pub struct WebhookSubscription {
@@ -116,7 +116,7 @@ mod tests {
             id: "p1".to_string(),
             topic: topic.to_string(),
             emitter_id: "cell-a".to_string(),
-            kind: susi_abi::swarm::PheromoneKind::Observation,
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
             intensity: 1.0,
             payload: serde_json::json!({}),
             ttl_ms: 1000,

@@ -12,9 +12,9 @@
 //! The [`CapabilityPolicy`] struct evaluates a [`SyscallRequest`] against a
 //! registered cell's manifest and returns `Allow` or `Deny`.
 
+use crate::susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::syscall::{SyscallOp, SyscallRequest};
 use serde::{Deserialize, Serialize};
-use susi_abi::swarm::SwarmCellManifest;
-use susi_abi::syscall::{SyscallOp, SyscallRequest};
 
 // ──────────────────────────────────────────────────────────
 // Policy types
@@ -322,9 +322,9 @@ mod tests {
     fn policy_from_manifest_converts_capabilities() {
         let manifest = SwarmCellManifest {
             cell_id: "cell-infer".to_string(),
-            role: susi_abi::swarm::SwarmRole::InferenceDriver,
+            role: crate::susi_abi::swarm::SwarmRole::InferenceDriver,
             capabilities: vec!["infer".to_string(), "blackboard:read".to_string()],
-            bloom_filter: susi_abi::swarm::CapabilityBloom::empty(),
+            bloom_filter: crate::susi_abi::swarm::CapabilityBloom::empty(),
             endpoint: "http://127.0.0.1:9999".to_string(),
             trust_score: 1.0,
             last_heartbeat: 0,

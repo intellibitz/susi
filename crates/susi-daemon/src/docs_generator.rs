@@ -6,7 +6,7 @@
 //! covers the manifest and runtime-trace half from live daemon state
 //! rather than a hand-maintained doc going stale.
 
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 use crate::tracing::TraceSpan;
 
@@ -58,7 +58,7 @@ pub fn render_fleet_doc(cells: &[SwarmCellManifest], spans: &[TraceSpan]) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn manifest(cell_id: &str) -> SwarmCellManifest {
         SwarmCellManifest {

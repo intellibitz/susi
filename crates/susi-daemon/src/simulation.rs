@@ -3,7 +3,7 @@
 //! Assigns synthetic tasks to the highest-trust cell whose bloom filter
 //! may contain the task's capability hash. The input roster is not mutated.
 
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntheticTask {
@@ -45,7 +45,7 @@ pub fn run(cells: &[SwarmCellManifest], tasks: &[SyntheticTask]) -> Vec<SimResul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn cell(id: &str, trust: f32, hash: Option<u64>) -> SwarmCellManifest {
         let mut bloom_filter = CapabilityBloom::default();

@@ -3,12 +3,9 @@ name = "susi-gawd"
 version = "0.14.0"
 license = "Apache-2.0"
 edition = "2021"
+build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
-susi-abi = { workspace = true }
-susi-gawd-agents = { workspace = true }
-susi-gawd-swarm = { workspace = true }
-susi-gawd-a2a = { workspace = true }
 syn = { version = "3.0.6", features = ["full", "visit"] }
 reqwest = { workspace = true }
 crossbeam = "0.8"
@@ -29,17 +26,26 @@ x25519-dalek = { workspace = true }
 chacha20poly1305 = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
+shlex = "2.0"
+md5 = "0.8.1"
+ra2a = { version = "0.10.1", features = ["server", "client"] }
+axum = "0.8.9"
+tower = { version = "0.5", features = ["limit"] }
+tokio-rustls = "0.26"
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.11.0"
 # Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
 # host. Production `susi-gawd` reaches `susi-native` over IPC only.
-susi-native = { workspace = true }
 
 [features]
 default = []
-cuda = ["susi-gawd-agents/cuda", "susi-gawd-swarm/cuda", "susi-gawd-a2a/cuda"]
-metal = ["susi-gawd-agents/metal", "susi-gawd-swarm/metal", "susi-gawd-a2a/metal"]
+cuda = []
+metal = []
 
 [lints]
 workspace = true

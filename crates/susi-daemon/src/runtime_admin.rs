@@ -3,12 +3,12 @@
 
 use crate::blackboard::SwarmBlackboard;
 use crate::elastic_scheduler::ElasticScheduler;
+use crate::susi_abi::swarm::{PheromoneKind, SwarmPheromone};
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use susi_abi::swarm::{PheromoneKind, SwarmPheromone};
 use susi_core::telemetry::TelemetrySnapshot;
 use tracing::info;
 

@@ -87,6 +87,20 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
     graph
 }
 
+#[test]
+fn every_non_composition_susi_crate_has_zero_susi_dependencies() {
+    let graph = workspace_graph();
+    for (package, dependencies) in graph {
+        if package == "susi" || package == "susi-daemon" {
+            continue;
+        }
+        assert!(
+            dependencies.is_empty(),
+            "{package} must have zero Cargo dependencies on SUSI packages; found {dependencies:?}"
+        );
+    }
+}
+
 fn find_cycle(graph: &HashMap<String, HashSet<String>>) -> Option<Vec<String>> {
     let mut visiting = HashSet::new();
     let mut visited = HashSet::new();
@@ -452,20 +466,14 @@ fn susi_core_must_not_depend_on_infra_or_features() {
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }
-    // susi-core has no remaining workspace deps except susi-abi:
+    // susi-core has no remaining workspace deps:
     // susi-config/susi-paths/susi-error are all vendored as local modules
     // (`susi_config`/`susi_paths`/`susi_error` under src/) that reach the
     // standalone services over HTTP — they no longer appear as workspace
-    // deps. susi-abi is the one sanctioned exception: a real Cargo edge is
-    // safe because susi-abi is itself zero-dependency (enforced above by
-    // `susi_abi_must_not_depend_on_workspace_crates`), so it can never
-    // reintroduce the coupling this test otherwise guards against. See
-    // `crates/susi-core/src/abi_bridge.rs`, kept out of the vendored tree so
-    // the 9 zero-dep consumer crates never gain this edge themselves.
+    // deps. The ABI source is compiled locally by the consumers that need it.
     let deps = parse_workspace_deps(&text);
-    let allowed: HashSet<String> = ["susi-abi".to_string()].into_iter().collect();
     assert!(
-        deps.is_subset(&allowed),
+        deps.is_empty(),
         "susi-core workspace deps drifted: {deps:?}"
     );
 }
@@ -518,17 +526,14 @@ fn susi_gmcp_must_not_depend_on_workspace_crates() {
     // crates/susi-core/vendor_template/) plus the leaf modules — fourth
     // consumer converted under the microkernel path. Its dev-dep on
     // susi-tools is test-only (MCP client round-trip), not a production edge.
-    // susi-abi is the same sanctioned exception as in susi-core: the
-    // micro-daemon binary (`src/main.rs`) speaks the ABI wire protocol, and
-    // susi-abi is zero-dependency so the edge cannot reintroduce coupling.
+    // The micro-daemon binary compiles the ABI source locally.
     let root = workspace_root();
     let text = std::fs::read_to_string(root.join("crates/susi-gmcp/Cargo.toml"))
         .expect("susi-gmcp Cargo.toml");
     let deps = parse_workspace_deps(&text);
-    let allowed: HashSet<String> = ["susi-abi".to_string()].into_iter().collect();
     assert!(
-        deps.is_subset(&allowed),
-        "susi-gmcp vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+        deps.is_empty(),
+        "susi-gmcp workspace deps drifted: {deps:?}"
     );
 }
 

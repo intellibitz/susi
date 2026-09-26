@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+mod susi_abi;
 
 use serde::Deserialize;
 use std::sync::Arc;
@@ -6,12 +9,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::Command;
 
-use susi_abi::cell::SwarmCell;
-use susi_abi::swarm::SwarmRole;
-use susi_abi::syscall::{
+use crate::susi_abi::cell::SwarmCell;
+use crate::susi_abi::swarm::SwarmRole;
+use crate::susi_abi::syscall::{
     token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
 };
-use susi_abi::wire::{FrameStream, MessageType, WireFrame};
+use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
 
 #[derive(Debug, Deserialize)]
 struct PluginManifest {

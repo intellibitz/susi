@@ -10,7 +10,7 @@
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use susi_abi::swarm::SwarmPheromone;
+use crate::susi_abi::swarm::SwarmPheromone;
 
 pub struct ElasticScheduler {
     min_concurrency: i64,
@@ -139,7 +139,7 @@ mod tests {
             id: "x".to_string(),
             topic: "consensus.vote".to_string(),
             emitter_id: "test".to_string(),
-            kind: susi_abi::swarm::PheromoneKind::Observation,
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
             intensity: 1.0,
             payload: serde_json::json!({}),
             ttl_ms: 1000,
@@ -155,7 +155,7 @@ mod tests {
             id: "x".to_string(),
             topic: "hardware.stress".to_string(),
             emitter_id: "susi-runtime-admin".to_string(),
-            kind: susi_abi::swarm::PheromoneKind::Observation,
+            kind: crate::susi_abi::swarm::PheromoneKind::Observation,
             intensity: 1.0,
             payload: serde_json::json!({ "load_stress": true }),
             ttl_ms: 1000,

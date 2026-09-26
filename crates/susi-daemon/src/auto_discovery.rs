@@ -119,7 +119,7 @@ pub fn spawn_cell(path: &Path) -> bool {
     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
         std::thread::spawn(move || {
             let spawned = std::process::Command::new(&path)
-                .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
+                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
                 .spawn();
             track(path, spawned);
         });
@@ -145,7 +145,7 @@ pub fn spawn_cell(path: &Path) -> bool {
             .unwrap_or_else(|| "susi-universal-cell".into());
         std::thread::spawn(move || {
             let spawned = std::process::Command::new(universal_cell_path)
-                .env(susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
+                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
                 .arg(bind_addr)
                 .arg(&path)
                 .spawn();

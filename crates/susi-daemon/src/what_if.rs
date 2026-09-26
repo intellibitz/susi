@@ -6,8 +6,8 @@
 //! uses. Policy impact re-runs `CapabilityPolicy::evaluate` on a clone
 //! after `revoke`.
 
-use susi_abi::swarm::SwarmCellManifest;
-use susi_abi::syscall::{SyscallOp, SyscallRequest};
+use crate::susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::syscall::{SyscallOp, SyscallRequest};
 
 use crate::security::{CapabilityPolicy, PolicyVerdict};
 
@@ -103,7 +103,7 @@ pub fn project_capability_revoke(
 mod tests {
     use super::*;
     use crate::security::CapabilityGrant;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn manifest(cell_id: &str, hash: Option<u64>) -> SwarmCellManifest {
         let mut bloom_filter = CapabilityBloom::default();

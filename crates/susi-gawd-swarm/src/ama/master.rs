@@ -478,10 +478,7 @@ impl SusiMasterAgent {
             // completion contract here. Incidental keywords must not turn an
             // unrelated request into a successful identity or version response.
             let native_verification = match &system_read {
-                Some(Ok(read)) => Some(
-                    read.verify(goal, &final_answer, workspace)
-                        .map_err(Into::into),
-                ),
+                Some(Ok(read)) => Some(read.verify(goal, &final_answer, workspace)),
                 Some(Err(error)) => Some(Err(crate::susi_error::EaiError::governance(format!(
                     "TRUTH_UNVERIFIED: {error}"
                 )))),

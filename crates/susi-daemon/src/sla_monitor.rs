@@ -7,8 +7,8 @@
 //! violation is actually observable by anything watching the blackboard
 //! rather than just computed and discarded.
 
+use crate::susi_abi::swarm::{PheromoneKind, SwarmPheromone};
 use serde::Serialize;
-use susi_abi::swarm::{PheromoneKind, SwarmPheromone};
 
 use crate::swarm_metrics::SwarmMetricsSnapshot;
 

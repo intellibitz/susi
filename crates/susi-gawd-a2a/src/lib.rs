@@ -17,6 +17,56 @@
 //! swarm or the host `susi-gawd` crate. `handler.rs` is kept on disk but left
 //! out of the module tree (broken / unused).
 
+extern crate self as susi_gawd_agents;
+
+#[path = "../../susi-gawd-agents/src/susi_error.rs"]
+pub mod susi_error;
+#[allow(dead_code)]
+#[path = "../../susi-gawd-agents/src/susi_paths.rs"]
+mod susi_paths;
+#[rustfmt::skip]
+#[path = "../../susi-gawd-agents/src/susi_config.rs"] pub mod susi_config;
+#[rustfmt::skip]
+#[path = "../../susi-gawd-agents/src/susi_sandbox/mod.rs"] pub mod susi_sandbox;
+#[rustfmt::skip]
+#[path = "../../susi-gawd-agents/src/susi_core/mod.rs"] pub mod susi_core;
+#[path = "../../susi-gawd-agents/src/accountability.rs"]
+pub mod accountability;
+#[path = "../../susi-gawd-agents/src/admin_hooks.rs"]
+pub mod admin_hooks;
+#[path = "../../susi-gawd-agents/src/agents/mod.rs"]
+pub mod agents;
+#[path = "../../susi-gawd-agents/src/axiom.rs"]
+pub mod axiom;
+#[path = "../../susi-gawd-agents/src/brain.rs"]
+pub mod brain;
+#[path = "../../susi-gawd-agents/src/dag_hooks.rs"]
+pub mod dag_hooks;
+#[path = "../../susi-gawd-agents/src/external_peers.rs"]
+pub mod external_peers;
+#[path = "../../susi-gawd-agents/src/goal_shape.rs"]
+pub mod goal_shape;
+#[path = "../../susi-gawd-agents/src/live_search.rs"]
+pub mod live_search;
+#[path = "../../susi-gawd-agents/src/pkb.rs"]
+pub mod pkb;
+#[path = "../../susi-gawd-agents/src/safety.rs"]
+pub mod safety;
+#[path = "../../susi-gawd-agents/src/scheduler.rs"]
+pub mod scheduler;
+#[path = "../../susi-gawd-agents/src/security.rs"]
+pub mod security;
+#[path = "../../susi-gawd-agents/src/self_core.rs"]
+pub mod self_core;
+#[path = "../../susi-gawd-agents/src/system_observe.rs"]
+pub mod system_observe;
+#[cfg(test)]
+#[path = "../../susi-gawd-agents/src/test_plane.rs"]
+pub(crate) mod test_plane;
+
+pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
+pub use self_core::AlphaSelf;
+
 pub mod capabilities;
 pub mod executor;
 pub mod server;

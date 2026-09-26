@@ -9,7 +9,6 @@ libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
 susi-core = { workspace = true }
-susi-abi = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gawd = { workspace = true }
 susi-gmcp = { workspace = true }
@@ -43,6 +42,7 @@ cuda = ["susi-gemi/cuda", "susi-server/cuda", "susi-gawd/cuda"]
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
 tokio = { version = "1.53", features = ["test-util"] }
+proptest = "1.11.0"
 
 [target."cfg(windows)".dependencies]
 winapi = { version = "0.3", features = ["fileapi", "minwinbase"] }

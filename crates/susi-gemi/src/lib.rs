@@ -25,6 +25,10 @@
 //! Flat module paths (`engine`, `http_provider`, `hardware`, …) remain as
 //! compatibility re-exports for existing call sites.
 
+extern crate self as susi_gemi_models;
+
+pub mod susi_abi;
+
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 #[allow(dead_code)]
@@ -62,8 +66,8 @@ pub mod susi_core;
 
 pub mod engines;
 
-// Models tier (physical crate) — preserve `susi_gemi::models::…` paths
-pub use susi_gemi_models as models;
+// Models tier is compiled from its canonical source tree without a Cargo edge.
+pub mod models;
 
 // Cross-cutting surfaces that use both tiers
 pub mod plane_handler;
@@ -85,7 +89,10 @@ pub use engines::{
     speculative,
 };
 
+pub(crate) use models::download;
 pub use models::model_cache;
+pub use models::ModelManager;
+pub use models::{catalog_store, cloud};
 pub use models::{
     coding_models, frontier, hardware, hf_discovery, intent, open_weight, openrouter,
 };

@@ -15,21 +15,12 @@
 //!
 //! Depends on [`susi_gawd_agents`] only. Must not import `ra2a` or `susi-gawd`.
 
+extern crate self as susi_gawd_agents;
+
 // Vendored `susi-error` contract + IPC reporter: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 #[allow(dead_code)]
 pub mod susi_error;
-
-// Vendored-error boundary: `susi_gawd_agents` carries its own vendored
-// `susi_error` (a distinct type); this conversion preserves the error kind
-// via `rewrap` so `?` keeps working across the vendored boundary. The
-// vendored `susi_core` in this crate re-exports this crate's `susi_error`
-// module — no bridge needed there.
-impl From<susi_gawd_agents::susi_error::EaiError> for susi_error::EaiError {
-    fn from(e: susi_gawd_agents::susi_error::EaiError) -> Self {
-        susi_error::rewrap(e.kind_name(), e.to_string())
-    }
-}
 
 // Vendored `susi-paths` IPC client: full surface kept identical
 // across crates; per-crate dead_code allowance is the audit trail.
@@ -67,6 +58,45 @@ pub(crate) mod cloud_recovery;
 pub mod dag;
 pub mod host_hooks;
 pub mod peer_registry;
+
+#[path = "../../susi-gawd-agents/src/accountability.rs"]
+pub mod accountability;
+#[path = "../../susi-gawd-agents/src/admin_hooks.rs"]
+pub mod admin_hooks;
+#[path = "../../susi-gawd-agents/src/agents/mod.rs"]
+pub mod agents;
+#[path = "../../susi-gawd-agents/src/axiom.rs"]
+pub mod axiom;
+#[path = "../../susi-gawd-agents/src/brain.rs"]
+pub mod brain;
+#[path = "../../susi-gawd-agents/src/dag_hooks.rs"]
+pub mod dag_hooks;
+#[path = "../../susi-gawd-agents/src/external_peers.rs"]
+pub mod external_peers;
+#[path = "../../susi-gawd-agents/src/goal_shape.rs"]
+pub mod goal_shape;
+#[path = "../../susi-gawd-agents/src/live_search.rs"]
+pub mod live_search;
+#[path = "../../susi-gawd-agents/src/pkb.rs"]
+pub mod pkb;
+#[path = "../../susi-gawd-agents/src/safety.rs"]
+pub mod safety;
+#[path = "../../susi-gawd-agents/src/scheduler.rs"]
+pub mod scheduler;
+#[path = "../../susi-gawd-agents/src/security.rs"]
+pub mod security;
+#[path = "../../susi-gawd-agents/src/self_core.rs"]
+pub mod self_core;
+#[path = "../../susi-gawd-agents/src/system_observe.rs"]
+pub mod system_observe;
+#[cfg(test)]
+#[path = "../../susi-gawd-agents/src/test_plane.rs"]
+pub(crate) mod test_plane;
+
+pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
+pub use axiom::AxiomSubstrate;
+pub use brain::AlphaBrainContext;
+pub use self_core::AlphaSelf;
 
 pub use ama::SusiMasterAgent;
 pub use dag::{MissionDag, SwarmDag};

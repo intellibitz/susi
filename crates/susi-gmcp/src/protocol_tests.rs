@@ -356,55 +356,6 @@ async fn schema_validation_prevents_execution_and_invalid_output() {
 }
 
 #[tokio::test]
-async fn outbound_client_connects_to_streamable_http_and_preserves_structure() {
-    use hyper::service::service_fn;
-    use hyper_util::rt::{TokioExecutor, TokioIo};
-    use tower_service::Service;
-    let service = service();
-    echo(&service);
-    let http = crate::server::http_service(service);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move {
-        loop {
-            let (stream, _) = listener.accept().await.unwrap();
-            let http = http.clone();
-            tokio::spawn(async move {
-                let svc = service_fn(move |request: hyper::Request<hyper::body::Incoming>| {
-                    assert_eq!(request.headers()["x-test"], "configured");
-                    let mut http = http.clone();
-                    async move { http.call(request).await }
-                });
-                let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
-                    .serve_connection(TokioIo::new(stream), svc)
-                    .await;
-            });
-        }
-    });
-    let config: susi_tools::McpServerConfig = serde_json::from_value(
-        json!({"command":format!("http://{address}"),"args":[],"headers":{"x-test":"configured"}}),
-    )
-    .unwrap();
-    let connection = tokio::time::timeout(
-        Duration::from_secs(5),
-        susi_tools::connection::connect(&config, ()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let response = connection
-        .call_tool(
-            CallToolRequestParams::new("test_echo")
-                .with_arguments(serde_json::from_value(json!({"answer":42})).unwrap()),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.structured_content.unwrap()["answer"], 42);
-    connection.cancel().await.unwrap();
-    server.abort();
-}
-
-#[tokio::test]
 async fn task_tool_returns_handle_and_accepts_midflight_input() {
     let service = service();
     let tool = serde_json::from_value(json!({"name":"task_input","inputSchema":{"type":"object"}}))

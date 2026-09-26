@@ -4,9 +4,9 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
+build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
-susi-gawd-agents = { workspace = true }
 crossbeam = "0.8"
 regex = "1.13"
 ureq = { version = "3.4.2", features = ["json"] }
@@ -27,11 +27,16 @@ flume = { workspace = true }
 dashmap = { workspace = true }
 md5 = "0.8.1"
 tracing = { workspace = true }
+shlex = "2.0"
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
 default = []
-cuda = ["susi-gawd-agents/cuda"]
-metal = ["susi-gawd-agents/metal"]
+cuda = []
+metal = []
 
 [lints]
 workspace = true

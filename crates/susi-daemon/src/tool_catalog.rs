@@ -5,7 +5,7 @@
 //! cell, invoke fails closed instead of pretending a browser ran.
 
 use crate::security::{CapabilityGrant, CapabilityPolicy};
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolCard {
@@ -65,7 +65,7 @@ pub fn invoke_browser(cells: &[SwarmCellManifest]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     #[test]
     fn browse_hides_cards_the_policy_does_not_grant_and_browser_invoke_needs_a_driver() {

@@ -5,7 +5,6 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-susi-abi = { workspace = true }
 crossbeam = "0.8"
 regex = "1.13"
 dashmap = { workspace = true }
@@ -50,9 +49,6 @@ tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:fastembed", "dep:syn"]
 proptest = "1.11.0"
 tokio = { workspace = true }
 anyhow = { workspace = true }
-# Test-only: exercises MCP client connect against an in-process server.
-# Production `susi-gmcp` has zero peer-plane Cargo deps.
-susi-tools = { workspace = true }
 
 [lints]
 workspace = true

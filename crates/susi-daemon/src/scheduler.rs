@@ -14,8 +14,8 @@
 //! and makes a decision with O(N) cell scan where N is the registered cell
 //! count. For 10 k cells this is sub‑millisecond.
 
-use susi_abi::cell::compute_fnv1a_hash;
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::cell::compute_fnv1a_hash;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 /// Scheduling strategy for distributing work to cells.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,7 +131,7 @@ pub fn schedule_redundant(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn make_cell(id: &str, cap: &str, trust: f32, heartbeat: u64) -> SwarmCellManifest {
         let mut bloom = CapabilityBloom::empty();

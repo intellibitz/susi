@@ -7,7 +7,7 @@
 //! the task's topic. A cell with a strong track record on this exact kind
 //! of work outranks an equally-trusted cell with no history of it.
 
-use susi_abi::swarm::{PheromoneKind, SwarmCellManifest, SwarmPheromone};
+use crate::susi_abi::swarm::{PheromoneKind, SwarmCellManifest, SwarmPheromone};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompositionCandidate {
@@ -52,7 +52,7 @@ pub fn recommend_composition(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     fn manifest(cell_id: &str, trust_score: f32) -> SwarmCellManifest {
         SwarmCellManifest {

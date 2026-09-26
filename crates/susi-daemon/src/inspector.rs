@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use susi_abi::swarm::SwarmCellManifest;
+use crate::susi_abi::swarm::SwarmCellManifest;
 
 pub fn render(cells: &[SwarmCellManifest], topic_counts: &BTreeMap<String, usize>) -> String {
     let mut out = String::from("# Swarm inspector\n## Cells\n");
@@ -58,7 +58,7 @@ pub fn editor_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     #[test]
     fn the_editor_snapshot_names_the_cell_and_a_topic_count() {

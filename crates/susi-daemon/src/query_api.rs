@@ -4,8 +4,8 @@
 //! payloads. Callers pass the stores they already hold.
 
 use crate::event_sourcing::StoredEvent;
+use crate::susi_abi::swarm::SwarmCellManifest;
 use crate::world_model::WorldModel;
-use susi_abi::swarm::SwarmCellManifest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QueryHit {
@@ -52,8 +52,8 @@ pub fn query(
 mod tests {
     use super::*;
     use crate::event_sourcing::StoredEvent;
+    use crate::susi_abi::swarm::{CapabilityBloom, SwarmRole};
     use crate::world_model::{NodeDraft, TypePerm, WorldModel};
-    use susi_abi::swarm::{CapabilityBloom, SwarmRole};
 
     #[test]
     fn a_needle_hits_an_agent_a_memory_payload_and_an_event() {

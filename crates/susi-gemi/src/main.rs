@@ -4,13 +4,13 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
-use susi_abi::swarm::SwarmRole;
-use susi_abi::syscall::{
+use susi_gemi::engine::GemiEngine;
+use susi_gemi::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
+use susi_gemi::susi_abi::swarm::SwarmRole;
+use susi_gemi::susi_abi::syscall::{
     token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
 };
-use susi_abi::wire::{FrameStream, MessageType, WireFrame};
-use susi_gemi::engine::GemiEngine;
+use susi_gemi::susi_abi::wire::{FrameStream, MessageType, WireFrame};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

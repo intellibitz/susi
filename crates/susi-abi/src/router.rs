@@ -126,9 +126,9 @@ impl PheromoneRouter {
 
 #[cfg(test)]
 mod tests {
+    use super::super::swarm::PheromoneKind;
+    use super::super::swarm::SwarmRole;
     use super::*;
-    use crate::swarm::PheromoneKind;
-    use crate::swarm::SwarmRole;
 
     #[test]
     fn test_pheromone_routing_and_fitness_ranking() {
@@ -201,8 +201,8 @@ mod tests {
 
 #[cfg(test)]
 mod prop_tests {
+    use super::super::swarm::PheromoneKind;
     use super::*;
-    use crate::swarm::PheromoneKind;
     use proptest::prelude::*;
 
     fn pheromone(deposited_at: u64, ttl_ms: u64) -> SwarmPheromone {

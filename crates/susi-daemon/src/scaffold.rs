@@ -3,7 +3,7 @@
 //! Manifests for the common roles. Each capability is inserted into the
 //! bloom filter so routing can see it.
 
-use susi_abi::swarm::{CapabilityBloom, SwarmCellManifest, SwarmRole};
+use crate::susi_abi::swarm::{CapabilityBloom, SwarmCellManifest, SwarmRole};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentTemplate {

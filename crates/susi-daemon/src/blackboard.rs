@@ -4,9 +4,9 @@
 //! and O(1) Capability Bloom Filter routing for autonomous cells.
 //! This fulfills the core Swarm OS Vision (Points 5, 12, 21, 22, 25, 31).
 
+use crate::susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
 use dashmap::DashMap;
 use std::sync::{Arc, RwLock};
-use susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
 use tokio::sync::broadcast;
 
 use crate::webhook_dispatcher::WebhookDispatcher;
@@ -230,7 +230,7 @@ impl SwarmBlackboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use susi_abi::swarm::{CapabilityBloom, PheromoneKind, SwarmRole};
+    use crate::susi_abi::swarm::{CapabilityBloom, PheromoneKind, SwarmRole};
 
     fn manifest(cell_id: &str, trust_score: f32) -> SwarmCellManifest {
         SwarmCellManifest {

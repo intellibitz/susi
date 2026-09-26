@@ -4,19 +4,45 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
+build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
-susi-gawd-agents = { workspace = true }
 ra2a = { version = "0.10.1", features = ["server", "client"] }
 axum = "0.8.9"
 tower = { version = "0.5", features = ["limit"] }
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "sync"] }
 tokio-rustls = "0.26"
+crossbeam = "0.8"
+regex = "1.13"
+dashmap = { workspace = true }
+flume = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+rayon = "1.12"
+log = "0.4"
+ureq = { version = "3.4.2", features = ["json"] }
+hex = { workspace = true }
+sha2 = { workspace = true }
+getrandom = { workspace = true }
+ed25519-dalek = { workspace = true }
+x25519-dalek = { workspace = true }
+chacha20poly1305 = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+shlex = "2.0"
+
+[build-dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 [features]
 default = []
-cuda = ["susi-gawd-agents/cuda"]
-metal = ["susi-gawd-agents/metal"]
+cuda = []
+metal = []
+
+[dev-dependencies]
+proptest = "1.11.0"
 
 [lints]
 workspace = true

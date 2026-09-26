@@ -5,8 +5,6 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
-susi-gemi-models = { workspace = true }
-susi-abi = { workspace = true }
 crossbeam = "0.8"
 regex = "1.13"
 dashmap = { workspace = true }
@@ -23,6 +21,8 @@ once_cell = { workspace = true }
 flume = { workspace = true }
 url = { workspace = true }
 sysinfo = "0.39.6"
+rayon = "1.12"
+libc = "0.2"
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
@@ -43,9 +43,9 @@ candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
 
 [features]
 default = []
-cuda = ["susi-gemi-models/cuda", "candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
-metal = ["susi-gemi-models/metal", "candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 
 [lints]
 workspace = true

@@ -14,12 +14,12 @@ use crate::context_graph::{ContextGraph, ContextGraphStats, Subgraph};
 use crate::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
 use crate::mac_policy::{actions, MacPolicy};
 use crate::plane_bus::PlaneBus;
+use crate::susi_abi::cell::SwarmCell;
+use crate::susi_abi::evidence::{GroundedClaim, ReceiptStatus};
+use crate::susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
 use std::time::Instant;
-use susi_abi::cell::SwarmCell;
-use susi_abi::evidence::{GroundedClaim, ReceiptStatus};
-use susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
 
 /// Maps ABI syscall opcodes to susi-core's `plane_bus` topic-string dispatch,
 /// where a genuine 1:1 correspondence exists today.
@@ -405,7 +405,7 @@ mod tests {
     // parallel. It never touches disk here: nothing in susi-core's own test
     // surface calls MacPolicy::init_global/wired, so global() stays on the
     // ephemeral, in-memory-only fallback (see mac_policy.rs).
-    fn unique_cell(role: susi_abi::swarm::SwarmRole) -> SwarmCell {
+    fn unique_cell(role: crate::susi_abi::swarm::SwarmRole) -> SwarmCell {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         SwarmCell::new(
             format!(
@@ -423,7 +423,7 @@ mod tests {
         let g = ContextGraph::new();
         let ws = Workspace::new();
         g.record_mission("m-mac-deny", "test", &ws.0, None);
-        let cell = unique_cell(susi_abi::swarm::SwarmRole::ExternalPeer);
+        let cell = unique_cell(crate::susi_abi::swarm::SwarmRole::ExternalPeer);
         let err = g.authorized_workspace_subgraph(&cell, &ws.0).unwrap_err();
         assert!(err.to_string().contains("MAC DENY"));
     }
@@ -433,7 +433,7 @@ mod tests {
         let g = ContextGraph::new();
         let ws = Workspace::new();
         g.record_mission("m-mac-allow", "test", &ws.0, None);
-        let cell = unique_cell(susi_abi::swarm::SwarmRole::PlannerCell);
+        let cell = unique_cell(crate::susi_abi::swarm::SwarmRole::PlannerCell);
         let canonical = ws.0.canonicalize().unwrap();
         MacPolicy::global().grant(
             &cell.manifest.cell_id,
@@ -450,10 +450,10 @@ mod tests {
         let g = ContextGraph::new();
         let ws = Workspace::new();
         g.record_mission("m-mac-stats", "test", &ws.0, None);
-        let denied_cell = unique_cell(susi_abi::swarm::SwarmRole::ToolDriver);
+        let denied_cell = unique_cell(crate::susi_abi::swarm::SwarmRole::ToolDriver);
         assert!(g.authorized_stats(&denied_cell).is_err());
 
-        let allowed_cell = unique_cell(susi_abi::swarm::SwarmRole::ToolDriver);
+        let allowed_cell = unique_cell(crate::susi_abi::swarm::SwarmRole::ToolDriver);
         MacPolicy::global().grant(
             &allowed_cell.manifest.cell_id,
             actions::FILESYSTEM_READ,

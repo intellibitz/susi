@@ -1,15 +1,18 @@
 #![forbid(unsafe_code)]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
+
+mod susi_abi;
 
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
-use susi_abi::swarm::SwarmRole;
-use susi_abi::syscall::{
+use crate::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
+use crate::susi_abi::swarm::SwarmRole;
+use crate::susi_abi::syscall::{
     token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
 };
-use susi_abi::wire::{FrameStream, MessageType, WireFrame};
+use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

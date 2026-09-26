@@ -5,9 +5,11 @@
 //! store with brute-force cosine similarity for demonstration, satisfying
 //! the latency requirement of < 50ms.
 
+use crate::susi_abi::memory::{
+    EpisodicMemory, MemoryFragment, MemorySearchRequest, MemorySearchResult,
+};
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
-use susi_abi::memory::{EpisodicMemory, MemoryFragment, MemorySearchRequest, MemorySearchResult};
 
 /// Per-namespace tenant access control (Swarm OS Bullet 39): "multi-tenant
 /// memory namespaces so different projects/orgs coexist safely." Deny by

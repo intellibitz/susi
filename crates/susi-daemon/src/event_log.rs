@@ -5,8 +5,8 @@
 //! Enables time-travel debugging and forensic analysis without the possibility
 //! of post-facto tampering.
 
+use crate::susi_abi::wire::WireFrame;
 use std::path::{Path, PathBuf};
-use susi_abi::wire::WireFrame;
 
 pub struct TimeTravelDebugger {
     audit_file: PathBuf,
@@ -60,9 +60,9 @@ impl TimeTravelDebugger {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::susi_abi::wire::{MessageType, WireFrame};
     use std::env;
     use std::fs;
-    use susi_abi::wire::{MessageType, WireFrame};
 
     #[test]
     fn test_time_travel_logger() {
