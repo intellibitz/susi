@@ -97,6 +97,39 @@ impl PlaneHandler for GawdPlaneHandler {
                 let ws = workspace_path(&payload);
                 Ok(json!({ "text": susi_gawd_agents::self_core::identity_report(&ws) }))
             }
+            "gawd.auth.mint_aic" => {
+                // Phase 3: BYOA (Bring Your Own Agent) Identity Registration
+                let agent_id = payload
+                    .get("agent_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("anonymous_agent");
+                let requested_caps = payload
+                    .get("requested_capabilities")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                let caps: Vec<String> = requested_caps
+                    .into_iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let expires_at = now + 3600;
+
+                // Mock cryptographic signing for Phase 1.
+                let aic = json!({
+                    "agent_id": agent_id,
+                    "capabilities": caps,
+                    "issued_at": now,
+                    "expires_at": expires_at,
+                    "token": format!("aic_{}_{}", agent_id, expires_at),
+                });
+
+                Ok(json!({ "certificate": aic }))
+            }
             topics::GAWD_REASON_AUDIT => {
                 let ws = workspace_path(&payload);
                 let text = eai_to_string(
