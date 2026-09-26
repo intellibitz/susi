@@ -119,22 +119,19 @@ impl BenchmarkRunner {
 
         let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
         let start = Instant::now();
-        let mut req = crate::susi_sandbox::manager::http_agent()
-            .post(&url)
-            .header("Content-Type", "application/json");
-        if !api_key.is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", api_key));
-        }
-        let resp = req.send_json(payload).map_err(|e| {
-            EaiError::inference(format!(
-                "Cloud benchmark endpoint '{}' unreachable: {}",
-                url, e
-            ))
-        })?;
-        let body: serde_json::Value = resp
-            .into_body()
-            .read_json()
-            .map_err(|e| EaiError::inference(format!("Invalid benchmark response: {e}")))?;
+        let agent = crate::susi_sandbox::manager::http_agent();
+        let body = crate::susi_core::inference_wire::post_json(
+            || {
+                let req = agent.post(&url);
+                if api_key.is_empty() {
+                    req
+                } else {
+                    req.header("Authorization", format!("Bearer {}", api_key))
+                }
+            },
+            &payload,
+        )
+        .map_err(|e| EaiError::inference(format!("Cloud benchmark endpoint '{}': {e}", url)))?;
         // The response headers can arrive well before generation/body transfer
         // finishes. Include reading the full body in end-to-end latency.
         let elapsed = start.elapsed();

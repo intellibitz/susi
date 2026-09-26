@@ -1038,32 +1038,24 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             format!("{}/completions", self.api_base_url)
         };
 
-        let mut request = crate::susi_sandbox::manager::http_agent()
-            .post(&endpoint_url)
-            .header("Content-Type", "application/json");
-        if let Some(key) = resolve_inference_key(&self.api_key_env) {
-            request = request.header("Authorization", format!("Bearer {key}"));
-        }
-        let body: serde_json::Value = match request.send_json(payload) {
-            Ok(resp) => resp.into_body().read_json().map_err(|e| {
-                crate::susi_core::susi_error::EaiError::inference(format!(
-                    "{} proxy returned an unreadable body: {e}",
-                    self.endpoint_name
-                ))
-            })?,
-            Err(ureq::Error::StatusCode(status)) => {
-                return Err(crate::susi_core::susi_error::EaiError::inference(format!(
-                    "{} proxy endpoint at {} answered HTTP {status}",
-                    self.endpoint_name, self.api_base_url
-                )));
-            }
-            Err(_) => {
-                return Err(crate::susi_core::susi_error::EaiError::inference(format!(
-                    "{} proxy endpoint unreachable at {}",
-                    self.endpoint_name, self.api_base_url
-                )));
-            }
-        };
+        let agent = crate::susi_sandbox::manager::http_agent();
+        let key = resolve_inference_key(&self.api_key_env);
+        let body = wire::post_json(
+            || {
+                let request = agent.post(&endpoint_url);
+                match &key {
+                    Some(key) => request.header("Authorization", format!("Bearer {key}")),
+                    None => request,
+                }
+            },
+            &payload,
+        )
+        .map_err(|e| {
+            crate::susi_core::susi_error::EaiError::inference(format!(
+                "{} proxy endpoint at {}: {e}",
+                self.endpoint_name, self.api_base_url
+            ))
+        })?;
         let text = extract(&body).map_err(|e| {
             crate::susi_core::susi_error::EaiError::inference(format!(
                 "{} proxy: {e}",

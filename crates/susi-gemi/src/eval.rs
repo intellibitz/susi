@@ -84,18 +84,20 @@ impl EvalRunner {
                     crate::susi_core::inference_wire::openai_chat_body(&model, q.prompt, 50);
 
                 let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-                let mut req = crate::susi_sandbox::manager::http_agent()
-                    .post(&url)
-                    .header("Content-Type", "application/json");
-                if !api_key.is_empty() {
-                    req = req.header("Authorization", format!("Bearer {}", api_key));
-                }
+                let agent = crate::susi_sandbox::manager::http_agent();
+                let reply = crate::susi_core::inference_wire::post_json(
+                    || {
+                        let req = agent.post(&url);
+                        if api_key.is_empty() {
+                            req
+                        } else {
+                            req.header("Authorization", format!("Bearer {}", api_key))
+                        }
+                    },
+                    &payload,
+                );
 
-                if let Ok(resp) = req.send_json(payload) {
-                    let body: serde_json::Value = resp
-                        .into_body()
-                        .read_json()
-                        .unwrap_or(serde_json::json!({}));
+                if let Ok(body) = reply {
                     cloud_resp = crate::susi_core::inference_wire::openai_chat_text(&body)
                         .unwrap_or_default();
                     cloud_correct = Self::check_correctness(&cloud_resp, q.expected_substrings);

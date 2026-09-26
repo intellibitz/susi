@@ -254,17 +254,41 @@ async fn generate_openai_chat(
 ) -> Result<String, String> {
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
     let body = wire::openai_chat_body(model, prompt, 2048);
-    let mut req = client.post(&url).json(&body);
-    if !api_key.is_empty() {
-        req = req.bearer_auth(api_key);
+    let json = post_openai(client, &url, api_key, api_base, &body).await?;
+    wire::openai_chat_text(&json)
+}
+
+/// POST an OpenAI-API body, retrying once with `max_completion_tokens` when
+/// the provider rejects `max_tokens` (see `inference_wire::token_param_retry`).
+async fn post_openai(
+    client: &reqwest::Client,
+    url: &str,
+    api_key: &str,
+    api_base: &str,
+    body: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let send = |body: &serde_json::Value| {
+        let mut req = client.post(url).json(body);
+        if !api_key.is_empty() {
+            req = req.bearer_auth(api_key);
+        }
+        apply_openrouter_attribution(req, api_base).send()
+    };
+    let mut res = send(body).await.map_err(|e| e.to_string())?;
+    if res.status() == reqwest::StatusCode::BAD_REQUEST {
+        let text = res.text().await.unwrap_or_default();
+        let Some(retry) = wire::token_param_retry(body, &text) else {
+            return Err(format!(
+                "HTTP 400 Bad Request: {}",
+                text.chars().take(200).collect::<String>()
+            ));
+        };
+        res = send(&retry).await.map_err(|e| e.to_string())?;
     }
-    req = apply_openrouter_attribution(req, api_base);
-    let res = req.send().await.map_err(|e| e.to_string())?;
     if !res.status().is_success() {
         return Err(http_failure(res).await);
     }
-    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    wire::openai_chat_text(&json)
+    res.json().await.map_err(|e| e.to_string())
 }
 
 /// HTTP failure with the provider's (truncated) error body.
@@ -287,16 +311,7 @@ async fn generate_openai_completions(
 ) -> Result<String, String> {
     let url = format!("{}/completions", api_base.trim_end_matches('/'));
     let body = wire::openai_completions_body(model, prompt, 2048);
-    let mut req = client.post(&url).json(&body);
-    if !api_key.is_empty() {
-        req = req.bearer_auth(api_key);
-    }
-    req = apply_openrouter_attribution(req, api_base);
-    let res = req.send().await.map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(http_failure(res).await);
-    }
-    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let json = post_openai(client, &url, api_key, api_base, &body).await?;
     wire::openai_completions_text(&json)
 }
 
