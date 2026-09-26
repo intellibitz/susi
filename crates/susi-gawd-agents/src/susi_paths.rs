@@ -183,3 +183,35 @@ impl SusiDirs {
         Self::get("substrate_home")
     }
 }
+
+/// Host API bearer token (`<config_dir>/api_token`), when seeded. The
+/// susi-config and susi-sandbox leaf services require it on every request.
+pub fn host_token() -> Option<String> {
+    std::fs::read_to_string(SusiDirs::config_dir().join("api_token"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
+/// Insert the host bearer header after the request line of a raw loopback
+/// HTTP/1.0 request. Unchanged when no token is seeded.
+pub fn with_bearer(raw: &str) -> String {
+    match (host_token(), raw.split_once("\r\n")) {
+        (Some(token), Some((line, rest))) => {
+            format!("{line}\r\nAuthorization: Bearer {token}\r\n{rest}")
+        }
+        _ => raw.to_string(),
+    }
+}
+
+/// Constant-time check of an `Authorization` header value against the host
+/// token. Fails closed when no token is seeded.
+pub fn bearer_authorized(header: Option<&str>) -> bool {
+    let (Some(expected), Some(presented)) =
+        (host_token(), header.and_then(|h| h.strip_prefix("Bearer ")))
+    else {
+        return false;
+    };
+    let (a, b) = (presented.trim().as_bytes(), expected.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
