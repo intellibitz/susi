@@ -1526,7 +1526,7 @@
         "label": "manual",
         "ref": "symbol://manual"
       },
-      "id": "EV-2022927-157",
+      "id": "EV-2022927-158",
       "milestone": "Idle model unloading (model_idle_timeout_secs, default 1800, 0 disables, SUSI_MODEL_IDLE_TIMEOUT_SECS override). Verified live on the CUDA release daemon with a 20s timeout: a loaded 0.5B model was unloaded at t=24s and the daemon's VRAM returned 554 -> 106 MiB; a model touched at t=15s was still loaded at t=30s and unloaded at t=39s (use resets the idle clock). Daemon then restarted without the override (default applies). Unit tests cover idle_since cutoff selection (in-use entries never idle) and the sweep interval bounds. fmt, clippy -D warnings (default and --features cuda), 2979 workspace tests, xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
