@@ -117,6 +117,9 @@ susi "analyze this workspace and propose an optimization plan"
 susi identity
 susi status
 
+# Explain the live local-vs-cloud placement decision (same policy the runtime uses)
+susi os route
+
 # Cloud keys (peer of models) — env or ~/.susi/cloud.env
 susi keys set openai          # prompts, or pipe the key on stdin
 susi keys list
@@ -136,6 +139,8 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 #   http://127.0.0.1:9093/mcp
 # Bearer required (except /health):
 #   Authorization: Bearer "$(cat ~/.susi/api_token)"
+# Read-only placement contract for remote operators and cloud control planes:
+#   GET http://127.0.0.1:9091/runtime/placement
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so

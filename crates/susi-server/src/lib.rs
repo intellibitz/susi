@@ -326,6 +326,7 @@ async fn handle_gemi_request(
                     "/context-graph/ingest",
                     "/context-graph/compact",
                     "/telemetry",
+                    "/runtime/placement",
                     "/runtime/models",
                     "/runtime/models/load",
                     "/runtime/models/unload",
@@ -368,6 +369,12 @@ async fn handle_gemi_request(
             let payload = tokio::task::spawn_blocking(susi_core::plane_bus::gemi::loaded_models)
                 .await
                 .unwrap_or_else(|_| json!({ "error": "loaded-model snapshot failed" }));
+            Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, "/runtime/placement") => {
+            let payload = tokio::task::spawn_blocking(gemi::ModelManager::placement)
+                .await
+                .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/v1/models" | "/models") => {
