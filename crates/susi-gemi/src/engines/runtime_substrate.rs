@@ -74,6 +74,28 @@ pub struct ModelSubstrate {
     pub(crate) weights: ModelBackend,
     pub(crate) eos_token_ids: Vec<u32>,
     pub(crate) prompt_format: PromptFormat,
+    /// Device the weights were loaded onto; `Drop` binds its context.
+    // Read only by the CUDA branch of `Drop`; CPU-only builds never need it.
+    #[cfg_attr(not(feature = "cuda"), allow(dead_code))]
+    device: candle_core::Device,
+}
+
+/// Weights can be dropped on any thread: an unload, the idle sweeper, a
+/// request finishing after its model was evicted, or a cache replacement
+/// on a fresh request thread. cudarc's `CudaSlice` drop frees without
+/// binding the CUDA context and only records a failure, so a drop on a
+/// thread with no current context leaks the VRAM with
+/// `CUDA_ERROR_INVALID_CONTEXT`. Binding here, before the fields drop,
+/// makes every drop site safe.
+impl Drop for ModelSubstrate {
+    fn drop(&mut self) {
+        #[cfg(feature = "cuda")]
+        if let candle_core::Device::Cuda(cuda) = &self.device {
+            if let Err(error) = cuda.cuda_stream().context().bind_to_thread() {
+                tracing::warn!(%error, "could not bind CUDA context to free model weights");
+            }
+        }
+    }
 }
 
 /// The chat-turn wrapper a model expects, detected from its GGUF-embedded
@@ -543,6 +565,7 @@ impl InferenceHost {
             weights,
             eos_token_ids,
             prompt_format,
+            device: device.clone(),
         })
     }
 

@@ -684,6 +684,11 @@ mod tests {
         ));
     }
 
+    /// GPU tests share the global model cache and measure process-wide
+    /// VRAM, so they must not run concurrently.
+    #[cfg(feature = "cuda")]
+    static GPU_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[cfg(feature = "cuda")]
     fn own_gpu_mib() -> u64 {
         let out = std::process::Command::new("nvidia-smi")
@@ -708,6 +713,7 @@ mod tests {
     #[cfg(feature = "cuda")]
     #[test]
     fn evicting_on_another_thread_returns_vram_to_the_driver() {
+        let _serial = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let path = crate::susi_paths::SusiDirs::data_dir()
             .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         let Ok(device) = candle_core::Device::new_cuda(0) else {
@@ -753,6 +759,57 @@ mod tests {
                 "VRAM must return near baseline: {baseline} -> {loaded} -> {after}"
             );
         }
+    }
+
+    /// Regression: the last handle to evicted weights may be dropped by a
+    /// request finishing on a thread with no CUDA context (or by a cache
+    /// replacement on a fresh request thread). That drop must still free
+    /// the VRAM instead of recording `CUDA_ERROR_INVALID_CONTEXT`.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn late_drop_on_a_context_less_thread_frees_vram() {
+        let _serial = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let path = crate::susi_paths::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let Ok(device) = candle_core::Device::new_cuda(0) else {
+            eprintln!("skipping: no CUDA device");
+            return;
+        };
+        if !path.is_file() {
+            eprintln!("skipping: {} not present on this host", path.display());
+            return;
+        }
+        let baseline = own_gpu_mib();
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("late_drop_test", "vram");
+        let in_flight = InferenceHost::get_model(&path, &device, &task).unwrap();
+        let placement = in_flight.read().weights.gpu_layers();
+        let (weights, evicted_on) = InferenceHost::cache().evict(&path).unwrap().unwrap();
+        drop(weights);
+        if !placement.is_some_and(|(on_gpu, total)| on_gpu == total && total > 0) {
+            eprintln!("skipping: model not fully GPU-resident ({placement:?})");
+            drop(in_flight);
+            return;
+        }
+        let loaded = own_gpu_mib();
+        assert!(
+            loaded > baseline + 200,
+            "load must allocate VRAM: {baseline} -> {loaded}"
+        );
+        // The "request" finishes on a thread that never touched CUDA.
+        std::thread::spawn(move || drop(in_flight)).join().unwrap();
+        // Synchronize (surfacing any error the drop recorded) and trim.
+        let trimmed = std::thread::spawn(move || {
+            super::runtime_substrate::release_on_device(Arc::new(()), &evicted_on)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(trimmed, Ok(true));
+        let after = own_gpu_mib();
+        assert!(
+            after < baseline + 100,
+            "VRAM must return near baseline: {baseline} -> {loaded} -> {after}"
+        );
     }
 
     #[test]
