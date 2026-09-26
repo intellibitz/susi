@@ -1480,6 +1480,16 @@
       "milestone": "Local AI ecosystem ownership + install safety: `susi os manage model install|uninstall` with foreground HTTPS-only downloads and managed-dir confinement (d08d5629); `susi os runtime` classifies live AI processes as SUSI-owned (parent chain reaches the daemon) or external, flags processes on a replaced binary, reports nvidia-smi GPU memory and observed /proc model residency (66abc7bf); dev self-install refuses to downgrade the installed binary via ~/.susi/bin/susi.build.json, verified live: a newer debug build was refused and the CUDA release install stayed byte-identical (887e40fb). Test fixes: gmcp tools/list pagination (1b562d6d), host bearer carried into the isolated capability-gap e2e so it passes against a token-enforcing supervised susi-native (e8c6cc18, VC-200-002), bodyless susi-native rejections now name the HTTP status (44fc93cd). fmt, clippy -D warnings, 2965 workspace tests, and xtask verify-architecture all pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-154",
+      "milestone": "Daemon-loaded model reporting: GET /runtime/models on the GEMI port (bearer-gated; 401 without token verified) returns a non-blocking ModelCache snapshot via the gemi.models.loaded bus topic. Verified live on the CUDA release daemon: empty cache after restart, then a /v1/chat/completions request for qwen2.5-0.5b-instruct-q4_k_m was served locally and the endpoint reported it loaded on Cuda gpu 0 with 24/24 layers GPU-resident, 8192-token KV capacity, served by the daemon pid; `susi os runtime` marks it [loaded] while the /proc mapping scan showed no mapping for the same file, confirming the heuristic alone would have missed it. fmt, clippy -D warnings, 2969 workspace tests, xtask verify-architecture pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
