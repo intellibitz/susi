@@ -54,6 +54,7 @@ struct Entry<T> {
     version: ModelVersion,
     device: Device,
     kv_capacity: usize,
+    loaded_at: SystemTime,
     value: Arc<RwLock<T>>,
 }
 
@@ -72,6 +73,47 @@ impl<T> Default for ModelCache<T> {
 }
 
 impl<T> ModelCache<T> {
+    /// Point-in-time view of every slot. Uses `try_lock`/`try_read` only:
+    /// a slot mid-load reports `loading`, a model mid-generation (write
+    /// lock held) reports `busy` without its backend detail — observing
+    /// the cache must never stall inference.
+    pub fn snapshot(&self, describe: impl Fn(&T) -> serde_json::Value) -> Vec<serde_json::Value> {
+        let slots: Vec<(PathBuf, Slot<T>)> = self
+            .slots
+            .lock()
+            .iter()
+            .map(|(path, slot)| (path.clone(), Arc::clone(slot)))
+            .collect();
+        let mut out: Vec<serde_json::Value> = slots
+            .into_iter()
+            .filter_map(|(path, slot)| {
+                let Some(guard) = slot.try_lock() else {
+                    return Some(serde_json::json!({ "path": path, "state": "loading" }));
+                };
+                let entry = guard.as_ref()?;
+                let detail = entry.value.try_read().map(|value| describe(&value));
+                Some(serde_json::json!({
+                    "path": path,
+                    "state": if detail.is_some() { "loaded" } else { "busy" },
+                    "device": format!("{:?}", entry.device.location()),
+                    "kv_capacity_tokens": entry.kv_capacity,
+                    "bytes": entry.version.weights.len,
+                    "loaded_at": entry
+                        .loaded_at
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0),
+                    // The cache holds one reference; the rest are requests
+                    // currently using these weights.
+                    "in_flight_users": Arc::strong_count(&entry.value).saturating_sub(1),
+                    "backend": detail,
+                }))
+            })
+            .collect();
+        out.sort_by(|a, b| a["path"].to_string().cmp(&b["path"].to_string()));
+        out
+    }
+
     pub fn get_or_load(
         &self,
         path: &Path,
@@ -105,6 +147,7 @@ impl<T> ModelCache<T> {
             version,
             device: device.clone(),
             kv_capacity,
+            loaded_at: SystemTime::now(),
             value: Arc::clone(&value),
         });
         Ok(value)
@@ -203,6 +246,37 @@ mod tests {
                 .read(),
             4
         );
+    }
+
+    #[test]
+    fn snapshot_reports_loaded_busy_and_failed_slots() {
+        let file = Fixture::new();
+        let cache = ModelCache::<u32>::default();
+        assert!(cache.snapshot(|_| serde_json::json!({})).is_empty());
+        let value = cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(7))
+            .unwrap();
+        let snap = cache.snapshot(|v| serde_json::json!({ "value": v }));
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0]["state"], "loaded");
+        assert_eq!(snap[0]["backend"]["value"], 7);
+        assert_eq!(snap[0]["kv_capacity_tokens"], 32);
+        assert_eq!(snap[0]["in_flight_users"], 1);
+        {
+            let _generating = value.write();
+            let busy = cache.snapshot(|_| serde_json::json!({}));
+            assert_eq!(busy[0]["state"], "busy");
+            assert!(busy[0]["backend"].is_null());
+        }
+        drop(value);
+        let other = Fixture::new();
+        assert!(cache
+            .get_or_load(&other.0, &Device::Cpu, 32, |_| Err(EaiError::inference(
+                "no"
+            )))
+            .is_err());
+        // A failed load leaves an empty slot, which is not reported.
+        assert_eq!(cache.snapshot(|_| serde_json::json!({})).len(), 1);
     }
 
     #[test]

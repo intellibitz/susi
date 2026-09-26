@@ -667,6 +667,20 @@ impl ModelWeights {
     /// batched. Speculative decoding's whole value proposition is a wider
     /// batch being cheaper per-token; callers should only pay its added
     /// complexity and rejected-draft overhead when this returns `true`.
+    /// `(gpu_layers, total_layers)`: how many transformer layers live on
+    /// the GPU device. Zero when no distinct GPU device exists.
+    pub fn gpu_layer_count(&self) -> (usize, usize) {
+        let on_gpu = if self.gpu_device.same_device(&self.cpu_device) {
+            0
+        } else {
+            self.layers
+                .iter()
+                .filter(|l| l.layer_device.same_device(&self.gpu_device))
+                .count()
+        };
+        (on_gpu, self.layers.len())
+    }
+
     pub fn is_fully_gpu_resident(&self) -> bool {
         !self.gpu_device.same_device(&self.cpu_device)
             && self

@@ -27,6 +27,11 @@ pub trait NeuralBackend: Send + Sync {
     fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
         None
     }
+    /// `(gpu_layers, total_layers)` when the backend tracks per-layer
+    /// placement; `None` means placement is uniform on the load device.
+    fn gpu_layers(&self) -> Option<(usize, usize)> {
+        None
+    }
 }
 
 impl NeuralBackend for llama::ModelWeights {
@@ -49,6 +54,9 @@ impl NeuralBackend for qwen2gguf::ModelWeights {
     }
     fn as_qwen2_mut(&mut self) -> Option<&mut qwen2gguf::ModelWeights> {
         Some(self)
+    }
+    fn gpu_layers(&self) -> Option<(usize, usize)> {
+        Some(self.gpu_layer_count())
     }
 }
 
@@ -123,6 +131,25 @@ impl PromptFormat {
 pub struct InferenceHost;
 
 impl InferenceHost {
+    fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
+        static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
+        CACHE.get_or_init(Default::default)
+    }
+
+    /// Weights currently held by this process's inference cache: the
+    /// ground truth for "which model is loaded", unlike file-mapping
+    /// heuristics. Never blocks on a load or an in-flight generation.
+    pub fn loaded_models() -> Vec<serde_json::Value> {
+        Self::cache().snapshot(|substrate| {
+            let gpu = substrate.weights.gpu_layers();
+            serde_json::json!({
+                "gpu_layers": gpu.map(|(on_gpu, _)| on_gpu),
+                "total_layers": gpu.map(|(_, total)| total),
+                "prompt_format": format!("{:?}", substrate.prompt_format),
+            })
+        })
+    }
+
     /// Loads a supported local GGUF, reusing weights only for the same file
     /// version, device context, and KV cache capacity.
     pub fn get_model(
@@ -130,15 +157,13 @@ impl InferenceHost {
         device: &candle_core::Device,
         task_handle: &Arc<crate::susi_core::task_manager::TaskHandle>,
     ) -> EaiResult<Arc<RwLock<ModelSubstrate>>> {
-        static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
         if task_handle.is_cancelled() {
             return Err(EaiError::inference("Model loading cancelled"));
         }
         let kv_capacity = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
-        CACHE
-            .get_or_init(Default::default)
+        Self::cache()
             .get_or_load(model_path, device, kv_capacity, |path| {
                 if task_handle.is_cancelled() {
                     return Err(susi_gemi_models::susi_error::EaiError::inference(

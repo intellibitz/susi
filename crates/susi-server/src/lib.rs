@@ -326,6 +326,7 @@ async fn handle_gemi_request(
                     "/context-graph/ingest",
                     "/context-graph/compact",
                     "/telemetry",
+                    "/runtime/models",
                     "/broker/grant",
                     "/broker/request",
                     "/broker/negotiate",
@@ -335,6 +336,12 @@ async fn handle_gemi_request(
                 ]
             });
             Ok(json_response(StatusCode::OK, &api_status))
+        }
+        (&Method::GET, "/runtime/models") => {
+            let payload = tokio::task::spawn_blocking(susi_core::plane_bus::gemi::loaded_models)
+                .await
+                .unwrap_or_else(|_| json!({ "error": "loaded-model snapshot failed" }));
+            Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();

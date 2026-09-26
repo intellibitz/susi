@@ -314,6 +314,10 @@ impl PlaneHandler for GemiPlaneHandler {
                     .map_err(|e| e.to_string())?;
                 Ok(json!({ "text": text }))
             }
+            topics::GEMI_MODELS_LOADED => Ok(json!({
+                "pid": std::process::id(),
+                "models": crate::engine::InferenceHost::loaded_models(),
+            })),
             topics::GEMI_TELEMETRY_SAMPLE => {
                 let snap = telemetry::sample();
                 serde_json::to_value(snap).map_err(|e| e.to_string())

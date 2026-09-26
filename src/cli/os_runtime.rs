@@ -11,9 +11,10 @@
 //!   mapped or open (observed residency), and which one is selected.
 //! - **gpu** — per-process GPU memory from `nvidia-smi`, when available.
 //!
-//! Residency is observed from `/proc/<pid>/maps` and `/proc/<pid>/fd`: a model
-//! read fully into memory and then closed leaves no trace there, so an empty
-//! `open_by` means "not mapped or open", never "not loaded".
+//! `loaded` is authoritative: it comes from the daemon's inference cache via
+//! `GET /runtime/models` on the GEMI port. `open_by` is observed separately
+//! from `/proc/<pid>/maps` and `/proc/<pid>/fd` and only covers files a
+//! process still maps or holds open.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -195,6 +196,56 @@ fn parse_gpu_apps(csv: &str) -> BTreeMap<u32, u64> {
         })
 }
 
+/// Ask the daemon's GEMI plane which weights its inference cache holds
+/// (`GET /runtime/models`). This is the authoritative "loaded" signal; the
+/// `/proc` scan above only sees mapped or open files.
+fn daemon_loaded_models() -> Result<serde_json::Value, String> {
+    use std::io::{Read, Write};
+    let port = susi_config::SusiConfig::load_global()
+        .unwrap_or_default()
+        .gemi_port();
+    let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
+    let timeout = std::time::Duration::from_secs(3);
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, timeout)
+        .map_err(|e| format!("GEMI unreachable on {addr}: {e}"))?;
+    let _ = stream.set_read_timeout(Some(timeout));
+    let token = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
+        .map(|t| t.trim().to_string())
+        .unwrap_or_default();
+    let auth = if token.is_empty() {
+        String::new()
+    } else {
+        format!("Authorization: Bearer {token}\r\n")
+    };
+    stream
+        .write_all(
+            format!("GET /runtime/models HTTP/1.0\r\nHost: 127.0.0.1\r\n{auth}\r\n").as_bytes(),
+        )
+        .map_err(|e| e.to_string())?;
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).map_err(|e| e.to_string())?;
+    parse_loaded_response(&raw)
+}
+
+fn parse_loaded_response(raw: &str) -> Result<serde_json::Value, String> {
+    let (head, body) = raw
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| "malformed HTTP response".to_string())?;
+    let status = head.lines().next().unwrap_or_default().trim();
+    if !(status.starts_with("HTTP/1.1 2") || status.starts_with("HTTP/1.0 2")) {
+        return Err(status.to_string());
+    }
+    let value: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
+    match value.get("models") {
+        Some(models) if models.is_array() => Ok(value),
+        Some(_) | None => Err(value
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("response has no `models` list")
+            .to_string()),
+    }
+}
+
 /// Build the runtime view as JSON. Shared by `susi os runtime` and the
 /// `running_ai_processes` section of `susi os ecosystem`.
 pub(crate) fn view() -> serde_json::Value {
@@ -287,6 +338,24 @@ pub(crate) fn view() -> serde_json::Value {
         .map(|(path, pids)| serde_json::json!({ "path": path, "open_by": pids }))
         .collect();
 
+    let daemon_models = match daemon.map(|_| daemon_loaded_models()) {
+        Some(Ok(value)) => value,
+        Some(Err(error)) => serde_json::json!({ "error": error }),
+        None => serde_json::json!({ "error": "daemon not running" }),
+    };
+    let loaded_paths: BTreeSet<String> = daemon_models["models"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m["path"].as_str().map(str::to_string))
+        .collect();
+    for model in &mut managed {
+        let loaded = model["path"]
+            .as_str()
+            .is_some_and(|path| loaded_paths.contains(path));
+        model["loaded_in_daemon"] = serde_json::Value::Bool(loaded);
+    }
+
     let owned = processes.iter().filter(|p| p["owner"] == "susi").count();
     let stale = processes
         .iter()
@@ -299,6 +368,7 @@ pub(crate) fn view() -> serde_json::Value {
             "managed_dir": models_dir,
             "managed": managed,
             "external_in_use": external_models,
+            "daemon_loaded": daemon_models,
         },
         "gpu_mib_by_pid": gpu,
         "summary": {
@@ -307,9 +377,10 @@ pub(crate) fn view() -> serde_json::Value {
             "external": processes.len() - owned,
             "stale_binaries": stale,
             "managed_models": managed.len(),
+            "daemon_loaded_models": loaded_paths.len(),
             "managed_models_in_use": managed.iter().filter(|m| m["open_by"].as_array().is_some_and(|a| !a.is_empty())).count(),
         },
-        "note": "residency is observed from /proc maps and open fds; a model read into memory and closed is not visible there",
+        "note": "`loaded` comes from the daemon's inference cache; `mapped/open` is observed from /proc maps and fds and only covers files a process still maps or holds open",
     })
 }
 
@@ -362,10 +433,15 @@ pub(crate) fn print(json: bool) -> anyhow::Result<()> {
     for m in models["managed"].as_array().into_iter().flatten() {
         let open_by = m["open_by"].as_array().map_or(0, Vec::len);
         println!(
-            "  {}{}{}",
+            "  {}{}{}{}",
             m["name"].as_str().unwrap_or_default(),
             if m["selected"] == true {
                 "  [selected]"
+            } else {
+                ""
+            },
+            if m["loaded_in_daemon"] == true {
+                "  [loaded]"
             } else {
                 ""
             },
@@ -382,6 +458,37 @@ pub(crate) fn print(json: bool) -> anyhow::Result<()> {
             m["path"].as_str().unwrap_or_default(),
             m["open_by"]
         );
+    }
+    let loaded = &models["daemon_loaded"];
+    match loaded["models"].as_array() {
+        Some(list) => {
+            println!(
+                "daemon inference cache (pid {}): {} model(s) loaded",
+                loaded["pid"],
+                list.len()
+            );
+            for m in list {
+                let gpu = match (
+                    m["backend"]["gpu_layers"].as_u64(),
+                    m["backend"]["total_layers"].as_u64(),
+                ) {
+                    (Some(on), Some(total)) => format!(", {on}/{total} layers on GPU"),
+                    (Some(_) | None, _) => String::new(),
+                };
+                println!(
+                    "  {}  [{} on {}{}, {} in flight]",
+                    m["path"].as_str().unwrap_or_default(),
+                    m["state"].as_str().unwrap_or_default(),
+                    m["device"].as_str().unwrap_or("?"),
+                    gpu,
+                    m["in_flight_users"].as_u64().unwrap_or(0),
+                );
+            }
+        }
+        None => println!(
+            "daemon inference cache: unavailable ({})",
+            loaded["error"].as_str().unwrap_or("unknown error")
+        ),
     }
     if summary["stale_binaries"].as_u64().unwrap_or(0) > 0 {
         println!();
@@ -463,6 +570,25 @@ mod tests {
         assert_eq!(parsed.get(&123), Some(&768));
         assert_eq!(parsed.get(&7), Some(&1024));
         assert_eq!(parsed.len(), 2);
+    }
+
+    #[test]
+    fn loaded_response_requires_success_and_a_models_list() {
+        let ok = parse_loaded_response(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"pid\":9,\"models\":[]}",
+        )
+        .unwrap();
+        assert_eq!(ok["pid"], 9);
+        assert_eq!(
+            parse_loaded_response("HTTP/1.1 401 Unauthorized\r\n\r\n{}").unwrap_err(),
+            "HTTP/1.1 401 Unauthorized"
+        );
+        assert!(
+            parse_loaded_response("HTTP/1.1 200 OK\r\n\r\n{\"error\":\"x\"}")
+                .unwrap_err()
+                .contains('x')
+        );
+        assert!(parse_loaded_response("garbage").is_err());
     }
 
     #[test]
