@@ -258,16 +258,11 @@ fn invoke_a2a(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {
     let mut req = crate::susi_sandbox::manager::http_agent()
         .post(&url)
         .header("Content-Type", "application/json");
-    let bearer = {
-        let b = resolve_bearer(spec);
-        if b.is_empty() {
-            crate::susi_config::SusiConfig::load_global()
-                .map(|c| c.api_auth_token())
-                .unwrap_or_default()
-        } else {
-            b
-        }
-    };
+    // Only the credential configured for this external agent. Never fall
+    // back to our own host API token: that would hand the key to every
+    // local surface to a third-party service. Susi peers authorize us by
+    // the member signature below instead.
+    let bearer = resolve_bearer(spec);
     if !bearer.is_empty() {
         req = req.header("Authorization", format!("Bearer {bearer}"));
     }
