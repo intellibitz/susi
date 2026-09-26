@@ -72,6 +72,17 @@ normal, development, build, and target-specific dependencies and to verify
 every canonical `#[path]` source mount and rejects physical consumer copies. CI runs the same command; no
 platform-specific shell or checksum utility is part of this boundary.
 
+Shared code has exactly one checked-in source, compiled into each consumer
+through `#[path]` (no Cargo edge):
+
+| Canonical source | What it is | Mounted by |
+|---|---|---|
+| `crates/susi-core/src/embedded.rs` | `susi_core` microkernel subset, incl. `mcp_client` (MCP Streamable HTTP peer client), `a2a_wire` (A2A v1.0 `message/send`), `inference_wire` (provider request/reply shapes) | feature crates |
+| `crates/susi-core/src/susi_{error,paths,config}.rs` | error contract, paths and config IPC clients | every crate |
+| `crates/susi-sandbox/vendor_template/susi_sandbox/` | sandbox IPC client; mounts `susi-sandbox/src` for audit chain, auto-install and local daemon state | feature crates |
+| `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GEMI REST, GMCP, A2A |
+| `crates/susi-abi/src/cell_server.rs` | swarm-cell TCP server (framing, token auth, trust scoring, heartbeat) | the five cell binaries |
+
 `susi-core` is the final leaf-service conversion (`127.0.0.1:18085`,
 `SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`
 mounts cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
