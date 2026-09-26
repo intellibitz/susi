@@ -141,9 +141,18 @@ type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;
 fn response(status: StatusCode, text: &'static str) -> Response<BoxBody> {
     let mut response = Response::new(Full::new(Bytes::from_static(text.as_bytes())).boxed());
     *response.status_mut() = status;
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/plain"));
+    // RFC 9110 §15.5.2: a 401 MUST carry a challenge; RFC 6585 §4: tell a
+    // rate-limited client when the per-minute window reopens.
+    if status == StatusCode::UNAUTHORIZED {
+        headers.insert(
+            hyper::header::WWW_AUTHENTICATE,
+            HeaderValue::from_static("Bearer realm=\"susi-gmcp\""),
+        );
+    } else if status == StatusCode::TOO_MANY_REQUESTS {
+        headers.insert(hyper::header::RETRY_AFTER, HeaderValue::from_static("60"));
+    }
     response
 }
 
@@ -350,9 +359,11 @@ async fn handle_request(
     // Body so the buffered bytes rebuild into the same request shape
     // downstream — JSON-RPC bodies are small and bounded anyway.
     let (mut parts, body) = req.into_parts();
+    // Same ceiling the MCP transport enforces, plus the 16-byte AEAD tag a
+    // sealed body carries.
+    let body_limit = cfg.max_rpc_body_bytes().saturating_add(16);
     let body_bytes = match http_body_util::BodyExt::collect(http_body_util::Limited::new(
-        body,
-        10 * 1024 * 1024,
+        body, body_limit,
     ))
     .await
     {
@@ -506,6 +517,21 @@ mod tests {
         let out = negotiate_transport(stream, remote, None, require_tls_remote).await;
         let _client = client.await.unwrap();
         out
+    }
+
+    #[test]
+    fn rejections_carry_rfc_challenge_headers() {
+        let unauthorized = response(StatusCode::UNAUTHORIZED, "Unauthorized");
+        assert_eq!(
+            unauthorized.headers()[hyper::header::WWW_AUTHENTICATE],
+            "Bearer realm=\"susi-gmcp\""
+        );
+        let limited = response(StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded");
+        assert_eq!(limited.headers()[hyper::header::RETRY_AFTER], "60");
+        let missing = response(StatusCode::NOT_FOUND, "nope");
+        assert!(!missing
+            .headers()
+            .contains_key(hyper::header::WWW_AUTHENTICATE));
     }
 
     #[tokio::test]
