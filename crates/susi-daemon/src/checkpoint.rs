@@ -24,7 +24,9 @@ pub struct CheckpointManager {
 
 impl Default for CheckpointManager {
     fn default() -> Self {
-        Self::new(std::env::temp_dir().join("susi_checkpoints"))
+        // Owned by the substrate, not the world-writable temp dir, where
+        // another local user could pre-plant checkpoints or symlinks.
+        Self::new(crate::susi_paths::SusiDirs::data_dir().join("checkpoints"))
     }
 }
 

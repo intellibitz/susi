@@ -26,7 +26,8 @@ impl Default for LoggerConfig {
         Self {
             max_file_size_bytes: 10 * 1024 * 1024, // 10 MiB
             max_files: 5,
-            log_dir: std::env::temp_dir().join("susi_logs"),
+            // Substrate-owned, not the shared temp dir (planted symlinks).
+            log_dir: crate::susi_paths::SusiDirs::data_dir().join("cell_logs"),
         }
     }
 }
