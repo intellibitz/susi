@@ -74,6 +74,8 @@ pub mod topics {
     pub const GEMI_CLOUD_APPLY_ENV: &str = "gemi.cloud.apply_env";
     pub const GEMI_CLOUD_REGISTER: &str = "gemi.cloud.register";
     pub const GEMI_CLOUD_FAILOVER: &str = "gemi.cloud.failover";
+    /// Explain the live local/cloud inference placement without executing it.
+    pub const GEMI_ROUTING_PLAN: &str = "gemi.routing.plan";
     /// Report a failed provider attempt so the GEMI plane's cooldown
     /// routing can skip it (and its credential/endpoint scope) — used by
     /// consumers that call providers directly, e.g. swarm recovery.
@@ -348,6 +350,13 @@ pub mod gemi {
                 .as_array()
                 .map(|a| a.len())
                 .unwrap_or(0)
+        }
+
+        /// Return the GEMI plane's live, explainable local/cloud placement.
+        /// The value stays schema-flexible at the kernel boundary while the
+        /// owning plane retains the strongly typed policy implementation.
+        pub fn placement() -> Value {
+            req_ok(topics::GEMI_ROUTING_PLAN, json!({}))
         }
     }
 

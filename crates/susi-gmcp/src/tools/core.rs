@@ -209,6 +209,16 @@ impl CoreTools {
             .to_string())
     }
 
+    #[tool(
+        name = "inference_placement",
+        description = "Explain whether SUSI will run inference locally or in cloud and why"
+    )]
+    pub fn inference_placement(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+        let placement = ModelManager::placement();
+        serde_json::to_string_pretty(&placement)
+            .map_err(|error| EaiError::internal(format!("encode placement: {error}")))
+    }
+
     #[tool(name = "scout_model", description = "Scout or install model substrate")]
     pub fn scout_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let arg_s = arg.as_str().unwrap_or("");

@@ -86,6 +86,13 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     );
     ToolRegistry::register_meta_tool(
         registry,
+        "inference_placement",
+        "Explain the live local-versus-cloud inference placement decision",
+        MetaCategory::SystemPrimitive,
+        adapt(CoreTools::inference_placement),
+    );
+    ToolRegistry::register_meta_tool(
+        registry,
         "scout_model",
         "Scout or install model substrate",
         MetaCategory::SystemPrimitive,
