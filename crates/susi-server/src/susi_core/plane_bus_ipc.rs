@@ -34,6 +34,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 /// Cap on request head bytes read while hunting for `\r\n\r\n`.
 const MAX_HEAD: usize = 64 * 1024;
+/// Header carrying the per-substrate bus secret on every IPC request.
+const BUS_KEY_HEADER: &str = "X-Susi-Bus-Key";
 
 type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
 type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
@@ -49,6 +51,8 @@ pub struct IpcPlaneBus {
     stream_seq: AtomicU64,
     rendezvous: PathBuf,
     endpoint: OnceLock<SocketAddr>,
+    /// Shared secret every `/handle` and `/stream` request must carry.
+    secret: Arc<str>,
 }
 
 impl Default for IpcPlaneBus {
@@ -78,6 +82,7 @@ impl IpcPlaneBus {
     /// without mutating process env.
     pub fn with_rendezvous(rendezvous: PathBuf) -> Self {
         sweep_dead_processes(rendezvous.parent());
+        let secret = bus_secret(rendezvous.parent()).into();
         Self {
             handlers: Arc::new(DashMap::new()),
             prefixes: Arc::new(DashMap::new()),
@@ -85,6 +90,7 @@ impl IpcPlaneBus {
             stream_seq: AtomicU64::new(0),
             rendezvous,
             endpoint: OnceLock::new(),
+            secret,
         }
     }
 
@@ -127,13 +133,15 @@ impl IpcPlaneBus {
         let handlers = Arc::clone(&self.handlers);
         let prefixes = Arc::clone(&self.prefixes);
         let streams = Arc::clone(&self.streams);
+        let secret = Arc::clone(&self.secret);
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 let Ok(conn) = conn else { continue };
                 let handlers = Arc::clone(&handlers);
                 let prefixes = Arc::clone(&prefixes);
                 let streams = Arc::clone(&streams);
-                std::thread::spawn(move || serve_conn(conn, handlers, prefixes, streams));
+                let secret = Arc::clone(&secret);
+                std::thread::spawn(move || serve_conn(conn, handlers, prefixes, streams, &secret));
             }
         });
     }
@@ -190,14 +198,14 @@ impl IpcPlaneBus {
 
     /// `POST /handle` to a remote copy. `Remote::Dead` = transport failure
     /// (caller prunes the endpoint file and tries the next candidate).
-    fn remote(ep: SocketAddr, topic: &str, payload: &Value) -> Remote {
+    fn remote(ep: SocketAddr, topic: &str, payload: &Value, secret: &str) -> Remote {
         let Ok(body) = serde_json::to_string(&json!({
             "topic": topic,
             "payload": payload,
         })) else {
             return Remote::Answered(Err("bus request failed to serialize".to_string()));
         };
-        let Some(resp) = post(ep, "/handle", &body) else {
+        let Some(resp) = post(ep, "/handle", &body, secret) else {
             return Remote::Dead;
         };
         let v: Value = match serde_json::from_str(&resp) {
@@ -245,7 +253,7 @@ impl IpcPlaneBus {
             return invoke(h, topic, payload);
         }
         for (file, ep) in self.candidates(topic) {
-            match Self::remote(ep, topic, &payload) {
+            match Self::remote(ep, topic, &payload, &self.secret) {
                 Remote::Answered(res) => return res,
                 Remote::Dead => {
                     let _ = std::fs::remove_file(&file);
@@ -295,7 +303,7 @@ impl IpcPlaneBus {
                 }
             } else if let Ok(ep) = addr.parse::<SocketAddr>() {
                 let body = json!({ "id": id, "chunk": chunk }).to_string();
-                let _ = post(ep, "/stream", &body);
+                let _ = post(ep, "/stream", &body, &self.secret);
             }
         } else if let Some(tx) = self.streams.get(stream_id) {
             let _ = tx.send(chunk);
@@ -342,6 +350,61 @@ pub(crate) fn enc(key: &str) -> String {
     out
 }
 
+/// The bus secret shared by every process of one substrate: `<bus>/secret`,
+/// created once (exclusive create, owner-only on Unix) and read by later
+/// processes. Without a bus dir the secret is process-local.
+fn bus_secret(bus_dir: Option<&Path>) -> String {
+    let fresh = || {
+        let mut raw = [0u8; 32];
+        let _ = getrandom::fill(&mut raw);
+        raw.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    };
+    let Some(dir) = bus_dir else {
+        return fresh();
+    };
+    let path = dir.join("secret");
+    let read = || {
+        std::fs::read_to_string(&path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| s.len() == 64)
+    };
+    if let Some(existing) = read() {
+        return existing;
+    }
+    let _ = std::fs::create_dir_all(dir);
+    let candidate = fresh();
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    if let Ok(mut f) = opts.open(&path) {
+        if f.write_all(candidate.as_bytes()).is_ok() {
+            return candidate;
+        }
+    }
+    // Lost the create race (or a partial write is being completed): the
+    // winner's value is authoritative once it lands.
+    for _ in 0..50 {
+        if let Some(existing) = read() {
+            return existing;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    candidate
+}
+
+/// Constant-time comparison of a presented bus key; empty never matches.
+fn key_matches(presented: &str, secret: &str) -> bool {
+    let (a, b) = (presented.as_bytes(), secret.as_bytes());
+    !b.is_empty()
+        && a.len() == b.len()
+        && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn read_endpoint_key(path: &Path) -> Option<(SocketAddr, String)> {
     let text = std::fs::read_to_string(path).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
@@ -351,10 +414,10 @@ fn read_endpoint_key(path: &Path) -> Option<(SocketAddr, String)> {
 }
 
 /// POST one JSON body over HTTP/1.0; returns the response body.
-fn post(addr: SocketAddr, path: &str, body: &str) -> Option<String> {
+fn post(addr: SocketAddr, path: &str, body: &str, secret: &str) -> Option<String> {
     let mut stream = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT).ok()?;
     let req = format!(
-        "POST {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        "POST {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n{BUS_KEY_HEADER}: {secret}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
         body.len(),
         body
     );
@@ -365,7 +428,8 @@ fn post(addr: SocketAddr, path: &str, body: &str) -> Option<String> {
 }
 
 /// Read one HTTP/1.0 request: headers, then exactly Content-Length bytes.
-fn read_request(stream: &mut TcpStream) -> Option<(String, String)> {
+/// Returns `(path, presented bus key, body)`.
+fn read_request(stream: &mut TcpStream) -> Option<(String, String, String)> {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 8192];
     let head_end = loop {
@@ -391,6 +455,16 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, String)> {
                 .and_then(|v| v.trim().parse::<usize>().ok())
         })
         .unwrap_or(0);
+    let bus_key_prefix = format!("{}:", BUS_KEY_HEADER.to_ascii_lowercase());
+    let presented = head
+        .lines()
+        .find_map(|l| {
+            let lower = l.to_ascii_lowercase();
+            lower
+                .starts_with(&bus_key_prefix)
+                .then(|| l[bus_key_prefix.len()..].trim().to_string())
+        })
+        .unwrap_or_default();
     let mut body = buf[head_end..].to_vec();
     while body.len() < content_len {
         let n = stream.read(&mut tmp).ok()?;
@@ -400,7 +474,7 @@ fn read_request(stream: &mut TcpStream) -> Option<(String, String)> {
         body.extend_from_slice(&tmp[..n]);
     }
     body.truncate(content_len);
-    Some((path, String::from_utf8_lossy(&body).to_string()))
+    Some((path, presented, String::from_utf8_lossy(&body).to_string()))
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &str) {
@@ -414,10 +488,22 @@ fn respond(stream: &mut TcpStream, status: &str, body: &str) {
     );
 }
 
-fn serve_conn(mut conn: TcpStream, handlers: HandlerMap, prefixes: HandlerMap, streams: StreamMap) {
-    let Some((path, body)) = read_request(&mut conn) else {
+fn serve_conn(
+    mut conn: TcpStream,
+    handlers: HandlerMap,
+    prefixes: HandlerMap,
+    streams: StreamMap,
+    secret: &str,
+) {
+    let Some((path, presented, body)) = read_request(&mut conn) else {
         return;
     };
+    // Loopback is reachable by every local user and by web pages (no-CORS
+    // POSTs); only the substrate owner's processes can read the secret.
+    if !key_matches(&presented, secret) {
+        respond(&mut conn, "403 Forbidden", r#"{"err":"bus key required"}"#);
+        return;
+    }
     match path.as_str() {
         "/handle" => {
             let parsed = serde_json::from_str::<Value>(&body).ok();
@@ -551,6 +637,58 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// Raw HTTP/1.0 POST to `/handle`, optionally with a bus key.
+    fn raw_handle(ep: SocketAddr, key: Option<&str>) -> String {
+        let body = json!({ "topic": "test.echo", "payload": { "n": 7 } }).to_string();
+        let key_line = key.map_or(String::new(), |k| format!("{BUS_KEY_HEADER}: {k}\r\n"));
+        let req = format!(
+            "POST /handle HTTP/1.0\r\nHost: 127.0.0.1\r\n{key_line}Content-Type: text/plain\r\nContent-Length: {}\r\n\r\n{body}",
+            body.len()
+        );
+        let mut s = TcpStream::connect(ep).unwrap();
+        s.write_all(req.as_bytes()).unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn requests_without_the_bus_key_are_refused() {
+        let dir = tempdir("auth");
+        let a = IpcPlaneBus::with_rendezvous(dir.join("1"));
+        a.register("test.echo", Arc::new(Echo));
+        let ep = a.endpoint().unwrap();
+
+        // A browser no-CORS POST or another local user: no / wrong key.
+        for key in [None, Some("0".repeat(64).as_str())] {
+            let resp = raw_handle(ep, key);
+            assert!(resp.starts_with("HTTP/1.0 403"), "{resp}");
+            assert!(!resp.contains("\"n\":7"), "handler must not run: {resp}");
+        }
+        // The owner's processes share the secret and are served.
+        let resp = raw_handle(ep, Some(&a.secret));
+        assert!(resp.starts_with("HTTP/1.0 200"), "{resp}");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("secret"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "bus secret must be owner-only");
+        }
+    }
+
+    #[test]
+    fn processes_sharing_a_bus_dir_share_one_secret() {
+        let dir = tempdir("shared");
+        let a = IpcPlaneBus::with_rendezvous(dir.join("1"));
+        let b = IpcPlaneBus::with_rendezvous(dir.join("2"));
+        assert_eq!(a.secret, b.secret);
+        assert_eq!(a.secret.len(), 64);
     }
 
     #[test]
