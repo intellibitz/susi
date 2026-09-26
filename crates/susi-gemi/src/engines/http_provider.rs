@@ -696,6 +696,13 @@ pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityR
     }
 }
 
+/// True when an endpoint declares an API-key env var but no key resolved:
+/// discovery must not contact it. Endpoints without `api_key_env` (local or
+/// self-hosted engines) keep open admission.
+fn key_required_but_missing(api_key_env: &str, resolved_key: &str) -> bool {
+    !api_key_env.trim().is_empty() && resolved_key.trim().is_empty()
+}
+
 /// Probe an OpenAI-compatible `/models` listing and register each model id.
 /// Returns how many new providers were registered.
 pub async fn register_openai_compat_models(
@@ -842,6 +849,12 @@ pub async fn auto_discover_local_engines(
             continue;
         }
         let key = HttpProvider::resolve_api_key(&ep.api_key_env, &ep.name);
+        if key_required_but_missing(&ep.api_key_env, &key) {
+            // A keyed vendor rejects an unauthenticated /models call anyway;
+            // probing it only discloses this host to a third party on every
+            // rediscovery pass.
+            continue;
+        }
         endpoints.push((ep.name.clone(), api_base, key));
     }
 
@@ -860,6 +873,15 @@ pub async fn auto_discover_local_engines(
 mod tests {
     use super::*;
     use crate::susi_core::registry::CapabilityRegistry;
+
+    #[test]
+    fn keyed_endpoints_without_a_key_are_not_probed() {
+        assert!(key_required_but_missing("OPENAI_API_KEY", ""));
+        assert!(key_required_but_missing("GROQ_API_KEY", "  "));
+        assert!(!key_required_but_missing("OPENAI_API_KEY", "sk-live"));
+        // No key env declared: local/self-hosted engines stay admitted.
+        assert!(!key_required_but_missing("", ""));
+    }
 
     #[test]
     fn non_chat_model_ids_are_filtered() {
