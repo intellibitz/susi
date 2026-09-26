@@ -91,12 +91,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(req) =
                                     serde_json::from_slice::<SyscallRequest>(&frame.payload)
                                 {
-                                    let response = handle_external(
-                                        req,
-                                        &mut *cell_clone.lock().await,
-                                        &manifest_clone,
-                                    )
-                                    .await;
+                                    let response = handle_external(req, &manifest_clone).await;
+                                    // Hold the cell lock only to record the outcome, never across the
+                                    // work itself, so heartbeats and other connections are not blocked.
+                                    {
+                                        let mut cell = cell_clone.lock().await;
+                                        if response.status == SyscallStatus::Success {
+                                            cell.record_success();
+                                        } else {
+                                            cell.record_failure();
+                                        }
+                                    }
                                     let Ok(resp_payload) = serde_json::to_vec(&response) else {
                                         continue;
                                     };
@@ -122,11 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn handle_external(
-    req: SyscallRequest,
-    cell: &mut SwarmCell,
-    manifest: &PluginManifest,
-) -> SyscallResponse {
+async fn handle_external(req: SyscallRequest, manifest: &PluginManifest) -> SyscallResponse {
     // For MCP stdio protocols or CLI agents, we proxy the JSON request via stdin.
     // As a generic adapter, we just shell out with the payload.
     let payload_str = serde_json::to_string(&req.payload).unwrap_or_default();
@@ -140,11 +141,6 @@ async fn handle_external(
     let started = std::time::Instant::now();
     match cmd.output().await {
         Ok(out) => {
-            if out.status.success() {
-                cell.record_success();
-            } else {
-                cell.record_failure();
-            }
             let result_text = String::from_utf8_lossy(&out.stdout).to_string();
             let stderr_text = String::from_utf8_lossy(&out.stderr).to_string();
 
@@ -165,16 +161,13 @@ async fn handle_external(
                 },
             }
         }
-        Err(e) => {
-            cell.record_failure();
-            SyscallResponse {
-                id: req.id,
-                status: SyscallStatus::Error,
-                data: serde_json::json!({ "error": e.to_string() }),
-                receipt: None,
-                latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
-                message: Some(format!("Failed to spawn ecosystem plugin: {}", e)),
-            }
-        }
+        Err(e) => SyscallResponse {
+            id: req.id,
+            status: SyscallStatus::Error,
+            data: serde_json::json!({ "error": e.to_string() }),
+            receipt: None,
+            latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
+            message: Some(format!("Failed to spawn ecosystem plugin: {}", e)),
+        },
     }
 }
