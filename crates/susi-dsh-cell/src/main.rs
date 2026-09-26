@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use susi_abi::cell::SwarmCell;
+use susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
 use susi_abi::swarm::SwarmRole;
 use susi_abi::syscall::{
     token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
@@ -13,12 +13,13 @@ use susi_abi::wire::{FrameStream, MessageType, WireFrame};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("susi-dsh-cell micro-daemon starting on 127.0.0.1:9093");
+    let bind_addr = cell_bind_addr(cell_ports::DSH);
+    println!("susi-dsh-cell micro-daemon starting on {bind_addr}");
 
     let mut cell = SwarmCell::new(
         "dsh-agent-01".to_string(),
         SwarmRole::ExternalPeer,
-        "tcp://127.0.0.1:9093".to_string(),
+        format!("tcp://{bind_addr}"),
     );
 
     // Register capabilities
@@ -40,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SUSI_CELL_TOKEN is not set: every syscall will be denied");
     }
 
-    let listener = TcpListener::bind("127.0.0.1:9093").await?;
+    let listener = TcpListener::bind(bind_addr).await?;
     println!("susi-dsh-cell Swarm Cell ready and listening...");
 
     loop {

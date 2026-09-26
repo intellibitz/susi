@@ -124,6 +124,45 @@ impl SwarmCell {
     }
 }
 
+/// Environment variable overriding a Swarm Cell's listen address.
+pub const CELL_ADDR_ENV: &str = "SUSI_CELL_ADDR";
+
+/// Default Swarm Cell ports. They sit outside the daemon's host contract
+/// (9090-9094) and the leaf services (18080-18084) so a cell never
+/// collides with the daemon it runs beside.
+pub mod cell_ports {
+    /// gmcp tool-driver cell.
+    pub const GMCP: u16 = 19090;
+    /// gemi inference cell.
+    pub const GEMI: u16 = 19091;
+    /// gawd planner cell.
+    pub const GAWD: u16 = 19092;
+    /// DeepSeek-harness cell.
+    pub const DSH: u16 = 19093;
+}
+
+/// Listen address for a cell: `SUSI_CELL_ADDR` when it parses, else
+/// `127.0.0.1:<default_port + SUSI_PORT_OFFSET>` (the same instance offset
+/// that shifts every other susi port).
+#[must_use]
+pub fn cell_bind_addr(default_port: u16) -> std::net::SocketAddr {
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    if let Some(addr) = std::env::var(CELL_ADDR_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<SocketAddr>().ok())
+    {
+        return addr;
+    }
+    let offset = std::env::var("SUSI_PORT_OFFSET")
+        .ok()
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .unwrap_or(0);
+    SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+        default_port.saturating_add(offset),
+    )
+}
+
 /// Computes a standard 64-bit FNV-1a hash of a capability string for bloom filter indexing.
 #[must_use]
 pub fn compute_fnv1a_hash(s: &str) -> u64 {
@@ -171,6 +210,32 @@ mod tests {
         cell.record_failure();
         assert_eq!(cell.missions_failed, 1);
         assert!(cell.manifest.trust_score < 1.0);
+    }
+
+    #[test]
+    fn cell_ports_avoid_the_host_contract_and_leaf_services() {
+        for p in [
+            cell_ports::GMCP,
+            cell_ports::GEMI,
+            cell_ports::GAWD,
+            cell_ports::DSH,
+        ] {
+            assert!(
+                !(9090..=9094).contains(&p),
+                "{p} collides with the host contract"
+            );
+            assert!(
+                !(18080..=18084).contains(&p),
+                "{p} collides with a leaf service"
+            );
+        }
+        // No env override in the test process: loopback + default port.
+        if std::env::var(CELL_ADDR_ENV).is_err() && std::env::var("SUSI_PORT_OFFSET").is_err() {
+            assert_eq!(
+                cell_bind_addr(cell_ports::GAWD).to_string(),
+                "127.0.0.1:19092"
+            );
+        }
     }
 
     #[test]
