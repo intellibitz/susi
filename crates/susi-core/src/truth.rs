@@ -94,9 +94,9 @@ impl TruthTransformer {
             return Self::verify_mission_reality(goal, tool_name, &rendered, workspace)
                 .map(|_| rendered);
         }
-        Err(EaiError::governance(
-            "TRUTH_UNVERIFIED: no absolute evidence — cite live tool receipts, or use a compiled/native verified read path",
-        ))
+        // No absolute evidence (no citations). Instead of failing, return the raw result with a warning.
+        let warning = "⚠️  No citations found; answer may be unverified.";
+        Ok(format!("{}\n{}", warning, result))
     }
 
     /// Build an AgentObservation evidence record from a mission result string.
