@@ -293,6 +293,58 @@ impl WireFrame {
     }
 }
 
+/// Incremental decoder for a byte stream carrying back-to-back frames.
+///
+/// TCP delivers bytes, not frames: one read may hold several frames or only
+/// part of one. Push every chunk read from the socket, then drain complete
+/// frames with [`FrameStream::next_frame`]; partial data stays buffered.
+#[derive(Debug, Default)]
+pub struct FrameStream {
+    buf: Vec<u8>,
+}
+
+impl FrameStream {
+    /// Creates an empty stream decoder.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Appends bytes received from the transport.
+    pub fn push(&mut self, bytes: &[u8]) {
+        self.buf.extend_from_slice(bytes);
+    }
+
+    /// Number of buffered bytes not yet consumed by a complete frame.
+    #[must_use]
+    pub fn buffered(&self) -> usize {
+        self.buf.len()
+    }
+
+    /// Returns the next complete frame, `Ok(None)` when more bytes are
+    /// needed.
+    ///
+    /// # Errors
+    /// Returns the decode error when the buffered bytes can never form a
+    /// valid frame (bad magic, version, type, or oversized payload); the
+    /// stream is then unrecoverable and the connection should be dropped.
+    pub fn next_frame(&mut self) -> Result<Option<WireFrame>, WireError> {
+        match WireFrame::decode(&self.buf) {
+            Ok((frame, used)) => {
+                self.buf.drain(..used);
+                Ok(Some(frame))
+            }
+            Err(WireError::IncompleteHeader | WireError::IncompletePayload { .. }) => Ok(None),
+            Err(
+                e @ (WireError::InvalidMagic(_)
+                | WireError::UnsupportedVersion(_)
+                | WireError::PayloadTooLarge(_)
+                | WireError::Serialization(_)),
+            ) => Err(e),
+        }
+    }
+}
+
 #[cfg(test)]
 mod prop_tests {
     use super::*;
@@ -329,5 +381,41 @@ mod prop_tests {
                 prop_assert_eq!(result, Err(WireError::IncompleteHeader));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+
+    #[test]
+    fn frame_stream_splits_coalesced_and_joins_partial_frames() {
+        let a = WireFrame::new(MessageType::Heartbeat, b"one".to_vec()).encode();
+        let b = WireFrame::new(MessageType::RawBytes, b"two".to_vec()).encode();
+        let mut wire = a.clone();
+        wire.extend_from_slice(&b);
+
+        // Deliver the two frames split at an arbitrary point inside `b`.
+        let cut = a.len() + 5;
+        let mut stream = FrameStream::new();
+        stream.push(&wire[..cut]);
+        assert_eq!(stream.next_frame().unwrap().unwrap().payload, b"one");
+        assert!(stream.next_frame().unwrap().is_none());
+        stream.push(&wire[cut..]);
+        let second = stream.next_frame().unwrap().unwrap();
+        assert_eq!(second.msg_type, MessageType::RawBytes);
+        assert_eq!(second.payload, b"two");
+        assert!(stream.next_frame().unwrap().is_none());
+        assert_eq!(stream.buffered(), 0);
+    }
+
+    #[test]
+    fn frame_stream_reports_corruption() {
+        let mut stream = FrameStream::new();
+        stream.push(b"NOPE-not-a-susi-frame");
+        assert!(matches!(
+            stream.next_frame(),
+            Err(WireError::InvalidMagic(_))
+        ));
     }
 }
