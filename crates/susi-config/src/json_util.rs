@@ -91,6 +91,9 @@ pub fn confined_workspace_join(workspace: &Path, user_path: &str) -> EaiResult<P
             return Err(EaiError::config("Parent directory traversal not allowed"));
         }
     }
+    if !path.components().any(|c| matches!(c, Component::Normal(_))) {
+        return Err(EaiError::config("Empty path not allowed"));
+    }
     let full = workspace.join(&path);
     let canonical_workspace = workspace
         .canonicalize()

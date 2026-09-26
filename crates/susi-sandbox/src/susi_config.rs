@@ -1201,6 +1201,9 @@ mod json_util {
                 return Err(EaiError::config("Parent directory traversal not allowed"));
             }
         }
+        if !path.components().any(|c| matches!(c, Component::Normal(_))) {
+            return Err(EaiError::config("Empty path not allowed"));
+        }
         let full = workspace.join(&path);
         let canonical_workspace = workspace
             .canonicalize()
