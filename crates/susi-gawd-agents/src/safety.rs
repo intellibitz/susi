@@ -55,7 +55,7 @@ impl SafetyDetector {
 const ALLOWED_EXEC_BINS: &[&str] = &[
     "cargo", "git", "rustc", "susi", "sed", "grep", "rg", "cat", "ls", "find", "fd", "echo", "pwd",
     "df", "du", "lsblk", "free", "uptime", "uname", "hostname", "whoami", "head", "tail", "wc",
-    "stat", "file", "which", "id", "./build-gpu.sh", "build-gpu.sh", "./install.sh", "install.sh", "bash", "sh"
+    "stat", "file", "which", "id", "./build-gpu.sh", "build-gpu.sh", "./install.sh", "install.sh", "bash", "sh", "gh", "curl", "wget", "make", "python", "python3"
 ];
 
 fn c4_block(reason: impl std::fmt::Display) -> EaiError {

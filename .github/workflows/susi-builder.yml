@@ -1,0 +1,90 @@
+name: SUSI Builder OS
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      goal:
+        description: 'Mission goal for SUSI'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  susi-solve:
+    # Run if triggered manually, or if an issue/PR is labeled 'susi-build', or if a comment has '/susi build'
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.issue.labels.*.name, 'susi-build') ||
+      contains(github.event.pull_request.labels.*.name, 'susi-build') ||
+      startsWith(github.event.comment.body, '/susi build')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install SUSI (Bootstrap)
+        run: |
+          # Build SUSI from the current branch
+          chmod +x ./build-gpu.sh
+          ./build-gpu.sh || cargo build --release
+          echo "$HOME/.susi/bin" >> $GITHUB_PATH
+          echo "${{ github.workspace }}/target/release" >> $GITHUB_PATH
+
+      - name: Setup GitHub CLI
+        run: echo "GH_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
+
+      - name: Execute SUSI Mission
+        env:
+          # SUSI needs an inference backend when running in CI without a GPU
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUSI_ENVIRONMENT: ci
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            susi solve "${{ inputs.goal }}"
+          elif [ -n "${{ github.event.issue.number }}" ]; then
+            susi solve "Resolve GitHub Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }} - use 'gh issue view ${{ github.event.issue.number }}' for details."
+          elif [ -n "${{ github.event.pull_request.number }}" ]; then
+            susi solve "Review and fix Pull Request #${{ github.event.pull_request.number }} - use 'gh pr view ${{ github.event.pull_request.number }}' for details."
+          fi
+
+      - name: Commit and Push Changes (If any)
+        run: |
+          git config --global user.name "susi-builder-os[bot]"
+          git config --global user.email "susi-builder-os[bot]@users.noreply.github.com"
+          
+          if [[ -n $(git status --porcelain) ]]; then
+            git add .
+            git commit -m "chore(susi): autonomous mission resolution
+
+            Co-authored-by: SUSI Swarm OS <susi@intellibitz.com>"
+            
+            # If triggered from an issue, push to a new branch and open a PR
+            if [ -n "${{ github.event.issue.number }}" ]; then
+              BRANCH_NAME="susi-mission/issue-${{ github.event.issue.number }}"
+              git checkout -b $BRANCH_NAME
+              git push origin $BRANCH_NAME
+              gh pr create --title "Automated Fix for Issue #${{ github.event.issue.number }}" --body "SUSI has autonomously solved this issue. See traces for details." --base main --head $BRANCH_NAME
+            else
+              # If PR or manual, push directly
+              git push
+            fi
+          else
+            echo "No changes were made by SUSI."
+          fi

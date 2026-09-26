@@ -72,3 +72,13 @@ cargo test --workspace --locked
   work; existing locks are being migrated incrementally.
 - Formal verification (`kani`) and `cargo-geiger` unsafe-tree auditing are
   roadmap items — see `.agents/roadmap.json`.
+
+## Autonomous Self-Development (SUSI Building SUSI)
+
+This repository is structurally designed for SUSI to act as the primary intelligence layer for its own development.
+
+- **Primary Mode (Agentic Resolution)**: When operating on GitHub issues or PRs (e.g., via `.github/workflows/susi-builder.yml`), the SUSI binary MUST use native tools to edit code, execute `cargo` / `./build-gpu.sh` commands, and test itself.
+- **Delegation Protocol (A2A)**: If a capability gap prevents SUSI from directly building a feature (or an ultimate fallback is triggered), it MUST leverage the A2A protocol to invoke compliant external agents (e.g., `antigravity`, `cursor`, `aider`). 
+  - Delegations are written to the `~/.susi/delegations/` ingress directory.
+  - External agents invoked this way are bound to the exact same strict mandates listed in this file.
+- **Continuous Execution**: The `exec_command` native tool explicitly permits `cargo`, `gh`, `bash`, and `sh` to allow SUSI to test itself and manage source control natively without triggering governance violations.
