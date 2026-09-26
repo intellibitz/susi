@@ -1470,11 +1470,21 @@
       "milestone": "solve tell me a fun fact about cats",
       "proof": "STAGED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-153",
+      "milestone": "Local AI ecosystem ownership + install safety: `susi os manage model install|uninstall` with foreground HTTPS-only downloads and managed-dir confinement (d08d5629); `susi os runtime` classifies live AI processes as SUSI-owned (parent chain reaches the daemon) or external, flags processes on a replaced binary, reports nvidia-smi GPU memory and observed /proc model residency (66abc7bf); dev self-install refuses to downgrade the installed binary via ~/.susi/bin/susi.build.json, verified live: a newer debug build was refused and the CUDA release install stayed byte-identical (887e40fb). Test fixes: gmcp tools/list pagination (1b562d6d), host bearer carried into the isolated capability-gap e2e so it passes against a token-enforcing supervised susi-native (e8c6cc18, VC-200-002), bodyless susi-native rejections now name the HTTP status (44fc93cd). fmt, clippy -D warnings, 2965 workspace tests, and xtask verify-architecture all pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-25",
+  "last_verification": "2026-09-27",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
   "version": "0.14.1"
