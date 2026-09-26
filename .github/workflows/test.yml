@@ -76,6 +76,21 @@ jobs:
       - name: Install Linux System Dependencies
         run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev cmake
 
+      - name: Install mold (Linux)
+        run: |
+          set -euo pipefail
+          VER=2.40.4
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64|aarch64) ;;
+            *) echo "Skipping mold on $ARCH"; exit 0 ;;
+          esac
+          NAME="mold-${VER}-${ARCH}-linux"
+          curl -sSfL "https://github.com/rui314/mold/releases/download/v${VER}/${NAME}.tar.gz" \
+            | sudo tar -xz -C /usr/local --strip-components=1
+          mold --version
+          command -v ld.mold
+
       # wasm32-wasip1 lets test_wasm_reflex_hot_patch_end_to_end take the real
       # compile+execute branch instead of skipping (VC-200-002 evidence).
       - name: Install wasm32-wasip1 target
