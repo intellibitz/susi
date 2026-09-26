@@ -46,7 +46,9 @@ pub fn wire_cli_substrate(substrate: &Path) {
     );
     crate::privacy::wire_mac_policy(substrate);
     crate::ambient::start_ambient_indexer(substrate);
-    crate::auto_discovery::auto_prime_ecosystem(substrate);
+    // Catalog priming only: Swarm Cells are long-running servers owned by
+    // the daemon, never spawned per CLI invocation.
+    let _ = crate::discovery_pipeline::prime_catalogs(substrate);
 }
 
 #[cfg(test)]

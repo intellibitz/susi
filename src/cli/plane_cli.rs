@@ -14,7 +14,7 @@ pub(crate) enum PlanePrep {
     Cloud,
     /// Cloud.env + ensure substrate home exists.
     CloudSubstrate,
-    /// Cloud.env + substrate home + `auto_prime_ecosystem`.
+    /// Cloud.env + substrate home + catalog priming (`prime_catalogs`).
     CloudEcosystem,
 }
 
@@ -29,7 +29,7 @@ pub(crate) fn apply_plane_prep(prep: PlanePrep) {
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             if matches!(prep, PlanePrep::CloudEcosystem) {
-                susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+                let _ = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             }
         }
     }

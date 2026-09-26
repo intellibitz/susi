@@ -3,7 +3,7 @@
 //! Monitors `~/.susi/cells/` for filesystem changes using a polling strategy
 //! (no `inotify` dep needed — keeps the build portable across Linux / macOS /
 //! Windows). When a new `.cell`, `.json`, or `.wasm` file appears, the watcher
-//! triggers [`auto_prime_ecosystem`] to pick it up without a daemon restart.
+//! spawns it via [`crate::auto_discovery::spawn_cell`] without a daemon restart.
 //!
 //! The watcher runs in a dedicated background thread and checks for changes
 //! at a configurable interval (default: 5 seconds).
@@ -109,11 +109,9 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
                     .filter_map(|p| p.file_name())
                     .collect::<Vec<_>>(),
             );
-            // Re-run auto-discovery to pick up new cells.
-            // The function is idempotent: already-running cells won't be re-spawned
-            // because the process spawn is fire-and-forget and the OS handles the PID.
-            if let Some(parent) = config.cells_dir.parent() {
-                crate::auto_discovery::auto_prime_ecosystem(parent);
+            // Spawn only the newly added cells; running ones are untouched.
+            for path in &new_files {
+                crate::auto_discovery::spawn_cell(path);
             }
         }
 

@@ -395,7 +395,8 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     // --- Zero-config Auto ---
     let pack = susi_sandbox::extensions::ensure_extensions_substrate();
     let auto_ok = pack.is_ok();
-    susi_daemon::auto_discovery::auto_prime_ecosystem(&susi_paths::SusiDirs::substrate_home());
+    let _ =
+        susi_daemon::discovery_pipeline::prime_catalogs(&susi_paths::SusiDirs::substrate_home());
     out.push(check(
         "zero_config_auto",
         true,

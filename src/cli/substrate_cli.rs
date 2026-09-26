@@ -112,7 +112,7 @@ pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()
             susi_gemi::http_provider::apply_cloud_env_file();
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
-            susi_daemon::auto_discovery::auto_prime_ecosystem(&substrate);
+            let _ = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             print_json(&collect(workspace))?;
         }
     }
