@@ -1446,9 +1446,13 @@ impl SusiDaemon {
                 Self::daemon_units()
             };
             for unit in units {
+                // Best effort: hosts without a user bus print "Failed to connect
+                // to bus" — noise for a stop that has other paths to succeed.
                 let _ = Command::new("systemctl")
                     .args(["--user", "stop"])
                     .arg(&unit)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
                     .status();
             }
         }
