@@ -8,6 +8,8 @@ use crate::susi_core::truth::TruthTransformer;
 use crate::susi_error::{EaiError, EaiResult};
 use serde::Deserialize;
 use std::collections::HashSet;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,6 +28,124 @@ struct CloudAnswer {
     /// Prose, or `{"citations":[...]}` selecting receipts from the mission's
     /// evidence ledger. Only the latter is independently verifiable.
     answer: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalRecoveryCandidate {
+    model_id: String,
+    tier: u8,
+    file_size_bytes: u64,
+}
+
+fn parameter_tier(text: &str) -> Option<u8> {
+    let lower = text.to_ascii_lowercase();
+    [("0.5b", 0), ("1.5b", 1), ("7b", 2)]
+        .into_iter()
+        .find_map(|(needle, tier)| {
+            lower.match_indices(needle).find_map(|(index, _)| {
+                let preceding = lower[..index].chars().next_back();
+                let following = lower[index + needle.len()..].chars().next();
+                let bounded = preceding.is_none_or(|ch| !ch.is_ascii_digit() && ch != '.')
+                    && following.is_none_or(|ch| !ch.is_ascii_digit());
+                bounded.then_some(tier)
+            })
+        })
+}
+
+fn valid_local_gguf(path: &Path) -> Option<u64> {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("gguf"))
+    {
+        return None;
+    }
+    let size = path.metadata().ok()?.len();
+    let mut header = [0_u8; 4];
+    File::open(path).ok()?.read_exact(&mut header).ok()?;
+    (&header == b"GGUF").then_some(size)
+}
+
+fn rank_local_candidates(
+    inventory: &serde_json::Value,
+    available_ram_gb: usize,
+) -> Vec<LocalRecoveryCandidate> {
+    // The runtime itself performs the final allocation check. This admission
+    // gate prevents known-impossible loads while leaving a 25% allowance for
+    // tensors, KV cache, and inference bookkeeping.
+    let memory_budget = (available_ram_gb as u64)
+        .saturating_mul(1024 * 1024 * 1024)
+        .saturating_mul(4)
+        / 5;
+    let mut candidates: Vec<_> = inventory
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|model| {
+            model
+                .get("is_local")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        })
+        .filter_map(|model| {
+            let model_id = model.get("model_id")?.as_str()?;
+            let name = model
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(model_id);
+            let tier = parameter_tier(&format!("{name} {model_id}"))?;
+            let file_size_bytes = valid_local_gguf(Path::new(model_id))?;
+            (file_size_bytes <= memory_budget).then(|| LocalRecoveryCandidate {
+                model_id: model_id.to_string(),
+                tier,
+                file_size_bytes,
+            })
+        })
+        .collect();
+    candidates.sort_by(|left, right| {
+        left.tier
+            .cmp(&right.tier)
+            .then(left.file_size_bytes.cmp(&right.file_size_bytes))
+            .then(left.model_id.cmp(&right.model_id))
+    });
+    candidates.dedup_by(|left, right| left.model_id == right.model_id);
+    candidates
+}
+
+fn local_recovery_models(
+    workspace: &Path,
+    model_hint: Option<&str>,
+    generative: bool,
+    hint_is_provider: bool,
+) -> Vec<Option<String>> {
+    if generative {
+        if let Some(hint) = model_hint.filter(|_| !hint_is_provider) {
+            return vec![Some(hint.to_string())];
+        }
+    }
+
+    let hardware = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
+    let inventory = crate::susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+    let available_ram_gb = if hardware.available_ram_gb == 0 {
+        hardware.ram_gb
+    } else {
+        hardware.available_ram_gb
+    };
+    let mut models: Vec<Option<String>> = rank_local_candidates(&inventory, available_ram_gb)
+        .into_iter()
+        .map(|candidate| Some(candidate.model_id))
+        .collect();
+
+    if let Some(hint) = model_hint.filter(|_| !hint_is_provider) {
+        models.retain(|candidate| candidate.as_deref() != Some(hint));
+        models.insert(0, Some(hint.to_string()));
+    }
+    // No resident tier: retain the automatic attempt because it owns the
+    // hardware-fit provisioning path for a fresh installation.
+    if models.is_empty() {
+        models.push(None);
+    }
+    models
 }
 
 fn answer_text(answer: &serde_json::Value) -> String {
@@ -421,94 +541,106 @@ async fn recover_with_providers(
     );
 
     // ── Local-first policy ────────────────────────────────────────────
-    // Try local GGUF inference BEFORE any cloud provider. This gives the
-    // user the fastest, most private answer and avoids network round-trips
-    // when a local model is available. Cloud is only tried when local
-    // genuinely fails (no model, empty output, or [FAIL] marker).
+    // Try every resident, hardware-fit 0.5B -> 1.5B -> 7B GGUF tier BEFORE
+    // any cloud provider. Cloud is reached only after every local candidate
+    // genuinely fails (load error, timeout, empty output, [FAIL], or truth
+    // verification failure).
     //
     // Exception: generative missions that named a specific cloud provider
     // must honor that request — the response is labeled with the named
     // model, so substituting a local model would mislabel the generator.
     let local_eligible = fallback_local && !(generative && hint_is_provider);
     if local_eligible {
-        eprintln!("[LOCAL-FIRST] Trying local inference before cloud");
-        let prompt = if generative {
-            report.goal.clone()
-        } else {
-            recovery_prompt(&report.goal, &context)
-        };
-        let workspace_owned = workspace.to_path_buf();
-        let local_model = if hint_is_provider {
-            None
-        } else {
-            model_hint.map(str::to_owned)
-        };
-        let local = tokio::time::timeout(timeout, async {
-            let raw = tokio::task::spawn_blocking(move || match local_model.as_deref() {
-                Some(model) => {
-                    crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
-                        &prompt,
-                        &workspace_owned,
-                        model,
-                    )
-                }
-                None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
-                    &prompt,
-                    &workspace_owned,
-                ),
-            })
-            .await
-            .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
-            if raw.trim().is_empty() || raw.contains("[FAIL]") {
-                return Err(EaiError::inference(format!(
-                    "Local inference produced no usable recovery answer: {}",
-                    raw.chars().take(200).collect::<String>()
-                )));
-            }
-            let answer = if generative {
-                CloudAnswer {
-                    status: CompletionStatus::Complete,
-                    answer: serde_json::Value::String(raw),
-                }
+        let local_models =
+            local_recovery_models(workspace, model_hint, generative, hint_is_provider);
+        eprintln!(
+            "[LOCAL-FIRST] Trying {} hardware-fit local inference tier(s) before cloud",
+            local_models.len()
+        );
+        for local_model in local_models {
+            let local_name = local_model.as_deref().unwrap_or("automatic");
+            let provider_name = format!("local:{local_name}");
+            eprintln!("[LOCAL-FIRST] Trying {local_name}");
+            let prompt = if generative {
+                report.goal.clone()
             } else {
-                parse_recovery_answer(&raw).unwrap_or(CloudAnswer {
-                    status: CompletionStatus::Complete,
-                    answer: serde_json::Value::String(raw),
-                })
+                recovery_prompt(&report.goal, &context)
             };
-            verify_recovery_answer(
-                report, "local", answer, &context, registry, workspace, generative,
-            )
-            .await
-        })
-        .await;
+            let workspace_owned = workspace.to_path_buf();
+            let attempted_model = local_model.clone();
+            let local = tokio::time::timeout(timeout, async {
+                let raw = tokio::task::spawn_blocking(move || {
+                    match attempted_model.as_deref() {
+                        Some(model) => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep_with_model(
+                            &prompt,
+                            &workspace_owned,
+                            model,
+                        ),
+                        None => crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning_deep(
+                            &prompt,
+                            &workspace_owned,
+                        ),
+                    }
+                })
+                .await
+                .map_err(|e| EaiError::internal(format!("local recovery worker failed: {e}")))?;
+                if raw.trim().is_empty() || raw.contains("[FAIL]") {
+                    return Err(EaiError::inference(format!(
+                        "Local inference produced no usable recovery answer: {}",
+                        raw.chars().take(200).collect::<String>()
+                    )));
+                }
+                let answer = if generative {
+                    CloudAnswer {
+                        status: CompletionStatus::Complete,
+                        answer: serde_json::Value::String(raw),
+                    }
+                } else {
+                    parse_recovery_answer(&raw).unwrap_or(CloudAnswer {
+                        status: CompletionStatus::Complete,
+                        answer: serde_json::Value::String(raw),
+                    })
+                };
+                verify_recovery_answer(
+                    report,
+                    &provider_name,
+                    answer,
+                    &context,
+                    registry,
+                    workspace,
+                    generative,
+                )
+                .await
+            })
+            .await;
 
-        match local {
-            Ok(Ok((answer, evidence))) => {
-                record_attempt(
+            match local {
+                Ok(Ok((answer, evidence))) => {
+                    record_attempt(
+                        report,
+                        &provider_name,
+                        "LOCAL_ATTEMPT_VERIFIED",
+                        evidence.render_for_gemi(),
+                    );
+                    report.status = "COMPLETE".into();
+                    report.final_answer = answer;
+                    return;
+                }
+                Ok(Err(error)) => record_attempt(
                     report,
-                    "local",
-                    "LOCAL_ATTEMPT_VERIFIED",
-                    evidence.render_for_gemi(),
-                );
-                report.status = "COMPLETE".into();
-                report.final_answer = answer;
-                return;
-            }
-            Ok(Err(error)) => {
-                record_attempt(report, "local", "LOCAL_ATTEMPT_FAILED", error.to_string());
-                eprintln!("[LOCAL-FIRST] Local failed, escalating to cloud providers");
-            }
-            Err(_) => {
-                record_attempt(
+                    &provider_name,
+                    "LOCAL_ATTEMPT_FAILED",
+                    error.to_string(),
+                ),
+                Err(_) => record_attempt(
                     report,
-                    "local",
+                    &provider_name,
                     "LOCAL_ATTEMPT_FAILED",
                     "Local recovery attempt timed out".into(),
-                );
-                eprintln!("[LOCAL-FIRST] Local timed out, escalating to cloud providers");
+                ),
             }
         }
+        eprintln!("[LOCAL-FIRST] Local ladder exhausted, escalating to cloud providers");
     }
 
     // ── Cloud provider cascade ────────────────────────────────────────
@@ -1167,5 +1299,52 @@ mod tests {
         let parsed = parse_recovery_answer(raw).unwrap();
         assert!(matches!(parsed.status, CompletionStatus::Complete));
         assert_eq!(answer_text(&parsed.answer), "ok");
+    }
+
+    #[test]
+    fn local_candidates_are_hardware_bounded_and_ranked_by_tier() {
+        use std::io::{Seek, SeekFrom, Write};
+
+        let ws = TempWorkspace::new();
+        let model = |name: &str, size: u64| {
+            let path = ws.0.join(name);
+            let mut file = File::create(&path).unwrap();
+            file.write_all(b"GGUF").unwrap();
+            file.seek(SeekFrom::Start(size.saturating_sub(1))).unwrap();
+            file.write_all(&[0]).unwrap();
+            path
+        };
+        let small = model("qwen-0.5b-q4.gguf", 100);
+        let medium = model("qwen-1.5b-q4.gguf", 200);
+        let large = model("qwen-7b-q4.gguf", 900_000_000);
+        let unsupported = model("qwen-14b-q4.gguf", 300);
+        let inventory = serde_json::json!([
+            {"name":"7B", "model_id":large, "is_local":true},
+            {"name":"14B", "model_id":unsupported, "is_local":true},
+            {"name":"1.5B", "model_id":medium, "is_local":true},
+            {"name":"0.5B", "model_id":small, "is_local":true},
+            {"name":"remote-0.5B", "model_id":"remote", "is_local":false}
+        ]);
+
+        let candidates = rank_local_candidates(&inventory, 1);
+        assert_eq!(
+            candidates
+                .iter()
+                .map(|candidate| candidate.tier)
+                .collect::<Vec<_>>(),
+            [0, 1]
+        );
+        assert!(candidates
+            .iter()
+            .all(|candidate| !candidate.model_id.contains("14b")));
+    }
+
+    #[test]
+    fn parameter_tiers_do_not_misclassify_larger_models() {
+        assert_eq!(parameter_tier("Qwen2.5-0.5B"), Some(0));
+        assert_eq!(parameter_tier("Qwen2.5-1.5B"), Some(1));
+        assert_eq!(parameter_tier("Qwen2.5-7B"), Some(2));
+        assert_eq!(parameter_tier("Qwen2.5-17B"), None);
+        assert_eq!(parameter_tier("Llama-70B"), None);
     }
 }
