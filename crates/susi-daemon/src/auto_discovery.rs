@@ -32,6 +32,23 @@ fn track(path: PathBuf, spawned: std::io::Result<Child>) {
     }
 }
 
+/// Stop every tracked process cell (daemon shutdown). Returns how many
+/// were terminated.
+pub fn stop_all_cells() -> usize {
+    let cells: Vec<Child> = running_cells()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .drain()
+        .map(|(_, child)| child)
+        .collect();
+    let stopped = cells.len();
+    for mut child in cells {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    stopped
+}
+
 /// Stop the process cell spawned for `path` (its file was removed).
 /// Returns `true` when a running process was found and terminated.
 /// In-process WASM cells run to completion and are not tracked.

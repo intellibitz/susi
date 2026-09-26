@@ -978,6 +978,11 @@ impl SusiDaemon {
         }
 
         eprintln!("[SusiDaemon] Graceful shutdown initiated");
+        // Swarm Cells are the daemon's children; never orphan them.
+        let stopped = crate::auto_discovery::stop_all_cells();
+        if stopped > 0 {
+            eprintln!("[SusiDaemon] Stopped {stopped} Swarm Cell(s)");
+        }
         crate::supervisor::shutdown_all();
         // The monitor is shutdown-aware (aborts mid-pass, never spawns
         // or saves once the flag lands) — join it so no stale write or
