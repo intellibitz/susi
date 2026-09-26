@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use susi_abi::cell::SwarmCell;
+use susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
 use susi_abi::swarm::SwarmRole;
 use susi_abi::syscall::{
     token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
@@ -14,12 +14,13 @@ use susi_gemi::engine::GemiEngine;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("susi-gemi micro-daemon starting on 127.0.0.1:9091");
+    let bind_addr = cell_bind_addr(cell_ports::GEMI);
+    println!("susi-gemi micro-daemon starting on {bind_addr}");
 
     let mut cell = SwarmCell::new(
         "gemi-infer-01".to_string(),
         SwarmRole::InferenceDriver,
-        "tcp://127.0.0.1:9091".to_string(),
+        format!("tcp://{bind_addr}"),
     );
 
     // Register capabilities
@@ -41,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(susi_gemi::susi_config::SusiConfig::ensure_api_auth_token_seeded)
         .into();
 
-    let listener = TcpListener::bind("127.0.0.1:9091").await?;
+    let listener = TcpListener::bind(bind_addr).await?;
     println!("susi-gemi Swarm Cell ready and listening...");
 
     loop {
