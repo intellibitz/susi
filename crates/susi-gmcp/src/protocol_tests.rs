@@ -63,14 +63,22 @@ async fn current_discovery_tools_structured_output_and_errors() {
     echo(&service);
     let mut wire = wire(service).await;
     discover(&mut wire).await;
-    send(&mut wire, modern(2, "tools/list", json!({}))).await;
-    let listed = recv(&mut wire).await;
-    assert!(listed["result"]["tools"]
-        .as_array()
-        .unwrap()
+    // The built-in registry exceeds one page, so walk every cursor.
+    let mut tools = Vec::new();
+    let mut params = json!({});
+    for id in 100.. {
+        send(&mut wire, modern(id, "tools/list", params)).await;
+        let listed = recv(&mut wire).await;
+        assert!(listed["result"].get("ttlMs").is_some(), "{listed}");
+        tools.extend(listed["result"]["tools"].as_array().unwrap().clone());
+        match listed["result"]["nextCursor"].as_str() {
+            Some(cursor) => params = json!({"cursor": cursor}),
+            None => break,
+        }
+    }
+    assert!(tools
         .iter()
         .any(|t| t["name"] == "test_echo" && t["inputSchema"]["type"] == "object"));
-    assert!(listed["result"].get("ttlMs").is_some(), "{listed}");
     send(
         &mut wire,
         modern(
