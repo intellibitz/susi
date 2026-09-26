@@ -121,6 +121,15 @@ async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
         .unwrap_or_else(|e| Err(format!("tool task failed: {e}")))
     };
     let latency_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
+    // The tool registry flattens failures (EaiError display, capability
+    // gaps, reflex errors) into text; never report those as a success.
+    let outcome = outcome.and_then(|text| {
+        if looks_like_tool_failure(&text) {
+            Err(text)
+        } else {
+            Ok(text)
+        }
+    });
     match outcome {
         Ok(text) => SyscallResponse {
             id: req.id,
@@ -138,5 +147,42 @@ async fn handle_tool(req: SyscallRequest) -> SyscallResponse {
             latency_us,
             message: Some(e),
         },
+    }
+}
+
+/// True when tool output is a flattened failure rather than a result:
+/// registry markers anywhere, or an `EaiError`-style display near the head
+/// (same rule as `GemiEngine::looks_like_error_text`).
+fn looks_like_tool_failure(text: &str) -> bool {
+    let t = text.trim_start();
+    if t.starts_with("[CAPABILITY_GAP]")
+        || t.starts_with("[RECOVERY]")
+        || t.starts_with("[FAIL]")
+        || t.starts_with("Reflex Error:")
+    {
+        return true;
+    }
+    let head: String = t.chars().take(64).collect();
+    head.contains(" Error:") || head.contains(" Violation:")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::looks_like_tool_failure;
+
+    #[test]
+    fn classifies_flattened_tool_failures() {
+        assert!(looks_like_tool_failure(
+            "[CAPABILITY_GAP] Tool 'x' missing from Meta-Substrate."
+        ));
+        assert!(looks_like_tool_failure("Reflex Error: invalid reflex name"));
+        assert!(looks_like_tool_failure(
+            "Sandbox Error: path escapes workspace"
+        ));
+        assert!(looks_like_tool_failure("Governance Violation: denied"));
+        assert!(!looks_like_tool_failure("SUSI Engine Version: 0.14.0"));
+        assert!(!looks_like_tool_failure(
+            "Wrote 2048 bytes to notes/incident-review.txt; the file quotes an old Sandbox Error: line"
+        ));
     }
 }
