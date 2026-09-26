@@ -318,6 +318,15 @@ impl PlaneHandler for GemiPlaneHandler {
                 "pid": std::process::id(),
                 "models": crate::engine::InferenceHost::loaded_models(),
             })),
+            topics::GEMI_MODELS_PRELOAD | topics::GEMI_MODELS_UNLOAD => {
+                let model = payload.get("model").and_then(|v| v.as_str()).unwrap_or("");
+                let result = if topic == topics::GEMI_MODELS_PRELOAD {
+                    crate::engine::InferenceHost::preload(model)
+                } else {
+                    crate::engine::InferenceHost::unload(model)
+                };
+                result.map_err(|e| e.to_string())
+            }
             topics::GEMI_TELEMETRY_SAMPLE => {
                 let snap = telemetry::sample();
                 serde_json::to_value(snap).map_err(|e| e.to_string())

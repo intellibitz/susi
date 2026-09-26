@@ -69,6 +69,8 @@ pub mod topics {
     pub const GEMI_ALPHA_TRAIN: &str = "gemi.alpha.train";
     pub const GEMI_TELEMETRY_SAMPLE: &str = "gemi.telemetry.sample";
     pub const GEMI_MODELS_LOADED: &str = "gemi.models.loaded";
+    pub const GEMI_MODELS_PRELOAD: &str = "gemi.models.preload";
+    pub const GEMI_MODELS_UNLOAD: &str = "gemi.models.unload";
     pub const GEMI_CLOUD_APPLY_ENV: &str = "gemi.cloud.apply_env";
     pub const GEMI_CLOUD_REGISTER: &str = "gemi.cloud.register";
     pub const GEMI_CLOUD_FAILOVER: &str = "gemi.cloud.failover";
@@ -614,6 +616,16 @@ pub mod gemi {
     /// `InferenceHost::loaded_models`).
     pub fn loaded_models() -> Value {
         req_ok(topics::GEMI_MODELS_LOADED, json!({}))
+    }
+
+    /// Load `model` into the GEMI plane's inference cache.
+    pub fn preload_model(model: &str) -> Result<Value, String> {
+        req(topics::GEMI_MODELS_PRELOAD, json!({ "model": model }))
+    }
+
+    /// Evict `model` from the GEMI plane's inference cache.
+    pub fn unload_model(model: &str) -> Result<Value, String> {
+        req(topics::GEMI_MODELS_UNLOAD, json!({ "model": model }))
     }
 
     pub fn apply_cloud_env_file() {

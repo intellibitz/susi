@@ -60,6 +60,9 @@ struct Entry<T> {
 
 type Slot<T> = Arc<Mutex<Option<Entry<T>>>>;
 
+/// Weights removed by [`ModelCache::evict`] and the device they live on.
+pub type Evicted<T> = (Arc<RwLock<T>>, Device);
+
 pub struct ModelCache<T> {
     slots: Mutex<HashMap<PathBuf, Slot<T>>>,
 }
@@ -112,6 +115,27 @@ impl<T> ModelCache<T> {
             .collect();
         out.sort_by(|a, b| a["path"].to_string().cmp(&b["path"].to_string()));
         out
+    }
+
+    /// Remove the cached weights for `path` and hand them to the caller, who
+    /// decides where the final drop happens: GPU memory must be freed on a
+    /// thread with the device's context bound (cudarc's `CudaSlice` drop
+    /// does not bind it and silently records `CUDA_ERROR_INVALID_CONTEXT`,
+    /// leaking the allocation). Other holders of the returned `Arc` are
+    /// in-flight requests. `Ok(None)` = not loaded. A slot mid-load is refused rather
+    /// than waited on. The slot itself stays in the map so a concurrent
+    /// `get_or_load` never loads into an orphaned slot.
+    pub fn evict(&self, path: &Path) -> EaiResult<Option<Evicted<T>>> {
+        let path = path.canonicalize()?;
+        let Some(slot) = self.slots.lock().get(&path).cloned() else {
+            return Ok(None);
+        };
+        let Some(mut entry) = slot.try_lock() else {
+            return Err(EaiError::inference(
+                "model is still loading; retry after the load finishes",
+            ));
+        };
+        Ok(entry.take().map(|evicted| (evicted.value, evicted.device)))
     }
 
     pub fn get_or_load(
@@ -277,6 +301,29 @@ mod tests {
             .is_err());
         // A failed load leaves an empty slot, which is not reported.
         assert_eq!(cache.snapshot(|_| serde_json::json!({})).len(), 1);
+    }
+
+    #[test]
+    fn evict_hands_back_weights_and_frees_the_slot() {
+        let file = Fixture::new();
+        let cache = ModelCache::<u32>::default();
+        assert!(cache.evict(&file.0).unwrap().is_none());
+        let held = cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(1))
+            .unwrap();
+        let (weights, device) = cache.evict(&file.0).unwrap().unwrap();
+        // The evicted handle plus the in-flight holder.
+        assert_eq!(Arc::strong_count(&weights), 2);
+        assert!(device.same_device(&Device::Cpu));
+        drop(weights);
+        assert!(cache.snapshot(|_| serde_json::json!({})).is_empty());
+        // The in-flight holder keeps working on its own handle.
+        assert_eq!(*held.read(), 1);
+        assert!(cache.evict(&file.0).unwrap().is_none());
+        let reloaded = cache
+            .get_or_load(&file.0, &Device::Cpu, 32, |_| Ok(2))
+            .unwrap();
+        assert_eq!(*reloaded.read(), 2);
     }
 
     #[test]

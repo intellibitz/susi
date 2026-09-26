@@ -327,6 +327,8 @@ async fn handle_gemi_request(
                     "/context-graph/compact",
                     "/telemetry",
                     "/runtime/models",
+                    "/runtime/models/load",
+                    "/runtime/models/unload",
                     "/broker/grant",
                     "/broker/request",
                     "/broker/negotiate",
@@ -336,6 +338,31 @@ async fn handle_gemi_request(
                 ]
             });
             Ok(json_response(StatusCode::OK, &api_status))
+        }
+        (&Method::POST, "/runtime/models/load" | "/runtime/models/unload") => {
+            let Some(model) = serde_json::from_slice::<serde_json::Value>(&body_bytes)
+                .ok()
+                .and_then(|v| v.get("model").and_then(|m| m.as_str()).map(str::to_string))
+            else {
+                return Ok(api_error(
+                    StatusCode::BAD_REQUEST,
+                    "body must be {\"model\": \"<model id>\"}",
+                ));
+            };
+            let load = path == "/runtime/models/load";
+            let result = tokio::task::spawn_blocking(move || {
+                if load {
+                    susi_core::plane_bus::gemi::preload_model(&model)
+                } else {
+                    susi_core::plane_bus::gemi::unload_model(&model)
+                }
+            })
+            .await
+            .unwrap_or_else(|_| Err("model lifecycle task failed".to_string()));
+            match result {
+                Ok(payload) => Ok(json_response(StatusCode::OK, &payload)),
+                Err(message) => Ok(api_error(StatusCode::BAD_REQUEST, &message)),
+            }
         }
         (&Method::GET, "/runtime/models") => {
             let payload = tokio::task::spawn_blocking(susi_core::plane_bus::gemi::loaded_models)

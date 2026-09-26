@@ -199,14 +199,30 @@ fn parse_gpu_apps(csv: &str) -> BTreeMap<u32, u64> {
 /// Ask the daemon's GEMI plane which weights its inference cache holds
 /// (`GET /runtime/models`). This is the authoritative "loaded" signal; the
 /// `/proc` scan above only sees mapped or open files.
-fn daemon_loaded_models() -> Result<serde_json::Value, String> {
+pub(crate) fn daemon_loaded_models() -> Result<serde_json::Value, String> {
+    let value = daemon_request("GET", "/runtime/models", None, 3)?;
+    if value.get("models").is_some_and(serde_json::Value::is_array) {
+        Ok(value)
+    } else {
+        Err("response has no `models` list".to_string())
+    }
+}
+
+/// One authenticated loopback call to the daemon's GEMI port. Returns the
+/// JSON body on 2xx, else the server's error message (or the status line).
+pub(crate) fn daemon_request(
+    method: &str,
+    path: &str,
+    body: Option<&serde_json::Value>,
+    timeout_secs: u64,
+) -> Result<serde_json::Value, String> {
     use std::io::{Read, Write};
     let port = susi_config::SusiConfig::load_global()
         .unwrap_or_default()
         .gemi_port();
     let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port);
-    let timeout = std::time::Duration::from_secs(3);
-    let mut stream = std::net::TcpStream::connect_timeout(&addr, timeout)
+    let timeout = std::time::Duration::from_secs(timeout_secs);
+    let mut stream = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3))
         .map_err(|e| format!("GEMI unreachable on {addr}: {e}"))?;
     let _ = stream.set_read_timeout(Some(timeout));
     let token = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
@@ -217,33 +233,44 @@ fn daemon_loaded_models() -> Result<serde_json::Value, String> {
     } else {
         format!("Authorization: Bearer {token}\r\n")
     };
+    let payload = body.map(serde_json::Value::to_string).unwrap_or_default();
+    let content = if body.is_some() {
+        format!(
+            "Content-Type: application/json\r\nContent-Length: {}\r\n",
+            payload.len()
+        )
+    } else {
+        String::new()
+    };
     stream
         .write_all(
-            format!("GET /runtime/models HTTP/1.0\r\nHost: 127.0.0.1\r\n{auth}\r\n").as_bytes(),
+            format!("{method} {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n{auth}{content}\r\n{payload}")
+                .as_bytes(),
         )
         .map_err(|e| e.to_string())?;
     let mut raw = String::new();
     stream.read_to_string(&mut raw).map_err(|e| e.to_string())?;
-    parse_loaded_response(&raw)
+    parse_response(&raw)
 }
 
-fn parse_loaded_response(raw: &str) -> Result<serde_json::Value, String> {
+fn parse_response(raw: &str) -> Result<serde_json::Value, String> {
     let (head, body) = raw
         .split_once("\r\n\r\n")
         .ok_or_else(|| "malformed HTTP response".to_string())?;
     let status = head.lines().next().unwrap_or_default().trim();
-    if !(status.starts_with("HTTP/1.1 2") || status.starts_with("HTTP/1.0 2")) {
-        return Err(status.to_string());
+    let value = serde_json::from_str::<serde_json::Value>(body);
+    if status.starts_with("HTTP/1.1 2") || status.starts_with("HTTP/1.0 2") {
+        return value.map_err(|e| e.to_string());
     }
-    let value: serde_json::Value = serde_json::from_str(body).map_err(|e| e.to_string())?;
-    match value.get("models") {
-        Some(models) if models.is_array() => Ok(value),
-        Some(_) | None => Err(value
-            .get("error")
-            .and_then(|e| e.as_str())
-            .unwrap_or("response has no `models` list")
-            .to_string()),
-    }
+    Err(value
+        .ok()
+        .and_then(|v| {
+            v.pointer("/error/message")
+                .or_else(|| v.get("error"))
+                .and_then(|m| m.as_str())
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| status.to_string()))
 }
 
 /// Build the runtime view as JSON. Shared by `susi os runtime` and the
@@ -573,22 +600,24 @@ mod tests {
     }
 
     #[test]
-    fn loaded_response_requires_success_and_a_models_list() {
-        let ok = parse_loaded_response(
+    fn responses_surface_body_on_success_and_server_message_on_error() {
+        let ok = parse_response(
             "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\n\r\n{\"pid\":9,\"models\":[]}",
         )
         .unwrap();
         assert_eq!(ok["pid"], 9);
         assert_eq!(
-            parse_loaded_response("HTTP/1.1 401 Unauthorized\r\n\r\n{}").unwrap_err(),
+            parse_response("HTTP/1.1 401 Unauthorized\r\n\r\n").unwrap_err(),
             "HTTP/1.1 401 Unauthorized"
         );
-        assert!(
-            parse_loaded_response("HTTP/1.1 200 OK\r\n\r\n{\"error\":\"x\"}")
-                .unwrap_err()
-                .contains('x')
+        assert_eq!(
+            parse_response(
+                "HTTP/1.1 400 Bad Request\r\n\r\n{\"error\":{\"message\":\"model 'x' not found\"}}"
+            )
+            .unwrap_err(),
+            "model 'x' not found"
         );
-        assert!(parse_loaded_response("garbage").is_err());
+        assert!(parse_response("garbage").is_err());
     }
 
     #[test]

@@ -684,6 +684,77 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "cuda")]
+    fn own_gpu_mib() -> u64 {
+        let out = std::process::Command::new("nvidia-smi")
+            .args([
+                "--query-compute-apps=pid,used_memory",
+                "--format=csv,noheader,nounits",
+            ])
+            .output()
+            .unwrap();
+        let me = std::process::id().to_string();
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.split_once(','))
+            .filter(|(pid, _)| pid.trim() == me)
+            .map(|(_, mib)| mib.trim().parse::<u64>().unwrap_or(0))
+            .sum()
+    }
+
+    /// Regression: weights loaded on one thread and evicted on another (the
+    /// daemon's request threads) must actually free their VRAM. Before the
+    /// fix the drop failed with `CUDA_ERROR_INVALID_CONTEXT` and leaked.
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn evicting_on_another_thread_returns_vram_to_the_driver() {
+        let path = crate::susi_paths::SusiDirs::data_dir()
+            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let Ok(device) = candle_core::Device::new_cuda(0) else {
+            eprintln!("skipping: no CUDA device");
+            return;
+        };
+        if !path.is_file() {
+            eprintln!("skipping: {} not present on this host", path.display());
+            return;
+        }
+        let baseline = own_gpu_mib();
+        for _ in 0..2 {
+            let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+                .register_task("vram_release_test", "vram");
+            let model = InferenceHost::get_model(&path, &device, &task).unwrap();
+            let placement = model.read().weights.gpu_layers();
+            drop(model);
+            if !placement.is_some_and(|(on_gpu, total)| on_gpu == total && total > 0) {
+                // Not enough free VRAM (another process holds it): the loader
+                // split layers onto the CPU, so VRAM deltas prove nothing.
+                eprintln!("skipping: model not fully GPU-resident ({placement:?})");
+                if let Ok(Some((weights, device))) = InferenceHost::cache().evict(&path) {
+                    let _ = super::runtime_substrate::release_on_device(weights, &device);
+                }
+                return;
+            }
+            let loaded = own_gpu_mib();
+            assert!(
+                loaded > baseline + 200,
+                "load must allocate VRAM: {baseline} -> {loaded}"
+            );
+            let path = path.clone();
+            let released = std::thread::spawn(move || {
+                let (weights, device) = InferenceHost::cache().evict(&path).unwrap().unwrap();
+                super::runtime_substrate::release_on_device(weights, &device)
+            })
+            .join()
+            .unwrap();
+            assert_eq!(released, Ok(true));
+            let after = own_gpu_mib();
+            assert!(
+                after < baseline + 100,
+                "VRAM must return near baseline: {baseline} -> {loaded} -> {after}"
+            );
+        }
+    }
+
     #[test]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
         let path = crate::susi_paths::SusiDirs::data_dir()

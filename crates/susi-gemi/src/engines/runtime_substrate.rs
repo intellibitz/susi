@@ -130,10 +130,132 @@ impl PromptFormat {
 
 pub struct InferenceHost;
 
+/// Free evicted weights on `device` and return the memory to the driver.
+///
+/// cudarc's `CudaSlice` drop calls `cuMemFreeAsync` without binding the
+/// device context and only *records* a failure, so dropping weights on a
+/// thread with no current context (the daemon's request threads) leaks the
+/// allocation with `CUDA_ERROR_INVALID_CONTEXT`. Bind first, drop, then
+/// synchronize — which surfaces any recorded free error — and trim the
+/// device's memory pool so the VRAM is usable by other programs, not just
+/// reserved for this process. `Ok(false)` when `device` is not CUDA.
+#[cfg(feature = "cuda")]
+#[allow(unsafe_code)]
+pub(super) fn release_on_device<T>(
+    weights: Arc<T>,
+    device: &candle_core::Device,
+) -> Result<bool, String> {
+    use candle_core::cuda_backend::cudarc::driver::result;
+    let candle_core::Device::Cuda(cuda) = device else {
+        drop(weights);
+        return Ok(false);
+    };
+    let stream = cuda.cuda_stream();
+    let ctx = stream.context();
+    ctx.bind_to_thread().map_err(|e| e.to_string())?;
+    drop(weights);
+    // Completes the async frees and reports any error recorded by a drop.
+    ctx.synchronize().map_err(|e| e.to_string())?;
+    // SAFETY: `cu_device` comes from a live `CudaContext` that `ctx` keeps
+    // alive for this whole call, and the context is bound to this thread.
+    // `cuDeviceGetMemPool` returns the driver-owned current pool, which is
+    // never freed or destroyed here, and `cuMemPoolTrimTo` only releases
+    // reservations that no live allocation uses.
+    unsafe {
+        let pool = result::device::get_mem_pool(ctx.cu_device()).map_err(|e| e.to_string())?;
+        result::mem_pool::trim_to(pool, 0).map_err(|e| e.to_string())?;
+    }
+    Ok(true)
+}
+
+#[cfg(not(feature = "cuda"))]
+#[allow(clippy::unnecessary_wraps)] // mirrors the CUDA variant's signature
+pub(super) fn release_on_device<T>(
+    weights: Arc<T>,
+    _device: &candle_core::Device,
+) -> Result<bool, String> {
+    drop(weights);
+    Ok(false)
+}
+
 impl InferenceHost {
-    fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
+    pub(super) fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
         static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
         CACHE.get_or_init(Default::default)
+    }
+
+    /// Resolve an operator-supplied model id (a stem or file name, never a
+    /// path) to its weights, the same way inference resolves `model`.
+    fn resolve_model_id(model_id: &str) -> EaiResult<std::path::PathBuf> {
+        let id = model_id.trim();
+        if id.is_empty() || id.contains('/') || id.contains('\\') {
+            return Err(EaiError::inference(
+                "model must be a model id or file name, not a path",
+            ));
+        }
+        let id = id.strip_suffix(".gguf").unwrap_or(id);
+        susi_gemi_models::ModelManager::get_model_path(id)
+            .ok_or_else(|| EaiError::inference(format!("model '{id}' not found")))
+    }
+
+    /// Load a model into the cache on the device inference would pick for
+    /// it, so the next request for it is served warm.
+    pub fn preload(model_id: &str) -> EaiResult<serde_json::Value> {
+        let path = Self::resolve_model_id(model_id)?;
+        let file_size = std::fs::metadata(&path)
+            .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX))
+            .unwrap_or(0);
+        let device = crate::hardware::HardwareProfiler::get_dynamic_device(file_size);
+        let task = crate::susi_core::task_manager::SwarmTaskManager::global()
+            .register_task("model_preload", &path.to_string_lossy());
+        match Self::get_model(&path, &device, &task) {
+            Ok(_) => {
+                task.mark_completed("model preloaded");
+                Ok(serde_json::json!({ "loaded": path }))
+            }
+            Err(error) => {
+                task.mark_failed(&error.to_string());
+                Err(error)
+            }
+        }
+    }
+
+    /// Evict a model from the cache.
+    pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
+        let path = Self::resolve_model_id(model_id)?;
+        let evicted = Self::cache()
+            .evict(&path)
+            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let Some((weights, device)) = evicted else {
+            return Ok(serde_json::json!({
+                "path": path,
+                "unloaded": false,
+                "in_flight_users": null,
+                "gpu_pool": "not_applicable",
+            }));
+        };
+        let in_flight = Arc::strong_count(&weights).saturating_sub(1);
+        // Weights a running request still holds are freed by that request's
+        // thread, which has the context bound; only trim once nothing does.
+        let gpu_pool = if in_flight > 0 {
+            drop(weights);
+            "pending_in_flight"
+        } else {
+            match release_on_device(weights, &device) {
+                Ok(true) => "trimmed",
+                Ok(false) => "not_applicable",
+                Err(error) => {
+                    tracing::warn!(%error, "GPU memory release failed after unload");
+                    "release_failed"
+                }
+            }
+        };
+        Ok(serde_json::json!({
+            "path": path,
+            "unloaded": true,
+            "in_flight_users": in_flight,
+            "gpu_pool": gpu_pool,
+        }))
     }
 
     /// Weights currently held by this process's inference cache: the

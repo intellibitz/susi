@@ -107,6 +107,14 @@ pub enum OsModelAction {
     Uninstall {
         name: String,
     },
+    /// Load a model into the daemon's inference cache (warm start)
+    Load {
+        name: String,
+    },
+    /// Evict a model from the daemon's inference cache, freeing its memory
+    Unload {
+        name: String,
+    },
     Prefer {
         name: String,
     },
@@ -235,6 +243,39 @@ fn manage(resource: OsManageCommands, workspace: &Path) -> Result<()> {
                     uninstall_managed_model(&name)?;
                     return Ok(());
                 }
+                OsModelAction::Load { name } => {
+                    // Large models can take minutes to read and place.
+                    let result = super::os_runtime::daemon_request(
+                        "POST",
+                        "/runtime/models/load",
+                        Some(&serde_json::json!({ "model": name })),
+                        1800,
+                    )
+                    .map_err(anyhow::Error::msg)?;
+                    println!(
+                        "loaded {}",
+                        result["loaded"].as_str().unwrap_or(name.as_str())
+                    );
+                    return Ok(());
+                }
+                OsModelAction::Unload { name } => {
+                    let result = super::os_runtime::daemon_request(
+                        "POST",
+                        "/runtime/models/unload",
+                        Some(&serde_json::json!({ "model": name })),
+                        30,
+                    )
+                    .map_err(anyhow::Error::msg)?;
+                    let path = result["path"].as_str().unwrap_or(name.as_str());
+                    match (result["unloaded"].as_bool(), result["in_flight_users"].as_u64()) {
+                        (Some(true), Some(0) | None) => println!("unloaded {path}"),
+                        (Some(true), Some(users)) => println!(
+                            "unloaded {path}; memory is released when {users} in-flight request(s) finish"
+                        ),
+                        (Some(false) | None, _) => println!("{path} was not loaded"),
+                    }
+                    return Ok(());
+                }
                 OsModelAction::Prefer { name } => model_cli::ModelCommands::Prefer { model: name },
                 OsModelAction::Configure { name, file } => {
                     model_cli::ModelCommands::Configure { model: name, file }
@@ -321,6 +362,24 @@ fn uninstall_managed_model(name: &str) -> Result<()> {
         .map_err(|error| anyhow::anyhow!("managed model `{name}` not found: {error}"))?;
     if canonical.parent() != Some(models_dir.as_path()) || !canonical.is_file() {
         anyhow::bail!("refusing to remove a model outside SUSI-managed storage");
+    }
+    let daemon_running =
+        susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir()).is_some();
+    if daemon_running {
+        let loaded = super::os_runtime::daemon_loaded_models().map_err(|error| {
+            anyhow::anyhow!("cannot confirm `{name}` is not loaded by the daemon: {error}")
+        })?;
+        let canonical_str = canonical.to_string_lossy();
+        if loaded["models"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|m| m["path"].as_str() == Some(canonical_str.as_ref()))
+        {
+            anyhow::bail!(
+                "`{name}` is loaded by the daemon; run `susi os manage model unload {name}` first"
+            );
+        }
     }
     if susi_gemi::ModelManager::get_selected_model(None)
         .as_deref()
@@ -485,7 +544,7 @@ fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
         "control": {
             "runtime": "susi os runtime [--json]",
             "services": "susi os manage service <status|start|stop|restart|logs>",
-            "models": "susi os manage model <list|doctor|install|uninstall|configure|reset|prefer|local>",
+            "models": "susi os manage model <list|doctor|install|uninstall|load|unload|configure|reset|prefer|local>",
             "agents": "susi os manage agent <list|doctor|configure|reset|run|tasks|cancel>",
             "frameworks": "susi os manage framework <list|doctor|configure|reset|run|tasks|cancel>",
             "mcp": "susi os manage mcp <list|doctor|install|uninstall|configure|reset|status>",
