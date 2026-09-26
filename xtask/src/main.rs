@@ -83,6 +83,8 @@ fn main() {
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
+    // Build args (incl. injected GPU features) for the install marker.
+    let mut final_features: Vec<String> = Vec::new();
 
     if is_build {
         println!("xtask: cargo build running GPU detection...");
@@ -110,6 +112,7 @@ fn main() {
             final_args.push(arg);
         }
         cmd.args(&final_args);
+        final_features = final_args;
 
         if let Some(cv) = cudarc_ver {
             cmd.env("CUDARC_CUDA_VERSION", cv);
@@ -205,6 +208,24 @@ fn main() {
                 }
 
                 println!("xtask: Successfully installed latest susi to your local system.");
+
+                // Record how the installed binary was built so a later dev
+                // self-install refuses to downgrade it (susi-sandbox
+                // `auto_install::BUILD_MARKER`).
+                let accelerator = ["cuda", "metal", "mkl"].into_iter().find(|accel| {
+                    final_features.iter().any(|arg| {
+                        arg.trim_start_matches("--features")
+                            .trim_start_matches('=')
+                            .split([',', ' '])
+                            .any(|feature| feature == *accel)
+                    })
+                });
+                let marker = format!(
+                    "{{\"profile\":\"{}\",\"accelerator\":{}}}",
+                    profile_dir,
+                    accelerator.map_or_else(|| "null".to_string(), |a| format!("\"{a}\""))
+                );
+                let _ = fs::write(bin_dir.join("susi.build.json"), marker);
 
                 // Seed the host trust anchor so the next `susi start` does not
                 // treat a fresh install as a binary-signature change.

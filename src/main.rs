@@ -158,7 +158,7 @@ fn main() -> std::process::ExitCode {
 
     // Composition root (CLI): hooks → packs → cloud.env → auto-prime.
     // See ARCHITECTURE.md and susi_daemon::composition.
-    susi_sandbox::auto_install::push_to_hardware_if_dev_build();
+    susi_sandbox::auto_install::push_to_hardware_if_dev_build(cli::build_identity());
     let substrate = susi_paths::SusiDirs::substrate_home();
     susi_daemon::composition::wire_cli_substrate(&substrate);
     #[cfg(all(feature = "tokio-console", tokio_unstable))]
