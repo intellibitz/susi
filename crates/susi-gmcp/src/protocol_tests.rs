@@ -413,3 +413,57 @@ async fn task_tool_returns_handle_and_accepts_midflight_input() {
     }
     panic!("task never completed");
 }
+
+/// The blocking peer client (`susi_core::mcp_client`) against the real
+/// Streamable HTTP service: version negotiation from the `initialize`
+/// result, the tool call itself, and session release via `DELETE`.
+#[tokio::test(flavor = "multi_thread")]
+async fn peer_client_round_trip_negotiates_and_releases_session() {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use tower_service::Service;
+    let service = service();
+    echo(&service);
+    let http = crate::server::http_service(service);
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let log = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let (http, log) = (http.clone(), log.clone());
+            tokio::spawn(async move {
+                let svc = hyper::service::service_fn(move |req| {
+                    let (mut http, log) = (http.clone(), log.clone());
+                    async move {
+                        let method = req.method().clone();
+                        let response = http.call(req).await?;
+                        log.lock().unwrap().push((method, response.status()));
+                        Ok::<_, std::convert::Infallible>(response)
+                    }
+                });
+                let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
+                    .serve_connection(TokioIo::new(stream), svc)
+                    .await;
+            });
+        }
+    });
+    let result = tokio::task::spawn_blocking(move || {
+        crate::susi_core::mcp_client::call_tool(
+            &addr.to_string(),
+            "test_echo",
+            &json!({"ping": "pong"}),
+            None,
+        )
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result["structuredContent"], json!({"ping": "pong"}));
+    let seen = seen.lock().unwrap();
+    assert!(
+        seen.iter()
+            .any(|(m, s)| m == hyper::Method::DELETE && s.is_success()),
+        "session not released: {seen:?}"
+    );
+}
