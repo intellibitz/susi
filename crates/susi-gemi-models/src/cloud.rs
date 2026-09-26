@@ -133,10 +133,24 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
     if key.is_empty() {
         return Err("API key must not be empty".into());
     }
+    // cloud.env is one KEY=value per line and every line is exported into
+    // the daemon's environment: a newline in the value would inject extra
+    // variables (e.g. LD_PRELOAD) into every process it spawns.
+    if key.chars().any(char::is_control) {
+        return Err("API key must not contain control characters".into());
+    }
     let env_name = resolve_vendor_env_name(vendor)
         .ok_or_else(|| "vendor name must not be empty".to_string())?;
+    if !env_name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(format!("invalid environment variable name: {env_name}"));
+    }
     let path = upsert_cloud_env_key(&env_name, key)?;
     // Force into this process even if a stale empty value existed.
+    // SAFETY: CLI-scoped env mutation of a validated vendor key name,
+    // performed before any worker threads read the environment.
     unsafe {
         std::env::set_var(&env_name, key);
     }
@@ -195,6 +209,8 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     {
         std::fs::write(&path, body).map_err(|e| e.to_string())?;
     }
+    // SAFETY: CLI-scoped env mutation of a vendor key name, performed
+    // before any worker threads read the environment.
     unsafe {
         std::env::remove_var(&env_name);
     }
@@ -367,6 +383,12 @@ pub fn is_remote_cloud(api_base: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_keys_with_newlines_are_rejected_before_any_write() {
+        let err = super::register_api_key("openai", "sk-live\nLD_PRELOAD=/tmp/x.so").unwrap_err();
+        assert!(err.contains("control characters"), "{err}");
+    }
 
     #[test]
     fn remap_retired_groq_and_gemini_models() {
