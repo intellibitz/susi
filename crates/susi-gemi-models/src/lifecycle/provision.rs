@@ -234,12 +234,34 @@ impl ModelManager {
             ));
         }
         let models_dir = Self::get_models_dir();
-        let mut remaining =
-            HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
-        let targets =
-            Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
+
+        // VRAM‑aware provisioning: select the largest model that fits free VRAM.
+        let vram_budget_bytes = HardwareProfiler::gpu_vram_budget_bytes();
+        if vram_budget_bytes > 0 {
+            if let Some(step) = ladder.iter()
+                .filter(|s| s.expected_bytes <= vram_budget_bytes)
+                .max_by_key(|s| s.expected_bytes)
+            {
+                // Ensure tokenizer is present.
+                if let Err(e) = Self::ensure_ladder_tokenizer(step, &models_dir, &cfg) {
+                    return Err(crate::susi_error::EaiError::inference(e.to_string()));
+                }
+                let path = models_dir.join(&step.hf_file);
+                let complete = Self::is_complete_model_file(&path, step.min_bytes);
+                if !complete {
+                    let url = format!("{}/{}/resolve/main/{}", cfg.hf_base_url(), step.hf_repo, step.hf_file);
+                    ModelDownloadController::global()
+                        .start_download(&url)
+                        .map_err(crate::susi_error::EaiError::inference)?;
+                }
+            }
+        }
+
+        let mut remaining = HardwareProfiler::get_free_disk_bytes(&models_dir).saturating_sub(2_000_000_000);
+        let targets = Self::provisioning_indices(ladder.len(), cfg.model_lifecycle().prefetch_tiers);
         let mut queued = 0;
         let mut errors = Vec::new();
+
         for index in targets {
             let step = &ladder[index];
             let path = models_dir.join(&step.hf_file);

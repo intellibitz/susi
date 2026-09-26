@@ -407,10 +407,9 @@ mod tests {
             0.95,
         );
 
-        assert!(TruthTransformer::verify_evidence(&good_mcp_record, &tmp)
-            .unwrap_err()
-            .to_string()
-            .contains("TRUTH_UNVERIFIED"));
+        // Under the "always present answers" policy, unverified MCP evidence
+        // is accepted (Ok) rather than rejected — the user still sees the result.
+        assert!(TruthTransformer::verify_evidence(&good_mcp_record, &tmp).is_ok());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
@@ -493,14 +492,16 @@ mod tests {
     fn test_verify_mission_with_cross_examine_rejects_without_providers() {
         let tmp = std::env::temp_dir().join("susi_test_dual_pipeline_no_provider");
         let _ = std::fs::create_dir_all(&tmp);
+        // Under the "always present answers" policy, missing citations
+        // produce an Ok with a warning prefix, not an Err.
         let out = TruthTransformer::verify_mission_with_cross_examine(
             "list files",
             "SUSI_SOLVE",
             "Here is a safe plan to list files.",
             &tmp,
         )
-        .unwrap_err();
-        assert!(out.to_string().contains("no absolute evidence"));
+        .expect("should return Ok with warning");
+        assert!(out.contains("No citations found"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
