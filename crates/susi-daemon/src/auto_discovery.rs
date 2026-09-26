@@ -32,6 +32,21 @@ fn track(path: PathBuf, spawned: std::io::Result<Child>) {
     }
 }
 
+/// Reap tracked cells whose process already exited (so they do not linger
+/// as zombies) and return their files; the watcher respawns them only when
+/// their file is re-added.
+pub fn reap_exited_cells() -> Vec<PathBuf> {
+    let mut cells = running_cells().lock().unwrap_or_else(|e| e.into_inner());
+    let exited: Vec<PathBuf> = cells
+        .iter_mut()
+        .filter_map(|(path, child)| matches!(child.try_wait(), Ok(Some(_))).then(|| path.clone()))
+        .collect();
+    for path in &exited {
+        cells.remove(path);
+    }
+    exited
+}
+
 /// Stop every tracked process cell (daemon shutdown). Returns how many
 /// were terminated.
 pub fn stop_all_cells() -> usize {
@@ -195,5 +210,17 @@ mod tests {
             .output()
             .is_ok_and(|o| o.status.success());
         assert!(!alive, "cell process {pid} still running");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_cells_are_reaped() {
+        let cell = std::path::PathBuf::from(format!("/tmp/susi-cell-reap-{}", std::process::id()));
+        let mut child = std::process::Command::new("true").spawn().unwrap();
+        let _ = child.try_wait();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        track(cell.clone(), Ok(child));
+        assert!(reap_exited_cells().contains(&cell));
+        assert!(!stop_cell(&cell), "reaped cell is no longer tracked");
     }
 }

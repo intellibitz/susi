@@ -92,6 +92,10 @@ fn watcher_loop(config: &CellWatcherConfig, shutdown: &AtomicBool) {
             break;
         }
 
+        for path in crate::auto_discovery::reap_exited_cells() {
+            tracing::warn!("[cell_watcher] Cell exited: {}", path.display());
+        }
+
         let current_files = scan_cell_files(&config.cells_dir);
 
         // Detect new files
