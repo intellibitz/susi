@@ -22,6 +22,8 @@ pub mod commit_log;
 pub mod context_graph;
 #[path = "evidence.rs"]
 pub mod evidence;
+#[path = "inference_wire.rs"]
+pub mod inference_wire;
 #[path = "intent_bus.rs"]
 pub mod intent_bus;
 #[path = "mac_policy.rs"]

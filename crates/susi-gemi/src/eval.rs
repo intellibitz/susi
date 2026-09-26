@@ -80,11 +80,8 @@ impl EvalRunner {
             let mut cloud_correct = false;
 
             if has_cloud {
-                let payload = serde_json::json!({
-                    "model": model,
-                    "messages": [{"role": "user", "content": q.prompt}],
-                    "max_tokens": 50
-                });
+                let payload =
+                    crate::susi_core::inference_wire::openai_chat_body(&model, q.prompt, 50);
 
                 let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
                 let mut req = crate::susi_sandbox::manager::http_agent()
@@ -99,10 +96,8 @@ impl EvalRunner {
                         .into_body()
                         .read_json()
                         .unwrap_or(serde_json::json!({}));
-                    cloud_resp = body["choices"][0]["message"]["content"]
-                        .as_str()
-                        .unwrap_or("")
-                        .to_string();
+                    cloud_resp = crate::susi_core::inference_wire::openai_chat_text(&body)
+                        .unwrap_or_default();
                     cloud_correct = Self::check_correctness(&cloud_resp, q.expected_substrings);
                     if cloud_correct {
                         cloud_score += 1;

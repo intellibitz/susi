@@ -1017,21 +1017,17 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         } else {
             self.model.clone()
         };
-        let payload = match self.protocol_type.as_str() {
-            "chat" => serde_json::json!({
-                "model": model,
-                "messages": [{"role": "user", "content": goal}],
-                "max_tokens": 1024
-            }),
-            "triton" => serde_json::json!({
-                "text_input": goal,
-                "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
-            }),
-            _ => serde_json::json!({
-                "model": model,
-                "prompt": goal,
-                "max_tokens": 1024
-            }),
+        use crate::susi_core::inference_wire as wire;
+        let (payload, extract): (_, wire::Extractor) = match self.protocol_type.as_str() {
+            "chat" => (
+                wire::openai_chat_body(&model, goal, 1024),
+                wire::openai_chat_text,
+            ),
+            "triton" => (wire::triton_body(goal, 512), wire::triton_text),
+            _ => (
+                wire::openai_completions_body(&model, goal, 1024),
+                wire::openai_completions_text,
+            ),
         };
 
         let endpoint_url = if self.protocol_type == "chat" {
@@ -1048,19 +1044,33 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         if let Some(key) = resolve_inference_key(&self.api_key_env) {
             request = request.header("Authorization", format!("Bearer {key}"));
         }
-        match request.send_json(payload) {
-            Ok(resp) => {
-                let text = resp
-                    .into_body()
-                    .read_to_string()
-                    .unwrap_or_else(|_| "output empty".into());
-                Ok(format!("[{} Proxy]: {}", self.endpoint_name, text))
+        let body: serde_json::Value = match request.send_json(payload) {
+            Ok(resp) => resp.into_body().read_json().map_err(|e| {
+                crate::susi_core::susi_error::EaiError::inference(format!(
+                    "{} proxy returned an unreadable body: {e}",
+                    self.endpoint_name
+                ))
+            })?,
+            Err(ureq::Error::StatusCode(status)) => {
+                return Err(crate::susi_core::susi_error::EaiError::inference(format!(
+                    "{} proxy endpoint at {} answered HTTP {status}",
+                    self.endpoint_name, self.api_base_url
+                )));
             }
-            Err(_) => Err(crate::susi_core::susi_error::EaiError::inference(format!(
-                "{} proxy endpoint unreachable at {}",
-                self.endpoint_name, self.api_base_url
-            ))),
-        }
+            Err(_) => {
+                return Err(crate::susi_core::susi_error::EaiError::inference(format!(
+                    "{} proxy endpoint unreachable at {}",
+                    self.endpoint_name, self.api_base_url
+                )));
+            }
+        };
+        let text = extract(&body).map_err(|e| {
+            crate::susi_core::susi_error::EaiError::inference(format!(
+                "{} proxy: {e}",
+                self.endpoint_name
+            ))
+        })?;
+        Ok(format!("[{} Proxy]: {}", self.endpoint_name, text))
     }
 }
 

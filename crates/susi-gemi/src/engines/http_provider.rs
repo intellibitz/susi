@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use crate::susi_core::inference_wire as wire;
 use crate::susi_core::provider::{BoxFuture, Provider};
 
 /// Wire protocol for an HTTP inference backend.
@@ -93,7 +94,7 @@ impl Provider for HttpProvider {
                     let url = format!(
                         "{}/models/{}",
                         api_base.trim_end_matches('/'),
-                        gemini_model_path(&model)
+                        wire::gemini_model_path(&model)
                     );
                     // A health probe that can't reach the endpoint is the
                     // expected answer for an absent engine — `false`, not a
@@ -252,11 +253,7 @@ async fn generate_openai_chat(
     prompt: &str,
 ) -> Result<String, String> {
     let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2048
-    });
+    let body = wire::openai_chat_body(model, prompt, 2048);
     let mut req = client.post(&url).json(&body);
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
@@ -267,20 +264,7 @@ async fn generate_openai_chat(
         return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    let message = &json["choices"][0]["message"];
-    if let Some(refusal) = message["refusal"].as_str() {
-        return Err(format!("model refused: {refusal}"));
-    }
-    non_empty(message["content"].as_str(), "choices[0].message.content")
-}
-
-/// Provider text, or an error when the response carried none — an empty
-/// answer must fail over to the next provider, not pass as a reply.
-fn non_empty(text: Option<&str>, field: &str) -> Result<String, String> {
-    match text {
-        Some(text) if !text.is_empty() => Ok(text.to_string()),
-        Some(_) | None => Err(format!("response carried no {field} text")),
-    }
+    wire::openai_chat_text(&json)
 }
 
 /// HTTP failure with the provider's (truncated) error body.
@@ -294,12 +278,6 @@ async fn http_failure(res: reqwest::Response) -> String {
     )
 }
 
-/// Gemini model resource segment: config may name `gemini-x` or the full
-/// `models/gemini-x` resource.
-fn gemini_model_path(model: &str) -> &str {
-    model.strip_prefix("models/").unwrap_or(model)
-}
-
 async fn generate_openai_completions(
     client: &reqwest::Client,
     api_base: &str,
@@ -308,11 +286,7 @@ async fn generate_openai_completions(
     prompt: &str,
 ) -> Result<String, String> {
     let url = format!("{}/completions", api_base.trim_end_matches('/'));
-    let body = serde_json::json!({
-        "model": model,
-        "prompt": prompt,
-        "max_tokens": 2048
-    });
+    let body = wire::openai_completions_body(model, prompt, 2048);
     let mut req = client.post(&url).json(&body);
     if !api_key.is_empty() {
         req = req.bearer_auth(api_key);
@@ -323,7 +297,7 @@ async fn generate_openai_completions(
         return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    non_empty(json["choices"][0]["text"].as_str(), "choices[0].text")
+    wire::openai_completions_text(&json)
 }
 
 fn apply_openrouter_attribution(
@@ -366,22 +340,7 @@ async fn generate_anthropic(
         return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    non_empty(Some(&anthropic_text(&json)), "content[].text")
-}
-
-/// All `text` blocks of a Messages API response, in order — a reply may
-/// span several blocks (e.g. around tool_use or after thinking blocks).
-fn anthropic_text(json: &serde_json::Value) -> String {
-    json["content"]
-        .as_array()
-        .map(|blocks| {
-            blocks
-                .iter()
-                .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
-                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
-                .collect::<String>()
-        })
-        .unwrap_or_default()
+    wire::anthropic_text(&json)
 }
 
 async fn generate_gemini(
@@ -400,7 +359,7 @@ async fn generate_gemini(
     let url = format!(
         "{}/models/{}:generateContent",
         api_base,
-        gemini_model_path(model)
+        wire::gemini_model_path(model)
     );
     let body = serde_json::json!({
         "contents": [{
@@ -418,26 +377,7 @@ async fn generate_gemini(
         return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    non_empty(
-        Some(&gemini_text(&json)),
-        "candidates[0].content.parts[].text",
-    )
-}
-
-/// Answer text of a `generateContent` response: every non-thought part of
-/// the first candidate, in order (thinking models emit `thought: true`
-/// parts ahead of the answer).
-fn gemini_text(json: &serde_json::Value) -> String {
-    json["candidates"][0]["content"]["parts"]
-        .as_array()
-        .map(|parts| {
-            parts
-                .iter()
-                .filter(|p| p.get("thought").and_then(|t| t.as_bool()) != Some(true))
-                .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-                .collect::<String>()
-        })
-        .unwrap_or_default()
+    wire::gemini_text(&json)
 }
 
 async fn generate_triton(
@@ -445,10 +385,7 @@ async fn generate_triton(
     api_base: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let body = serde_json::json!({
-        "text_input": prompt,
-        "parameters": { "max_tokens": 512, "bad_words": [], "stop_words": [] }
-    });
+    let body = wire::triton_body(prompt, 512);
     let res = client
         .post(api_base)
         .json(&body)
@@ -459,12 +396,7 @@ async fn generate_triton(
         return Err(http_failure(res).await);
     }
     let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    non_empty(
-        json["text_output"]
-            .as_str()
-            .or_else(|| json["outputs"][0]["data"][0].as_str()),
-        "text_output",
-    )
+    wire::triton_text(&json)
 }
 
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
@@ -932,27 +864,6 @@ mod tests {
         assert!(!key_required_but_missing("OPENAI_API_KEY", "sk-live"));
         // No key env declared: local/self-hosted engines stay admitted.
         assert!(!key_required_but_missing("", ""));
-    }
-
-    #[test]
-    fn provider_text_extraction_is_complete_and_never_silently_empty() {
-        let anthropic = serde_json::json!({"content": [
-            {"type": "thinking", "thinking": "hmm"},
-            {"type": "text", "text": "Hello, "},
-            {"type": "text", "text": "world"}
-        ]});
-        assert_eq!(anthropic_text(&anthropic), "Hello, world");
-        let gemini = serde_json::json!({"candidates": [{"content": {"parts": [
-            {"text": "plan", "thought": true},
-            {"text": "An"},
-            {"text": "swer"}
-        ]}}]});
-        assert_eq!(gemini_text(&gemini), "Answer");
-        assert_eq!(gemini_model_path("models/gemini-2.5-pro"), "gemini-2.5-pro");
-        assert_eq!(gemini_model_path("gemini-2.5-pro"), "gemini-2.5-pro");
-        assert!(non_empty(Some(""), "x").is_err());
-        assert!(non_empty(None, "x").is_err());
-        assert_eq!(non_empty(Some("ok"), "x").unwrap(), "ok");
     }
 
     #[test]

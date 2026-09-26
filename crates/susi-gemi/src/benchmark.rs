@@ -109,11 +109,7 @@ impl BenchmarkRunner {
         let model =
             std::env::var("SUSI_BENCH_CLOUD_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
 
-        let payload = serde_json::json!({
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024
-        });
+        let payload = crate::susi_core::inference_wire::openai_chat_body(&model, prompt, 1024);
 
         let mut sys = System::new_all();
         sys.refresh_all();
@@ -162,12 +158,8 @@ impl BenchmarkRunner {
     }
 
     fn completion_count(body: &serde_json::Value) -> EaiResult<(usize, String)> {
-        if body.get("error").is_some() {
-            return Err(EaiError::inference("Benchmark endpoint returned an error"));
-        }
-        let text = body["choices"][0]["message"]["content"]
-            .as_str()
-            .ok_or_else(|| EaiError::inference("Benchmark response has no completion text"))?;
+        let text = crate::susi_core::inference_wire::openai_chat_text(body)
+            .map_err(|e| EaiError::inference(format!("Benchmark endpoint: {e}")))?;
         if text.trim().is_empty() {
             return Err(EaiError::inference(
                 "Benchmark endpoint returned empty output",
