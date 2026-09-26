@@ -79,7 +79,22 @@ impl SusiDirs {
             let (_, body) = buf.split_once("\r\n\r\n")?;
             serde_json::from_str::<HashMap<String, PathBuf>>(body).ok()
         };
-        fetch().unwrap_or_default()
+        let map = fetch().unwrap_or_default();
+        // The service answers for whichever user/HOME started it. Only trust
+        // it when it resolves *our* home — otherwise another user's (or
+        // another HOME's) daemon would silently hand us its substrate paths.
+        match map.get("home_dir") {
+            Some(home) if Self::same_path(home, &Self::fallback("home_dir")) => map,
+            _ => HashMap::new(),
+        }
+    }
+
+    fn same_path(a: &std::path::Path, b: &std::path::Path) -> bool {
+        a == b
+            || matches!(
+                (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+                (Ok(x), Ok(y)) if x == y
+            )
     }
 
     /// Mirrors `susi-paths`' XDG/legacy rule: `~/.susi` wins when it already
