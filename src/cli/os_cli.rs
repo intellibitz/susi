@@ -20,13 +20,245 @@ pub enum OsCommands {
     /// Remove stray heavyweight files flagged in `~/.susi/bin` and
     /// report reclaimed space
     Clean,
+    /// Discover the local AI ecosystem: hardware, runtimes, models, agents,
+    /// frameworks, MCP servers, and running AI processes
+    Ecosystem {
+        /// Emit machine-readable JSON
+        #[arg(long)]
+        json: bool,
+        /// Exit unsuccessfully when installed components are unhealthy
+        #[arg(long)]
+        doctor: bool,
+    },
 }
 
 pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) -> Result<()> {
     match action.unwrap_or(OsCommands::Status { json: false }) {
         OsCommands::Status { json } => status(json || top_json),
         OsCommands::Clean => clean(),
+        OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
     }
+}
+
+fn command_path(name: &str) -> Option<std::path::PathBuf> {
+    let paths = std::env::var_os("PATH")?;
+    std::env::split_paths(&paths)
+        .map(|dir| dir.join(name))
+        .find(|path| path.is_file())
+}
+
+fn command_version(path: &Path) -> Option<String> {
+    std::process::Command::new(path)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            let text = if output.stdout.is_empty() {
+                &output.stderr
+            } else {
+                &output.stdout
+            };
+            String::from_utf8_lossy(text)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string()
+        })
+        .filter(|version| !version.is_empty())
+}
+
+fn runtime_inventory() -> Vec<serde_json::Value> {
+    [
+        ("cuda", "nvidia-smi"),
+        ("cuda-toolkit", "nvcc"),
+        ("ollama", "ollama"),
+        ("llama.cpp", "llama-server"),
+        ("vllm", "vllm"),
+        ("python", "python3"),
+        ("uv", "uv"),
+        ("docker", "docker"),
+        ("podman", "podman"),
+        ("node", "node"),
+        ("npx", "npx"),
+        ("rust", "cargo"),
+    ]
+    .into_iter()
+    .map(|(id, command)| {
+        let path = command_path(command);
+        serde_json::json!({
+            "id": id,
+            "command": command,
+            "installed": path.is_some(),
+            "path": path,
+            "version": path.as_deref().and_then(command_version),
+        })
+    })
+    .collect()
+}
+
+fn running_ai_processes() -> Vec<serde_json::Value> {
+    const NAMES: &[&str] = &[
+        "ollama",
+        "llama-server",
+        "vllm",
+        "sglang",
+        "tritonserver",
+        "lmdeploy",
+        "susi",
+        "python",
+        "node",
+    ];
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let pid = entry.file_name().to_string_lossy().parse::<u32>().ok()?;
+            let bytes = std::fs::read(entry.path().join("cmdline")).ok()?;
+            let command = String::from_utf8_lossy(&bytes).replace('\0', " ");
+            let lower = command.to_ascii_lowercase();
+            NAMES.iter().any(|name| lower.contains(name)).then(|| {
+                serde_json::json!({
+                    "pid": pid,
+                    "command": command.chars().take(500).collect::<String>(),
+                })
+            })
+        })
+        .take(256)
+        .collect()
+}
+
+fn ecosystem(json: bool, doctor: bool, workspace: &Path) -> Result<()> {
+    let hardware = susi_gemi::hardware::HardwareProfiler::get_profile();
+    let runtimes = runtime_inventory();
+    let models = susi_core::plane_bus::gemi::ModelManager::list_models(workspace);
+    let model_count = models.as_array().map_or(0, Vec::len);
+    let agent_catalog =
+        susi_agents::external::catalog(susi_agents::external::CatalogKind::Execution)?;
+    let framework_catalog =
+        susi_agents::external::catalog(susi_agents::external::CatalogKind::Framework)?;
+    let agent_manager = susi_agents::external::AgentManager::new(workspace)?;
+    let framework_manager = susi_agents::external::AgentManager::frameworks(workspace)?;
+    let agents: Vec<_> = agent_catalog
+        .into_iter()
+        .map(|definition| {
+            let readiness = agent_manager
+                .adapter(&definition.id)
+                .and_then(|adapter| adapter.preflight());
+            serde_json::json!({
+                "definition": definition,
+                "ready": readiness.is_ok(),
+                "detail": match readiness { Ok(detail) => detail, Err(error) => error.to_string() },
+            })
+        })
+        .collect();
+    let frameworks: Vec<_> = framework_catalog
+        .into_iter()
+        .map(|definition| {
+            let readiness = framework_manager
+                .adapter(&definition.id)
+                .and_then(|adapter| adapter.preflight());
+            serde_json::json!({
+                "definition": definition,
+                "ready": readiness.is_ok(),
+                "detail": match readiness { Ok(detail) => detail, Err(error) => error.to_string() },
+            })
+        })
+        .collect();
+    let mcp = susi_tools::LeadingMcpManager::new(workspace)?.status()?;
+    let processes = running_ai_processes();
+    let installed_runtimes = runtimes
+        .iter()
+        .filter(|runtime| runtime["installed"].as_bool() == Some(true))
+        .count();
+    let unhealthy_installed = runtimes
+        .iter()
+        .filter(|runtime| {
+            runtime["installed"].as_bool() == Some(true) && runtime["version"].is_null()
+        })
+        .count();
+    let body = serde_json::json!({
+        "hardware": hardware,
+        "runtimes": runtimes,
+        "models": models,
+        "agents": agents,
+        "frameworks": frameworks,
+        "mcp_servers": mcp,
+        "running_ai_processes": processes,
+        "summary": {
+            "installed_runtimes": installed_runtimes,
+            "unhealthy_installed_runtimes": unhealthy_installed,
+            "models": model_count,
+            "agents": agents.len(),
+            "frameworks": frameworks.len(),
+            "mcp_servers": mcp.len(),
+            "running_ai_processes": processes.len(),
+        },
+        "control": {
+            "services": "susi services <status|start|stop|restart|logs>",
+            "models": "susi models <list|doctor|setup|configure|reset|prefer|probe|local>",
+            "agents": "susi agents <list|doctor|setup|configure|reset|run|tasks|status|logs|cancel|retry>",
+            "frameworks": "susi frameworks <list|doctor|setup|configure|reset|run|tasks|status|logs|cancel|retry>",
+            "mcp": "susi mcp <list|doctor|setup|enable|disable|configure|reset|status>",
+            "privacy": "susi privacy <status|mode|grant|revoke>",
+        }
+    });
+    if json {
+        println!("{}", serde_json::to_string_pretty(&body)?);
+    } else {
+        println!("SUSI OS — local AI ecosystem");
+        println!(
+            "hardware:   {} CPU(s), {}GB RAM, {}",
+            hardware.cpus, hardware.ram_gb, hardware.gpu_info
+        );
+        println!(
+            "runtimes:   {installed_runtimes}/{} installed",
+            runtimes.len()
+        );
+        for runtime in &runtimes {
+            println!(
+                "  {:<14} {:<9} {}",
+                runtime["id"].as_str().unwrap_or_default(),
+                if runtime["installed"].as_bool() == Some(true) {
+                    "installed"
+                } else {
+                    "missing"
+                },
+                runtime["version"].as_str().unwrap_or_default()
+            );
+        }
+        println!("models:     {model_count} discovered");
+        for model in models.as_array().into_iter().flatten() {
+            println!(
+                "  {} — {}",
+                model
+                    .get("id")
+                    .or_else(|| model.get("model_id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown"),
+                model
+                    .get("path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("managed")
+            );
+        }
+        println!("agents:     {} catalogued", agents.len());
+        println!("frameworks: {} catalogued", frameworks.len());
+        println!("MCP:        {} catalogued/configured", mcp.len());
+        println!(
+            "processes:  {} AI-related process(es) running",
+            processes.len()
+        );
+        println!();
+        println!("Manage: `susi services`, `susi models`, `susi agents`, `susi frameworks`, `susi mcp`, `susi privacy`");
+    }
+    if doctor && unhealthy_installed > 0 {
+        anyhow::bail!("{unhealthy_installed} installed AI runtime(s) failed their version probe");
+    }
+    Ok(())
 }
 
 /// Hygiene check: the credential files consensus depends on
