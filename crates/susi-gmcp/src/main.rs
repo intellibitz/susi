@@ -1,15 +1,19 @@
 #![forbid(unsafe_code)]
 
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 
 use susi_gmcp::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
 use susi_gmcp::susi_abi::swarm::SwarmRole;
 use susi_gmcp::susi_abi::syscall::{
-    token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
+    SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
 };
-use susi_gmcp::susi_abi::wire::{FrameStream, MessageType, WireFrame};
+
+use susi_gmcp::susi_abi;
+
+// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/cell_server.rs"]
+mod cell_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -26,13 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cell.register_capability("mcp-protocol");
     cell.register_capability("system-tools");
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    cell.set_ready(now);
-
-    let cell = Arc::new(tokio::sync::Mutex::new(cell));
-
     // Every syscall must present the host API token (or an explicit
     // SUSI_CELL_TOKEN override); heartbeats stay open for liveness.
     let expected_token: Arc<str> = std::env::var(CELL_TOKEN_ENV)
@@ -41,85 +38,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(susi_gmcp::susi_config::SusiConfig::ensure_api_auth_token_seeded)
         .into();
 
-    let listener = TcpListener::bind(bind_addr).await?;
-    println!("susi-gmcp Swarm Cell ready and listening...");
-
-    loop {
-        let (mut socket, _) = listener.accept().await?;
-        let cell_clone = Arc::clone(&cell);
-        let expected_token = Arc::clone(&expected_token);
-
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 64 * 1024];
-            let mut frames = FrameStream::new();
-            'conn: loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) => break, // Connection closed
-                    Ok(n) => {
-                        frames.push(&buf[..n]);
-                        loop {
-                            let frame = match frames.next_frame() {
-                                Ok(Some(frame)) => frame,
-                                Ok(None) => break,
-                                // Corrupt stream: framing is lost, drop the connection.
-                                Err(_) => break 'conn,
-                            };
-                            if frame.msg_type == MessageType::SyscallRequest {
-                                if let Ok(req) =
-                                    serde_json::from_slice::<SyscallRequest>(&frame.payload)
-                                {
-                                    let response =
-                                        if token_matches(req.token.as_deref(), &expected_token) {
-                                            handle_tool(req).await
-                                        } else {
-                                            SyscallResponse {
-                                                id: req.id,
-                                                status: SyscallStatus::Denied,
-                                                data: serde_json::Value::Null,
-                                                receipt: None,
-                                                latency_us: 0,
-                                                message: Some(
-                                                    "missing or invalid cell token".into(),
-                                                ),
-                                            }
-                                        };
-                                    // Hold the cell lock only to record the outcome, never across the
-                                    // work itself, so heartbeats and other connections are not blocked.
-                                    {
-                                        let mut cell = cell_clone.lock().await;
-                                        match response.status {
-                                            SyscallStatus::Success => cell.record_success(),
-                                            // Auth denials are the caller's fault; they must not let an
-                                            // unauthenticated peer drive the cell's trust score down.
-                                            SyscallStatus::Denied => {}
-                                            SyscallStatus::NotFound
-                                            | SyscallStatus::Timeout
-                                            | SyscallStatus::Error => cell.record_failure(),
-                                        }
-                                    }
-                                    let Ok(resp_payload) = serde_json::to_vec(&response) else {
-                                        continue;
-                                    };
-                                    let resp_frame =
-                                        WireFrame::new(MessageType::SyscallResponse, resp_payload);
-                                    let encoded = resp_frame.encode();
-                                    let _ = socket.write_all(&encoded).await;
-                                }
-                            } else if frame.msg_type == MessageType::Heartbeat {
-                                // Answer liveness probes with the cell's health snapshot.
-                                let status = cell_clone.lock().await.heartbeat_status();
-                                if let Ok(payload) = serde_json::to_vec(&status) {
-                                    let pong = WireFrame::new(MessageType::Heartbeat, payload);
-                                    let _ = socket.write_all(&pong.encode()).await;
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    cell_server::serve(
+        cell,
+        bind_addr,
+        expected_token,
+        "susi-gmcp Swarm Cell",
+        handle_tool,
+    )
+    .await?;
+    Ok(())
 }
 
 async fn handle_tool(req: SyscallRequest) -> SyscallResponse {

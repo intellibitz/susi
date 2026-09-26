@@ -8,16 +8,11 @@ mod susi_abi;
 
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use tokio::process::Command;
 
 use crate::susi_abi::cell::SwarmCell;
 use crate::susi_abi::swarm::SwarmRole;
-use crate::susi_abi::syscall::{
-    token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
-};
-use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
+use crate::susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
 
 #[derive(Debug, Deserialize)]
 struct PluginManifest {
@@ -27,6 +22,11 @@ struct PluginManifest {
     command: String,
     args: Vec<String>,
 }
+
+// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/cell_server.rs"]
+mod cell_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -64,12 +64,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cell.register_capability(cap);
     }
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    cell.set_ready(now);
-
-    let cell = Arc::new(tokio::sync::Mutex::new(cell));
     let manifest = Arc::new(manifest);
 
     // Every syscall must present the token from SUSI_CELL_TOKEN; without
@@ -79,86 +73,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SUSI_CELL_TOKEN is not set: every syscall will be denied");
     }
 
-    let listener = TcpListener::bind(bind_addr).await?;
-    println!("Universal Ecosystem Cell ready and listening...");
-
-    loop {
-        let (mut socket, _) = listener.accept().await?;
-        let cell_clone = Arc::clone(&cell);
-        let expected_token = Arc::clone(&expected_token);
-        let manifest_clone = Arc::clone(&manifest);
-
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 64 * 1024];
-            let mut frames = FrameStream::new();
-            'conn: loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) => break, // Connection closed
-                    Ok(n) => {
-                        frames.push(&buf[..n]);
-                        loop {
-                            let frame = match frames.next_frame() {
-                                Ok(Some(frame)) => frame,
-                                Ok(None) => break,
-                                // Corrupt stream: framing is lost, drop the connection.
-                                Err(_) => break 'conn,
-                            };
-                            if frame.msg_type == MessageType::SyscallRequest {
-                                if let Ok(req) =
-                                    serde_json::from_slice::<SyscallRequest>(&frame.payload)
-                                {
-                                    let response =
-                                        if token_matches(req.token.as_deref(), &expected_token) {
-                                            handle_external(req, &manifest_clone).await
-                                        } else {
-                                            SyscallResponse {
-                                                id: req.id,
-                                                status: SyscallStatus::Denied,
-                                                data: serde_json::Value::Null,
-                                                receipt: None,
-                                                latency_us: 0,
-                                                message: Some(
-                                                    "missing or invalid cell token".into(),
-                                                ),
-                                            }
-                                        };
-                                    // Hold the cell lock only to record the outcome, never across the
-                                    // work itself, so heartbeats and other connections are not blocked.
-                                    {
-                                        let mut cell = cell_clone.lock().await;
-                                        match response.status {
-                                            SyscallStatus::Success => cell.record_success(),
-                                            // Auth denials are the caller's fault; they must not let an
-                                            // unauthenticated peer drive the cell's trust score down.
-                                            SyscallStatus::Denied => {}
-                                            SyscallStatus::NotFound
-                                            | SyscallStatus::Timeout
-                                            | SyscallStatus::Error => cell.record_failure(),
-                                        }
-                                    }
-                                    let Ok(resp_payload) = serde_json::to_vec(&response) else {
-                                        continue;
-                                    };
-                                    let resp_frame =
-                                        WireFrame::new(MessageType::SyscallResponse, resp_payload);
-                                    let encoded = resp_frame.encode();
-                                    let _ = socket.write_all(&encoded).await;
-                                }
-                            } else if frame.msg_type == MessageType::Heartbeat {
-                                // Answer liveness probes with the cell's health snapshot.
-                                let status = cell_clone.lock().await.heartbeat_status();
-                                if let Ok(payload) = serde_json::to_vec(&status) {
-                                    let pong = WireFrame::new(MessageType::Heartbeat, payload);
-                                    let _ = socket.write_all(&pong.encode()).await;
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    cell_server::serve(
+        cell,
+        bind_addr,
+        expected_token,
+        "Universal Ecosystem Cell",
+        move |req| {
+            let manifest = Arc::clone(&manifest);
+            async move { handle_external(req, &manifest).await }
+        },
+    )
+    .await?;
+    Ok(())
 }
 
 async fn handle_external(req: SyscallRequest, manifest: &PluginManifest) -> SyscallResponse {

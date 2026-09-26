@@ -7,15 +7,15 @@
 mod susi_abi;
 
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 
 use crate::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
 use crate::susi_abi::swarm::SwarmRole;
-use crate::susi_abi::syscall::{
-    token_matches, SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV,
-};
-use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
+use crate::susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
+
+// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
+#[rustfmt::skip]
+#[path = "../../susi-abi/src/cell_server.rs"]
+mod cell_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,13 +33,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     cell.register_capability("dsh");
     cell.register_capability("inference");
 
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs();
-    cell.set_ready(now);
-
-    let cell = Arc::new(tokio::sync::Mutex::new(cell));
-
     // Every syscall must present the token from SUSI_CELL_TOKEN; without
     // it the cell denies all syscalls. Heartbeats stay open for liveness.
     let expected_token: Arc<str> = std::env::var(CELL_TOKEN_ENV).unwrap_or_default().into();
@@ -47,85 +40,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("SUSI_CELL_TOKEN is not set: every syscall will be denied");
     }
 
-    let listener = TcpListener::bind(bind_addr).await?;
-    println!("susi-dsh-cell Swarm Cell ready and listening...");
-
-    loop {
-        let (mut socket, _) = listener.accept().await?;
-        let cell_clone = Arc::clone(&cell);
-        let expected_token = Arc::clone(&expected_token);
-
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 64 * 1024];
-            let mut frames = FrameStream::new();
-            'conn: loop {
-                match socket.read(&mut buf).await {
-                    Ok(0) => break, // Connection closed
-                    Ok(n) => {
-                        frames.push(&buf[..n]);
-                        loop {
-                            let frame = match frames.next_frame() {
-                                Ok(Some(frame)) => frame,
-                                Ok(None) => break,
-                                // Corrupt stream: framing is lost, drop the connection.
-                                Err(_) => break 'conn,
-                            };
-                            if frame.msg_type == MessageType::SyscallRequest {
-                                if let Ok(req) =
-                                    serde_json::from_slice::<SyscallRequest>(&frame.payload)
-                                {
-                                    let response =
-                                        if token_matches(req.token.as_deref(), &expected_token) {
-                                            handle_dsh(req).await
-                                        } else {
-                                            SyscallResponse {
-                                                id: req.id,
-                                                status: SyscallStatus::Denied,
-                                                data: serde_json::Value::Null,
-                                                receipt: None,
-                                                latency_us: 0,
-                                                message: Some(
-                                                    "missing or invalid cell token".into(),
-                                                ),
-                                            }
-                                        };
-                                    // Hold the cell lock only to record the outcome, never across the
-                                    // work itself, so heartbeats and other connections are not blocked.
-                                    {
-                                        let mut cell = cell_clone.lock().await;
-                                        match response.status {
-                                            SyscallStatus::Success => cell.record_success(),
-                                            // Auth denials are the caller's fault; they must not let an
-                                            // unauthenticated peer drive the cell's trust score down.
-                                            SyscallStatus::Denied => {}
-                                            SyscallStatus::NotFound
-                                            | SyscallStatus::Timeout
-                                            | SyscallStatus::Error => cell.record_failure(),
-                                        }
-                                    }
-                                    let Ok(resp_payload) = serde_json::to_vec(&response) else {
-                                        continue;
-                                    };
-                                    let resp_frame =
-                                        WireFrame::new(MessageType::SyscallResponse, resp_payload);
-                                    let encoded = resp_frame.encode();
-                                    let _ = socket.write_all(&encoded).await;
-                                }
-                            } else if frame.msg_type == MessageType::Heartbeat {
-                                // Answer liveness probes with the cell's health snapshot.
-                                let status = cell_clone.lock().await.heartbeat_status();
-                                if let Ok(payload) = serde_json::to_vec(&status) {
-                                    let pong = WireFrame::new(MessageType::Heartbeat, payload);
-                                    let _ = socket.write_all(&pong.encode()).await;
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    cell_server::serve(
+        cell,
+        bind_addr,
+        expected_token,
+        "susi-dsh-cell Swarm Cell",
+        handle_dsh,
+    )
+    .await?;
+    Ok(())
 }
 
 async fn handle_dsh(req: SyscallRequest) -> SyscallResponse {
@@ -173,5 +96,101 @@ async fn handle_dsh(req: SyscallRequest) -> SyscallResponse {
             latency_us: u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX),
             message: Some(format!("Failed to spawn dsh: {}", e)),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::susi_abi::cell::SwarmCell;
+    use crate::susi_abi::swarm::SwarmRole;
+    use crate::susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
+    use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn round_trip(stream: &mut tokio::net::TcpStream, frame: WireFrame) -> WireFrame {
+        stream.write_all(&frame.encode().unwrap()).await.unwrap();
+        let mut frames = FrameStream::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            if let Some(frame) = frames.next_frame().unwrap() {
+                return frame;
+            }
+            let n = stream.read(&mut buf).await.unwrap();
+            assert!(n > 0, "cell closed the connection");
+            frames.push(&buf[..n]);
+        }
+    }
+
+    fn request(token: Option<&str>) -> WireFrame {
+        let req = SyscallRequest {
+            id: "r1".into(),
+            caller_id: "test".into(),
+            op: SyscallOp::Infer,
+            token: token.map(str::to_string),
+            workspace: None,
+            payload: serde_json::json!({"prompt": "hi"}),
+            timestamp: 0,
+        };
+        WireFrame::new(
+            MessageType::SyscallRequest,
+            serde_json::to_vec(&req).unwrap(),
+        )
+    }
+
+    /// The shared cell server end to end: heartbeats answer unauthenticated,
+    /// a wrong token is denied without reaching the handler, and a valid
+    /// token dispatches to it.
+    #[tokio::test]
+    async fn shared_cell_server_authenticates_and_dispatches() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let cell = SwarmCell::new(
+            "test-cell".into(),
+            SwarmRole::ExternalPeer,
+            format!("tcp://127.0.0.1:{port}"),
+        );
+        tokio::spawn(crate::cell_server::serve(
+            cell,
+            ("127.0.0.1", port),
+            Arc::from("secret"),
+            "test cell",
+            |req: SyscallRequest| async move {
+                SyscallResponse {
+                    id: req.id,
+                    status: SyscallStatus::Success,
+                    data: req.payload,
+                    receipt: None,
+                    latency_us: 0,
+                    message: None,
+                }
+            },
+        ));
+        let mut stream = loop {
+            if let Ok(s) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await {
+                break s;
+            }
+            tokio::task::yield_now().await;
+        };
+
+        let pong = round_trip(
+            &mut stream,
+            WireFrame::new(MessageType::Heartbeat, Vec::new()),
+        )
+        .await;
+        assert_eq!(pong.msg_type, MessageType::Heartbeat);
+
+        let denied = round_trip(&mut stream, request(Some("wrong"))).await;
+        let denied: SyscallResponse = serde_json::from_slice(&denied.payload).unwrap();
+        assert_eq!(denied.status, SyscallStatus::Denied);
+
+        let ok = round_trip(&mut stream, request(Some("secret"))).await;
+        assert_eq!(ok.msg_type, MessageType::SyscallResponse);
+        let ok: SyscallResponse = serde_json::from_slice(&ok.payload).unwrap();
+        assert_eq!(ok.status, SyscallStatus::Success);
+        assert_eq!(ok.data, serde_json::json!({"prompt": "hi"}));
     }
 }

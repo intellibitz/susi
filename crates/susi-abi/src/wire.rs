@@ -18,12 +18,14 @@ pub const MAX_WIRE_PAYLOAD_BYTES: usize = 32 * 1024 * 1024;
 /// Errors encountered when parsing or encoding wire frames.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WireError {
-    /// Received buffer is shorter than the minimum header length (10 bytes).
+    /// Received buffer is shorter than the fixed header length (12 bytes).
     IncompleteHeader,
     /// Magic bytes did not match `SUSI`.
     InvalidMagic([u8; 4]),
     /// Frame version is unsupported.
     UnsupportedVersion(u8),
+    /// Message-type byte names no known [`MessageType`].
+    UnknownMessageType(u8),
     /// Frame payload exceeds the maximum safety bound.
     PayloadTooLarge(usize),
     /// Received buffer has fewer bytes than declared in the header.
@@ -38,6 +40,7 @@ impl fmt::Display for WireError {
             Self::IncompleteHeader => write!(f, "wire frame header is incomplete"),
             Self::InvalidMagic(m) => write!(f, "invalid magic header: {:?}", m),
             Self::UnsupportedVersion(v) => write!(f, "unsupported wire protocol version: {}", v),
+            Self::UnknownMessageType(t) => write!(f, "unknown wire message type: {:#04x}", t),
             Self::PayloadTooLarge(s) => write!(f, "payload size {} exceeds 32MiB safety limit", s),
             Self::IncompletePayload {
                 expected,
@@ -227,9 +230,18 @@ impl WireFrame {
     /// - 6..8:   QoS Flags (u16, big-endian)
     /// - 8..12:  Payload Length (u32, big-endian)
     ///   Followed by `payload`.
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let payload_len = self.payload.len() as u32;
+    ///
+    /// # Errors
+    /// [`WireError::PayloadTooLarge`] when the payload exceeds
+    /// [`MAX_WIRE_PAYLOAD_BYTES`] — the same bound `decode` enforces, so no
+    /// frame is ever emitted that a conforming peer must reject (and the
+    /// `u32` length field can never truncate).
+    pub fn encode(&self) -> Result<Vec<u8>, WireError> {
+        if self.payload.len() > MAX_WIRE_PAYLOAD_BYTES {
+            return Err(WireError::PayloadTooLarge(self.payload.len()));
+        }
+        let payload_len = u32::try_from(self.payload.len())
+            .map_err(|_| WireError::PayloadTooLarge(self.payload.len()))?;
         let mut buf = Vec::with_capacity(HEADER_SIZE + self.payload.len());
         buf.extend_from_slice(&SUSI_WIRE_MAGIC);
         buf.push(self.version);
@@ -237,7 +249,7 @@ impl WireFrame {
         buf.extend_from_slice(&self.qos.to_bytes());
         buf.extend_from_slice(&payload_len.to_be_bytes());
         buf.extend_from_slice(&self.payload);
-        buf
+        Ok(buf)
     }
 
     /// Attempts to parse a single frame from the start of a byte slice.
@@ -261,7 +273,7 @@ impl WireFrame {
         let msg_type_byte = buf[5];
         let msg_type = match MessageType::from_u8(msg_type_byte) {
             Some(t) => t,
-            None => return Err(WireError::UnsupportedVersion(msg_type_byte)),
+            None => return Err(WireError::UnknownMessageType(msg_type_byte)),
         };
 
         let qos = QosFlags::from_bytes([buf[6], buf[7]]);
@@ -338,6 +350,7 @@ impl FrameStream {
             Err(
                 e @ (WireError::InvalidMagic(_)
                 | WireError::UnsupportedVersion(_)
+                | WireError::UnknownMessageType(_)
                 | WireError::PayloadTooLarge(_)
                 | WireError::Serialization(_)),
             ) => Err(e),
@@ -362,7 +375,7 @@ mod prop_tests {
             let msg_type = MessageType::from_u8(msg_type_byte).unwrap();
             let qos = QosFlags(qos_raw);
             let frame = WireFrame::with_qos(msg_type, qos, payload);
-            let encoded = frame.encode();
+            let encoded = frame.encode().unwrap();
             let (decoded, consumed) = WireFrame::decode(&encoded).unwrap();
             prop_assert_eq!(consumed, encoded.len());
             prop_assert_eq!(decoded, frame);
@@ -390,8 +403,12 @@ mod stream_tests {
 
     #[test]
     fn frame_stream_splits_coalesced_and_joins_partial_frames() {
-        let a = WireFrame::new(MessageType::Heartbeat, b"one".to_vec()).encode();
-        let b = WireFrame::new(MessageType::RawBytes, b"two".to_vec()).encode();
+        let a = WireFrame::new(MessageType::Heartbeat, b"one".to_vec())
+            .encode()
+            .unwrap();
+        let b = WireFrame::new(MessageType::RawBytes, b"two".to_vec())
+            .encode()
+            .unwrap();
         let mut wire = a.clone();
         wire.extend_from_slice(&b);
 
@@ -417,5 +434,29 @@ mod stream_tests {
             stream.next_frame(),
             Err(WireError::InvalidMagic(_))
         ));
+    }
+
+    #[test]
+    fn unknown_type_is_not_a_version_error_and_oversize_never_encodes() {
+        let mut frame = WireFrame::new(MessageType::Heartbeat, Vec::new())
+            .encode()
+            .unwrap();
+        frame[5] = 0x7f;
+        assert_eq!(
+            WireFrame::decode(&frame),
+            Err(WireError::UnknownMessageType(0x7f))
+        );
+        let mut stream = FrameStream::new();
+        stream.push(&frame);
+        assert_eq!(
+            stream.next_frame(),
+            Err(WireError::UnknownMessageType(0x7f))
+        );
+
+        let oversized = WireFrame::new(MessageType::RawBytes, vec![0; MAX_WIRE_PAYLOAD_BYTES + 1]);
+        assert_eq!(
+            oversized.encode(),
+            Err(WireError::PayloadTooLarge(MAX_WIRE_PAYLOAD_BYTES + 1))
+        );
     }
 }

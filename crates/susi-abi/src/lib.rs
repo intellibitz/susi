@@ -34,7 +34,7 @@ mod tests {
     fn test_wire_frame_encode_decode_roundtrip() {
         let payload = br#"{"op":"infer","prompt":"hello world"}"#.to_vec();
         let frame = WireFrame::new(MessageType::SyscallRequest, payload.clone());
-        let encoded = frame.encode();
+        let encoded = frame.encode().expect("encode failed");
 
         assert_eq!(&encoded[0..4], &SUSI_WIRE_MAGIC);
         assert_eq!(encoded[4], SUSI_WIRE_VERSION);
