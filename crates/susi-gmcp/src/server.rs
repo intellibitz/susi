@@ -224,6 +224,16 @@ pub fn http_service(service: GmcpService) -> HttpService {
     )
 }
 
+/// Seal every data chunk of `body` as it is produced — never buffering the
+/// stream — so a sealed long-lived SSE response keeps flowing.
+fn seal_each_chunk(
+    body: BoxBody,
+    seal: impl Fn(&[u8]) -> Vec<u8> + Send + Sync + 'static,
+) -> BoxBody {
+    body.map_frame(move |frame| frame.map_data(|chunk| Bytes::from(seal(&chunk))))
+        .boxed()
+}
+
 async fn handle_request(
     req: Request<Incoming>,
     mut service: HttpService,
@@ -247,6 +257,12 @@ async fn handle_request(
         hdr("x-susi-enc-nonce"),
         hdr("x-susi-node-pub"),
     );
+    // The client can open a chunk-sealed stream (`v1s`), so a sealed SSE
+    // response need not be buffered whole before it is encrypted.
+    let stream_seal = hdr("x-susi-enc-accept").is_some_and(|v| {
+        v.split(',')
+            .any(|t| t.trim() == crate::susi_core::mcp_client::SEALED_STREAM)
+    });
     let signed = crate::susi_core::net_guard::SignedRequest {
         node: node_h.as_deref(),
         ts_secs: ts_h.as_deref().and_then(|s| s.parse().ok()),
@@ -341,10 +357,36 @@ async fn handle_request(
             "Use the MCP Streamable HTTP endpoint at /mcp",
         )
     };
-    // Sealed request ⇒ sealed response: collect the (bounded) service
-    // body, encrypt to the requester's key, and mark it `x-susi-enc: v1`.
+    // Sealed request ⇒ sealed response. A client that accepts `v1s` gets
+    // each body chunk sealed as it streams (long-lived SSE keeps flowing);
+    // otherwise the (bounded) body is collected and sealed once as `v1`.
     // The client refuses unsealed responses to sealed requests, so a
     // relay cannot silently downgrade the return path either.
+    let seal_key = match seal_key {
+        Some(pk)
+            if stream_seal && crate::susi_config::cluster_key::member_seal(&pk, b"").is_some() =>
+        {
+            let (mut rparts, rbody) = result.into_parts();
+            rparts.headers.remove(hyper::header::CONTENT_LENGTH);
+            let h = &mut rparts.headers;
+            h.insert(
+                "x-susi-enc",
+                hyper::header::HeaderValue::from_static(
+                    crate::susi_core::mcp_client::SEALED_STREAM,
+                ),
+            );
+            h.insert(
+                hyper::header::CONTENT_TYPE,
+                hyper::header::HeaderValue::from_static("application/octet-stream"),
+            );
+            let sealed = seal_each_chunk(rbody, move |chunk| {
+                crate::susi_core::mcp_client::seal_stream_record(&pk, chunk)
+            });
+            result = Response::from_parts(rparts, sealed);
+            None
+        }
+        other => other,
+    };
     if let Some(pk) = seal_key {
         let (mut rparts, rbody) = result.into_parts();
         // The rebuilt body's length differs from whatever the service
@@ -395,6 +437,42 @@ async fn handle_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chunk reaches the client sealed while the stream is still open —
+    /// the old path collected the whole body first, which never completes
+    /// for a long-lived SSE stream.
+    #[tokio::test]
+    async fn sealed_stream_emits_chunks_before_the_body_ends() {
+        /// A body that stays open until its sender drops.
+        struct OpenBody(tokio::sync::mpsc::Receiver<Bytes>);
+        impl hyper::body::Body for OpenBody {
+            type Data = Bytes;
+            type Error = Infallible;
+            fn poll_frame(
+                mut self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<Option<Result<hyper::body::Frame<Bytes>, Infallible>>>
+            {
+                self.0
+                    .poll_recv(cx)
+                    .map(|chunk| chunk.map(|b| Ok(hyper::body::Frame::data(b))))
+            }
+        }
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let mut sealed = seal_each_chunk(OpenBody(rx).boxed(), |chunk| [b"S:", chunk].concat());
+        tx.send(Bytes::from_static(b"data: 1\n\n")).await.unwrap();
+        let first = tokio::time::timeout(std::time::Duration::from_secs(5), sealed.frame())
+            .await
+            .expect("sealed chunk withheld until end of stream")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            first.into_data().unwrap(),
+            Bytes::from_static(b"S:data: 1\n\n")
+        );
+        drop(tx);
+        assert!(sealed.frame().await.is_none());
+    }
 
     #[test]
     fn rejections_carry_rfc_challenge_headers() {

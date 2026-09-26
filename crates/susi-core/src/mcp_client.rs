@@ -40,6 +40,73 @@ const SUPPORTED_VERSIONS: [&str; 3] = [PROTOCOL_VERSION, "2025-06-18", "2025-03-
 /// 20s recv window cannot exhaust memory.
 const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
 
+/// Sealed-stream response encoding (`x-susi-enc: v1s`), offered by the
+/// client in `x-susi-enc-accept`. Instead of buffering a whole response to
+/// seal it once (`v1`), the server seals each body chunk as it is produced,
+/// so a long-lived SSE stream still flows. Each chunk is one record:
+/// `u32 BE length | 12-byte nonce | ChaCha20-Poly1305 ciphertext` (length
+/// covers nonce + ciphertext). A zero-length record means the server could
+/// not seal a chunk — the stream is then refused, never read in plaintext.
+pub const SEALED_STREAM: &str = "v1s";
+
+/// One sealed-stream record for `chunk`; the zero-length failure record
+/// when sealing is impossible.
+pub fn seal_stream_record(peer_pubkey_hex: &str, chunk: &[u8]) -> Vec<u8> {
+    frame_record(chunk, |chunk| {
+        crate::susi_config::cluster_key::member_seal(peer_pubkey_hex, chunk)
+    })
+}
+
+/// Open every record of a sealed-stream body, concatenating the plaintext.
+/// Any truncated, empty (failure), or unauthenticated record fails the whole
+/// body.
+pub fn open_stream_records(peer_pubkey_hex: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+    open_records(body, |nonce, ct| {
+        crate::susi_config::cluster_key::member_open(peer_pubkey_hex, nonce, ct)
+    })
+}
+
+/// Record framing over any `(nonce_hex, ciphertext)` sealer.
+fn frame_record(chunk: &[u8], seal: impl Fn(&[u8]) -> Option<(String, Vec<u8>)>) -> Vec<u8> {
+    seal(chunk)
+        .and_then(|(nonce, ct)| {
+            let nonce = hex::decode(nonce).ok().filter(|n| n.len() == 12)?;
+            let len = u32::try_from(nonce.len() + ct.len()).ok()?;
+            let mut record = Vec::with_capacity(4 + nonce.len() + ct.len());
+            record.extend_from_slice(&len.to_be_bytes());
+            record.extend_from_slice(&nonce);
+            record.extend_from_slice(&ct);
+            Some(record)
+        })
+        .unwrap_or_else(|| 0u32.to_be_bytes().to_vec())
+}
+
+/// Record parsing over any `(nonce_hex, ciphertext)` opener.
+fn open_records(
+    mut body: &[u8],
+    open: impl Fn(&str, &[u8]) -> Option<Vec<u8>>,
+) -> Result<Vec<u8>, String> {
+    let mut plain = Vec::new();
+    while !body.is_empty() {
+        let (len, rest) = body
+            .split_first_chunk::<4>()
+            .ok_or("sealed stream: truncated record header")?;
+        let len = u32::from_be_bytes(*len) as usize;
+        if len == 0 {
+            return Err("sealed stream: server failed to seal a chunk".to_string());
+        }
+        if len < 12 || rest.len() < len {
+            return Err("sealed stream: truncated record".to_string());
+        }
+        let (nonce, ct) = rest[..len].split_at(12);
+        let chunk = open(&hex::encode(nonce), ct)
+            .ok_or("sealed stream: record failed AEAD verification")?;
+        plain.extend_from_slice(&chunk);
+        body = &rest[len..];
+    }
+    Ok(plain)
+}
+
 /// Established session: the id the server issued plus the negotiated
 /// protocol revision every later request must declare.
 struct Session {
@@ -96,6 +163,7 @@ fn post(
             req = req
                 .header("x-susi-enc", "v1")
                 .header("x-susi-enc-nonce", nonce)
+                .header("x-susi-enc-accept", SEALED_STREAM)
                 // Our pubkey travels in the clear so the receiver can
                 // still open the body during asymmetric-roster windows
                 // (bound on our side, not yet committed on theirs);
@@ -250,14 +318,15 @@ fn read_body(
     let Some(pk) = sealed else {
         return String::from_utf8(body).map_err(|e| format!("response body not utf-8: {e}"));
     };
-    let (Some(v), Some(nonce)) = enc_headers else {
-        return Err("sealed request answered by an unsealed response".to_string());
+    let pt = match enc_headers {
+        (Some(v), _) if v == SEALED_STREAM => open_stream_records(pk, &body)?,
+        (Some(v), Some(nonce)) if v == "v1" => {
+            crate::susi_config::cluster_key::member_open(pk, &nonce, &body)
+                .ok_or_else(|| "sealed response failed AEAD verification".to_string())?
+        }
+        (Some(v), _) => return Err(format!("unknown sealed-response version {v}")),
+        (None, _) => return Err("sealed request answered by an unsealed response".to_string()),
     };
-    if v != "v1" {
-        return Err(format!("unknown sealed-response version {v}"));
-    }
-    let pt = crate::susi_config::cluster_key::member_open(pk, &nonce, &body)
-        .ok_or_else(|| "sealed response failed AEAD verification".to_string())?;
     String::from_utf8(pt).map_err(|e| format!("sealed response not utf-8: {e}"))
 }
 
@@ -448,5 +517,40 @@ mod tests {
         );
         assert!(negotiated_version(&json!({"protocolVersion": "1999-01-01"})).is_err());
         assert!(negotiated_version(&json!({})).is_err());
+    }
+
+    /// Stub AEAD for framing tests: ciphertext = plaintext + 1-byte sum
+    /// tag; never touches node keys on disk.
+    fn stub_seal(chunk: &[u8]) -> Option<(String, Vec<u8>)> {
+        let mut ct = chunk.to_vec();
+        ct.push(chunk.iter().fold(0u8, |a, b| a.wrapping_add(*b)));
+        Some(("0a".repeat(12), ct))
+    }
+
+    fn stub_open(nonce: &str, ct: &[u8]) -> Option<Vec<u8>> {
+        let (tag, plain) = ct.split_last()?;
+        (nonce == "0a".repeat(12) && *tag == plain.iter().fold(0u8, |a, b| a.wrapping_add(*b)))
+            .then(|| plain.to_vec())
+    }
+
+    #[test]
+    fn sealed_stream_records_round_trip_and_fail_closed() {
+        let mut body = frame_record(b"data: {\"id\":1}\n\n", stub_seal);
+        body.extend(frame_record(b"data: {\"id\":2}\n\n", stub_seal));
+        let plain = open_records(&body, stub_open).unwrap();
+        assert_eq!(plain, b"data: {\"id\":1}\n\ndata: {\"id\":2}\n\n");
+
+        // Truncation, tampering and a server-side seal failure all refuse
+        // the body rather than yield partial or unauthenticated plaintext.
+        assert!(open_records(&body[..body.len() - 1], stub_open).is_err());
+        let mut tampered = body.clone();
+        tampered[20] ^= 1;
+        assert!(open_records(&tampered, stub_open).is_err());
+        let mut failed = body.clone();
+        failed.extend(frame_record(b"x", |_| None));
+        assert!(open_records(&failed, stub_open)
+            .unwrap_err()
+            .contains("failed to seal"));
+        assert!(open_records(b"", stub_open).unwrap().is_empty());
     }
 }
