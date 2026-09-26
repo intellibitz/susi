@@ -1530,6 +1530,16 @@
       "milestone": "Idle model unloading (model_idle_timeout_secs, default 1800, 0 disables, SUSI_MODEL_IDLE_TIMEOUT_SECS override). Verified live on the CUDA release daemon with a 20s timeout: a loaded 0.5B model was unloaded at t=24s and the daemon's VRAM returned 554 -> 106 MiB; a model touched at t=15s was still loaded at t=30s and unloaded at t=39s (use resets the idle clock). Daemon then restarted without the override (default applies). Unit tests cover idle_since cutoff selection (in-use entries never idle) and the sweep interval bounds. fmt, clippy -D warnings (default and --features cuda), 2979 workspace tests, xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "manual",
+        "ref": "symbol://manual"
+      },
+      "id": "EV-2022927-159",
+      "milestone": "ModelSubstrate binds its CUDA context in Drop, closing the remaining VRAM-leak paths (a request finishing after its model was evicted; cache replacement on a fresh request thread). GPU regression test drops the last weights handle on a context-less thread: failed with CUDA_ERROR_INVALID_CONTEXT before the fix and again when the Drop bind is removed; passes with it, alongside the eviction test, 3/3 runs serialized. Live on the rebuilt CUDA daemon: two load/unload cycles 106 -> 554 -> 106 MiB. fmt, clippy -D warnings (default and --features cuda), 2980 workspace tests (105 binaries, strict recount), xtask verify-architecture pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
