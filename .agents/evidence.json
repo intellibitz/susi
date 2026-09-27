@@ -2350,6 +2350,16 @@
       "milestone": "RSI iteration 74/100: the natural-intent classifier reads its config-driven keyword lists and matches whole words. config.default.json ships intent_classify (query_exact, query_prefixes, query_contains, motion_contains) and SusiConfig::intent_classify() exposes it as 'no hardcoded keyword lists in Rust' (Mandate 35), but nothing read it: classify_natural_intent hard-coded the same lists, so operator edits had no effect. It also used substring checks, so goals mentioning 'promotion' or 'emotion' were typed [MOTION] Architectural Evolution when ingested into the evidence memory; the reflex fallback branch repeated the substring checks on the reflex reply (confirmed in testing: with a live daemon answering pulse_reason, 'draft a promotion plan' still came back [MOTION] until that branch was fixed too). The classifier now loads intent_classify from config for the query and motion rules, and every keyword test in both branches (config lists and the reflex reply's query/status/identity/motion/recompile/mission/solve) goes through contains_phrase, a whole-word matcher. Tests: whole-word matching (architecture and 'who am i' match; promotion and emotions do not) and config-driven classification (architecture -> MOTION, status -> QUERY, promotion not MOTION). Note: the classification test runs against whatever plane bus is reachable, which on this host included the live daemon. cargo test -p susi-gawd intent_classify (2 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "config/config.default.json (orphan keys)",
+        "ref": "file://config/config.default.json"
+      },
+      "id": "EV-2022927-241",
+      "milestone": "RSI iteration 75/100: the bundled configuration no longer advertises settings that do nothing. Following iteration 74 (an unread intent_classify section), every SusiConfig accessor was checked for callers (all used) and every top-level key of config/config.default.json was searched for as a quoted string or identifier across crates/ and src/. Four keys are read by nothing and have no hard-coded twin: susi_repo, stdin_timeout_secs (no stdin timeout exists), beacon_interval_secs (no beacon feature exists), and susi_alpha_default (reflex weights are addressed through alpha_weights_filename/alpha_weights_url). An operator editing them saw no effect, and two implied behavior SUSI does not have. They are removed from the bundled defaults (existing host configs keep them harmlessly; merge only adds missing keys). external_peer_agents_note, also unread, is documentation for operators and is kept. cargo test -p susi-config (44 passed), -p susi-sandbox (29 passed), --test architecture_tests (19 passed), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

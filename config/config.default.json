@@ -1,5 +1,4 @@
 {
-  "susi_repo": "intellibitz/susi",
   "agent_rank_threshold": 0.6,
   "alpha_weights_url": "https://huggingface.co/intellibitz/susi-alpha/resolve/main/susi-alpha.safetensors",
   "alpha_weights_filename": "susi-alpha.safetensors",
@@ -160,7 +159,6 @@
     "failure_cooldown_secs": 300
   },
   "max_stdin_size_bytes": 104857600,
-  "stdin_timeout_secs": 120,
   "bootstrap_mcp_servers": [
     {
       "category": "fs",
@@ -447,7 +445,6 @@
       "russian"
     ]
   },
-  "beacon_interval_secs": 30,
   "gemi_port": 9091,
   "default_fallback_model": {
     "hf_file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
@@ -554,7 +551,6 @@
     "ckpt"
   ],
   "model_file_min_bytes": 1000000,
-  "susi_alpha_default": "susi-alpha",
   "inference_routing": {
     "policy": "auto",
     "local_min_tokens_per_sec": 8.0,
