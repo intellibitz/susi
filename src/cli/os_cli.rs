@@ -222,11 +222,11 @@ pub enum OsFrameworkAction {
     },
 }
 
-pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) -> Result<()> {
+pub fn execute(action: Option<OsCommands>, top_json: bool, workspace: &Path) -> Result<()> {
     match action.unwrap_or(OsCommands::Status { json: false }) {
         OsCommands::Status { json } => status(json || top_json),
         OsCommands::Clean => clean(),
-        OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
+        OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, workspace),
         OsCommands::Runtime { json } => super::os_runtime::print(json || top_json),
         OsCommands::Route {
             json,
@@ -234,17 +234,24 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
             max_cost,
             no_cloud,
         } => route(json || top_json, requires.as_deref(), max_cost, !no_cloud),
-        OsCommands::RouteReset { provider } => route_reset(&provider, top_json),
-        OsCommands::Manage { resource } => manage(resource, _workspace),
+        OsCommands::RouteReset { provider } => route_reset(&provider, top_json, workspace),
+        OsCommands::Manage { resource } => manage(resource, workspace),
     }
 }
 
-fn route_reset(provider: &str, json: bool) -> Result<()> {
+fn route_reset(provider: &str, json: bool, workspace: &Path) -> Result<()> {
     let provider = provider.trim();
     if provider.is_empty() {
         anyhow::bail!("provider must not be empty");
     }
     let cleared = susi_gemi::routing::InferenceRouter::clear_provider_cooldown(provider);
+    if cleared {
+        susi_gemi::susi_sandbox::manager::SusiAuditLogger::log_event(
+            workspace,
+            "INFERENCE_PROVIDER_READMITTED",
+            provider,
+        );
+    }
     if json {
         println!(
             "{}",
