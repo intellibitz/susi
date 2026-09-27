@@ -427,6 +427,7 @@ impl EvidenceSession {
             &self.workspace,
             &self.id,
             &self.goal,
+            &(self.redact)(&self.goal),
             &receipt,
         );
         if let Some(inbox) = &self.remote_inbox {

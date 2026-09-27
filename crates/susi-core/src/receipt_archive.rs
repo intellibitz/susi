@@ -28,6 +28,10 @@ pub struct ArchivedReceipt {
     pub kind: String,
     pub session_id: String,
     pub mission_goal_hash: String,
+    /// Redacted mission text used only as local classifier training input.
+    /// Older v1 records predate this additive field and remain readable.
+    #[serde(default)]
+    pub training_intent: Option<String>,
     pub receipt_id: String,
     pub tool: String,
     pub arguments: String,
@@ -45,12 +49,19 @@ impl ReceiptArchive {
     }
 
     /// Best-effort append. Archive write failure never fails the mission.
-    pub fn append(workspace: &Path, session_id: &str, mission_goal: &str, receipt: &ToolReceipt) {
+    pub fn append(
+        workspace: &Path,
+        session_id: &str,
+        mission_goal: &str,
+        training_intent: &str,
+        receipt: &ToolReceipt,
+    ) {
         let record = ArchivedReceipt {
             schema: ARCHIVE_SCHEMA.into(),
             kind: "tool_receipt".into(),
             session_id: session_id.to_string(),
             mission_goal_hash: hex::encode(Sha256::digest(mission_goal.as_bytes())),
+            training_intent: Some(training_intent.to_string()),
             receipt_id: receipt.id.clone(),
             tool: receipt.tool.clone(),
             arguments: receipt.arguments.clone(),
@@ -210,6 +221,7 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].schema, ARCHIVE_SCHEMA);
         assert_eq!(lines[0].tool, "exec_command");
+        assert_eq!(lines[0].training_intent.as_deref(), Some("archive-mission"));
         assert_eq!(lines[0].output_hash.len(), 64);
         assert!(lines[0].successful);
         let raw = std::fs::read_to_string(ReceiptArchive::path(&ws.0)).unwrap();

@@ -1660,6 +1660,16 @@
       "milestone": "RSI iteration 5/100: reflex-label provenance now comes from successful execution receipts rather than model answer prose. The previous consolidator copied memory.jsonl outcome text into the action field, even though outcomes are free-form answers and no downstream evidence proves they name an executed action; the classifier therefore learned fabricated labels (or, after iteration 4, rejected every such record). Consolidation now reads the append-only receipt archive, stages only successful records with non-empty mission_goal and tool fields, uses the receipt's tool as the canonical action, and preserves receipt_id/output_hash provenance in metadata. Malformed archive records fail closed with a line number. A regression test proves a successful list_directory receipt is staged with provenance while an unsuccessful write_file receipt is excluded. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ArchivedReceipt::training_intent",
+        "ref": "symbol://ArchivedReceipt"
+      },
+      "id": "EV-2022927-172",
+      "milestone": "RSI iteration 6/100: corrected iteration 5's incomplete intent provenance after auditing the real ArchivedReceipt schema. Receipt archives stored only mission_goal_hash, so a consolidator expecting mission_goal text could never stage production data. EvidenceSession now supplies its credential-redacted mission text to ReceiptArchive alongside the unchanged hash of the original goal; ArchivedReceipt carries it as an additive optional training_intent so legacy v1 lines remain readable. PKB consolidation uses ReceiptArchive::load_audit_lines rather than reading only the live file, covering all retained generations, and excludes legacy records that cannot prove their training intent. Tests verify the capture boundary persists the redacted training intent, successful receipt pairing, unsuccessful exclusion, and safe legacy-record handling. This entry explicitly supersedes EV-2022927-171's unsupported implication that the pre-existing receipt schema contained mission_goal text. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

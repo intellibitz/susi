@@ -37,23 +37,12 @@ impl ProtocolKnowledgeBase {
 
     /// Stages successful, receipt-backed tool executions as classifier pairs.
     pub fn consolidate_verified_receipts(workspace: &Path) -> EaiResult<usize> {
-        let receipt_file = workspace.join(".susi/receipt_archive.jsonl");
-        if !receipt_file.exists() {
-            return Ok(0);
-        }
-
-        let content = std::fs::read_to_string(&receipt_file)?;
         let mut count = 0;
-        for (line_index, line) in content.lines().enumerate() {
-            let entry: serde_json::Value = serde_json::from_str(line).map_err(|error| {
-                crate::susi_error::EaiError::config(format!(
-                    "invalid receipt archive record at line {}: {error}",
-                    line_index + 1
-                ))
-            })?;
-            let successful = entry["successful"].as_bool().unwrap_or(false);
-            let intent = entry["mission_goal"].as_str().unwrap_or("").trim();
-            let action = entry["tool"].as_str().unwrap_or("").trim();
+        for entry in crate::susi_core::receipt_archive::ReceiptArchive::load_audit_lines(workspace)
+        {
+            let intent = entry.training_intent.as_deref().unwrap_or("").trim();
+            let action = entry.tool.trim();
+            let successful = entry.successful;
             if successful && !intent.is_empty() && !action.is_empty() {
                 Self::stage_distillation_pair(
                     intent,
@@ -61,8 +50,8 @@ impl ProtocolKnowledgeBase {
                     workspace,
                     Some(serde_json::json!({
                         "source": "tool_receipt",
-                        "receipt_id": entry["receipt_id"],
-                        "output_hash": entry["output_hash"],
+                        "receipt_id": entry.receipt_id,
+                        "output_hash": entry.output_hash,
                     })),
                 )?;
                 count += 1;
@@ -98,8 +87,8 @@ mod tests {
         std::fs::write(
             susi_dir.join("receipt_archive.jsonl"),
             concat!(
-                "{\"mission_goal\":\"inspect repo\",\"tool\":\"list_directory\",\"successful\":true,\"receipt_id\":\"r1\",\"output_hash\":\"h1\"}\n",
-                "{\"mission_goal\":\"delete repo\",\"tool\":\"write_file\",\"successful\":false,\"receipt_id\":\"r2\",\"output_hash\":\"h2\"}\n"
+                "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s1\",\"mission_goal_hash\":\"mh1\",\"training_intent\":\"inspect repo\",\"receipt_id\":\"r1\",\"tool\":\"list_directory\",\"arguments\":\"{}\",\"observed_at\":1,\"output_hash\":\"h1\",\"successful\":true,\"archived_at\":1}\n",
+                "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s2\",\"mission_goal_hash\":\"mh2\",\"training_intent\":\"delete repo\",\"receipt_id\":\"r2\",\"tool\":\"write_file\",\"arguments\":\"{}\",\"observed_at\":2,\"output_hash\":\"h2\",\"successful\":false,\"archived_at\":2}\n"
             ),
         )
         .unwrap();
@@ -113,5 +102,22 @@ mod tests {
         assert_eq!(record["intent"], "inspect repo");
         assert_eq!(record["action"], "list_directory");
         assert_eq!(record["performance_metadata"]["receipt_id"], "r1");
+    }
+
+    #[test]
+    fn consolidation_ignores_legacy_receipts_without_training_intent() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        std::fs::write(
+            susi_dir.join("receipt_archive.jsonl"),
+            "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s1\",\"mission_goal_hash\":\"mh1\",\"receipt_id\":\"r1\",\"tool\":\"status\",\"arguments\":\"{}\",\"observed_at\":1,\"output_hash\":\"h1\",\"successful\":true,\"archived_at\":1}\n",
+        )
+        .unwrap();
+        assert_eq!(
+            ProtocolKnowledgeBase::consolidate_verified_receipts(dir.path()).unwrap(),
+            0
+        );
+        assert!(!susi_dir.join("distillation_staged.jsonl").exists());
     }
 }
