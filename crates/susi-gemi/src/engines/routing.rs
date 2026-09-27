@@ -249,6 +249,23 @@ impl InferenceRouter {
         }
     }
 
+    /// Clear a provider and its vendor-scope quarantine after an operator
+    /// has repaired credentials or connectivity. Returns whether state
+    /// changed, so control-plane callers can report a no-op honestly.
+    pub fn clear_provider_cooldown(name: &str) -> bool {
+        let mut map = provider_down_map()
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let mut changed = map.remove(name).is_some();
+        if let Some(scope) = vendor_scope(name) {
+            changed |= map.remove(&format!("vendor:{scope}")).is_some();
+        }
+        if changed {
+            save_cooldowns(&map);
+        }
+        changed
+    }
+
     fn preference_path() -> PathBuf {
         crate::susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
@@ -1335,6 +1352,18 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&name));
         InferenceRouter::record_provider_success(&name);
         assert!(!InferenceRouter::provider_cooled(&name));
+    }
+
+    #[test]
+    fn provider_cooldown_can_be_cleared_after_repair() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("repair");
+        let name = format!("repairable-provider-{}", std::process::id());
+        InferenceRouter::record_provider_failure(&name);
+        assert!(InferenceRouter::provider_cooled(&name));
+        assert!(InferenceRouter::clear_provider_cooldown(&name));
+        assert!(!InferenceRouter::provider_cooled(&name));
+        assert!(!InferenceRouter::clear_provider_cooldown(&name));
     }
 
     #[test]
