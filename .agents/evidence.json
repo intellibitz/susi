@@ -2240,6 +2240,16 @@
       "milestone": "RSI iteration 63/100: agent-to-remote calls outside authorize_tool respect the privacy posture. Three swarm paths sent mission data off-host with no MAC check: external peer agents over openai_chat/http/a2a (the POST body is the mission goal, and for http also the workspace path), the native proxy-endpoint agent (POSTs the goal to its configured completion endpoint), and LibraryScoutAgent's crates.io search (a model-derived query term). Each now asks mac_policy::egress_permitted for its target: the external peer dispatch refuses network protocols with a [PRIVACY] governance error (managed/process peers are local processes and unchanged), the proxy agent refuses before building the request, and LibraryScoutAgent skips the live crates.io query and falls through to its existing local-reasoning recommendation. Host/LAN targets and balanced/open postures are unaffected. Audit status stated: webhook_dispatcher was also checked and is not configured by any production path (set_webhook_dispatcher is only called from a test), so it cannot send today; HF discovery, external-agent cloud APIs (susi agents), MCP HTTP clients, and benchmark/eval clients remain unaudited for posture. cargo test -p susi-gawd-agents (258 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "external::cloud::Cloud::new / hf_discovery::fetch_dynamic_ladder (egress)",
+        "ref": "file://crates/susi-agents/src/external/cloud.rs"
+      },
+      "id": "EV-2022927-230",
+      "milestone": "RSI iteration 64/100: cloud coding agents and Hugging Face catalog discovery respect the privacy posture. susi agents run/send for the Devin and Manus adapters POSTed the user's prompt (and follow-up messages) to api.devin.ai / api.manus.ai with no MAC check, and the model ladder's dynamic discovery queried the Hugging Face API during provisioning; neither goes through authorize_tool. Cloud::new, the single constructor every cloud adapter call uses (execute, refresh, cancel, send), now refuses with a [PRIVACY] error unless mac_policy::egress_permitted allows the adapter's base URL, and fetch_dynamic_ladder returns no dynamic steps under a blocking posture (identical to its existing offline path, so provisioning falls back to the static ladder). Balanced and open postures and granted egress are unchanged. Remaining unaudited direct clients, stated: MCP HTTP transports (susi-core mcp_client, susi-tools client/connection), benchmark/eval, and the A2A server's outbound calls. cargo test -p susi-agents, -p susi-gemi-models hf_discovery, and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

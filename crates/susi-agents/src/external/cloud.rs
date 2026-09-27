@@ -37,6 +37,10 @@ impl Cloud {
             ),
             _ => bail!("not a cloud adapter"),
         };
+        // Cloud agents receive the user's prompt and repository context.
+        if !crate::susi_core::mac_policy::egress_permitted(&base) {
+            bail!("[PRIVACY] network egress to {base} blocked by the privacy posture (run `susi privacy consent --egress`)");
+        }
         let key =
             crate::susi_config::env_or_cloud_env(env).with_context(|| format!("missing {env}"))?;
         if key.trim().is_empty() {

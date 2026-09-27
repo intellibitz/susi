@@ -217,6 +217,11 @@ fn fetch_dynamic_ladder(
         return Vec::new();
     };
     let base = cfg.hf_base_url();
+    // Catalog discovery is still network egress: under a posture that
+    // blocks it, return no dynamic steps (the same as being offline).
+    if !crate::susi_core::mac_policy::egress_permitted(&base) {
+        return Vec::new();
+    }
     let url = format!("{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true", policy.discovery_limit.clamp(1, 50));
     let Ok(mut models) = client
         .get(url)

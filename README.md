@@ -111,7 +111,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    prompts or embedding text to any endpoint off the host/LAN, and model
    downloads (including zero-config auto-prime) and agent live search
    (Open-Meteo, DuckDuckGo, Brave/Google search tools), external peer agents,
-   proxy endpoints, and crates.io scouting need egress consent.
+   proxy endpoints, crates.io scouting, cloud coding agents (Devin/Manus), and
+   Hugging Face catalog discovery need egress consent.
    Scoped capability grants stop at a path/host boundary: a grant on
    `/srv/ws` never authorizes `/srv/ws2`.
    Local agent messaging (`ipc_send`) is authorized by the default
