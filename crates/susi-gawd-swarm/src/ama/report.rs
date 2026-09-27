@@ -106,9 +106,14 @@ impl SusiMissionReport {
             "blackboard_path": ".susi/last_blackboard.json",
             "blackboard": load_persisted_blackboard(workspace),
         });
-        let _ = std::fs::write(
-            path,
-            serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+        // "No secret bodies" is enforced, not assumed: goal, interaction
+        // payloads, and the final answer can all echo tool output, so the
+        // whole document goes through the shared credential redactor, and
+        // it is replaced atomically (the crown parses it).
+        let text = serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into());
+        let _ = crate::susi_config::atomic_write_bytes(
+            &path,
+            crate::susi_config::redact_credentials(&text).as_bytes(),
         );
     }
 }

@@ -1534,11 +1534,13 @@ mod compiled_read_truth_tests {
                 action: "EVIDENCE_CAPTURED".into(),
                 payload: r#"[{"id":"r1","tool":"exec_command"}]"#.into(),
             }],
-            final_answer: "done".into(),
+            final_answer: "done; pushed with ghp_traceToken123".into(),
         };
         report.persist_inspectable_trace(&dir);
         let path = dir.join(".susi/last_mission_trace.json");
         let body = std::fs::read_to_string(&path).expect("trace file");
+        assert!(serde_json::from_str::<serde_json::Value>(&body).is_ok());
+        assert!(!body.contains("ghp_traceToken123"), "{body}");
         assert!(body.contains("inspect workspace"));
         assert!(body.contains("EVIDENCE_CAPTURED"));
         assert!(body.contains("thought") || body.contains("supervise_mission_swarm"));

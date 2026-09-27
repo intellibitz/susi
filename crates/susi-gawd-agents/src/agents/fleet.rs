@@ -673,15 +673,8 @@ fn persist_governance_report(workspace: &Path, results: &[(String, String)], cle
     let agents: Vec<serde_json::Value> = results
         .iter()
         .map(|(name, outcome)| {
-            let redacted = crate::susi_core::redact::redact_patterns(
-                &[
-                    "sk-".into(),
-                    "ghp_".into(),
-                    "github_pat_".into(),
-                    "xoxb-".into(),
-                ],
-                outcome,
-            );
+            // The shared credential redactor, not a private prefix list.
+            let redacted = crate::susi_config::redact_credentials(outcome);
             serde_json::json!({
                 "agent": name,
                 "outcome": redacted,
@@ -694,9 +687,11 @@ fn persist_governance_report(workspace: &Path, results: &[(String, String)], cle
         "sequencing": "SafetyAgent and SecurityAgent awaited before parallel fleet",
         "agents": agents,
     });
-    let _ = std::fs::write(
-        dir.join("last_governance.json"),
-        serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+    let _ = crate::susi_config::atomic_write_bytes(
+        &dir.join("last_governance.json"),
+        serde_json::to_string_pretty(&body)
+            .unwrap_or_else(|_| "{}".into())
+            .as_bytes(),
     );
 }
 

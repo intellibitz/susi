@@ -2280,6 +2280,16 @@
       "milestone": "RSI iteration 67/100: the inspectable mission blackboard uses the one credential redactor and is replaced atomically. persist_inspectable (which writes <workspace>/.susi/last_blackboard.json, the Blackboard pillar's glass-box surface read by susi blackboard and the crown) redacted agent outputs with a private hard-coded list of four prefixes (sk-, ghp_, github_pat_, xoxb-), a duplicate of the governance list that missed its other entries (AIza, AWS key names, private-key headers) and never masked credential values held in the environment. It also wrote the file with an unchecked plain fs::write, so a concurrent reader could parse a torn file. Outputs now go through susi_config::redact_credentials (environment-held *_API_KEY/*_TOKEN/*_SECRET values plus the configured governance.secret_tokens, falling back to the bundled list) and the file is replaced through atomic_write_bytes. The existing test now also stores an AIza key and a ghp_ token and proves neither reaches the file. cargo test -p susi-core agent_types and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "persist_governance_report / SusiMissionReport::persist_inspectable_trace",
+        "ref": "symbol://SusiMissionReport::persist_inspectable_trace"
+      },
+      "id": "EV-2022927-234",
+      "milestone": "RSI iteration 68/100: the other two glass-box mission files are redacted by the shared redactor and replaced atomically. persist_governance_report (fleet.rs, writing .susi/last_governance.json) carried the same private four-prefix redaction list removed from the blackboard in iteration 67, and persist_inspectable_trace (writing .susi/last_mission_trace.json) documented 'no secret bodies' but applied no redaction at all while writing the goal, every A2A interaction payload (which carries tool output), the final answer, and the raw protocol text. Both were plain unchecked fs::write calls, and the crown's glass-box check parses all three files. Governance outcomes now go through susi_config::redact_credentials, the whole trace document is redacted with it before writing, and both files are replaced through atomic_write_bytes. The trace test now puts a ghp_ token in the final answer and proves the written file still parses as JSON and does not contain it. cargo test -p susi-gawd-swarm (305 passed), -p susi-gawd-agents (258 passed), and cargo clippy --workspace --all-targets -D warnings pass. With iteration 67, all three glass-box files the crown reads (last_blackboard, last_governance, last_mission_trace) share one redactor and atomic writes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
