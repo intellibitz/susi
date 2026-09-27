@@ -238,9 +238,17 @@ impl GemiServer {
     }
 }
 
-fn placement_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>), &'static str> {
+#[derive(Debug, PartialEq)]
+struct PlacementQuery {
+    requires: Option<String>,
+    max_cost: Option<f64>,
+    allow_cloud: bool,
+}
+
+fn placement_query(query: Option<&str>) -> Result<PlacementQuery, &'static str> {
     let mut requires = None;
     let mut max_cost = None;
+    let mut allow_cloud = None;
     for pair in query.into_iter().flat_map(|value| value.split('&')) {
         if pair.is_empty() {
             continue;
@@ -255,11 +263,24 @@ fn placement_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>),
             "max_cost" if max_cost.is_none() => {
                 max_cost = Some(validated_max_cost(value.parse::<f64>().ok())?);
             }
-            "requires" | "max_cost" => return Err("duplicate placement query parameter"),
+            "allow_cloud" if allow_cloud.is_none() => {
+                allow_cloud = Some(match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err("allow_cloud must be true or false"),
+                });
+            }
+            "requires" | "max_cost" | "allow_cloud" => {
+                return Err("duplicate placement query parameter");
+            }
             _ => return Err("unknown placement query parameter"),
         }
     }
-    Ok((requires, max_cost))
+    Ok(PlacementQuery {
+        requires,
+        max_cost,
+        allow_cloud: allow_cloud.unwrap_or(true),
+    })
 }
 
 fn validated_requirement(value: &str) -> Result<String, &'static str> {
@@ -415,12 +436,16 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/runtime/placement") => {
-            let (requires, max_cost) = match placement_query(query.as_deref()) {
+            let constraints = match placement_query(query.as_deref()) {
                 Ok(constraints) => constraints,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
             };
             let payload = tokio::task::spawn_blocking(move || {
-                gemi::ModelManager::placement(requires.as_deref(), max_cost)
+                gemi::ModelManager::placement_with_cloud(
+                    constraints.requires.as_deref(),
+                    constraints.max_cost,
+                    constraints.allow_cloud,
+                )
             })
             .await
             .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
@@ -1825,16 +1850,29 @@ mod tests {
 
     #[test]
     fn placement_query_accepts_constraints_and_rejects_ambiguous_input() {
-        assert_eq!(placement_query(None).unwrap(), (None, None));
         assert_eq!(
-            placement_query(Some("requires=vision&max_cost=0.01")).unwrap(),
-            (Some("vision".to_string()), Some(0.01))
+            placement_query(None).unwrap(),
+            PlacementQuery {
+                requires: None,
+                max_cost: None,
+                allow_cloud: true,
+            }
+        );
+        assert_eq!(
+            placement_query(Some("requires=vision&max_cost=0.01&allow_cloud=false")).unwrap(),
+            PlacementQuery {
+                requires: Some("vision".to_string()),
+                max_cost: Some(0.01),
+                allow_cloud: false,
+            }
         );
         assert!(placement_query(Some("requires=vision&requires=text")).is_err());
         assert!(placement_query(Some("requires=vision%20input")).is_err());
         assert!(placement_query(Some("max_cost=NaN")).is_err());
         assert!(placement_query(Some("max_cost=-1")).is_err());
         assert!(placement_query(Some("surprise=true")).is_err());
+        assert!(placement_query(Some("allow_cloud=no")).is_err());
+        assert!(placement_query(Some("allow_cloud=true&allow_cloud=false")).is_err());
     }
 
     #[test]
