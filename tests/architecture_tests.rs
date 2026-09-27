@@ -679,3 +679,149 @@ fn reachability_from_core_stays_downward() {
         );
     }
 }
+
+// ── Unwired module ratchet ──────────────────────────────────────────────
+//
+// A daemon module that no production path reaches is compiled and
+// unit-tested but never runs: a feature in name only. Roots are references
+// from outside `susi-daemon` (other crates, the root binary) plus
+// `lib.rs` re-exports; edges are `crate::`/`super::`/`susi_daemon::` paths
+// and brace imports in non-test code. The 2026-09-27 audit found 88 of 119
+// modules unreachable; the count may only go down.
+
+const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 88;
+
+fn non_test(text: &str) -> &str {
+    text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// Whether `text` names module `m` through `prefix::m` (word-bounded).
+fn names_path(text: &str, prefix: &str, m: &str) -> bool {
+    let needle = format!("{prefix}::{m}");
+    text.match_indices(&needle).any(|(i, _)| {
+        let before_ok = i == 0 || !is_ident_byte(text.as_bytes()[i - 1]);
+        let after = text.as_bytes().get(i + needle.len()).copied();
+        before_ok && !after.is_some_and(is_ident_byte)
+    })
+}
+
+/// Whether a `use crate::{…}` / `use super::{…}` group imports `m`.
+fn brace_imports(text: &str, m: &str) -> bool {
+    ["crate::{", "super::{"].iter().any(|open| {
+        text.match_indices(open).any(|(i, _)| {
+            let rest = &text[i + open.len()..];
+            let group = rest.find('}').map_or(rest, |end| &rest[..end]);
+            group
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .any(|word| word == m)
+        })
+    })
+}
+
+fn rust_files(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            rust_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs") {
+            out.push(path);
+        }
+    }
+}
+
+fn unreachable_daemon_modules() -> Vec<String> {
+    let root = workspace_root();
+    let src = root.join("crates/susi-daemon/src");
+    let mut modules: HashMap<String, String> = HashMap::new();
+    for entry in std::fs::read_dir(&src).unwrap().flatten() {
+        let path = entry.path();
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        if path.extension().is_some_and(|e| e == "rs") && name != "lib" && name != "main" {
+            let mut text = std::fs::read_to_string(&path).unwrap();
+            let mut nested = Vec::new();
+            rust_files(&src.join(&name), &mut nested);
+            for f in nested {
+                text.push_str(&std::fs::read_to_string(f).unwrap());
+            }
+            modules.insert(name, text);
+        }
+    }
+    let mentions = |text: &str, m: &str| {
+        let code = non_test(text);
+        ["crate", "super", "susi_daemon"]
+            .iter()
+            .any(|p| names_path(code, p, m))
+            || brace_imports(code, m)
+    };
+    let mut outside = String::new();
+    let mut files = Vec::new();
+    rust_files(&root.join("src"), &mut files);
+    rust_files(&root.join("crates"), &mut files);
+    for f in files {
+        if f.starts_with(&src) || !f.components().any(|c| c.as_os_str() == "src") {
+            continue;
+        }
+        outside.push_str(non_test(&std::fs::read_to_string(f).unwrap()));
+    }
+    let lib = std::fs::read_to_string(src.join("lib.rs")).unwrap();
+    let lib_code: String = lib
+        .lines()
+        .filter(|l| {
+            let t = l.trim_start().trim_start_matches("pub ");
+            !(t.starts_with("mod ") && t.ends_with(';'))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut reached: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<String> = modules
+        .keys()
+        .filter(|m| {
+            names_path(&outside, "susi_daemon", m)
+                || names_path(&lib_code, "crate", m)
+                || names_path(&lib_code, "self", m)
+                || lib_code.contains(&format!("use {m}::"))
+                || lib_code.contains(&format!(" {m}::"))
+        })
+        .cloned()
+        .collect();
+    while let Some(m) = queue.pop_front() {
+        if !reached.insert(m.clone()) {
+            continue;
+        }
+        let text = &modules[&m];
+        for other in modules.keys() {
+            if other != &m && !reached.contains(other) && mentions(text, other) {
+                queue.push_back(other.clone());
+            }
+        }
+    }
+    let mut dead: Vec<String> = modules
+        .keys()
+        .filter(|m| !reached.contains(*m))
+        .cloned()
+        .collect();
+    dead.sort();
+    dead
+}
+
+#[test]
+fn unreachable_daemon_modules_only_decrease() {
+    let dead = unreachable_daemon_modules();
+    assert!(
+        dead.len() <= UNREACHABLE_DAEMON_MODULES_CEILING,
+        "{} susi-daemon modules are unreachable from any production path \
+         (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING}); wire or remove new ones: {dead:?}",
+        dead.len()
+    );
+    eprintln!(
+        "unreachable susi-daemon modules: {} (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING})",
+        dead.len()
+    );
+}
