@@ -34,14 +34,13 @@ pub fn load_persisted_peers() -> Vec<ClusterPeerNode> {
 /// Path-seamed loader — tests exercise the real filter logic against a
 /// temp file without mutating process env (which races parallel tests
 /// resolving the cluster key through the same variables).
-pub fn load_persisted_peers_from(path: &PathBuf) -> Vec<ClusterPeerNode> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return Vec::new(),
-    };
-    let nodes: Vec<ClusterPeerNode> = serde_json::from_str(&text).unwrap_or_default();
-    nodes
+pub fn load_persisted_peers_from(path: &std::path::Path) -> Vec<ClusterPeerNode> {
+    // Rows are parsed one by one: a single row another writer shaped
+    // differently used to fail the whole array and hide every peer.
+    crate::susi_config::cluster_key::read_json_rows_strict(path)
+        .unwrap_or_default()
         .into_iter()
+        .filter_map(|row| serde_json::from_value::<ClusterPeerNode>(row).ok())
         .filter(|n| matches!(n.admission, PeerAdmission::Explicit))
         .collect()
 }
@@ -54,7 +53,7 @@ pub fn persist_verified_peer(node: &ClusterPeerNode) {
 
 /// Path-seamed variant of `persist_verified_peer` — same rationale as
 /// `load_persisted_peers_from`.
-pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &PathBuf) {
+pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &std::path::Path) {
     if !matches!(node.admission, PeerAdmission::Explicit) {
         return;
     }
@@ -66,19 +65,44 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &PathBuf) {
     let _lock = path
         .parent()
         .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
-    let mut nodes = load_persisted_peers_from(path);
-    // Same node re-homed to a new address: drop stale rows keyed by the
-    // same node_id so one node occupies exactly one persisted slot.
-    nodes.retain(|n| n.address == node.address || n.node_id != node.node_id);
-    if let Some(existing) = nodes.iter_mut().find(|n| n.address == node.address) {
-        *existing = node.clone();
+    // Edit JSON rows, not typed nodes: rewriting from a typed view dropped
+    // every row that failed to type-parse, and a damaged file read as
+    // empty was rewritten with this one peer, erasing the roster.
+    let mut rows = match crate::susi_config::cluster_key::read_json_rows_strict(path) {
+        Ok(rows) => rows,
+        Err(e) => {
+            eprintln!(
+                "[peers] not persisting {}: roster unreadable ({e})",
+                node.address
+            );
+            return;
+        }
+    };
+    let Ok(fresh) = serde_json::to_value(node) else {
+        return;
+    };
+    let field = |row: &serde_json::Value, key: &str| {
+        row.get(key).and_then(|v| v.as_str()).map(str::to_string)
+    };
+    // Only verified rows are ever kept on disk (see module docs); the
+    // same node re-homed to a new address keeps exactly one slot.
+    rows.retain(|row| {
+        field(row, "admission").as_deref() == Some("explicit")
+            && (field(row, "address").as_deref() == Some(node.address.as_str())
+                || field(row, "node_id").as_deref() != Some(node.node_id.as_str()))
+    });
+    if let Some(existing) = rows
+        .iter_mut()
+        .find(|row| field(row, "address").as_deref() == Some(node.address.as_str()))
+    {
+        *existing = fresh;
     } else {
-        nodes.push(node.clone());
+        rows.push(fresh);
     }
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let _ = crate::susi_config::atomic_write_json_pretty(path, &nodes);
+    let _ = crate::susi_config::atomic_write_json_pretty(path, &rows);
 }
 
 #[cfg(test)]
@@ -135,6 +159,29 @@ mod tests {
         assert!(load_persisted_peers_from(&path).is_empty());
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn damaged_or_foreign_roster_rows_are_never_erased() {
+        let reg = temp_registry();
+        // A row another writer shaped without typed fields must survive a
+        // persist, and must not hide the typed peers beside it.
+        std::fs::write(
+            &reg,
+            r#"[{"node_id":"cli-row","address":"10.0.0.7:9093","admission":"explicit"}]"#,
+        )
+        .unwrap();
+        persist_verified_peer_to(&node("10.0.0.8:9093", PeerAdmission::Explicit), &reg);
+        let raw: Vec<serde_json::Value> =
+            serde_json::from_str(&std::fs::read_to_string(&reg).unwrap()).unwrap();
+        assert_eq!(raw.len(), 2);
+        assert_eq!(load_persisted_peers_from(&reg).len(), 1);
+
+        // A damaged roster is left alone rather than rewritten with one row.
+        std::fs::write(&reg, "[{\"node_id\":").unwrap();
+        persist_verified_peer_to(&node("10.0.0.9:9093", PeerAdmission::Explicit), &reg);
+        assert_eq!(std::fs::read_to_string(&reg).unwrap(), "[{\"node_id\":");
+        let _ = std::fs::remove_file(&reg);
     }
 
     #[test]

@@ -1909,25 +1909,17 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
     };
     let peers_path = dir.join("peers.json");
     let banned_path = dir.join("peers_banned.json");
-    let mut peers: Vec<serde_json::Value> = fs::read_to_string(&peers_path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    // A damaged ban list is neither trusted as empty (that would let a
-    // committed add resurrect evicted members) nor rewritten (that would
-    // erase every earlier ban): membership applies stop until it is fixed.
-    // Read uncached: this is a locked read-modify-write.
-    let mut banned: Vec<serde_json::Value> = match fs::read_to_string(&banned_path) {
-        Ok(text) => match serde_json::from_str(&text) {
-            Ok(rows) => rows,
-            Err(e) => {
-                eprintln!("[commit_log] membership apply skipped: ban list corrupt ({e})");
-                return;
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(e) => {
-            eprintln!("[commit_log] membership apply skipped: ban list unreadable ({e})");
+    // Strict, uncached reads for this locked read-modify-write. A damaged
+    // roster or ban list is neither trusted as empty (a committed add
+    // could resurrect evicted members) nor rewritten (that erased every
+    // row it held): membership applies stop until it is repaired.
+    let (mut peers, mut banned) = match (
+        crate::susi_config::cluster_key::read_json_rows_strict(&peers_path),
+        crate::susi_config::cluster_key::read_json_rows_strict(&banned_path),
+    ) {
+        (Ok(peers), Ok(banned)) => (peers, banned),
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("[commit_log] membership apply skipped: {e}");
             return;
         }
     };

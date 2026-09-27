@@ -510,17 +510,25 @@ pub fn config_json_rows_checked_at(
             }
         }
     }
-    let rows = match fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str::<Vec<serde_json::Value>>(&text)
-            .map_err(|e| format!("{}: {e}", path.display())),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
-        Err(e) => Err(format!("{}: {e}", path.display())),
-    };
+    let rows = read_json_rows_strict(&path);
     cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(key, (stamp.0, stamp.1, rows.clone()));
     rows
+}
+
+/// Uncached rows of a roster JSON file: `Ok(vec![])` when absent, `Err`
+/// when present but unreadable or not a JSON array. Read-modify-write
+/// paths use this so a damaged file is never rewritten from an empty view,
+/// which erased every row it held.
+pub fn read_json_rows_strict(path: &std::path::Path) -> Result<Vec<serde_json::Value>, String> {
+    match fs::read_to_string(path) {
+        Ok(text) => serde_json::from_str::<Vec<serde_json::Value>>(&text)
+            .map_err(|e| format!("{}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    }
 }
 
 /// Whether any row of `peers_banned.json` under `dir` satisfies `matches`.
