@@ -15,11 +15,10 @@ pub fn wire_mac_policy(_substrate: &Path) {
 
 /// Persist privacy mode for subsequent boots.
 pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
+    // Atomic: an empty/torn read parses as `balanced`, which would briefly
+    // downgrade a `local_only` host in every process polling this file.
     let path = crate::susi_paths::SusiDirs::substrate_home().join("privacy_mode");
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&path, mode.as_str())?;
+    crate::susi_config::atomic_write_bytes(&path, mode.as_str().as_bytes())?;
     MacPolicy::global().set_mode(mode);
     Ok(())
 }

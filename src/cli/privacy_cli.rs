@@ -55,14 +55,10 @@ pub fn execute(action: Option<PrivacyCommands>) -> Result<()> {
         PrivacyCommands::Mode { mode } => {
             let m = PrivacyMode::parse(&mode);
             susi_daemon::privacy::persist_privacy_mode(m)?;
-            // Also align inference routing sticky preference for local_only.
+            // Also align inference routing sticky preference for local_only
+            // (through the router, so it lands where the router reads it).
             if matches!(m, PrivacyMode::LocalOnly) {
-                let pref_path = substrate.join("routing_preference.json");
-                let body = serde_json::json!({
-                    "policy_override": "local_only",
-                    "preferred_cloud": null
-                });
-                let _ = std::fs::write(pref_path, serde_json::to_string_pretty(&body)?);
+                susi_gemi::routing::InferenceRouter::set_local_only();
             }
             println!(
                 "{}",

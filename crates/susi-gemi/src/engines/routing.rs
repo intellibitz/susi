@@ -327,14 +327,23 @@ impl InferenceRouter {
             .unwrap_or_default()
     }
 
+    /// Atomic: a reader racing an in-place write would see an empty file,
+    /// parse it as the default preference, and lose a `local_only` override.
     pub fn save_preference(pref: &RoutingPreference) {
-        let path = Self::preference_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(body) = serde_json::to_string_pretty(pref) {
-            let _ = std::fs::write(path, body);
+            let _ =
+                crate::susi_config::atomic_write_bytes(&Self::preference_path(), body.as_bytes());
         }
+    }
+
+    /// Make `local_only` the sticky routing policy, keeping the rest of the
+    /// saved preference. The one writer for this override — the privacy CLI
+    /// and the interactive cloud prompt both go through it, so it always
+    /// lands in the file the router reads.
+    pub fn set_local_only() {
+        let mut pref = Self::load_preference();
+        pref.policy_override = Some("local_only".to_string());
+        Self::save_preference(&pref);
     }
 
     /// Set sticky preferred cloud vendor (e.g. paid `openai` over free tiers).
@@ -444,12 +453,8 @@ impl InferenceRouter {
         stats.samples = stats.samples.saturating_add(1);
         stats.model_id = model_id.to_string();
 
-        let path = Self::stats_path();
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         if let Ok(body) = serde_json::to_string_pretty(&stats) {
-            let _ = std::fs::write(path, body);
+            let _ = crate::susi_config::atomic_write_bytes(&Self::stats_path(), body.as_bytes());
         }
     }
 
@@ -1053,9 +1058,7 @@ impl InferenceRouter {
             return Some(clouds[0].clone());
         }
         if trimmed == "0" {
-            let mut pref = Self::load_preference();
-            pref.policy_override = Some("local_only".to_string());
-            Self::save_preference(&pref);
+            Self::set_local_only();
             let _ = writeln!(
                 io::stderr(),
                 "[SUSI ROUTING] Sticky preference set to local_only. Clear ~/.susi/routing_preference.json to reset."
@@ -1195,6 +1198,24 @@ mod tests {
         assert!(!InferenceRouter::local_is_slow(&cfg, &fast));
         let cold = LocalInferenceStats::default();
         assert!(!InferenceRouter::local_is_slow(&cfg, &cold));
+    }
+
+    #[test]
+    fn set_local_only_keeps_the_rest_of_the_preference() {
+        // Same real-file serialization as preferred_cloud_substring_match.
+        let _guard = crate::engines::env_test_lock();
+        let prev = InferenceRouter::load_preference();
+        InferenceRouter::save_preference(&RoutingPreference {
+            preferred_cloud: Some("deepseek".into()),
+            force_local_until_unix: Some(42),
+            ..Default::default()
+        });
+        InferenceRouter::set_local_only();
+        let now = InferenceRouter::load_preference();
+        InferenceRouter::save_preference(&prev);
+        assert_eq!(now.policy_override.as_deref(), Some("local_only"));
+        assert_eq!(now.preferred_cloud.as_deref(), Some("deepseek"));
+        assert_eq!(now.force_local_until_unix, Some(42));
     }
 
     #[test]
