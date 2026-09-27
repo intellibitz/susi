@@ -61,11 +61,14 @@ impl NativeInferenceEngine for SusiGgufEngine {
         let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("neural_inference", prompt);
 
-        // Fast-path bypass for tests to prevent 31B model load timeouts
-        // Mandatory for stable CI/CD and hardware-limited test environments
+        // Test seam: skip the native model load (31B load timeouts on CI and
+        // hardware-limited hosts). It reports that no inference ran — a
+        // typed failure the cascade handles like any unavailable engine —
+        // rather than returning fabricated text as if a model answered.
         if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" || cfg!(test) {
-            task_handle.mark_completed("Simulated inference for test suite.");
-            return Ok("Simulated inference for test suite.".to_string());
+            let reason = "native inference disabled (SUSI_TEST_MOCK_INFERENCE / test build)";
+            task_handle.mark_failed(reason);
+            return Err(EaiError::inference(reason));
         }
 
         // Every early-? return must mark the task failed — otherwise the
