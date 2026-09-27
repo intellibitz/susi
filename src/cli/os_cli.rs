@@ -241,8 +241,8 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, workspace: &Path) -> 
 
 fn route_reset(provider: &str, json: bool, workspace: &Path) -> Result<()> {
     let provider = provider.trim();
-    if provider.is_empty() {
-        anyhow::bail!("provider must not be empty");
+    if !susi_gemi::susi_core::plane_bus::gemi::valid_provider_id(provider) {
+        anyhow::bail!("provider must be 1-256 printable non-whitespace ASCII characters");
     }
     let cleared = susi_gemi::routing::InferenceRouter::clear_provider_cooldown(provider);
     if cleared {

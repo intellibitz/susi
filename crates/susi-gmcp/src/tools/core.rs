@@ -237,7 +237,7 @@ impl CoreTools {
             .get("provider")
             .and_then(|value| value.as_str())
             .map(str::trim)
-            .filter(|value| !value.is_empty())
+            .filter(|value| crate::susi_core::plane_bus::gemi::valid_provider_id(value))
             .ok_or_else(|| EaiError::config("provider is required"))?;
         let cleared = ModelManager::clear_provider_cooldown(provider);
         if cleared {

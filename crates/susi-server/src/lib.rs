@@ -333,11 +333,8 @@ fn provider_reset_input(body: &[u8]) -> Result<String, &'static str> {
         .get("provider")
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty() && value.len() <= 256)
+        .filter(|value| susi_core::plane_bus::gemi::valid_provider_id(value))
         .ok_or("body must be {\"provider\": \"<provider id>\"}")?;
-    if !provider.bytes().all(|byte| byte.is_ascii_graphic()) {
-        return Err("provider id must contain printable non-whitespace ASCII");
-    }
     Ok(provider.to_string())
 }
 

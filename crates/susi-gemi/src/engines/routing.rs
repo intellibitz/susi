@@ -253,6 +253,9 @@ impl InferenceRouter {
     /// has repaired credentials or connectivity. Returns whether state
     /// changed, so control-plane callers can report a no-op honestly.
     pub fn clear_provider_cooldown(name: &str) -> bool {
+        if !crate::susi_core::plane_bus::gemi::valid_provider_id(name) {
+            return false;
+        }
         let mut map = provider_down_map()
             .write()
             .unwrap_or_else(|e| e.into_inner());

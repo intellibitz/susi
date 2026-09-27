@@ -224,6 +224,12 @@ fn req_ok(topic: &str, payload: Value) -> Value {
 pub mod gemi {
     use super::*;
 
+    /// Bounded provider identifier accepted across CLI, HTTP, MCP, and the
+    /// plane bus. This is a wire invariant and deliberately performs no I/O.
+    pub fn valid_provider_id(value: &str) -> bool {
+        !value.is_empty() && value.len() <= 256 && value.bytes().all(|byte| byte.is_ascii_graphic())
+    }
+
     pub struct HardwareProfiler;
 
     impl HardwareProfiler {
@@ -1225,6 +1231,14 @@ mod tests {
             .expect("handler");
         assert_eq!(v["topic"], "test.echo");
         assert_eq!(v["payload"]["x"], 1);
+    }
+
+    #[test]
+    fn provider_id_wire_contract_is_bounded_and_printable() {
+        assert!(gemi::valid_provider_id("openai-gpt-4o-mini"));
+        assert!(!gemi::valid_provider_id(""));
+        assert!(!gemi::valid_provider_id("bad id"));
+        assert!(!gemi::valid_provider_id(&"x".repeat(257)));
     }
 }
 
