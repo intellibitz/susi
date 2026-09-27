@@ -2160,6 +2160,16 @@
       "milestone": "RSI iteration 55/100: synthesized Wasm reflexes are published atomically. synthesize_wasm_reflex ran rustc with -o pointing at the live data_dir/reflexes/<slug>.wasm, and ToolRegistry both lists every reflexes/*.wasm as a reflex_<slug> tool and executes it as soon as the file exists, so a concurrent call during compilation could hand WasmHost a half-written module, and a failed recompile could leave a truncated file in place of the previous working reflex. rustc now writes <slug>.wasm.<pid>.tmp (not a .wasm, so never listed or executed), which is renamed over the live name only after a successful build; a spawn failure, a compile failure, or a failed rename removes the staging file and returns the error, leaving any previous reflex intact. Verified with the real toolchain on this host (wasm32-wasip1 installed): a new ignored test synthesizes a probe reflex, checks the \\\\0asm magic and that no staging file remains, then removes it; run explicitly with --ignored and passing. cargo clippy --workspace --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "dag::shell_block_command",
+        "ref": "symbol://shell_block_command"
+      },
+      "id": "EV-2022927-222",
+      "milestone": "RSI iteration 56/100: DAG agents run the command they were given for every shell tag. MissionDag::execute_dag extracts fenced shell blocks from model output and runs them through exec_command, but it stripped the language tag with chained trim_start_matches(\"bash\").trim_start_matches(\"sh\").trim_start_matches(\"shell\"): for a block tagged shell the sh pass removed the first two letters, so the node executed 'ell ...' (a failed or wrong command) instead of the requested one; a tag such as shellscript also matched no rule consistently. shell_block_command now takes the tag as the whole first line of the block and accepts exactly bash, sh, or shell, keeping the existing refusals of empty commands and '!'-prefixed lines. A test covers all three tags, a longer lookalike tag, a non-shell language, a '!' line, and an empty body. cargo test -p susi-gawd-swarm shell_block and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

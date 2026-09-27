@@ -94,15 +94,11 @@ impl MissionDag {
 
                     let mut executed_scripts = String::new();
                     for block in res.split("```").skip(1).step_by(2) {
-                        let block_trimmed = block.trim();
-                        if block_trimmed.starts_with("bash\n") || block_trimmed.starts_with("sh\n") || block_trimmed.starts_with("shell\n") {
-                            let cmd = block_trimmed.trim_start_matches("bash").trim_start_matches("sh").trim_start_matches("shell").trim();
-                            if !cmd.is_empty() && !cmd.starts_with('!') {
-                                eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
-                                let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                                let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &serde_json::Value::String(wrapped_cmd), &ws).unwrap_or_else(|e| format!("[Error] {e}"));
-                                executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
-                            }
+                        if let Some(cmd) = shell_block_command(block) {
+                            eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
+                            let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
+                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &serde_json::Value::String(wrapped_cmd), &ws).unwrap_or_else(|e| format!("[Error] {e}"));
+                            executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
                         }
                     }
 
@@ -177,6 +173,18 @@ impl MissionDag {
     }
 }
 
+/// The command in a fenced block tagged `bash`, `sh`, or `shell`. The tag
+/// is the whole first line: chained `trim_start_matches` calls used to eat
+/// the `sh` of `shell` and run a command starting with `ell`.
+fn shell_block_command(block: &str) -> Option<&str> {
+    let (tag, body) = block.trim_start().split_once('\n')?;
+    if !matches!(tag.trim(), "bash" | "sh" | "shell") {
+        return None;
+    }
+    let cmd = body.trim();
+    (!cmd.is_empty() && !cmd.starts_with('!')).then_some(cmd)
+}
+
 /// Hook body registered into `susi_gawd_agents::dag_hooks` by [`crate::init`].
 pub fn dispatch_mission_dag(
     goal: &str,
@@ -237,5 +245,21 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(rx.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod shell_block_tests {
+    use super::shell_block_command;
+
+    #[test]
+    fn every_tag_yields_the_whole_command() {
+        assert_eq!(shell_block_command("bash\necho hi\n"), Some("echo hi"));
+        assert_eq!(shell_block_command("sh\nls -la"), Some("ls -la"));
+        assert_eq!(shell_block_command("shell\nls -la"), Some("ls -la"));
+        assert_eq!(shell_block_command("shellscript\nls"), None);
+        assert_eq!(shell_block_command("rust\nfn main() {}"), None);
+        assert_eq!(shell_block_command("bash\n!sudo reboot"), None);
+        assert_eq!(shell_block_command("bash\n   "), None);
     }
 }

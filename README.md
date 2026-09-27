@@ -67,6 +67,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
 3. **Swarm** — agent-of-agents consensus (GAWD); `susi crown` checks that the
    GAWD, GEMI, tools, and agents planes are each wired on the plane bus.
+   DAG task agents run fenced `bash`/`sh`/`shell` blocks through the governed
+   `exec_command` tool with the tag parsed exactly.
    Cluster identity files are installed atomically; an interrupted first
    start no longer leaves an empty `cluster.key` that strands the node.
    Operator bans fail closed: a damaged `peers_banned.json` refuses membership
