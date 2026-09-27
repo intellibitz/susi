@@ -128,6 +128,34 @@ fn node_id_persists_and_is_wire_safe() {
 }
 
 #[test]
+fn torn_empty_identity_files_are_replaced_not_stuck() {
+    let _t = set_key_env();
+    // A crash between create and write used to leave empty files that
+    // cluster_key refused to rotate and node_id could never replace.
+    let key_path = cluster_key_path();
+    std::fs::create_dir_all(key_path.parent().unwrap()).unwrap();
+    std::fs::write(&key_path, "").unwrap();
+    let key = cluster_key().expect("torn cluster.key is regenerated");
+    assert_eq!(cluster_key(), Some(key), "regenerated key persists");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&key_path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    let id_path = key_path.with_file_name("node_id");
+    std::fs::write(&id_path, "\n").unwrap();
+    let id = node_id().expect("torn node_id is regenerated");
+    assert!(id.starts_with("susi-node-"));
+    assert_eq!(node_id().as_deref(), Some(id.as_str()));
+
+    // A malformed but non-empty key is still never auto-rotated.
+    std::fs::write(&key_path, "not-hex").unwrap();
+    assert_eq!(cluster_key(), None);
+}
+
+#[test]
 fn peer_channel_ecdh_is_symmetric_and_seal_roundtrips() {
     let _t = set_key_env();
     let our_pub = node_pubkey_hex().expect("node pubkey");

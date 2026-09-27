@@ -1900,6 +1900,16 @@
       "milestone": "RSI iteration 29/100: a hung agent command can finally be reaped by the idle-lease watchdog. exec_command's wait loop called task_handle.report_progress() every 50 ms whether or not the child produced anything, so a silent, wedged command (a blocked network call, a prompt waiting on /dev/null, a deadlocked build) always looked busy: the Mandate 32 watchdog never saw it idle, and the exec_command category's learned lease was calibrated to about 50 ms regardless of the real workload. Progress is now reported only by the pipe drains, once per chunk the child actually writes (drain_exec_pipe, extracted to module level); the wait loop only polls. A try_wait error now kills and reaps the child and fails the task instead of looping forever. Known limitation, stated: a legitimately silent long command is now subject to the calibrated lease, floored by the operator's execution_lease_secs and not applied before three completed samples. A unit test proves an empty pipe reports no progress and a pipe with output does. Also verified this session: cargo clippy --workspace --all-targets -D warnings clean and a full cargo test --workspace run with no failures (after fixing the iteration-27 test's tempfile use, see commit 8243b6fb).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "cluster_key / node_id / install_identity_file",
+        "ref": "symbol://install_identity_file"
+      },
+      "id": "EV-2022927-196",
+      "milestone": "RSI iteration 30/100: a crash during first start can no longer strand a node outside its cluster. cluster_key() and node_id() created ~/.susi/cluster.key and ~/.susi/node_id with create_new(0600) and then a separate write_all. A crash or kill between the two left an empty file; cluster_key then logged it as malformed and refused to auto-rotate on every call, leaving the node in unsigned mode (peers can never reach Explicit), and node_id's create_new kept failing on the existing file, so the host advertised a new ephemeral identity each process and lost its stable coordinator identity. A concurrent first start (daemon plus CLI) could also read the empty file mid-creation. Both now create through the existing susi_config::install_private_file (written in full to a 0600 staging file, then hard-linked into place, so readers never see a partial file and a racing creator never overwrites the winner), and a whitespace-only file is treated as a torn creation, cleared under a file lock, and reinstalled. A malformed non-empty key is still never auto-rotated. install_private_file is now also re-exported from susi-config (it already was from susi-core's mount), with no second writer added. A new test proves an empty cluster.key and node_id are regenerated and then persist, the key is 0600, and a malformed non-empty key still yields None; cargo test -p susi-config cluster_key (9 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

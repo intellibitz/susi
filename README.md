@@ -66,6 +66,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 1. **Truth** — absolute sources only; models never certify.
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
 3. **Swarm** — agent-of-agents consensus (GAWD).
+   Cluster identity files are installed atomically; an interrupted first
+   start no longer leaves an empty `cluster.key` that strands the node.
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
    The context graph (missions, tool calls, patch cycles, observations) is
    bounded, compacted by atomic rename, and re-read correctly by sibling

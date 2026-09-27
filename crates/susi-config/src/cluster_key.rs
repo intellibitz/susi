@@ -39,49 +39,61 @@ pub fn cluster_key_path() -> PathBuf {
 /// promoted to `Explicit`).
 pub fn cluster_key() -> Option<[u8; 32]> {
     let path = cluster_key_path();
-    if let Some(raw) = cached_file_bytes(&path) {
-        let text = String::from_utf8(raw).ok()?;
-        let bytes = hex::decode(text.trim()).ok()?;
-        if bytes.len() == 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            return Some(key);
+    let raw = match cached_file_bytes(&path) {
+        Some(raw) if !is_torn_identity(&raw) => raw,
+        // Absent, or an empty file left by an interrupted creation (never
+        // a usable key, so replacing it cuts no one off the cluster).
+        _ => {
+            let mut fresh = [0u8; 32];
+            getrandom::fill(&mut fresh).ok()?;
+            install_identity_file(&path, hex::encode(fresh).as_bytes())?
         }
-        // Present but malformed: do not silently rotate — a fresh key would
-        // cut this node off from the existing cluster without telling anyone.
-        eprintln!(
-            "[cluster.key] {} is malformed (expected 64 hex chars); refusing to auto-rotate",
-            path.display()
-        );
-        return None;
+    };
+    let bytes = std::str::from_utf8(&raw)
+        .ok()
+        .and_then(|text| hex::decode(text.trim()).ok());
+    if let Some(bytes) = bytes.filter(|b| b.len() == 32) {
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        return Some(key);
     }
-    let dir = crate::susi_paths::SusiDirs::config_dir();
-    let _ = fs::create_dir_all(&dir);
-    let mut raw = [0u8; 32];
-    getrandom::fill(&mut raw).ok()?;
-    let encoded = hex::encode(raw);
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        // Create with 0600 atomically — never write-then-chmod (umask window).
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true).mode(0o600);
-        if options
-            .open(&path)
-            .and_then(|mut f| f.write_all(encoded.as_bytes()))
-            .is_err()
-        {
-            // Lost a create race or the fs rejected mode — only accept the
-            // key if a peer process actually wrote a valid one.
-            return cluster_key();
+    // Present but malformed: do not silently rotate — a fresh key would
+    // cut this node off from the existing cluster without telling anyone.
+    eprintln!(
+        "[cluster.key] {} is malformed (expected 64 hex chars); refusing to auto-rotate",
+        path.display()
+    );
+    None
+}
+
+/// An identity file holding nothing but whitespace is a creation that was
+/// interrupted between create and write, not a real key or id.
+fn is_torn_identity(bytes: &[u8]) -> bool {
+    bytes.iter().all(u8::is_ascii_whitespace)
+}
+
+/// Install `fresh` as an owner-only identity file unless one already exists,
+/// and return the bytes on disk afterwards (the winner's, if another process
+/// raced us). Creation goes through `install_private_file` — staged in full,
+/// then hard-linked into place — because create-then-write left an empty
+/// file behind on a crash, which `cluster_key` refused to rotate and
+/// `node_id` could never replace. Such a torn file is cleared under a lock
+/// so only one process recovers it.
+fn install_identity_file(path: &Path, fresh: &[u8]) -> Option<Vec<u8>> {
+    let torn_on_disk = |p: &Path| fs::read(p).is_ok_and(|b| is_torn_identity(&b));
+    let _recovery_lock = if torn_on_disk(path) {
+        let dir = path.parent()?;
+        let name = path.file_name()?.to_str()?;
+        let lock = super::file_lock::FileLock::acquire(dir, name)?;
+        if torn_on_disk(path) {
+            fs::remove_file(path).ok()?;
         }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = fs::write(&path, &encoded);
-    }
-    Some(raw)
+        Some(lock)
+    } else {
+        None
+    };
+    super::install_private_file(path, fresh).ok()?;
+    fs::read(path).ok()
 }
 
 /// HMAC-SHA256 over `message` (hand-rolled, same construction as the audit
@@ -268,33 +280,15 @@ fn wire_safe(s: &str) -> bool {
 /// namespace.
 pub fn node_id() -> Option<String> {
     let path = crate::susi_paths::SusiDirs::config_dir().join("node_id");
-    if let Some(raw) = cached_file_bytes(&path) {
-        let id = String::from_utf8(raw).ok()?.trim().to_string();
-        if wire_safe(&id) && id.len() <= 64 {
-            return Some(id);
-        }
-    }
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).ok()?;
-    }
-    let id = format!("susi-node-{}", &random_nonce_hex()[..12]);
-    // 0600 like the cluster key — the id isn't secret, but a
-    // world-writable identity file invites trivial spoofing.
-    #[cfg(unix)]
-    let written = {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&path)
-            .and_then(|mut f| f.write_all(id.as_bytes()))
-            .is_ok()
+    let raw = match cached_file_bytes(&path) {
+        Some(raw) if !is_torn_identity(&raw) => raw,
+        _ => install_identity_file(
+            &path,
+            format!("susi-node-{}", &random_nonce_hex()[..12]).as_bytes(),
+        )?,
     };
-    #[cfg(not(unix))]
-    let written = fs::write(&path, &id).is_ok();
-    written.then_some(id)
+    let id = String::from_utf8(raw).ok()?.trim().to_string();
+    (wire_safe(&id) && id.len() <= 64).then_some(id)
 }
 
 /// The node id this host advertises on the wire — the persisted

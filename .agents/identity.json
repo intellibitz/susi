@@ -58,7 +58,7 @@
     },
     {
       "id": 3,
-      "summary": "multi-agent consensus (`susi-gawd`) agent-of-agents orchestrator.",
+      "summary": "multi-agent consensus (`susi-gawd`) agent-of-agents orchestrator. Cluster membership identity (`cluster.key`, `node_id`) is installed atomically and self-recovers from an interrupted first start.",
       "title": "Swarm"
     },
     {
