@@ -227,10 +227,13 @@ impl IntentBundleManager {
                 for fix in &bundle.staged_fixes {
                     let target_path = confined_workspace_join(workspace, fix.file_path())
                         .map_err(|e| EaiError::filesystem(e.to_string()))?;
-                    if let Some(parent) = target_path.parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
-                    let _ = fs::write(&target_path, fix.staged_content());
+                    // A failed write is an error, not a silently counted
+                    // "changed" file in a bundle marked applied.
+                    crate::susi_config::atomic_replace_file(
+                        &target_path,
+                        fix.staged_content().as_bytes(),
+                    )
+                    .map_err(|e| EaiError::filesystem(format!("apply {}: {e}", fix.file_path())))?;
                     files_changed += 1;
                 }
                 bundle.set_applied(true);
@@ -257,7 +260,13 @@ impl IntentBundleManager {
                     let target_path = confined_workspace_join(workspace, fix.file_path())
                         .map_err(|e| EaiError::filesystem(e.to_string()))?;
                     if !fix.original_content().is_empty() {
-                        let _ = fs::write(&target_path, fix.original_content());
+                        crate::susi_config::atomic_replace_file(
+                            &target_path,
+                            fix.original_content().as_bytes(),
+                        )
+                        .map_err(|e| {
+                            EaiError::filesystem(format!("revert {}: {e}", fix.file_path()))
+                        })?;
                     } else if target_path.exists() {
                         let _ = fs::remove_file(&target_path);
                     }

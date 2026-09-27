@@ -67,11 +67,8 @@ fn read_file(path: &Path) -> EaiResult<String> {
 }
 
 fn write_file(path: &Path, content: &str) -> EaiResult<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| EaiError::filesystem(format!("mkdir {parent:?}: {e}")))?;
-    }
-    std::fs::write(path, content).map_err(|e| EaiError::filesystem(format!("write {path:?}: {e}")))
+    crate::susi_config::atomic_replace_file(path, content.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("write {path:?}: {e}")))
 }
 
 fn detect_test_command(workspace: &Path) -> String {

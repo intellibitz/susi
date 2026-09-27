@@ -322,27 +322,11 @@ impl CoreTools {
             // escape the workspace.
             let dest = crate::susi_config::confined_workspace_join(workspace, p)
                 .map_err(|e| EaiError::filesystem(e.to_string()))?;
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent).map_err(|e| EaiError::filesystem(e.to_string()))?;
-            }
-            // O_NOFOLLOW (Unix): refuse to open if a symlink raced in after secure_path.
-            #[cfg(unix)]
-            {
-                use std::io::Write;
-                use std::os::unix::fs::OpenOptionsExt;
-                let mut options = fs::OpenOptions::new();
-                options.write(true).create(true).truncate(true);
-                options.custom_flags(libc::O_NOFOLLOW);
-                let mut file = options
-                    .open(&dest)
-                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
-                file.write_all(content.as_bytes())
-                    .map_err(|e| EaiError::filesystem(e.to_string()))?;
-            }
-            #[cfg(not(unix))]
-            {
-                fs::write(&dest, content).map_err(|e| EaiError::filesystem(e.to_string()))?;
-            }
+            // Atomic replace: a crash mid-write never truncates the user's
+            // file, and a symlink that raced in after confinement is refused
+            // (rename never writes through it) instead of followed.
+            crate::susi_config::atomic_replace_file(&dest, content.as_bytes())
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
             Ok(format!("Wrote to {}", p))
         } else {
             Err(EaiError::protocol(

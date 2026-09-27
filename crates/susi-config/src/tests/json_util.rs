@@ -137,3 +137,47 @@ fn private_install_has_exactly_one_winner_and_is_owner_only() {
     );
     let _ = std::fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn user_file_replace_keeps_mode_and_refuses_symlinks() {
+    use crate::json_util::atomic_replace_file;
+    let ws = workspace("replace");
+    let script = ws.join("run.sh");
+    std::fs::write(&script, "old").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    atomic_replace_file(&script, b"new").unwrap();
+    assert_eq!(std::fs::read_to_string(&script).unwrap(), "new");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&script).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o755);
+        let target = ws.join("outside.txt");
+        std::fs::write(&target, "keep").unwrap();
+        let link = ws.join("link.txt");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let err = atomic_replace_file(&link, b"evil").unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+        assert!(std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+    atomic_replace_file(&ws.join("new/dir/file.rs"), b"fn main() {}").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(ws.join("new/dir/file.rs")).unwrap(),
+        "fn main() {}"
+    );
+    let leftovers = std::fs::read_dir(&ws)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().starts_with('.'))
+        .count();
+    assert_eq!(leftovers, 0);
+    let _ = std::fs::remove_dir_all(&ws);
+}

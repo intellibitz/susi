@@ -122,9 +122,19 @@ fn read_secret(path: &Path) -> std::io::Result<[u8; 32]> {
     })
 }
 
-/// A fresh `create_new` staging file beside `path` (dot-prefixed so
-/// directory scanners skip it; 0600 on Unix), unique per process and call.
+/// A fresh owner-only (0600 on Unix) `create_new` staging file.
 fn create_staging_file(dir: &Path, path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
+    create_staging_file_with(dir, path, true)
+}
+
+/// A fresh `create_new` staging file beside `path` (dot-prefixed so
+/// directory scanners skip it), unique per process and call. `private`
+/// makes it 0600 on Unix; otherwise the process umask applies.
+fn create_staging_file_with(
+    dir: &Path,
+    path: &Path,
+    private: bool,
+) -> std::io::Result<(PathBuf, fs::File)> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
     loop {
@@ -137,16 +147,56 @@ fn create_staging_file(dir: &Path, path: &Path) -> std::io::Result<(PathBuf, fs:
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
-        {
+        if private {
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600);
         }
+        #[cfg(not(unix))]
+        let _ = private;
         match options.open(&tmp_path) {
             Ok(file) => return Ok((tmp_path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
     }
+}
+
+/// Replaces a *user* file (workspace source, not SUSI state) atomically: a
+/// crash or kill mid-write leaves either the old or the new content, never a
+/// truncated file. Unlike [`atomic_write_bytes`] it keeps the file's
+/// existing permissions (a new file gets the normal umask mode), and it
+/// refuses to replace a symlink rather than follow or clobber it. Parent
+/// directories are created on demand. Replacing breaks any extra hard links
+/// to the old inode, which keep the previous content.
+pub fn atomic_replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let existing = match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("refusing to replace symlink {}", path.display()),
+            ))
+        }
+        Ok(meta) => Some(meta.permissions()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        Some(_) | None => Path::new("."),
+    };
+    fs::create_dir_all(dir)?;
+    let (tmp_path, mut file) = create_staging_file_with(dir, path, false)?;
+    let mut result = file.write_all(bytes).and_then(|()| file.sync_all());
+    drop(file);
+    if let (Ok(()), Some(perms)) = (&result, existing) {
+        result = fs::set_permissions(&tmp_path, perms);
+    }
+    let result = result.and_then(|()| fs::rename(&tmp_path, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp_path);
+    }
+    result
 }
 
 /// Replaces `path` with `bytes` via a same-directory temp file + rename, so a

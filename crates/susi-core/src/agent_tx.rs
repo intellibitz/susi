@@ -178,12 +178,9 @@ impl TxManager {
             let path = confined(workspace, &snap.rel_path)?;
             match &snap.content {
                 Some(content) => {
-                    if let Some(parent) = path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    std::fs::write(&path, content).map_err(|e| {
-                        EaiError::filesystem(format!("restore {}: {e}", snap.rel_path))
-                    })?;
+                    crate::susi_config::atomic_replace_file(&path, content.as_ref()).map_err(
+                        |e| EaiError::filesystem(format!("restore {}: {e}", snap.rel_path)),
+                    )?;
                 }
                 None => {
                     if path.exists() {
