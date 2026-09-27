@@ -1779,7 +1779,11 @@ impl CoreTools {
             .get("model")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("model is required"))?;
-        Ok(format!("{{\"preferred\":\"{model}\"}}"))
+        // Actually prefer it on the GEMI plane; a failed preflight is an
+        // error, not a `{"preferred": …}` claim.
+        let applied =
+            crate::susi_core::plane_bus::gemi::coding_prefer(model).map_err(EaiError::process)?;
+        serde_json::to_string(&applied).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
     #[tool(

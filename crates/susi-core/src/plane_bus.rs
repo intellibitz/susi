@@ -121,7 +121,7 @@ pub mod topics {
     pub const AGENTS_EXTERNAL_LIST: &str = "agents.external.list";
     pub const AGENTS_EXTERNAL_CONTROL: &str = "agents.external.control";
     pub const GEMI_MODELS_SELECT_MIN: &str = "gemi.models.select_min";
-    pub const GEMI_CODING_CONFIGURE: &str = "gemi.coding.configure";
+    pub const GEMI_CODING_PREFER: &str = "gemi.coding.prefer";
 
     pub const AGENTS_EXTERNAL_RESOLVE: &str = "agents.external.resolve";
     pub const AGENTS_EXTERNAL_RUN: &str = "agents.external.run";
@@ -700,6 +700,13 @@ pub mod gemi {
 
     pub fn coding_catalog() -> Value {
         req_ok(topics::GEMI_CODING_CATALOG, json!({}))
+    }
+
+    /// Prefer a coding/agent model on the live GEMI plane (preflight,
+    /// persisted preference, runtime model override) — the same operation
+    /// as `susi model prefer`.
+    pub fn coding_prefer(id: &str) -> Result<Value, String> {
+        req(topics::GEMI_CODING_PREFER, json!({ "id": id }))
     }
 
     pub fn pulse_reason(prompt: &str, workspace: &Path) -> String {

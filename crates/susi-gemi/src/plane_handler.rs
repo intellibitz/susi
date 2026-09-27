@@ -401,6 +401,16 @@ impl PlaneHandler for GemiPlaneHandler {
                 Ok(catalog) => serde_json::to_value(catalog).map_err(|e| e.to_string()),
                 Err(e) => Ok(json!({ "error": e.to_string() })),
             },
+            topics::GEMI_CODING_PREFER => {
+                let id = payload
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or("id is required")?;
+                let message = CodingModelManager::new()
+                    .and_then(|manager| manager.prefer(id))
+                    .map_err(|e| e.to_string())?;
+                Ok(json!({ "preferred": id, "message": message }))
+            }
             other => Err(format!("gemi handler: unhandled topic '{other}'")),
         }
     }
@@ -413,6 +423,19 @@ pub fn register() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coding_prefer_refuses_unknown_models_instead_of_claiming_success() {
+        let out = GemiPlaneHandler.handle(
+            topics::GEMI_CODING_PREFER,
+            json!({ "id": "no-such-coding-model-zz9" }),
+        );
+        let err = out.unwrap_err();
+        assert!(err.contains("unknown coding model"), "{err}");
+        assert!(GemiPlaneHandler
+            .handle(topics::GEMI_CODING_PREFER, json!({}))
+            .is_err());
+    }
 
     /// The swarm recovery loop reports provider attempts through the bus —
     /// the failure topic must feed the shared cooldown classifier and the
