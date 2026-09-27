@@ -24,6 +24,29 @@ fn get_home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Appends detected GPU feature args unless the caller already chose a
+/// feature set (`--features`/`-F`, `--all-features`, `--no-default-features`):
+/// an explicit choice (e.g. `--features metal`) must not silently gain a
+/// second backend.
+fn with_detected_features(args: &[String], detected: Vec<String>) -> Vec<String> {
+    let explicit = args.iter().any(|a| {
+        a == "--features"
+            || a == "-F"
+            || a.starts_with("--features=")
+            || (a.starts_with("-F") && a.len() > 2)
+            || a == "--all-features"
+            || a == "--no-default-features"
+    });
+    if explicit && !detected.is_empty() {
+        println!("xtask: explicit feature flags given; not injecting detected GPU features.");
+    }
+    let mut out = args.to_vec();
+    if !explicit {
+        out.extend(detected);
+    }
+    out
+}
+
 fn detect_gpu_features() -> (Vec<String>, Option<String>) {
     let mut args = Vec::new();
     let mut cudarc_ver = None;
@@ -100,17 +123,7 @@ fn main() {
             );
         }
 
-        // We inject the GPU args into the cargo build invocation
-        // But we only want to inject them if they weren't explicitly provided,
-        // to stay safe, but for now we just append them.
-
-        let mut final_args = Vec::new();
-        for arg in &args {
-            final_args.push(arg.clone());
-        }
-        for arg in gpu_args {
-            final_args.push(arg);
-        }
+        let final_args = with_detected_features(&args, gpu_args);
         cmd.args(&final_args);
         final_features = final_args;
 
@@ -245,6 +258,39 @@ fn main() {
                 eprintln!("xtask: Failed to copy binary: {}", e);
                 exit(1);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::with_detected_features;
+
+    fn v(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn detected_features_append_when_caller_chose_none() {
+        assert_eq!(
+            with_detected_features(&v(&["build", "--release"]), v(&["--features", "cuda"])),
+            v(&["build", "--release", "--features", "cuda"])
+        );
+    }
+
+    #[test]
+    fn explicit_feature_choices_are_never_augmented() {
+        for explicit in [
+            v(&["build", "--features", "metal"]),
+            v(&["build", "--features=metal"]),
+            v(&["build", "-F", "metal"]),
+            v(&["build", "-Fmetal"]),
+            v(&["build", "--no-default-features"]),
+        ] {
+            assert_eq!(
+                with_detected_features(&explicit, v(&["--features", "cuda"])),
+                explicit
+            );
         }
     }
 }
