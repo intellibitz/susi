@@ -508,8 +508,6 @@ pub struct AdminPulsesConfig {
     #[serde(flatten)]
     pub fields: DynamicRegistry,
     #[serde(default)]
-    pub install_pulse: String,
-    #[serde(default)]
     pub mcp_scout_pulse: String,
 }
 

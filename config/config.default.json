@@ -242,7 +242,6 @@
     }
   ],
   "admin_pulses": {
-    "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
     "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them"
   },
   "intent_classify": {

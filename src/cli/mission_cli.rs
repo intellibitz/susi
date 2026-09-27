@@ -104,8 +104,15 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Shell => run_shell(cwd),
         Commands::Install => {
             println!("[SUBSTRATE PROVISIONING: Axiomatic Initialization]");
-            let answer = ama.solve_clean(&cfg.admin_pulses().install_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
+            // The initializer itself (the swarm used to be asked to do it
+            // and report back).
+            match susi_sandbox::manager::SandboxManager::ensure_global_sandbox(global_dir) {
+                Ok(()) => println!("- Substrate home ready: {}", global_dir.display()),
+                Err(e) => {
+                    eprintln!("Substrate initialization failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
 
             println!("\n[AGGRESSIVE PRIMING: Enqueuing Optimal Substrate]");
             println!(

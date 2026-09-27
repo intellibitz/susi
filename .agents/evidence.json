@@ -2440,6 +2440,16 @@
       "milestone": "RSI iteration 83/100: the host configuration can no longer be seeded from the current directory. When ~/.susi/config.json did not exist, ensure_global_sandbox_locally (behind SandboxManager::ensure_global_sandbox, used by first-run provisioning) read Path::new(\"config.default.json\"), a path relative to the process's working directory, and installed it as the host's global config if it parsed. Running SUSI for the first time inside any repository that ships a file with that name (including a hostile clone) adopted that repository's governance patterns (secret tokens, destructive commands, critical paths), inference endpoints and API bases, and privacy settings as the host configuration. The seed is now always SusiConfig::default(), which is the bundled config.default.json compiled into the binary via include_str!. A repo-wide search for other working-directory-relative reads of .json/.toml/.env/.key files (Path::new, PathBuf::from, read_to_string with a bare file name) found none. cargo test -p susi-sandbox and cargo clippy --workspace --all-targets -D warnings pass; the change removes a branch and was not exercised with a crafted working directory (changing a test process's cwd would race parallel tests).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi install",
+        "ref": "file://src/cli/mission_cli.rs"
+      },
+      "id": "EV-2022927-250",
+      "milestone": "RSI iteration 84/100: susi install initializes the substrate itself. Its first step sent install_pulse ('initialize sandboxed .susi environment and provision weights') to the model swarm and printed the narration, so whether the substrate home and config were created depended on a model acting and the output could claim provisioning that did not happen. The command now calls SandboxManager::ensure_global_sandbox (the deterministic initializer, which after iteration 83 seeds only from the bundled defaults), prints the real outcome, and exits non-zero on failure; its existing background-priming notice and identity handshake are unchanged. The unread install_pulse is removed from AdminPulses and config.default.json, leaving mcp_scout_pulse as the only admin pulse (web scouting is inherently model-driven). cargo test -p susi-config (44), --bin susi, and cargo clippy --workspace --all-targets -D warnings pass. Iterations 80-84 together moved audit, verify, lint, audit-deps, bloat-audit, deep-scan, select-model, and install off model narration onto their real implementations.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
