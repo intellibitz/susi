@@ -7,9 +7,17 @@ authors = ["IntelliBitz", "Muthu Ramadoss", "SUSI EAI Core"]
 description = "SUSI Swarm OS ABI: Universal 0-dependency AI syscall, stigmergic pheromone, and IPC wire protocol."
 publish = false
 
+[features]
+default = []
+# Tokio TCP loop used by the five cell binaries. Type-only consumers
+# (susi-core, susi-daemon) stay off this feature so the ABI crate does not
+# pull an async runtime for wire types.
+cell-server = ["dep:tokio"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = "1.11.0"

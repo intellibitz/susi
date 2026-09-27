@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2021"
 
 [dependencies]
+susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }

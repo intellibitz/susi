@@ -9,9 +9,13 @@
 //! cryptographically verifiable evidence receipts, and zero-overhead IPC wire framing.
 //!
 //! Designed with **zero compile-time dependencies** on any other SUSI workspace crate,
-//! enabling true decoupled microkernel and distributed swarm operation.
+//! enabling true decoupled microkernel and distributed swarm operation. The
+//! optional `cell-server` feature adds the shared TCP cell loop (tokio);
+//! type-only consumers leave it off.
 
 pub mod cell;
+#[cfg(feature = "cell-server")]
+pub mod cell_server;
 pub mod evidence;
 pub mod memory;
 pub mod router;

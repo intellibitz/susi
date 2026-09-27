@@ -28,9 +28,7 @@ extern crate self as susi_gawd_a2a;
 extern crate self as susi_gawd_agents;
 extern crate self as susi_gawd_swarm;
 
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/lib.rs"]
-pub mod susi_abi;
+pub use susi_abi;
 
 use crate::admin_hooks::AdminHooks;
 use crate::host_hooks::HostHooks;

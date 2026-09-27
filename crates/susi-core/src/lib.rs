@@ -32,12 +32,9 @@ pub use susi_error;
 
 pub use susi_config;
 
-// The ABI source is compiled locally, keeping this package Cargo-independent
-// from every other SUSI package.
+pub use susi_abi;
+
 pub mod abi_bridge;
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/lib.rs"]
-pub mod susi_abi;
 
 pub mod a2a_wire;
 pub mod agent_tx;

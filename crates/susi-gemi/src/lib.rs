@@ -27,9 +27,7 @@
 
 extern crate self as susi_gemi_models;
 
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/lib.rs"]
-pub mod susi_abi;
+pub use susi_abi;
 
 pub use susi_error;
 

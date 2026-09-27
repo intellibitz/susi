@@ -28,13 +28,18 @@ fn shared_contracts_have_no_consumer_copies() {
             continue;
         }
         let src = crate_dir.join("src");
-        for module in ["susi_core", "susi_sandbox"] {
+        for module in ["susi_core", "susi_sandbox", "susi_abi"] {
             let path = src.join(module);
             if path.exists() {
                 duplicates.push(path);
             }
         }
-        for module in ["susi_error.rs", "susi_paths.rs", "susi_config.rs"] {
+        for module in [
+            "susi_error.rs",
+            "susi_paths.rs",
+            "susi_config.rs",
+            "susi_abi.rs",
+        ] {
             let path = src.join(module);
             if path.exists() {
                 duplicates.push(path);
@@ -80,6 +85,40 @@ fn susi_core_is_never_source_mounted_into_a_consumer() {
     assert!(
         offenders.is_empty(),
         "susi-core must be reached through a Cargo edge, not a source mount: {offenders:?}"
+    );
+}
+
+/// `susi-abi` is the Swarm OS wire contract. Consumers reach it through a
+/// Cargo edge (`pub use susi_abi;` or a direct `use`); a `#[path]` mount
+/// into its tree would give that consumer its own ABI types.
+#[test]
+fn susi_abi_is_never_source_mounted_into_a_consumer() {
+    let crates = workspace_root().join("crates");
+    let mut offenders = Vec::new();
+    let mut pending = vec![crates.clone()];
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read crate directory") {
+            let path = entry.expect("read crate entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs")
+                || path.starts_with(crates.join("susi-abi"))
+            {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read Rust source");
+            if text.contains("#[path = \"../../susi-abi/") {
+                offenders.push(path);
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "susi-abi must be reached through a Cargo edge, not a source mount: {offenders:?}"
     );
 }
 

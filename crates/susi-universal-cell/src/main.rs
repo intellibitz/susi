@@ -1,18 +1,14 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/embedded.rs"]
-#[allow(dead_code)] // A universal cell must retain every ABI operation it can be assigned.
-mod susi_abi;
-
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::process::Command;
 
-use crate::susi_abi::cell::SwarmCell;
-use crate::susi_abi::swarm::SwarmRole;
-use crate::susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
+use susi_abi::cell::SwarmCell;
+use susi_abi::cell_server;
+use susi_abi::swarm::SwarmRole;
+use susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
 
 #[derive(Debug, Deserialize)]
 struct PluginManifest {
@@ -22,11 +18,6 @@ struct PluginManifest {
     command: String,
     args: Vec<String>,
 }
-
-// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/cell_server.rs"]
-mod cell_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

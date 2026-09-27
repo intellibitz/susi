@@ -1,8 +1,7 @@
 //! Swarm-cell TCP server shared by every cell binary (`susi-gawd`,
 //! `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`, `susi-universal-cell`).
-//! Canonical source, `#[path]`-mounted by each binary; it is not part of the
-//! embedded ABI because it needs tokio. Mounting binaries expose their ABI
-//! module as `crate::susi_abi`.
+//! Compiled only with the `cell-server` feature (needs tokio). Type-only
+//! consumers of this crate leave that feature off.
 //!
 //! Per connection: bytes feed a [`FrameStream`]; each `SyscallRequest` frame
 //! is token-checked, dispatched to the cell's handler, scored into the
@@ -14,15 +13,15 @@ use std::future::Future;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::susi_abi::cell::SwarmCell;
-use crate::susi_abi::syscall::{token_matches, SyscallRequest, SyscallResponse, SyscallStatus};
-use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
+use crate::cell::SwarmCell;
+use crate::syscall::{token_matches, SyscallRequest, SyscallResponse, SyscallStatus};
+use crate::wire::{FrameStream, MessageType, WireFrame};
 
 /// Serve `cell` on `bind_addr` until the listener fails, answering every
 /// authenticated syscall with `handler`. Every syscall must present
 /// `expected_token`; an empty token denies all of them. Heartbeats stay
 /// open for liveness.
-pub(crate) async fn serve<H, Fut>(
+pub async fn serve<H, Fut>(
     mut cell: SwarmCell,
     bind_addr: impl tokio::net::ToSocketAddrs,
     expected_token: Arc<str>,

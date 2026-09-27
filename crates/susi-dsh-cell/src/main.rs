@@ -1,21 +1,12 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/embedded.rs"]
-#[allow(dead_code)] // A cell embeds the complete stable ABI, not only today's handlers.
-mod susi_abi;
-
 use std::sync::Arc;
 
-use crate::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
-use crate::susi_abi::swarm::SwarmRole;
-use crate::susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
-
-// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/cell_server.rs"]
-mod cell_server;
+use susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
+use susi_abi::cell_server;
+use susi_abi::swarm::SwarmRole;
+use susi_abi::syscall::{SyscallRequest, SyscallResponse, SyscallStatus, CELL_TOKEN_ENV};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -101,11 +92,11 @@ async fn handle_dsh(req: SyscallRequest) -> SyscallResponse {
 
 #[cfg(test)]
 mod tests {
-    use crate::susi_abi::cell::SwarmCell;
-    use crate::susi_abi::swarm::SwarmRole;
-    use crate::susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
-    use crate::susi_abi::wire::{FrameStream, MessageType, WireFrame};
     use std::sync::Arc;
+    use susi_abi::cell::SwarmCell;
+    use susi_abi::swarm::SwarmRole;
+    use susi_abi::syscall::{SyscallOp, SyscallRequest, SyscallResponse, SyscallStatus};
+    use susi_abi::wire::{FrameStream, MessageType, WireFrame};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn round_trip(stream: &mut tokio::net::TcpStream, frame: WireFrame) -> WireFrame {
@@ -153,7 +144,7 @@ mod tests {
             SwarmRole::ExternalPeer,
             format!("tcp://127.0.0.1:{port}"),
         );
-        tokio::spawn(crate::cell_server::serve(
+        tokio::spawn(susi_abi::cell_server::serve(
             cell,
             ("127.0.0.1", port),
             Arc::from("secret"),

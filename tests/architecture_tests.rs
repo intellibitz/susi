@@ -726,7 +726,7 @@ fn unreachable_daemon_modules_only_decrease() {
 // code belongs in a crate reached through a Cargo edge. The count may only
 // go down.
 
-const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 84;
+const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 72;
 
 fn owning_crate(path: &std::path::Path) -> Option<PathBuf> {
     let crates = workspace_root().join("crates");

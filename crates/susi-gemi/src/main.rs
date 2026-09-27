@@ -11,11 +11,6 @@ use susi_gemi::susi_abi::syscall::{
 
 use susi_gemi::susi_abi;
 
-// Shared swarm-cell server loop (canonical: crates/susi-abi/src/cell_server.rs).
-#[rustfmt::skip]
-#[path = "../../susi-abi/src/cell_server.rs"]
-mod cell_server;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bind_addr = cell_bind_addr(cell_ports::GEMI);
@@ -39,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(susi_gemi::susi_config::SusiConfig::ensure_api_auth_token_seeded)
         .into();
 
-    cell_server::serve(
+    susi_abi::cell_server::serve(
         cell,
         bind_addr,
         expected_token,
