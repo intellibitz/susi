@@ -167,6 +167,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
+| Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 119 `susi-daemon` modules are wired into a production path; 88 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 

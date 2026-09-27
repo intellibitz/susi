@@ -2100,6 +2100,16 @@
       "milestone": "RSI iteration 49/100: an audit of what the daemon actually runs, and a ratchet so unwired features cannot grow. A reachability pass over crates/susi-daemon/src (roots: non-test references from other crates and the root binary, plus lib.rs re-exports; edges: crate::/super::/susi_daemon:: paths and brace imports in non-test code) finds 31 of 119 modules reachable from any production path. The other 88, about 9,441 lines (e.g. world_model, gossip, nat, vfs, hot_reload, marketplace, http_gateway, load_balancer, scheduler, semantic_memory, event_sourcing, root_cause, fault_injection), are compiled and unit-tested only against themselves; git history shows most arrived in the 2026-09-25/26 'swarm-os' vision-bullet phases, and no integration test touches them. README, identity.json, and roadmap.json do not claim them as features, so this is recorded as unwired code, not a false claim. Method cross-checked: brace-form imports from the root binary (use susi_daemon::{..}) were inspected and are re-exports of SusiDaemon/SusiEngineHooks, already rooted through lib.rs; a Python pass and the Rust test agree on 88. The new architecture test unreachable_daemon_modules_only_decrease ports the pass (no new dependencies) and fails if the count exceeds 88; proven by adding an unreferenced module (89, fails) and removing it (88, passes). Whether to wire or delete the 88 is left to the maintainer; the count is recorded in AGENTS.md ratchet items, ARCHITECTURE.md, README, and the SusiDaemon component row. cargo test --test architecture_tests (18 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi_gawd::compliance (removed)",
+        "ref": "file://crates/susi-gawd/src/compliance.rs"
+      },
+      "id": "EV-2022927-216",
+      "milestone": "RSI iteration 50/100: a self-certifying 'compliance framework' is removed (Mandate 1). susi_gawd::compliance defined SusiCompliance with Swarm/RSI/AGI/Autonomous sections whose Default hard-coded every capability to true (AGI cross-domain reasoning, transfer learning, abstract thinking, creativity, common-sense reasoning; RSI self-modification and capability expansion; and so on), then validate() scored those constants and certificate() rendered a compliance certificate. No check inspected the running system, and nothing in the workspace called it (repo-wide search for every exported type found no user outside the file; README, ARCHITECTURE, identity, and roadmap do not cite it). It is deleted (431 lines), and the susi-gawd crate docs now describe the host layer's real compliance surface, the admin compliance audit. Found while extending the iteration-49 reachability pass beyond susi-daemon; that pass's other non-daemon hits (cloud_recovery, live_search, model_cache, pkb) were checked by hand and are real uses the script misses (calls from nested module directories and #[path] mounts), so no further change. cargo clippy --workspace --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

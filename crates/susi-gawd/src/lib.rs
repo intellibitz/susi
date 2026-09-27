@@ -19,7 +19,7 @@
 //! | **Agents** | [`susi_gawd_agents`] | Fleet, peers, detectors, identity tables |
 //! | **Swarm** | [`susi_gawd_swarm`] | AMA / AMAS / DAG / cloud recovery |
 //! | **A2A** | [`susi_gawd_a2a`] | `ra2a` wire protocol |
-//! | **Host** | this crate (`0.5.0`) | Admin, evolution, compliance, facade re-exports |
+//! | **Host** | this crate (`0.5.0`) | Admin (incl. compliance audit), evolution, facade re-exports |
 //!
 //! DAG: agents ← swarm, agents ← a2a, all three ← gawd. No cycles.
 //! Flat paths (`agents`, `ama`, `amas`, …) remain as compatibility re-exports.
@@ -157,7 +157,6 @@ pub mod task_store;
 
 pub mod admin;
 pub mod bloat_audit;
-pub mod compliance;
 pub mod evolution;
 pub mod genome_distiller;
 pub mod kernel_loader;
