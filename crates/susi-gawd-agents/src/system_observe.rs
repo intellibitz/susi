@@ -384,14 +384,17 @@ fn run_exec_direct(workspace: &Path, cmd: &str) -> Result<String, String> {
         .ok_or_else(|| "Command cannot be empty".to_string())?;
     let args: Vec<&str> = parts.collect();
     let execute = || {
-        let output = Command::new(bin)
-            .args(&args)
-            .current_dir(workspace)
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
-            .map_err(|e| {
-                crate::susi_core::susi_error::EaiError::process(format!("Exec failed: {e}"))
-            })?;
+        // Bounded: `df` blocks indefinitely on a hung network mount.
+        let output = crate::susi_core::bounded_cmd::output_within(
+            Command::new(bin)
+                .args(&args)
+                .current_dir(workspace)
+                .env("GIT_TERMINAL_PROMPT", "0"),
+            std::time::Duration::from_secs(30),
+        )
+        .map_err(|e| {
+            crate::susi_core::susi_error::EaiError::process(format!("Exec failed: {e}"))
+        })?;
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         if !output.status.success() {

@@ -390,6 +390,8 @@ impl CoreTools {
             .args(&args[1..])
             .env("GIT_TERMINAL_PROMPT", "0")
             .current_dir(workspace)
+            // Never hand the daemon's stdin to an agent-issued command.
+            .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
@@ -431,6 +433,8 @@ impl CoreTools {
             task_handle.check_pause();
             if task_handle.is_cancelled() {
                 let _ = child.kill();
+                // Reap it: an unwaited child lingers as a zombie.
+                let _ = child.wait();
                 task_handle.mark_failed("Task cancelled or stalled");
                 return Err(EaiError::process(
                     "Execution killed due to stall or cancel request".to_string(),
