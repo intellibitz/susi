@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use candle_core::{DType, Tensor};
 use candle_nn::{AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistillationStaged {
@@ -58,10 +58,72 @@ fn parse_training_entries(
     Ok(entries)
 }
 
+fn vocabulary_path(weights_path: &Path) -> PathBuf {
+    weights_path.with_extension("intents.json")
+}
+
+fn validate_vocabulary(intents: Vec<String>) -> Result<Vec<String>> {
+    if intents.is_empty() {
+        return Err(anyhow!("reflex action vocabulary is empty"));
+    }
+    if intents.len() > SusiAlphaModel::DIM {
+        return Err(anyhow!(
+            "reflex action vocabulary has {} entries, maximum is {}",
+            intents.len(),
+            SusiAlphaModel::DIM
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for intent in &intents {
+        if intent.trim().is_empty() {
+            return Err(anyhow!("reflex action vocabulary contains an empty entry"));
+        }
+        if !seen.insert(intent.to_lowercase()) {
+            return Err(anyhow!(
+                "reflex action vocabulary contains duplicate action {intent:?}"
+            ));
+        }
+    }
+    Ok(intents)
+}
+
+fn load_vocabulary(weights_path: &Path) -> Result<Vec<String>> {
+    let path = vocabulary_path(weights_path);
+    let bytes = std::fs::read(&path)
+        .map_err(|error| anyhow!("read reflex action vocabulary {}: {error}", path.display()))?;
+    validate_vocabulary(
+        serde_json::from_slice(&bytes).map_err(|error| {
+            anyhow!("parse reflex action vocabulary {}: {error}", path.display())
+        })?,
+    )
+}
+
+fn extend_vocabulary(mut persisted: Vec<String>, discovered: Vec<String>) -> Vec<String> {
+    for candidate in discovered {
+        if persisted.len() == SusiAlphaModel::DIM {
+            break;
+        }
+        if !persisted
+            .iter()
+            .any(|known| known.eq_ignore_ascii_case(&candidate))
+        {
+            persisted.push(candidate);
+        }
+    }
+    persisted
+}
+
+fn save_vocabulary(weights_path: &Path, intents: &[String]) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(intents)?;
+    crate::susi_config::atomic_write_bytes(&vocabulary_path(weights_path), &bytes)
+        .map_err(|error| anyhow!("persist reflex action vocabulary: {error}"))
+}
+
 /// SUSI-Alpha Intent Classifier (Neural Reflex)
 pub struct SusiAlphaModel {
     fc1: Linear,
     fc2: Linear,
+    intents: Vec<String>,
 }
 
 impl SusiAlphaModel {
@@ -80,45 +142,46 @@ impl SusiAlphaModel {
                 let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")).unwrap();
                 #[allow(clippy::unwrap_used)] // same invariant as fc1
                 let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).unwrap();
-                Self { fc1, fc2 }
+                Self {
+                    fc1,
+                    fc2,
+                    intents: Self::list_dynamic_intents(),
+                }
             })
         })
     }
 
     #[allow(unsafe_code)]
     pub fn load(global_dir: &Path) -> Result<Self> {
-        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
-            .unwrap_or_default()
-            .alpha_weights_filename();
+        let alpha_filename =
+            crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
         let device = crate::hardware::HardwareProfiler::get_candle_device();
 
         if weights_path.exists() {
+            let intents = load_vocabulary(&weights_path)?;
             // SAFETY: mmap of a weights file the substrate owns; it is not modified while mapped.
-            if let Ok(vb) = unsafe {
+            let vb = unsafe {
                 VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device)
-            } {
-                if let (Ok(fc1), Ok(fc2)) = (
-                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")),
-                    candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
-                        .or_else(|_| candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))),
-                ) {
-                    return Ok(Self { fc1, fc2 });
-                }
-            }
+            }?;
+            let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
+            let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+            return Ok(Self { fc1, fc2, intents });
         }
 
-        // Initialize default weights if file missing or unreadable
+        // Initialize default weights only when no published model exists.
         let varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
         let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
         let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
 
         let models_dir = global_dir.join("models");
-        let _ = std::fs::create_dir_all(&models_dir);
-        let _ = varmap.save(&weights_path);
+        std::fs::create_dir_all(&models_dir)?;
+        varmap.save(&weights_path)?;
+        let intents = validate_vocabulary(Self::list_dynamic_intents())?;
+        save_vocabulary(&weights_path, &intents)?;
 
-        Ok(Self { fc1, fc2 })
+        Ok(Self { fc1, fc2, intents })
     }
 
     /// Dynamic Intent Surface Discovery
@@ -180,6 +243,12 @@ impl SusiAlphaModel {
         let models_dir = global_dir.join("models");
         std::fs::create_dir_all(&models_dir)?;
         let weights_path = models_dir.join(&alpha_filename);
+        let discovered_intents = Self::list_dynamic_intents();
+        let dynamic_intents = if weights_path.exists() {
+            extend_vocabulary(load_vocabulary(&weights_path)?, discovered_intents)
+        } else {
+            validate_vocabulary(discovered_intents)?
+        };
 
         let device = crate::hardware::HardwareProfiler::get_candle_device();
         let mut varmap = VarMap::new();
@@ -198,7 +267,6 @@ impl SusiAlphaModel {
         let mut samples = Vec::new();
         let mut labels = Vec::new();
 
-        let dynamic_intents = Self::list_dynamic_intents();
         let entries = parse_training_entries(&content, &dynamic_intents)?;
 
         for (entry, label) in entries {
@@ -230,6 +298,7 @@ impl SusiAlphaModel {
         let tmp_path = weights_path.with_extension("tmp");
         varmap.save(&tmp_path)?;
         std::fs::rename(tmp_path, weights_path)?;
+        save_vocabulary(&models_dir.join(&alpha_filename), &dynamic_intents)?;
 
         Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.", samples.len()))
     }
@@ -291,8 +360,7 @@ impl SusiAlphaModel {
                     max_idx = i;
                 }
             }
-            let dynamic_intents = Self::list_dynamic_intents();
-            if let Some(intent) = dynamic_intents.get(max_idx) {
+            if let Some(intent) = self.intents.get(max_idx) {
                 return Ok((format!("ACTION: {}", intent), max_val));
             }
             return Err(anyhow!("Logic failure in rank-0 handling"));
@@ -302,15 +370,14 @@ impl SusiAlphaModel {
 
         let mut max_idx = 0;
         let mut max_val = 0.0;
-        for (i, &val) in results.iter().enumerate() {
+        for (i, &val) in results.iter().take(self.intents.len()).enumerate() {
             if val > max_val {
                 max_val = val;
                 max_idx = i;
             }
         }
 
-        let dynamic_intents = Self::list_dynamic_intents();
-        if let Some(intent) = dynamic_intents.get(max_idx) {
+        if let Some(intent) = self.intents.get(max_idx) {
             return Ok((format!("ACTION: {}", intent), max_val));
         }
 
@@ -453,5 +520,20 @@ mod tests {
         .unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].1, 1);
+    }
+
+    #[test]
+    fn extending_vocabulary_preserves_existing_output_indices() {
+        let extended = extend_vocabulary(
+            vec!["status".into(), "reason".into()],
+            vec!["alpha".into(), "status".into(), "beta".into()],
+        );
+        assert_eq!(extended, ["status", "reason", "alpha", "beta"]);
+    }
+
+    #[test]
+    fn vocabulary_validation_rejects_case_insensitive_duplicates() {
+        let error = validate_vocabulary(vec!["status".into(), "STATUS".into()]).unwrap_err();
+        assert!(error.to_string().contains("duplicate action"));
     }
 }

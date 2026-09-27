@@ -1680,6 +1680,16 @@
       "milestone": "RSI iteration 7/100: receipt-backed training ingestion is now event-driven and non-replaying. Periodic consolidation reread every retained receipt on every daemon cycle, amplifying old examples and requiring another cursor ledger. The duplicate scan path is removed: after a successful receipt archive append, that same capture operation stages exactly one complete JSONL training record under a dedicated cross-process lock; unsuccessful receipts, empty intents, and empty tool names do not stage. The record carries the redacted live mission, executed tool, receipt id, and output hash. PKB retains only its explicit staging API; daemon consolidation no longer scans history. The receipt-capture regression test proves the archive and one matching staged sample are produced together. This supersedes EV-2022927-172's retained-generation consolidation design while preserving its redacted intent field for audit. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAlphaModel action vocabulary",
+        "ref": "symbol://SusiAlphaModel"
+      },
+      "id": "EV-2022927-174",
+      "milestone": "RSI iteration 8/100: neural reflex output labels now have a stable persisted vocabulary. Previously training and prediction each rebuilt and sorted the live agent/tool registry, so adding a capability could shift existing indices and reinterpret learned weights as different actions. SusiAlphaModel now stores its validated action vocabulary beside the weights, loads that exact mapping for inference and cumulative training, appends newly discovered capabilities without reordering existing labels, rejects missing/corrupt/duplicate/oversized vocabularies for published weights, and restricts prediction to mapped output slots. Fresh models persist weights and vocabulary together; model/config read and initialization failures are no longer silently replaced with random published state. Regression tests prove extension preserves existing indices and case-insensitive duplicates fail validation. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
