@@ -619,13 +619,18 @@ impl InferenceRouter {
         if !allow_cloud
             || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
         {
+            let request_blocked = !allow_cloud;
             return PlacementDecision {
-                target: "local".to_string(),
+                target: if local_ready { "local" } else { "unavailable" }.to_string(),
                 provider: None,
-                reason: if allow_cloud {
+                reason: if request_blocked && !local_ready {
+                    "request prohibits cloud inference and no ready local model is available"
+                } else if request_blocked {
+                    "request prohibits cloud inference"
+                } else if local_ready {
                     "privacy policy blocks cloud inference"
                 } else {
-                    "request prohibits cloud inference"
+                    "privacy policy blocks cloud inference and no ready local model is available"
                 }
                 .to_string(),
                 policy,
@@ -1048,9 +1053,18 @@ mod tests {
             None,
             false,
         );
-        assert_eq!(decision.target, "local");
+        assert_eq!(
+            decision.target,
+            if decision.local_ready {
+                "local"
+            } else {
+                "unavailable"
+            }
+        );
         assert_eq!(decision.provider, None);
-        assert_eq!(decision.reason, "request prohibits cloud inference");
+        assert!(decision
+            .reason
+            .starts_with("request prohibits cloud inference"));
         assert!(!decision.allow_cloud);
         assert!(decision.cloud_candidates.is_empty());
     }
