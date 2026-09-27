@@ -7163,6 +7163,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tokio",
  "tracing",
  "ureq 3.4.2",
@@ -7182,6 +7183,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tokio",
  "ureq 3.4.2",
  "x25519-dalek",
@@ -7205,6 +7207,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tempfile",
  "tokio",
  "tracing",
@@ -7235,6 +7238,7 @@ dependencies = [
  "susi-gawd",
  "susi-gemi",
  "susi-gmcp",
+ "susi-paths",
  "susi-server",
  "susi-tools",
  "tokio",
@@ -7264,6 +7268,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "susi-paths",
  "tokio",
 ]
 
@@ -7291,6 +7296,7 @@ dependencies = [
  "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-native-client",
+ "susi-paths",
  "syn 3.0.6",
  "tempfile",
  "tokio",
@@ -7323,6 +7329,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
+ "susi-paths",
  "tokio",
  "tokio-rustls",
  "tower",
@@ -7351,6 +7358,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
+ "susi-paths",
  "tokio",
  "tracing",
  "ureq 3.4.2",
@@ -7378,6 +7386,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
+ "susi-paths",
  "tokio",
  "tracing",
  "ureq 3.4.2",
@@ -7410,6 +7419,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "sysinfo",
  "tempfile",
  "tokenizers",
@@ -7443,6 +7453,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tokenizers",
  "tokio",
  "tracing",
@@ -7478,6 +7489,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "shlex 2.0.1",
+ "susi-paths",
  "syn 3.0.6",
  "tantivy",
  "tokio",
@@ -7496,6 +7508,7 @@ dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "susi-paths",
  "tokio",
  "wasmer",
  "wasmer-types",
@@ -7518,6 +7531,7 @@ dependencies = [
  "axum",
  "directories 6.0.0",
  "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -7536,6 +7550,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tokio",
  "tracing",
  "ureq 3.4.2",
@@ -7564,6 +7579,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "susi-paths",
  "tokio",
  "tokio-rustls",
  "tokio-stream",
@@ -7593,6 +7609,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-native-client",
+ "susi-paths",
  "tokio",
  "tracing",
  "ureq 3.4.2",
@@ -10373,10 +10390,6 @@ dependencies = [
 [[package]]
 name = "xtask"
 version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "xxhash-rust"

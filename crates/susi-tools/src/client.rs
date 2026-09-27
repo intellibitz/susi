@@ -13,7 +13,7 @@ pub struct GmcpClient;
 
 impl GmcpClient {
     pub fn get_config_path() -> PathBuf {
-        let susi_dir = crate::susi_paths::SusiDirs::config_dir();
+        let susi_dir = susi_paths::SusiDirs::config_dir();
         if !susi_dir.exists() {
             let _ = fs::create_dir_all(&susi_dir);
         }
@@ -123,7 +123,7 @@ impl GmcpClient {
     }
 
     pub fn fetch_global_registry() -> Vec<GlobalMcpEntry> {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let registry_path = global_dir.join("global_mcp_registry.json");
         let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
 
@@ -413,7 +413,7 @@ impl GmcpClient {
     /// Interrogates global registries and benchmarks servers for swarm inclusion.
     pub fn autonomous_web_scout() -> Vec<GlobalMcpEntry> {
         let mut entries = Self::fetch_global_registry();
-        let home = crate::susi_paths::SusiDirs::home_dir();
+        let home = susi_paths::SusiDirs::home_dir();
         let registry_path = home.join(".susi/mcp_web_registry.json");
 
         // Benchmark and Rank each entry
@@ -503,7 +503,7 @@ fn config_mtime_secs() -> Option<u64> {
 }
 
 fn live_cache_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::cache_dir().join("mcp_live_tools.json")
+    susi_paths::SusiDirs::cache_dir().join("mcp_live_tools.json")
 }
 
 fn read_live_cache() -> Option<Vec<McpTool>> {

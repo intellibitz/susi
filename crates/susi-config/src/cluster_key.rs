@@ -30,7 +30,7 @@ const PROTO: &str = "susi-peer-v1";
 
 /// Path to the shared cluster membership key.
 pub fn cluster_key_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("cluster.key")
+    susi_paths::SusiDirs::config_dir().join("cluster.key")
 }
 
 /// Load the cluster key, creating a fresh 32-byte key (0600, hex-encoded) on
@@ -140,7 +140,7 @@ pub fn peer_bearer() -> Option<String> {
 /// the ledger — a staged key that never gets committed never takes
 /// effect.
 fn staged_key_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("cluster.key.next")
+    susi_paths::SusiDirs::config_dir().join("cluster.key.next")
 }
 
 /// Prior-epoch key retained on activation. Verification accepts it
@@ -149,7 +149,7 @@ fn staged_key_path() -> PathBuf {
 /// authorize new records but the pre-rotation ledger stays
 /// verifiable for audit.
 fn prev_key_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("cluster.key.prev")
+    susi_paths::SusiDirs::config_dir().join("cluster.key.prev")
 }
 
 fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
@@ -213,7 +213,7 @@ pub fn prev_key() -> Option<[u8; 32]> {
 /// not match: applying a rekey record can never clear the key or
 /// activate an unexpected one.
 pub fn activate_staged_key(fingerprint: &str) -> bool {
-    activate_staged_key_at(fingerprint, &crate::susi_paths::SusiDirs::config_dir())
+    activate_staged_key_at(fingerprint, &susi_paths::SusiDirs::config_dir())
 }
 
 /// Test seam: activate against an explicit directory.
@@ -279,7 +279,7 @@ fn wire_safe(s: &str) -> bool {
 /// sequence, chain linkage, and election tie-breaks in one shared
 /// namespace.
 pub fn node_id() -> Option<String> {
-    let path = crate::susi_paths::SusiDirs::config_dir().join("node_id");
+    let path = susi_paths::SusiDirs::config_dir().join("node_id");
     let raw = match cached_file_bytes(&path) {
         Some(raw) if !is_torn_identity(&raw) => raw,
         _ => install_identity_file(
@@ -321,7 +321,7 @@ fn ephemeral_node_id() -> String {
 
 /// Path to this node's private signing key (0600, hex Ed25519 seed).
 pub fn node_key_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("node.key")
+    susi_paths::SusiDirs::config_dir().join("node.key")
 }
 
 /// Load this node's Ed25519 signing key, generating + persisting a
@@ -464,7 +464,7 @@ pub fn member_open(peer_pubkey_hex: &str, nonce_hex: &str, ciphertext: &[u8]) ->
 /// caches as empty so a deleted roster doesn't re-stat-then-parse
 /// fail every request.
 pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
-    config_json_rows_at(&crate::susi_paths::SusiDirs::config_dir(), file)
+    config_json_rows_at(&susi_paths::SusiDirs::config_dir(), file)
 }
 
 /// Dir-explicit form of `config_json_rows` — intake checkers take a
@@ -551,7 +551,7 @@ pub fn member_banned_at(
 
 /// `member_banned_at` for the live config dir.
 pub fn member_banned(matches: impl Fn(&serde_json::Value) -> bool) -> bool {
-    member_banned_at(&crate::susi_paths::SusiDirs::config_dir(), matches)
+    member_banned_at(&susi_paths::SusiDirs::config_dir(), matches)
 }
 
 /// The rule every admission path shares: a ban row blocks a member when

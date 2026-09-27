@@ -16,12 +16,6 @@
 #[path = "../../susi-core/src/susi_error.rs"]
 pub mod susi_error;
 
-// Vendored `susi-paths` IPC client: full surface kept identical
-// across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_paths.rs"]
-mod susi_paths;
-
 // Vendored `susi-config` surface + IPC client: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.
 // rustfmt::skip: the file is vendored byte-identical while consumers span

@@ -133,7 +133,7 @@ impl AgentManager {
         Self::with_config(
             workspace,
             kind,
-            crate::susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
+            susi_paths::SusiDirs::config_dir().join(kind.config_subdir()),
         )
     }
 
@@ -370,7 +370,7 @@ impl AgentManager {
                 }
             }
         }
-        let status_path = crate::susi_paths::SusiDirs::config_dir()
+        let status_path = susi_paths::SusiDirs::config_dir()
             .join(self.kind.config_subdir())
             .join("ready.json");
         if let Some(parent) = status_path.parent() {
@@ -517,7 +517,7 @@ fn unique_id() -> Result<String> {
 pub use crate::susi_config::redact_credentials as redact;
 fn tracing_failure(id: &str, error: &str) {
     crate::susi_sandbox::manager::SusiAuditLogger::log(
-        &crate::susi_paths::SusiDirs::config_dir(),
+        &susi_paths::SusiDirs::config_dir(),
         crate::susi_sandbox::manager::LogLevel::Info,
         "EXTERNAL_AGENT",
         &format!("{id}: {}", redact(error)),

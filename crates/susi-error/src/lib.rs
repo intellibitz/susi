@@ -17,13 +17,6 @@ mod redact_test_suite;
 
 use std::path::PathBuf;
 
-// Vendored path client, as every other crate mounts it: the service and
-// the vendored local fallbacks then resolve the same metrics file,
-// including `SUSI_HOME` instance roots the old local resolver ignored.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_paths.rs"]
-mod susi_paths;
-
 /// Substrate data dir, through the same `SusiDirs` contract as every crate.
 fn data_dir() -> PathBuf {
     susi_paths::SusiDirs::data_dir()

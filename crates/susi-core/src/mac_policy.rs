@@ -307,14 +307,14 @@ impl MacPolicy {
     pub fn init_global(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> &'static Self {
         POLICY.get_or_init(|| {
             Self::new(key, mode, mandatory_sandbox)
-                .with_state_dir(crate::susi_paths::SusiDirs::substrate_home())
+                .with_state_dir(susi_paths::SusiDirs::substrate_home())
         })
     }
 
     /// The wired constructor vendored copies use for `global()`: shared key
     /// file, sticky mode, persisted grants — all under `substrate_home`.
     pub fn wired() -> Self {
-        let dir = crate::susi_paths::SusiDirs::substrate_home();
+        let dir = susi_paths::SusiDirs::substrate_home();
         let key = match load_or_create_key(&dir) {
             Ok(key) => key,
             Err(error) => {

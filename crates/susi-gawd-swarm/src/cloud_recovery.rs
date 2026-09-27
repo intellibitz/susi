@@ -750,7 +750,7 @@ async fn recover_with_providers(
     for agent in fallback_agents {
         // Try IDE delegation protocol for IDE agents
         if ["antigravity", "cursor", "codex", "claude", "devin"].contains(&agent) {
-            let delegations_dir = crate::susi_paths::SusiDirs::data_dir().join("delegations");
+            let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
             let _ = std::fs::create_dir_all(&delegations_dir);
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

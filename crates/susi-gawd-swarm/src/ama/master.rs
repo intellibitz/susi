@@ -274,7 +274,7 @@ impl SusiMasterAgent {
         );
 
         eprintln!("\n[DETAILED SUBSTRATE CONFIGURATION LOGS]");
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = crate::susi_sandbox::manager::SusiConfig::load(&global_dir).unwrap_or_default();
         eprintln!(
             "- [Network Fabric] GMCP Port: {} | GEMI Port: {} | Discovery UDP Port: {} | GMCP HTTP Alias: {} | A2A HTTP Port: {}",
@@ -949,7 +949,7 @@ impl SusiMasterAgent {
         if trimmed_query == "status" || trimmed_query == "susi status" {
             let (interactions, agents) = SusiSupervisor::supervise_mission(&goal, workspace);
             let hw = crate::susi_core::plane_bus::gemi::HardwareProfiler::get_profile();
-            let global_dir = crate::susi_paths::SusiDirs::config_dir();
+            let global_dir = susi_paths::SusiDirs::config_dir();
             let daemon_status = if crate::susi_sandbox::daemon_state::SusiDaemonState::check_status(
                 workspace,
                 &global_dir,

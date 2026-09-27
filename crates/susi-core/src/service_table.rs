@@ -20,7 +20,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use crate::susi_error::{EaiError, EaiResult};
-use crate::susi_paths::SusiDirs;
+use susi_paths::SusiDirs;
 
 /// One leaf service the daemon may supervise.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl LeafService {
             .unwrap_or_else(|| {
                 let offset = crate::susi_config::SusiConfig::load_global()
                     .map(|c| c.port_offset())
-                    .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+                    .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
                 self.default_port.saturating_add(offset)
             })
     }
@@ -579,7 +579,7 @@ mod tests {
         // and what the spawned child binds must be the same number.
         let offset = crate::susi_config::SusiConfig::load_global()
             .map(|c| c.port_offset())
-            .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+            .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
         for svc in LEAF_SERVICES {
             if std::env::var_os(svc.port_env).is_some() {
                 continue; // explicit env wins — assert only the offset path

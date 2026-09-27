@@ -18,7 +18,7 @@ use susi_gemi::susi_core::registry::CapabilityRegistry;
 /// and local engines are primed when host prerequisites are already present.
 pub async fn bootstrap_zero_config_substrate() {
     let registry = CapabilityRegistry::global();
-    let substrate = crate::susi_paths::SusiDirs::substrate_home();
+    let substrate = susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
 
     if std::env::var("SUSI_VERBOSE").is_ok() {
@@ -181,7 +181,7 @@ pub fn prime_catalogs(substrate: &Path) -> serde_json::Value {
         "agents_ready": agents_ready,
         "frameworks_ready": frameworks_ready,
     });
-    let path = crate::susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
+    let path = susi_paths::SusiDirs::config_dir().join("last_auto_prime.json");
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

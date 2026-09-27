@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use crate::amas::{ClusterPeerNode, PeerAdmission};
 
 fn registry_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("peers.json")
+    susi_paths::SusiDirs::config_dir().join("peers.json")
 }
 
 /// True when `node_id` or `address` matches an operator-evicted member in

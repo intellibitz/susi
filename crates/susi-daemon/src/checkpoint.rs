@@ -41,7 +41,7 @@ impl Default for CheckpointManager {
     fn default() -> Self {
         // Owned by the substrate, not the world-writable temp dir, where
         // another local user could pre-plant checkpoints or symlinks.
-        Self::new(crate::susi_paths::SusiDirs::data_dir().join("checkpoints"))
+        Self::new(susi_paths::SusiDirs::data_dir().join("checkpoints"))
     }
 }
 

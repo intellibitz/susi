@@ -3,9 +3,6 @@
 //! `port_offset` (config key or `SUSI_PORT_OFFSET` env, env wins) shifts all
 //! five together — the contract shape stays fixed while a second instance or
 //! a nonstandard host layout gets clean ports (e.g. offset 100 → 9190–9194).
-//!
-//! Canonical source, `#[path]`-mounted by every crate through
-//! `crates/susi-core/src/susi_paths.rs`.
 
 pub const GMCP: u16 = 9090;
 pub const GEMI: u16 = 9091;

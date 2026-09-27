@@ -43,7 +43,7 @@ impl SusiPulse {
         let prompt_trimmed = prompt.trim();
         let key: ReflexKey = (workspace.to_path_buf(), prompt_trimmed.to_string());
 
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
 
         // Neural Synchronization (Cache Invalidation)
         {

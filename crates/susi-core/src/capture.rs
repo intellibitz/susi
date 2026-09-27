@@ -134,7 +134,7 @@ pub struct InboxReceipt {
 fn evidence_rendezvous(workspace: &Path) -> Option<PathBuf> {
     let canonical = workspace.canonicalize().ok()?;
     Some(
-        crate::susi_paths::SusiDirs::cache_dir()
+        susi_paths::SusiDirs::cache_dir()
             .join("bus")
             .join(std::process::id().to_string())
             .join("evidence")
@@ -295,7 +295,7 @@ impl EvidenceSession {
     /// Scans every live pid dir under `bus/` so sessions activated by a
     /// *separate process* are visible too.
     fn remote_session(canonical: &Path) -> Option<Self> {
-        let pid_dir = crate::susi_paths::SusiDirs::cache_dir()
+        let pid_dir = susi_paths::SusiDirs::cache_dir()
             .join("bus")
             .join(std::process::id().to_string());
         let leaf = crate::susi_core::plane_bus_ipc::enc(&canonical.to_string_lossy());

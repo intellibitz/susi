@@ -9,7 +9,7 @@ pub struct SafetyDetector;
 
 impl SafetyDetector {
     pub fn audit_action(tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 

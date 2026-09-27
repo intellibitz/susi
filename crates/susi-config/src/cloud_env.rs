@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 /// Location of the host key file.
 pub fn cloud_env_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("cloud.env")
+    susi_paths::SusiDirs::config_dir().join("cloud.env")
 }
 
 /// Parse a dotenv-style file into key/value pairs (no side effects).

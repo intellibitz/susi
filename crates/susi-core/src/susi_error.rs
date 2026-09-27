@@ -56,7 +56,7 @@ pub mod sink;
 fn append_local(entry: &serde_json::Value) {
     // Best effort: nowhere left to report a failed error report.
     let _ = sink::append_metrics_line(
-        &crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl"),
+        &susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl"),
         entry,
     );
 }

@@ -138,7 +138,7 @@ fn cooldowns_path() -> PathBuf {
     if let Some(p) = std::env::var_os("SUSI_COOLDOWNS_FILE").filter(|p| !p.is_empty()) {
         return PathBuf::from(p);
     }
-    crate::susi_paths::SusiDirs::config_dir().join("provider_cooldowns.json")
+    susi_paths::SusiDirs::config_dir().join("provider_cooldowns.json")
 }
 
 /// Cooldowns persist across daemon restarts — a vendor whose key is out
@@ -312,11 +312,11 @@ impl InferenceRouter {
     }
 
     fn preference_path() -> PathBuf {
-        crate::susi_paths::SusiDirs::config_dir().join("routing_preference.json")
+        susi_paths::SusiDirs::config_dir().join("routing_preference.json")
     }
 
     fn stats_path() -> PathBuf {
-        crate::susi_paths::SusiDirs::config_dir().join("local_inference_stats.json")
+        susi_paths::SusiDirs::config_dir().join("local_inference_stats.json")
     }
 
     pub fn load_preference() -> RoutingPreference {

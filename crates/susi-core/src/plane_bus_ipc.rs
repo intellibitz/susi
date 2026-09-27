@@ -20,7 +20,6 @@
 //!   swept on init where `/proc` is available.
 
 use crate::susi_core::plane_bus::PlaneHandler;
-use crate::susi_paths::SusiDirs;
 use dashmap::DashMap;
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -29,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use susi_paths::SusiDirs;
 
 /// Connect timeout: the rendezvous only ever targets this host.
 const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);

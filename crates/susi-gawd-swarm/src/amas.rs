@@ -215,7 +215,7 @@ pub(crate) fn now_secs() -> u64 {
 fn our_gmcp_http_port() -> u16 {
     crate::susi_config::SusiConfig::load_global()
         .map(|c| c.gmcp_http_port())
-        .unwrap_or(crate::susi_paths::ports::GMCP_HTTP)
+        .unwrap_or(susi_paths::ports::GMCP_HTTP)
 }
 
 pub struct SusiSupervisor;
@@ -224,7 +224,7 @@ impl SusiSupervisor {
     pub fn get_udp_discovery_port() -> u16 {
         crate::susi_config::SusiConfig::load_global()
             .map(|c| c.udp_discovery_port())
-            .unwrap_or(crate::susi_paths::ports::UDP_DISCOVERY)
+            .unwrap_or(susi_paths::ports::UDP_DISCOVERY)
     }
 
     pub fn list_cluster_nodes() -> Vec<ClusterPeerNode> {
@@ -239,7 +239,7 @@ impl SusiSupervisor {
                     "127.0.0.1:{}",
                     crate::susi_config::SusiConfig::load_global()
                         .map(|c| c.gmcp_port())
-                        .unwrap_or(crate::susi_paths::ports::GMCP)
+                        .unwrap_or(susi_paths::ports::GMCP)
                 ),
                 node_type: "LOCAL_MASTER".to_string(),
                 is_active: true,
@@ -796,7 +796,7 @@ impl SusiSupervisor {
                                         .next()
                                         .and_then(|s| s.parse::<u16>().ok())
                                         .map(|p| p.saturating_sub(1))
-                                        .unwrap_or(crate::susi_paths::ports::UDP_DISCOVERY);
+                                        .unwrap_or(susi_paths::ports::UDP_DISCOVERY);
                                     Some(format!("{h}:{udp}"))
                                 })
                                 .take(32)
@@ -1402,7 +1402,7 @@ impl SusiSupervisor {
     /// this node id lands a marker the scout and dispatch paths honor
     /// until a committed unban (or re-add) clears it.
     fn cluster_evicted() -> bool {
-        crate::susi_paths::SusiDirs::config_dir()
+        susi_paths::SusiDirs::config_dir()
             .join("cluster_evicted.json")
             .exists()
     }
@@ -1977,7 +1977,7 @@ mod tests {
     #[test]
     fn discovered_peers_never_receive_host_bearer() {
         // Local master is rostered as PeerAdmission::Local on the GMCP port.
-        let local = format!("127.0.0.1:{}", crate::susi_paths::ports::GMCP);
+        let local = format!("127.0.0.1:{}", susi_paths::ports::GMCP);
         assert!(SusiSupervisor::peer_allows_bearer(&local));
         // Arbitrary loopback ports are not automatic trust — a local listener
         // must not steal the host bearer just by binding nearby.
@@ -2114,11 +2114,9 @@ mod tests {
         // While the host-contract discovery port is held (as the daemon would),
         // listing cluster nodes must still succeed — scouts bind ephemeral ports.
         // If the live daemon already owns 9092, that is the same precondition.
-        let _holder = std::net::UdpSocket::bind(format!(
-            "127.0.0.1:{}",
-            crate::susi_paths::ports::UDP_DISCOVERY
-        ))
-        .ok();
+        let _holder =
+            std::net::UdpSocket::bind(format!("127.0.0.1:{}", susi_paths::ports::UDP_DISCOVERY))
+                .ok();
         let nodes = SusiSupervisor::list_cluster_nodes();
         assert!(
             nodes

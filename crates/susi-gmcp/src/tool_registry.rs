@@ -62,7 +62,7 @@ impl GmcpClient {
     }
 
     pub fn list_external_tools() -> Vec<McpTool> {
-        let config_path = crate::susi_paths::SusiDirs::config_dir().join("mcp_config.json");
+        let config_path = susi_paths::SusiDirs::config_dir().join("mcp_config.json");
         let mut tools = Vec::new();
         if let Ok(content) = std::fs::read_to_string(&config_path) {
             if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {

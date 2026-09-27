@@ -7,6 +7,7 @@ publish = false
 build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
+susi-paths = { workspace = true }
 ra2a = { version = "0.10.1", features = ["server", "client"] }
 axum = "0.8.9"
 tower = { version = "0.5", features = ["limit"] }

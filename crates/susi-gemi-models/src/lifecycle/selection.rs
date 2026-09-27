@@ -24,8 +24,7 @@ impl ModelManager {
         }
         // Atomic: every inference reads this; an empty read means "no
         // override" and silently reroutes to the default model.
-        let model_file =
-            crate::susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+        let model_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
         crate::susi_config::atomic_write_bytes(&model_file, model_name.trim().as_bytes())
             .map_err(|e| e.to_string())?;
         Ok(format!(
@@ -294,8 +293,7 @@ impl ModelManager {
         intent: Option<crate::intent::IntentCategory>,
         complexity: Option<crate::intent::TaskComplexity>,
     ) -> Option<String> {
-        let override_file =
-            crate::susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+        let override_file = susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
         if let Ok(content) = fs::read_to_string(&override_file) {
             let trimmed = content.trim();
             if !trimmed.is_empty() && trimmed != "auto" && !Self::cooling_down(trimmed) {
@@ -326,7 +324,7 @@ impl ModelManager {
     }
 
     pub fn get_selected_engine() -> Option<String> {
-        let engine_file = crate::susi_paths::SusiDirs::config_dir().join("selected_engine.txt");
+        let engine_file = susi_paths::SusiDirs::config_dir().join("selected_engine.txt");
         fs::read_to_string(&engine_file)
             .ok()
             .map(|s| s.trim().to_string())
@@ -335,7 +333,7 @@ impl ModelManager {
     pub fn get_active_engine_and_model(
         intent: Option<crate::intent::IntentCategory>,
     ) -> (String, String) {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         // Reachable on every inference/model-routing decision, not just boot:
         // a config.json torn by a concurrent writer must degrade to bundled
         // defaults here rather than panic this request's thread.

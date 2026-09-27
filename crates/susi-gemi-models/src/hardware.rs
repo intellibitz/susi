@@ -697,7 +697,7 @@ impl HardwareProfiler {
 
         // Rotated metrics generations beyond the sink's rotation cap are
         // pre-cap residue — current rotation can never produce them.
-        let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
+        let rotated = susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
         if let Ok(meta) = std::fs::metadata(&rotated) {
             if meta.len() > crate::susi_error::sink::METRICS_CAP_BYTES {
                 reclaimable += meta.len();

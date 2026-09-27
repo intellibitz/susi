@@ -9,7 +9,10 @@
 //!
 //! Parses workspace `Cargo.toml` files (no network) and asserts:
 //! - no workspace crate dependency cycles
-//! - forbidden edges (domain / error purity)
+//! - every SUSI edge points down the AGENTS.md leaf order
+//! - forbidden edges (feature-plane isolation / error purity)
+//! - ratchets that only decrease (unwired daemon modules, cross-crate
+//!   source mounts)
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -87,24 +90,53 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
     graph
 }
 
+/// AGENTS.md leaf order (`paths → error → config → core/sandbox → services
+/// → daemon`) as ranks: a crate may depend only on strictly lower-ranked
+/// SUSI crates, so shared code is reached through a Cargo edge in one
+/// direction instead of being copied or source-mounted upward.
+const LEAF_RANK: &[(&str, u8)] = &[
+    ("susi-abi", 0),
+    ("susi-paths", 0),
+    ("susi-error", 1),
+    ("susi-config", 2),
+    ("susi-native-client", 2),
+    ("susi-core", 3),
+    ("susi-sandbox", 3),
+    ("susi-native", 3),
+    ("susi-agents", 4),
+    ("susi-tools", 4),
+    ("susi-gemi-models", 4),
+    ("susi-gawd-agents", 4),
+    ("susi-gmcp", 4),
+    ("susi-server", 4),
+    ("susi-dsh-cell", 4),
+    ("susi-universal-cell", 4),
+    ("susi-gawd-swarm", 5),
+    ("susi-gemi", 5),
+    ("susi-gawd-a2a", 6),
+    ("susi-gawd", 7),
+    ("susi-daemon", 8),
+    ("susi", 9),
+];
+
 #[test]
-fn every_non_composition_susi_crate_has_only_declared_client_edges() {
+fn workspace_edges_follow_the_leaf_order() {
+    let rank: HashMap<&str, u8> = LEAF_RANK.iter().copied().collect();
     let graph = workspace_graph();
-    for (package, dependencies) in graph {
-        if package == "susi" || package == "susi-daemon" {
-            continue;
+    for (package, dependencies) in &graph {
+        let own = *rank
+            .get(package.as_str())
+            .unwrap_or_else(|| panic!("{package} has no leaf rank in LEAF_RANK"));
+        for dependency in dependencies {
+            let theirs = *rank
+                .get(dependency.as_str())
+                .unwrap_or_else(|| panic!("{dependency} has no leaf rank in LEAF_RANK"));
+            assert!(
+                theirs < own,
+                "{package} (rank {own}) must not depend on {dependency} (rank {theirs}); \
+                 edges point down the leaf order only"
+            );
         }
-        let expected: HashSet<String> = match package.as_str() {
-            "susi-gawd" | "susi-tools" => ["susi-native-client".to_string()].into_iter().collect(),
-            "susi-native-client" => ["susi-error".to_string(), "susi-paths".to_string()]
-                .into_iter()
-                .collect(),
-            _ => HashSet::new(),
-        };
-        assert_eq!(
-            dependencies, expected,
-            "{package} has undeclared Cargo dependencies on SUSI packages"
-        );
     }
 }
 
@@ -354,9 +386,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-server",
                 "susi-core",
-                "susi-config",
-                "susi-paths",
-                "susi-error",
                 "susi-native",
             ],
         ),
@@ -473,160 +502,6 @@ fn susi_core_must_not_depend_on_infra_or_features() {
             "susi-core must not depend on `{forbidden}` (see ARCHITECTURE.md)"
         );
     }
-    // susi-core has no remaining workspace deps:
-    // susi-config/susi-paths/susi-error are all vendored as local modules
-    // (`susi_config`/`susi_paths`/`susi_error` under src/) that reach the
-    // standalone services over HTTP — they no longer appear as workspace
-    // deps. The ABI source is compiled locally by the consumers that need it.
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-core workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_sandbox_must_not_depend_on_workspace_crates() {
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-sandbox/Cargo.toml"))
-        .expect("susi-sandbox Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-sandbox is a leaf REST service; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_server_must_not_depend_on_workspace_crates() {
-    // susi-server vendors its susi_core subset (`src/susi_core/` from
-    // crates/susi-core/vendor_template/) plus the leaf modules — the first
-    // consumer converted under the microkernel path.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-server/Cargo.toml"))
-        .expect("susi-server Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-server vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_tools_must_only_depend_on_the_native_client() {
-    // susi-tools vendors the susi_core subset (`src/susi_core/` from
-    // crates/susi-core/vendor_template/) plus the leaf modules — the second
-    // consumer converted under the microkernel path.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-tools/Cargo.toml"))
-        .expect("susi-tools Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert_eq!(
-        deps,
-        ["susi-native-client".to_string()].into_iter().collect(),
-        "susi-tools workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_native_client_has_only_foundation_dependencies() {
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-native-client/Cargo.toml"))
-        .expect("susi-native-client Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert_eq!(
-        deps,
-        ["susi-error".to_string(), "susi-paths".to_string()]
-            .into_iter()
-            .collect(),
-        "susi-native-client workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_gmcp_must_not_depend_on_workspace_crates() {
-    // susi-gmcp vendors the susi_core subset (`src/susi_core/` from
-    // crates/susi-core/vendor_template/) plus the leaf modules — fourth
-    // consumer converted under the microkernel path. Its dev-dep on
-    // susi-tools is test-only (MCP client round-trip), not a production edge.
-    // The micro-daemon binary compiles the ABI source locally.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-gmcp/Cargo.toml"))
-        .expect("susi-gmcp Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-gmcp workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_gawd_agents_must_not_depend_on_workspace_crates() {
-    // susi-gawd-agents vendors the susi_core subset — fifth consumer under
-    // the microkernel path. susi-gawd-swarm / susi-gawd / susi-gemi keep
-    // their within-plane edges (allowed) but must not regain susi-core.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-gawd-agents/Cargo.toml"))
-        .expect("susi-gawd-agents Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-gawd-agents vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_gemi_models_must_not_depend_on_workspace_crates() {
-    // susi-gemi-models vendors the susi_core subset (`src/susi_core/` from
-    // crates/susi-core/vendor_template/) plus the leaf modules. The
-    // susi-gemi -> susi-gemi-models edge is within-plane and stays.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-gemi-models/Cargo.toml"))
-        .expect("susi-gemi-models Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-gemi-models vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_agents_must_not_depend_on_workspace_crates() {
-    // susi-agents vendors the susi_core subset (`src/susi_core/` from
-    // crates/susi-core/vendor_template/) plus the leaf modules — third
-    // consumer converted under the microkernel path.
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-agents/Cargo.toml"))
-        .expect("susi-agents Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-agents vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_native_must_not_depend_on_workspace_crates() {
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-native/Cargo.toml"))
-        .expect("susi-native Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-native is a leaf REST service; workspace deps drifted: {deps:?}"
-    );
-}
-
-#[test]
-fn susi_abi_must_not_depend_on_workspace_crates() {
-    let root = workspace_root();
-    let text = std::fs::read_to_string(root.join("crates/susi-abi/Cargo.toml"))
-        .expect("susi-abi Cargo.toml");
-    let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-abi is the universal zero-dependency ABI; workspace deps drifted: {deps:?}"
-    );
 }
 
 #[test]
@@ -847,6 +722,62 @@ fn unreachable_daemon_modules_only_decrease() {
     eprintln!(
         "unreachable susi-daemon modules: {} (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING})",
         dead.len()
+    );
+}
+
+// ── Cross-crate source mount ratchet ────────────────────────────────────
+//
+// A `#[path]` attribute that reaches into another crate's directory compiles
+// a second private copy of that code, with its own types and statics. Shared
+// code belongs in a crate reached through a Cargo edge. The count may only
+// go down.
+
+const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 142;
+
+fn owning_crate(path: &std::path::Path) -> Option<PathBuf> {
+    let crates = workspace_root().join("crates");
+    let rel = path.strip_prefix(&crates).ok()?;
+    rel.components().next().map(|c| crates.join(c.as_os_str()))
+}
+
+fn cross_crate_source_mounts() -> Vec<String> {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    rust_files(&root.join("crates"), &mut files);
+    let mut mounts = Vec::new();
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap();
+        for line in text.lines() {
+            let Some(rest) = line.split_once("#[path = \"").map(|(_, rest)| rest) else {
+                continue;
+            };
+            let Some((mount, _)) = rest.split_once('"') else {
+                continue;
+            };
+            let target = file.parent().unwrap().join(mount);
+            let target = std::fs::canonicalize(&target).unwrap_or(target);
+            let source = std::fs::canonicalize(&file).unwrap_or_else(|_| file.clone());
+            if owning_crate(&source) != owning_crate(&target) {
+                mounts.push(format!("{} -> {mount}", file.display()));
+            }
+        }
+    }
+    mounts.sort();
+    mounts
+}
+
+#[test]
+fn cross_crate_source_mounts_only_decrease() {
+    let mounts = cross_crate_source_mounts();
+    assert!(
+        mounts.len() <= CROSS_CRATE_SOURCE_MOUNTS_CEILING,
+        "{} cross-crate #[path] mounts (ceiling {CROSS_CRATE_SOURCE_MOUNTS_CEILING}); \
+         depend on the owning crate instead: {mounts:#?}",
+        mounts.len()
+    );
+    eprintln!(
+        "cross-crate source mounts: {} (ceiling {CROSS_CRATE_SOURCE_MOUNTS_CEILING})",
+        mounts.len()
     );
 }
 

@@ -14,10 +14,10 @@
 //! `inbox/<recipient>/<ordered-name>.json`. Writes are atomic (tmp + rename).
 
 use crate::susi_core::plane_bus_ipc::{enc, sibling_pid_dirs};
-use crate::susi_paths::SusiDirs;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use susi_paths::SusiDirs;
 
 /// A capability-scoped permission.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

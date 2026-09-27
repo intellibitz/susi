@@ -5,9 +5,5 @@ license = "Apache-2.0"
 edition = "2021"
 publish = false
 
-[dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-
 [lints]
 workspace = true

@@ -223,7 +223,7 @@ static CACHE_GEN: AtomicU64 = AtomicU64::new(0);
 static CLOUD_VENDOR_CACHE: Mutex<Option<(u64, Vec<CloudVendorEntry>)>> = Mutex::new(None);
 
 pub(crate) fn extensions_root() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("extensions")
+    susi_paths::SusiDirs::config_dir().join("extensions")
 }
 
 pub(crate) fn state_path() -> PathBuf {

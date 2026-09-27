@@ -16,7 +16,7 @@ pub struct SusiAdmin;
 
 impl SusiAdmin {
     pub fn get_global_susi_dir() -> std::path::PathBuf {
-        crate::susi_paths::SusiDirs::config_dir()
+        susi_paths::SusiDirs::config_dir()
     }
 
     /// Full Compliance Audit

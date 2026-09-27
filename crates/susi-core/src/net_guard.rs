@@ -209,7 +209,7 @@ impl NetGuard {
     /// through `FileLock`; a wedged lock fails closed.
     fn record_nonce(node: &str, nonce: &str) -> bool {
         static STORE: OnceLock<std::sync::Mutex<NonceFile>> = OnceLock::new();
-        let dir = crate::susi_paths::SusiDirs::config_dir();
+        let dir = susi_paths::SusiDirs::config_dir();
         let Some(_guard) = crate::susi_core::commit_log::FileLock::acquire(&dir, "seen_nonces")
         else {
             return false;

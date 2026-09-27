@@ -21,7 +21,7 @@ pub fn persist_privacy_mode(mode: PrivacyMode) -> std::io::Result<()> {
     // still records the operator's choice for the next boot.
     let policy = MacPolicy::global();
     if !policy.persists_mode() {
-        let path = crate::susi_paths::SusiDirs::substrate_home().join("privacy_mode");
+        let path = susi_paths::SusiDirs::substrate_home().join("privacy_mode");
         crate::susi_config::atomic_write_bytes(&path, mode.as_str().as_bytes())?;
     }
     policy.set_mode(mode)

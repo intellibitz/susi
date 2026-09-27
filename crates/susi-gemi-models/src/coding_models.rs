@@ -64,7 +64,7 @@ pub struct CodingModelManager {
 
 impl CodingModelManager {
     pub fn new() -> Result<Self> {
-        let config = crate::susi_paths::SusiDirs::config_dir().join("coding-models");
+        let config = susi_paths::SusiDirs::config_dir().join("coding-models");
         Ok(Self { config })
     }
 
@@ -181,8 +181,8 @@ impl CodingModelManager {
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
-        crate::susi_config::create_private_dir(&crate::susi_paths::SusiDirs::config_dir())?;
-        let prefer = crate::susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
+        crate::susi_config::create_private_dir(&susi_paths::SusiDirs::config_dir())?;
+        let prefer = susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
         crate::susi_config::atomic_write_bytes(&prefer, def.id.as_bytes())?;
         // Also set the runtime override to the provider model id for cloud routing.
         crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
@@ -193,12 +193,10 @@ impl CodingModelManager {
     }
 
     pub fn preferred(&self) -> Option<String> {
-        fs::read_to_string(
-            crate::susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt"),
-        )
-        .ok()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
+        fs::read_to_string(susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt"))
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
     }
 
     /// Zero-config: if no preferred coding model is set, prefer the best-ranked

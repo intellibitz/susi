@@ -221,7 +221,7 @@ impl ModelManager {
     }
 
     pub fn deep_scan_home_and_register(global_dir: &Path) -> EaiResult<String> {
-        let home = crate::susi_paths::SusiDirs::home_dir();
+        let home = susi_paths::SusiDirs::home_dir();
         if !home.is_dir() {
             return Err(crate::susi_error::EaiError::filesystem(
                 "User home directory not detected",

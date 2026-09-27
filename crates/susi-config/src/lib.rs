@@ -28,13 +28,6 @@
 #[allow(dead_code)]
 #[path = "../../susi-core/src/susi_error.rs"]
 pub mod susi_error;
-// Vendored `susi-paths` IPC client: full surface kept identical
-// across crates; per-crate dead_code allowance is the audit trail.
-// `pub` so the standalone service binary (main.rs) can resolve the
-// global config dir through the same contract as every consumer.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_paths.rs"]
-pub mod susi_paths;
 
 // The shared modules below are also `#[path]`-mounted by every other crate
 // (via `crates/susi-core/src/susi_config.rs`), so they name siblings with
@@ -105,7 +98,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     fn config_dir() -> std::path::PathBuf {
-        crate::susi_paths::SusiDirs::config_dir()
+        susi_paths::SusiDirs::config_dir()
     }
 
     /// Every route requires the host bearer token: these endpoints read or
@@ -118,7 +111,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             .headers()
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok());
-        if crate::susi_paths::bearer_authorized(header) {
+        if susi_paths::bearer_authorized(header) {
             next.run(req).await
         } else {
             axum::response::IntoResponse::into_response(axum::http::StatusCode::UNAUTHORIZED)

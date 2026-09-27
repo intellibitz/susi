@@ -31,7 +31,7 @@ impl AgentMetaRegistry {
     }
 
     fn registry_path() -> std::path::PathBuf {
-        crate::susi_paths::SusiDirs::data_dir().join("agent_registry.json")
+        susi_paths::SusiDirs::data_dir().join("agent_registry.json")
     }
 
     // Mandate 42: safe - parses a file compiled in via include_str!; a parse
@@ -105,7 +105,7 @@ impl AgentMetaRegistry {
                         name_owned, old_rank, agent.base_rank, source_owned
                     );
                     crate::susi_sandbox::manager::SusiAuditLogger::log(
-                        &crate::susi_paths::SusiDirs::config_dir(),
+                        &susi_paths::SusiDirs::config_dir(),
                         crate::susi_sandbox::manager::LogLevel::Info,
                         "AGENT_MUTATION",
                         &log_msg,

@@ -167,7 +167,7 @@ mod tests {
         let cfg = SusiConfig::load(dir).expect("Failed to load config");
         assert_eq!(
             cfg.gmcp_port(),
-            crate::susi_paths::ports::GMCP + crate::susi_paths::ports::env_port_offset()
+            susi_paths::ports::GMCP + susi_paths::ports::env_port_offset()
         );
         let _ = fs::remove_dir_all(dir);
     }
@@ -176,7 +176,7 @@ mod tests {
     /// (via get_or_bundled_default) — there is no second, Rust-literal copy
     /// of any default that could drift out of sync with it. Host-contract
     /// ports are a partial exception: accessors return
-    /// `crate::susi_paths::ports` canonical base + `port_offset` — the
+    /// `susi_paths::ports` canonical base + `port_offset` — the
     /// per-port JSON fields stay documentation-only, only the single offset
     /// integer is honored.
     #[test]
@@ -188,33 +188,33 @@ mod tests {
         // Host contract: per-port JSON fields are documentation-only and
         // must stay at the canonical base; accessors add the offset (env
         // first — a test host with SUSI_PORT_OFFSET set still asserts true).
-        let offset = crate::susi_paths::ports::env_port_offset();
+        let offset = susi_paths::ports::env_port_offset();
         assert_eq!(raw["port_offset"].as_u64().unwrap(), 0);
-        assert_eq!(default.gmcp_port(), crate::susi_paths::ports::GMCP + offset);
+        assert_eq!(default.gmcp_port(), susi_paths::ports::GMCP + offset);
         assert_eq!(
             raw["gmcp_port"].as_u64().unwrap() as u16,
-            crate::susi_paths::ports::GMCP
+            susi_paths::ports::GMCP
         );
         assert_eq!(
             default.gmcp_http_port(),
-            crate::susi_paths::ports::GMCP_HTTP + offset
+            susi_paths::ports::GMCP_HTTP + offset
         );
         assert_eq!(
             raw["gmcp_http_port"].as_u64().unwrap() as u16,
-            crate::susi_paths::ports::GMCP_HTTP
+            susi_paths::ports::GMCP_HTTP
         );
-        assert_eq!(default.gemi_port(), crate::susi_paths::ports::GEMI + offset);
+        assert_eq!(default.gemi_port(), susi_paths::ports::GEMI + offset);
         assert_eq!(
             raw["gemi_port"].as_u64().unwrap() as u16,
-            crate::susi_paths::ports::GEMI
+            susi_paths::ports::GEMI
         );
         assert_eq!(
             default.udp_discovery_port(),
-            crate::susi_paths::ports::UDP_DISCOVERY + offset
+            susi_paths::ports::UDP_DISCOVERY + offset
         );
         assert_eq!(
             raw["udp_discovery_port"].as_u64().unwrap() as u16,
-            crate::susi_paths::ports::UDP_DISCOVERY
+            susi_paths::ports::UDP_DISCOVERY
         );
         assert_eq!(default.trust_level(), raw["trust_level"].as_str().unwrap());
         assert_eq!(
@@ -388,7 +388,7 @@ mod tests {
         // Public ports are a hard contract — polluted values cannot override them.
         assert_eq!(
             cfg.gmcp_port(),
-            crate::susi_paths::ports::GMCP + crate::susi_paths::ports::env_port_offset()
+            susi_paths::ports::GMCP + susi_paths::ports::env_port_offset()
         );
         // User's customized non-port scalar survives the merge untouched.
         assert_eq!(cfg.trust_level(), "paranoid");
@@ -435,20 +435,17 @@ mod tests {
         // When the env override is set in the test environment the env value
         // is authoritative — the config-key assertions below only hold with
         // the env knob unset.
-        if crate::susi_paths::ports::env_port_offset() != 0 {
+        if susi_paths::ports::env_port_offset() != 0 {
             return;
         }
         let mut cfg = SusiConfig::default();
         cfg.settings
             .insert("port_offset".to_string(), serde_json::json!(100));
-        assert_eq!(cfg.gmcp_port(), crate::susi_paths::ports::GMCP + 100);
-        assert_eq!(
-            cfg.a2a_http_port(),
-            crate::susi_paths::ports::A2A_HTTP + 100
-        );
+        assert_eq!(cfg.gmcp_port(), susi_paths::ports::GMCP + 100);
+        assert_eq!(cfg.a2a_http_port(), susi_paths::ports::A2A_HTTP + 100);
         assert_eq!(
             cfg.udp_discovery_port(),
-            crate::susi_paths::ports::UDP_DISCOVERY + 100
+            susi_paths::ports::UDP_DISCOVERY + 100
         );
         // Offset saturates rather than overflowing u16.
         cfg.settings

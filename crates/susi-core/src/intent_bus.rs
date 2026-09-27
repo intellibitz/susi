@@ -147,7 +147,7 @@ pub struct IntentBus {
 
 /// Per-process rendezvous shared with vendored copies via `IpcPlaneBus`.
 fn shared_dir() -> PathBuf {
-    crate::susi_paths::SusiDirs::cache_dir()
+    susi_paths::SusiDirs::cache_dir()
         .join("bus")
         .join(std::process::id().to_string())
         .join("intents")

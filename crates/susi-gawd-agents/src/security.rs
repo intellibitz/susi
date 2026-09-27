@@ -10,7 +10,7 @@ pub struct SecurityDetector;
 impl SecurityDetector {
     pub fn audit_action(_tool_name: &str, arg: &str, _workspace: &Path) -> EaiResult<()> {
         audit_held_credentials(arg, std::env::vars())?;
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let cfg = SusiConfig::load(&global_dir).unwrap_or_default();
         let patterns = cfg.governance();
 

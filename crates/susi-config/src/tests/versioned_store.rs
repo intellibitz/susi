@@ -72,11 +72,11 @@ fn config_reload_bypasses_unchanged_mtime_without_rewriting() {
     // Public ports ignore polluted values; custom keys still round-trip.
     assert_eq!(
         SusiConfig::reload(&nested).unwrap().gmcp_port(),
-        crate::susi_paths::ports::GMCP
+        susi_paths::ports::GMCP
     );
     assert_eq!(
         SusiConfig::load(&nested).unwrap().gmcp_port(),
-        crate::susi_paths::ports::GMCP
+        susi_paths::ports::GMCP
     );
     assert_eq!(
         SusiConfig::load(&nested)

@@ -14,7 +14,7 @@ fn with_temp_home<F: FnOnce()>(f: F) {
             .as_nanos()
     ));
     let _ = std::fs::create_dir_all(&tmp);
-    // Pre-create the legacy base so `crate::susi_paths::SusiDirs::use_xdg()` cannot flip
+    // Pre-create the legacy base so `susi_paths::SusiDirs::use_xdg()` cannot flip
     // mid-test if a concurrent test creates it under the swapped HOME.
     let _ = std::fs::create_dir_all(tmp.join(".susi"));
     let prev_home = std::env::var_os("HOME");

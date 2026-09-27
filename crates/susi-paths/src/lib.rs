@@ -10,11 +10,180 @@
     )
 )]
 
-use std::path::PathBuf;
+//! Host path and port contract.
+//!
+//! [`SusiDirs`] asks the standalone `susi-paths` service (`127.0.0.1:18080`,
+//! override via `SUSI_PATHS_PORT`) and falls back to the local XDG/legacy
+//! resolver when the service is unreachable, so path lookup never hard-fails.
+//! The service itself answers from the same local resolver.
 
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+/// Host directory contract, resolved via the `susi-paths` service with a
+/// local XDG/legacy fallback when it is unreachable.
 pub struct SusiDirs;
 
+const SERVICE_TIMEOUT: Duration = Duration::from_millis(200);
+
 impl SusiDirs {
+    /// Cached while the service is healthy; retries (bounded) while it is down.
+    fn fetch_paths() -> HashMap<String, PathBuf> {
+        static CACHE: OnceLock<HashMap<String, PathBuf>> = OnceLock::new();
+        if let Some(cached) = CACHE.get() {
+            return cached.clone();
+        }
+        let map = Self::fetch_paths_uncached();
+        if !map.is_empty() {
+            let _ = CACHE.set(map.clone());
+        }
+        map
+    }
+
+    fn fetch_paths_uncached() -> HashMap<String, PathBuf> {
+        // Explicit SUSI_PATHS_PORT wins, else the default rides the instance
+        // offset like every other susi port.
+        let port = std::env::var("SUSI_PATHS_PORT")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or_else(|| ports::effective(18080));
+        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+        let fetch = || -> Option<HashMap<String, PathBuf>> {
+            let mut stream = TcpStream::connect_timeout(&addr, SERVICE_TIMEOUT).ok()?;
+            let _ = stream.set_read_timeout(Some(SERVICE_TIMEOUT));
+            let _ = stream.set_write_timeout(Some(SERVICE_TIMEOUT));
+            stream
+                .write_all(b"GET /paths HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
+                .ok()?;
+            let mut buf = String::new();
+            stream.read_to_string(&mut buf).ok()?;
+            let (_, body) = buf.split_once("\r\n\r\n")?;
+            serde_json::from_str::<HashMap<String, PathBuf>>(body).ok()
+        };
+        let map = fetch().unwrap_or_default();
+        // The service answers for whichever user/HOME started it. Only trust
+        // it when it resolves *our* home — otherwise another user's (or
+        // another HOME's) daemon would silently hand us its substrate paths.
+        match map.get("home_dir") {
+            Some(home) if same_path(home, &LocalDirs::home_dir()) => map,
+            _ => HashMap::new(),
+        }
+    }
+
+    /// Explicit local env config (`SUSI_HOME`, `SUSI_XDG`, `XDG_*_HOME`)
+    /// beats the service — a second instance's root must not resolve to the
+    /// primary host substrate's paths.
+    fn local_override() -> bool {
+        [
+            "SUSI_HOME",
+            "SUSI_XDG",
+            "XDG_CONFIG_HOME",
+            "XDG_DATA_HOME",
+            "XDG_CACHE_HOME",
+        ]
+        .iter()
+        .any(|v| std::env::var_os(v).is_some())
+    }
+
+    fn get(key: &str) -> PathBuf {
+        if Self::local_override() {
+            return LocalDirs::get(key);
+        }
+        Self::fetch_paths()
+            .remove(key)
+            .unwrap_or_else(|| LocalDirs::get(key))
+    }
+
+    /// User home directory.
+    #[must_use]
+    pub fn home_dir() -> PathBuf {
+        Self::get("home_dir")
+    }
+    /// Substrate config dir (`~/.susi` legacy or the platform config dir).
+    #[must_use]
+    pub fn config_dir() -> PathBuf {
+        Self::get("config_dir")
+    }
+    /// Substrate data dir (`~/.susi` legacy or the platform data dir).
+    #[must_use]
+    pub fn data_dir() -> PathBuf {
+        Self::get("data_dir")
+    }
+    /// Substrate cache dir (`~/.susi` legacy or the platform cache dir).
+    #[must_use]
+    pub fn cache_dir() -> PathBuf {
+        Self::get("cache_dir")
+    }
+    /// Host substrate root the daemon binds to (the data dir). This is
+    /// **not** a project workspace — CLI intents use the caller's cwd.
+    #[must_use]
+    pub fn substrate_home() -> PathBuf {
+        Self::get("substrate_home")
+    }
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(x), Ok(y)) if x == y
+        )
+}
+
+/// Host API bearer token (`<config_dir>/api_token`), when seeded. The
+/// susi-config and susi-sandbox leaf services require it on every request.
+#[must_use]
+pub fn host_token() -> Option<String> {
+    std::fs::read_to_string(SusiDirs::config_dir().join("api_token"))
+        .ok()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+}
+
+/// Insert the host bearer header after the request line of a raw loopback
+/// HTTP/1.0 request. Unchanged when no token is seeded.
+#[must_use]
+pub fn with_bearer(raw: &str) -> String {
+    match (host_token(), raw.split_once("\r\n")) {
+        (Some(token), Some((line, rest))) => {
+            format!("{line}\r\nAuthorization: Bearer {token}\r\n{rest}")
+        }
+        _ => raw.to_string(),
+    }
+}
+
+/// Constant-time check of an `Authorization` header value against the host
+/// token. Fails closed when no token is seeded.
+#[must_use]
+pub fn bearer_authorized(header: Option<&str>) -> bool {
+    let (Some(expected), Some(presented)) =
+        (host_token(), header.and_then(|h| h.strip_prefix("Bearer ")))
+    else {
+        return false;
+    };
+    let (a, b) = (presented.trim().as_bytes(), expected.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Local XDG/legacy resolver: the rule the service answers with and the
+/// fallback every client uses when the service is unreachable.
+struct LocalDirs;
+
+impl LocalDirs {
+    fn get(key: &str) -> PathBuf {
+        match key {
+            "home_dir" => Self::home_dir(),
+            "config_dir" => Self::config_dir(),
+            "cache_dir" => Self::cache_dir(),
+            "substrate_home" => Self::substrate_home(),
+            _ => Self::data_dir(),
+        }
+    }
+
     /// `SUSI_HOME` selects a fully isolated instance root — the multi-instance
     /// knob: `SUSI_HOME=~/.susi-b SUSI_PORT_OFFSET=100 susi start` runs a
     /// second node beside the primary with its own config, lock, and state.
@@ -28,7 +197,7 @@ impl SusiDirs {
         Self::instance_root().unwrap_or_else(|| Self::home_dir().join(".susi"))
     }
 
-    pub fn home_dir() -> PathBuf {
+    fn home_dir() -> PathBuf {
         directories::BaseDirs::new()
             .map(|d| d.home_dir().to_path_buf())
             .unwrap_or_else(|| {
@@ -58,7 +227,7 @@ impl SusiDirs {
     }
 
     #[must_use]
-    pub fn config_dir() -> PathBuf {
+    fn config_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {
                 return p.config_dir().to_path_buf();
@@ -68,7 +237,7 @@ impl SusiDirs {
     }
 
     #[must_use]
-    pub fn data_dir() -> PathBuf {
+    fn data_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {
                 return p.data_local_dir().to_path_buf();
@@ -78,7 +247,7 @@ impl SusiDirs {
     }
 
     #[must_use]
-    pub fn cache_dir() -> PathBuf {
+    fn cache_dir() -> PathBuf {
         if Self::use_xdg() {
             if let Some(p) = Self::project_dirs() {
                 return p.cache_dir().to_path_buf();
@@ -92,7 +261,7 @@ impl SusiDirs {
     /// CLI intents use the caller's cwd; the daemon only owns host-global
     /// state (models, ports, lock, rediscovery).
     #[must_use]
-    pub fn substrate_home() -> PathBuf {
+    fn substrate_home() -> PathBuf {
         Self::data_dir()
     }
 }
@@ -128,11 +297,11 @@ pub fn serve(port: u16) -> std::io::Result<()> {
 
     async fn get_paths() -> Json<PathsResponse> {
         Json(PathsResponse {
-            home_dir: SusiDirs::home_dir(),
-            config_dir: SusiDirs::config_dir(),
-            data_dir: SusiDirs::data_dir(),
-            cache_dir: SusiDirs::cache_dir(),
-            substrate_home: SusiDirs::substrate_home(),
+            home_dir: LocalDirs::home_dir(),
+            config_dir: LocalDirs::config_dir(),
+            data_dir: LocalDirs::data_dir(),
+            cache_dir: LocalDirs::cache_dir(),
+            substrate_home: LocalDirs::substrate_home(),
         })
     }
 

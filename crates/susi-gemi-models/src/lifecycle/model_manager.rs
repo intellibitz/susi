@@ -148,13 +148,13 @@ impl ModelManager {
             let _ = fs::create_dir_all(&p);
             return p;
         }
-        let home = crate::susi_paths::SusiDirs::home_dir();
+        let home = susi_paths::SusiDirs::home_dir();
         if std::env::var("SUSI_USE_DOWNLOADS_DIR").is_ok() {
             let p = home.join("Downloads/.susi/models");
             let _ = fs::create_dir_all(&p);
             return p;
         }
-        let global_dir = crate::susi_paths::SusiDirs::data_dir().join("models");
+        let global_dir = susi_paths::SusiDirs::data_dir().join("models");
         let _ = fs::create_dir_all(&global_dir);
         global_dir
     }
@@ -337,7 +337,7 @@ impl ModelManager {
     pub(crate) fn progress_path(target: &str) -> PathBuf {
         use sha2::Digest;
         let key = hex::encode(sha2::Sha256::digest(target.as_bytes()));
-        crate::susi_paths::SusiDirs::data_dir()
+        susi_paths::SusiDirs::data_dir()
             .join("downloads")
             .join(format!("{key}.json"))
     }
@@ -391,7 +391,7 @@ impl ModelManager {
             // neither may ever be observed torn.
             let _ = crate::susi_config::atomic_write_bytes(&progress_file, json.as_bytes());
             let _ = crate::susi_config::atomic_write_bytes(
-                &crate::susi_paths::SusiDirs::data_dir().join("download_progress.json"),
+                &susi_paths::SusiDirs::data_dir().join("download_progress.json"),
                 json.as_bytes(),
             );
         }

@@ -49,7 +49,7 @@ impl ReflexSynthesizer {
     /// silently swallowed, so callers can tell a real patch from a missing
     /// toolchain component.
     pub fn synthesize_wasm_reflex(intent: &str, _workspace: &Path) -> EaiResult<String> {
-        let reflex_dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
+        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
         let _ = fs::create_dir_all(&reflex_dir);
         let slug = sanitize_reflex_slug(intent)?;
         let wasm_src = reflex_dir.join(format!("{}.rs", slug));
@@ -186,7 +186,7 @@ mod tests {
     fn test_wasm_reflex_publishes_atomically_and_leaves_no_staging_file() {
         let slug = format!("zz_atomic_probe_{}", std::process::id());
         let out = ReflexSynthesizer::synthesize_wasm_reflex(&slug, Path::new(".")).unwrap();
-        let dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
+        let dir = susi_paths::SusiDirs::data_dir().join("reflexes");
         assert!(out.ends_with(&format!("{slug}.wasm")));
         assert_eq!(&std::fs::read(&out).unwrap()[..4], b"\0asm");
         let leftovers: Vec<_> = std::fs::read_dir(&dir)
@@ -212,12 +212,12 @@ mod tests {
         let intent = format!("test_hot_patch_reflex_{}", std::process::id());
         match ReflexSynthesizer::synthesize_wasm_reflex(&intent, Path::new(".")) {
             Ok(wasm_path) => {
-                let _home = crate::susi_paths::SusiDirs::home_dir();
+                let _home = susi_paths::SusiDirs::home_dir();
                 let result =
                     crate::susi_native::WasmHost::execute_reflex(Path::new(&wasm_path), "hello");
                 let _ = std::fs::remove_file(&wasm_path);
                 let _ = std::fs::remove_file(
-                    crate::susi_paths::SusiDirs::data_dir()
+                    susi_paths::SusiDirs::data_dir()
                         .join("reflexes")
                         .join(format!("{}.rs", intent)),
                 );

@@ -717,8 +717,8 @@ mod tests {
     #[test]
     fn evicting_on_another_thread_returns_vram_to_the_driver() {
         let _serial = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let path = crate::susi_paths::SusiDirs::data_dir()
-            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let path =
+            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         let Ok(device) = candle_core::Device::new_cuda(0) else {
             eprintln!("skipping: no CUDA device");
             return;
@@ -772,8 +772,8 @@ mod tests {
     #[test]
     fn late_drop_on_a_context_less_thread_frees_vram() {
         let _serial = GPU_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let path = crate::susi_paths::SusiDirs::data_dir()
-            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let path =
+            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         let Ok(device) = candle_core::Device::new_cuda(0) else {
             eprintln!("skipping: no CUDA device");
             return;
@@ -817,8 +817,8 @@ mod tests {
 
     #[test]
     fn local_model_loads_on_cpu_and_reuses_cached_weights() {
-        let path = crate::susi_paths::SusiDirs::data_dir()
-            .join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+        let path =
+            susi_paths::SusiDirs::data_dir().join("models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
         if !path.is_file() {
             eprintln!("skipping: {} not present on this host", path.display());
             return;
@@ -1102,8 +1102,8 @@ mod tests {
 
     #[test]
     fn test_native_tokenization() {
-        let _home = crate::susi_paths::SusiDirs::home_dir();
-        let tokenizer_path = crate::susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
+        let _home = susi_paths::SusiDirs::home_dir();
+        let tokenizer_path = susi_paths::SusiDirs::data_dir().join("models/tokenizer.json");
         if tokenizer_path.exists() {
             let tokenizer = Tokenizer::from_file(tokenizer_path);
             assert!(tokenizer.is_ok());

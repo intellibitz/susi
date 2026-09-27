@@ -73,7 +73,7 @@ pub struct FrontierManager {
 impl FrontierManager {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            config: crate::susi_paths::SusiDirs::config_dir().join("frontier-models"),
+            config: susi_paths::SusiDirs::config_dir().join("frontier-models"),
         })
     }
 

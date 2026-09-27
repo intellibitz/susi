@@ -176,7 +176,7 @@ impl BloatAuditor {
     /// the bundled list so secret-shaped literals are never unscanned.
     fn load_secret_patterns() -> Vec<String> {
         use crate::susi_sandbox::manager::SusiConfig;
-        SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
+        SusiConfig::load(&susi_paths::SusiDirs::config_dir())
             .unwrap_or_default()
             .governance()
             .secret_tokens

@@ -61,7 +61,7 @@ impl AmbientPulseReport {
 /// as "changed" — without it each boot flooded the graph with a
 /// full-tree ingest of files that never changed.
 fn scan_state_path() -> std::path::PathBuf {
-    crate::susi_paths::SusiDirs::substrate_home().join("ambient_scan_state.json")
+    susi_paths::SusiDirs::substrate_home().join("ambient_scan_state.json")
 }
 
 fn load_scan_state(workspace: &Path) -> HashMap<String, u64> {

@@ -5,9 +5,10 @@
     clippy::unreachable
 )]
 
-//! Shared contracts are mounted from canonical source files. These tests make
-//! physical copies a regression: a consumer must compile the canonical source
-//! through `#[path]`, keeping one implementation without a Cargo crate edge.
+//! Shared code has exactly one checked-in implementation. These tests make
+//! physical copies a regression: a consumer reaches shared code through a
+//! Cargo edge on the owning crate (see `architecture_tests.rs` for the leaf
+//! order and the cross-crate `#[path]` mount ratchet).
 
 use std::path::{Path, PathBuf};
 
@@ -43,47 +44,7 @@ fn shared_contracts_have_no_consumer_copies() {
 
     assert!(
         duplicates.is_empty(),
-        "shared contracts must use canonical #[path] mounts; duplicate paths: {duplicates:?}"
-    );
-}
-
-#[test]
-fn every_declared_source_mount_resolves() {
-    let root = workspace_root();
-    let mut pending = vec![root.join("crates"), root.join("src"), root.join("tests")];
-    let mut checked = 0_usize;
-
-    while let Some(directory) = pending.pop() {
-        for entry in std::fs::read_dir(&directory).expect("read source directory") {
-            let path = entry.expect("read source entry").path();
-            if path.is_dir() {
-                pending.push(path);
-                continue;
-            }
-            if path.extension().and_then(|extension| extension.to_str()) != Some("rs") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).expect("read Rust source");
-            for line in source.lines() {
-                let Some(rest) = line.split_once("#[path = \"").map(|(_, rest)| rest) else {
-                    continue;
-                };
-                let (mount, _) = rest.split_once('\"').expect("well-formed path attribute");
-                checked += 1;
-                let target = path.parent().expect("source parent").join(mount);
-                assert!(
-                    target.is_file(),
-                    "source mount in {} does not resolve: {}",
-                    path.display(),
-                    target.display()
-                );
-            }
-        }
-    }
-
-    assert!(
-        checked > 100,
-        "expected broad canonical source reuse, got {checked}"
+        "shared contracts must not be copied into consumers; duplicate paths: {duplicates:?}"
     );
 }
 
@@ -115,6 +76,6 @@ fn checked_in_rust_implementations_are_not_byte_duplicates() {
 
     assert!(
         duplicates.is_empty(),
-        "byte-identical Rust files must be consolidated through a canonical source mount: {duplicates:?}"
+        "byte-identical Rust files must be consolidated into one owning crate: {duplicates:?}"
     );
 }

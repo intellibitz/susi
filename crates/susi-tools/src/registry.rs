@@ -94,7 +94,7 @@ impl ToolRegistry {
             }
         }
 
-        let reflex_dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
+        let reflex_dir = susi_paths::SusiDirs::data_dir().join("reflexes");
         if let Ok(entries) = std::fs::read_dir(&reflex_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -187,7 +187,7 @@ impl ToolRegistry {
                 return "Reflex Error: invalid reflex name".to_string();
             }
             let wasm_name = format!("{}.wasm", raw);
-            let wasm_path = crate::susi_paths::SusiDirs::data_dir()
+            let wasm_path = susi_paths::SusiDirs::data_dir()
                 .join("reflexes")
                 .join(wasm_name);
             if wasm_path.exists() {

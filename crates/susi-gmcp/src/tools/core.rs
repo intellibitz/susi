@@ -49,7 +49,7 @@ impl CoreTools {
         ));
 
         // Report Background Provisioning Progress
-        let progress_file = crate::susi_paths::SusiDirs::data_dir().join("download_progress.json");
+        let progress_file = susi_paths::SusiDirs::data_dir().join("download_progress.json");
         if progress_file.exists() {
             if let Ok(content) = fs::read_to_string(&progress_file) {
                 if let Ok(progress) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -616,7 +616,7 @@ impl CoreTools {
                 "unknown service `{name}` (expected a leaf service name)"
             )));
         };
-        let path = crate::susi_paths::SusiDirs::substrate_home()
+        let path = susi_paths::SusiDirs::substrate_home()
             .join("logs")
             .join(format!("{}.log", svc.name));
         // Tail-bounded read: a governed tool must not block on arbitrarily
@@ -852,7 +852,7 @@ impl CoreTools {
         // local "self" route and as the same-config guess for bare hosts.
         let a2a_port = crate::susi_config::SusiConfig::load_global()
             .map(|c| c.a2a_http_port())
-            .unwrap_or(crate::susi_paths::ports::A2A_HTTP);
+            .unwrap_or(susi_paths::ports::A2A_HTTP);
         let p = peer.trim();
         if p.eq_ignore_ascii_case("self") || p == "localhost" || p == "127.0.0.1" || p == "::1" {
             return Ok(format!("http://127.0.0.1:{a2a_port}"));
@@ -1001,7 +1001,7 @@ impl CoreTools {
         let local_a2a = format!(
             "http://127.0.0.1:{}",
             cfg.as_ref()
-                .map_or(crate::susi_paths::ports::A2A_HTTP, |c| c.a2a_http_port())
+                .map_or(susi_paths::ports::A2A_HTTP, |c| c.a2a_http_port())
         );
         let token = if url == local_a2a || url.starts_with("http://[::1]:") {
             cfg.map(|c| c.api_auth_token()).unwrap_or_default()
@@ -1159,9 +1159,8 @@ impl CoreTools {
             return Err(EaiError::internal("failed to stage cluster.key.next"));
         }
         if let Err(e) = crate::susi_core::commit_log::append(&record) {
-            let _ = std::fs::remove_file(
-                crate::susi_paths::SusiDirs::config_dir().join("cluster.key.next"),
-            );
+            let _ =
+                std::fs::remove_file(susi_paths::SusiDirs::config_dir().join("cluster.key.next"));
             return Err(e);
         }
         // Self-heal: if the commit-phase record already landed (anti-
@@ -2733,7 +2732,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::protocol("goal is required"))?;
         let context = arg.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
-        let delegations_dir = crate::susi_paths::SusiDirs::data_dir().join("delegations");
+        let delegations_dir = susi_paths::SusiDirs::data_dir().join("delegations");
         std::fs::create_dir_all(&delegations_dir)
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
 
@@ -3370,7 +3369,7 @@ mod os_tools_wired_tests {
         // Coordinator authority requires explicit membership — declare
         // the test's coordinators in the isolated roster so their
         // records may drive term state.
-        let peers_dir = crate::susi_paths::SusiDirs::config_dir();
+        let peers_dir = susi_paths::SusiDirs::config_dir();
         std::fs::create_dir_all(&peers_dir).expect("peers dir");
         std::fs::write(
             peers_dir.join("peers.json"),

@@ -266,10 +266,9 @@ impl GawdAgent for SusiRuntimeAgent {
 
         // 3. If neither is available, install the default model
         if !cloud_available && !valid_local_found {
-            let cfg = crate::susi_sandbox::manager::SusiConfig::load(
-                &crate::susi_paths::SusiDirs::config_dir(),
-            )
-            .unwrap_or_default();
+            let cfg =
+                crate::susi_sandbox::manager::SusiConfig::load(&susi_paths::SusiDirs::config_dir())
+                    .unwrap_or_default();
             crate::susi_core::plane_bus::gemi::ModelManager::install_model(
                 &cfg.alpha_weights_url(),
             );
@@ -968,7 +967,7 @@ pub(crate) fn resolve_inference_key(api_key_env: &str) -> Option<String> {
             return Some(v);
         }
     }
-    let path = crate::susi_paths::SusiDirs::config_dir().join("cloud.env");
+    let path = susi_paths::SusiDirs::config_dir().join("cloud.env");
     let content = std::fs::read_to_string(path).ok()?;
     for line in content.lines() {
         let line = line.trim();
@@ -1288,7 +1287,7 @@ impl GawdAgent for AdminAgent {
 
 impl AdminAgent {
     fn global_dir() -> std::path::PathBuf {
-        crate::susi_paths::SusiDirs::config_dir()
+        susi_paths::SusiDirs::config_dir()
     }
 
     /// Command-trigger keywords are config-driven (Mandate 35: Registry + Trait +

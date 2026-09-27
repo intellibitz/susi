@@ -57,7 +57,7 @@ fn locate_binary(name: &str) -> Option<PathBuf> {
             }
         }
     }
-    let staged = crate::susi_paths::SusiDirs::substrate_home()
+    let staged = susi_paths::SusiDirs::substrate_home()
         .join("bin")
         .join(name);
     if staged.is_file() {
@@ -123,7 +123,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
     let resolved_port = svc.port();
     let offset = crate::susi_sandbox::manager::SusiConfig::load_global()
         .map(|c| c.port_offset())
-        .unwrap_or_else(|_| crate::susi_paths::ports::env_port_offset());
+        .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
     cmd.env(svc.port_env, resolved_port.to_string())
         .env("SUSI_PORT_OFFSET", offset.to_string())
         // Dependency-free leaves (susi-native, susi-error) cannot locate the
@@ -132,7 +132,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
             "SUSI_HOST_TOKEN",
             crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded(),
         );
-    let log_dir = crate::susi_paths::SusiDirs::substrate_home().join("logs");
+    let log_dir = susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let log_path = log_dir.join(format!("{}.log", svc.name));
     rotate_log_if_large(&log_path, 16 * 1024 * 1024);
@@ -164,7 +164,7 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
 /// every spawn/respawn/hold-down decision is invisible after the fact.
 fn slog(msg: &str) {
     eprintln!("{msg}");
-    let path = crate::susi_paths::SusiDirs::substrate_home()
+    let path = susi_paths::SusiDirs::substrate_home()
         .join("logs")
         .join("supervisor.log");
     if let Some(dir) = path.parent() {

@@ -72,7 +72,7 @@ impl DaemonContext {
     }
 }
 
-/// A running host daemon. Always bound to [`crate::susi_paths::SusiDirs::substrate_home`];
+/// A running host daemon. Always bound to [`susi_paths::SusiDirs::substrate_home`];
 /// project context is per-request cwd, never the daemon's boot path.
 pub struct RunningDaemon {
     pub pid: u32,
@@ -295,7 +295,7 @@ impl SusiDaemon {
         let global_lock = Self::get_lock_file(global_dir);
         Self::check_status_path(&global_lock).map(|pid| {
             let substrate_home = Self::read_recorded_substrate_home(&global_lock)
-                .unwrap_or_else(crate::susi_paths::SusiDirs::substrate_home);
+                .unwrap_or_else(susi_paths::SusiDirs::substrate_home);
             RunningDaemon {
                 pid,
                 substrate_home,
@@ -392,11 +392,11 @@ impl SusiDaemon {
     /// comment) is untouched; a cache miss or parse failure always falls
     /// back to a real, fresh hash.
     /// Ensure the single host daemon is running, bound to
-    /// [`crate::susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
+    /// [`susi_paths::SusiDirs::substrate_home`]. The caller's project cwd is
     /// irrelevant here — work context is attached per intent, not to the daemon.
     #[allow(unsafe_code)]
     pub fn ensure_daemon_running(_caller_cwd: &Path, global_dir: &Path) {
-        let substrate_home = crate::susi_paths::SusiDirs::substrate_home();
+        let substrate_home = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&substrate_home);
 
         let current_exe = std::env::current_exe().ok();
@@ -630,7 +630,7 @@ impl SusiDaemon {
         }
         // Daemon is always bound to substrate home — ignore any stale
         // project-cwd passed via --workspace for backwards compatibility.
-        let workspace = crate::susi_paths::SusiDirs::substrate_home();
+        let workspace = susi_paths::SusiDirs::substrate_home();
         let _ = std::fs::create_dir_all(&workspace);
         // Zero-trust: seed host bearer token before opening world-facing ports.
         let _ = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
@@ -1251,7 +1251,7 @@ impl SusiDaemon {
                         .split(',')
                         .find_map(|c| c.strip_prefix("gmcp_http="))
                         .and_then(|p| p.parse::<u16>().ok())
-                        .unwrap_or(crate::susi_paths::ports::GMCP_HTTP);
+                        .unwrap_or(susi_paths::ports::GMCP_HTTP);
                     let pinger_addr = format!("{}:{}", src.ip(), peer_http);
                     // The verified signature proves the daemon at src holds
                     // cluster.key — Explicit standing for the ADDRESS is
@@ -1562,7 +1562,7 @@ impl SusiDaemon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::susi_paths::ports;
+    use susi_paths::ports;
 
     #[test]
     fn host_contract_endpoint_report_lists_effective_ports() {

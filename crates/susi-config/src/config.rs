@@ -22,7 +22,7 @@ impl Default for SusiConfig {
     }
 }
 
-/// Host-contract ports live in `crate::susi_paths::ports` (compile-time). Bundled
+/// Host-contract ports live in `susi_paths::ports` (compile-time). Bundled
 /// JSON may still list them for documentation; they must not be backfilled
 /// into `~/.susi/config.json` on heal.
 const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
@@ -118,7 +118,7 @@ impl SusiConfig {
         if let Some(cfg) = super::service::get_global() {
             return Ok(cfg);
         }
-        Self::load(&crate::susi_paths::SusiDirs::config_dir())
+        Self::load(&susi_paths::SusiDirs::config_dir())
     }
 
     /// Process-global config snapshot shared across hot request paths.
@@ -126,7 +126,7 @@ impl SusiConfig {
         if let Some(cfg) = super::service::get_global() {
             return Ok(std::sync::Arc::new(cfg));
         }
-        Self::load_arc(&crate::susi_paths::SusiDirs::config_dir())
+        Self::load_arc(&susi_paths::SusiDirs::config_dir())
     }
 
     /// Writes via a same-directory temp file + rename rather than a direct
@@ -137,9 +137,7 @@ impl SusiConfig {
     /// writers to the same config.json from multiple processes routine rather
     /// than rare.
     pub fn save(&self, global_dir: &Path) -> EaiResult<()> {
-        if global_dir == crate::susi_paths::SusiDirs::config_dir()
-            && super::service::save_global(self)
-        {
+        if global_dir == susi_paths::SusiDirs::config_dir() && super::service::save_global(self) {
             return Ok(());
         }
         fs::create_dir_all(global_dir)?;
@@ -183,19 +181,19 @@ impl SusiConfig {
     // canonical base + the uniform offset. Individual per-port overrides are
     // deliberately impossible (see port_offset).
     pub fn gmcp_port(&self) -> u16 {
-        crate::susi_paths::ports::GMCP.saturating_add(self.port_offset())
+        susi_paths::ports::GMCP.saturating_add(self.port_offset())
     }
     pub fn gmcp_http_port(&self) -> u16 {
-        crate::susi_paths::ports::GMCP_HTTP.saturating_add(self.port_offset())
+        susi_paths::ports::GMCP_HTTP.saturating_add(self.port_offset())
     }
     pub fn gemi_port(&self) -> u16 {
-        crate::susi_paths::ports::GEMI.saturating_add(self.port_offset())
+        susi_paths::ports::GEMI.saturating_add(self.port_offset())
     }
     pub fn udp_discovery_port(&self) -> u16 {
-        crate::susi_paths::ports::UDP_DISCOVERY.saturating_add(self.port_offset())
+        susi_paths::ports::UDP_DISCOVERY.saturating_add(self.port_offset())
     }
     pub fn a2a_http_port(&self) -> u16 {
-        crate::susi_paths::ports::A2A_HTTP.saturating_add(self.port_offset())
+        susi_paths::ports::A2A_HTTP.saturating_add(self.port_offset())
     }
     pub fn execution_lease_secs(&self) -> u64 {
         self.get_or_bundled_default("execution_lease_secs")
@@ -219,7 +217,7 @@ impl SusiConfig {
     /// REST). Prefer the dedicated `~/.susi/api_token` file (0600); fall back to
     /// a legacy `settings.api_auth_token` value only for migration.
     pub fn api_auth_token(&self) -> String {
-        let token_path = crate::susi_paths::SusiDirs::config_dir().join("api_token");
+        let token_path = susi_paths::SusiDirs::config_dir().join("api_token");
         // Mtime-cached read — NetGuard calls this on every request.
         if let Some(raw) = super::cluster_key::cached_file_bytes(&token_path) {
             if let Ok(from_file) = String::from_utf8(raw) {
@@ -236,7 +234,7 @@ impl SusiConfig {
     /// 32-byte hex secret on first run, persists it **only** to
     /// `~/.susi/api_token` (0600) — never into world-readable `config.json`.
     pub fn ensure_api_auth_token_seeded() -> String {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
+        let global_dir = susi_paths::SusiDirs::config_dir();
         let token_path = global_dir.join("api_token");
         if let Ok(existing) = fs::read_to_string(&token_path) {
             let trimmed = existing.trim().to_string();
@@ -671,7 +669,7 @@ impl std::ops::Deref for SusiConfig {
 #[must_use]
 pub fn redact_credentials(text: &str) -> String {
     let result = crate::susi_error::redact::mask_env_credentials(text);
-    let patterns = SusiConfig::load_arc(&crate::susi_paths::SusiDirs::config_dir())
+    let patterns = SusiConfig::load_arc(&susi_paths::SusiDirs::config_dir())
         .map(|cfg| cfg.governance().secret_tokens)
         .unwrap_or_else(|_| SusiConfig::default().governance().secret_tokens);
     crate::susi_error::redact::redact_patterns(&patterns, &result)

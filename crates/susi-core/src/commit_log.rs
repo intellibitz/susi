@@ -51,7 +51,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::susi_error::{EaiError, EaiResult};
-use crate::susi_paths::SusiDirs;
+use susi_paths::SusiDirs;
 
 /// A single quorum-commit decision, signed by the coordinator.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
