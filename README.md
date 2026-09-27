@@ -68,6 +68,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 3. **Swarm** — agent-of-agents consensus (GAWD).
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
+   Task listings reflect real outcomes: a task whose owner exits without
+   reporting one is recorded as `[ABANDONED]`, not left `Running`.
 6. **Audit** — append-only HMAC accountability chain; cross-process writers
    serialize, complete JSONL records are emitted in one write, stale tip
    checkpoints rebuild from the verified log, and unreadable input fails closed.

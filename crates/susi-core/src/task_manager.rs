@@ -315,6 +315,19 @@ impl TaskHandle {
     }
 }
 
+/// A handle released while its task is still live means the owner returned
+/// early (usually through `?`) without reporting an outcome. Leaving it
+/// `Running` would show a phantom task in the table forever; uncalibrated
+/// categories are never reaped by the idle watchdog.
+impl Drop for TaskHandle {
+    fn drop(&mut self) {
+        self.finish(
+            TaskStatus::Failed,
+            "[ABANDONED] task handle released before an outcome was reported",
+        );
+    }
+}
+
 pub struct SwarmTaskManager {
     pub tasks: DashMap<String, TaskRecord>,
     pub cancel_map: DashMap<String, Arc<AtomicBool>>,
@@ -614,6 +627,36 @@ mod tests {
                 .expect("paused task did not wake");
             worker.join().unwrap();
         }
+    }
+
+    #[test]
+    fn dropped_live_handle_is_recorded_as_abandoned() {
+        let manager = SwarmTaskManager {
+            tasks: DashMap::new(),
+            cancel_map: DashMap::new(),
+            pause_map: DashMap::new(),
+        };
+        let handle = manager.register_task("lifecycle_test", "test");
+        let id = handle.task_id.clone();
+        drop(handle);
+        let record = manager.tasks.get(&id).unwrap();
+        assert_eq!(
+            record.status.load(Ordering::Acquire),
+            TaskStatus::Failed as u8
+        );
+        assert!(record
+            .result
+            .read()
+            .as_deref()
+            .unwrap()
+            .contains("ABANDONED"));
+
+        let handle = manager.register_task("lifecycle_test", "test");
+        let id = handle.task_id.clone();
+        handle.mark_failed("real error");
+        drop(handle);
+        let record = manager.tasks.get(&id).unwrap();
+        assert_eq!(record.result.read().as_deref(), Some("real error"));
     }
 
     #[test]

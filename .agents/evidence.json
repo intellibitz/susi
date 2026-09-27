@@ -1830,6 +1830,16 @@
       "milestone": "RSI iteration 22/100: the self-patch cycle is all-or-nothing. apply_patch_cycle wrote files one at a time and returned Err on a stale later file or an unspawnable test command without restoring the files it had already written, leaving a half-applied patch; an empty old text silently overwrote an existing file despite the code's own create-only comment; restore errors were discarded and still reported reverted=true; and it kept a second rollback path (in-memory map plus write-only .susi/patch_backups copies that collided on same-named files) beside the TxManager transaction that already snapshotted the same files. Every file is now checked for staleness before any write, TxManager is the single rollback source (begin failure is an error, not .ok()), write and spawn failures abort the transaction, and a failed rollback is reported as ROLLBACK FAILED instead of reverted. Regression tests cover a stale second file leaving the first untouched, empty old refusing to clobber, and a created file removed after a failing test. cargo test -p susi-gawd patch_cycle (7 passed) and cargo clippy -p susi-gawd --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TaskHandle Drop",
+        "ref": "symbol://TaskHandle"
+      },
+      "id": "EV-2022927-189",
+      "milestone": "RSI iteration 23/100: the swarm task table no longer shows phantom Running tasks. A TaskHandle released without mark_completed/mark_failed (an owner returning early through ?, e.g. GenerativeReflexEngine::try_solve/try_generate_answer when the reflex model or tokenizer is not provisioned, or ModelManager's foreground install on artifact_name failure) left its record Running forever, and categories with fewer than three calibrated samples are never reaped by the idle watchdog, so glass-box task listings reported work that had already ended. TaskHandle now implements Drop: a handle released while still Running or Paused finishes as Failed with an [ABANDONED] result. finish() is first-writer-wins, so an explicit outcome, a kill, or a watchdog stall is never overwritten, and background downloads that hold an Arc clone are unaffected until the last clone drops. A unit test proves a dropped live handle is recorded as abandoned and an explicitly failed handle keeps its real error. cargo test -p susi-core task_manager (5 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
