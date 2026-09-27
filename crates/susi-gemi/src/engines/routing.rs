@@ -604,6 +604,17 @@ impl InferenceRouter {
         !requires.is_some_and(|value| value.eq_ignore_ascii_case("vision"))
     }
 
+    fn no_cloud_reason(local_ready: bool, has_cooled: bool) -> &'static str {
+        match (local_ready, has_cooled) {
+            (true, true) => "all matching cloud providers are quarantined",
+            (false, true) => {
+                "no ready local model is available and all matching cloud providers are quarantined"
+            }
+            (true, false) => "no ready cloud provider is registered",
+            (false, false) => "no ready local model or cloud provider is available",
+        }
+    }
+
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
         if let Some(until) = pref.force_local_until_unix {
             let now = std::time::SystemTime::now()
@@ -765,12 +776,8 @@ impl InferenceRouter {
             return PlacementDecision {
                 target: if local_ready { "local" } else { "unavailable" }.to_string(),
                 provider: None,
-                reason: if local_ready {
-                    "no ready cloud provider is registered"
-                } else {
-                    "no ready local model or cloud provider is available"
-                }
-                .to_string(),
+                reason: Self::no_cloud_reason(local_ready, !cooled_candidates.is_empty())
+                    .to_string(),
                 policy,
                 local_model,
                 local_ready,
@@ -1472,6 +1479,19 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&failed));
         assert!(!InferenceRouter::provider_cooled(&unrelated));
         InferenceRouter::clear_provider_cooldown(&failed);
+    }
+
+    #[test]
+    fn empty_cloud_reason_distinguishes_quarantine_from_absence() {
+        assert_eq!(
+            InferenceRouter::no_cloud_reason(true, true),
+            "all matching cloud providers are quarantined"
+        );
+        assert!(InferenceRouter::no_cloud_reason(false, true).contains("no ready local model"));
+        assert_eq!(
+            InferenceRouter::no_cloud_reason(true, false),
+            "no ready cloud provider is registered"
+        );
     }
 
     #[test]
