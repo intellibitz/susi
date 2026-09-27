@@ -16,18 +16,18 @@
 //!
 //! Runs as a standalone REST service (`127.0.0.1:18082`, see `main.rs`) — the
 //! canonical reader/writer for the shared `~/.susi/config.json` while the
-//! substrate is up. Consumer crates vendor the byte-identical `susi_config`
-//! module (surface + IPC client) instead of depending on this crate;
-//! `susi-sandbox` re-exports its vendored copy through `susi_sandbox::manager`
-//! for back-compat. This crate reaches the foundational `susi-error`/
-//! `susi-paths` services through the vendored IPC-client modules below,
-//! never on feature crates above it.
+//! substrate is up. Every other crate depends on this crate; only the
+//! *global* config read/write path prefers the service, so a running
+//! substrate stays the canonical writer. When the service is unreachable —
+//! or explicit local env config (`SUSI_XDG`, `XDG_*_HOME`) is set, e.g. in
+//! tests with a swapped `HOME` — every call resolves against the local files,
+//! so config access never hard-fails on service health. `cluster_key`
+//! signing/verification is deliberately local only: exposing HMAC over
+//! `cluster.key` (0600) as an unauthenticated localhost endpoint would let
+//! any process mint signed cluster messages.
 
 pub use susi_error;
 
-// The shared modules below are also `#[path]`-mounted by every other crate
-// (via `crates/susi-core/src/susi_config.rs`), so they name siblings with
-// `super::` and reach the service through `super::service`.
 pub mod cloud_env;
 pub mod cluster_key;
 mod config;
@@ -37,16 +37,94 @@ mod json_util;
 mod types;
 pub mod versioned_store;
 
-/// Service hook seen by the shared `config` module. This process *is* the
-/// `susi-config` service — the canonical writer of the global config file —
-/// so the global path always resolves against the local files, never through
-/// an IPC hop back to itself.
+/// Set by [`serve`]: the service is the canonical writer of the global
+/// config file and must never route through an IPC hop back to itself.
+static SERVICE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// IPC client for the standalone `susi-config` service. Only the global
+/// config path is routed here; per-directory loads and `cluster_key` stay
+/// local by construction.
 mod service {
-    pub fn get_global() -> Option<super::SusiConfig> {
-        None
+    use std::io::{Read, Write};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use super::SusiConfig;
+
+    const DEFAULT_PORT: u16 = 18082;
+    const TIMEOUT: Duration = Duration::from_millis(200);
+
+    fn addr() -> SocketAddr {
+        let port = std::env::var("SUSI_CONFIG_PORT")
+            .ok()
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_PORT);
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)
     }
-    pub fn save_global(_cfg: &super::SusiConfig) -> bool {
-        false
+
+    /// The service process, or explicit local env config (`SUSI_XDG`,
+    /// `XDG_*_HOME`), resolves locally — a swapped HOME in tests must not
+    /// read or write the host substrate's real `config.json`.
+    fn local_only() -> bool {
+        super::SERVICE_MODE.load(Ordering::Relaxed)
+            || [
+                "SUSI_XDG",
+                "XDG_CONFIG_HOME",
+                "XDG_DATA_HOME",
+                "XDG_CACHE_HOME",
+            ]
+            .iter()
+            .any(|v| std::env::var_os(v).is_some())
+    }
+
+    /// Round-trips one HTTP/1.0 request; `None` on any transport failure.
+    fn request(req: &str) -> Option<String> {
+        let mut stream = TcpStream::connect_timeout(&addr(), TIMEOUT).ok()?;
+        let _ = stream.set_read_timeout(Some(TIMEOUT));
+        let _ = stream.set_write_timeout(Some(TIMEOUT));
+        let req = susi_paths::with_bearer(req);
+        stream.write_all(req.as_bytes()).ok()?;
+        let mut buf = String::new();
+        stream.read_to_string(&mut buf).ok()?;
+        Some(buf)
+    }
+
+    /// Response body when the status line is a 2xx, else `None`.
+    fn body(response: &str) -> Option<&str> {
+        let status_ok = response.starts_with("HTTP/1.1 2") || response.starts_with("HTTP/1.0 2");
+        if !status_ok {
+            return None;
+        }
+        response.split("\r\n\r\n").nth(1)
+    }
+
+    /// `GET /config` — healed global config from the running substrate.
+    pub fn get_global() -> Option<SusiConfig> {
+        if local_only() {
+            return None;
+        }
+        let resp = request("GET /config HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")?;
+        serde_json::from_str(body(&resp)?).ok()
+    }
+
+    /// `POST /config` — route a global-dir save through the substrate when
+    /// it is up; `false` tells the caller to fall back to the local atomic
+    /// write (identical bytes, same file).
+    pub fn save_global(cfg: &SusiConfig) -> bool {
+        if local_only() {
+            return false;
+        }
+        let Ok(payload) = serde_json::to_string(cfg) else {
+            return false;
+        };
+        let req = format!(
+            "POST /config HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            payload.len(),
+            payload
+        );
+        request(&req)
+            .is_some_and(|resp| resp.starts_with("HTTP/1.1 2") || resp.starts_with("HTTP/1.0 2"))
     }
 }
 
@@ -90,6 +168,7 @@ pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
 /// substrate is up. Shared by the standalone `susi-config` binary and the
 /// root `susi` binary's `service-run` dispatch.
 pub fn serve(port: u16) -> std::io::Result<()> {
+    SERVICE_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
     use axum::{http::StatusCode, routing::get, routing::post, Json, Router};
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 

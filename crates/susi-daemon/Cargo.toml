@@ -5,6 +5,7 @@ license = "Apache-2.0"
 edition = "2024"
 
 [dependencies]
+susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 libc = "0.2"

@@ -2640,6 +2640,16 @@
       "milestone": "Dedup pass step 4: `susi-error` is now the single owner of the error contract. `crates/susi-core/src/susi_error.rs` (a client shim re-mounting the crate's `contract.rs`, `sink.rs` and `redact.rs` plus its own `record_event` and `rewrap`) was `#[path]`-mounted as `pub mod susi_error` into fourteen crates and compiled into susi-core itself, so there were fifteen distinct `EaiError` types in one process. The crate now provides the service-backed reporter (POST to the error service, local metrics-file fallback, direct append when the process is the service via a flag set by `serve`) and `rewrap`; every consumer depends on `susi-error` and re-exports it as `susi_error`, and the shim is deleted. With one error type, 38 identity conversions (`.map_err(|e| rewrap(e.kind_name(), e.to_string()))` and the daemon's `to_tools_err`) were removed; each had rebuilt the same error and logged a second metrics event for one failure. Merging also fixed a real bug: the vendored `rewrap` peeled the `Configuration Error: ` prefix but had no `Config` arm, so config errors crossing a crate boundary were re-kinded as `Internal`. Cross-crate `#[path]` mounts: 142 → 125 (ceiling lowered). Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (3395 passed, 0 failed; the 30 fewer runs are the two `susi-error` contract/sink tests that every mounting crate used to execute again, now run once in susi-error).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-config single owner",
+        "ref": "file://crates/susi-config/src/lib.rs"
+      },
+      "id": "EV-2022928-270",
+      "milestone": "Dedup pass step 5: `susi-config` is now the single owner of the configuration contract. `crates/susi-core/src/susi_config.rs` re-mounted all eight of the crate's source files (`cluster_key`, `cloud_env`, `file_lock`, `json_util`, `types`, `versioned_store`, `extensions`, `config`) plus its own `service` IPC client, and was mounted as `pub mod susi_config` into twelve crates and compiled into susi-core, so every crate carried a private `SusiConfig` type and private config statics; the crate itself had a no-op `service` stub. The crate's `service` module is now the real client (global config read/write prefers the config service, explicit `SUSI_XDG`/`XDG_*_HOME` or the service process itself resolve locally via a flag set by `serve`, and `cluster_key` stays local); every consumer depends on `susi-config` and re-exports it as `susi_config`, and the shim is deleted along with its edition-2024 `collapsible_if` waiver, since the sources now compile once. Cross-crate `#[path]` mounts: 125 → 105 (ceiling lowered). Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (3395 passed, 0 failed).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

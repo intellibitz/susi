@@ -7,6 +7,7 @@ publish = false
 build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
+susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 crossbeam = "0.8"

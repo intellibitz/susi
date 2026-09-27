@@ -1,5 +1,4 @@
-//! Tests for `extensions` — kept out of the canonical source so crates that
-//! `#[path]`-mount it never compile or run them.
+//! Tests for `extensions`.
 
 use crate::extensions::*;
 

@@ -32,14 +32,7 @@ pub use self as susi_core;
 
 pub use susi_error;
 
-// Vendored `susi-config` surface + IPC client: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-// rustfmt::skip: the file is vendored byte-identical while consumers span
-// edition 2021/2024 whose style editions sort imports and indent format!
-// args differently — formatting it per-crate would break the invariant.
-#[allow(dead_code)]
-#[rustfmt::skip]
-pub mod susi_config;
+pub use susi_config;
 
 // The ABI source is compiled locally, keeping this package Cargo-independent
 // from every other SUSI package.

@@ -1,5 +1,4 @@
-//! Tests for `json_util` — kept out of the canonical source so crates that
-//! `#[path]`-mount it never compile or run them.
+//! Tests for `json_util`.
 
 use crate::json_util::confined_workspace_join;
 

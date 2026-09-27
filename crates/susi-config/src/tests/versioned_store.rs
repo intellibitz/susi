@@ -1,5 +1,4 @@
-//! Tests for `versioned_store` — kept out of the canonical source so crates that
-//! `#[path]`-mount it never compile or run them.
+//! Tests for `versioned_store`.
 
 use crate::versioned_store::*;
 use std::path::PathBuf;
