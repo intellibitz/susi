@@ -49,6 +49,9 @@ pub enum OsCommands {
         /// Maximum acceptable request-cost hint in USD
         #[arg(long)]
         max_cost: Option<f64>,
+        /// Prohibit placement on cloud providers
+        #[arg(long)]
+        no_cloud: bool,
     },
     /// Unified lifecycle facade for local AI ecosystem components
     Manage {
@@ -224,18 +227,28 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
             json,
             requires,
             max_cost,
-        } => route(json || top_json, requires.as_deref(), max_cost),
+            no_cloud,
+        } => route(json || top_json, requires.as_deref(), max_cost, !no_cloud),
         OsCommands::Manage { resource } => manage(resource, _workspace),
     }
 }
 
-fn route(json: bool, requires: Option<&str>, max_cost: Option<f64>) -> Result<()> {
+fn route(
+    json: bool,
+    requires: Option<&str>,
+    max_cost: Option<f64>,
+    allow_cloud: bool,
+) -> Result<()> {
     susi_gemi::http_provider::register_configured_cloud_endpoints(
         susi_gemi::susi_core::registry::CapabilityRegistry::global(),
     );
     let providers = susi_gemi::susi_core::registry::CapabilityRegistry::global().list_providers();
-    let decision =
-        susi_gemi::routing::InferenceRouter::plan_placement_for(&providers, requires, max_cost);
+    let decision = susi_gemi::routing::InferenceRouter::plan_placement_for(
+        &providers,
+        requires,
+        max_cost,
+        allow_cloud,
+    );
     if json {
         println!("{}", serde_json::to_string_pretty(&decision)?);
         return Ok(());
@@ -252,6 +265,7 @@ fn route(json: bool, requires: Option<&str>, max_cost: Option<f64>) -> Result<()
         decision.local_model.as_deref().unwrap_or("auto-select")
     );
     println!("ready:     {}", decision.local_ready);
+    println!("cloud:     {}", decision.allow_cloud);
     if let Some(requires) = decision.requires.as_deref() {
         println!("requires:  {requires}");
     }

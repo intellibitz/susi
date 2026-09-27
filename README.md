@@ -120,6 +120,7 @@ susi status
 # Explain the live local-vs-cloud placement decision (same policy the runtime uses)
 susi os route
 susi os route --requires vision --max-cost 0.01
+susi os route --no-cloud
 
 # Cloud keys (peer of models) — env or ~/.susi/cloud.env
 susi keys set openai          # prompts, or pipe the key on stdin
@@ -143,8 +144,13 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 # Read-only placement contract for remote operators and cloud control planes:
 #   GET http://127.0.0.1:9091/runtime/placement
 #   GET http://127.0.0.1:9091/runtime/placement?requires=vision&max_cost=0.01
+#   GET http://127.0.0.1:9091/runtime/placement?allow_cloud=false
 # Completion requests may execute the same plan with
-#   "susi": {"requires": "vision", "max_cost": 0.01}
+#   "susi": {"requires": "vision", "max_cost": 0.01, "allow_cloud": false}
+# `allow_cloud:false` pins execution to a ready local model and fails with
+# HTTP 503 when none is ready. It also rejects an explicitly pinned cloud
+# model instead of weakening the request. Successful completion responses
+# report `X-Susi-Placement: local|cloud|explicit` (CORS-exposed).
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so
