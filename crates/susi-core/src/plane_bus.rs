@@ -111,8 +111,8 @@ pub mod topics {
     pub const TOOLS_REMOTE_EXECUTE: &str = "tools.mcp.remote_execute";
     pub const TOOLS_LIST: &str = "tools.registry.list";
     pub const TOOLS_LEADING_LIST: &str = "tools.leading.list";
-    pub const TOOLS_LEADING_GET: &str = "tools.leading.get";
-    pub const TOOLS_LEADING_REMOVE: &str = "tools.leading.remove";
+    pub const TOOLS_LEADING_ENABLE: &str = "tools.leading.enable";
+    pub const TOOLS_LEADING_DISABLE: &str = "tools.leading.disable";
 
     pub const AGENTS_EXTERNAL_MANAGED: &str = "agents.external.managed";
     pub const AGENTS_EXTERNAL_CATALOG: &str = "agents.external.catalog";
@@ -979,9 +979,11 @@ pub mod tools {
         )
     }
 
-    pub fn leading_mcp_get(workspace: &Path, name: &str) -> Value {
-        req_ok(
-            topics::TOOLS_LEADING_GET,
+    /// Enable a leading MCP server into the host MCP config; returns the
+    /// written server config. Errors are errors, not `{"error": …}` values.
+    pub fn leading_mcp_enable(workspace: &Path, name: &str) -> Result<Value, String> {
+        req(
+            topics::TOOLS_LEADING_ENABLE,
             json!({
                 "workspace": workspace.display().to_string(),
                 "name": name
@@ -989,9 +991,10 @@ pub mod tools {
         )
     }
 
-    pub fn leading_mcp_remove(workspace: &Path, name: &str) -> Value {
-        req_ok(
-            topics::TOOLS_LEADING_REMOVE,
+    /// Disable a leading MCP server; `{"removed": bool}` on success.
+    pub fn leading_mcp_disable(workspace: &Path, name: &str) -> Result<Value, String> {
+        req(
+            topics::TOOLS_LEADING_DISABLE,
             json!({
                 "workspace": workspace.display().to_string(),
                 "name": name

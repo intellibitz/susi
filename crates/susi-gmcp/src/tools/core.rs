@@ -1956,7 +1956,7 @@ impl CoreTools {
             .get("server")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("server is required"))?;
-        let cfg = plane_tools::leading_mcp_get(workspace, server);
+        let cfg = plane_tools::leading_mcp_enable(workspace, server).map_err(EaiError::process)?;
         serde_json::to_string(&cfg).map_err(|e| EaiError::protocol(e.to_string()))
     }
 
@@ -1969,11 +1969,12 @@ impl CoreTools {
             .get("server")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("server is required"))?;
-        let removed = plane_tools::leading_mcp_remove(workspace, server)
+        let removed = plane_tools::leading_mcp_disable(workspace, server)
+            .map_err(EaiError::process)?
             .get("removed")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        Ok(format!("{{\"server\":\"{server}\",\"removed\":{removed}}}"))
+        Ok(serde_json::json!({ "server": server, "removed": removed }).to_string())
     }
 
     #[tool(

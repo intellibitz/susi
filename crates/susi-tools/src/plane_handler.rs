@@ -52,7 +52,7 @@ impl PlaneHandler for ToolsPlaneHandler {
                     .map_err(|e| e.to_string())?;
                 serde_json::to_value(rows).map_err(|e| e.to_string())
             }
-            topics::TOOLS_LEADING_GET => {
+            topics::TOOLS_LEADING_ENABLE => {
                 let ws = workspace_path(&payload);
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let cfg = crate::LeadingMcpManager::new(&ws)
@@ -60,7 +60,7 @@ impl PlaneHandler for ToolsPlaneHandler {
                     .map_err(|e| e.to_string())?;
                 serde_json::to_value(cfg).map_err(|e| e.to_string())
             }
-            topics::TOOLS_LEADING_REMOVE => {
+            topics::TOOLS_LEADING_DISABLE => {
                 let ws = workspace_path(&payload);
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let removed = crate::LeadingMcpManager::new(&ws)
