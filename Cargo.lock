@@ -7264,7 +7264,6 @@ name = "susi-error"
 version = "0.1.0"
 dependencies = [
  "axum",
- "directories 6.0.0",
  "proptest",
  "serde",
  "serde_json",

@@ -17,35 +17,16 @@ mod redact_test_suite;
 
 use std::path::PathBuf;
 
-/// Substrate data dir, resolved locally so this crate stays a self-contained
-/// leaf service. Mirrors `susi-paths`' XDG/legacy rule: `~/.susi` wins when it
-/// already exists unless `SUSI_XDG=1|true`; otherwise the platform data dir.
-fn data_dir() -> PathBuf {
-    let legacy = home_dir().join(".susi");
-    let use_xdg = if legacy.is_dir() {
-        std::env::var("SUSI_XDG")
-            .map(|v| v == "1" || v == "true")
-            .unwrap_or(false)
-    } else {
-        true
-    };
-    if use_xdg {
-        if let Some(p) = directories::ProjectDirs::from("", "intellibitz", "susi") {
-            return p.data_local_dir().to_path_buf();
-        }
-    }
-    legacy
-}
+// Vendored path client, as every other crate mounts it: the service and
+// the vendored local fallbacks then resolve the same metrics file,
+// including `SUSI_HOME` instance roots the old local resolver ignored.
+#[allow(dead_code)]
+#[path = "../../susi-core/src/susi_paths.rs"]
+mod susi_paths;
 
-fn home_dir() -> PathBuf {
-    directories::BaseDirs::new()
-        .map(|d| d.home_dir().to_path_buf())
-        .unwrap_or_else(|| {
-            std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("."))
-        })
+/// Substrate data dir, through the same `SusiDirs` contract as every crate.
+fn data_dir() -> PathBuf {
+    susi_paths::SusiDirs::data_dir()
 }
 
 /// JSONL sink every error event (local and REST-reported) is appended to.
@@ -54,11 +35,8 @@ pub fn error_metrics_path() -> PathBuf {
     data_dir().join("error_metrics.jsonl")
 }
 
-/// The metrics sink is append-only — without a cap the file grows
-/// without bound (178MB observed). Past the cap it rotates one
-/// generation (`error_metrics.jsonl.1`); a racing writer may lose a
-/// line across the rename, which a metrics sink tolerates.
-const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+mod sink;
+use sink::METRICS_CAP_BYTES;
 
 /// Rotated metrics generation that predates the cap: a `.1` file larger
 /// than `METRICS_CAP_BYTES` is residue the current rotation can never
@@ -126,22 +104,6 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
         .any(|line| line.map_or(true, |l| l.contains("\"entry_hash\"")))
 }
 
-fn open_metrics_append() -> Option<std::fs::File> {
-    let path = error_metrics_path();
-    if std::fs::metadata(&path)
-        .map(|m| m.len() > METRICS_CAP_BYTES)
-        .unwrap_or(false)
-    {
-        let rotated = path.with_file_name("error_metrics.jsonl.1");
-        let _ = std::fs::rename(&path, rotated);
-    }
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .ok()
-}
-
 #[path = "contract.rs"]
 mod contract;
 pub use contract::{EaiError, EaiResult};
@@ -149,10 +111,8 @@ pub use contract::{EaiError, EaiResult};
 /// Error-event sink for the shared contract: this process *is* the
 /// `susi-error` service, so events go straight to the metrics file.
 fn record_event(entry: &serde_json::Value) {
-    if let Some(mut f) = open_metrics_append() {
-        use std::io::Write;
-        let _ = writeln!(f, "{}", entry);
-    }
+    // Best effort: nowhere left to report a failed error report.
+    let _ = sink::append_metrics_line(&error_metrics_path(), entry);
 }
 
 /// Embedded REST service mode: accepts error events over HTTP and appends
@@ -217,7 +177,9 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             .kind
             .or(event.variant)
             .unwrap_or_else(|| "External".to_string());
-        let message = event.error.or(event.message).unwrap_or_default();
+        // Posted events are masked here too: any local client can post.
+        let message =
+            crate::contract::redact_for_metrics(&event.error.or(event.message).unwrap_or_default());
         let code = event
             .code
             .unwrap_or_else(|| format!("susi.{}", kind.to_lowercase()));
@@ -230,11 +192,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             "retryable": event.retryable.unwrap_or(false),
         });
 
-        let Some(mut f) = open_metrics_append() else {
-            return StatusCode::INTERNAL_SERVER_ERROR;
-        };
-        use std::io::Write;
-        match writeln!(f, "{entry}") {
+        match crate::sink::append_metrics_line(&error_metrics_path(), &entry) {
             Ok(()) => StatusCode::NO_CONTENT,
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }

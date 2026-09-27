@@ -53,7 +53,7 @@ fn bundled_secret_tokens() -> &'static [String] {
 /// `susi-error` service); it routinely carries command stderr, URLs, and
 /// provider responses, so credentials are masked before it leaves the
 /// process (Mandate 10).
-fn redact_for_metrics(text: &str) -> String {
+pub(crate) fn redact_for_metrics(text: &str) -> String {
     super::redact::redact_patterns(
         bundled_secret_tokens(),
         &super::redact::mask_env_credentials(text),

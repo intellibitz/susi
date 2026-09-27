@@ -24,6 +24,12 @@
 #[path = "../../susi-core/src/susi_error.rs"]
 pub mod susi_error;
 
+// Vendored path client: the error contract resolves its local metrics
+// fallback through it (same data dir as the service, `SUSI_HOME`-aware).
+#[allow(dead_code)]
+#[path = "../../susi-core/src/susi_paths.rs"]
+mod susi_paths;
+
 pub mod wasm;
 
 /// Embedded REST service mode: Wasmer/WASI reflex execution over HTTP.

@@ -46,61 +46,19 @@ fn post_event(entry: &serde_json::Value) -> bool {
     stream.write_all(req.as_bytes()).is_ok()
 }
 
-/// The metrics sink is append-only and error paths are hot — without a
-/// cap the file grows without bound (178MB observed). Past the cap the
-/// file rotates one generation (`error_metrics.jsonl.1`); a racing
-/// writer may lose a line across the rename, which a metrics sink
-/// tolerates — bounded beats unbounded.
-const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
+#[path = "../../susi-error/src/sink.rs"]
+mod sink;
 
-fn open_metrics_append() -> Option<std::fs::File> {
-    let path = metrics_path();
-    if std::fs::metadata(&path)
-        .map(|m| m.len() > METRICS_CAP_BYTES)
-        .unwrap_or(false)
-    {
-        let rotated = path.with_file_name("error_metrics.jsonl.1");
-        let _ = std::fs::rename(&path, rotated);
-    }
-    std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .ok()
-}
-
-/// Local sink used when the `susi-error` service is unreachable.
+/// Local sink used when the `susi-error` service is unreachable. The path
+/// comes from this crate's `SusiDirs`, so it honors `SUSI_HOME` instances
+/// and the platform data dir exactly like the service; the old inline
+/// resolver ignored both and could write a different file.
 fn append_local(entry: &serde_json::Value) {
-    if let Some(mut f) = open_metrics_append() {
-        let _ = f.write_all(format!("{entry}\n").as_bytes());
-    }
-}
-
-/// Inline `~/.susi`/XDG data-dir fallback (same rule as `susi-paths`'
-/// `SusiDirs`) so this vendored file stays self-contained.
-fn metrics_path() -> std::path::PathBuf {
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
-    let legacy = home.join(".susi");
-    let use_xdg = if legacy.is_dir() {
-        std::env::var("SUSI_XDG")
-            .map(|v| v == "1" || v == "true")
-            .unwrap_or(false)
-    } else {
-        true
-    };
-    let data_dir = if use_xdg {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(std::path::PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .unwrap_or_else(|| home.join(".local/share"))
-            .join("susi")
-    } else {
-        legacy
-    };
-    data_dir.join("error_metrics.jsonl")
+    // Best effort: nowhere left to report a failed error report.
+    let _ = sink::append_metrics_line(
+        &crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl"),
+        entry,
+    );
 }
 
 #[path = "../../susi-error/src/redact.rs"]
