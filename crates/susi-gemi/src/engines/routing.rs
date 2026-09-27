@@ -51,6 +51,7 @@ pub struct PlacementDecision {
     pub local_ready: bool,
     pub local_stats: LocalInferenceStats,
     pub cloud_candidates: Vec<String>,
+    pub cooled_candidates: Vec<String>,
     pub requires: Option<String>,
     pub max_cost: Option<f64>,
     pub allow_cloud: bool,
@@ -642,6 +643,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: Vec::new(),
+                cooled_candidates: Vec::new(),
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -684,6 +686,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: Vec::new(),
+                cooled_candidates: Vec::new(),
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -698,6 +701,11 @@ impl InferenceRouter {
         if clouds.is_empty() {
             clouds = Self::list_cloud_providers(available_providers);
         }
+        let cooled_candidates: Vec<String> = clouds
+            .iter()
+            .filter(|name| Self::provider_cooled(name))
+            .cloned()
+            .collect();
         Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
@@ -716,6 +724,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                cooled_candidates,
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -739,6 +748,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                cooled_candidates,
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -756,6 +766,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                cooled_candidates,
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -773,6 +784,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                cooled_candidates,
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -792,6 +804,7 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                cooled_candidates,
                 requires: requires.map(str::to_string),
                 max_cost,
                 allow_cloud,
@@ -817,6 +830,7 @@ impl InferenceRouter {
             local_ready,
             local_stats: stats,
             cloud_candidates: clouds,
+            cooled_candidates,
             requires: requires.map(str::to_string),
             max_cost,
             allow_cloud,

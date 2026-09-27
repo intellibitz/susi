@@ -274,6 +274,7 @@ fn route(
     }
     println!("reason:    {}", decision.reason);
     println!("clouds:    {}", decision.cloud_candidates.len());
+    println!("cooled:    {}", decision.cooled_candidates.len());
     Ok(())
 }
 
