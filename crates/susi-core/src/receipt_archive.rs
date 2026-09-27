@@ -70,7 +70,7 @@ impl ReceiptArchive {
         let _guard = archive_lock().lock();
         Self::rotate_if_large(&path);
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = writeln!(file, "{line}");
+            let _ = file.write_all(format!("{line}\n").as_bytes());
         }
     }
 

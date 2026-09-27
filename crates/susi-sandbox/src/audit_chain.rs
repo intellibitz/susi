@@ -153,7 +153,7 @@ pub(crate) fn append_with_key(
         .create(true)
         .append(true)
         .open(audit_file)?;
-    writeln!(f, "{}", log_entry)?;
+    f.write_all(format!("{}\n", log_entry).as_bytes())?;
     fs::write(tip_path(audit_file), &entry_hash)?;
     Ok(entry_hash)
 }

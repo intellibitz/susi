@@ -321,7 +321,7 @@ impl SusiMemory {
             .append(true)
             .open(&memory_file)
         {
-            let _ = writeln!(f, "{}", entry);
+            let _ = f.write_all(format!("{}\n", entry).as_bytes());
         }
 
         let heuristics = SusiConfig::load_global()
@@ -370,7 +370,7 @@ impl SusiMemory {
                 .append(true)
                 .open(&exp_file)
             {
-                let _ = writeln!(f, "{}", exp_entry);
+                let _ = f.write_all(format!("{}\n", exp_entry).as_bytes());
             }
         }
     }

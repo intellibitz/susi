@@ -257,7 +257,8 @@ impl ContextGraph {
                 .open(&path)
                 .map_err(|e| EaiError::filesystem(e.to_string()))?;
             use std::io::Write;
-            writeln!(file, "{line}").map_err(|e| EaiError::filesystem(e.to_string()))?;
+            file.write_all(format!("{line}\n").as_bytes())
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
             file.metadata()
                 .map(|m| m.len() > 16 * 1024 * 1024)
                 .unwrap_or(false)
@@ -956,7 +957,8 @@ impl ContextGraph {
         use std::io::Write;
         for event in lines {
             let line = serde_json::to_string(&event)?;
-            writeln!(file, "{line}").map_err(|e| EaiError::filesystem(e.to_string()))?;
+            file.write_all(format!("{line}\n").as_bytes())
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
         }
         // The rewritten file is exactly the in-memory state — advance
         // the replay cursor to EOF so the next replay doesn't re-fold

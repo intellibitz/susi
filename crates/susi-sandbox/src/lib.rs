@@ -232,6 +232,57 @@ mod audit_chain_tests {
         assert_eq!(verify_with_key(&log, &key), Ok(WORKERS * APPENDS));
     }
 
+    #[test]
+    fn concurrent_processes_never_tear_jsonl_lines() {
+        const WORKERS: usize = 4;
+        const APPENDS: usize = 200;
+        if let Ok(ws) = std::env::var("SUSI_JSONL_WORKER_WS") {
+            let ws = PathBuf::from(ws);
+            let go = ws.join("go");
+            while !go.exists() {
+                std::thread::yield_now();
+            }
+            // Large, structured outcomes: many Display write calls per line
+            // if the line is not emitted as one write.
+            let outcome = serde_json::json!({ "k": "v".repeat(512), "n": [1, 2, 3] }).to_string();
+            for i in 0..APPENDS {
+                crate::manager::SusiMemory::save_interaction(
+                    &ws,
+                    &format!("intent {} {i}", std::process::id()),
+                    &outcome,
+                    "test",
+                );
+            }
+            return;
+        }
+        let ws = temp_audit().parent().unwrap().to_path_buf();
+        let exe = std::env::current_exe().unwrap();
+        let children: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                std::process::Command::new(&exe)
+                    .args(["concurrent_processes_never_tear_jsonl_lines", "--nocapture"])
+                    .env("SUSI_JSONL_WORKER_WS", &ws)
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        fs::write(ws.join("go"), "").unwrap();
+        for mut c in children {
+            assert!(c.wait().unwrap().success(), "worker failed");
+        }
+        let text = fs::read_to_string(ws.join(".susi/memory.jsonl")).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), WORKERS * APPENDS);
+        for (n, line) in lines.iter().enumerate() {
+            assert!(
+                serde_json::from_str::<serde_json::Value>(line).is_ok(),
+                "line {} torn: {}",
+                n + 1,
+                &line[..line.len().min(80)]
+            );
+        }
+    }
+
     fn temp_audit() -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);

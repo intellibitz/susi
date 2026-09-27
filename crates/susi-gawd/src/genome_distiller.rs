@@ -85,7 +85,7 @@ impl GenomeDistiller {
         let mut count = 0;
         for sample in samples {
             if let Ok(json) = serde_json::to_string(&sample) {
-                writeln!(f, "{json}")?;
+                f.write_all(format!("{json}\n").as_bytes())?;
                 count += 1;
             }
         }

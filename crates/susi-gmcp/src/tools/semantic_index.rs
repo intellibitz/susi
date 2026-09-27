@@ -337,7 +337,7 @@ impl SemanticIndex {
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
         for ((id, _), vec) in pending.iter().zip(vectors.iter()) {
             let line = serde_json::json!({"doc_id": id, "vector": vec});
-            let _ = writeln!(f, "{}", line);
+            let _ = f.write_all(format!("{}\n", line).as_bytes());
             wm.embedded.push(id.clone());
         }
         Self::save_watermark(workspace, &wm);

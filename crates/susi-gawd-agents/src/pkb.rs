@@ -32,7 +32,7 @@ impl ProtocolKnowledgeBase {
             .open(distillation_file)
         {
             use std::io::Write;
-            let _ = writeln!(f, "{}", entry);
+            let _ = f.write_all(format!("{}\n", entry).as_bytes());
         }
         Ok(())
     }

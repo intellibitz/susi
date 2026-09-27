@@ -173,7 +173,7 @@ fn slog(msg: &str) {
     rotate_log_if_large(&path, 4 * 1024 * 1024);
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         use std::io::Write;
-        let _ = writeln!(f, "[{}] {msg}", utc_now());
+        let _ = f.write_all(format!("[{}] {msg}\n", utc_now()).as_bytes());
     }
 }
 

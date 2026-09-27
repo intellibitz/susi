@@ -72,7 +72,7 @@ fn open_metrics_append() -> Option<std::fs::File> {
 /// Local sink used when the `susi-error` service is unreachable.
 fn append_local(entry: &serde_json::Value) {
     if let Some(mut f) = open_metrics_append() {
-        let _ = writeln!(f, "{entry}");
+        let _ = f.write_all(format!("{entry}\n").as_bytes());
     }
 }
 
