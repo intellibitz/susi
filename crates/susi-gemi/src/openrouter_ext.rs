@@ -80,14 +80,17 @@ async fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
     let res = req.send().await.context("OpenRouter /models request")?;
     if !res.status().is_success() {
         let status = res.status();
-        let body = res.text().await.unwrap_or_default();
+        let body = crate::http_provider::text_capped(res).await;
         bail!(
             "OpenRouter /models HTTP {}: {}",
             status,
             body.chars().take(200).collect::<String>()
         );
     }
-    let json: serde_json::Value = res.json().await.context("OpenRouter /models json")?;
+    let json = crate::http_provider::json_capped(res)
+        .await
+        .map_err(anyhow::Error::msg)
+        .context("OpenRouter /models json")?;
     let mut ids = Vec::new();
     if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
         for item in arr {

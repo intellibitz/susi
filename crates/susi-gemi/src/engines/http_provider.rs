@@ -276,7 +276,7 @@ async fn post_openai(
     };
     let mut res = send(body).await.map_err(|e| e.to_string())?;
     if res.status() == reqwest::StatusCode::BAD_REQUEST {
-        let text = res.text().await.unwrap_or_default();
+        let text = text_capped(res).await;
         let Some(retry) = wire::token_param_retry(body, &text) else {
             return Err(format!(
                 "HTTP 400 Bad Request: {}",
@@ -288,13 +288,46 @@ async fn post_openai(
     if !res.status().is_success() {
         return Err(http_failure(res).await);
     }
-    res.json().await.map_err(|e| e.to_string())
+    json_capped(res).await
 }
 
 /// HTTP failure with the provider's (truncated) error body.
+/// Largest provider response body read into memory. Replies and model
+/// lists are far smaller; a broken or hostile endpoint streaming without
+/// end must not exhaust the daemon's memory.
+const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Reads a response body, failing past `MAX_RESPONSE_BYTES`.
+pub(crate) async fn body_capped(mut res: reqwest::Response) -> Result<Vec<u8>, String> {
+    let mut body = Vec::new();
+    while let Some(chunk) = res.chunk().await.map_err(|e| e.to_string())? {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(format!(
+                "response body exceeds {} MiB",
+                MAX_RESPONSE_BYTES / (1024 * 1024)
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// `Response::json` with the body cap.
+pub(crate) async fn json_capped(res: reqwest::Response) -> Result<serde_json::Value, String> {
+    serde_json::from_slice(&body_capped(res).await?).map_err(|e| e.to_string())
+}
+
+/// `Response::text` with the body cap (lossy UTF-8; empty on failure).
+pub(crate) async fn text_capped(res: reqwest::Response) -> String {
+    body_capped(res)
+        .await
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .unwrap_or_default()
+}
+
 async fn http_failure(res: reqwest::Response) -> String {
     let status = res.status();
-    let body = res.text().await.unwrap_or_default();
+    let body = text_capped(res).await;
     format!(
         "HTTP {}: {}",
         status,
@@ -354,7 +387,7 @@ async fn generate_anthropic(
     if !res.status().is_success() {
         return Err(http_failure(res).await);
     }
-    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let json = json_capped(res).await?;
     wire::anthropic_text(&json)
 }
 
@@ -391,7 +424,7 @@ async fn generate_gemini(
     if !res.status().is_success() {
         return Err(http_failure(res).await);
     }
-    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let json = json_capped(res).await?;
     wire::gemini_text(&json)
 }
 
@@ -410,7 +443,7 @@ async fn generate_triton(
     if !res.status().is_success() {
         return Err(http_failure(res).await);
     }
-    let json: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let json = json_capped(res).await?;
     wire::triton_text(&json)
 }
 
@@ -721,7 +754,7 @@ pub async fn register_openai_compat_models(
     if !res.status().is_success() {
         return 0;
     }
-    let Ok(json) = res.json::<serde_json::Value>().await else {
+    let Ok(json) = json_capped(res).await else {
         return 0;
     };
     let Some(models) = json.get("data").and_then(|d| d.as_array()) else {

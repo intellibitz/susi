@@ -54,6 +54,8 @@ pub mod service_table;
 pub mod task_manager;
 #[path = "bounded_cmd.rs"]
 pub mod bounded_cmd;
+#[path = "bounded_io.rs"]
+pub mod bounded_io;
 #[path = "telemetry.rs"]
 pub mod telemetry;
 #[path = "truth.rs"]

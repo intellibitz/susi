@@ -100,7 +100,13 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
         .get(&geo_url)
         .send()
         .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(|r| {
+            crate::susi_core::bounded_io::json_capped(
+                r,
+                crate::susi_core::bounded_io::JSON_BODY_CAP,
+            )
+        })
         .map_err(|e| EaiError::process(format!("Open-Meteo geocoding failed: {e}")))?;
 
     let result = geo
@@ -137,7 +143,13 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
         .get(&wx_url)
         .send()
         .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(|r| {
+            crate::susi_core::bounded_io::json_capped(
+                r,
+                crate::susi_core::bounded_io::JSON_BODY_CAP,
+            )
+        })
         .map_err(|e| EaiError::process(format!("Open-Meteo forecast failed: {e}")))?;
 
     let current = wx
@@ -197,7 +209,13 @@ pub fn fetch_duckduckgo_instant(query: &str) -> EaiResult<String> {
         .get(&url)
         .send()
         .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json())
+        .map_err(|e| e.to_string())
+        .and_then(|r| {
+            crate::susi_core::bounded_io::json_capped(
+                r,
+                crate::susi_core::bounded_io::JSON_BODY_CAP,
+            )
+        })
         .map_err(|e| EaiError::process(format!("DuckDuckGo lookup failed: {e}")))?;
 
     let heading = body

@@ -222,7 +222,13 @@ fn fetch_dynamic_ladder(
         .get(url)
         .send()
         .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json::<Vec<HfModel>>())
+        .map_err(|e| e.to_string())
+        .and_then(|r| {
+            crate::susi_core::bounded_io::json_capped::<Vec<HfModel>>(
+                r,
+                crate::susi_core::bounded_io::JSON_BODY_CAP,
+            )
+        })
     else {
         return Vec::new();
     };
@@ -245,14 +251,16 @@ fn fetch_dynamic_ladder(
             .filter_map(|model| {
                 let repo = model.id;
                 let base_repo = declared_base_model(model.card_data, &model.tags);
-                let files = client
-                    .get(format!("{base}/api/models/{repo}/tree/main?limit=1000"))
-                    .send()
-                    .ok()?
-                    .error_for_status()
-                    .ok()?
-                    .json::<Vec<HfTreeEntry>>()
-                    .ok()?;
+                let files = crate::susi_core::bounded_io::json_capped::<Vec<HfTreeEntry>>(
+                    client
+                        .get(format!("{base}/api/models/{repo}/tree/main?limit=1000"))
+                        .send()
+                        .ok()?
+                        .error_for_status()
+                        .ok()?,
+                    crate::susi_core::bounded_io::JSON_BODY_CAP,
+                )
+                .ok()?;
                 let tokenizer_repo = if files
                     .iter()
                     .any(|f| f.path == cfg.tokenizer_filename() && f.size > 0)
@@ -274,14 +282,16 @@ fn fetch_dynamic_ladder(
                 }
                 // Discovery must stay within the backends actually implemented here.
                 let config_repo = base_repo.as_deref().unwrap_or(&tokenizer_repo);
-                let config = client
-                    .get(format!("{base}/{config_repo}/resolve/main/config.json"))
-                    .send()
-                    .ok()?
-                    .error_for_status()
-                    .ok()?
-                    .json::<serde_json::Value>()
-                    .ok()?;
+                let config = crate::susi_core::bounded_io::json_capped::<serde_json::Value>(
+                    client
+                        .get(format!("{base}/{config_repo}/resolve/main/config.json"))
+                        .send()
+                        .ok()?
+                        .error_for_status()
+                        .ok()?,
+                    crate::susi_core::bounded_io::JSON_BODY_CAP,
+                )
+                .ok()?;
                 if !matches!(
                     config.get("model_type").and_then(|v| v.as_str()),
                     Some("qwen2" | "llama")

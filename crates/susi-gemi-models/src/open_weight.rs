@@ -325,7 +325,11 @@ impl OpenWeightManager {
         if !res.status().is_success() {
             return Ok(false);
         }
-        let json: serde_json::Value = res.json().unwrap_or_default();
+        let json: serde_json::Value = crate::susi_core::bounded_io::json_capped(
+            res,
+            crate::susi_core::bounded_io::JSON_BODY_CAP,
+        )
+        .unwrap_or_default();
         let needle = tag.split(':').next().unwrap_or(tag).to_ascii_lowercase();
         let Some(models) = json.get("models").and_then(|m| m.as_array()) else {
             return Ok(false);
