@@ -99,10 +99,14 @@ impl TruthTransformer {
         SusiTruthAgent::verify_mission_reality(goal, tool_name, result, workspace)
     }
 
-    /// Absolute-truth gate for mission finals.
-    /// Only a live ledger citation answer can pass here. Compiled binary reads
-    /// and native system receipts bypass this entrypoint in the AMA. Model
-    /// review is never proof of fact and is not consulted.
+    /// Truth gate for mission finals. Citation answers resolve through the
+    /// live ledger; a mission that captured citable receipts but answers
+    /// with narrative fails (`EvidenceSession::verify_answer`). An answer
+    /// with no citations and nothing to cite is returned with a visible
+    /// "No citations found" warning rather than an error (a deliberate
+    /// usability choice, commit e8ed3223) — it is not verified. Compiled
+    /// binary reads and native system receipts bypass this entrypoint in
+    /// the AMA. Model review is never proof of fact and is not consulted.
     pub fn verify_mission_with_cross_examine(
         goal: &str,
         tool_name: &str,
@@ -167,10 +171,12 @@ impl TruthTransformer {
         )
     }
 
-    /// Primary entrypoint for the Verification Pipeline:
-    /// Takes a structured EvidenceRecord from a capability/agent and verifies
-    /// its integrity checksum and source checks against the physical workspace.
-    /// Observation integrity alone does not establish factual truth.
+    /// Takes a structured EvidenceRecord from a capability/agent and checks
+    /// its integrity checksum and source against the physical workspace.
+    /// `Rejected` records are errors; `Unverified` records (e.g. no
+    /// citations) are accepted without error by design (commit 6f5bc4d4),
+    /// so `Ok` means "not contradicted", not "verified". Observation
+    /// integrity alone does not establish factual truth.
     pub fn verify_evidence(record: &EvidenceRecord, workspace: &Path) -> EaiResult<()> {
         match record.assess(workspace) {
             EvidenceAssessment::Verified => Ok(()),

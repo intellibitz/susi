@@ -2190,6 +2190,16 @@
       "milestone": "RSI iteration 58/100: an earlier mission keeps its evidence ledger when a later mission on the same workspace finishes first. EvidenceSession::activate published one active session per canonical workspace, and rayon workers (which never inherit the thread-local current session) record receipts through that slot or through the workspace rendezvous file for vendored copies. A second activation replaced the first, and when the second mission ended its guard removed both the slot and session.json, so the still-running first mission's worker and vendored-copy receipts were silently dropped and its final answer could no longer cite its own tool calls. Activations are now a per-workspace stack: the newest owns the workspace, a finishing activation removes only itself, and if it was the owner the rendezvous file is republished for the mission still running (or removed when none remains). Known limitation, stated: while two missions overlap on one workspace, worker receipts still go to the newer one (attribution by workspace, not by mission); per-mission attribution would need the session carried into worker threads. A regression test activates A then B, ends B, records from a worker thread, and proves the receipt lands in A and not B (the previous code dropped it). cargo test -p susi-core capture (16 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TruthTransformer::verify_mission_with_cross_examine (docs)",
+        "ref": "symbol://TruthTransformer::verify_mission_with_cross_examine"
+      },
+      "id": "EV-2022927-225",
+      "milestone": "RSI iteration 59/100: the Truth pillar's documentation now matches its deliberately lenient behavior (Mandate 1). Two maintainer commits on 2026-09-26 made missing citations non-fatal: e8ed3223 (verify_mission_with_cross_examine returns the answer with a 'No citations found; answer may be unverified' warning when there is nothing to cite) and 6f5bc4d4 (verify_evidence accepts Unverified records). The code comment still said 'Only a live ledger citation answer can pass here', verify_evidence was still described as the primary verification entrypoint with Ok implying verified, README's pillar read 'absolute sources only', and the identity pillar implied the same. Traced the full path to confirm what actually holds: EvidenceSession::verify_answer still hard-fails uncited narrative whenever the mission captured citable receipts (the error the AMA's auto-citation fallback catches), so the warning path applies only when a mission has nothing to cite; accountability::is_usable does not treat the warning as failure, so such answers complete. The behavior is kept as the maintainer chose; the two doc comments, README pillar 1, and identity pillar 1 now state it precisely. No code behavior changed; cargo fmt --check passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -48,7 +48,7 @@
   "foundation_pillars": [
     {
       "id": 1,
-      "summary": "`TruthTransformer` / `SusiTruthAgent`; models never certify facts.",
+      "summary": "`TruthTransformer` / `SusiTruthAgent`; models never certify facts. Citation answers resolve through the live ledger; uncited narrative fails when citable receipts exist; an answer with nothing to cite passes only with a visible 'No citations found' warning (unverified by design, commits e8ed3223/6f5bc4d4).",
       "title": "Truth"
     },
     {

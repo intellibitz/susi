@@ -63,7 +63,10 @@ susi start` brings up a complete sibling node.
 
 Every pillar below is a **Tier S** crown USP — must hold in source and pass `susi crown verify`:
 
-1. **Truth** — absolute sources only; models never certify.
+1. **Truth** — models never certify. Cited answers resolve through the live
+   receipt ledger, and narrative fails when the mission captured receipts it
+   should cite; an answer with nothing to cite is returned with a visible
+   "No citations found" warning, not as verified truth.
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
    Overlapping missions on one workspace no longer strand the earlier one's
    ledger: activations stack, and a finishing mission hands ownership back.
