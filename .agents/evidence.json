@@ -1850,6 +1850,16 @@
       "milestone": "RSI iteration 24/100: the daemon's swarm task table is bounded. SwarmTaskManager never removed a record, so every neural inference, reflex call, model download, exec_command, and fleet agent dispatch added one TaskRecord plus a cancel flag and a pause flag for the life of the process, and every list_tasks payload grew with them. register_task now prunes the oldest finished (Completed/Failed/Stalled/Killed) records once the table reaches 512, removing their cancel and pause entries too; Running and Paused tasks are never evicted. A unit test registers 1024 finished tasks beside one live task and proves the table stays within the bound, the three maps stay in step, and the live task survives. cargo test -p susi-core task_manager (6 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TaskHandle::observe_gap",
+        "ref": "symbol://TaskHandle::observe_gap"
+      },
+      "id": "EV-2022927-191",
+      "milestone": "RSI iteration 25/100: the Mandate 32 idle lease is actually calibrated from observation. get_idle_threshold_ms documents a lease of 5x the worst observed idle gap per category, but TaskHandle::mark_completed always passed a hard-coded 100 ms as max_observed_idle_ms, so every calibrated category's p99_idle_interval_ms was the 200 ms floor and the lease collapsed to the operator floor whatever the real workload did. A slow category (e.g. model_download between chunk callbacks, or neural_inference prefill before its first token) was never learned. TaskHandle now records milliseconds since start of each progress report and folds every gap (start to first report, report to report, last report to completion) into max_idle_ms, which mark_completed passes to the telemetry store. Known limitation, stated rather than hidden: time a task spends paused is counted as idle, which can only loosen, never tighten, the learned lease. A unit test sleeps 60 ms between reports and proves the measured gap is at least 60 ms. cargo test -p susi-core task_manager (7 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

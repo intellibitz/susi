@@ -263,15 +263,34 @@ pub struct TaskHandle {
     pub result: Arc<parking_lot::RwLock<Option<String>>>,
     pub name: String,
     start_time: Instant,
+    /// Milliseconds since `start_time` of the latest progress report.
+    last_progress_ms: AtomicU64,
+    /// Longest observed gap between progress reports (including start to
+    /// first report and last report to completion) — the real input to the
+    /// category's calibrated idle lease.
+    max_idle_ms: AtomicU64,
 }
 
 impl TaskHandle {
+    fn elapsed_ms(&self) -> u64 {
+        self.start_time.elapsed().as_millis().min(u64::MAX as u128) as u64
+    }
+
+    /// Fold the gap since the previous progress report into `max_idle_ms`.
+    fn observe_gap(&self) {
+        let now_ms = self.elapsed_ms();
+        let previous = self.last_progress_ms.swap(now_ms, Ordering::AcqRel);
+        self.max_idle_ms
+            .fetch_max(now_ms.saturating_sub(previous), Ordering::AcqRel);
+    }
+
     pub fn report_progress(&self) {
         let _guard = self.result.write();
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
+        self.observe_gap();
         self.last_progress_secs.store(now, Ordering::Release);
         self.progress_count.fetch_add(1, Ordering::Release);
     }
@@ -293,8 +312,12 @@ impl TaskHandle {
         if !self.finish(TaskStatus::Completed, res_text) {
             return;
         }
-        let elapsed = self.start_time.elapsed().as_millis().min(u64::MAX as u128) as u64;
-        TelemetryHistoryStore::global().record_execution_telemetry(&self.name, elapsed, 100);
+        self.observe_gap();
+        TelemetryHistoryStore::global().record_execution_telemetry(
+            &self.name,
+            self.elapsed_ms(),
+            self.max_idle_ms.load(Ordering::Acquire),
+        );
     }
 
     pub fn mark_failed(&self, err: &str) {
@@ -399,6 +422,8 @@ impl SwarmTaskManager {
             result,
             name: name.to_string(),
             start_time: Instant::now(),
+            last_progress_ms: AtomicU64::new(0),
+            max_idle_ms: AtomicU64::new(0),
         })
     }
 
@@ -637,6 +662,8 @@ mod tests {
                 result: Arc::new(parking_lot::RwLock::new(None)),
                 name: "test".into(),
                 start_time: Instant::now(),
+                last_progress_ms: AtomicU64::new(0),
+                max_idle_ms: AtomicU64::new(0),
             });
             let worker_handle = Arc::clone(&handle);
             let (tx, rx) = std::sync::mpsc::channel();
@@ -678,6 +705,24 @@ mod tests {
         assert_eq!(manager.cancel_map.len(), manager.tasks.len());
         assert_eq!(manager.pause_map.len(), manager.tasks.len());
         assert!(manager.tasks.contains_key(&live.task_id));
+    }
+
+    #[test]
+    fn idle_gap_is_measured_between_progress_reports() {
+        let manager = SwarmTaskManager {
+            tasks: DashMap::new(),
+            cancel_map: DashMap::new(),
+            pause_map: DashMap::new(),
+        };
+        let handle = manager.register_task("lifecycle_test", "test");
+        handle.report_progress();
+        std::thread::sleep(Duration::from_millis(60));
+        handle.report_progress();
+        handle.report_progress();
+        let idle = handle.max_idle_ms.load(Ordering::Acquire);
+        assert!(idle >= 60, "observed {idle}ms");
+        assert!(idle < 60_000, "observed {idle}ms");
+        handle.mark_failed("done");
     }
 
     #[test]
