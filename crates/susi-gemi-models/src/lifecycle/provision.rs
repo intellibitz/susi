@@ -77,9 +77,7 @@ impl ModelManager {
         }
     }
 
-    pub fn verify_and_provision_32b_and_72b_models(
-        workspace: &Path,
-    ) -> EaiResult<ModelAgentReport> {
+    pub fn verify_and_provision_model_ladder(workspace: &Path) -> EaiResult<ModelAgentReport> {
         let models_dir = Self::get_models_dir();
         let _ = fs::create_dir_all(&models_dir);
         let hf_base_url = crate::susi_sandbox::manager::SusiConfig::load_global()

@@ -2450,6 +2450,16 @@
       "milestone": "RSI iteration 84/100: susi install initializes the substrate itself. Its first step sent install_pulse ('initialize sandboxed .susi environment and provision weights') to the model swarm and printed the narration, so whether the substrate home and config were created depended on a model acting and the output could claim provisioning that did not happen. The command now calls SandboxManager::ensure_global_sandbox (the deterministic initializer, which after iteration 83 seeds only from the bundled defaults), prints the real outcome, and exits non-zero on failure; its existing background-priming notice and identity handshake are unchanged. The unread install_pulse is removed from AdminPulses and config.default.json, leaving mcp_scout_pulse as the only admin pulse (web scouting is inherently model-driven). cargo test -p susi-config (44), --bin susi, and cargo clippy --workspace --all-targets -D warnings pass. Iterations 80-84 together moved audit, verify, lint, audit-deps, bloat-audit, deep-scan, select-model, and install off model narration onto their real implementations.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ModelManager::verify_and_provision_model_ladder",
+        "ref": "symbol://ModelManager::verify_and_provision_model_ladder"
+      },
+      "id": "EV-2022927-251",
+      "milestone": "RSI iteration 85/100: the model-provisioning verifier is named and described for what it does. ModelManager::verify_and_provision_32b_and_72b_models, the susi verify-download-agent help ('...and 32b/72b model provisioning'), and the verify_model_download_agent MCP tool description ('ensure 32b and 72b models are provisioned') all promised 32B and 72B models, but the function walks HardwareProfiler::get_progressive_model_ladder, the hardware-selected ladder (whatever sizes fit the host), and reports each step's download state; iteration 78 already removed the matching '32b and 72b ... fully operational' success line. The function is renamed verify_and_provision_model_ladder (both callers updated) and both descriptions now say 'the hardware-selected model ladder'. No behavior change. cargo clippy --workspace --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

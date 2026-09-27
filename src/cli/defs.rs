@@ -362,7 +362,7 @@ pub(crate) enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Verify model download agent, network status, and 32b/72b model provisioning
+    /// Verify model download agent, network status, and the hardware-selected model ladder
     #[command(name = "verify-download-agent")]
     VerifyDownloadAgent,
     /// Scout or install model substrate via live foreground network stream

@@ -304,7 +304,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
         Commands::VerifyDownloadAgent => {
-            match susi_gemi::models::ModelManager::verify_and_provision_32b_and_72b_models(cwd) {
+            match susi_gemi::models::ModelManager::verify_and_provision_model_ladder(cwd) {
                 Ok(report) => {
                     println!("=== SUSI Model Download Agent & Network Verification Report ===");
                     println!("- Network Status: {}", report.network_status);

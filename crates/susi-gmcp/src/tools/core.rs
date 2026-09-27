@@ -263,7 +263,7 @@ impl CoreTools {
 
     #[tool(
         name = "verify_model_download_agent",
-        description = "Verify model download agent, check network status, and ensure 32b and 72b models are provisioned"
+        description = "Verify model download agent, check network status, and report provisioning of the hardware-selected model ladder"
     )]
     pub fn verify_model_download_agent(
         _arg: &serde_json::Value,
