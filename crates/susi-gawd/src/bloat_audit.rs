@@ -68,8 +68,29 @@ struct BloatVisitor {
     unsafe_blocks: usize,
 }
 
+/// `#[cfg(test)]` / `#[test]` items: the mandates exempt test code from the
+/// unwrap/expect rules, so counting it inflated every production figure.
+fn is_test_only(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("test")
+            || (attr.path().is_ident("cfg")
+                && attr
+                    .parse_args::<syn::Ident>()
+                    .is_ok_and(|ident| ident == "test"))
+    })
+}
+
 impl<'ast> Visit<'ast> for BloatVisitor {
+    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
+        if !is_test_only(&node.attrs) {
+            visit::visit_item_mod(self, node);
+        }
+    }
+
     fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+        if is_test_only(&node.attrs) {
+            return;
+        }
         self.functions += 1;
         if node.block.stmts.len() > MAX_STATEMENTS_PER_FN {
             self.oversized_functions += 1;
@@ -104,12 +125,14 @@ impl<'ast> Visit<'ast> for BloatVisitor {
 pub struct BloatAuditor;
 
 impl BloatAuditor {
-    /// Recursively audits `<workspace>/src` (AST + heuristic scan, rayon-parallel
-    /// across all available cores) and `<workspace>/target` (build artifact bloat).
+    /// Recursively audits every Rust source under `workspace` (AST + heuristic
+    /// scan, rayon-parallel across all available cores; `target/` and dot
+    /// directories skipped) and `<workspace>/target` (build artifact bloat).
+    /// Only `<workspace>/src` used to be scanned — in a workspace whose code
+    /// lives under `crates/`, the audit saw a small fraction of the source.
     pub fn audit_workspace(workspace: &Path) -> EaiResult<BloatAuditReport> {
         let start = std::time::Instant::now();
-        let src_dir = workspace.join("src");
-        let files = Self::discover_rust_files(&src_dir);
+        let files = Self::discover_rust_files(workspace);
 
         let secret_patterns = Self::load_secret_patterns();
 
@@ -181,6 +204,11 @@ impl BloatAuditor {
                 continue;
             }
             if file_type.is_dir() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name == "target" || name.starts_with('.') {
+                    continue;
+                }
                 Self::walk_rust_files(&path, out);
             } else if path.extension().is_some_and(|e| e == "rs") {
                 out.push(path);
@@ -225,7 +253,11 @@ impl BloatAuditor {
             .unwrap_or(path)
             .display()
             .to_string();
-        let content = std::fs::read_to_string(path).unwrap_or_default();
+        // An unreadable file is a failed scan, not an empty clean one.
+        let (content, read_failed) = match std::fs::read_to_string(path) {
+            Ok(content) => (content, false),
+            Err(_) => (String::new(), true),
+        };
         let lines = content.lines().count();
 
         let mut todo_markers = 0;
@@ -284,8 +316,8 @@ impl BloatAuditor {
             }
         }
 
-        match syn::parse_file(&content) {
-            Ok(ast) => {
+        match syn::parse_file(&content).ok().filter(|_| !read_failed) {
+            Some(ast) => {
                 let mut visitor = BloatVisitor::default();
                 visitor.visit_file(&ast);
                 FileFinding {
@@ -302,7 +334,7 @@ impl BloatAuditor {
                     parse_failed: false,
                 }
             }
-            Err(_) => FileFinding {
+            None => FileFinding {
                 path: rel,
                 lines,
                 functions: 0,
@@ -413,6 +445,54 @@ mod tests {
         visitor.visit_file(&ast);
         assert_eq!(visitor.oversized_functions, 1);
         assert_eq!(visitor.unsafe_blocks, 1);
+    }
+
+    #[test]
+    fn test_code_is_not_counted_and_crates_are_scanned() {
+        let src = r#"
+            fn prod() { let _ = Some(1).unwrap(); }
+            #[cfg(test)]
+            mod tests { fn helper() { let _ = Some(1).unwrap(); let _ = Some(2).expect("x"); } }
+            #[test]
+            fn t() { let _ = Some(3).unwrap(); }
+        "#;
+        let ast = syn::parse_file(src).unwrap();
+        let mut visitor = BloatVisitor::default();
+        visitor.visit_file(&ast);
+        assert_eq!(visitor.unwrap_calls, 1);
+        assert_eq!(visitor.expect_calls, 0);
+        assert_eq!(visitor.functions, 1);
+
+        let dir = std::env::temp_dir().join(format!("susi_bloat_crates_{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("crates/a/src")).unwrap();
+        std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+        std::fs::write(dir.join("crates/a/src/lib.rs"), "fn a() {}").unwrap();
+        std::fs::write(dir.join("target/debug/gen.rs"), "fn gen() {}").unwrap();
+        let report = BloatAuditor::audit_workspace(&dir).unwrap();
+        assert_eq!(report.files_scanned, 1, "crates/ scanned, target/ skipped");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "audits this whole repository (read-only); run with --ignored --nocapture"]
+    fn audit_of_this_repository_covers_the_crates() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let report = BloatAuditor::audit_workspace(&root).unwrap();
+        eprintln!(
+            "files={} failed={} lines={} fns={} oversized={} unwrap={} expect={} clone={} unsafe={} todo={} secret_hits={}",
+            report.files_scanned,
+            report.files_failed_to_parse,
+            report.total_lines,
+            report.total_functions,
+            report.oversized_functions,
+            report.total_unwrap_calls,
+            report.total_expect_calls,
+            report.total_clone_calls,
+            report.total_unsafe_blocks,
+            report.total_todo_markers,
+            report.total_secret_pattern_hits
+        );
+        assert!(report.files_scanned > 300, "crates/ must be scanned");
     }
 
     #[test]

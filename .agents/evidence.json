@@ -2290,6 +2290,16 @@
       "milestone": "RSI iteration 68/100: the other two glass-box mission files are redacted by the shared redactor and replaced atomically. persist_governance_report (fleet.rs, writing .susi/last_governance.json) carried the same private four-prefix redaction list removed from the blackboard in iteration 67, and persist_inspectable_trace (writing .susi/last_mission_trace.json) documented 'no secret bodies' but applied no redaction at all while writing the goal, every A2A interaction payload (which carries tool output), the final answer, and the raw protocol text. Both were plain unchecked fs::write calls, and the crown's glass-box check parses all three files. Governance outcomes now go through susi_config::redact_credentials, the whole trace document is redacted with it before writing, and both files are replaced through atomic_write_bytes. The trace test now puts a ghp_ token in the final answer and proves the written file still parses as JSON and does not contain it. cargo test -p susi-gawd-swarm (305 passed), -p susi-gawd-agents (258 passed), and cargo clippy --workspace --all-targets -D warnings pass. With iteration 67, all three glass-box files the crown reads (last_blackboard, last_governance, last_mission_trace) share one redactor and atomic writes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "BloatAuditor::audit_workspace",
+        "ref": "symbol://BloatAuditor::audit_workspace"
+      },
+      "id": "EV-2022927-235",
+      "milestone": "RSI iteration 69/100: the Mandate 3 bloat & security audit covers the substrate, not just the CLI. BloatAuditor::audit_workspace (behind susi bloat-audit and gawd.admin.bloat) walked only <workspace>/src: in this repository that is 49 files and 9,950 lines of CLI, while the substrate lives under crates/, so the audit's unwrap/expect/unsafe/secret figures described under a tenth of the code. It also counted unwrap/expect/clone calls inside #[cfg(test)] modules and #[test] functions, which the mandates exempt, and treated an unreadable file as a clean empty scan. The walk now covers every .rs file under the workspace (skipping target/ and dot directories), the AST visitor skips #[cfg(test)] modules and #[test] functions, and a read failure marks the file failed. Measured with a new ignored, read-only test that audits this repository from its source tree: 431 files, 0 parse failures, 111,941 lines, 3,173 production functions, 2 oversized, 65 unwrap, 33 expect, 749 clone, 23 unsafe blocks, 0 TODO markers, 12 secret-pattern line hits (not triaged here; many are pattern definitions and redaction code). A new test proves test-only code is not counted and that crates/ is scanned while target/ is skipped. cargo test -p susi-gawd bloat (9 passed plus the ignored repository audit run explicitly) and cargo clippy --workspace --all-targets -D warnings pass. Side effect reported: an earlier manual run of the debug CLI during this iteration restarted the operator's running daemon via the binary-integrity check; the repository audit was then measured through the read-only test instead.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

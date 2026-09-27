@@ -205,7 +205,7 @@ pub(crate) enum Commands {
     },
     /// Report on autonomous invisible work performed by the substrate
     SovereignDashboard,
-    /// Recursively audit src/ (AST-based) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
+    /// Audit every Rust source in the workspace (AST-based, production code only) and target/ for bloat and hardcoded secrets, rayon-parallel across all cores
     #[command(name = "bloat-audit")]
     BloatAudit,
     /// Manage leading developer/agent models end to end
