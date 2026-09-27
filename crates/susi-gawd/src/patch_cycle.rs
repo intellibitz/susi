@@ -183,7 +183,7 @@ pub fn apply_patch_cycle(
     let mut reverted = false;
     let mut error = None;
     if test_passed {
-        txm.commit(&tx.id)?;
+        txm.commit(&tx.id, workspace)?;
     } else {
         match txm.abort(&tx.id, workspace) {
             Ok(_) => {

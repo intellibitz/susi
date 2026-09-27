@@ -50,6 +50,22 @@ fn tx_dir(workspace: &Path) -> PathBuf {
     workspace.join(".susi").join("tx")
 }
 
+/// A transaction closes only against the workspace it snapshotted. Ids are
+/// unique per workspace journal, not globally, so a caller naming the
+/// wrong workspace is refused rather than acted on.
+fn ensure_same_workspace(tx: &AgentTransaction, workspace: &Path) -> EaiResult<()> {
+    let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    if canonical(Path::new(&tx.workspace)) == canonical(workspace) {
+        return Ok(());
+    }
+    Err(EaiError::governance(format!(
+        "tx {} belongs to workspace {}, not {}",
+        tx.id,
+        tx.workspace,
+        workspace.display()
+    )))
+}
+
 fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
     let rel = rel.replace('\\', "/").trim_start_matches('/').to_string();
     if rel.is_empty() || rel.contains("..") {
@@ -149,7 +165,7 @@ impl TxManager {
         Err(EaiError::filesystem("no free transaction id"))
     }
 
-    pub fn commit(&self, tx_id: &str) -> EaiResult<AgentTransaction> {
+    pub fn commit(&self, tx_id: &str, workspace: &Path) -> EaiResult<AgentTransaction> {
         let mut entry = self
             .open
             .get_mut(tx_id)
@@ -157,6 +173,7 @@ impl TxManager {
         if entry.status != TxStatus::Open {
             return Err(EaiError::governance("transaction not open"));
         }
+        ensure_same_workspace(&entry, workspace)?;
         entry.status = TxStatus::Committed;
         entry.closed_at = Some(now());
         let out = entry.clone();
@@ -177,6 +194,9 @@ impl TxManager {
         if entry.status != TxStatus::Open {
             return Err(EaiError::governance("transaction not open"));
         }
+        // Snapshots are relative paths: restoring them under another
+        // workspace would write one project's contents into another.
+        ensure_same_workspace(&entry, workspace)?;
         for snap in &entry.files {
             let path = confined(workspace, &snap.rel_path)?;
             match &snap.content {
@@ -328,6 +348,29 @@ mod tests {
     }
 
     #[test]
+    fn closing_from_another_workspace_is_refused() {
+        let ws = temp_ws();
+        let other = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        let _ = std::fs::create_dir_all(&other);
+        std::fs::write(ws.join("d.txt"), "mine").unwrap();
+        std::fs::write(other.join("d.txt"), "theirs").unwrap();
+        let mgr = TxManager::new();
+        let tx = mgr
+            .begin(&ws, "d", &["d.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert!(mgr.abort(&tx.id, &other).is_err());
+        assert!(mgr.commit(&tx.id, &other).is_err());
+        assert_eq!(
+            std::fs::read_to_string(other.join("d.txt")).unwrap(),
+            "theirs"
+        );
+        mgr.abort(&tx.id, &ws).unwrap();
+        let _ = std::fs::remove_dir_all(&ws);
+        let _ = std::fs::remove_dir_all(&other);
+    }
+
+    #[test]
     fn commit_keeps_mutations() {
         let ws = temp_ws();
         let _ = std::fs::create_dir_all(&ws);
@@ -337,7 +380,7 @@ mod tests {
             .begin(&ws, "edit b", &["b.txt".into()], BTreeMap::new())
             .unwrap();
         std::fs::write(ws.join("b.txt"), "v2").unwrap();
-        mgr.commit(&tx.id).unwrap();
+        mgr.commit(&tx.id, &ws).unwrap();
         assert_eq!(std::fs::read_to_string(ws.join("b.txt")).unwrap(), "v2");
         let _ = std::fs::remove_dir_all(&ws);
     }

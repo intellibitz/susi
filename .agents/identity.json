@@ -93,7 +93,7 @@
     },
     {
       "id": 10,
-      "summary": "Wasmer `WasmHost::execute_untrusted_wasm`; Docker `sandbox_exec` when available. Workspace-confined patch cycles preflight every file and roll back through one `TxManager` snapshot; a failed rollback is reported, never claimed as reverted. Transaction ids are reserved on disk, so a fresh process never overwrites another transaction's snapshot, and snapshots are persisted atomically with failures returned.",
+      "summary": "Wasmer `WasmHost::execute_untrusted_wasm`; Docker `sandbox_exec` when available. Workspace-confined patch cycles preflight every file and roll back through one `TxManager` snapshot; a failed rollback is reported, never claimed as reverted. Transaction ids are reserved on disk, so a fresh process never overwrites another transaction's snapshot, and snapshots are persisted atomically with failures returned. A transaction commits or aborts only against the workspace it snapshotted.",
       "title": "Sandbox"
     },
     {

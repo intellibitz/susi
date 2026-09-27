@@ -2702,13 +2702,17 @@ impl CoreTools {
     }
 
     #[tool(name = "tx_commit", description = "Commit open transaction. Args: id.")]
-    pub fn tx_commit(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
+    pub fn tx_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let id = arg
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_commit requires id"))?;
-        let tx = crate::susi_core::agent_tx::TxManager::global()
-            .commit(id)
+        let txm = crate::susi_core::agent_tx::TxManager::global();
+        // A transaction begun by another process (e.g. `susi tx begin`)
+        // exists only in the durable journal until hydrated.
+        txm.hydrate(workspace);
+        let tx = txm
+            .commit(id, workspace)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
@@ -2722,7 +2726,9 @@ impl CoreTools {
             .get("id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
-        let tx = crate::susi_core::agent_tx::TxManager::global()
+        let txm = crate::susi_core::agent_tx::TxManager::global();
+        txm.hydrate(workspace);
+        let tx = txm
             .abort(id, workspace)
             .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))

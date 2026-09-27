@@ -90,7 +90,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back
     through one transaction snapshot. Transaction ids are reserved on disk
-    so concurrent processes never overwrite each other's rollback snapshots.
+    so concurrent processes never overwrite each other's rollback snapshots,
+    and a transaction can only be closed against the workspace it snapshotted.
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
     The daemon's binary trust anchor hashes the whole binary (a read error
     fails instead of truncating the digest) and is replaced atomically.
@@ -144,7 +145,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
-| Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot) |
+| Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 
 ## Install
 

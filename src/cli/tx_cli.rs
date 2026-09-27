@@ -42,7 +42,7 @@ pub fn execute(action: Option<TxCommands>, workspace: &Path) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&tx)?);
         }
         Some(TxCommands::Commit { id }) => {
-            let tx = mgr.commit(&id)?;
+            let tx = mgr.commit(&id, workspace)?;
             println!("{}", serde_json::to_string_pretty(&tx)?);
         }
         Some(TxCommands::Abort { id }) => {

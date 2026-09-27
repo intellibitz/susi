@@ -1940,6 +1940,16 @@
       "milestone": "RSI iteration 33/100: the autonomous planner stops claiming a rollback it never performed (Mandate 1). solve_autonomous opened a TxManager transaction for the whole plan with an empty file list, so it snapshotted nothing; when a step failed it aborted that empty transaction and reported 'Autonomous plan aborted at step N (transaction rolled back)', while every file earlier steps had written through agents and tools stayed changed. A step returning Err through ? also left the transaction Open in .susi/tx forever. The no-op transaction is removed, and the failure report now states that workspace changes made by earlier steps were not rolled back. A real plan-wide rollback would need every agent write routed through a tracked snapshot; that is not claimed. ARCHITECTURE.md's planning-loop row now says the same. cargo clippy -p susi-gawd-swarm --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TxManager::commit / TxManager::abort / CoreTools::tx_commit",
+        "ref": "symbol://ensure_same_workspace"
+      },
+      "id": "EV-2022927-200",
+      "milestone": "RSI iteration 34/100: transactions close only against their own workspace, and the MCP surface can close transactions other processes began. TxManager::abort restored each snapshot by joining its relative path onto whatever workspace the caller passed, not the one it snapshotted, so tx_abort (MCP) or susi tx abort run from another project would write the first project's file contents into the second. Ids are reserved per workspace journal (iteration 32), so the same id can name different transactions in different workspaces. Separately, the MCP tx_commit and tx_abort tools never hydrated the durable .susi/tx journal, so the daemon answered 'unknown tx' for any transaction begun by susi tx begin in a CLI process. commit and abort now refuse, with a governance error, a workspace that does not canonicalize to the transaction's own (commit gained a workspace parameter; patch_cycle and the CLI pass theirs), and tx_commit/tx_abort hydrate the workspace journal first. A regression test proves abort and commit from another workspace are refused and leave its file untouched, and the owning workspace can still abort. cargo test -p susi-core agent_tx (4 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
