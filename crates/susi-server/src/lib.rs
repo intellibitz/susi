@@ -635,14 +635,16 @@ async fn handle_gemi_request(
                 )
             };
             if !completion.allow_cloud
-                && placement
-                    .get("local_ready")
-                    .and_then(|value| value.as_bool())
-                    == Some(false)
+                && placement.get("target").and_then(|value| value.as_str()) == Some("unavailable")
             {
                 return Ok(api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
-                    "cloud inference is prohibited and no ready local model is available",
+                    placement
+                        .get("reason")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(
+                            "cloud inference is prohibited and local inference is unavailable",
+                        ),
                 ));
             }
             let planned_model = placement

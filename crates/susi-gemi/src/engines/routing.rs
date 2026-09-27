@@ -620,13 +620,25 @@ impl InferenceRouter {
             || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
         {
             let request_blocked = !allow_cloud;
+            let unsupported_local_capability =
+                requires.is_some_and(|value| value.eq_ignore_ascii_case("vision"));
+            let local_eligible = local_ready && !unsupported_local_capability;
             return PlacementDecision {
-                target: if local_ready { "local" } else { "unavailable" }.to_string(),
+                target: if local_eligible {
+                    "local"
+                } else {
+                    "unavailable"
+                }
+                .to_string(),
                 provider: None,
-                reason: if request_blocked && !local_ready {
+                reason: if request_blocked && unsupported_local_capability {
+                    "request prohibits cloud inference and local runtime does not support the required capability"
+                } else if request_blocked && !local_ready {
                     "request prohibits cloud inference and no ready local model is available"
                 } else if request_blocked {
                     "request prohibits cloud inference"
+                } else if unsupported_local_capability {
+                    "privacy policy blocks cloud inference and local runtime does not support the required capability"
                 } else if local_ready {
                     "privacy policy blocks cloud inference"
                 } else {
@@ -1066,6 +1078,20 @@ mod tests {
             .reason
             .starts_with("request prohibits cloud inference"));
         assert!(!decision.allow_cloud);
+        assert!(decision.cloud_candidates.is_empty());
+    }
+
+    #[test]
+    fn private_vision_request_fails_closed() {
+        let decision = InferenceRouter::plan_placement_for(
+            &["openai-gpt-4o-mini".to_string()],
+            Some("vision"),
+            None,
+            false,
+        );
+        assert_eq!(decision.target, "unavailable");
+        assert_eq!(decision.provider, None);
+        assert!(decision.reason.contains("required capability"));
         assert!(decision.cloud_candidates.is_empty());
     }
 
