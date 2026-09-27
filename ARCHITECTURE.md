@@ -66,7 +66,7 @@ never consume an unterminated source tail.
 | `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; optional `cell-server` TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` (feature) | std, serde, serde_json; tokio behind `cell-server` | all workspace crates | no | no | cell TCP when featured |
 | `susi-paths` | Leaf REST (`:18080`) and its client: XDG / substrate paths + host-contract ports, host bearer helpers | `SusiDirs` (service with local fallback), `ports`, `host_token`/`with_bearer`/`bearer_authorized` | std, directories | everything else | no | no | reads env for XDG |
 | `susi-error` | Leaf REST (`:18081`): stable error model + metrics sink | `EaiError`, `EaiResult`, `rewrap`, metrics sink + service-backed event reporter | `susi-paths`, std, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
-| `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; std, serde, concurrency libs | all workspace crates | providers/tools via registry | process registry | receipt archive paths |
+| `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); std, serde, concurrency libs | feature planes | providers/tools via registry | process registry | receipt archive paths |
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | service `WasmHost` | `susi-paths`, `susi-error`; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde, ureq | everything above paths/error | no | config files | yes |
@@ -74,6 +74,7 @@ never consume an unterminated source tail.
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, dev-build auto-install, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `auto_install`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder | `dual_transport`, `http_conn` | tokio, tokio-rustls, hyper-util | all workspace crates | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split (forked from candle-transformers) | `device`, `qwen2_split`, re-exported `candle_core` / `candle_nn` / `candle_transformers` | candle-core, candle-nn, candle-transformers | all workspace crates | no | process device cache | GPU FFI via Candle |
+| `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies and extractors | `inference_wire` | serde_json, ureq | all workspace crates | no | no | HTTP via callers |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect) | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
@@ -154,6 +155,14 @@ CUDA, Metal and the Qwen2 GGUF split live in one rank-2 crate so
 `susi-gemi` and `susi-gemi-models` share one feature graph and one
 process-wide device cache;
 `susi_vendor_candle_is_never_source_mounted_into_a_consumer` makes a
+remount a hard failure.
+
+**`susi-adapters-llm` is a Cargo dependency, not a mount.** OpenAI /
+Anthropic / Gemini / Triton request bodies and extractors are
+SUSI-authored adapter code (not a vendored SDK) and live in their own
+rank-2 crate; `susi-core` re-exports `inference_wire` so existing
+`susi_core::inference_wire` paths keep resolving.
+`susi_adapters_llm_is_never_source_mounted_into_a_consumer` makes a
 remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary

@@ -2720,6 +2720,16 @@
       "milestone": "Dedup pass step 12: new crate `susi-vendor-candle` owns the Candle/CUDA/Metal/MKL crate graph, the runtime device probe, and the Qwen2 GGUF split that used to live in `susi-gemi` / `susi-gemi-models`. Those two crates no longer declare candle-core/nn/transformers; they depend on this rank-2 leaf and re-export `qwen2_split` so existing `susi_gemi::qwen2_split` paths keep resolving. GPU features now unify through one crate (`susi-gemi/cuda` forwards to both vendor-candle and gemi-models), so a `--features cuda` build actually probes CUDA in HardwareProfiler instead of compiling a second candle-core without the feature. New regression test `susi_vendor_candle_is_never_source_mounted_into_a_consumer`. Device-probe unit tests were authored in `device.rs` (not executed this step). Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-adapters-llm extraction",
+        "ref": "file://crates/susi-adapters-llm/src/lib.rs"
+      },
+      "id": "EV-2022928-278",
+      "milestone": "Dedup pass step 13: new crate `susi-adapters-llm` owns the SUSI-authored LLM provider wire (`inference_wire`: OpenAI chat/completions, Anthropic Messages, Gemini generateContent, Triton generate) that used to live in `susi-core`. This is the first-party adapter layer, distinct from genuinely vendored GPU source in `susi-vendor-candle`. `susi-core` re-exports the module so `susi_core::inference_wire` call sites in GEMI and GAWD keep resolving. Existing extraction/retry tests moved with the file (not executed this step). New regression test `susi_adapters_llm_is_never_source_mounted_into_a_consumer`. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

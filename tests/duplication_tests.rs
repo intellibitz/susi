@@ -234,6 +234,43 @@ fn susi_server_transport_is_never_source_mounted_into_a_consumer() {
     );
 }
 
+/// LLM provider wire shapes live in `susi-adapters-llm`. Remounting
+/// `inference_wire.rs` would compile a second copy of the protocol
+/// extractors next to the Cargo-edge original.
+#[test]
+fn susi_adapters_llm_is_never_source_mounted_into_a_consumer() {
+    let crates = workspace_root().join("crates");
+    let mut offenders = Vec::new();
+    let mut pending = vec![crates.clone()];
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read crate directory") {
+            let path = entry.expect("read crate entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs")
+                || path.starts_with(crates.join("susi-adapters-llm"))
+            {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read Rust source");
+            if text.contains("#[path = \"../../susi-adapters-llm/")
+                || text.contains("#[path = \"../susi-adapters-llm/")
+                || text.contains("#[path = \"inference_wire.rs\"]")
+            {
+                offenders.push(path);
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "susi-adapters-llm must be reached through a Cargo edge, not a source mount: {offenders:?}"
+    );
+}
+
 /// Candle / CUDA / Metal live in `susi-vendor-candle`. Remounting
 /// `qwen2_split.rs` or the device probe would compile a second Candle
 /// feature graph and a second process-wide device cache.

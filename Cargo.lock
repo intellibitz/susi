@@ -7145,6 +7145,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-adapters-llm"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "ureq 3.4.2",
+]
+
+[[package]]
 name = "susi-agents"
 version = "0.1.0"
 dependencies = [
@@ -7214,6 +7222,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "susi-abi",
+ "susi-adapters-llm",
  "susi-config",
  "susi-error",
  "susi-paths",

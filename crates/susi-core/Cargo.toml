@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 susi-abi = { workspace = true }
+susi-adapters-llm = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }

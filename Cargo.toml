@@ -13,6 +13,7 @@ members = [
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
     "crates/susi-vendor-candle",
+    "crates/susi-adapters-llm",
     "crates/susi-agents",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -86,6 +87,7 @@ susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-http-transport = { path = "crates/susi-http-transport" }
 susi-vendor-candle = { path = "crates/susi-vendor-candle" }
+susi-adapters-llm = { path = "crates/susi-adapters-llm" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }
 susi-gmcp = { path = "crates/susi-gmcp" }

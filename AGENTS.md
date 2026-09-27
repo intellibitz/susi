@@ -8,7 +8,8 @@ are enforced mechanically where possible; the rest are reviewed in CI.
 - **`unsafe` is forbidden or denied in every crate.**
   - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-native, susi-core,
     susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
-    susi-http-transport, susi-vendor-candle, xtask, root package.
+    susi-http-transport, susi-vendor-candle, susi-adapters-llm, xtask,
+    root package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,
     susi-gawd-a2a, susi-gawd-swarm, susi-gemi, susi-gemi-models, susi-tools.

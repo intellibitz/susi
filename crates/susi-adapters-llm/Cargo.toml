@@ -1,0 +1,14 @@
+[package]
+name = "susi-adapters-llm"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI-authored LLM provider wire: OpenAI, Anthropic, Gemini, Triton."
+
+[dependencies]
+serde_json = { workspace = true }
+ureq = { version = "3.4.2", features = ["json"] }
+
+[lints]
+workspace = true
