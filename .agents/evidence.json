@@ -2420,6 +2420,16 @@
       "milestone": "RSI iteration 81/100: susi bloat-audit and susi deep-scan run their real implementations. The bloat-audit command sent the literal goal 'bloat_audit' to the swarm (ama.solve_clean), so the operator got a mission narration (observed in iteration 69 as a model trace instead of the auditor's report) rather than BloatAuditor's measured counts; deep-scan likewise sent deep_scan_pulse to the swarm although ModelManager::deep_scan_home_and_register performs the scan and registration deterministically (and is what the GEMI plane's gemi.models.scan topic already calls). bloat-audit now calls BloatAuditor::audit_workspace and render_report for the working directory, and deep-scan calls deep_scan_home_and_register for the substrate config dir; both exit non-zero on error. The now-unread deep_scan_pulse is removed from AdminPulses and config.default.json. Remaining swarm-driven CLI pulses, stated: install (provisioning narration), select-model, and mcp-scout. cargo test -p susi-config (44), --bin susi, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi select-model / ModelManager::set_selected_model",
+        "ref": "symbol://ModelManager::set_selected_model"
+      },
+      "id": "EV-2022927-248",
+      "milestone": "RSI iteration 82/100: susi select-model writes the model override itself, and the override rejects names that would corrupt it. The command substituted the model name into select_model_pulse and sent it to the swarm (ama.solve_clean), so whether the override was actually written depended on a model choosing to do it, while ModelManager::set_selected_model (already used by the gemi.models.select topic) writes it deterministically. It now calls set_selected_model directly and exits non-zero on failure. set_selected_model accepted any string: an empty name wrote an empty selected_model_override.txt, which every inference reads as 'no override', while reporting the override 'set to '''; a newline or other control character would split the one-line file. It now rejects empty, over-512-character, and control-character names before writing. The unread select_model_pulse is removed from AdminPulses and config.default.json. A test proves empty, whitespace, newline, tab, and oversized names are rejected (they return before any write, so the test never touches the real config dir). cargo test -p susi-gemi-models selection_tests, -p susi-config (44), and cargo clippy --workspace --all-targets -D warnings pass. Remaining swarm-driven pulses: install and mcp-scout.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

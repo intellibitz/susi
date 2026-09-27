@@ -195,10 +195,15 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 std::process::exit(1);
             }
         },
+        // Writes the override directly (the swarm used to be asked to do it).
         Commands::SelectModel { model } => {
-            let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);
-            let answer = ama.solve_clean(&intent, cwd, SUSI_VERSION);
-            println!("{}", answer);
+            match susi_gemi::models::ModelManager::set_selected_model(&model) {
+                Ok(msg) => println!("{}", msg),
+                Err(e) => {
+                    eprintln!("select-model failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         // The scanner itself, not a swarm mission asked to scan.
         Commands::DeepScan => {

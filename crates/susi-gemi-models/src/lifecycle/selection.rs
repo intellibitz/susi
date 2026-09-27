@@ -13,6 +13,15 @@ use super::ModelManager;
 
 impl ModelManager {
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
+        // An empty name would silently clear the override while reporting
+        // it "set", and a control character would corrupt the one-line
+        // file every inference reads.
+        let name = model_name.trim();
+        if name.is_empty() || name.len() > 512 || name.chars().any(char::is_control) {
+            return Err(format!(
+                "invalid model name {model_name:?}: expected a non-empty single-line id"
+            ));
+        }
         // Atomic: every inference reads this; an empty read means "no
         // override" and silently reroutes to the default model.
         let model_file =
@@ -469,5 +478,17 @@ impl ModelManager {
         }
 
         None
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::ModelManager;
+
+    #[test]
+    fn invalid_override_names_are_rejected_before_any_write() {
+        for bad in ["", "   ", "qwen\nrm -rf", "tab\tname", &"x".repeat(600)] {
+            assert!(ModelManager::set_selected_model(bad).is_err(), "{bad:?}");
+        }
     }
 }

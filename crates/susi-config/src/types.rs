@@ -510,8 +510,6 @@ pub struct AdminPulsesConfig {
     #[serde(default)]
     pub install_pulse: String,
     #[serde(default)]
-    pub select_model_pulse: String,
-    #[serde(default)]
     pub mcp_scout_pulse: String,
 }
 
