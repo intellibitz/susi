@@ -35,24 +35,37 @@ fn hmac_sha256(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     crate::susi_config::cluster_key::hmac_sha256(key, message)
 }
 
-fn last_hash(audit_file: &Path) -> String {
-    let tip = tip_path(audit_file);
-    if let Ok(h) = fs::read_to_string(&tip) {
-        let t = h.trim();
-        if !t.is_empty() {
-            return t.to_string();
+fn last_hash(audit_file: &Path, key: &[u8; 32]) -> std::io::Result<String> {
+    let log_len = match fs::metadata(audit_file) {
+        Ok(metadata) => metadata.len(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(GENESIS.to_string())
         }
-    }
-    if let Ok(content) = fs::read_to_string(audit_file) {
-        for line in content.lines().rev() {
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(h) = v.get("entry_hash").and_then(|x| x.as_str()) {
-                    return h.to_string();
+        Err(error) => return Err(error),
+    };
+    let tip = tip_path(audit_file);
+    if let Ok(checkpoint) = fs::read_to_string(&tip) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&checkpoint) {
+            let hash = value.get("entry_hash").and_then(|v| v.as_str());
+            let checkpoint_len = value.get("log_len").and_then(serde_json::Value::as_u64);
+            if checkpoint_len == Some(log_len) {
+                if let Some(hash) = hash.filter(|hash| hash.len() == 64) {
+                    return Ok(hash.to_string());
                 }
             }
         }
     }
-    GENESIS.to_string()
+
+    verify_with_key(audit_file, key).map_err(std::io::Error::other)?;
+    let content = fs::read_to_string(audit_file)?;
+    for line in content.lines().rev() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(hash) = value.get("entry_hash").and_then(|v| v.as_str()) {
+                return Ok(hash.to_string());
+            }
+        }
+    }
+    Ok(GENESIS.to_string())
 }
 
 fn mac_hex(key: &[u8; 32], entry_hash: &str) -> String {
@@ -114,7 +127,7 @@ pub(crate) fn append_with_key(
     );
     let _file_lock = crate::susi_config::file_lock::FileLock::acquire(dir, &lock_name)
         .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
-    let prev = last_hash(audit_file);
+    let prev = last_hash(audit_file, key)?;
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -154,7 +167,16 @@ pub(crate) fn append_with_key(
         .append(true)
         .open(audit_file)?;
     f.write_all(format!("{}\n", log_entry).as_bytes())?;
-    fs::write(tip_path(audit_file), &entry_hash)?;
+    f.sync_data()?;
+    let log_len = f.metadata()?.len();
+    let checkpoint = serde_json::json!({
+        "entry_hash": entry_hash,
+        "log_len": log_len,
+    });
+    crate::susi_config::atomic_write_bytes(
+        &tip_path(audit_file),
+        checkpoint.to_string().as_bytes(),
+    )?;
     Ok(entry_hash)
 }
 
@@ -286,5 +308,54 @@ mod tests {
         fs::write(&log, [0xff, 0xfe, 0xfd]).unwrap();
         let err = verify_with_key(&log, &[0x5a; 32]).unwrap_err();
         assert!(err.contains("cannot read"), "{err}");
+    }
+
+    #[test]
+    fn stale_tip_checkpoint_cannot_fork_the_chain() {
+        let log = scratch("stale_tip").join("audit.log");
+        let key = [0x5a; 32];
+        let first = append_with_key(
+            &log,
+            &key,
+            &Entry {
+                level: "Info",
+                event_type: "FIRST",
+                details: "one",
+                pid: 1,
+            },
+        )
+        .unwrap();
+        append_with_key(
+            &log,
+            &key,
+            &Entry {
+                level: "Info",
+                event_type: "SECOND",
+                details: "two",
+                pid: 1,
+            },
+        )
+        .unwrap();
+
+        // Simulate a process that persisted the first checkpoint but crashed
+        // after the second complete log append and before updating the tip.
+        let stale = serde_json::json!({
+            "entry_hash": first,
+            "log_len": fs::metadata(&log).unwrap().len() - 1,
+        });
+        fs::write(tip_path(&log), stale.to_string()).unwrap();
+        append_with_key(
+            &log,
+            &key,
+            &Entry {
+                level: "Info",
+                event_type: "THIRD",
+                details: "three",
+                pid: 1,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(verify_with_key(&log, &key), Ok(3));
     }
 }
