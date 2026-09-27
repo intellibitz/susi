@@ -2570,6 +2570,16 @@
       "milestone": "RSI iteration 96/100: the first-party native-service IPC client is a real crate instead of a misleading vendored source tree. `crates/susi-native/vendor_template/susi_native` was source-mounted independently by susi-gawd and susi-tools, compiling the same transport and WasmHost facade into both consumers while calling SUSI-owned code vendored. The canonical implementation now lives in `susi-native-client`, depends only on the foundation error/path contracts plus serde_json, and both feature planes use that explicit dependency; Wasmer/Wasix remain linked only into the `susi-native` service. Architecture checks declare and enforce the three new edges, the source-mount verifier no longer treats the removed tree as canonical, and README/ARCHITECTURE/identity describe the boundary. Verified by cargo run -p xtask --locked -- verify-architecture; cargo test -p susi-native-client -p susi-tools -p susi-gawd --locked (572 passed, 3 ignored); cargo test --test architecture_tests --test vendor_sync_tests --locked (23 passed); and cargo clippy --workspace --all-targets --locked -- -D warnings. A full cargo test --workspace --locked run reached the pre-existing live-provider empirical_validation_tests path, then was stopped after test_empirical_epistemic_integrity_fictitious waited more than two minutes following an invalid configured GitHub MCP npm path; all suites reached before that test passed, but the full run is not claimed as complete.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "unreachable_daemon_modules_only_decrease",
+        "ref": "file://tests/architecture_tests.rs"
+      },
+      "id": "EV-2022928-263",
+      "milestone": "RSI iteration 97/100: six daemon feature sketches that no production path could reach were deleted instead of being kept as implied features. The existing reachability audit classified `bi_export`, `fault_injection`, `marketplace`, `playground`, `simulation`, and `reference_arch` as unreachable; a repository-wide path-reference audit found no external caller, with simulation referenced only by the equally unreachable playground. Their declarations and 404 source lines are removed. The daemon surface is now 113 modules: 31 production-reachable and 82 compiled-only, and the architecture ceiling is lowered from 88 to 82 so none can return unnoticed. README, ARCHITECTURE, AGENTS.md, and identity state the reduced surface. Verified by cargo test -p susi-daemon --locked (259 passed), cargo test --test architecture_tests --locked (20 passed), cargo run -p xtask --locked -- verify-architecture, and cargo clippy --workspace --all-targets --locked -- -D warnings.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
