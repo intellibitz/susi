@@ -2340,6 +2340,16 @@
       "milestone": "RSI iteration 73/100: destructive-command and exfiltration patterns match whole commands, not text inside other words. Both detectors matched their configured lists with lower-cased contains(): the exfiltration entry 'nc -e' fired inside 'rsync -e ssh', so a routine deploy step was vetoed as network exfiltration, and the destructive entry 'dd if=' fired inside 'add if= guard'. Both failures were confirmed with tests before the change. Both loops now use susi_error::redact::secret_match_starts (the token-start rule introduced in iteration 71, documented as shared), so a pattern counts only where it begins a token. Real invocations still veto: 'nc -e /bin/sh ...' and 'dd if=/dev/zero of=disk.img' are blocked, and the crown's governance probe (rm -rf / and the env-wrapper bypass) still holds. cargo test -p susi-gawd-agents (262 passed), --test crown_verify_tests, and cargo clippy --workspace --all-targets -D warnings pass. With iterations 71-72, every configured governance pattern list (secret tokens, critical paths, destructive commands, exfiltration vectors) is now boundary-aware.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAdmin::classify_natural_intent",
+        "ref": "symbol://SusiAdmin::classify_natural_intent"
+      },
+      "id": "EV-2022927-240",
+      "milestone": "RSI iteration 74/100: the natural-intent classifier reads its config-driven keyword lists and matches whole words. config.default.json ships intent_classify (query_exact, query_prefixes, query_contains, motion_contains) and SusiConfig::intent_classify() exposes it as 'no hardcoded keyword lists in Rust' (Mandate 35), but nothing read it: classify_natural_intent hard-coded the same lists, so operator edits had no effect. It also used substring checks, so goals mentioning 'promotion' or 'emotion' were typed [MOTION] Architectural Evolution when ingested into the evidence memory; the reflex fallback branch repeated the substring checks on the reflex reply (confirmed in testing: with a live daemon answering pulse_reason, 'draft a promotion plan' still came back [MOTION] until that branch was fixed too). The classifier now loads intent_classify from config for the query and motion rules, and every keyword test in both branches (config lists and the reflex reply's query/status/identity/motion/recompile/mission/solve) goes through contains_phrase, a whole-word matcher. Tests: whole-word matching (architecture and 'who am i' match; promotion and emotions do not) and config-driven classification (architecture -> MOTION, status -> QUERY, promotion not MOTION). Note: the classification test runs against whatever plane bus is reachable, which on this host included the live daemon. cargo test -p susi-gawd intent_classify (2 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

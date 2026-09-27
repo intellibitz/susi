@@ -197,25 +197,25 @@ impl SusiAdmin {
     pub fn classify_natural_intent(workspace: &Path, intent: &str) -> (&'static str, &'static str) {
         let trimmed = intent.trim();
         let lower = trimmed.to_lowercase();
-
-        if lower == "identity"
-            || lower == "status"
-            || lower == "models"
-            || lower == "version"
-            || lower == "ls"
-            || lower.starts_with("ls ")
-            || lower == "dir"
-            || lower.contains("who am i")
-            || lower.contains("whoami")
-            || lower.starts_with("susi status")
-            || lower.starts_with("susi identity")
-            || lower.starts_with("susi models")
+        // Mandate 35: the keyword lists live in config (`intent_classify`);
+        // this function used to hard-code a copy while the config went
+        // unread. `contains` entries match whole words, so "promotion" or
+        // "emotion" is not a MOTION intent.
+        let rules = crate::susi_sandbox::manager::SusiConfig::load_global()
+            .unwrap_or_default()
+            .intent_classify();
+        let has_word = |phrase: &String| contains_phrase(&lower, &phrase.to_lowercase());
+        if rules.query_exact.iter().any(|q| lower == q.to_lowercase())
+            || rules
+                .query_prefixes
+                .iter()
+                .any(|p| lower.starts_with(&p.to_lowercase()))
+            || rules.query_contains.iter().any(has_word)
         {
             return ("[QUERY]", "Zero-Mutation Interrogation");
         }
 
-        if lower.contains("motion") || lower.contains("architecture") || lower.contains("hardcode")
-        {
+        if rules.motion_contains.iter().any(has_word) {
             return ("[MOTION]", "Architectural Evolution");
         }
 
@@ -224,14 +224,20 @@ impl SusiAdmin {
             let reflex_lower = reflex_action.to_lowercase();
             if reflex_action.is_empty() {
                 // fall through
-            } else if reflex_lower.contains("query")
-                || reflex_lower.contains("status")
-                || reflex_lower.contains("identity")
+            } else if ["query", "status", "identity"]
+                .iter()
+                .any(|w| contains_phrase(&reflex_lower, w))
             {
                 return ("[QUERY]", "Zero-Mutation Interrogation");
-            } else if reflex_lower.contains("motion") || reflex_lower.contains("recompile") {
+            } else if ["motion", "recompile"]
+                .iter()
+                .any(|w| contains_phrase(&reflex_lower, w))
+            {
                 return ("[MOTION]", "Architectural Evolution");
-            } else if reflex_lower.contains("mission") || reflex_lower.contains("solve") {
+            } else if ["mission", "solve"]
+                .iter()
+                .any(|w| contains_phrase(&reflex_lower, w))
+            {
                 return ("[MISSION]", "Dynamic Task Fulfillment");
             }
         }
@@ -316,5 +322,50 @@ impl SusiAdmin {
         Ok(format!(
             "Intent ingested successfully as {prefix} into sovereign memory"
         ))
+    }
+}
+/// Whether `phrase` occurs in `text` as whole words (bounded by
+/// non-alphanumeric characters or the text's ends).
+fn contains_phrase(text: &str, phrase: &str) -> bool {
+    !phrase.is_empty()
+        && text.match_indices(phrase).any(|(i, _)| {
+            let before = text[..i].chars().next_back();
+            let after = text[i + phrase.len()..].chars().next();
+            before.is_none_or(|c| !c.is_alphanumeric())
+                && after.is_none_or(|c| !c.is_alphanumeric())
+        })
+}
+
+#[cfg(test)]
+mod intent_classify_tests {
+    use super::{contains_phrase, SusiAdmin};
+
+    #[test]
+    fn keywords_match_whole_words_only() {
+        assert!(contains_phrase(
+            "rework the architecture now",
+            "architecture"
+        ));
+        assert!(contains_phrase("motion", "motion"));
+        assert!(contains_phrase("run who am i here", "who am i"));
+        assert!(!contains_phrase("draft a promotion plan", "motion"));
+        assert!(!contains_phrase("track user emotions", "motion"));
+    }
+
+    #[test]
+    fn config_lists_drive_classification() {
+        let ws = std::env::temp_dir();
+        assert_eq!(
+            SusiAdmin::classify_natural_intent(&ws, "refactor the architecture").0,
+            "[MOTION]"
+        );
+        assert_eq!(
+            SusiAdmin::classify_natural_intent(&ws, "status").0,
+            "[QUERY]"
+        );
+        assert_ne!(
+            SusiAdmin::classify_natural_intent(&ws, "draft a promotion plan").0,
+            "[MOTION]"
+        );
     }
 }

@@ -203,6 +203,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
 | Bloat audit | `susi bloat-audit` scans every non-test Rust source in the workspace; last measured: 407 files, ~107k lines, 9 `unwrap`, 22 `expect`, 18 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
+| Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists, matched as whole words |
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 119 `susi-daemon` modules are wired into a production path; 88 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
