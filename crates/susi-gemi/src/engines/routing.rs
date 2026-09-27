@@ -46,14 +46,22 @@ pub struct ProviderCooldown {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlacementContract {
     pub schema: String,
+    pub decision_id: String,
     pub decided_at_unix: u64,
 }
 
 impl PlacementContract {
     fn now() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let decided_at_unix = now_unix();
         Self {
             schema: "susi/placement/v1".to_string(),
-            decided_at_unix: now_unix(),
+            decision_id: format!(
+                "placement-{}-{decided_at_unix}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ),
+            decided_at_unix,
         }
     }
 }
@@ -1521,11 +1529,16 @@ mod tests {
 
     #[test]
     fn placement_contract_is_versioned_and_timestamped() {
-        let decision = InferenceRouter::plan_placement_for(&[], Some("text"), None, false);
-        assert_eq!(decision.contract.schema, "susi/placement/v1");
-        assert!(decision.contract.decided_at_unix > 0);
-        let encoded = serde_json::to_value(decision).unwrap();
+        let first = InferenceRouter::plan_placement_for(&[], Some("text"), None, false);
+        let second = InferenceRouter::plan_placement_for(&[], Some("text"), None, false);
+        assert_eq!(first.contract.schema, "susi/placement/v1");
+        assert!(first.contract.decided_at_unix > 0);
+        assert_ne!(first.contract.decision_id, second.contract.decision_id);
+        let encoded = serde_json::to_value(first).unwrap();
         assert_eq!(encoded["contract"]["schema"], "susi/placement/v1");
+        assert!(encoded["contract"]["decision_id"]
+            .as_str()
+            .is_some_and(|value| value.starts_with("placement-")));
     }
 
     #[test]
