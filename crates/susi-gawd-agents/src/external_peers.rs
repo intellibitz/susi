@@ -86,50 +86,65 @@ fn run_peer_process(
     workspace: &Path,
     timeout: Duration,
 ) -> EaiResult<String> {
-    let bin = bin.to_path_buf();
     let bin_label = bin.display().to_string();
-    let args = args.to_vec();
-    let workspace = workspace.to_path_buf();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let result = Command::new(&bin)
-            .args(&args)
-            .envs(crate::susi_config::cloud_env_overlay())
-            .current_dir(&workspace)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output();
-        let _ = tx.send(result);
-    });
-    match rx.recv_timeout(timeout) {
-        Ok(Ok(output)) => {
-            let mut text = String::new();
-            if !output.stdout.is_empty() {
-                text.push_str(&String::from_utf8_lossy(&output.stdout));
+    let mut child = Command::new(bin)
+        .args(args)
+        .envs(crate::susi_config::cloud_env_overlay())
+        .current_dir(workspace)
+        // A CLI that prompts must see EOF, not wait on our terminal.
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| EaiError::process(format!("external peer spawn failed: {e}")))?;
+    // Drain both pipes concurrently so a chatty child never blocks on a
+    // full pipe while we wait for it.
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = std::io::Read::read_to_end(&mut pipe, &mut buf);
             }
-            if !output.stderr.is_empty() {
-                if !text.is_empty() {
-                    text.push('\n');
-                }
-                text.push_str(&String::from_utf8_lossy(&output.stderr));
+            buf
+        })
+    };
+    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _));
+    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _));
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(25));
             }
-            let text = SecurityDetector::redact(&text);
-            if output.status.success() {
-                Ok(text)
-            } else {
-                Err(EaiError::process(format!(
-                    "external peer exited {}: {text}",
-                    output.status
-                )))
+            Ok(None) | Err(_) => {
+                // Timed out (or lost track of it): the peer must not outlive
+                // the call — it may be spending API credits.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(EaiError::process(format!(
+                    "external peer timed out after {}s ({bin_label}); process killed",
+                    timeout.as_secs()
+                )));
             }
         }
-        Ok(Err(e)) => Err(EaiError::process(format!(
-            "external peer spawn failed: {e}"
-        ))),
-        Err(_) => Err(EaiError::process(format!(
-            "external peer timed out after {}s ({bin_label})",
-            timeout.as_secs()
-        ))),
+    };
+    let join = |h: std::thread::JoinHandle<Vec<u8>>| h.join().unwrap_or_default();
+    let (out, err) = (join(stdout), join(stderr));
+    let mut text = String::from_utf8_lossy(&out).into_owned();
+    if !err.is_empty() {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&String::from_utf8_lossy(&err));
+    }
+    let text = SecurityDetector::redact(&text);
+    if status.success() {
+        Ok(text)
+    } else {
+        Err(EaiError::process(format!(
+            "external peer exited {status}: {text}"
+        )))
     }
 }
 
@@ -425,6 +440,28 @@ pub fn register_external_peer_factories(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn timed_out_peers_are_killed_not_orphaned() {
+        let marker = format!("37.{}", std::process::id() % 1000);
+        let started = std::time::Instant::now();
+        let err = run_peer_process(
+            Path::new("/bin/sleep"),
+            std::slice::from_ref(&marker),
+            &std::env::temp_dir(),
+            Duration::from_millis(200),
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("killed"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        let survivor = std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
+            std::fs::read(e.path().join("cmdline"))
+                .map(|c| String::from_utf8_lossy(&c).replace('\0', " "))
+                .is_ok_and(|c| c.trim_end() == format!("/bin/sleep {marker}"))
+        });
+        assert!(!survivor, "timed-out peer process survived");
+    }
     use crate::agents::HighDensityContextStore;
 
     fn cli_spec(name: &str) -> ExternalPeerAgentSpec {
