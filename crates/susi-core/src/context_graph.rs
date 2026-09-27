@@ -1240,8 +1240,14 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn replay_refolds_a_log_replaced_by_a_sibling_compaction() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("context_graph.jsonl");
+        let dir = std::env::temp_dir().join(format!(
+            "susi-cg-replaced-{}-{}",
+            std::process::id(),
+            ContextGraph::now()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("context_graph.jsonl");
         let node = |key: &str, label: &str| {
             let mut line = serde_json::to_string(&ContextGraphEvent::NodeAdded(Node {
                 id: NodeId::stable("external", key),
@@ -1268,13 +1274,14 @@ mod tests {
             node("c", "c")
         );
         assert!(replacement.len() as u64 > cursor);
-        let staged = dir.path().join("staged.jsonl");
+        let staged = dir.join("staged.jsonl");
         std::fs::write(&staged, replacement).unwrap();
         std::fs::rename(&staged, &path).unwrap();
 
         g.replay().unwrap();
         assert!(g.node(&NodeId::stable("external", "b")).is_some());
         assert!(g.node(&NodeId::stable("external", "c")).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
