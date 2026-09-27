@@ -1226,6 +1226,10 @@ fn build_streaming_response(
 fn add_placement_header(response: &mut Response<BoxBody>, target: &str) {
     if let Ok(value) = HeaderValue::from_str(target) {
         response.headers_mut().insert("X-Susi-Placement", value);
+        response.headers_mut().insert(
+            "Access-Control-Expose-Headers",
+            HeaderValue::from_static("X-Susi-Placement"),
+        );
     }
 }
 
@@ -1947,6 +1951,13 @@ mod tests {
                 .get("X-Susi-Placement")
                 .and_then(|value| value.to_str().ok()),
             Some("cloud")
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("Access-Control-Expose-Headers")
+                .and_then(|value| value.to_str().ok()),
+            Some("X-Susi-Placement")
         );
     }
 
