@@ -773,18 +773,11 @@ pub fn save_term(state: &TermState) -> EaiResult<()> {
 }
 
 /// Test seam: persist term state to an explicit path.
-pub fn save_term_to(path: &PathBuf, state: &TermState) -> EaiResult<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)
-            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
-    }
-    let tmp = path.with_extension("json.tmp");
+pub fn save_term_to(path: &Path, state: &TermState) -> EaiResult<()> {
     let body = serde_json::to_string(state)
         .map_err(|e| EaiError::internal(format!("serialize term state: {e}")))?;
-    fs::write(&tmp, body)
-        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", tmp.display())))?;
-    fs::rename(&tmp, path)
-        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", path.display())))
+    crate::susi_config::atomic_write_bytes(path, body.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", path.display())))
 }
 
 /// Serializes term read-modify-write sequences (claim + adopt) within
@@ -890,7 +883,7 @@ pub fn claim_leadership(leader: &str) -> u64 {
 }
 
 /// Test seam: claim leadership against an explicit term file.
-pub fn claim_leadership_at(path: &PathBuf, leader: &str) -> u64 {
+pub fn claim_leadership_at(path: &Path, leader: &str) -> u64 {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Serialize the read-modify-write across processes. On lock failure we
     // decline the claim entirely and return the persisted term — the
@@ -940,7 +933,7 @@ pub fn check_term(record: &CommitRecord) -> TermVerdict {
 }
 
 /// Test seam: `check_term` against an explicit term file.
-pub fn check_term_at(path: &PathBuf, record: &CommitRecord) -> TermVerdict {
+pub fn check_term_at(path: &Path, record: &CommitRecord) -> TermVerdict {
     let _g = TERM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // Same cross-process serialization as claim_leadership_at — term
     // adoption is a read-modify-write and must not interleave a claim.
@@ -1269,7 +1262,7 @@ pub fn compact() -> EaiResult<usize> {
 }
 
 /// Test seam: compact explicit paths.
-pub fn compact_at(ledger: &PathBuf, snapshot: &PathBuf, archive: &PathBuf) -> EaiResult<usize> {
+pub fn compact_at(ledger: &Path, snapshot: &Path, archive: &Path) -> EaiResult<usize> {
     let _g = APPEND_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let Some(_file_lock) = ledger
         .parent()
@@ -1343,11 +1336,8 @@ pub fn compact_at(ledger: &PathBuf, snapshot: &PathBuf, archive: &PathBuf) -> Ea
     };
     let snap_text = serde_json::to_string_pretty(&snap)
         .map_err(|e| EaiError::internal(format!("serialize ledger snapshot: {e}")))?;
-    let snap_tmp = snapshot.with_extension("tmp");
-    fs::write(&snap_tmp, snap_text)
-        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", snap_tmp.display())))?;
-    fs::rename(&snap_tmp, snapshot)
-        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", snap_tmp.display())))?;
+    crate::susi_config::atomic_write_bytes(snapshot, snap_text.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", snapshot.display())))?;
     let live: String = records
         .iter()
         .enumerate()
@@ -1355,11 +1345,8 @@ pub fn compact_at(ledger: &PathBuf, snapshot: &PathBuf, archive: &PathBuf) -> Ea
         .filter_map(|(_, r)| serde_json::to_string(r).ok())
         .map(|l| format!("{l}\n"))
         .collect();
-    let live_tmp = ledger.with_extension("tmp");
-    fs::write(&live_tmp, live)
-        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", live_tmp.display())))?;
-    fs::rename(&live_tmp, ledger)
-        .map_err(|e| EaiError::filesystem(format!("rename {}: {e}", live_tmp.display())))?;
+    crate::susi_config::atomic_write_bytes(ledger, live.as_bytes())
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", ledger.display())))?;
     Ok(archived.len())
 }
 

@@ -97,14 +97,9 @@ fn now_nanos() -> u128 {
 }
 
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("broker dir {}: {e}", parent.display()))?;
-    }
     let bytes = serde_json::to_vec(value).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("broker write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("broker rename {}: {e}", path.display()))
+    crate::susi_config::atomic_write_bytes(path, &bytes)
+        .map_err(|e| format!("broker write {}: {e}", path.display()))
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
