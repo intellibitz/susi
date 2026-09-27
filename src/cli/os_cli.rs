@@ -240,6 +240,7 @@ fn route(json: bool) -> Result<()> {
         "model:     {}",
         decision.local_model.as_deref().unwrap_or("auto-select")
     );
+    println!("ready:     {}", decision.local_ready);
     println!("reason:    {}", decision.reason);
     println!("clouds:    {}", decision.cloud_candidates.len());
     Ok(())

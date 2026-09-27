@@ -48,6 +48,7 @@ pub struct PlacementDecision {
     pub reason: String,
     pub policy: String,
     pub local_model: Option<String>,
+    pub local_ready: bool,
     pub local_stats: LocalInferenceStats,
     pub cloud_candidates: Vec<String>,
 }
@@ -559,16 +560,38 @@ impl InferenceRouter {
             && !profile.gpu_info.to_ascii_lowercase().contains("metal")
     }
 
+    fn local_artifact_ready(path: &std::path::Path, minimum_bytes: u64) -> bool {
+        use std::io::Read;
+
+        if !path
+            .metadata()
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() >= minimum_bytes)
+        {
+            return false;
+        }
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return false;
+        };
+        let mut magic = [0_u8; 4];
+        file.read_exact(&mut magic).is_ok() && &magic == b"GGUF"
+    }
+
+    fn local_model_ready(model: Option<&str>, cfg: &SusiConfig) -> bool {
+        model
+            .and_then(crate::models::ModelManager::get_model_path)
+            .is_some_and(|path| Self::local_artifact_ready(&path, cfg.model_file_min_bytes()))
+    }
+
     /// Produce the placement decision used by live inference. The result is
     /// deliberately serializable so CLI, MCP, and control-plane surfaces can
     /// explain *why* a request stays local or leaves the host.
     pub fn plan_placement(available_providers: &[String]) -> PlacementDecision {
-        let cfg = SusiConfig::load_global()
-            .unwrap_or_default()
-            .inference_routing();
+        let global_cfg = SusiConfig::load_global().unwrap_or_default();
+        let cfg = global_cfg.inference_routing();
         let pref = Self::load_preference();
         let policy = Self::effective_policy(&cfg, &pref);
         let local_model = crate::models::ModelManager::get_selected_model(None);
+        let local_ready = Self::local_model_ready(local_model.as_deref(), &global_cfg);
         let stats = Self::load_stats_for(local_model.as_deref().unwrap_or(""));
 
         // Hard edge-privacy gate: local_only MAC mode never escalates unless
@@ -580,6 +603,7 @@ impl InferenceRouter {
                 reason: "privacy policy blocks cloud inference".to_string(),
                 policy,
                 local_model,
+                local_ready,
                 local_stats: stats,
                 cloud_candidates: Vec::new(),
             };
@@ -596,11 +620,17 @@ impl InferenceRouter {
 
         if clouds.is_empty() {
             return PlacementDecision {
-                target: "local".to_string(),
+                target: if local_ready { "local" } else { "unavailable" }.to_string(),
                 provider: None,
-                reason: "no ready cloud provider is registered".to_string(),
+                reason: if local_ready {
+                    "no ready cloud provider is registered"
+                } else {
+                    "no ready local model or cloud provider is available"
+                }
+                .to_string(),
                 policy,
                 local_model,
+                local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
             };
@@ -620,6 +650,21 @@ impl InferenceRouter {
                 reason: reason.to_string(),
                 policy,
                 local_model,
+                local_ready,
+                local_stats: stats,
+                cloud_candidates: clouds,
+            };
+        }
+
+        if !local_ready {
+            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            return PlacementDecision {
+                target: "cloud".to_string(),
+                provider: Some(provider),
+                reason: "no ready local model is available".to_string(),
+                policy,
+                local_model,
+                local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
             };
@@ -635,6 +680,7 @@ impl InferenceRouter {
                 reason: "local inference is within policy thresholds".to_string(),
                 policy,
                 local_model,
+                local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
             };
@@ -656,6 +702,7 @@ impl InferenceRouter {
             reason,
             policy,
             local_model,
+            local_ready,
             local_stats: stats,
             cloud_candidates: clouds,
         }
@@ -799,6 +846,27 @@ impl InferenceRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_artifact_readiness_requires_size_and_gguf_magic() {
+        let root =
+            std::env::temp_dir().join(format!("susi-routing-artifact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let valid = root.join("valid.gguf");
+        let wrong = root.join("wrong.gguf");
+        std::fs::write(&valid, b"GGUFweights").unwrap();
+        std::fs::write(&wrong, b"NOPEweights").unwrap();
+
+        assert!(InferenceRouter::local_artifact_ready(&valid, 8));
+        assert!(!InferenceRouter::local_artifact_ready(&valid, 64));
+        assert!(!InferenceRouter::local_artifact_ready(&wrong, 8));
+        assert!(!InferenceRouter::local_artifact_ready(
+            &root.join("missing.gguf"),
+            1
+        ));
+        let _ = std::fs::remove_dir_all(root);
+    }
 
     #[test]
     fn cloud_name_detection() {
