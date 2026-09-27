@@ -279,6 +279,11 @@ impl SemanticIndex {
     /// Ensure every indexed doc has a stored embedding; embeds only docs not
     /// yet in `vectors.jsonl`. No-op-safe when the embedder can't load.
     fn ensure_embeddings(workspace: &Path) -> EaiResult<()> {
+        let susi_dir = workspace.join(".susi");
+        fs::create_dir_all(&susi_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let _embedding_lock =
+            crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "semantic_embeddings")
+                .ok_or_else(|| EaiError::filesystem("semantic embedding store is busy"))?;
         let mut wm = Self::load_watermark(workspace);
         let embedded: HashMap<String, ()> = wm.embedded.iter().cloned().map(|d| (d, ())).collect();
 
@@ -492,6 +497,19 @@ mod tests {
         let path = SemanticIndex::watermark_path(&ws);
         fs::create_dir_all(&path).unwrap();
         assert!(SemanticIndex::save_watermark(&ws, &Watermark::default()).is_err());
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn embedding_refresh_refuses_a_concurrent_store_writer() {
+        let ws = temp_workspace("embedding_lock");
+        let _lock = crate::susi_config::file_lock::FileLock::acquire(
+            &ws.join(".susi"),
+            "semantic_embeddings",
+        )
+        .unwrap();
+        let err = SemanticIndex::ensure_embeddings(&ws).unwrap_err();
+        assert!(err.to_string().contains("busy"), "{err}");
         let _ = fs::remove_dir_all(&ws);
     }
 }
