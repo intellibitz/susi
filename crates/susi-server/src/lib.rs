@@ -658,6 +658,11 @@ async fn handle_gemi_request(
                         .flatten()
                 })
                 .map(str::to_string);
+            let placement_target = placement
+                .get("target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string();
             let requested_model = completion.model.clone().or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
@@ -749,6 +754,7 @@ async fn handle_gemi_request(
                     Arc::clone(&workspace),
                     path == "/v1/completions",
                     permit,
+                    &placement_target,
                 ))
             } else {
                 let ws = (*workspace).clone();
@@ -821,7 +827,9 @@ async fn handle_gemi_request(
                 );
                 payload["usage"] =
                     estimated_usage(approx_tokens(&trimmed_prompt), approx_tokens(&body_text));
-                Ok(json_response(StatusCode::OK, &payload))
+                let mut response = json_response(StatusCode::OK, &payload);
+                add_placement_header(&mut response, &placement_target);
+                Ok(response)
             }
         }
         (&Method::OPTIONS, _) => {
@@ -1162,6 +1170,7 @@ fn build_streaming_response(
     workspace: Arc<PathBuf>,
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
+    placement_target: &str,
 ) -> Response<BoxBody> {
     let prompt_tokens = approx_tokens(&prompt);
     let rx = completion_stream(
@@ -1188,7 +1197,7 @@ fn build_streaming_response(
         ReceiverStream::new(rx).map(|chunk| Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))));
     let body = StreamBody::new(stream).boxed();
 
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))
         .header("Cache-Control", "no-cache")
@@ -1209,7 +1218,15 @@ fn build_streaming_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "failed to build response",
             )
-        })
+        });
+    add_placement_header(&mut response, placement_target);
+    response
+}
+
+fn add_placement_header(response: &mut Response<BoxBody>, target: &str) {
+    if let Ok(value) = HeaderValue::from_str(target) {
+        response.headers_mut().insert("X-Susi-Placement", value);
+    }
 }
 
 fn completion_id() -> String {
@@ -1918,6 +1935,19 @@ mod tests {
         assert!(placement_query(Some("surprise=true")).is_err());
         assert!(placement_query(Some("allow_cloud=no")).is_err());
         assert!(placement_query(Some("allow_cloud=true&allow_cloud=false")).is_err());
+    }
+
+    #[test]
+    fn placement_header_exposes_safe_target() {
+        let mut response = json_response(StatusCode::OK, &json!({}));
+        add_placement_header(&mut response, "cloud");
+        assert_eq!(
+            response
+                .headers()
+                .get("X-Susi-Placement")
+                .and_then(|value| value.to_str().ok()),
+            Some("cloud")
+        );
     }
 
     #[test]
