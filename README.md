@@ -141,7 +141,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back
-    through one transaction snapshot. Transaction ids are reserved on disk
+    through one transaction snapshot (the only workspace-rollback mechanism;
+    an unused whole-workspace copy routine was removed). Transaction ids are reserved on disk
     so concurrent processes never overwrite each other's rollback snapshots,
     and a transaction can only be closed against the workspace it snapshotted.
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.

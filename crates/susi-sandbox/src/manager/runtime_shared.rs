@@ -166,44 +166,6 @@ fn tail_lines(path: &Path, limit: usize) -> String {
     lines[start..].join("\n")
 }
 
-// === BACKUP MANAGER ===
-pub struct SusiBackupManager;
-
-impl SusiBackupManager {
-    pub fn backup_work(workspace: &Path) -> EaiResult<String> {
-        let backups_dir = workspace.join(".susi/backups");
-        let _ = fs::create_dir_all(&backups_dir);
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let backup_path = backups_dir.join(format!("backup_{}", ts));
-
-        Self::recursive_copy(workspace, &backup_path, &backups_dir)?;
-
-        Ok(format!("Backup created at {}", backup_path.display()))
-    }
-
-    fn recursive_copy(src: &Path, dst: &Path, exclude: &Path) -> EaiResult<()> {
-        if src == exclude {
-            return Ok(());
-        }
-
-        if src.is_dir() {
-            fs::create_dir_all(dst)?;
-            for entry in fs::read_dir(src)? {
-                let entry = entry?;
-                let path = entry.path();
-                let dest_path = dst.join(entry.file_name());
-                Self::recursive_copy(&path, &dest_path, exclude)?;
-            }
-        } else {
-            fs::copy(src, dst)?;
-        }
-        Ok(())
-    }
-}
-
 // === Intent Bundle Manager - Now 100% dynamic ===
 pub struct IntentBundleManager;
 

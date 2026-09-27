@@ -2490,6 +2490,16 @@
       "milestone": "RSI iteration 88/100: reading recent audit activity no longer loads the whole audit chain. read_audit_log (used by the drift audit's frequent-intent and bottleneck analysis and by the sovereign dashboard) read .susi/audit.log in full with read_to_string on every call, split it into lines, and kept the last N. The workspace audit log is an append-only HMAC chain that is never rotated, so the cost grew with the workspace's whole history, and one invalid UTF-8 byte anywhere made the call return an empty string, which callers render as 'no activity'. A new tail_lines reads backwards from the end in 64 KiB chunks only until it holds more than N newlines, and decodes lossily. A test writes an over-128 KiB log beginning with an invalid byte and proves the last three lines are exact and that a limit beyond the file returns all 10,001 lines with the invalid-byte line present. cargo test -p susi-sandbox audit_log_tail, -p susi-gawd evolution, -p susi-gmcp sovereign, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiBackupManager (removed)",
+        "ref": "file://crates/susi-sandbox/src/manager/runtime_shared.rs"
+      },
+      "id": "EV-2022927-255",
+      "milestone": "RSI iteration 89/100: an unused and hazardous workspace-backup routine is removed. SusiBackupManager::backup_work copied the entire workspace into .susi/backups/backup_<ts> with a recursive copy that followed symlinks (Path::is_dir follows them, so a link cycle recursed without bound and a link to an outside directory copied files from outside the workspace into it) and copied build output such as target/ in full. Nothing in the product called it: a repo-wide search found only its re-export in manager_shared.rs and one integration test (test_backup_logic) that exercised the function itself. The routine, its re-export, and that test are removed; workspace rollback remains TxManager's snapshot transactions. cargo test -p susi-sandbox (30 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

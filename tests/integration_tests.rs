@@ -121,23 +121,3 @@ fn test_reason_tool_rejects_exfiltration_pattern() {
     .unwrap_err();
     assert!(err.to_string().contains("exfiltration"), "{}", err);
 }
-
-#[test]
-fn test_backup_logic() {
-    let test_ws = std::env::temp_dir().join("susi_ws_backup");
-    let _ = fs::remove_dir_all(&test_ws);
-    let _ = fs::create_dir_all(&test_ws);
-
-    fs::write(test_ws.join("data.txt"), "substrate native context stream").unwrap();
-
-    let res = susi::sandbox::manager::SusiBackupManager::backup_work(&test_ws);
-    assert!(res.is_ok());
-
-    let backups_dir = test_ws.join(".susi/backups");
-    assert!(backups_dir.exists());
-
-    let entries = fs::read_dir(backups_dir).unwrap();
-    assert!(entries.count() > 0);
-
-    let _ = fs::remove_dir_all(&test_ws);
-}
