@@ -613,6 +613,7 @@ async fn handle_gemi_request(
                     "reason": "caller pinned model",
                     "requires": completion.requires.as_deref(),
                     "max_cost": completion.max_cost,
+                    "allow_cloud": completion.allow_cloud,
                 })
             } else {
                 gemi::ModelManager::placement(completion.requires.as_deref(), completion.max_cost)
@@ -1638,6 +1639,7 @@ struct CompletionInput {
     include_usage: bool,
     requires: Option<String>,
     max_cost: Option<f64>,
+    allow_cloud: bool,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1771,6 +1773,12 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         .map(|value| validated_max_cost(value.as_f64()))
         .transpose()
         .map_err(str::to_string)?;
+    let allow_cloud = match susi.and_then(|value| value.get("allow_cloud")) {
+        None => true,
+        Some(value) => value
+            .as_bool()
+            .ok_or("susi.allow_cloud must be a boolean")?,
+    };
     Ok(CompletionInput {
         prompt,
         stream,
@@ -1780,6 +1788,7 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         include_usage,
         requires,
         max_cost,
+        allow_cloud,
     })
 }
 
@@ -1878,16 +1887,24 @@ mod tests {
     #[test]
     fn completion_parses_susi_placement_constraints() {
         let input = parse_completion(
-            br#"{"messages":[{"role":"user","content":"describe image"}],"susi":{"requires":"vision","max_cost":0.01}}"#,
+            br#"{"messages":[{"role":"user","content":"describe image"}],"susi":{"requires":"vision","max_cost":0.01,"allow_cloud":false}}"#,
             false,
         )
         .unwrap();
         assert_eq!(input.requires.as_deref(), Some("vision"));
         assert_eq!(input.max_cost, Some(0.01));
+        assert!(!input.allow_cloud);
         assert!(
             parse_completion(
                 br#"{"messages":[{"role":"user","content":"hi"}],"susi":{"max_cost":-1}}"#,
                 false
+            )
+            .is_err()
+        );
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"susi":{"allow_cloud":"no"}}"#,
+                false,
             )
             .is_err()
         );
