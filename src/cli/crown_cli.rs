@@ -330,14 +330,32 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     out.push(evidence);
 
     // --- Swarm ---
+    // The detail used to assert every plane's handlers were registered
+    // while only GEMI's hardware answer was checked; check each plane.
     let swarm_cpus = profile.as_ref().map(|p| p.cpus).unwrap_or(0);
+    let bus = susi_core::plane_bus::PlaneBus::global();
+    let planes = [
+        ("GAWD", susi_core::plane_bus::topics::GAWD_SOLVE),
+        ("GEMI", susi_core::plane_bus::topics::GEMI_HARDWARE_PROFILE),
+        ("tools", susi_core::plane_bus::topics::TOOLS_EXECUTE),
+        ("agents", susi_core::plane_bus::topics::AGENTS_META_LIST),
+    ];
+    let unwired: Vec<&str> = planes
+        .iter()
+        .filter(|(_, topic)| !bus.is_wired(topic))
+        .map(|(plane, _)| *plane)
+        .collect();
     out.push(check(
         "swarm",
         true,
-        swarm_cpus > 0,
-        format!(
-            "plane bus gemi.hardware.profile answered ({swarm_cpus} cpus); GAWD/GEMI/tools/agents handlers registered"
-        ),
+        swarm_cpus > 0 && unwired.is_empty(),
+        if unwired.is_empty() {
+            format!(
+                "plane bus gemi.hardware.profile answered ({swarm_cpus} cpus); GAWD/GEMI/tools/agents handlers wired"
+            )
+        } else {
+            format!("plane handlers not wired: {}", unwired.join(", "))
+        },
     ));
 
     // --- Blackboard (round-trip in the scratch workspace, not the user's) ---

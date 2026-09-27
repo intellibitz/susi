@@ -2110,6 +2110,16 @@
       "milestone": "RSI iteration 50/100: a self-certifying 'compliance framework' is removed (Mandate 1). susi_gawd::compliance defined SusiCompliance with Swarm/RSI/AGI/Autonomous sections whose Default hard-coded every capability to true (AGI cross-domain reasoning, transfer learning, abstract thinking, creativity, common-sense reasoning; RSI self-modification and capability expansion; and so on), then validate() scored those constants and certificate() rendered a compliance certificate. No check inspected the running system, and nothing in the workspace called it (repo-wide search for every exported type found no user outside the file; README, ARCHITECTURE, identity, and roadmap do not cite it). It is deleted (431 lines), and the susi-gawd crate docs now describe the host layer's real compliance surface, the admin compliance audit. Found while extending the iteration-49 reachability pass beyond susi-daemon; that pass's other non-daemon hits (cloud_recovery, live_search, model_cache, pkb) were checked by hand and are real uses the script misses (calls from nested module directories and #[path] mounts), so no further change. cargo clippy --workspace --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "crown_cli::verify_all (swarm)",
+        "ref": "file://src/cli/crown_cli.rs"
+      },
+      "id": "EV-2022927-217",
+      "milestone": "RSI iteration 51/100: the crown's Swarm pillar now checks what its report claims. susi crown verify passed the critical 'swarm' USP whenever gemi.hardware.profile returned a CPU count, while its detail string asserted 'GAWD/GEMI/tools/agents handlers registered', which nothing checked; a composition that failed to wire the GAWD, tools, or agents plane still reported the Swarm pillar as holding. The check now also requires PlaneBus::is_wired for one representative topic per plane (gawd.mission.solve, gemi.hardware.profile, tools.registry.execute, agents.meta.list) and names any unwired plane in the detail. Verified with a live run of the debug binary from an empty directory: swarm holds with 'plane bus gemi.hardware.profile answered (28 cpus); GAWD/GEMI/tools/agents handlers wired' and all_critical_hold is true. cargo test --test crown_verify_tests and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
