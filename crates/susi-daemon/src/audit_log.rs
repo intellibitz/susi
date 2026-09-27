@@ -40,14 +40,19 @@ fn now() -> u64 {
 /// back to a process-local random key when no cluster key is available
 /// (e.g. an unwritable home directory) — still HMAC-sealed and internally
 /// consistent for this process's lifetime, just not verifiable against a
-/// restart that would regenerate the fallback.
-fn derive_mac_key() -> [u8; 32] {
+/// restart that would regenerate the fallback. With neither a cluster key
+/// nor OS entropy there is no key: grants are refused rather than sealed
+/// under a predictable one.
+fn derive_mac_key() -> Option<[u8; 32]> {
     if let Some(cluster) = crate::susi_config::cluster_key::cluster_key() {
-        return crate::susi_config::cluster_key::hmac_sha256(&cluster, AUDIT_KEY_LABEL);
+        return Some(crate::susi_config::cluster_key::hmac_sha256(
+            &cluster,
+            AUDIT_KEY_LABEL,
+        ));
     }
     let mut key = [0u8; 32];
-    let _ = getrandom::fill(&mut key);
-    key
+    getrandom::fill(&mut key).ok()?;
+    Some(key)
 }
 
 fn entry_mac(
@@ -66,7 +71,7 @@ fn entry_mac(
 }
 
 pub struct AuditLogger {
-    mac_key: [u8; 32],
+    mac_key: Option<[u8; 32]>,
     path: Option<PathBuf>,
     entries: RwLock<Vec<AuditEntry>>,
 }
@@ -88,10 +93,15 @@ impl AuditLogger {
 
     /// Appends a tamper-evident grant record, chaining it to the prior entry.
     pub fn log_grant(&self, cell_id: &str, capability: &str) -> Result<(), EaiError> {
+        let Some(mac_key) = &self.mac_key else {
+            return Err(EaiError::internal(
+                "grant audit has no MAC key (no cluster key, no OS entropy); refusing unsealed grant",
+            ));
+        };
         let mut entries = self.entries.write().unwrap_or_else(|e| e.into_inner());
         let prev_mac = entries.last().map(|e| e.mac).unwrap_or([0u8; 32]);
         let ts = now();
-        let mac = entry_mac(&self.mac_key, cell_id, capability, ts, &prev_mac);
+        let mac = entry_mac(mac_key, cell_id, capability, ts, &prev_mac);
 
         if let Some(path) = &self.path {
             let line = format!("{ts}\t{cell_id}\t{capability}\t{}\n", hex::encode(mac));
@@ -117,6 +127,9 @@ impl AuditLogger {
     /// Recomputes the HMAC chain over the in-memory log, returning `false`
     /// the instant a link is inconsistent with its recorded fields.
     pub fn verify_chain(&self) -> bool {
+        let Some(mac_key) = &self.mac_key else {
+            return false;
+        };
         let entries = self.entries.read().unwrap_or_else(|e| e.into_inner());
         let mut prev_mac = [0u8; 32];
         for entry in entries.iter() {
@@ -124,7 +137,7 @@ impl AuditLogger {
                 return false;
             }
             if entry_mac(
-                &self.mac_key,
+                mac_key,
                 &entry.cell_id,
                 &entry.capability,
                 entry.ts,
@@ -169,6 +182,18 @@ mod tests {
         // Reach into the log (same-crate test module) and corrupt a field
         // without recomputing its MAC, simulating a tampered record.
         logger.entries.write().unwrap()[0].capability = "filesystem.write".to_string();
+        assert!(!logger.verify_chain());
+    }
+
+    #[test]
+    fn keyless_logger_refuses_grants_instead_of_sealing_with_a_guessable_key() {
+        let logger = AuditLogger {
+            mac_key: None,
+            path: None,
+            entries: RwLock::new(Vec::new()),
+        };
+        assert!(logger.log_grant("cell-a", "filesystem.read").is_err());
+        assert!(logger.is_empty());
         assert!(!logger.verify_chain());
     }
 

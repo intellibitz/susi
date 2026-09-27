@@ -350,15 +350,17 @@ pub(crate) fn enc(key: &str) -> String {
 
 /// The bus secret shared by every process of one substrate: `<bus>/secret`,
 /// created once (exclusive create, owner-only on Unix) and read by later
-/// processes. Without a bus dir the secret is process-local.
+/// processes. Without a bus dir the secret is process-local. Without OS
+/// entropy no secret is minted: the empty secret matches no presented key,
+/// so the bus refuses remote calls instead of accepting a guessable one.
 fn bus_secret(bus_dir: Option<&Path>) -> String {
     let fresh = || {
         let mut raw = [0u8; 32];
-        let _ = getrandom::fill(&mut raw);
-        raw.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        getrandom::fill(&mut raw).ok()?;
+        Some(raw.iter().map(|b| format!("{b:02x}")).collect::<String>())
     };
     let Some(dir) = bus_dir else {
-        return fresh();
+        return fresh().unwrap_or_default();
     };
     let path = dir.join("secret");
     let read = || {
@@ -371,7 +373,9 @@ fn bus_secret(bus_dir: Option<&Path>) -> String {
         return existing;
     }
     let _ = std::fs::create_dir_all(dir);
-    let candidate = fresh();
+    let Some(candidate) = fresh() else {
+        return read().unwrap_or_default();
+    };
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
