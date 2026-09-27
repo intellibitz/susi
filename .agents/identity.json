@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; configuration-gated native distillation consumes validated workspace experience (non-empty intent plus exact registered action), is cross-process serialized, resumes from globally published weights, and surfaces staging, training, and consumed-sample retirement failures instead of reporting false success.",
+      "summary": "Wasm under the data dir; configuration-gated native distillation learns intent/action pairs only from successful tool receipts, validates exact registered actions, is cross-process serialized, resumes from globally published weights, and surfaces persistence/training failures.",
       "title": "Reflexes"
     },
     {

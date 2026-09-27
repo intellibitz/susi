@@ -128,7 +128,7 @@ impl SusiRuntimeAdmin {
     /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
     fn consolidate_sovereign_memory(workspace: &Path) -> EaiResult<()> {
         info!("[Sovereign Mind] Consolidating mission experience into PKB...");
-        let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_recent_interactions(workspace);
+        let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_verified_receipts(workspace);
         Ok(())
     }
 

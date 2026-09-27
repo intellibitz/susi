@@ -1650,6 +1650,16 @@
       "milestone": "RSI iteration 4/100: reflex training corpus validation now fails closed before tensor construction or checkpoint publication. Previously malformed JSONL records were silently skipped, empty corpora still trained on synthetic seeds, and unknown action text was assigned to the lexicographically last dynamic intent, poisoning the classifier with fabricated labels. Every record must now be valid JSON, carry a non-empty intent, and name one exact registered action case-insensitively; malformed, blank, empty, and unknown-action corpora return an error and remain staged for diagnosis. Regression tests prove malformed records retain line attribution, substring guesses are rejected, and canonical case-insensitive actions map to the correct label. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ProtocolKnowledgeBase::consolidate_verified_receipts",
+        "ref": "symbol://ProtocolKnowledgeBase::consolidate_verified_receipts"
+      },
+      "id": "EV-2022927-171",
+      "milestone": "RSI iteration 5/100: reflex-label provenance now comes from successful execution receipts rather than model answer prose. The previous consolidator copied memory.jsonl outcome text into the action field, even though outcomes are free-form answers and no downstream evidence proves they name an executed action; the classifier therefore learned fabricated labels (or, after iteration 4, rejected every such record). Consolidation now reads the append-only receipt archive, stages only successful records with non-empty mission_goal and tool fields, uses the receipt's tool as the canonical action, and preserves receipt_id/output_hash provenance in metadata. Malformed archive records fail closed with a line number. A regression test proves a successful list_directory receipt is staged with provenance while an unsuccessful write_file receipt is excluded. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
