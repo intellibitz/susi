@@ -1670,6 +1670,16 @@
       "milestone": "RSI iteration 6/100: corrected iteration 5's incomplete intent provenance after auditing the real ArchivedReceipt schema. Receipt archives stored only mission_goal_hash, so a consolidator expecting mission_goal text could never stage production data. EvidenceSession now supplies its credential-redacted mission text to ReceiptArchive alongside the unchanged hash of the original goal; ArchivedReceipt carries it as an additive optional training_intent so legacy v1 lines remain readable. PKB consolidation uses ReceiptArchive::load_audit_lines rather than reading only the live file, covering all retained generations, and excludes legacy records that cannot prove their training intent. Tests verify the capture boundary persists the redacted training intent, successful receipt pairing, unsuccessful exclusion, and safe legacy-record handling. This entry explicitly supersedes EV-2022927-171's unsupported implication that the pre-existing receipt schema contained mission_goal text. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ReceiptArchive::append_training_sample",
+        "ref": "symbol://ReceiptArchive::append_training_sample"
+      },
+      "id": "EV-2022927-173",
+      "milestone": "RSI iteration 7/100: receipt-backed training ingestion is now event-driven and non-replaying. Periodic consolidation reread every retained receipt on every daemon cycle, amplifying old examples and requiring another cursor ledger. The duplicate scan path is removed: after a successful receipt archive append, that same capture operation stages exactly one complete JSONL training record under a dedicated cross-process lock; unsuccessful receipts, empty intents, and empty tool names do not stage. The record carries the redacted live mission, executed tool, receipt id, and output hash. PKB retains only its explicit staging API; daemon consolidation no longer scans history. The receipt-capture regression test proves the archive and one matching staged sample are produced together. This supersedes EV-2022927-172's retained-generation consolidation design while preserving its redacted intent field for audit. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

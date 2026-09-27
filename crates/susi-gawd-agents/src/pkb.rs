@@ -34,31 +34,6 @@ impl ProtocolKnowledgeBase {
         file.write_all(&line)?;
         Ok(())
     }
-
-    /// Stages successful, receipt-backed tool executions as classifier pairs.
-    pub fn consolidate_verified_receipts(workspace: &Path) -> EaiResult<usize> {
-        let mut count = 0;
-        for entry in crate::susi_core::receipt_archive::ReceiptArchive::load_audit_lines(workspace)
-        {
-            let intent = entry.training_intent.as_deref().unwrap_or("").trim();
-            let action = entry.tool.trim();
-            let successful = entry.successful;
-            if successful && !intent.is_empty() && !action.is_empty() {
-                Self::stage_distillation_pair(
-                    intent,
-                    action,
-                    workspace,
-                    Some(serde_json::json!({
-                        "source": "tool_receipt",
-                        "receipt_id": entry.receipt_id,
-                        "output_hash": entry.output_hash,
-                    })),
-                )?;
-                count += 1;
-            }
-        }
-        Ok(count)
-    }
 }
 
 #[cfg(test)]
@@ -77,47 +52,5 @@ mod tests {
         )
         .is_err());
         let _ = std::fs::remove_dir_all(workspace);
-    }
-
-    #[test]
-    fn consolidation_uses_only_successful_receipt_backed_actions() {
-        let dir = tempfile::tempdir().unwrap();
-        let susi_dir = dir.path().join(".susi");
-        std::fs::create_dir_all(&susi_dir).unwrap();
-        std::fs::write(
-            susi_dir.join("receipt_archive.jsonl"),
-            concat!(
-                "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s1\",\"mission_goal_hash\":\"mh1\",\"training_intent\":\"inspect repo\",\"receipt_id\":\"r1\",\"tool\":\"list_directory\",\"arguments\":\"{}\",\"observed_at\":1,\"output_hash\":\"h1\",\"successful\":true,\"archived_at\":1}\n",
-                "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s2\",\"mission_goal_hash\":\"mh2\",\"training_intent\":\"delete repo\",\"receipt_id\":\"r2\",\"tool\":\"write_file\",\"arguments\":\"{}\",\"observed_at\":2,\"output_hash\":\"h2\",\"successful\":false,\"archived_at\":2}\n"
-            ),
-        )
-        .unwrap();
-
-        assert_eq!(
-            ProtocolKnowledgeBase::consolidate_verified_receipts(dir.path()).unwrap(),
-            1
-        );
-        let staged = std::fs::read_to_string(susi_dir.join("distillation_staged.jsonl")).unwrap();
-        let record: serde_json::Value = serde_json::from_str(staged.trim()).unwrap();
-        assert_eq!(record["intent"], "inspect repo");
-        assert_eq!(record["action"], "list_directory");
-        assert_eq!(record["performance_metadata"]["receipt_id"], "r1");
-    }
-
-    #[test]
-    fn consolidation_ignores_legacy_receipts_without_training_intent() {
-        let dir = tempfile::tempdir().unwrap();
-        let susi_dir = dir.path().join(".susi");
-        std::fs::create_dir_all(&susi_dir).unwrap();
-        std::fs::write(
-            susi_dir.join("receipt_archive.jsonl"),
-            "{\"schema\":\"susi/receipt_archive/v1\",\"kind\":\"tool_receipt\",\"session_id\":\"s1\",\"mission_goal_hash\":\"mh1\",\"receipt_id\":\"r1\",\"tool\":\"status\",\"arguments\":\"{}\",\"observed_at\":1,\"output_hash\":\"h1\",\"successful\":true,\"archived_at\":1}\n",
-        )
-        .unwrap();
-        assert_eq!(
-            ProtocolKnowledgeBase::consolidate_verified_receipts(dir.path()).unwrap(),
-            0
-        );
-        assert!(!susi_dir.join("distillation_staged.jsonl").exists());
     }
 }

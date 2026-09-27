@@ -94,7 +94,43 @@ impl ReceiptArchive {
         };
         Self::rotate_if_large(&path);
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
-            let _ = file.write_all(format!("{line}\n").as_bytes());
+            let mut bytes = line.into_bytes();
+            bytes.push(b'\n');
+            if file.write_all(&bytes).is_ok() && receipt.successful {
+                Self::append_training_sample(parent, training_intent, receipt);
+            }
+        }
+    }
+
+    fn append_training_sample(dir: &Path, training_intent: &str, receipt: &ToolReceipt) {
+        if training_intent.trim().is_empty() || receipt.tool.trim().is_empty() {
+            return;
+        }
+        let record = serde_json::json!({
+            "intent": training_intent,
+            "action": receipt.tool,
+            "timestamp": receipt.observed_at,
+            "performance_metadata": {
+                "source": "tool_receipt",
+                "receipt_id": receipt.id,
+                "output_hash": receipt.output_hash,
+            },
+        });
+        let Ok(mut bytes) = serde_json::to_vec(&record) else {
+            return;
+        };
+        bytes.push(b'\n');
+        let Some(_lock) =
+            crate::susi_core::commit_log::FileLock::acquire(dir, "distillation_staged")
+        else {
+            return;
+        };
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(dir.join("distillation_staged.jsonl"))
+        {
+            let _ = file.write_all(&bytes);
         }
     }
 
@@ -224,6 +260,14 @@ mod tests {
         assert_eq!(lines[0].training_intent.as_deref(), Some("archive-mission"));
         assert_eq!(lines[0].output_hash.len(), 64);
         assert!(lines[0].successful);
+        let staged = std::fs::read_to_string(ws.0.join(".susi/distillation_staged.jsonl")).unwrap();
+        let sample: serde_json::Value = serde_json::from_str(staged.trim()).unwrap();
+        assert_eq!(sample["intent"], "archive-mission");
+        assert_eq!(sample["action"], "exec_command");
+        assert_eq!(
+            sample["performance_metadata"]["receipt_id"],
+            lines[0].receipt_id
+        );
         let raw = std::fs::read_to_string(ReceiptArchive::path(&ws.0)).unwrap();
         assert!(!raw.contains("Linux host"));
     }

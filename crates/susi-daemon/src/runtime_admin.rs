@@ -48,7 +48,6 @@ impl SusiRuntimeAdmin {
                 if last_pulse.elapsed() > Duration::from_secs(3600) {
                     let _ = Self::perform_substrate_audit(&home);
                     let _ = Self::perform_host_readiness(&home);
-                    let _ = Self::consolidate_sovereign_memory(&home);
                     last_pulse = std::time::Instant::now();
                 }
 
@@ -123,13 +122,6 @@ impl SusiRuntimeAdmin {
             ttl_ms: 60_000,
             deposited_at: now_secs(),
         });
-    }
-
-    /// Autonomous Memory Consolidation: Distills recent missions into the PKB.
-    fn consolidate_sovereign_memory(workspace: &Path) -> EaiResult<()> {
-        info!("[Sovereign Mind] Consolidating mission experience into PKB...");
-        let _ = susi_gawd::pkb::ProtocolKnowledgeBase::consolidate_verified_receipts(workspace);
-        Ok(())
     }
 
     /// Best-effort local scan of `substrate_home` for exfiltration risk:
