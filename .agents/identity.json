@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt samples use a workspace training lease plus atomic claim/restore, recover crash-orphans oldest-first, and train into hash-bound immutable active/last-known-good generations with corruption failover.",
+      "summary": "Wasm under the data dir; receipt staging is observable in audits and training reports, claims drop torn lines and train only at a real sample threshold, crash-orphans recover oldest-first, and weights publish as hash-bound active/last-known-good generations.",
       "title": "Reflexes"
     },
     {

@@ -1760,6 +1760,36 @@
       "milestone": "RSI iteration 15/100: learning ingestion is now observable instead of best-effort and silent. Each archived receipt records whether its training sample was actually persisted to the staging buffer: `training_staged` is `Some(true)` when the sample was durably written, `Some(false)` when staging failed (lock acquisition, file open, or write), and `None` when no staging was attempted (unsuccessful receipt or empty intent/action). Failures now emit a typed `EaiError::io` that enters the `error_metrics.jsonl` sink instead of disappearing. The `ArchivedReceipt` field is additive with `#[serde(default)]` so older v1 records without it deserialize as `None`. Regression coverage proves: successful staging records `true`, unsuccessful receipts record `None` with no staging file, staging blocked by a directory-in-place records `false`, and v1 records without the field deserialize correctly. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ReceiptArchive::staging_health_summary",
+        "ref": "symbol://staging_health_summary"
+      },
+      "id": "EV-2022927-182",
+      "milestone": "RSI iteration 16/100: autonomous drift audits now report staging health. ReceiptArchive::staging_health_summary aggregates training_staged into staged-ok, failed, and not-attempted counts across the receipt archive, and EvolutionManager::perform_autonomous_drift_audit appends that one-line summary. Operators see systemic ingestion failures without scanning error_metrics.jsonl. StagingHealth is exported from susi-core and the embedded vendored surface. A regression test aggregates successful and unsuccessful receipts. This entry was recorded with iteration 18 because the producing commit landed without an evidence row. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ReflexTrainer::audit_distillation_state / force_train",
+        "ref": "symbol://audit_distillation_state"
+      },
+      "id": "EV-2022927-183",
+      "milestone": "RSI iteration 17/100: every reflex training report includes staging health. Both audit_distillation_state and force_train append the same one-line staging summary as the drift audit, including the idle path where the sample threshold was not met. Operators see whether capture succeeded next to the training outcome. This entry was recorded with iteration 18 because the producing commit landed without an evidence row. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "sanitize_claimed_buffer / claim_staged_samples",
+        "ref": "symbol://sanitize_claimed_buffer"
+      },
+      "id": "EV-2022927-184",
+      "milestone": "RSI iteration 18/100: a torn or blank line in a claimed training buffer no longer rejects the batch or inflates the threshold. After the atomic claim rename, SUSI keeps only complete JSON lines, records each drop through EaiError::io, and rewrites the claim. Survivors below the threshold are restored to the live buffer; a claim with nothing usable left is retired and the cycle stays idle instead of training a deleted file. Regression tests cover a torn tail plus a blank line, a below-threshold restore, and an all-malformed claim that leaves no reflex-claim directory. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

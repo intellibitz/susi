@@ -91,12 +91,75 @@ fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<
     std::fs::create_dir_all(&claim_dir)?;
     let path = claim_dir.join("distillation_staged.jsonl");
     std::fs::rename(&staged_path, &path)?;
-    Ok(Some(TrainingClaim {
+    // Sanitize the claimed buffer: a crash-interrupted append can leave a
+    // truncated trailing JSON line that causes parse_training_entries to
+    // reject the entire batch. Keep only lines that parse as valid JSON.
+    let validated = sanitize_claimed_buffer(&path)?;
+    let claim = TrainingClaim {
         root,
         path,
         staged_path,
-        sample_count,
-    }))
+        sample_count: validated,
+    };
+    if validated == 0 {
+        // Nothing trainable survived. Retire the claim so a missing file
+        // cannot fail distillation and then fail the restore.
+        retire_claim(&claim)?;
+        return Ok(None);
+    }
+    if validated < threshold {
+        // Torn lines inflated the pre-claim count. Put the survivors back
+        // so they accumulate toward the real threshold.
+        let bytes = std::fs::read(&claim.path)?;
+        crate::susi_config::atomic_write_bytes(&claim.staged_path, &bytes)?;
+        retire_claim(&claim)?;
+        return Ok(None);
+    }
+    Ok(Some(claim))
+}
+
+/// Rewrite a claimed staging file, keeping only complete JSON lines.
+/// Blank lines are dropped too: `parse_training_entries` rejects the whole
+/// batch on an empty record. Returns the validated line count. An entirely
+/// empty result removes the file and returns 0.
+fn sanitize_claimed_buffer(path: &Path) -> EaiResult<usize> {
+    let content = std::fs::read_to_string(path)?;
+    let mut valid = Vec::new();
+    let mut dropped = 0usize;
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            dropped += 1;
+            continue;
+        }
+        if serde_json::from_str::<serde_json::Value>(line).is_ok() {
+            valid.push(line);
+        } else {
+            dropped += 1;
+        }
+    }
+    if dropped == 0 {
+        return Ok(valid.len());
+    }
+    eprintln!(
+        "[Reflex Trainer] Sanitized claim: dropped {dropped} malformed line(s), {} valid samples retained.",
+        valid.len()
+    );
+    // Construction records the drop in the typed error-metrics sink.
+    let _emit = crate::susi_error::EaiError::io(format!(
+        "sanitized {dropped} malformed staged training line(s)"
+    ));
+    if valid.is_empty() {
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        return Ok(0);
+    }
+    let mut buf = valid.join("\n");
+    buf.push('\n');
+    crate::susi_config::atomic_write_bytes(path, buf.as_bytes())?;
+    Ok(valid.len())
 }
 
 fn claim_generation(name: &str) -> Option<u128> {
@@ -202,7 +265,7 @@ fn staged_sample_count(path: &Path) -> EaiResult<Option<usize>> {
 mod tests {
     use super::{
         claim_staged_samples, recover_orphaned_claims, restore_claim, retire_claim,
-        staged_sample_count,
+        sanitize_claimed_buffer, staged_sample_count,
     };
 
     #[test]
@@ -238,13 +301,23 @@ mod tests {
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
-        std::fs::write(&staged, "old\n").unwrap();
+        std::fs::write(
+            &staged,
+            "{\"intent\":\"old\",\"action\":\"a\",\"timestamp\":1}\n",
+        )
+        .unwrap();
         let claim = claim_staged_samples(dir.path(), 1).unwrap().unwrap();
-        std::fs::write(&staged, "new\n").unwrap();
-        assert_eq!(std::fs::read_to_string(&claim.path).unwrap(), "old\n");
-        assert_eq!(std::fs::read_to_string(&staged).unwrap(), "new\n");
+        std::fs::write(
+            &staged,
+            "{\"intent\":\"new\",\"action\":\"a\",\"timestamp\":2}\n",
+        )
+        .unwrap();
+        let claimed = std::fs::read_to_string(&claim.path).unwrap();
+        assert!(claimed.contains("\"old\""));
+        let live = std::fs::read_to_string(&staged).unwrap();
+        assert!(live.contains("\"new\""));
         retire_claim(&claim).unwrap();
-        assert_eq!(std::fs::read_to_string(staged).unwrap(), "new\n");
+        assert!(std::fs::read_to_string(staged).unwrap().contains("\"new\""));
     }
 
     #[test]
@@ -253,11 +326,27 @@ mod tests {
         let susi_dir = dir.path().join(".susi");
         std::fs::create_dir_all(&susi_dir).unwrap();
         let staged = susi_dir.join("distillation_staged.jsonl");
-        std::fs::write(&staged, "old\n").unwrap();
+        std::fs::write(
+            &staged,
+            "{\"intent\":\"old\",\"action\":\"a\",\"timestamp\":1}\n",
+        )
+        .unwrap();
         let claim = claim_staged_samples(dir.path(), 1).unwrap().unwrap();
-        std::fs::write(&staged, "new\n").unwrap();
+        std::fs::write(
+            &staged,
+            "{\"intent\":\"new\",\"action\":\"a\",\"timestamp\":2}\n",
+        )
+        .unwrap();
         restore_claim(&claim).unwrap();
-        assert_eq!(std::fs::read_to_string(staged).unwrap(), "old\nnew\n");
+        let restored = std::fs::read_to_string(staged).unwrap();
+        assert!(
+            restored.contains("\"old\""),
+            "old samples must be restored first"
+        );
+        assert!(
+            restored.contains("\"new\""),
+            "new samples must follow restored"
+        );
         assert!(!claim.root.exists());
     }
 
@@ -283,5 +372,94 @@ mod tests {
         );
         assert!(!susi_dir.join("reflex-claim-10-7").exists());
         assert!(!susi_dir.join("reflex-claim-20-7").exists());
+    }
+
+    #[test]
+    fn sanitize_strips_malformed_trailing_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claimed.jsonl");
+        // Two valid lines, a blank record, and one truncated trailing line.
+        std::fs::write(
+            &path,
+            "{\"intent\":\"a\",\"action\":\"b\",\"timestamp\":1}\n\n{\"intent\":\"c\",\"action\":\"d\",\"timestamp\":2}\n{\"intent\":\"truncated-tail\",\"actio",
+        )
+        .unwrap();
+        let count = sanitize_claimed_buffer(&path).unwrap();
+        assert_eq!(count, 2, "only the two valid lines should survive");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("\"a\""));
+        assert!(content.contains("\"c\""));
+        assert!(
+            !content.contains("truncated-tail"),
+            "truncated line must be stripped"
+        );
+        assert!(
+            !content.lines().any(|line| line.trim().is_empty()),
+            "blank records must be stripped"
+        );
+    }
+
+    #[test]
+    fn sanitize_entirely_malformed_yields_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("claimed.jsonl");
+        std::fs::write(&path, "not json at all\n").unwrap();
+        let count = sanitize_claimed_buffer(&path).unwrap();
+        assert_eq!(count, 0);
+        assert!(!path.exists(), "empty result must remove the file");
+    }
+
+    #[test]
+    fn claim_trains_only_when_valid_samples_meet_threshold() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        let staged = susi_dir.join("distillation_staged.jsonl");
+        std::fs::write(
+            &staged,
+            "{\"intent\":\"keep\",\"action\":\"a\",\"timestamp\":1}\n{\"intent\":\"truncated-tail\",\"actio",
+        )
+        .unwrap();
+
+        let below = claim_staged_samples(dir.path(), 2).unwrap();
+        assert!(
+            below.is_none(),
+            "a torn line must not inflate the threshold"
+        );
+        let restored = std::fs::read_to_string(&staged).unwrap();
+        assert!(restored.contains("\"keep\""));
+        assert!(!restored.contains("truncated-tail"));
+        assert!(!susi_dir.read_dir().unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("reflex-claim-")
+        }));
+
+        let claim = claim_staged_samples(dir.path(), 1).unwrap().unwrap();
+        assert_eq!(claim.sample_count, 1);
+        let claimed = std::fs::read_to_string(&claim.path).unwrap();
+        assert!(claimed.contains("\"keep\""));
+        assert!(!claimed.contains("truncated-tail"));
+        retire_claim(&claim).unwrap();
+    }
+
+    #[test]
+    fn claim_all_malformed_leaves_no_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        let staged = susi_dir.join("distillation_staged.jsonl");
+        std::fs::write(&staged, "{\"intent\":\"truncated-tail\",\"actio").unwrap();
+        assert!(claim_staged_samples(dir.path(), 1).unwrap().is_none());
+        assert!(!staged.exists());
+        assert!(!susi_dir.read_dir().unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("reflex-claim-")
+        }));
     }
 }

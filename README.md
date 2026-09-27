@@ -96,6 +96,11 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     receipts in the live buffer; failed training restores the claim ahead of them.
     A workspace training lease prevents claim theft, and crash-orphaned claims
     recover oldest-first before the next cycle.
+    Archived receipts record whether each training sample was staged, and
+    drift audits and training reports include that staging-health line.
+    Claimed buffers drop torn or blank lines and train only when the
+    remaining samples still meet the threshold; a claim with nothing
+    usable left is discarded.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
