@@ -2330,6 +2330,16 @@
       "milestone": "RSI iteration 72/100: the safety veto's critical-path check matches whole absolute path components instead of substrings. SafetyDetector checked governance.critical_system_paths (/etc/passwd, /etc/shadow, /boot, /proc, /sys, /dev) with lower-cased contains(), so for write_file, exec_command, and every SUSI_SOLVE goal it vetoed ordinary work: 'cargo build in ~/dev/myapp' (a common home layout) was refused as targeting '/dev', as were ./dev/notes.md, docs/bootstrap.md ('/boot'), /systemd-units ('/sys'), and /processing ('/proc'). Confirmed with a failing test before the change. names_absolute_path now requires the match to start at a boundary (not after a letter, digit, ~, ., /, _ or -, so it is not inside another path) and to end the component (end of text or a character other than a letter, digit, _, - or .). Stated trade-off: a sibling like /etc/passwd- (a shadow backup name) is no longer caught by the /etc/passwd entry; operators can list it explicitly. A test allows five legitimate goals and blocks five that really name /etc/shadow, /dev/sda, /boot, /proc/sys/..., and '/sys/firmware'. cargo test -p susi-gawd-agents safety (6 passed), --test crown_verify_tests, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SafetyDetector destructive_commands / SecurityDetector exfiltration_vectors",
+        "ref": "symbol://SecurityDetector::audit_action"
+      },
+      "id": "EV-2022927-239",
+      "milestone": "RSI iteration 73/100: destructive-command and exfiltration patterns match whole commands, not text inside other words. Both detectors matched their configured lists with lower-cased contains(): the exfiltration entry 'nc -e' fired inside 'rsync -e ssh', so a routine deploy step was vetoed as network exfiltration, and the destructive entry 'dd if=' fired inside 'add if= guard'. Both failures were confirmed with tests before the change. Both loops now use susi_error::redact::secret_match_starts (the token-start rule introduced in iteration 71, documented as shared), so a pattern counts only where it begins a token. Real invocations still veto: 'nc -e /bin/sh ...' and 'dd if=/dev/zero of=disk.img' are blocked, and the crown's governance probe (rm -rf / and the env-wrapper bypass) still holds. cargo test -p susi-gawd-agents (262 passed), --test crown_verify_tests, and cargo clippy --workspace --all-targets -D warnings pass. With iterations 71-72, every configured governance pattern list (secret tokens, critical paths, destructive commands, exfiltration vectors) is now boundary-aware.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

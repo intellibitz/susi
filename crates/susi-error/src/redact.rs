@@ -18,7 +18,8 @@ pub fn redact_patterns(patterns: &[String], text: &str) -> String {
 }
 
 /// Byte offsets where `pattern` begins a token in `text`: the preceding
-/// character (if any) is not ASCII alphanumeric. A bare substring match
+/// character (if any) is not ASCII alphanumeric. Shared by the secret
+/// redactor/veto and the destructive/exfiltration command patterns. A bare substring match
 /// flagged ordinary words — `risk-`, `task-`, `disk-` all contain `sk-` —
 /// so the governance veto refused goals like "write a risk-assessment" and
 /// the redactor rewrote "task-queue" as "ta[REDACTED]".

@@ -108,6 +108,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    spelling (`rm -fr /`, `rm -r -f ~`, …); content checks stay pattern-based.
    Critical system paths match whole components, so `~/dev/myapp` or
    `docs/bootstrap.md` are not mistaken for `/dev` or `/boot`.
+   Destructive and exfiltration patterns likewise match whole commands
+   (`rsync -e ssh` is not `nc -e`).
    The security veto rejects any action carrying the value of a credential
    the host holds (`*_API_KEY` / `*_TOKEN` / `*_SECRET`), whatever its prefix.
    Secret patterns match only at a token start, so words like `risk-assessment`

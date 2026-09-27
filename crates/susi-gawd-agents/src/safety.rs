@@ -31,8 +31,13 @@ impl SafetyDetector {
         }
 
         // 1b. Command Pattern Check (Dynamic)
+        // Token-start matches only: `dd if=` inside "add if=" is not dd.
         for pattern in &patterns.destructive_commands {
-            if lower_arg.contains(&pattern.to_lowercase()) {
+            let lower_pattern = pattern.to_lowercase();
+            if crate::susi_error::redact::secret_match_starts(&lower_arg, &lower_pattern)
+                .next()
+                .is_some()
+            {
                 return Err(EaiError::governance(format!(
                     "Action contains restricted pattern '{}'",
                     pattern
@@ -485,6 +490,17 @@ mod tests {
         // Note: These tests depend on the default config being loaded or present in ~/.susi/config.json
         // In a CI/test environment, we might need a controlled global_dir.
         assert!(SafetyDetector::audit_action("exec_command", "rm -rf /", ws).is_err());
+    }
+
+    #[test]
+    fn destructive_patterns_match_whole_commands_only() {
+        let ws = Path::new(".");
+        assert!(
+            SafetyDetector::audit_action("SUSI_SOLVE", "add if= guard to the parser", ws).is_ok()
+        );
+        assert!(
+            SafetyDetector::audit_action("SUSI_SOLVE", "dd if=/dev/zero of=disk.img", ws).is_err()
+        );
     }
 
     #[test]
