@@ -39,6 +39,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.11.0"
+tempfile = "3.27.0"
 # Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
 # host. Production `susi-gawd` reaches `susi-native` over IPC only.
 

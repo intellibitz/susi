@@ -1610,6 +1610,16 @@
       "milestone": "VISION.md corrected from a mixed list of present-tense implementation claims, unverified scale/latency promises, business outcomes, and aspirational recognition into an actionable local-and-cloud AI operating-layer vision. The new document separates direction from current truth, defines the local, cloud, and shared decision planes; states the swarm and trust boundaries; summarizes the evidence-backed baseline with explicit source-of-truth links; sets the 0.15 placement/federation/evidence/ecosystem horizon; adds release gates and non-goals; and forbids unsupported scale, uptime, compliance, adoption, and impact claims. Stale source comments tied to deleted vision bullet numbers were replaced with descriptive contracts, including removal of an unmeasured 10k-cell sub-millisecond scheduler assertion.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ReflexTrainer::audit_distillation_state",
+        "ref": "symbol://ReflexTrainer::audit_distillation_state"
+      },
+      "id": "EV-2022927-167",
+      "milestone": "RSI iteration 1/100: automatic reflex distillation now fails closed. The audit previously treated unreadable staged data and global-config errors as empty/default state, returned training failures inside an Ok string, and ignored failure to delete consumed samples. It now distinguishes absent staging from unreadable staging, propagates configuration and training errors as typed EaiError values, and surfaces sample-retirement failure. Regression tests cover absent, populated including unterminated-final-line, and unreadable staging. Targeted fmt, test, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

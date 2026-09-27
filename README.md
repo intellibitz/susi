@@ -76,7 +76,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
-12. **Reflexes** — Wasm reflexes under the data dir.
+12. **Reflexes** — Wasm reflexes under the data dir; automatic native
+    distillation fails closed on unreadable staging/configuration, training
+    failure, or failure to retire consumed samples.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

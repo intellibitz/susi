@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under data dir; training threshold from config.",
+      "summary": "Wasm under the data dir; configuration-gated native distillation surfaces staging, training, and consumed-sample retirement failures instead of reporting false success.",
       "title": "Reflexes"
     },
     {
