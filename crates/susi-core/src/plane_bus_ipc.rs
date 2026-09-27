@@ -36,6 +36,28 @@ const CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 const MAX_HEAD: usize = 64 * 1024;
 /// Cap on an IPC request body; larger declared lengths are refused unread.
 const MAX_BODY: usize = 64 * 1024 * 1024;
+/// Concurrent bus connections served at once; excess callers get a 503.
+const MAX_CONNECTIONS: usize = 256;
+
+/// One claimed connection slot, released on drop.
+struct ConnSlot(Arc<std::sync::atomic::AtomicUsize>);
+
+impl ConnSlot {
+    fn claim(live: &Arc<std::sync::atomic::AtomicUsize>, max: usize) -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        live.fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            (n < max).then_some(n + 1)
+        })
+        .ok()
+        .map(|_| Self(Arc::clone(live)))
+    }
+}
+
+impl Drop for ConnSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+    }
+}
 /// Header carrying the per-substrate bus secret on every IPC request.
 const BUS_KEY_HEADER: &str = "X-Susi-Bus-Key";
 
@@ -137,13 +159,28 @@ impl IpcPlaneBus {
         let streams = Arc::clone(&self.streams);
         let secret = Arc::clone(&self.secret);
         std::thread::spawn(move || {
+            // Threads are spawned before the bus key is checked, so any
+            // local process could otherwise pin unbounded threads (each up
+            // to the 30s socket timeout) with idle connections.
+            let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             for conn in listener.incoming() {
-                let Ok(conn) = conn else { continue };
+                let Ok(mut conn) = conn else { continue };
+                let Some(slot) = ConnSlot::claim(&live, MAX_CONNECTIONS) else {
+                    respond(
+                        &mut conn,
+                        "503 Service Unavailable",
+                        r#"{"err":"bus busy"}"#,
+                    );
+                    continue;
+                };
                 let handlers = Arc::clone(&handlers);
                 let prefixes = Arc::clone(&prefixes);
                 let streams = Arc::clone(&streams);
                 let secret = Arc::clone(&secret);
-                std::thread::spawn(move || serve_conn(conn, handlers, prefixes, streams, &secret));
+                std::thread::spawn(move || {
+                    let _slot = slot;
+                    serve_conn(conn, handlers, prefixes, streams, &secret);
+                });
             }
         });
     }
@@ -623,6 +660,19 @@ fn sweep_dead_processes(bus_dir: Option<&Path>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connection_slots_cap_and_release() {
+        let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let a = ConnSlot::claim(&live, 2).unwrap();
+        let b = ConnSlot::claim(&live, 2).unwrap();
+        assert!(ConnSlot::claim(&live, 2).is_none());
+        drop(a);
+        let c = ConnSlot::claim(&live, 2);
+        assert!(c.is_some());
+        drop((b, c));
+        assert_eq!(live.load(std::sync::atomic::Ordering::Acquire), 0);
+    }
     use std::sync::atomic::AtomicU64;
 
     struct Echo;
