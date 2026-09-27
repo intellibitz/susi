@@ -521,6 +521,10 @@ mod tests {
         IntentBundleManager::rollback_all(ws).expect("Rollback failed");
         let rolled_back = fs::read_to_string(&test_file).unwrap_or_default();
         assert_eq!(rolled_back, "original code");
+        assert!(
+            IntentBundleManager::get_staged_bundles(ws).is_empty(),
+            "rollback must clear the ledger, or bundles still read as applied"
+        );
 
         let _ = fs::remove_dir_all(ws);
     }

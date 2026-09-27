@@ -267,8 +267,11 @@ impl IntentBundleManager {
                         .map_err(|e| {
                             EaiError::filesystem(format!("revert {}: {e}", fix.file_path()))
                         })?;
-                    } else if target_path.exists() {
-                        let _ = fs::remove_file(&target_path);
+                    } else {
+                        // The fix created this file; reverting removes it.
+                        crate::susi_config::remove_file_if_present(&target_path).map_err(|e| {
+                            EaiError::filesystem(format!("revert {}: {e}", fix.file_path()))
+                        })?;
                     }
                     reverted_files += 1;
                 }
@@ -276,7 +279,9 @@ impl IntentBundleManager {
             }
         }
 
-        let _ = fs::remove_file(Self::bundles_path(workspace));
+        // A ledger that survives would still list the bundles as applied.
+        crate::susi_config::remove_file_if_present(&Self::bundles_path(workspace))
+            .map_err(|e| EaiError::filesystem(format!("clear bundle ledger: {e}")))?;
         Ok(format!(
             "SUCCESS: Rolled back staged fixes across {} files.",
             reverted_files
