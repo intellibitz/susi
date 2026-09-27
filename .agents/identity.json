@@ -328,7 +328,7 @@
           "tier": 1
         },
         {
-          "function": "Append-only provenance graph (`susi-core::context_graph`) of workspaces, missions, tool calls, patch cycles, and observations; bounded at 32k resident nodes (ephemeral evicted first), compacted by atomic rename, and folded incrementally across processes with the replay cursor bound to the log file's identity.",
+          "function": "Append-only provenance graph (`susi-core::context_graph`) of workspaces, missions, tool calls, patch cycles, and observations; bounded at 32k resident nodes (ephemeral evicted first, in batches down to a 30k low-water mark), compacted by atomic rename, and folded incrementally across processes with the replay cursor bound to the log file's identity.",
           "symbol": "ContextGraph",
           "tier": 1
         }

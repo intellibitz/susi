@@ -315,12 +315,13 @@ impl ContextGraph {
     /// absolute. Evicted nodes' edges are removed from `edges` and both
     /// adjacency indexes so traversal never sees dangling references.
     ///
-    /// Runs after `replay()` and on `record_node()`: eviction is
-    /// deterministic (oldest `created_at`, ties broken by id), so every
-    /// process folds the same log into the same bounded state, and the
-    /// next `persist()` shrinks the file to match.
+    /// Runs after `replay()` and on `record_node()`. Victims are chosen
+    /// deterministically (oldest `created_at`, ties broken by id), and the
+    /// next `persist()` shrinks the file to match. Crossing the cap evicts
+    /// down to a low-water mark, not to the cap itself: evicting one node
+    /// per insert re-collected and re-sorted all 32k nodes on every
+    /// recorded tool call once the graph was full.
     fn enforce_capacity(&self) {
-        const MAX_GRAPH_NODES: usize = 32_000;
         if self.nodes.len() <= MAX_GRAPH_NODES {
             return;
         }
@@ -342,10 +343,10 @@ impl ContextGraph {
                 )
             })
             .collect();
-        // Oldest first; ephemeral (true) sorts ahead of structural at
-        // the same age via the reversed flag order below.
+        // Oldest first; ephemeral nodes are taken before structural ones
+        // by the two filtered passes below.
         by_age.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1 .0.cmp(&b.1 .0)));
-        let excess = self.nodes.len() - MAX_GRAPH_NODES;
+        let excess = self.nodes.len() - GRAPH_NODES_LOW_WATER;
         let mut evict: Vec<NodeId> = by_age
             .iter()
             .filter(|(_, _, ephemeral)| *ephemeral)
@@ -1033,6 +1034,12 @@ impl ContextGraph {
     }
 }
 
+/// Hard bound on resident context-graph nodes.
+const MAX_GRAPH_NODES: usize = 32_000;
+/// Eviction target once the bound is crossed (1/16 headroom), so the
+/// full-table sort is amortized over ~2k inserts instead of paid per insert.
+const GRAPH_NODES_LOW_WATER: usize = MAX_GRAPH_NODES - MAX_GRAPH_NODES / 16;
+
 fn sha256_hex(input: &str) -> String {
     hex::encode(Sha256::digest(input.as_bytes()))
 }
@@ -1218,7 +1225,16 @@ mod tests {
             g.edges.get("e-eph0").is_none(),
             "edge to an evicted node must be removed, not left dangling"
         );
-        assert_eq!(g.nodes.len(), 32_000);
+        assert_eq!(g.nodes.len(), GRAPH_NODES_LOW_WATER);
+        // Headroom: the next inserts below the cap do not evict again.
+        g.record_node(Node {
+            id: NodeId("eph-32001".into()),
+            kind: NodeType::ExternalContext,
+            label: "n32001".into(),
+            created_at: 33_001,
+            properties: HashMap::new(),
+        });
+        assert_eq!(g.nodes.len(), GRAPH_NODES_LOW_WATER + 1);
     }
 
     #[test]

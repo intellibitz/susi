@@ -1880,6 +1880,16 @@
       "milestone": "RSI iteration 27/100: compacting the context graph can no longer destroy it, and sibling processes stay in sync across compaction. ContextGraph::persist (run by compact, compact_if_large at attach, and append_event once the log passes 16 MiB) opened the log with truncate(true) and rewrote it line by line, so a crash or kill mid-rewrite left an empty or partial log and the next start replayed only that remnant. Separately, replay resumed a sibling's cursor whenever the file had not shrunk, so after another process compacted and the log regrew past the cursor, replay started mid-line and silently skipped the first records. persist now serializes into a buffer and replaces the log through susi_config::atomic_write_bytes, recording the new file's (device, inode) under the context_graph lock; replay compares the open file's identity (unix) with the one its cursor belongs to and refolds from zero when the log was replaced (the size check remains the non-unix fallback). A regression test replaces the log by rename with a longer file and proves both records are folded; the existing persist/replay, compaction, torn-tail, and capacity tests still pass (cargo test -p susi-core context_graph: 9 passed). cargo clippy -p susi-core --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ContextGraph::enforce_capacity",
+        "ref": "symbol://ContextGraph::enforce_capacity"
+      },
+      "id": "EV-2022927-194",
+      "milestone": "RSI iteration 28/100: a full context graph no longer pays a full-table sort on every insert. enforce_capacity evicted exactly down to the 32,000-node cap, so once the graph was full every record_node (every recorded tool call, observation, telemetry snapshot, and patch cycle) cloned all 32k node ids, sorted them, and evicted a single victim, a per-insert O(n log n) cost on the hot path. Crossing the cap now evicts down to a low-water mark of 30,000 (1/16 headroom), so that sort is amortized over about 2,000 inserts; victim selection is unchanged (oldest ephemeral first, then oldest overall, ties by id) and edges of evicted nodes are still removed. The capacity test now proves eviction lands on the low-water mark, still spares the older structural node and removes the victim's edge, and that the next insert below the cap does not evict again. cargo test -p susi-core context_graph (9 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
