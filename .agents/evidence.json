@@ -1920,6 +1920,16 @@
       "milestone": "RSI iteration 31/100: the daemon binary trust anchor is always a digest of the whole binary and is replaced atomically. calculate_binary_hash looped on while let Ok(n) = file.read(..), so any read error (EINTR included) silently ended the loop and returned the SHA-256 of a truncated prefix as if it were the binary's hash. ensure_daemon_running then cached that digest in binary.hash.cache under the binary's mtime and size and wrote it as the binary.hash trust anchor, triggering a spurious 'binary recompiled' daemon restart, and is_trusted_susi_process (which re-hashes /proc/<pid>/exe uncached) would then stop recognizing the genuine daemon. Both files were also written with a plain fs::write whose errors were ignored, so a torn binary.hash reported a phantom recompile on the next CLI call. The hash now retries Interrupted and returns every other read error; binary.hash is replaced through susi_config::atomic_write_bytes and a failed anchor write is returned (the daemon logs it as an unverifiable check instead of claiming success); the cache is also written atomically, best effort. A unit test hashes a 200 KB file spanning several reads against a reference digest, proves the anchor is established, a rebuild reports false once and is then trusted, and a missing binary is an error. cargo test -p susi-sandbox daemon_state and cargo clippy --workspace --all-targets -D warnings pass (daemon_state.rs is path-mounted into susi-tools, susi-server, and susi-agents; all compile).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TxManager::begin / reserve_id / persist",
+        "ref": "symbol://TxManager::reserve_id"
+      },
+      "id": "EV-2022927-198",
+      "milestone": "RSI iteration 32/100: agent transactions can no longer overwrite each other's rollback snapshots, and their durable state is honest. TxManager minted ids tx-N from a per-process counter and wrote the snapshot to <workspace>/.susi/tx/tx-N.json with an unchecked fs::write. A process that had not called hydrate (the daemon's patch cycle, a swarm plan transaction, an MCP tx_begin) started again at tx-1 and overwrote an earlier transaction's file, including an Open one whose snapshot was the only way for a later process to roll it back. begin also reported success when the durable copy was never written, and commit/abort ignored their persist failures, so a committed transaction could remain Open on disk and be rolled back by a later process. Ids are now reserved on disk with create_new (retrying on AlreadyExists), every persist replaces the file through susi_config::atomic_write_bytes, and begin, commit, and abort return persist failures. The unused TxManager::track_file (no callers; it snapshotted unreadable files as empty content, which an abort would have written back over the real file) is removed as a dead pub surface. A regression test runs begin from two fresh managers on one workspace, proves distinct ids, that the first snapshot survives on disk, and that a third, hydrated manager can still abort the first transaction and restore the file. cargo test -p susi-core agent_tx (3 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

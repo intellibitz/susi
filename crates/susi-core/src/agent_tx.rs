@@ -46,6 +46,10 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
+fn tx_dir(workspace: &Path) -> PathBuf {
+    workspace.join(".susi").join("tx")
+}
+
 fn confined(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
     let rel = rel.replace('\\', "/").trim_start_matches('/').to_string();
     if rel.is_empty() || rel.contains("..") {
@@ -85,7 +89,6 @@ impl TxManager {
         file_rels: &[String],
         blackboard: BTreeMap<String, String>,
     ) -> EaiResult<AgentTransaction> {
-        let id = format!("tx-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
         let mut files = Vec::new();
         for rel in file_rels {
             let path = confined(workspace, rel)?;
@@ -102,6 +105,7 @@ impl TxManager {
                 content,
             });
         }
+        let id = self.reserve_id(workspace)?;
         let tx = AgentTransaction {
             id: id.clone(),
             workspace: workspace.display().to_string(),
@@ -112,40 +116,37 @@ impl TxManager {
             created_at: now(),
             closed_at: None,
         };
-        // Persist durable copy under .susi/tx/
-        let dir = workspace.join(".susi").join("tx");
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(body) = serde_json::to_string_pretty(&tx) {
-            let _ = std::fs::write(dir.join(format!("{id}.json")), body);
-        }
+        // The durable copy is what lets another process (a later CLI
+        // call) abort this transaction; a begin that could not write it
+        // must not report success.
+        self.persist(&tx)?;
         self.open.insert(id, tx.clone());
         Ok(tx)
     }
 
-    /// Track an additional file that was created/modified during the tx
-    /// (captures *current* content as the restore baseline if not already snapshotted).
-    pub fn track_file(&self, tx_id: &str, workspace: &Path, rel: &str) -> EaiResult<()> {
-        let mut entry = self
-            .open
-            .get_mut(tx_id)
-            .ok_or_else(|| EaiError::governance(format!("unknown tx {tx_id}")))?;
-        if entry.status != TxStatus::Open {
-            return Err(EaiError::governance("transaction not open"));
+    /// Mint an id no other transaction in this workspace has used, by
+    /// claiming `.susi/tx/<id>.json` with `create_new`. The counter is
+    /// per-process, so a process that never hydrated used to mint `tx-1`
+    /// again and overwrite an earlier transaction's rollback snapshot.
+    fn reserve_id(&self, workspace: &Path) -> EaiResult<String> {
+        let dir = tx_dir(workspace);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
+        for _ in 0..10_000 {
+            let id = format!("tx-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(dir.join(format!("{id}.json")))
+            {
+                Ok(_) => return Ok(id),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    return Err(EaiError::filesystem(format!("reserve {id}: {e}")));
+                }
+            }
         }
-        if entry.files.iter().any(|f| f.rel_path == rel) {
-            return Ok(());
-        }
-        let path = confined(workspace, rel)?;
-        let content = if path.is_file() {
-            Some(std::fs::read_to_string(&path).unwrap_or_default())
-        } else {
-            None
-        };
-        entry.files.push(FileSnapshot {
-            rel_path: rel.into(),
-            content,
-        });
-        Ok(())
+        Err(EaiError::filesystem("no free transaction id"))
     }
 
     pub fn commit(&self, tx_id: &str) -> EaiResult<AgentTransaction> {
@@ -160,8 +161,10 @@ impl TxManager {
         entry.closed_at = Some(now());
         let out = entry.clone();
         drop(entry);
-        self.persist(&out);
         self.open.remove(tx_id);
+        // A commit that stays Open on disk would let a later process's
+        // abort roll back committed work.
+        self.persist(&out)?;
         Ok(out)
     }
 
@@ -193,8 +196,8 @@ impl TxManager {
         entry.closed_at = Some(now());
         let out = entry.clone();
         drop(entry);
-        self.persist(&out);
         self.open.remove(tx_id);
+        self.persist(&out)?;
         Ok(out)
     }
 
@@ -238,12 +241,13 @@ impl TxManager {
         self.next_id.fetch_max(max_id, Ordering::Relaxed);
     }
 
-    fn persist(&self, tx: &AgentTransaction) {
-        let dir = PathBuf::from(&tx.workspace).join(".susi").join("tx");
-        let _ = std::fs::create_dir_all(&dir);
-        if let Ok(body) = serde_json::to_string_pretty(tx) {
-            let _ = std::fs::write(dir.join(format!("{}.json", tx.id)), body);
-        }
+    /// Replace the durable copy whole: a torn write is skipped by
+    /// `hydrate`, silently losing an open transaction's snapshot.
+    fn persist(&self, tx: &AgentTransaction) -> EaiResult<()> {
+        let path = tx_dir(Path::new(&tx.workspace)).join(format!("{}.json", tx.id));
+        let body = serde_json::to_vec_pretty(tx)?;
+        crate::susi_config::atomic_write_bytes(&path, &body)
+            .map_err(|e| EaiError::filesystem(format!("persist {}: {e}", path.display())))
     }
 
     pub fn get(&self, tx_id: &str) -> Option<AgentTransaction> {
@@ -292,6 +296,34 @@ mod tests {
             std::fs::read_to_string(ws.join("a.txt")).unwrap(),
             "original"
         );
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn a_fresh_process_never_reuses_a_persisted_id() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("c.txt"), "v1").unwrap();
+        let first = TxManager::new()
+            .begin(&ws, "first", &["c.txt".into()], BTreeMap::new())
+            .unwrap();
+        // A second process that never hydrated starts its counter at 1.
+        let second = TxManager::new()
+            .begin(&ws, "second", &["c.txt".into()], BTreeMap::new())
+            .unwrap();
+        assert_ne!(first.id, second.id);
+        let on_disk: AgentTransaction = serde_json::from_str(
+            &std::fs::read_to_string(tx_dir(&ws).join(format!("{}.json", first.id))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(on_disk.description, "first");
+
+        // The first process's snapshot is still recoverable elsewhere.
+        std::fs::write(ws.join("c.txt"), "mutated").unwrap();
+        let recovering = TxManager::new();
+        recovering.hydrate(&ws);
+        recovering.abort(&first.id, &ws).unwrap();
+        assert_eq!(std::fs::read_to_string(ws.join("c.txt")).unwrap(), "v1");
         let _ = std::fs::remove_dir_all(&ws);
     }
 
