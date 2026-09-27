@@ -182,6 +182,52 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
     }
 }
 
+/// Whether `url` stays on this host or its LAN: loopback, private (RFC 1918
+/// / unique-local), or link-local addresses, `localhost`, `*.localhost`,
+/// `*.local`. Anything else leaves the network — including a plain-`http://`
+/// internet host. Parsed with std only (every crate mounts this module).
+pub fn url_stays_local(url: &str) -> bool {
+    let Some((_, rest)) = url.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+    let host = if let Some(bracketed) = host_port.strip_prefix('[') {
+        bracketed.split(']').next().unwrap_or_default()
+    } else {
+        host_port.split(':').next().unwrap_or_default()
+    };
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
+        Ok(std::net::IpAddr::V6(ip)) => {
+            ip.is_loopback()
+                || ip.is_unique_local()
+                || ip.is_unicast_link_local()
+                || ip
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_loopback() || v4.is_private())
+        }
+        Err(_) => {
+            let host = host.to_ascii_lowercase();
+            !host.is_empty()
+                && (host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local"))
+        }
+    }
+}
+
+/// Whether host-initiated network traffic to `url` is allowed right now:
+/// always for host/LAN targets; otherwise only when the posture does not
+/// block network egress by default or an egress grant is held. For code
+/// paths that reach the network without going through `authorize_tool`
+/// (background downloads, provider calls).
+pub fn egress_permitted(url: &str) -> bool {
+    if url_stays_local(url) {
+        return true;
+    }
+    let policy = MacPolicy::global();
+    !policy.blocks_network_by_default() || policy.is_permitted("susi", actions::NETWORK_EGRESS, "*")
+}
+
 /// Whether a grant on `granted` covers a request for `requested`.
 ///
 /// Exact match; an explicit trailing `*` globs its prefix (`app://*`);
@@ -892,6 +938,30 @@ mod tests {
                 p.authorize_tool("ipc_send", &arg, &ws, None).is_ok(),
                 "{mode:?}"
             );
+        }
+    }
+
+    #[test]
+    fn only_host_and_lan_urls_stay_local() {
+        for local in [
+            "http://127.0.0.1:11434/v1",
+            "http://localhost:8000/v1",
+            "http://192.168.1.20:8000/v1",
+            "http://10.0.0.5/v1",
+            "http://[::1]:8080",
+            "http://user:pw@gpu-box.local:8000/v1",
+        ] {
+            assert!(url_stays_local(local), "{local}");
+        }
+        for remote in [
+            "https://api.openai.com/v1",
+            "http://203.0.113.9:8000/v1",
+            "https://huggingface.co/x/resolve/main/m.gguf",
+            "http://localhost.evil.com/v1",
+            "http://evil.com/?h=localhost",
+            "not a url",
+        ] {
+            assert!(!url_stays_local(remote), "{remote}");
         }
     }
 

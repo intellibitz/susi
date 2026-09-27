@@ -289,6 +289,7 @@ impl ModelManager {
                         "HTTP 404",
                         "different source",
                         "Insufficient free disk",
+                        "[PRIVACY]",
                     ]
                     .iter()
                     .any(|s| error.contains(s));

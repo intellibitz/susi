@@ -203,7 +203,7 @@ impl ModelManager {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     error = e;
-                    if error.starts_with("HTTP 4") {
+                    if error.starts_with("HTTP 4") || error.starts_with("[PRIVACY]") {
                         break;
                     }
                 }

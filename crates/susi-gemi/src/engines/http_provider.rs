@@ -497,38 +497,12 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     ))
 }
 
-/// Whether `api_base` stays on this host or its LAN (loopback, private,
-/// link-local, or unique-local addresses, `localhost`, `*.local`). Anything
-/// else — including a plain-`http://` internet host, which
-/// `is_remote_cloud` does not count as cloud — leaves the network.
-fn endpoint_stays_local(api_base: &str) -> bool {
-    let Ok(url) = url::Url::parse(api_base) else {
-        return false;
-    };
-    match url.host() {
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback() || ip.is_private() || ip.is_link_local(),
-        Some(url::Host::Ipv6(ip)) => {
-            ip.is_loopback()
-                || ip.is_unique_local()
-                || ip.is_unicast_link_local()
-                || ip
-                    .to_ipv4_mapped()
-                    .is_some_and(|v4| v4.is_loopback() || v4.is_private())
-        }
-        Some(url::Host::Domain(host)) => {
-            let host = host.to_ascii_lowercase();
-            host == "localhost" || host.ends_with(".localhost") || host.ends_with(".local")
-        }
-        None => false,
-    }
-}
-
 /// The provider itself refuses to send a prompt or embedding text off the
 /// host/LAN while the privacy posture is `local_only` without a cloud grant.
 /// Callers filter providers by name; this holds even for a provider
 /// registered before the switch, or named outside the vendor heuristics.
 fn refuse_off_host_under_local_only(api_base: &str) -> crate::susi_core::susi_error::EaiResult<()> {
-    if !endpoint_stays_local(api_base)
+    if !crate::susi_core::mac_policy::url_stays_local(api_base)
         && crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
     {
         return Err(crate::susi_core::susi_error::EaiError::governance(format!(
@@ -944,29 +918,6 @@ pub async fn auto_discover_local_engines(
 
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn only_host_and_lan_endpoints_count_as_local() {
-        for local in [
-            "http://127.0.0.1:11434/v1",
-            "http://localhost:8000/v1",
-            "http://192.168.1.20:8000/v1",
-            "http://10.0.0.5/v1",
-            "http://[::1]:8080",
-            "http://gpu-box.local:8000/v1",
-        ] {
-            assert!(super::endpoint_stays_local(local), "{local}");
-        }
-        for remote in [
-            "https://api.openai.com/v1",
-            "http://203.0.113.9:8000/v1",
-            "http://llm.example.com/v1",
-            "http://localhost.evil.com/v1",
-            "not a url",
-        ] {
-            assert!(!super::endpoint_stays_local(remote), "{remote}");
-        }
-    }
 
     use super::*;
     use crate::susi_core::registry::CapabilityRegistry;

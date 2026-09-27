@@ -40,6 +40,9 @@ fn linked_etag_digest(value: &str) -> Option<String> {
 /// host publishes no digest (or could not be asked): the download is then
 /// validated structurally only, and no provenance checksum is recorded.
 pub(crate) fn published_sha256(url: &str, token: Option<&str>) -> Option<String> {
+    if !crate::susi_core::mac_policy::egress_permitted(url) {
+        return None;
+    }
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
@@ -64,6 +67,13 @@ fn publish(
     url: &str,
     expected_sha256: Option<&str>,
 ) -> Result<(), String> {
+    // Every model/tokenizer download funnels through here, including the
+    // daemon's zero-config auto-prime, which never passes authorize_tool.
+    if !crate::susi_core::mac_policy::egress_permitted(url) {
+        return Err(format!(
+            "[PRIVACY] network egress blocked by the privacy posture: {url} (run `susi privacy consent --egress`)"
+        ));
+    }
     if let Some(expected) = expected_sha256 {
         let actual = super::lifecycle::ModelManager::calculate_simple_checksum(part)
             .map_err(|e| e.to_string())?;
