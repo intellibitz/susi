@@ -2250,6 +2250,16 @@
       "milestone": "RSI iteration 64/100: cloud coding agents and Hugging Face catalog discovery respect the privacy posture. susi agents run/send for the Devin and Manus adapters POSTed the user's prompt (and follow-up messages) to api.devin.ai / api.manus.ai with no MAC check, and the model ladder's dynamic discovery queried the Hugging Face API during provisioning; neither goes through authorize_tool. Cloud::new, the single constructor every cloud adapter call uses (execute, refresh, cancel, send), now refuses with a [PRIVACY] error unless mac_policy::egress_permitted allows the adapter's base URL, and fetch_dynamic_ladder returns no dynamic steps under a blocking posture (identical to its existing offline path, so provisioning falls back to the static ladder). Balanced and open postures and granted egress are unchanged. Remaining unaudited direct clients, stated: MCP HTTP transports (susi-core mcp_client, susi-tools client/connection), benchmark/eval, and the A2A server's outbound calls. cargo test -p susi-agents, -p susi-gemi-models hf_discovery, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "mcp_client::post (egress)",
+        "ref": "file://crates/susi-core/src/mcp_client.rs"
+      },
+      "id": "EV-2022927-231",
+      "milestone": "RSI iteration 65/100: remote MCP/GMCP HTTP calls respect the privacy posture at the transport. mcp_client::post is the single transport for streamable-HTTP MCP calls (initialize, tools/list, tools/call, session teardown) used by remote tool execution, the daemon's zero-config remote scouting, and cluster peer calls. Tool calls routed through MacPolicy::authorize_tool were already gated by name (mcp_* is classified as egress), but scouting and other internal callers reached remote servers with no posture check, sending tool arguments and listings off-host under local_only. post now refuses with a [PRIVACY] error unless mac_policy::egress_permitted(url) holds; host/LAN MCP servers and cluster peers on the LAN keep working, as do balanced/open postures and granted egress. cargo test -p susi-core mcp_client (8 passed), the member_signing, peer_request_signing, endorsements, and cluster_rekey integration tests, and cargo clippy --workspace --all-targets -D warnings pass. Egress audit status after iterations 60-65: provider inference/embeddings, model downloads, live search, external peers, the proxy agent, crate scouting, cloud coding agents, HF discovery, and the MCP HTTP transport are gated; benchmark/eval clients (operator-invoked) and susi-tools connection.rs remain unaudited.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

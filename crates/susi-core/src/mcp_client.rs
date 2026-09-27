@@ -123,6 +123,14 @@ fn post(
     session: Option<&Session>,
     body: &Value,
 ) -> Result<(ureq::http::Response<ureq::Body>, Option<String>), String> {
+    // The one transport for remote MCP/GMCP calls, including the daemon's
+    // zero-config scouting, which never passes authorize_tool: arguments
+    // (and tool listings) leave the host only when the posture allows it.
+    if !crate::susi_core::mac_policy::egress_permitted(url) {
+        return Err(format!(
+            "[PRIVACY] network egress to {url} blocked by the privacy posture"
+        ));
+    }
     let mut req = crate::susi_config::http_agent()
         .post(url)
         .header("accept", "application/json, text/event-stream");
