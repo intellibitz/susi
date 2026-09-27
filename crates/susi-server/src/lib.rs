@@ -2199,6 +2199,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bounded_connection_builder_serves_requests() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let svc = service_fn(|_req| async {
+                Ok::<_, Infallible>(json_response(StatusCode::OK, &json!({"ok": true})))
+            });
+            http_conn::connection_builder()
+                .serve_connection(TokioIo::new(stream), svc)
+                .await
+                .unwrap();
+        });
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut reply = String::new();
+        client.read_to_string(&mut reply).await.unwrap();
+        assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
     async fn silent_clients_are_dropped_after_the_negotiation_bound() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
