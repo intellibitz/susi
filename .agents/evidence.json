@@ -1970,6 +1970,16 @@
       "milestone": "RSI iteration 36/100: the constitution's component table no longer lists components that do not exist. Pillar II still carried SUSI-Vision and SUSI-Audio rows ('Candle-based image/audio-feature extractor (untrained linear projection)') although commit 1d9c616f removed that multimodal code and 6a0fac47 dropped its roadmap vector; a repo-wide search finds no vision or audio extractor in crates/ or src/. Both rows are removed. The UniversalExecutionSubstrate row named no symbol and claimed support for 'multiple model formats'; it is renamed to the real symbol InferenceHost and now states what runtime_substrate.rs loads natively (GGUF llama/qwen2 with a GPU layer split) and that other formats are reached only through HTTP providers. Method: every component symbol was grepped as a whole word across crates/ and src/; the remaining zero-hit rows (SUSI-Alpha, NativeAlphaModel, ExternalAgentManager) are display names for real code (SusiAlphaModel, the susi-alpha weights, susi_agents::external::AgentManager) and are kept.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "cluster_key::member_banned / apply_member_delta",
+        "ref": "symbol://member_banned_at"
+      },
+      "id": "EV-2022927-203",
+      "milestone": "RSI iteration 37/100: a damaged ban list can no longer readmit evicted cluster members or erase earlier bans. peers_banned.json was parsed in five places (swarm handshake admission in amas and the daemon's UDP responder via peer_registry::is_banned, roster pruning, net_guard's peer-bearer check, the MCP member-proposal intake, and the commit-log membership apply), each with read_to_string(..).ok().and_then(parse).unwrap_or_default(), so a torn, corrupt, or unreadable ban list read as empty and every evicted member passed admission again. The commit-log apply then rewrote that empty view plus one new ban over the damaged file on the next committed removal, permanently erasing all earlier bans. One fail-closed check now lives in susi_config::cluster_key (mounted by every crate): config_json_rows_checked_at distinguishes absent (empty) from damaged (Err), and member_banned/member_banned_at treat a damaged list as banned; all four admission paths use it with the shared ban_row_matches rule. The commit-log apply reads the list uncached and strictly, and skips membership application entirely (no roster change, no rewrite) while it is damaged. peer_registry's unused ban_peer/ban_peer_at, BannedPeer, load_banned_peers(_from) and is_banned_in (no callers outside their own test) are removed. Tests: damaged_ban_list_fails_closed (absent, matching by id or address, corrupt list counts as banned) and an extension of member_records_seal_verify_and_apply_to_roster proving a committed removal leaves a corrupt list byte-identical and a committed add leaves peers.json unchanged. cargo test -p susi-gawd-swarm peer_registry, -p susi-core commit_log (15 passed) and net_guard, -p susi-config, and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

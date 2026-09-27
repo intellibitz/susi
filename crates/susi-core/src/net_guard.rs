@@ -228,8 +228,8 @@ impl NetGuard {
     /// Whether `ip` is the address of a member in `peers_banned.json` —
     /// the standing check for the cluster peer bearer (see above).
     fn peer_address_banned(ip: &IpAddr) -> bool {
-        let banned = crate::susi_config::cluster_key::config_json_rows("peers_banned.json");
-        banned.iter().any(|b| {
+        // Fails closed on a damaged ban list (see `member_banned`).
+        crate::susi_config::cluster_key::member_banned(|b| {
             b.get("address")
                 .and_then(|a| a.as_str())
                 .and_then(|a| a.split(':').next())

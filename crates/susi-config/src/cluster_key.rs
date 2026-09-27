@@ -471,8 +471,20 @@ pub fn config_json_rows(file: &str) -> Vec<serde_json::Value> {
 /// `dir` seam (tests point at temp homes), and the cache keys by full
 /// path so a test dir and the live config dir never share rows.
 pub fn config_json_rows_at(dir: &std::path::Path, file: &str) -> Vec<serde_json::Value> {
+    config_json_rows_checked_at(dir, file).unwrap_or_default()
+}
+
+/// `config_json_rows_at` that tells "absent" (`Ok(vec![])`) apart from
+/// "present but unreadable or not a JSON array" (`Err`). Guards that must
+/// fail closed — the ban list above all — use this form; a damaged file
+/// read as empty would readmit every evicted member.
+pub fn config_json_rows_checked_at(
+    dir: &std::path::Path,
+    file: &str,
+) -> Result<Vec<serde_json::Value>, String> {
     use std::sync::{Mutex, OnceLock};
-    type RowsCache = Mutex<std::collections::HashMap<String, (u128, u64, Vec<serde_json::Value>)>>;
+    type Rows = Result<Vec<serde_json::Value>, String>;
+    type RowsCache = Mutex<std::collections::HashMap<String, (u128, u64, Rows)>>;
     static CACHE: OnceLock<RowsCache> = OnceLock::new();
     let path = dir.join(file);
     let stamp = fs::metadata(&path)
@@ -498,15 +510,47 @@ pub fn config_json_rows_at(dir: &std::path::Path, file: &str) -> Vec<serde_json:
             }
         }
     }
-    let rows = fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())
-        .unwrap_or_default();
+    let rows = match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str::<Vec<serde_json::Value>>(&text)
+            .map_err(|e| format!("{}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!("{}: {e}", path.display())),
+    };
     cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .insert(key, (stamp.0, stamp.1, rows.clone()));
     rows
+}
+
+/// Whether any row of `peers_banned.json` under `dir` satisfies `matches`.
+/// Fails closed: a ban list that exists but cannot be read or parsed
+/// counts as a match, so a damaged file never readmits an evicted member.
+pub fn member_banned_at(
+    dir: &std::path::Path,
+    matches: impl Fn(&serde_json::Value) -> bool,
+) -> bool {
+    match config_json_rows_checked_at(dir, "peers_banned.json") {
+        Ok(rows) => rows.iter().any(matches),
+        Err(e) => {
+            eprintln!(
+                "[peers] ban list unreadable ({e}); refusing membership until it is repaired"
+            );
+            true
+        }
+    }
+}
+
+/// `member_banned_at` for the live config dir.
+pub fn member_banned(matches: impl Fn(&serde_json::Value) -> bool) -> bool {
+    member_banned_at(&crate::susi_paths::SusiDirs::config_dir(), matches)
+}
+
+/// The rule every admission path shares: a ban row blocks a member when
+/// either its node id or its address matches.
+pub fn ban_row_matches(row: &serde_json::Value, node_id: &str, address: &str) -> bool {
+    row.get("node_id").and_then(|v| v.as_str()) == Some(node_id)
+        || row.get("address").and_then(|v| v.as_str()) == Some(address)
 }
 
 /// Small-credential-file cache, same mtime-keyed pattern as

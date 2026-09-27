@@ -58,7 +58,7 @@
     },
     {
       "id": 3,
-      "summary": "multi-agent consensus (`susi-gawd`) agent-of-agents orchestrator. Cluster membership identity (`cluster.key`, `node_id`) is installed atomically and self-recovers from an interrupted first start.",
+      "summary": "multi-agent consensus (`susi-gawd`) agent-of-agents orchestrator. Cluster membership identity (`cluster.key`, `node_id`) is installed atomically and self-recovers from an interrupted first start. Operator bans fail closed: a damaged ban list refuses membership instead of reading as empty.",
       "title": "Swarm"
     },
     {

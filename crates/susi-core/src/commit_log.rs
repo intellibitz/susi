@@ -1913,10 +1913,24 @@ fn apply_member_delta(record: &CommitRecord, dir: &Path) {
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
-    let mut banned: Vec<serde_json::Value> = fs::read_to_string(&banned_path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    // A damaged ban list is neither trusted as empty (that would let a
+    // committed add resurrect evicted members) nor rewritten (that would
+    // erase every earlier ban): membership applies stop until it is fixed.
+    // Read uncached: this is a locked read-modify-write.
+    let mut banned: Vec<serde_json::Value> = match fs::read_to_string(&banned_path) {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(rows) => rows,
+            Err(e) => {
+                eprintln!("[commit_log] membership apply skipped: ban list corrupt ({e})");
+                return;
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            eprintln!("[commit_log] membership apply skipped: ban list unreadable ({e})");
+            return;
+        }
+    };
     let member_matches = |n: &serde_json::Value| {
         n.get("node_id").and_then(|v| v.as_str()) == Some(id)
             || n.get("address").and_then(|v| v.as_str()) == Some(addr)
@@ -2344,6 +2358,26 @@ mod tests {
             );
         }
         assert!(!bogus.verify(), "unknown record kind must fail verify");
+
+        // A damaged ban list is never read as empty nor rewritten: a
+        // committed removal must not erase it, and a committed add must
+        // not readmit anyone while it is unreadable.
+        fs::write(dir.join("peers_banned.json"), "[{\"node_id\":\"node-x\"").unwrap();
+        let Some(rem_c) = seal_into_test(KIND_MEMBER_REMOVE, "node-c@10.0.0.3:9090") else {
+            return;
+        };
+        append_to(&path, &rem_c).expect("append remove with corrupt bans");
+        assert_eq!(
+            fs::read_to_string(dir.join("peers_banned.json")).unwrap(),
+            "[{\"node_id\":\"node-x\"",
+            "corrupt ban list must not be overwritten"
+        );
+        let before = fs::read_to_string(dir.join("peers.json")).unwrap();
+        let Some(add_c) = seal_into_test(KIND_MEMBER_ADD, "node-c@10.0.0.3:9090") else {
+            return;
+        };
+        append_to(&path, &add_c).expect("append add with corrupt bans");
+        assert_eq!(fs::read_to_string(dir.join("peers.json")).unwrap(), before);
         let _ = fs::remove_dir_all(&dir);
     }
 

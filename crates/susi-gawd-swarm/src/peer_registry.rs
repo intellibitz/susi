@@ -14,80 +14,15 @@ fn registry_path() -> PathBuf {
     crate::susi_paths::SusiDirs::config_dir().join("peers.json")
 }
 
-fn banned_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json")
-}
-
-/// Operator-evicted members. A banned peer's signed pong verifies
-/// cryptographically but is dropped at admission — removal without a ban
-/// list would let the evicted node re-verify on its next handshake.
-/// The file format is structural JSON (`peers_banned.json`) that
-/// `susi peers` reads/writes without a Cargo edge into this crate.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct BannedPeer {
-    pub node_id: String,
-    pub address: String,
-    pub banned_at: u64,
-}
-
-pub fn load_banned_peers() -> Vec<BannedPeer> {
-    load_banned_peers_from(&banned_path())
-}
-
-/// Path-seamed loader — same rationale as `load_persisted_peers_from`.
-pub fn load_banned_peers_from(path: &PathBuf) -> Vec<BannedPeer> {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return Vec::new(),
-    };
-    serde_json::from_str(&text).unwrap_or_default()
-}
-
-/// True when `node_id` or `address` matches a banned member — the
-/// signed-pong handler drops admissions for banned peers even though
-/// the cryptographic handshake itself succeeds.
+/// True when `node_id` or `address` matches an operator-evicted member in
+/// `peers_banned.json`. A banned peer's signed pong verifies
+/// cryptographically but is dropped at admission. Fails closed: an
+/// unreadable or corrupt ban list counts as banned, so damage to the file
+/// can never readmit evicted members (it used to parse as an empty list).
 pub fn is_banned(node_id: &str, address: &str) -> bool {
-    is_banned_in(&load_banned_peers(), node_id, address)
-}
-
-/// Pure membership check — the rule `susi peers remove` and this module
-/// agree on: either field matching blocks admission.
-pub fn is_banned_in(banned: &[BannedPeer], node_id: &str, address: &str) -> bool {
-    banned
-        .iter()
-        .any(|b| b.node_id == node_id || b.address == address)
-}
-
-/// Evict `node`: record the ban and drop the roster entry. Banning is
-/// what `susi peers remove` writes structurally; this function keeps the
-/// swarm-side view consistent when called from inside the daemon.
-pub fn ban_peer(node_id: &str, address: &str) {
-    ban_peer_at(node_id, address, &banned_path(), &registry_path());
-}
-
-/// Path-seamed variant of `ban_peer`.
-pub fn ban_peer_at(node_id: &str, address: &str, banned_path: &PathBuf, registry_path: &PathBuf) {
-    // One lock across the ban+roster pair — a concurrent committed
-    // member_add apply or scout persist must not interleave.
-    let _lock = banned_path
-        .parent()
-        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
-    let mut banned = load_banned_peers_from(banned_path);
-    if !is_banned_in(&banned, node_id, address) {
-        banned.push(BannedPeer {
-            node_id: node_id.to_string(),
-            address: address.to_string(),
-            banned_at: crate::amas::now_secs(),
-        });
-        let _ = crate::susi_config::atomic_write_json_pretty(banned_path, &banned);
-    }
-    // Drop the roster entry so the ban takes effect immediately, not on
-    // the next restart.
-    let kept: Vec<_> = load_persisted_peers_from(registry_path)
-        .into_iter()
-        .filter(|n| n.node_id != node_id && n.address != address)
-        .collect();
-    let _ = crate::susi_config::atomic_write_json_pretty(registry_path, &kept);
+    crate::susi_config::cluster_key::member_banned(|row| {
+        crate::susi_config::cluster_key::ban_row_matches(row, node_id, address)
+    })
 }
 
 /// Persisted verified peers — filtered to `Explicit` on read so a
@@ -203,28 +138,32 @@ mod tests {
     }
 
     #[test]
-    fn ban_peer_records_ban_and_drops_roster_entry() {
-        let reg = temp_registry();
-        let ban = temp_registry();
-        let peer = node("10.0.0.5:9093", PeerAdmission::Explicit);
-        persist_verified_peer_to(&peer, &reg);
-        assert_eq!(load_persisted_peers_from(&reg).len(), 1);
-
-        ban_peer_at(&peer.node_id, &peer.address, &ban, &reg);
-        let banned = load_banned_peers_from(&ban);
-        assert_eq!(banned.len(), 1);
-        assert!(is_banned_in(&banned, &peer.node_id, "unrelated:1"));
-        assert!(is_banned_in(&banned, "unrelated", &peer.address));
-        assert!(!is_banned_in(&banned, "unrelated", "unrelated:1"));
-        // The roster entry is dropped immediately — eviction is not deferred.
-        assert!(load_persisted_peers_from(&reg).is_empty());
-
-        // Banning twice does not duplicate the entry.
-        ban_peer_at(&peer.node_id, &peer.address, &ban, &reg);
-        assert_eq!(load_banned_peers_from(&ban).len(), 1);
-
-        let _ = std::fs::remove_file(&reg);
-        let _ = std::fs::remove_file(&ban);
+    fn damaged_ban_list_fails_closed() {
+        use crate::susi_config::cluster_key::{ban_row_matches, member_banned_at};
+        let dir = std::env::temp_dir().join(format!(
+            "susi_bans_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let check = |id: &str, addr: &str| member_banned_at(&dir, |r| ban_row_matches(r, id, addr));
+        // No ban list: nobody is banned.
+        assert!(!check("n-a", "10.0.0.1:9093"));
+        std::fs::write(
+            dir.join("peers_banned.json"),
+            r#"[{"node_id":"n-a","address":"10.0.0.1:9093","banned_at":1}]"#,
+        )
+        .unwrap();
+        assert!(check("n-a", "elsewhere:1"));
+        assert!(check("other", "10.0.0.1:9093"));
+        assert!(!check("other", "elsewhere:1"));
+        // A torn/corrupt list must not read as empty.
+        std::fs::write(dir.join("peers_banned.json"), r#"[{"node_id":"n-a""#).unwrap();
+        assert!(check("other", "elsewhere:1"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

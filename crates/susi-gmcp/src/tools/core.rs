@@ -1324,15 +1324,10 @@ impl CoreTools {
                 "leader cannot be proposed as a new member — self-edge",
             ));
         }
-        let banned: Vec<serde_json::Value> = std::fs::read_to_string(
-            crate::susi_paths::SusiDirs::config_dir().join("peers_banned.json"),
-        )
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-        let is_banned = banned.iter().any(|b| {
-            b.get("node_id").and_then(|v| v.as_str()) == Some(id)
-                || b.get("address").and_then(|v| v.as_str()) == Some(addr)
+        // Fails closed on a damaged ban list: an add is refused rather
+        // than proposed against a list that may hold this member.
+        let is_banned = crate::susi_config::cluster_key::member_banned(|b| {
+            crate::susi_config::cluster_key::ban_row_matches(b, id, addr)
         });
         // Electorate = this leader's explicit roster at seal time.
         let roster = gawd::cluster_roster().map_err(|e| {
