@@ -76,6 +76,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    bounded, compacted by atomic rename, and re-read correctly by sibling
    processes after a compaction.
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
+   Error metrics are redacted too: credentials in error text (env-held keys,
+   bundled token patterns) are masked before `error_metrics.jsonl` records them.
    Task listings reflect real outcomes: a task whose owner exits without
    reporting one is recorded as `[ABANDONED]`, not left `Running`; finished
    records are pruned oldest-first past 512 so the daemon's table stays bounded.

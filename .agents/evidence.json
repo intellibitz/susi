@@ -1990,6 +1990,16 @@
       "milestone": "RSI iteration 38/100: the verified-peer roster can no longer be erased by one persist. persist_verified_peer_to (called on every successful signed handshake) loaded peers.json through serde_json::from_str::<Vec<ClusterPeerNode>>(..).unwrap_or_default(), so a torn file, or a single row another writer shaped without one of ClusterPeerNode's nine required fields, made the whole array read as empty; it then atomically rewrote the file with just the peer it was admitting, erasing every other verified member. The commit-log membership apply had the same read-as-empty-then-rewrite shape for peers.json. susi_config::cluster_key::read_json_rows_strict now provides one uncached strict reader (absent is empty, damaged is Err), shared by config_json_rows_checked_at and the commit-log apply (which now reads both files through it and skips while either is damaged). persist_verified_peer_to edits JSON rows in place, keeping explicit rows it cannot type-parse, and refuses to rewrite a damaged roster; load_persisted_peers_from parses row by row so one foreign row no longer hides every typed peer. The two path-seam functions now take &Path. A regression test persists beside a minimally shaped explicit row and proves both rows remain on disk while the typed loader still returns the typed peer, and that a damaged roster is left byte-identical. cargo test -p susi-gawd-swarm peer_registry (4 passed), -p susi-core commit_log (15 passed), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "EaiError::log_to_metrics / redact_for_metrics",
+        "ref": "symbol://redact_for_metrics"
+      },
+      "id": "EV-2022927-205",
+      "milestone": "RSI iteration 39/100: the error-metrics sink no longer records credentials (Mandate 10). Every EaiError constructor appends {error: self.to_string(), ...} to data_dir/error_metrics.jsonl (or posts it to the susi-error service), and that text routinely embeds command stderr (exec_command fails with the child's stderr), remote URLs with basic-auth tokens, and provider error bodies. Nothing redacted it, although susi_config::redact_credentials exists for exactly this class of text; the error contract sits below the config crate in the leaf order and could not call it. The contract now masks error text before recording: environment credentials (*_API_KEY, *_TOKEN, *_SECRET values, 8+ chars) via a new pure susi_error::redact::mask_env_credentials, which redact_credentials now reuses instead of keeping its own copy, then the governance.secret_tokens list embedded at build time from config/config.default.json, so the default list has one source. Known limitation, stated: operator-added patterns in the host config are not applied at this layer (the contract cannot load config); redact_credentials still applies them at the trust-boundary surfaces it guards. A test proves the bundled list is embedded and that a ghp_ token in a remote URL and an sk- key are masked while the message survives. cargo test -p susi-error metrics_redaction and cargo clippy --workspace --all-targets -D warnings pass (contract.rs and redact.rs are path-mounted into every crate).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

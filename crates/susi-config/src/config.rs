@@ -668,14 +668,7 @@ impl std::ops::Deref for SusiConfig {
 /// never fails open.
 #[must_use]
 pub fn redact_credentials(text: &str) -> String {
-    let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
-        if value.len() >= 8
-            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
-        {
-            result = result.replace(&value, "[REDACTED]");
-        }
-    }
+    let result = crate::susi_error::redact::mask_env_credentials(text);
     let patterns = SusiConfig::load_arc(&crate::susi_paths::SusiDirs::config_dir())
         .map(|cfg| cfg.governance().secret_tokens)
         .unwrap_or_else(|_| SusiConfig::default().governance().secret_tokens);

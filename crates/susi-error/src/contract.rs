@@ -29,6 +29,37 @@ pub enum EaiError {
     Unknown(Box<dyn StdError + Send + Sync>, Backtrace),
 }
 
+/// `governance.secret_tokens` from the bundled default config — the same
+/// list `redact_credentials` falls back to. The error contract sits below
+/// the config crate and cannot load the host config, so it redacts with
+/// the bundled list; an unparseable bundle yields no patterns, and the
+/// environment credential mask still applies.
+fn bundled_secret_tokens() -> &'static [String] {
+    static TOKENS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    TOKENS.get_or_init(|| {
+        serde_json::from_str::<serde_json::Value>(include_str!(
+            "../../../config/config.default.json"
+        ))
+        .ok()
+        .and_then(|cfg| {
+            cfg.pointer("/governance/secret_tokens")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+        })
+        .unwrap_or_default()
+    })
+}
+
+/// Error text is recorded in `error_metrics.jsonl` (and posted to the
+/// `susi-error` service); it routinely carries command stderr, URLs, and
+/// provider responses, so credentials are masked before it leaves the
+/// process (Mandate 10).
+fn redact_for_metrics(text: &str) -> String {
+    super::redact::redact_patterns(
+        bundled_secret_tokens(),
+        &super::redact::mask_env_credentials(text),
+    )
+}
+
 macro_rules! impl_eai_err {
     ($fn_name:ident, $variant:ident) => {
         pub fn $fn_name(msg: impl Into<String>) -> Self {
@@ -62,7 +93,7 @@ impl EaiError {
 
         let entry = serde_json::json!({
             "ts": ts,
-            "error": self.to_string(),
+            "error": redact_for_metrics(&self.to_string()),
             "kind": self.kind_name(),
             "code": self.code(),
             "retryable": self.retryable(),
@@ -196,3 +227,20 @@ impl_from_err!(std::string::FromUtf8Error, Protocol);
 impl_from_err!(std::num::ParseIntError, Protocol);
 
 pub type EaiResult<T> = Result<T, EaiError>;
+
+#[cfg(test)]
+mod metrics_redaction_tests {
+    use super::{bundled_secret_tokens, redact_for_metrics};
+
+    #[test]
+    fn metrics_text_masks_bundled_secret_tokens() {
+        // Proves the bundled config is embedded and its pointer resolves.
+        assert!(bundled_secret_tokens().iter().any(|t| t == "ghp_"));
+        let text = redact_for_metrics(
+            "git push failed: https://x:ghp_abcDEF123456@github.com and key sk-live_9f8e7d",
+        );
+        assert!(!text.contains("ghp_abcDEF123456"), "{text}");
+        assert!(!text.contains("sk-live_9f8e7d"), "{text}");
+        assert!(text.contains("git push failed"));
+    }
+}

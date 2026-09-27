@@ -372,7 +372,7 @@
         },
         {
           "id": 10,
-          "imperative": "Do not leak tokens, credentials, API keys, or sensitive configuration in logs, telemetry, mission traces, or outbound tool content. Durable records must pass Mandate 38 (`SecurityDetector::redact`) before write. A bare \"zero tolerance / never leak any secret shape\" claim is forbidden by Mandate 1 — detection is pattern- and config-based, not omniscient; unknown secret formats may require config updates. Intentional non-leak plus redaction is the mandate, not perfect cryptography of every possible secret.",
+          "imperative": "Do not leak tokens, credentials, API keys, or sensitive configuration in logs, telemetry, mission traces, or outbound tool content. Durable records must pass Mandate 38 (`SecurityDetector::redact`) before write. A bare \"zero tolerance / never leak any secret shape\" claim is forbidden by Mandate 1 — detection is pattern- and config-based, not omniscient; unknown secret formats may require config updates. Intentional non-leak plus redaction is the mandate, not perfect cryptography of every possible secret. The error-metrics sink masks environment credentials and the bundled secret-token patterns before recording any error text.",
           "title": "No Secret Leaks (Pattern Redaction, Not Omniscience)"
         },
         {

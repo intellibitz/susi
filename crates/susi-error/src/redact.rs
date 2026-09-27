@@ -31,3 +31,19 @@ fn redact_one(text: &str, pattern: &str) -> String {
     out.push_str(rest);
     out
 }
+
+/// Masks the value of every environment variable named `*_API_KEY`,
+/// `*_TOKEN`, or `*_SECRET` (8+ chars) — the credentials this process
+/// actually holds, which is what an error message most often echoes back.
+#[must_use]
+pub fn mask_env_credentials(text: &str) -> String {
+    let mut result = text.to_owned();
+    for (key, value) in std::env::vars() {
+        if value.len() >= 8
+            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
+        {
+            result = result.replace(&value, "[REDACTED]");
+        }
+    }
+    result
+}
