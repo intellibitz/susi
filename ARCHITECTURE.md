@@ -33,6 +33,32 @@ networking clients, UI, OS daemon APIs, Candle, Wasmer, Bollard, or `rmcp`.
 
 Concrete implementations are assembled only at composition roots.
 
+## Local and cloud operating planes
+
+SUSI presents one control plane across two execution ecosystems; these are
+placement targets, not separate products:
+
+| Plane | Managed resources | Shared contracts |
+|-------|-------------------|------------------|
+| **Local** | Candle/GGUF and Ollama models, CPU/GPU residency and eviction, local MCP/CLI agents, Wasm reflexes, Docker sandbox, workspace memory | `CapabilityRegistry`, MAC/privacy policy, evidence receipts, HMAC audit, budgets, placement decision |
+| **Cloud** | Configured OpenAI-compatible/Anthropic/Gemini/OpenRouter providers, remote MCP, A2A peers, managed external agents | the same registry, policy, evidence, audit, budget, and placement contracts; credentials remain explicit operator configuration |
+
+`susi os route` and `GET /runtime/placement` execute the same placement policy
+used by completion requests. Each executed plan carries a
+`placement-<pid>-<unix>-<seq>` id in the response body/SSE/header and records
+`INFERENCE_PLACEMENT` in the signed audit chain. Authenticated callers resolve
+the correlation through `GET /runtime/placement/decisions/{id}`; the result
+includes the audit timestamp and entry hash.
+
+Append-only durability is also a cross-plane contract. Audit writers hold a
+cross-process `FileLock`, emit each complete JSONL record with one write, sync
+the log before publishing a length-bound atomic tip checkpoint, and rebuild a
+stale checkpoint only from a verified chain. Verification never turns an I/O
+or UTF-8 failure into an empty valid ledger. Receipt-archive rotation is
+cross-process serialized and readers traverse every retained generation.
+Semantic-index watermarks advance only after durable vector/index writes and
+never consume an unterminated source tail.
+
 ## Crate boundaries
 
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |

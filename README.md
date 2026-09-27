@@ -8,6 +8,23 @@ susi runs a persistent host daemon, stable network ports external clients can ha
 
 > Mount models, agents, and MCP tools as capabilities — open OpenAI-compat / MCP / protocol-peer admission (config or `susi mcp-add` / `susi mcp enable`), including top external coding agents via `susi agents`, agent frameworks via `susi frameworks`, coding/agent models via `susi models`, top frontier engines via `susi frontier`, open-weight local hosts via `susi openweight`, OpenRouter via `susi openrouter`, and leading MCP tool servers (Filesystem, GitHub, Context7, Playwright, Sentry + Chrome DevTools, …) via `susi mcp list|enable` when launchers/keys are present. susi orchestrates a consensus **Swarm**, grounds work in structured **Evidence** (`EvidenceRecord` / `Claim` + live receipts), cross-examines with a **Truth** transformer against workspace reality, cryptographically **audits** actions into an immutable HMAC chain, **sandboxes** untrusted Wasm plugins/reflexes (Wasmer) and optional shell (Docker), distills routine intelligence into **reflexes**, and scouts and hot-plugs missing **MCP** tools at runtime. **Automation** is first-class via `susi automate <intent>`. Zero-config discovery runs on daemon start (engines / MCP / Candle fallback); install + optional API keys still apply.
 
+## One operating layer, two AI ecosystems
+
+- **Local AI OS layer** — discovers and manages local runtimes, GGUF/Ollama
+  models, GPU/CPU placement, loaded-model lifecycle, MCP tools, sandboxed
+  Wasm reflexes, workspace memory, and host-resident agents. `local_only`
+  policy blocks every known off-host tool path, not only URLs with obvious
+  network-shaped names.
+- **Cloud AI OS layer** — admits OpenAI-compatible, Anthropic, Gemini,
+  OpenRouter, MCP, A2A, and managed CLI peers through the same capability,
+  budget, evidence, audit, and placement contracts. Credentials remain
+  operator-owned; SUSI neither invents nor silently purchases access.
+- **One decision plane** — a completion is placed locally, in cloud, or on an
+  explicitly requested model by the same policy used by `susi os route` and
+  `GET /runtime/placement`. The returned decision id resolves to its signed
+  `INFERENCE_PLACEMENT` audit record, so routing is inspectable after the
+  request instead of being an opaque provider choice.
+
 ---
 
 ## Host contract
@@ -51,7 +68,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 3. **Swarm** — agent-of-agents consensus (GAWD).
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
-6. **Audit** — append-only HMAC accountability chain.
+6. **Audit** — append-only HMAC accountability chain; cross-process writers
+   serialize, complete JSONL records are emitted in one write, stale tip
+   checkpoints rebuild from the verified log, and unreadable input fails closed.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
@@ -151,7 +170,11 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 # `allow_cloud:false` pins execution to a ready local model and fails with
 # HTTP 503 when none is ready. It also rejects an explicitly pinned cloud
 # model instead of weakening the request. Successful completion responses
-# report `X-Susi-Placement: local|cloud|explicit` (CORS-exposed).
+# report `X-Susi-Placement: local|cloud|explicit` and
+# `X-Susi-Placement-Id: placement-...` (both CORS-exposed), plus a
+# `susi_placement` object in JSON responses and the opening SSE frame.
+# Resolve that id to the signed decision record:
+#   GET http://127.0.0.1:9091/runtime/placement/decisions/placement-...
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so

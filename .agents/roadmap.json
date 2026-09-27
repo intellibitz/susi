@@ -1,8 +1,8 @@
 {
-  "description": "Structural roadmap and future evolution goals of the susi substrate (agent governance — not end-user docs).",
+  "description": "Structural roadmap and future evolution goals of the SUSI local-and-cloud AI operating layer (agent governance — not end-user docs). Implemented truth remains identity.json plus evidence.json; roadmap text is not proof.",
   "schema": "susi/roadmap/v1",
-  "strategic_priority": "Federation",
-  "target_version": "0.2.0",
+  "strategic_priority": "Local + Cloud Federation",
+  "target_version": "0.15.0",
   "title": "SUSI Substrate Roadmap: The Sovereign Will",
   "vectors": [
     {

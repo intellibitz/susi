@@ -1,6 +1,21 @@
 # SUSI: Swarm OS Vision
 
-This document outlines the **100 concrete, testable milestones** that define SUSI as the ultimate Swarm Operating System for the AI ecosystem. It merges the universal Swarm OS vision with SUSI's native architecture, ensuring no existing capabilities—like our zero-dependency micro-daemons, HMAC audit trails, stigmergic pheromones, and MAC policies—are dropped.
+This document outlines **100 concrete, testable vision milestones** for SUSI as
+the Swarm OS layer for the AI ecosystem. It is a target-state document, not a
+claim that every numbered item is implemented or empirically proven today.
+Current product truth lives in `.agents/identity.json`; verified implementation
+evidence lives in `.agents/evidence.json`; crate and runtime boundaries live in
+`ARCHITECTURE.md`.
+
+The implemented product spans two execution ecosystems through one governed
+control plane: local models/runtimes/tools/agents and explicitly configured
+cloud providers/MCP/A2A peers. Both share capability admission, placement,
+privacy, budgets, evidence, signed audit, and truth gates. “OS” means this
+operating layer for AI agents—it does not mean a replacement host OS.
+
+The vision merges universal swarm goals with SUSI's native architecture while
+retaining existing capabilities such as leaf services, HMAC audit trails,
+stigmergic pheromones, and MAC policies.
 
 ***
 

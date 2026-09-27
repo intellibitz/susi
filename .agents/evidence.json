@@ -1590,6 +1590,16 @@
       "milestone": "SUSI OS hardening steps 91-100 (commits 35992526..2c51f9b0). Append-only JSONL producers emit each complete record with one write. Audit verification fails closed on unreadable or non-UTF-8 input; length-bound atomic tip checkpoints detect a log append that survived while its tip update did not, rebuild from the verified log, and prevent the next writer from forking the chain. Receipt archive rotation is cross-process serialized and readers traverse all retained generations oldest-first. Semantic vectors are synced before the atomic watermark advances; embedding and text-index refreshes each have cross-process exclusion; incomplete final JSONL records are neither indexed nor watermarked and become visible after completion. Protocol-knowledge distillation now surfaces directory, serialization, open, and write failures instead of reporting false success. Targeted regression tests and per-crate clippy -D warnings passed for every change.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "local and cloud AI operating planes",
+        "ref": "file://README.md"
+      },
+      "id": "EV-2022927-165",
+      "milestone": "Identity and public-contract reconciliation after the 100-step SUSI OS hardening sequence. README.md and ARCHITECTURE.md now define one governed operating layer across local AI (models/runtimes/GPU lifecycle/MCP/Wasm/workspace agents) and explicitly configured cloud AI (providers/MCP/A2A/managed peers), document the shared placement/evidence/audit/privacy contracts, expose placement-id correlation and authenticated audit lookup, and state the crash-safe audit invariants. identity.json removes the remaining false EvolutionAgent self-healing claim, describes the implemented local/cloud placement plane, receipt generations, and fail-closed cross-process audit chain. VISION.md is explicitly target-state rather than evidence, and roadmap metadata now targets the next 0.15.0 line with Local + Cloud Federation as the strategic priority.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
