@@ -272,32 +272,26 @@ impl SusiConfig {
             }
             hex::encode(raw)
         };
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-            let _ = fs::create_dir_all(&global_dir);
-            let _ = fs::set_permissions(&global_dir, fs::Permissions::from_mode(0o700));
-            // Create with 0600 atomically — never write-then-chmod (umask window).
-            let mut options = fs::OpenOptions::new();
-            options.write(true).create(true).truncate(true).mode(0o600);
-            match options.open(&token_path).and_then(|mut f| {
-                use std::io::Write;
-                f.write_all(token.as_bytes())?;
-                f.sync_all()
-            }) {
-                Ok(()) => {
-                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
+        // Install without replacement: the daemon and CLI both seed on
+        // first run, and a last-writer-wins race would hand clients a token
+        // that is no longer the one on disk. The loser adopts the winner's.
+        let _ = super::json_util::create_private_dir(&global_dir);
+        let installed = super::json_util::install_private_file(&token_path, token.as_bytes());
+        let token = match installed {
+            Ok(true) => token,
+            Ok(false) => match fs::read_to_string(&token_path) {
+                Ok(existing) if !existing.trim().is_empty() => return existing.trim().to_string(),
+                // An empty leftover file is not a token — replace it.
+                Ok(_) | Err(_) => {
+                    let _ = super::json_util::atomic_write_bytes(&token_path, token.as_bytes());
+                    token
                 }
-                Err(_) => {
-                    let _ = fs::write(&token_path, &token);
-                    let _ = fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600));
-                }
+            },
+            Err(_) => {
+                let _ = super::json_util::atomic_write_bytes(&token_path, token.as_bytes());
+                token
             }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = fs::write(&token_path, &token);
-        }
+        };
         if cfg.settings.remove("api_auth_token").is_some() {
             let _ = cfg.save(&global_dir);
         }

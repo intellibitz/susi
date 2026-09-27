@@ -123,7 +123,7 @@ mod config;
 
 pub use config::{redact_credentials, SusiConfig};
 pub use json_util::{
-    atomic_write_bytes, atomic_write_json_pretty, create_private_dir, remove_file_if_present, confined_workspace_join, http_agent, load_or_create_secret, merge_missing_json_defaults,
+    atomic_write_bytes, atomic_write_json_pretty, create_private_dir, install_private_file, remove_file_if_present, confined_workspace_join, http_agent, load_or_create_secret, merge_missing_json_defaults,
     merge_missing_registry_defaults, DynamicRegistry, DynamicValue, ModelTier, ProviderType,
     StringRegistry,
 };

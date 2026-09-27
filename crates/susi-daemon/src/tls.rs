@@ -104,13 +104,10 @@ fn self_signed_pair(tls_dir: &Path, bind_address: &str) -> std::io::Result<(Path
     }
     let rcgen::CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(sans)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    std::fs::write(&cert_path, cert.pem())?;
-    std::fs::write(&key_path, signing_key.serialize_pem())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
-    }
+    // Owner-only from creation: a write-then-chmod leaves the private key
+    // readable under the umask until the chmod lands (or forever, if it fails).
+    crate::susi_config::atomic_write_bytes(&key_path, signing_key.serialize_pem().as_bytes())?;
+    crate::susi_config::atomic_write_bytes(&cert_path, cert.pem().as_bytes())?;
     eprintln!(
         "[TLS] Generated self-signed certificate at {} (clients: `curl -k` or pin the cert)",
         cert_path.display()

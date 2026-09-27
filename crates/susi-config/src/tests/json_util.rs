@@ -104,3 +104,36 @@ fn wrong_length_secret_is_an_error_not_a_regeneration() {
     }
     let _ = std::fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn private_install_has_exactly_one_winner_and_is_owner_only() {
+    let ws = workspace("install");
+    let path = ws.join("fresh/api_token");
+    let payloads: Vec<String> = (0..16).map(|i| format!("token-{i:02}")).collect();
+    let won: Vec<bool> = std::thread::scope(|scope| {
+        let handles: Vec<_> = payloads
+            .iter()
+            .map(|p| {
+                let path = &path;
+                scope.spawn(move || {
+                    crate::json_util::install_private_file(path, p.as_bytes()).unwrap()
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert_eq!(won.iter().filter(|w| **w).count(), 1);
+    let winner = &payloads[won.iter().position(|w| *w).unwrap()];
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), *winner);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+    assert_eq!(
+        std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+        1
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}

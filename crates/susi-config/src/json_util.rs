@@ -71,26 +71,39 @@ pub fn load_or_create_secret(path: &Path) -> std::io::Result<[u8; 32]> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
     }
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| std::io::Error::other(e.to_string()))?;
+    if install_private_file(path, &key)? {
+        Ok(key)
+    } else {
+        // Another writer installed its secret first — use theirs.
+        read_secret(path)
+    }
+}
+
+/// Installs `bytes` at `path` only if nothing is there yet: written in full
+/// to a unique owner-only (0600 on Unix) staging file, then hard-linked into
+/// place, so readers never see a partial or umask-readable file and a
+/// concurrent installer never overwrites the winner. Returns `false` when
+/// `path` already existed (nothing written). Parents are created on demand.
+pub fn install_private_file(path: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     let dir = match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         Some(_) | None => Path::new("."),
     };
     fs::create_dir_all(dir)?;
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).map_err(|e| std::io::Error::other(e.to_string()))?;
     let (tmp, mut file) = create_staging_file(dir, path)?;
     let staged = {
         use std::io::Write;
-        file.write_all(&key)
+        file.write_all(bytes)
             .and_then(|()| file.sync_all())
             .and_then(|()| fs::hard_link(&tmp, path))
     };
     drop(file);
     let _ = fs::remove_file(&tmp);
     match staged {
-        Ok(()) => Ok(key),
-        // Another writer installed its secret first — use theirs.
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_secret(path),
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
         Err(e) => Err(e),
     }
 }
