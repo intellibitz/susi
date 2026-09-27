@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; configuration-gated native distillation is cross-process serialized, resumes from published weights, and surfaces staging, training, and consumed-sample retirement failures instead of reporting false success.",
+      "summary": "Wasm under the data dir; configuration-gated native distillation consumes the invoking workspace's staged experience, is cross-process serialized, resumes from globally published weights, and surfaces staging, training, and consumed-sample retirement failures instead of reporting false success.",
       "title": "Reflexes"
     },
     {

@@ -1630,6 +1630,16 @@
       "milestone": "RSI iteration 2/100: native reflex training is now cumulative and single-writer. The prior implementation initialized a fresh random VarMap for every run, trained it, and replaced the previous weights, so repeated distillation did not improve the existing model. It now acquires a cross-process reflex-training lock, resolves configuration without a silent default, creates the model directory explicitly, loads published weights into the trainable variables when present, then atomically renames the trained checkpoint. Existing but unreadable/incompatible weights abort training instead of being silently discarded. The result text now accurately says native cumulative training rather than autonomous evolution. Targeted fmt, test, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAlphaModel::train_on_staged_file",
+        "ref": "symbol://SusiAlphaModel::train_on_staged_file"
+      },
+      "id": "EV-2022927-169",
+      "milestone": "RSI iteration 3/100: automatic and forced reflex training now consume the experience buffer that SUSI actually writes. ProtocolKnowledgeBase stages pairs at <workspace>/.susi/distillation_staged.jsonl, but ReflexTrainer ignored its workspace argument and looked only in the host config directory; therefore normal workspace experience could never trigger or feed training. SusiAlphaModel now separates the globally published model directory from an explicit staged-data path, while the existing global-buffer entry point remains as a compatibility wrapper. ReflexTrainer uses the invoking workspace buffer for thresholding, training, and post-success retirement, while retaining the globally shared weights and cross-process training lock. Targeted fmt, test, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

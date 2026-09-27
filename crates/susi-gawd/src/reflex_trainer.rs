@@ -9,9 +9,8 @@ pub struct ReflexTrainer;
 
 impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
-    pub fn audit_distillation_state(_workspace: &Path) -> EaiResult<String> {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let staged_file = global_dir.join("distillation_staged.jsonl");
+    pub fn audit_distillation_state(workspace: &Path) -> EaiResult<String> {
+        let staged_file = workspace.join(".susi/distillation_staged.jsonl");
 
         let count = match staged_sample_count(&staged_file)? {
             Some(count) => count,
@@ -21,7 +20,7 @@ impl ReflexTrainer {
 
         if count >= cfg.reflex_training_threshold() {
             eprintln!("[Reflex Trainer] Wisdom buffer saturated ({count} samples). Triggering native distillation...");
-            let report = SusiAlphaModel::train_on_staged_data(&global_dir)
+            let report = SusiAlphaModel::train_on_staged_data(workspace)
                 .map_err(|e| EaiError::inference(format!("reflex distillation failed: {e}")))?;
             std::fs::remove_file(&staged_file).map_err(|e| {
                 EaiError::io(format!(
@@ -35,9 +34,8 @@ impl ReflexTrainer {
         Ok("Reflex substrate optimal.".into())
     }
 
-    pub fn force_train(_workspace: &Path) -> EaiResult<String> {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        SusiAlphaModel::train_on_staged_data(&global_dir)
+    pub fn force_train(workspace: &Path) -> EaiResult<String> {
+        SusiAlphaModel::train_on_staged_data(workspace)
             .map_err(|e| crate::susi_error::EaiError::inference(e.to_string()))
     }
 }

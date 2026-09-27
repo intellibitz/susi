@@ -338,9 +338,10 @@ impl PlaneHandler for GemiPlaneHandler {
             topics::GEMI_ALPHA_TRAIN => {
                 let ws = workspace_path(&payload);
                 let global_dir = crate::susi_paths::SusiDirs::config_dir();
-                let _ = ws;
-                let text = crate::alpha::SusiAlphaModel::train_on_staged_data(&global_dir)
-                    .map_err(|e| e.to_string())?;
+                let staged_file = ws.join(".susi/distillation_staged.jsonl");
+                let text =
+                    crate::alpha::SusiAlphaModel::train_on_staged_file(&global_dir, &staged_file)
+                        .map_err(|e| e.to_string())?;
                 Ok(json!({ "text": text }))
             }
             topics::GEMI_MODELS_LOADED => Ok(json!({

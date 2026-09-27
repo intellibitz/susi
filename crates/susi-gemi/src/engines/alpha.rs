@@ -117,12 +117,18 @@ impl SusiAlphaModel {
     }
 
     pub fn train_on_staged_data(global_dir: &Path) -> Result<String> {
+        Self::train_on_staged_file(global_dir, &global_dir.join("distillation_staged.jsonl"))
+    }
+
+    pub fn train_on_staged_file(global_dir: &Path, staged_file: &Path) -> Result<String> {
         let _training_lock =
             crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
                 .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
-        let staged_file = global_dir.join("distillation_staged.jsonl");
         if !staged_file.exists() {
-            return Err(anyhow!("No staged distillation data found."));
+            return Err(anyhow!(
+                "No staged distillation data found at {}.",
+                staged_file.display()
+            ));
         }
 
         let alpha_filename =
@@ -144,7 +150,7 @@ impl SusiAlphaModel {
         let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())?;
 
         // Load Data and Map to Dynamic Surface
-        let content = std::fs::read_to_string(&staged_file)?;
+        let content = std::fs::read_to_string(staged_file)?;
         let mut samples = Vec::new();
         let mut labels = Vec::new();
 
