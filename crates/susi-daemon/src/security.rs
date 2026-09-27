@@ -1,4 +1,4 @@
-//! Capability‑Based Security Model (Swarm OS Vision – Bullet 4).
+//! Capability-based security model.
 //!
 //! Every cell declares required capabilities in its manifest. The kernel
 //! enforces a deny‑by‑default policy: a syscall is only dispatched when the
@@ -7,7 +7,7 @@
 //! Tokens are modelled as opaque strings that can be:
 //! - **Static**: baked into the manifest at registration time.
 //! - **Dynamic**: granted at runtime via the blackboard's `ConsensusVote`
-//!   mechanism after multi‑agent approval (Bullet 53).
+//!   mechanism after multi-agent approval.
 //!
 //! The [`CapabilityPolicy`] struct evaluates a [`SyscallRequest`] against a
 //! registered cell's manifest and returns `Allow` or `Deny`.

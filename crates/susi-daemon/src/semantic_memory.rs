@@ -1,4 +1,4 @@
-//! Semantic Memory Graph (Swarm OS Bullet 13)
+//! Semantic Memory Graph
 //!
 //! Provides a native vector-backed episodic memory API allowing cells
 //! to recall facts using semantic similarity. Uses a fast in-memory
@@ -11,7 +11,7 @@ use crate::susi_abi::memory::{
 use std::collections::{HashMap, HashSet};
 use std::sync::RwLock;
 
-/// Per-namespace tenant access control (Swarm OS Bullet 39): "multi-tenant
+/// Per-namespace tenant access control: "multi-tenant
 /// memory namespaces so different projects/orgs coexist safely." Deny by
 /// default — a cell may only read or write a namespace it's been
 /// explicitly granted, so one tenant's project namespace can't be read or

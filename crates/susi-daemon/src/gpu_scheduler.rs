@@ -1,4 +1,4 @@
-//! Global GPU Resource Scheduler (Swarm OS Bullet 48)
+//! Global GPU Resource Scheduler
 //!
 //! Tracks a shared VRAM budget across cells so concurrent inference
 //! requests fail fast with a clear error instead of racing the GPU into

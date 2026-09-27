@@ -1,4 +1,4 @@
-//! Query API (Swarm OS Bullet 48)
+//! Query API
 //!
 //! Substring search over cell ids, world-model payloads, and event
 //! payloads. Callers pass the stores they already hold.

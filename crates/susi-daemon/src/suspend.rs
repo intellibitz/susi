@@ -1,4 +1,4 @@
-//! Cell Hibernation & Suspension (Swarm OS Bullet 11)
+//! Cell Hibernation & Suspension
 //!
 //! Exposes the kernel capabilities to suspend a running cell (writing its memory
 //! and stack to disk to free RAM) and resume it seamlessly when a new message arrives.

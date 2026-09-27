@@ -1,4 +1,4 @@
-//! Standard Pub-Sub Event Bus (Swarm OS Bullet 56)
+//! Standard Pub-Sub Event Bus
 //!
 //! Provides a loosely coupled publisher-subscriber event bus. Cells can
 //! broadcast world-state changes to topics without knowing their subscribers.

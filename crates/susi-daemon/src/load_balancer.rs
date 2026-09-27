@@ -1,4 +1,4 @@
-//! Weighted Load Balancing across Cells (Swarm OS Bullet 19)
+//! Weighted Load Balancing across Cells
 //!
 //! Smooth weighted round-robin, the algorithm nginx upstreams use: each
 //! pick advances every cell's counter by its weight, then returns (and

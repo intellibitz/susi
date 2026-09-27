@@ -1,4 +1,4 @@
-//! Hierarchical Resource Budgets (Swarm OS Bullets 29, 58)
+//! Hierarchical Resource Budgets
 //!
 //! Swarms negotiate and enforce resource budgets (an abstract token unit
 //! standing in for tokens, CPU-seconds, or money) across three levels —

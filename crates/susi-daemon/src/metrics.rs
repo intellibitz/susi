@@ -1,4 +1,4 @@
-//! Prometheus-compatible Metrics Aggregation (Swarm OS Bullet 76)
+//! Prometheus-compatible Metrics Aggregation
 //!
 //! Exposes a `/metrics` endpoint compatible with Prometheus for tracking
 //! swarm health, tokens/sec, context lengths, and syscall ratios.

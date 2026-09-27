@@ -1,4 +1,4 @@
-//! Relational Topology Index (Swarm OS Bullet 71)
+//! Relational Topology Index
 //!
 //! An embedded lightweight relational index (mocked here via in-memory BTree)
 //! that stores the topology and historical capability routing tables.

@@ -1,8 +1,7 @@
 //! Swarm OS Stigmergic Blackboard & Capability Router.
 //!
 //! Implements the global shared memory graph, pheromone evaporation (TTL),
-//! and O(1) Capability Bloom Filter routing for autonomous cells.
-//! This fulfills the core Swarm OS Vision (Points 5, 12, 21, 22, 25, 31).
+//! and Capability Bloom Filter routing for autonomous cells.
 
 use crate::susi_abi::swarm::{SwarmCellManifest, SwarmPheromone};
 use dashmap::DashMap;

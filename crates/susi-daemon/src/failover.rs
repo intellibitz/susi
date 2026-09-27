@@ -1,4 +1,4 @@
-//! High-Availability Host Failover (Swarm OS Bullet 99)
+//! High-Availability Host Failover
 //!
 //! Protocol for migrating leadership and responsibilities when a daemon crashes.
 

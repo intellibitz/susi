@@ -1,4 +1,4 @@
-//! Versioned world model (Swarm OS Bullets 32, 34, 36, 37, 39)
+//! Versioned world model
 //!
 //! Context nodes are typed and versioned, with a parent link to the
 //! previous version. `affects` edges answer which services a config

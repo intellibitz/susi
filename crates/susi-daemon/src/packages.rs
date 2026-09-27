@@ -1,4 +1,4 @@
-//! Cell package resolution (Swarm OS Bullet 66)
+//! Cell package resolution
 //!
 //! Exact-version dependencies. Two different versions of one name in the
 //! same closure are a conflict. A cycle is an error.

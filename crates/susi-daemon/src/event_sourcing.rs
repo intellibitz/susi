@@ -1,4 +1,4 @@
-//! Event Sourcing for Agent State (Swarm OS Bullet 81)
+//! Event Sourcing for Agent State
 //!
 //! Cell state changes are appended as immutable events rather than
 //! overwritten in place; `replay` folds the log through a caller-supplied
@@ -57,7 +57,7 @@ impl EventStore {
         events.iter().fold(init, reducer)
     }
 
-    /// Temporal query (Swarm OS Bullet 35): folds only the events recorded
+    /// Temporal query: folds only the events recorded
     /// at or before `as_of` (a Unix timestamp in seconds), answering "what
     /// did the system believe at time T?" instead of always replaying the
     /// full log.

@@ -1,4 +1,4 @@
-//! Sensitive-operation quorum (Swarm OS Bullet 53)
+//! Sensitive-operation quorum.
 //!
 //! Deploy, money movement, and data export proceed only after `required`
 //! distinct cells have voted. A repeated vote from the same cell does not

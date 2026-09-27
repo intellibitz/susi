@@ -1,4 +1,4 @@
-//! Child cells (Swarm OS Bullet 15)
+//! Child cells
 //!
 //! A parent may spawn a child whose capabilities are the intersection of
 //! what it asked for and what the parent itself holds, and whose budget

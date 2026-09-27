@@ -1,4 +1,4 @@
-//! Zero-Copy Ring Buffer for Message Passing (Swarm OS Bullet 13)
+//! Zero-Copy Ring Buffer for Message Passing
 //!
 //! Provides a lock-free or lightweight bounded circular buffer
 //! intended for extremely fast, zero-copy IPC between cells on the same host.

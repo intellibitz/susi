@@ -1,4 +1,4 @@
-//! Universal Execution Tracing (Swarm OS Bullets 47 and 71)
+//! Universal Execution Tracing
 //!
 //! A standard tracing format (similar to OpenTelemetry) for cells
 //! to report their logical inference steps and reasoning graphs.

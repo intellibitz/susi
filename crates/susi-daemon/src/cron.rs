@@ -1,4 +1,4 @@
-//! Swarm Cron Daemon (Swarm OS Bullet 66)
+//! Swarm Cron Daemon
 //!
 //! A scheduling daemon for scheduled cell awakenings and periodic tasks.
 

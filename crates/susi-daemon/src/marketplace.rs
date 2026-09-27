@@ -1,4 +1,4 @@
-//! Signed marketplace listings (Swarm OS Bullet 92)
+//! Signed marketplace listings
 //!
 //! A listing is accepted only when the publisher's registered Ed25519 key
 //! verifies a signature over the listing bytes. Ratings are the same:

@@ -1,4 +1,4 @@
-//! What-If Analysis (Swarm OS Bullet 76)
+//! What-If Analysis
 //!
 //! Projects the effect of adding or removing a cell, or revoking one
 //! capability grant, without mutating the live roster or policy. Routing

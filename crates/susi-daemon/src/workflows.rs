@@ -1,4 +1,4 @@
-//! Durable Workflows & Task Journal (Swarm OS Bullet 8)
+//! Durable Workflows & Task Journal
 //!
 //! A durable event journal that persists pending tasks and orchestrates
 //! workflow state. If a node crashes, the Swarm OS rehydrates state and

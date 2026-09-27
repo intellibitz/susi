@@ -1,4 +1,4 @@
-//! Sandbox Memory Quota Enforcement (Swarm OS Bullet 26)
+//! Sandbox Memory Quota Enforcement
 //!
 //! Enforces strict maximum memory limits per cell. Any cell that exceeds
 //! its predefined memory quota is instantly flagged for termination to protect host stability.

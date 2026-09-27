@@ -1,4 +1,4 @@
-//! Episodic Memory API (Swarm OS Bullet 13)
+//! Episodic Memory API
 //!
 //! Provides a native vector-backed episodic memory interface allowing
 //! Swarm Cells to store and recall high-dimensional semantic facts over time.

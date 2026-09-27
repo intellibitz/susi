@@ -1,4 +1,4 @@
-//! Swarm Composition Recommendation (Swarm OS Bullet 78)
+//! Swarm Composition Recommendation
 //!
 //! Recommends which cells to assemble for a new task by blending live
 //! trust score (the same ranking `SwarmBlackboard::find_capable_cells`

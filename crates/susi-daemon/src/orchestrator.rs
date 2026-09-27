@@ -1,4 +1,4 @@
-//! Hierarchical Orchestrator Cell Abstraction (Swarm OS Bullet 59)
+//! Hierarchical Orchestrator Cell Abstraction
 //!
 //! A hierarchical orchestrator cell manages a pool of worker cells,
 //! dynamically scaling them up or down based on load or task requirements.

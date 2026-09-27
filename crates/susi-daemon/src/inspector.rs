@@ -1,4 +1,4 @@
-//! Visual inspector payload (Swarm OS Bullets 63 and 69)
+//! Visual inspector payload
 //!
 //! A text topology plus a JSON document an editor can render: registered
 //! cells and pheromone counts by topic. There is no separate GUI process;

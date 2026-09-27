@@ -1,4 +1,4 @@
-//! Swarm Topology Engine (Swarm OS Bullet 24)
+//! Swarm Topology Engine
 //!
 //! Allows cells to autonomously discover and form peer-to-peer topologies
 //! (e.g. Ring, Star, Mesh) based on task requirements, without a central coordinator.

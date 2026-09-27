@@ -1,4 +1,4 @@
-//! Gossip Protocol for Peer-to-Peer Capability Propagation (Swarm OS Bullet 89)
+//! Gossip Protocol for Peer-to-Peer Capability Propagation
 //!
 //! Implements a built-in gossip protocol (epidemic routing) for propagating
 //! capability discovery and swarm routing table information over UDP.

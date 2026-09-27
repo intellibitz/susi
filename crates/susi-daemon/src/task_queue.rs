@@ -1,4 +1,4 @@
-//! Distributed Prioritized Task Queues (Swarm OS Bullet 64)
+//! Distributed Prioritized Task Queues
 //!
 //! A shared max-heap keyed by priority, so the highest-priority pending
 //! task is always the next one popped regardless of arrival order.

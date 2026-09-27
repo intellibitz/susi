@@ -1,4 +1,4 @@
-//! Time-Travel Debugger & Message Replay (Swarm OS Bullet 95)
+//! Time-Travel Debugger & Message Replay
 //!
 //! Provides deterministic replay of a cell's message history to recreate an exact state.
 //! Used for step-through debugging of AI agent interactions.

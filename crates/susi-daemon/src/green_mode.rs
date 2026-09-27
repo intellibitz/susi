@@ -1,4 +1,4 @@
-//! Green scheduling (Swarm OS Bullet 97)
+//! Green scheduling
 //!
 //! Heavy work is admitted when renewable supply is available, or when the
 //! host is not under thermal stress. Thermal stress without renewable

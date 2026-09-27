@@ -1,4 +1,4 @@
-//! Incremental Cell State Snapshotting (Swarm OS Bullet 74)
+//! Incremental Cell State Snapshotting
 //!
 //! Rather than re-serializing a cell's full memory state on every tick,
 //! callers record only the delta since the last snapshot. `reconstruct_state`
@@ -79,8 +79,7 @@ impl SnapshotManager {
     }
 
     /// Exports every cell's reconstructed state as a portable, hex-encoded
-    /// JSON bundle (Swarm OS Bullet 40: "export and import memory
-    /// snapshots for backup, migration, and offline analysis").
+    /// JSON bundle for backup, migration, and offline analysis.
     pub fn export_all(&self, path: &Path) -> Result<(), EaiError> {
         let histories = self.histories.read().unwrap_or_else(|e| e.into_inner());
         let bundle: HashMap<String, String> = histories

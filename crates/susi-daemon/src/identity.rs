@@ -1,4 +1,4 @@
-//! Swarm Identity & Cryptographic Signatures (Swarm OS Bullet 56)
+//! Swarm Identity & Cryptographic Signatures
 //!
 //! Cells are uniquely identified by an Ed25519 public key. Their actions
 //! (syscalls, wire frames) are cryptographically signed to prevent spoofing

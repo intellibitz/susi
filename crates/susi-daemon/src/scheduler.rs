@@ -1,4 +1,4 @@
-//! Swarm Resource Scheduler (Swarm OS Vision – Bullet 9).
+//! Swarm resource scheduler.
 //!
 //! Distributes work across cells based on their declared resource budgets,
 //! current load (CPU / GPU saturation), and trust scores.
@@ -12,7 +12,8 @@
 //!
 //! The scheduler is stateless: it reads the [`SwarmBlackboard`] each time
 //! and makes a decision with O(N) cell scan where N is the registered cell
-//! count. For 10 k cells this is sub‑millisecond.
+//! count. No fixed fleet-size or latency guarantee is implied; those require
+//! empirical validation on the target host.
 
 use crate::susi_abi::cell::compute_fnv1a_hash;
 use crate::susi_abi::swarm::SwarmCellManifest;

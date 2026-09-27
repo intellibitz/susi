@@ -1,4 +1,4 @@
-//! Swarm Health Dashboard (Swarm OS Bullet 72)
+//! Swarm Health Dashboard
 //!
 //! Renders one report from the swarm-level metrics snapshot (Bullet 30),
 //! the SLA check against it (Bullet 75), and the trust leaderboard

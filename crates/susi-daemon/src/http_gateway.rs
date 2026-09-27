@@ -1,4 +1,4 @@
-//! HTTP Gateway for Agent Invocation (Swarm OS Bullet 44)
+//! HTTP Gateway for Agent Invocation
 //!
 //! Exposes a RESTful gateway so traditional HTTP clients can invoke a specific
 //! agent cell and await its JSON response.

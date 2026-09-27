@@ -1,4 +1,4 @@
-//! Swarm-Level Metrics (Swarm OS Bullet 30)
+//! Swarm-Level Metrics
 //!
 //! Tracks per-mission lifecycle (start -> completion) to derive
 //! throughput, success rate, solution diversity, and time-to-resolution —

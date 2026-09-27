@@ -1,4 +1,4 @@
-//! Global Rate Limiter Token Bucket (Swarm OS Bullet 67)
+//! Global Rate Limiter Token Bucket
 //!
 //! Prevents noisy neighbor cells from saturating host bandwidth or syscall throughput
 //! by using a token bucket algorithm for each cell.

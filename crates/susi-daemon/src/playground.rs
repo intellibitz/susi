@@ -1,4 +1,4 @@
-//! Playground (Swarm OS Bullet 68)
+//! Playground
 //!
 //! Composes scaffolded cells and runs them against one synthetic task.
 //! The run is the simulation from Bullet 65, not a graphical canvas.

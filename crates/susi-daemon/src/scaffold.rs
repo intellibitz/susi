@@ -1,4 +1,4 @@
-//! Agent templates (Swarm OS Bullet 67)
+//! Agent templates
 //!
 //! Manifests for the common roles. Each capability is inserted into the
 //! bloom filter so routing can see it.

@@ -1,4 +1,4 @@
-//! Incident playbooks (Swarm OS Bullet 60)
+//! Incident playbooks
 //!
 //! Steps run in order. The first step whose capability is not granted
 //! stops the run. Completed steps are returned either way; a stop is not

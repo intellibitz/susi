@@ -1,4 +1,4 @@
-//! Data residency (Swarm OS Bullet 56)
+//! Data residency
 //!
 //! A memory write is admitted only when the cell's region equals the
 //! memory's region. There is no implicit "any region" grant.

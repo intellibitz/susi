@@ -1,4 +1,4 @@
-//! Security cell scan (Swarm OS Bullet 59)
+//! Security cell scan
 //!
 //! Walks the world model for missing evidence, residency outside an
 //! allowed set, dangling `affects` edges, and org-policy denials recorded

@@ -1,4 +1,4 @@
-//! Cost Analyzer (Swarm OS Bullet 73)
+//! Cost Analyzer
 //!
 //! Breaks spend down by cell, model, and tool. `metrics_aggregator.rs`
 //! (Bullet 97) tracks a single global inference/token counter; this

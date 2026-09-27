@@ -1,4 +1,4 @@
-//! Graceful Degradation & Fallback Router (Swarm OS Bullet 68)
+//! Graceful Degradation & Fallback Router
 //!
 //! Provides structured graceful degradation for AI inference. If a primary
 //! LLM backend (e.g. cloud or high-parameter model) fails or times out,

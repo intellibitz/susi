@@ -1,4 +1,4 @@
-//! BI Data Export (Swarm OS Bullet 80)
+//! BI Data Export
 //!
 //! Renders operational data as CSV — the lowest-common-denominator format
 //! every BI tool (Tableau, Looker, Excel, a Python notebook) can ingest

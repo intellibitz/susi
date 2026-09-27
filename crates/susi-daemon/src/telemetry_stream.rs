@@ -1,4 +1,4 @@
-//! Dynamic Telemetry Streams (Swarm OS Bullet 94)
+//! Dynamic Telemetry Streams
 //!
 //! Allows external operators to attach to any running cell's output stream
 //! dynamically via a CLI pipe or web interface.

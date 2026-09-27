@@ -1,4 +1,4 @@
-//! Auto-Tune (Swarm OS Bullet 74)
+//! Auto-Tune
 //!
 //! Recommends a one-step concurrency change from a swarm-metrics snapshot
 //! (Bullet 30) checked against SLA targets (Bullet 75), then applies it

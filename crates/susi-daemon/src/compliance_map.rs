@@ -1,4 +1,4 @@
-//! Compliance control map (Swarm OS Bullet 95)
+//! Compliance control map
 //!
 //! Each row names a control and the daemon module that implements the
 //! corresponding HMAC or residency behavior. This is the engine's control

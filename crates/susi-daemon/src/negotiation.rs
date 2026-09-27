@@ -1,4 +1,4 @@
-//! Peer task negotiation (Swarm OS Bullet 19)
+//! Peer task negotiation
 //!
 //! Offer, accept, commit, and reject. Commit is only legal after accept.
 //! Reject is legal from offered or accepted, and never after commit.

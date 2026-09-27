@@ -1,4 +1,4 @@
-//! Inter-cell OS Signals (Swarm OS Bullet 12)
+//! Inter-cell OS Signals
 //!
 //! Supports sending native OS-like signals (SIGKILL, SIGSTOP, SIGCONT,
 //! SIGTERM) between cells. Tracks each targeted cell's resulting run

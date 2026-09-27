@@ -1,4 +1,4 @@
-//! Workload completion gates (Swarm OS Bullets 82–89)
+//! Workload completion gates
 //!
 //! Each kind names the evidence the kernel requires before a run can be
 //! marked complete. The function does not claim a production outcome; it

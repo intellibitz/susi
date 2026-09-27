@@ -1,4 +1,4 @@
-//! Cell Binary Signing & Verification (Swarm OS Bullet 51)
+//! Cell Binary Signing & Verification
 //!
 //! Deny-by-default gate: a WASM cell binary is only accepted if it carries
 //! a valid Ed25519 signature from a publisher key this policy explicitly

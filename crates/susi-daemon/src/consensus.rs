@@ -1,4 +1,4 @@
-//! Distributed Consensus: Term-Based Leader Election (Swarm OS Bullet 53)
+//! Distributed consensus: term-based leader election.
 //!
 //! A single node's view of Raft's leader-election safety rule: grant at
 //! most one vote per term, only to a candidate whose term is at least as

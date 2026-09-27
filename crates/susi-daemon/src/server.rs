@@ -742,13 +742,13 @@ impl SusiDaemon {
         // only cells added afterwards.
         crate::auto_discovery::spawn_all_cells(&workspace);
 
-        // Hot-pluggable cell watcher (Swarm OS Bullet 6): monitors ~/.susi/cells/
+        // Hot-pluggable cell watcher: monitors ~/.susi/cells/
         // for new/removed files and triggers auto-discovery without daemon restart.
         let _cell_watcher = crate::cell_watcher::start_cell_watcher(
             crate::cell_watcher::CellWatcherConfig::for_substrate(&workspace),
         );
 
-        // Durable workflow engine (Swarm OS Bullet 8): rehydrates pending tasks
+        // Durable workflow engine: rehydrates pending tasks
         // from the JSONL append-only journal to survive daemon restarts.
         let workflow_engine =
             crate::workflows::WorkflowEngine::new(&workspace).unwrap_or_else(|e| {
@@ -766,11 +766,11 @@ impl SusiDaemon {
             );
         }
 
-        // Time-Travel Debugger (Swarm OS Bullet 7): immutable HMAC-signed event log
+        // Time-Travel Debugger: immutable HMAC-signed event log
         let time_travel_logger = crate::event_log::TimeTravelDebugger::new(&workspace);
         time_travel_logger.log_state_change("DAEMON_BOOT", "Swarm OS kernel booting");
 
-        // Autonomous Topology Manager (Swarm OS Bullet 24)
+        // Autonomous Topology Manager
         let _topology_manager = crate::topology::TopologyManager::new();
         time_travel_logger
             .log_state_change("TOPOLOGY_ENGINE", "Autonomous P2P topology manager online");

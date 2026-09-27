@@ -1,4 +1,4 @@
-//! WebAssembly Host Plugin System (Swarm OS Bullet 48)
+//! WebAssembly Host Plugin System
 //!
 //! Provides a system where cells can dynamically load or interact with
 //! proprietary binary parsers and plugins on the host side.

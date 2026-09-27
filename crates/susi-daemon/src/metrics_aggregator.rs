@@ -1,4 +1,4 @@
-//! Swarm-wide Metrics Aggregator (Swarm OS Bullet 97)
+//! Swarm-wide Metrics Aggregator
 //!
 //! Aggregates cluster health metrics globally.
 

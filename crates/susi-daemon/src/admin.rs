@@ -1,4 +1,4 @@
-//! Administrative Diagnostics Endpoint (Swarm OS Bullet 100)
+//! Administrative Diagnostics Endpoint
 //!
 //! Exposes a global diagnostics handler restricted to the `root` Swarm OS capability.
 

@@ -1,4 +1,4 @@
-//! Elastic Swarm Scheduling & Automatic Throttling (Swarm OS Bullet 28)
+//! Elastic Swarm Scheduling & Automatic Throttling
 //!
 //! Consumes the `hardware.stress` observations `runtime_admin`'s watchdog
 //! deposits onto the blackboard and adjusts a shared concurrency target

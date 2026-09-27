@@ -1,4 +1,4 @@
-//! NAT Traversal Abstraction (Swarm OS Bullet 38)
+//! NAT Traversal Abstraction
 //!
 //! Discovers this host's public address and NAT behaviour with STUN
 //! (RFC 5389 Binding requests over UDP) so agents can advertise a reachable

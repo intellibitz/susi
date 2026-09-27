@@ -1,4 +1,4 @@
-//! Content-Addressable Storage (CAS) for Prompts (Swarm OS Bullet 41)
+//! Content-Addressable Storage (CAS) for Prompts
 //!
 //! Provides a content-addressable storage mechanism for loading prompts
 //! and configuration assets, ensuring cryptographic integrity and versioning.

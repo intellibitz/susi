@@ -1,4 +1,4 @@
-//! Simulation mode (Swarm OS Bullet 65)
+//! Simulation mode
 //!
 //! Assigns synthetic tasks to the highest-trust cell whose bloom filter
 //! may contain the task's capability hash. The input roster is not mutated.

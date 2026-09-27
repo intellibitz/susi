@@ -1,4 +1,4 @@
-//! Virtual File System (VFS) Abstraction (Swarm OS Bullets 4 & 29)
+//! Virtual File System (VFS) Abstraction
 //!
 //! Provides a pseudo-filesystem where swarm resources (models, tools, peers)
 //! are mapped to `/dev/*` nodes. Access is strictly capability-gated.

@@ -1,4 +1,4 @@
-//! Execution modes (Swarm OS Bullet 16)
+//! Execution modes
 //!
 //! Reactive cells run on an event, proactive cells run on a schedule,
 //! continuous cells run on a stream. A trigger wakes only the mode it

@@ -1,4 +1,4 @@
-//! SLA Monitoring (Swarm OS Bullet 75)
+//! SLA Monitoring
 //!
 //! Checks a `swarm_metrics::SwarmMetrics` snapshot (Bullet 30) against
 //! configured latency and success-rate targets and, on a miss, builds an

@@ -1,4 +1,4 @@
-//! Auto-Generated Cell Documentation (Swarm OS Bullet 70)
+//! Auto-Generated Cell Documentation
 //!
 //! Renders each registered cell's manifest and recent trace spans as
 //! Markdown — "documentation is auto-generated from cell manifests, code

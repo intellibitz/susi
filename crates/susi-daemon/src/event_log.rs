@@ -1,4 +1,4 @@
-//! Time-Travel Debugger & Immutable Event Log (Swarm OS Bullet 7)
+//! Time-Travel Debugger & Immutable Event Log
 //!
 //! Wraps the HMAC-authenticated `audit_chain` to provide a cryptographically
 //! immutable history of all cell interactions, intent routing, and state changes.

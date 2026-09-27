@@ -1,4 +1,4 @@
-//! Local Peer Discovery Registry (Swarm OS Bullet 31)
+//! Local Peer Discovery Registry
 //!
 //! A lightweight stand-in for mDNS/SSDP-style discovery: peers announce
 //! themselves with a TTL, and `sweep_expired` evicts anyone who hasn't

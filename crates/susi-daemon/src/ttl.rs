@@ -1,4 +1,4 @@
-//! Logical Inference TTL Enforcement (Swarm OS Bullet 82)
+//! Logical Inference TTL Enforcement
 //!
 //! To prevent runaway infinite loops, cells carry a strict maximum 'time-to-live' (TTL)
 //! measured in logical inference steps or IPC messages.

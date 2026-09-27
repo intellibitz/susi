@@ -1,4 +1,4 @@
-//! A/B swarms (Swarm OS Bullet 27)
+//! A/B swarms
 //!
 //! Two strategies run as separate arms. The winner is the arm with the
 //! strictly higher success rate. A tie, or two arms with no trials,

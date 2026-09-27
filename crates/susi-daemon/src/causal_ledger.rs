@@ -1,4 +1,4 @@
-//! Causal World Model: Event-Identity Binding (Swarm OS Bullet 33)
+//! Causal World Model: Event-Identity Binding
 //!
 //! Ties an event (by its `event_sourcing::EventStore` sequence number) to
 //! the authenticated cell identity that caused it. The binding is only

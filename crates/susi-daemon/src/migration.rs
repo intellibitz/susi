@@ -1,4 +1,4 @@
-//! Dynamic Cell Migration (Swarm OS Bullet 92)
+//! Dynamic Cell Migration
 //!
 //! Supports pausing a running WASM process on one host, serializing its state,
 //! sending it over the wire, and instantaneously resuming it on another host.

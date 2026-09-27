@@ -1,4 +1,4 @@
-//! Reference architectures (Swarm OS Bullet 94)
+//! Reference architectures
 //!
 //! The cell set each deployment tier is expected to run. Names match
 //! crates and daemon modules that already exist.

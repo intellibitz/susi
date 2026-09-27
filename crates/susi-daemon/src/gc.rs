@@ -1,4 +1,4 @@
-//! Swarm Garbage Collector (Swarm OS Bullet 20)
+//! Swarm Garbage Collector
 //!
 //! A background 'Garbage Collector' daemon that periodically cleans up terminated cells,
 //! reclaiming memory, network ports, and scratch disk space.

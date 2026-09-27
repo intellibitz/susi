@@ -1,4 +1,4 @@
-//! Tool browse and browser capability (Swarm OS Bullets 44 and 45)
+//! Tool browse and browser capability
 //!
 //! Cells browse the cards their MAC grants allow. Invoking `browser`
 //! returns the registered cell that declares `tool:browser`. With no such

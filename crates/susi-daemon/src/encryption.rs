@@ -1,4 +1,4 @@
-//! E2E Payload Encryption for IPC (Swarm OS Bullet 42)
+//! E2E Payload Encryption for IPC
 //!
 //! Symmetric AEAD sealing for cell-to-cell payloads, the same
 //! ChaCha20-Poly1305 scheme `susi_config::member_seal` uses for pairwise

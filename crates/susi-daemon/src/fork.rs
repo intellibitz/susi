@@ -1,4 +1,4 @@
-//! Memory Forking & Process Cloning (Swarm OS Bullet 83)
+//! Memory Forking & Process Cloning
 //!
 //! A cell can request a 'fork' syscall to clone its memory state and parallelize
 //! a search tree algorithm across the swarm.

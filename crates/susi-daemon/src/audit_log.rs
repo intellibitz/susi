@@ -1,12 +1,11 @@
-//! Tamper-proof Capability Audit Log (Bullets 54, 77)
+//! Tamper-evident capability audit log.
 //!
 //! Every capability grant is appended to an HMAC-SHA256-chained ledger:
 //! each entry's MAC covers its own fields plus the previous entry's MAC,
 //! so editing, dropping, or reordering a past record breaks the chain.
 //! Being *keyed* (not a plain hash chain) means a mismatch is actual
-//! evidence of tampering by someone without the key, satisfying VISION.md
-//! bullet 54's "HMAC-sealed audit log" rather than just a checksum anyone
-//! could recompute. The key is derived from the daemon's cluster key via
+//! evidence of tampering by someone without the key rather than just a
+//! checksum anyone could recompute. The key is derived from the daemon's cluster key via
 //! the same domain-separated HMAC derivation `susi_config::member_seal`
 //! uses for its channel key, so no new secret needs provisioning.
 //! Optionally mirrored to a tab-separated file for out-of-process

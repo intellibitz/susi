@@ -1,4 +1,4 @@
-//! Cell self-profile (Swarm OS Bullet 20)
+//! Cell self-profile
 //!
 //! Latency, error rate, and token usage reported back to the daemon.
 //! Distinct from cost breakdowns, which price the same tokens.

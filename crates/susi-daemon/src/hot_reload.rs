@@ -1,4 +1,4 @@
-//! Hot-Reloading of WASM Plugins (Swarm OS Bullet 27)
+//! Hot-Reloading of WASM Plugins
 //!
 //! Validates a candidate module with `wasmtime` before it replaces the
 //! live one, so a malformed or incompatible binary can never take down a
@@ -44,7 +44,7 @@ impl PluginReloader {
     }
 
     /// Same as [`reload_plugin`](Self::reload_plugin), but deny-by-default
-    /// (Swarm OS Bullet 51): `wasm_bytes` is only accepted after its
+    ///: `wasm_bytes` is only accepted after its
     /// detached signature verifies against a publisher key `policy`
     /// trusts. An untrusted publisher or a bad signature rejects the swap
     /// before the bytes are even parsed as WASM.

@@ -1,4 +1,4 @@
-//! Lightweight JSON Payload Schema Validator (Swarm OS Bullet 62)
+//! Lightweight JSON Payload Schema Validator
 //!
 //! A built-in validator to ensure payload correctness on the wire
 //! before delivering messages or syscalls to a cell.

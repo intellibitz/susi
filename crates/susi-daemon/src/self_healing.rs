@@ -1,4 +1,4 @@
-//! Auto-generated Self-Healing Runbooks (Swarm OS Bullet 16)
+//! Auto-generated Self-Healing Runbooks
 //!
 //! When an agent fails, the Swarm OS auto-generates a Markdown runbook detailing
 //! the failure state, linked logs, and recovery steps.
@@ -47,8 +47,8 @@ impl SelfHealingManager {
         content.push_str("## Recovery Steps\n");
         content.push_str("1. Review the failure reason above.\n");
         content.push_str("2. Check the linked logs for contextual warnings.\n");
-        content.push_str("3. If this is a transient error, the Scheduler will automatically retry the task on another cell (Swarm OS Bullet 8 / Durable Workflows).\n");
-        content.push_str("4. If the cell binary is corrupt, rebuild and place it in `~/.susi/cells/` to trigger Hot-Plug discovery (Swarm OS Bullet 6).\n\n");
+        content.push_str("3. If this is a transient error, the Scheduler will automatically retry the task on another cell.\n");
+        content.push_str("4. If the cell binary is corrupt, rebuild and place it in `~/.susi/cells/` to trigger Hot-Plug discovery.\n\n");
 
         if let Some(stack) = ctx.stack_trace {
             content.push_str("## Stack Trace\n```rust\n");

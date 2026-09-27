@@ -1,4 +1,4 @@
-//! Kernel-Mediated Tool Proxy (Swarm OS Bullet 38)
+//! Kernel-Mediated Tool Proxy
 //!
 //! Allows cells to securely execute host tools (e.g., git, docker) via a proxy
 //! that strictly enforces capability grants through the MAC security module.

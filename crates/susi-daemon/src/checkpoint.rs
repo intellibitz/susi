@@ -1,4 +1,4 @@
-//! Cell Memory State Checkpointing (Swarm OS Bullet 63)
+//! Cell Memory State Checkpointing
 //!
 //! Allows agents to checkpoint their internal KV cache and memory state to disk,
 //! enabling instantaneous resume across daemon restarts or host migrations.

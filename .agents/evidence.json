@@ -1600,6 +1600,16 @@
       "milestone": "Identity and public-contract reconciliation after the 100-step SUSI OS hardening sequence. README.md and ARCHITECTURE.md now define one governed operating layer across local AI (models/runtimes/GPU lifecycle/MCP/Wasm/workspace agents) and explicitly configured cloud AI (providers/MCP/A2A/managed peers), document the shared placement/evidence/audit/privacy contracts, expose placement-id correlation and authenticated audit lookup, and state the crash-safe audit invariants. identity.json removes the remaining false EvolutionAgent self-healing claim, describes the implemented local/cloud placement plane, receipt generations, and fail-closed cross-process audit chain. VISION.md is explicitly target-state rather than evidence, and roadmap metadata now targets the next 0.15.0 line with Local + Cloud Federation as the strategic priority.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SUSI vision",
+        "ref": "file://VISION.md"
+      },
+      "id": "EV-2022927-166",
+      "milestone": "VISION.md corrected from a mixed list of present-tense implementation claims, unverified scale/latency promises, business outcomes, and aspirational recognition into an actionable local-and-cloud AI operating-layer vision. The new document separates direction from current truth, defines the local, cloud, and shared decision planes; states the swarm and trust boundaries; summarizes the evidence-backed baseline with explicit source-of-truth links; sets the 0.15 placement/federation/evidence/ecosystem horizon; adds release gates and non-goals; and forbids unsupported scale, uptime, compliance, adoption, and impact claims. Stale source comments tied to deleted vision bullet numbers were replaced with descriptive contracts, including removal of an unmeasured 10k-cell sub-millisecond scheduler assertion.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -1,4 +1,4 @@
-//! Secure Enclave / Secret Store (Swarm OS Bullet 85)
+//! Secure Enclave / Secret Store
 //!
 //! Secure enclave for injecting API keys and credentials into sandboxes.
 

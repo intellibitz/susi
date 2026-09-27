@@ -1,4 +1,4 @@
-//! Semantic Boundary Contracts (Swarm OS Bullet 23)
+//! Semantic Boundary Contracts
 //!
 //! Allows cells to define explicit input/output semantic contracts
 //! (e.g., "Input: JSON, Output: Markdown"). Validated at runtime by the OS.

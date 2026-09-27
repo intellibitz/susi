@@ -1,4 +1,4 @@
-//! Watchdog Timer for Misbehaving Cells (Swarm OS Bullet 55)
+//! Watchdog Timer for Misbehaving Cells
 //!
 //! A strict watchdog timer that monitors every cell. If a cell spins without yielding
 //! or blocks on I/O for too long, the watchdog marks it for abrupt termination.

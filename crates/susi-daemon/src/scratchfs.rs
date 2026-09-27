@@ -1,4 +1,4 @@
-//! Ephemeral ScratchFS for Sandboxed Cells (Swarm OS Bullet 32)
+//! Ephemeral ScratchFS for Sandboxed Cells
 //!
 //! Provides a managed ephemeral in-memory (or highly temporary) filesystem
 //! that is mounted into each sandbox for scratch space. Cleanly wiped

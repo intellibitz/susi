@@ -1,4 +1,4 @@
-//! Webhook Event Subscriptions (Swarm OS Bullet 49)
+//! Webhook Event Subscriptions
 //!
 //! External systems register a URL and an optional topic filter;
 //! `dispatch` POSTs any blackboard pheromone matching that filter to it as

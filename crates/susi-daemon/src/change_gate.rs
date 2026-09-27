@@ -1,4 +1,4 @@
-//! CI change gate (Swarm OS Bullet 46)
+//! CI change gate
 //!
 //! A proposal may merge only after its quorum is satisfied. This is the
 //! kernel gate in front of a pipeline; it does not itself push to a forge.

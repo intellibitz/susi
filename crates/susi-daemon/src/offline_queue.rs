@@ -1,4 +1,4 @@
-//! Offline queue (Swarm OS Bullet 50)
+//! Offline queue
 //!
 //! While offline, submitted payloads stay queued. Transitioning online
 //! drains them in order. Submitting while already online returns the

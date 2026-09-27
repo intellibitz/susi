@@ -1,4 +1,4 @@
-//! Distributed Service Registry (Swarm OS Bullet 16)
+//! Distributed Service Registry
 //!
 //! A unified key-value distributed registry that allows cells to publish
 //! their network multiaddrs and available semantic services for peer discovery.

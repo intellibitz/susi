@@ -1,4 +1,4 @@
-//! Hot‑Pluggable Cell Watcher (Swarm OS Vision – Bullet 6).
+//! Hot-pluggable cell watcher.
 //!
 //! Monitors `~/.susi/cells/` for filesystem changes using a polling strategy
 //! (no `inotify` dep needed — keeps the build portable across Linux / macOS /

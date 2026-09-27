@@ -1,4 +1,4 @@
-//! WASM Gas Metering (Swarm OS Bullet 88)
+//! WASM Gas Metering
 //!
 //! Bounds how much work a sandboxed WASM reflex may perform before it's
 //! killed. `consume` uses a compare-and-swap loop so a rejected charge

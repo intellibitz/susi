@@ -1,4 +1,4 @@
-//! Cell Leaderboard (Swarm OS Bullet 79)
+//! Cell Leaderboard
 //!
 //! Ranks registered Swarm Cells by trust score — the one leaderboard
 //! metric `SwarmCellManifest` actually carries (evidence-derived, per

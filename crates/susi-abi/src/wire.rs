@@ -97,7 +97,7 @@ impl MessageType {
 }
 
 // ──────────────────────────────────────────────────────────
-// QoS Flags (Swarm OS Vision – Bullet 5)
+// Wire-level priority, reliability, and ordering flags.
 // ──────────────────────────────────────────────────────────
 
 /// Quality-of-Service flags carried in the wire frame header.

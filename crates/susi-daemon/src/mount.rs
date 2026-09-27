@@ -1,4 +1,4 @@
-//! Host Directory Mounting (Swarm OS Bullet 89)
+//! Host Directory Mounting
 //!
 //! Allows cells to securely mount host directories (e.g. `/home/user/code`)
 //! via a strict capability grant in the sandbox.

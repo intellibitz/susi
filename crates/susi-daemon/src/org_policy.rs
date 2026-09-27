@@ -1,4 +1,4 @@
-//! Org policy engine (Swarm OS Bullet 55)
+//! Org policy engine
 //!
 //! Rules name a capability and an optional scope prefix. When several
 //! rules match, deny outranks review, and review outranks allow. A

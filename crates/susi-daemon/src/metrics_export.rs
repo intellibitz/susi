@@ -1,4 +1,4 @@
-//! Prometheus Metrics Export (Swarm OS Bullet 9)
+//! Prometheus Metrics Export
 //!
 //! A minimal counter-backed scrape endpoint payload: real cell
 //! registration/deregistration events drive `active_cells` rather than a

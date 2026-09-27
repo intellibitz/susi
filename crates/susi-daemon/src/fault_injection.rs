@@ -1,4 +1,4 @@
-//! Chaos Engineering: Fault Injection (Swarm OS Bullet 11)
+//! Chaos Engineering: Fault Injection
 //!
 //! Lets tests and staged rollouts exercise failure paths deliberately:
 //! `should_drop_packet` samples a real random byte against a configured

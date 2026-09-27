@@ -1,4 +1,4 @@
-//! Mutual Cell Authentication via Challenge-Response (Swarm OS Bullet 5)
+//! Mutual Cell Authentication via Challenge-Response
 //!
 //! Complements `tls.rs` (transport encryption) and `identity.rs` (per-cell
 //! signing keys): before a cell is trusted on an authenticated endpoint, it

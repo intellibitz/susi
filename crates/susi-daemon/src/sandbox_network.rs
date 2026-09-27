@@ -1,4 +1,4 @@
-//! Strict Sandbox Network Allow-lists (Swarm OS Bullet 22)
+//! Strict Sandbox Network Allow-lists
 //!
 //! Enforces strict outbound network filtering for sandboxes.
 

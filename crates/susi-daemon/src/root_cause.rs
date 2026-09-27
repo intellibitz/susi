@@ -1,4 +1,4 @@
-//! Root-Cause Analysis (Swarm OS Bullet 77)
+//! Root-Cause Analysis
 //!
 //! Walks the event store (Bullet 35's log) backward from a failed
 //! sequence number and keeps the events `CausalLedger` (Bullet 33)

@@ -1,4 +1,4 @@
-//! Kademlia-style P2P Routing (Swarm OS Bullet 14)
+//! Kademlia-style P2P Routing
 //!
 //! Routes by XOR distance between SHA-256 node-id digests, the same
 //! metric Kademlia uses to rank which known peers are closest to a lookup

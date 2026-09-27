@@ -1,4 +1,4 @@
-//! Dead-Letter Queue (Swarm OS Bullet 34)
+//! Dead-Letter Queue
 //!
 //! Captures undeliverable inter-cell messages for debugging and retry.
 

@@ -1,4 +1,4 @@
-//! Centralized Rolling Logger (Swarm OS Bullet 7)
+//! Centralized Rolling Logger
 //!
 //! A unified logging architecture that captures cell stdout, stderr, and trace-level
 //! events to a centralized highly compressed (or standard) rotating sink.
