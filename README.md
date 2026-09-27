@@ -143,6 +143,8 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 # Read-only placement contract for remote operators and cloud control planes:
 #   GET http://127.0.0.1:9091/runtime/placement
 #   GET http://127.0.0.1:9091/runtime/placement?requires=vision&max_cost=0.01
+# Completion requests may execute the same plan with
+#   "susi": {"requires": "vision", "max_cost": 0.01}
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so

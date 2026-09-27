@@ -250,30 +250,34 @@ fn placement_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>),
         };
         match key {
             "requires" if requires.is_none() => {
-                if value.is_empty()
-                    || value.len() > 64
-                    || !value
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
-                {
-                    return Err("requires must be 1-64 letters, numbers, '-' or '_'");
-                }
-                requires = Some(value.to_string());
+                requires = Some(validated_requirement(value)?);
             }
             "max_cost" if max_cost.is_none() => {
-                let Ok(value) = value.parse::<f64>() else {
-                    return Err("max_cost must be a non-negative finite number");
-                };
-                if !value.is_finite() || value < 0.0 {
-                    return Err("max_cost must be a non-negative finite number");
-                }
-                max_cost = Some(value);
+                max_cost = Some(validated_max_cost(value.parse::<f64>().ok())?);
             }
             "requires" | "max_cost" => return Err("duplicate placement query parameter"),
             _ => return Err("unknown placement query parameter"),
         }
     }
     Ok((requires, max_cost))
+}
+
+fn validated_requirement(value: &str) -> Result<String, &'static str> {
+    if value.is_empty()
+        || value.len() > 64
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("requires must be 1-64 letters, numbers, '-' or '_'");
+    }
+    Ok(value.to_string())
+}
+
+fn validated_max_cost(value: Option<f64>) -> Result<f64, &'static str> {
+    value
+        .filter(|cost| cost.is_finite() && *cost >= 0.0)
+        .ok_or("max_cost must be a non-negative finite number")
 }
 
 async fn handle_gemi_request(
@@ -577,6 +581,17 @@ async fn handle_gemi_request(
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
+            let planned_model = if completion.model.is_none()
+                && (completion.requires.is_some() || completion.max_cost.is_some())
+            {
+                gemi::ModelManager::placement(completion.requires.as_deref(), completion.max_cost)
+                    .get("provider")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string)
+            } else {
+                None
+            };
+            let requested_model = completion.model.clone().or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
             // own selection (the response labels the model that served).
@@ -640,7 +655,7 @@ async fn handle_gemi_request(
             // A caller-requested model labels the response; intent
             // classification only applies when no model was named. The
             // label is the display id (stem), matching /v1/models.
-            let resolved_model = completion.model.clone().unwrap_or_else(|| {
+            let resolved_model = requested_model.clone().unwrap_or_else(|| {
                 gemi::ModelManager::get_active_engine_and_model(Some(&intent)).1
             });
             let active_model = model_display_id(&resolved_model).to_string();
@@ -655,7 +670,7 @@ async fn handle_gemi_request(
                 Ok(build_streaming_response(
                     trimmed_prompt,
                     active_model,
-                    completion.model.clone(),
+                    requested_model.clone(),
                     completion.max_tokens,
                     completion.stop.clone(),
                     completion.include_usage,
@@ -666,7 +681,7 @@ async fn handle_gemi_request(
             } else {
                 let ws = (*workspace).clone();
                 let prompt_for_task = trimmed_prompt.clone();
-                let model_for_task = completion.model.clone();
+                let model_for_task = requested_model;
                 let content = match tokio::task::spawn_blocking(move || {
                     let _permit = permit;
                     let final_resp = gawd::solve_mission_generative(
@@ -1586,6 +1601,8 @@ struct CompletionInput {
     /// `stream_options.include_usage` — OpenAI emits a final
     /// `choices:[]` usage chunk before [DONE] only when requested.
     include_usage: bool,
+    requires: Option<String>,
+    max_cost: Option<f64>,
 }
 
 fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String> {
@@ -1703,6 +1720,22 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         .and_then(|o| o.get("include_usage"))
         .and_then(|u| u.as_bool())
         .unwrap_or(false);
+    let susi = object.get("susi").and_then(|value| value.as_object());
+    let requires = susi
+        .and_then(|value| value.get("requires"))
+        .map(|value| {
+            value
+                .as_str()
+                .ok_or("susi.requires must be a string")
+                .and_then(validated_requirement)
+        })
+        .transpose()
+        .map_err(str::to_string)?;
+    let max_cost = susi
+        .and_then(|value| value.get("max_cost"))
+        .map(|value| validated_max_cost(value.as_f64()))
+        .transpose()
+        .map_err(str::to_string)?;
     Ok(CompletionInput {
         prompt,
         stream,
@@ -1710,6 +1743,8 @@ fn parse_completion(body: &[u8], legacy: bool) -> Result<CompletionInput, String
         max_tokens,
         stop,
         include_usage,
+        requires,
+        max_cost,
     })
 }
 
@@ -1790,6 +1825,24 @@ mod tests {
         assert!(placement_query(Some("max_cost=NaN")).is_err());
         assert!(placement_query(Some("max_cost=-1")).is_err());
         assert!(placement_query(Some("surprise=true")).is_err());
+    }
+
+    #[test]
+    fn completion_parses_susi_placement_constraints() {
+        let input = parse_completion(
+            br#"{"messages":[{"role":"user","content":"describe image"}],"susi":{"requires":"vision","max_cost":0.01}}"#,
+            false,
+        )
+        .unwrap();
+        assert_eq!(input.requires.as_deref(), Some("vision"));
+        assert_eq!(input.max_cost, Some(0.01));
+        assert!(
+            parse_completion(
+                br#"{"messages":[{"role":"user","content":"hi"}],"susi":{"max_cost":-1}}"#,
+                false
+            )
+            .is_err()
+        );
     }
 
     /// Drive one accepted connection through `negotiate_transport` after the
