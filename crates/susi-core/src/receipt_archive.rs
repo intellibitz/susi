@@ -64,10 +64,21 @@ impl ReceiptArchive {
             return;
         };
         let path = Self::path(workspace);
-        if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
         }
         let _guard = archive_lock().lock();
+        // The CLI and daemon can archive into the same workspace. Rotation
+        // and append must be one cross-process operation or one writer can
+        // append to the generation another writer is renaming.
+        let Some(_file_lock) =
+            crate::susi_core::commit_log::FileLock::acquire(parent, "receipt_archive")
+        else {
+            return;
+        };
         Self::rotate_if_large(&path);
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
             let _ = file.write_all(format!("{line}\n").as_bytes());
@@ -247,5 +258,22 @@ mod tests {
             err.contains("no live mission session") || err.contains("TRUTH_UNVERIFIED"),
             "archive must not restore authority: {err}"
         );
+    }
+
+    #[test]
+    fn append_refuses_to_race_a_cross_process_archive_operation() {
+        let ws = Workspace::new();
+        let susi_dir = ws.0.join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        let _file_lock =
+            crate::susi_core::commit_log::FileLock::acquire(&susi_dir, "receipt_archive").unwrap();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("exec_command", &serde_json::json!({}), &ws.0, || {
+            Ok("observed".to_string())
+        })
+        .unwrap();
+
+        assert!(!ReceiptArchive::path(&ws.0).exists());
     }
 }
