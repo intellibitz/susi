@@ -1910,6 +1910,16 @@
       "milestone": "RSI iteration 30/100: a crash during first start can no longer strand a node outside its cluster. cluster_key() and node_id() created ~/.susi/cluster.key and ~/.susi/node_id with create_new(0600) and then a separate write_all. A crash or kill between the two left an empty file; cluster_key then logged it as malformed and refused to auto-rotate on every call, leaving the node in unsigned mode (peers can never reach Explicit), and node_id's create_new kept failing on the existing file, so the host advertised a new ephemeral identity each process and lost its stable coordinator identity. A concurrent first start (daemon plus CLI) could also read the empty file mid-creation. Both now create through the existing susi_config::install_private_file (written in full to a 0600 staging file, then hard-linked into place, so readers never see a partial file and a racing creator never overwrites the winner), and a whitespace-only file is treated as a torn creation, cleared under a file lock, and reinstalled. A malformed non-empty key is still never auto-rotated. install_private_file is now also re-exported from susi-config (it already was from susi-core's mount), with no second writer added. A new test proves an empty cluster.key and node_id are regenerated and then persist, the key is 0600, and a malformed non-empty key still yields None; cargo test -p susi-config cluster_key (9 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiDaemonState::calculate_binary_hash / verify_binary_integrity",
+        "ref": "symbol://SusiDaemonState::verify_binary_integrity"
+      },
+      "id": "EV-2022927-197",
+      "milestone": "RSI iteration 31/100: the daemon binary trust anchor is always a digest of the whole binary and is replaced atomically. calculate_binary_hash looped on while let Ok(n) = file.read(..), so any read error (EINTR included) silently ended the loop and returned the SHA-256 of a truncated prefix as if it were the binary's hash. ensure_daemon_running then cached that digest in binary.hash.cache under the binary's mtime and size and wrote it as the binary.hash trust anchor, triggering a spurious 'binary recompiled' daemon restart, and is_trusted_susi_process (which re-hashes /proc/<pid>/exe uncached) would then stop recognizing the genuine daemon. Both files were also written with a plain fs::write whose errors were ignored, so a torn binary.hash reported a phantom recompile on the next CLI call. The hash now retries Interrupted and returns every other read error; binary.hash is replaced through susi_config::atomic_write_bytes and a failed anchor write is returned (the daemon logs it as an unverifiable check instead of claiming success); the cache is also written atomically, best effort. A unit test hashes a 200 KB file spanning several reads against a reference digest, proves the anchor is established, a rebuild reports false once and is then trusted, and a missing binary is an error. cargo test -p susi-sandbox daemon_state and cargo clippy --workspace --all-targets -D warnings pass (daemon_state.rs is path-mounted into susi-tools, susi-server, and susi-agents; all compile).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
