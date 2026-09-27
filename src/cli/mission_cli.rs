@@ -256,9 +256,13 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Review => {
             print_golden_rule_summary(cwd, global_dir);
         }
+        // Alias of `susi os clean` — one implementation. This command used
+        // to run a partial copy that removed only the rotated metrics file.
         Commands::OsClean => {
-            let msg = susi_gemi::hardware::HardwareProfiler::execute_os_clean();
-            println!("{}", msg);
+            if let Err(e) = crate::cli::os_cli::clean() {
+                eprintln!("os clean failed: {e}");
+                std::process::exit(1);
+            }
         }
         Commands::Audit => {
             let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, cwd, SUSI_VERSION);

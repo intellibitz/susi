@@ -1110,7 +1110,7 @@ fn stray_bin_warnings() -> Vec<String> {
 /// `~/.susi/bin` at or above the warn threshold. Only files the warning
 /// predicate already names are touched; the live binary and `lib/` are
 /// never removed.
-fn clean() -> Result<()> {
+pub(crate) fn clean() -> Result<()> {
     const STRAY_WARN_BYTES: u64 = 256 * 1024 * 1024;
     let bin_dir = susi_paths::SusiDirs::substrate_home().join("bin");
     let mut reclaimed = 0u64;

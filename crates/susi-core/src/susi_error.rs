@@ -47,7 +47,7 @@ fn post_event(entry: &serde_json::Value) -> bool {
 }
 
 #[path = "../../susi-error/src/sink.rs"]
-mod sink;
+pub mod sink;
 
 /// Local sink used when the `susi-error` service is unreachable. The path
 /// comes from this crate's `SusiDirs`, so it honors `SUSI_HOME` instances

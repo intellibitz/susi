@@ -2390,6 +2390,16 @@
       "milestone": "RSI iteration 78/100: five outputs that asserted states nothing measured now say what is known (Mandates 1-2). A search for 'optimal', '100%', 'fully operational' and similar in user-facing strings found: ReflexTrainer::audit_distillation_state reporting 'Reflex substrate optimal.' whenever fewer staged samples than the threshold existed (now 'No reflex training due: fewer than N valid staged samples'); the swarm's unwired NoOpHostHooks returning Ok('Reflex substrate optimal (host hooks unwired)') although nothing was audited (now a [HOST_UNWIRED] internal error; its only caller, the AMAS loop, discards the result); LibraryScoutAgent answering 'Substrate libraries optimal.' to status/ls-style goals it does not analyze (now 'No library scouting applies to this query.'); the model-download report printing 'SUCCESS: 32b and 72b model download agent verified and fully operational' whatever models the steps actually covered (now 'all N download steps completed and verified', printed only when every step is COMPLETED as before); and the master trace banner claiming '100% Omni-Trace Coverage Active', a figure nothing computes (now 'Omni-Trace active'). No test asserted the old strings. Also recorded for iteration 77: README now notes the drift audit's bottleneck section. cargo test -p susi-gawd reflex (12 passed), -p susi-gawd-swarm (309), -p susi-gawd-agents (262), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi os-clean / os clean (duplicate feature)",
+        "ref": "file://src/cli/mission_cli.rs"
+      },
+      "id": "EV-2022927-245",
+      "milestone": "RSI iteration 79/100: one OS-clean implementation instead of two. susi os-clean ran HardwareProfiler::execute_os_clean, which removed only an oversized rotated error-metrics file, while susi os clean ran os_cli::clean, which removes that same file plus a stale pre-rotation audit.log and oversized stray binaries in ~/.susi/bin; the two commands promised the same thing ('remove SUSI-owned residue') and did different amounts of it. os-clean now calls os_cli::clean (made pub(crate)) and execute_os_clean is deleted. The 64 MiB metrics rotation cap had been copied into hardware.rs twice beside the shared susi-error sink constant from iteration 40; the vendored error module now exposes sink publicly and the remaining audit uses crate::susi_error::sink::METRICS_CAP_BYTES, leaving one definition. The OS-care report's status for 'nothing to reclaim' is renamed from OPTIMAL to NOTHING_RECLAIMABLE (no consumer matched the old string). cargo test -p susi-gemi-models (259 passed), cargo test --bin susi, and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

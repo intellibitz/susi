@@ -695,12 +695,11 @@ impl HardwareProfiler {
             }
         }
 
-        // Rotated metrics generations beyond the 64MiB rotation cap are
+        // Rotated metrics generations beyond the sink's rotation cap are
         // pre-cap residue — current rotation can never produce them.
-        const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
         let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
         if let Ok(meta) = std::fs::metadata(&rotated) {
-            if meta.len() > METRICS_CAP_BYTES {
+            if meta.len() > crate::susi_error::sink::METRICS_CAP_BYTES {
                 reclaimable += meta.len();
                 recommendations.push(format!(
                     "Remove pre-cap rotated metrics ({:.1} GB reclaimable)",
@@ -720,37 +719,9 @@ impl HardwareProfiler {
             status: if reclaimable > 0 {
                 "RECLAIMABLE_SPACE_DETECTED".to_string()
             } else {
-                "OPTIMAL".to_string()
+                "NOTHING_RECLAIMABLE".to_string()
             },
             recommendations,
-        }
-    }
-
-    /// Removes only SUSI-owned residue the audit counts as reclaimable and
-    /// reports the bytes actually freed. It never deletes outside SUSI's
-    /// own data dir (earlier versions removed any `~/.cache` entry whose
-    /// name merely contained "temp"/"tmp").
-    pub fn execute_os_clean() -> String {
-        // Pre-cap residue: the metrics sink rotates one generation at 64MiB,
-        // so a `.1` larger than that can only come from before the cap
-        // existed (178MiB observed) — it is diagnostic history the current
-        // scheme will never produce again.
-        const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
-        let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
-        let Some(len) = std::fs::metadata(&rotated)
-            .ok()
-            .map(|m| m.len())
-            .filter(|len| *len > METRICS_CAP_BYTES)
-        else {
-            return "Nothing to reclaim: no SUSI-owned residue found.".to_string();
-        };
-        match std::fs::remove_file(&rotated) {
-            Ok(()) => format!(
-                "Reclaimed {:.2} GB: removed pre-cap metrics rotation {}.",
-                len as f64 / 1e9,
-                rotated.display()
-            ),
-            Err(e) => format!("FAILED to remove {}: {e}", rotated.display()),
         }
     }
 }
