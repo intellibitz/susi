@@ -258,6 +258,56 @@ impl ReceiptArchive {
             })
             .collect()
     }
+
+    /// Aggregate staging health from the audit archive. Enables the drift
+    /// audit to detect systemic ingestion failures without scanning the
+    /// error metrics sink.
+    pub fn staging_health_summary(workspace: &Path) -> StagingHealth {
+        let mut health = StagingHealth::default();
+        for receipt in Self::load_audit_lines(workspace) {
+            health.total += 1;
+            match receipt.training_staged {
+                Some(true) => health.staged_ok += 1,
+                Some(false) => health.staged_failed += 1,
+                None => health.not_attempted += 1,
+            }
+        }
+        health
+    }
+}
+
+/// Staging health counters derived from the receipt archive.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StagingHealth {
+    /// Total archived receipts scanned.
+    pub total: usize,
+    /// Receipts whose training sample was durably staged.
+    pub staged_ok: usize,
+    /// Receipts whose staging attempt failed (errors entered typed metrics).
+    pub staged_failed: usize,
+    /// Receipts where no staging was attempted (unsuccessful, empty intent,
+    /// or v1 records that predate the `training_staged` field).
+    pub not_attempted: usize,
+}
+
+impl StagingHealth {
+    /// True when at least one staging attempt failed — the drift audit
+    /// should surface this so operators can investigate via `error_metrics`.
+    pub fn has_failures(&self) -> bool {
+        self.staged_failed > 0
+    }
+
+    /// Human-readable one-line summary for embedding in reports.
+    pub fn summary(&self) -> String {
+        format!(
+            "Staging health: {}/{} receipts staged OK, {} failed, {} not attempted (total {})",
+            self.staged_ok,
+            self.staged_ok + self.staged_failed,
+            self.staged_failed,
+            self.not_attempted,
+            self.total
+        )
+    }
 }
 
 fn archive_lock() -> &'static parking_lot::Mutex<()> {
@@ -507,5 +557,28 @@ mod tests {
             parsed.training_staged, None,
             "v1 records must deserialize training_staged as None"
         );
+    }
+
+    #[test]
+    fn staging_health_aggregates_across_archive() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        // 1 successful capture → training_staged = Some(true)
+        EvidenceSession::capture_call("t1", &serde_json::json!({}), &ws.0, || Ok("ok".to_string()))
+            .unwrap();
+        // 1 failed capture → training_staged = None (unsuccessful)
+        EvidenceSession::capture_call("t2", &serde_json::json!({}), &ws.0, || {
+            Err(crate::susi_error::EaiError::io("fail"))
+        })
+        .unwrap_err();
+
+        let health = ReceiptArchive::staging_health_summary(&ws.0);
+        assert_eq!(health.total, 2);
+        assert_eq!(health.staged_ok, 1);
+        assert_eq!(health.staged_failed, 0);
+        assert_eq!(health.not_attempted, 1);
+        assert!(!health.has_failures());
+        assert!(health.summary().contains("1/1 receipts staged OK"));
     }
 }

@@ -111,7 +111,9 @@ pub use net_guard::{NetGuard, RateLimiter};
 pub use plane_bus::agents::AgentMetaRegistry;
 pub use plane_bus::{PlaneBus, PlaneHandler};
 pub use provider::Provider;
-pub use receipt_archive::{ArchivedReceipt, ReceiptArchive, ARCHIVE_REL, ARCHIVE_SCHEMA};
+pub use receipt_archive::{
+    ArchivedReceipt, ReceiptArchive, StagingHealth, ARCHIVE_REL, ARCHIVE_SCHEMA,
+};
 pub use registry::{AgentCapability, CapabilityRegistry, Tool};
 pub use task_manager::{
     IntentTelemetryProfile, SwarmTaskManager, TaskHandle, TaskRecord, TaskStatus,

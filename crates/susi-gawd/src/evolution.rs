@@ -26,9 +26,12 @@ impl EvolutionManager {
         };
         let ingestion =
             crate::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace)?;
+        let staging =
+            crate::susi_core::receipt_archive::ReceiptArchive::staging_health_summary(workspace);
+        let staging_line = staging.summary();
         let bottlenecks = Self::detect_bottlenecks(workspace);
         Ok(format!(
-            "Drift audit: {frequent}\n{ingestion}\n\n{bottlenecks}"
+            "Drift audit: {frequent}\n{ingestion}\n{staging_line}\n\n{bottlenecks}"
         ))
     }
 
