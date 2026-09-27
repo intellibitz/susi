@@ -78,7 +78,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
 12. **Reflexes** — Wasm reflexes under the data dir; automatic native
     distillation fails closed on unreadable staging/configuration, training
-    failure, or failure to retire consumed samples.
+    failure, or failure to retire consumed samples. Training is cross-process
+    serialized and resumes from the currently published weights.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

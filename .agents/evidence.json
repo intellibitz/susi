@@ -1620,6 +1620,16 @@
       "milestone": "RSI iteration 1/100: automatic reflex distillation now fails closed. The audit previously treated unreadable staged data and global-config errors as empty/default state, returned training failures inside an Ok string, and ignored failure to delete consumed samples. It now distinguishes absent staging from unreadable staging, propagates configuration and training errors as typed EaiError values, and surfaces sample-retirement failure. Regression tests cover absent, populated including unterminated-final-line, and unreadable staging. Targeted fmt, test, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAlphaModel::train_on_staged_data",
+        "ref": "symbol://SusiAlphaModel::train_on_staged_data"
+      },
+      "id": "EV-2022927-168",
+      "milestone": "RSI iteration 2/100: native reflex training is now cumulative and single-writer. The prior implementation initialized a fresh random VarMap for every run, trained it, and replaced the previous weights, so repeated distillation did not improve the existing model. It now acquires a cross-process reflex-training lock, resolves configuration without a silent default, creates the model directory explicitly, loads published weights into the trainable variables when present, then atomically renames the trained checkpoint. Existing but unreadable/incompatible weights abort training instead of being silently discarded. The result text now accurately says native cumulative training rather than autonomous evolution. Targeted fmt, test, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

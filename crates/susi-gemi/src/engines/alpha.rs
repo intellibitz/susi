@@ -117,17 +117,29 @@ impl SusiAlphaModel {
     }
 
     pub fn train_on_staged_data(global_dir: &Path) -> Result<String> {
+        let _training_lock =
+            crate::susi_config::file_lock::FileLock::acquire(global_dir, "reflex_training")
+                .ok_or_else(|| anyhow!("reflex training lock unavailable"))?;
         let staged_file = global_dir.join("distillation_staged.jsonl");
         if !staged_file.exists() {
             return Err(anyhow!("No staged distillation data found."));
         }
 
+        let alpha_filename =
+            crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
+        let models_dir = global_dir.join("models");
+        std::fs::create_dir_all(&models_dir)?;
+        let weights_path = models_dir.join(&alpha_filename);
+
         let device = crate::hardware::HardwareProfiler::get_candle_device();
-        let varmap = VarMap::new();
+        let mut varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
         let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
         let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+        if weights_path.exists() {
+            varmap.load(&weights_path)?;
+        }
 
         let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())?;
 
@@ -176,15 +188,11 @@ impl SusiAlphaModel {
         }
 
         // Atomic Model Save
-        let alpha_filename = crate::susi_sandbox::manager::SusiConfig::load(global_dir)
-            .unwrap_or_default()
-            .alpha_weights_filename();
-        let weights_path = global_dir.join("models").join(&alpha_filename);
         let tmp_path = weights_path.with_extension("tmp");
         varmap.save(&tmp_path)?;
         std::fs::rename(tmp_path, weights_path)?;
 
-        Ok(format!("Autonomous Distillation Complete. Retrained on {} samples with Dynamic Intent Surface.", samples.len()))
+        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.", samples.len()))
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
