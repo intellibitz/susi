@@ -344,18 +344,11 @@ impl NonceFile {
     /// Rewrite the ledger with only live entries — callers already hold
     /// `FileLock`, so the swap is atomic w.r.t. sibling processes.
     fn compact(&mut self) {
-        use std::io::Write;
-        let mut tmp = self.path.clone();
-        tmp.set_extension("tmp");
         let mut body = String::with_capacity(self.seen.len() * 48);
         for (k, t) in &self.seen {
             body.push_str(&format!("{k}:{t}\n"));
         }
-        if std::fs::File::create(&tmp)
-            .and_then(|mut f| f.write_all(body.as_bytes()))
-            .is_ok()
-            && std::fs::rename(&tmp, &self.path).is_ok()
-        {
+        if crate::susi_config::atomic_write_bytes(&self.path, body.as_bytes()).is_ok() {
             self.offset = body.len() as u64;
         }
     }

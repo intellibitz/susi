@@ -43,14 +43,7 @@ fn write_cap(dir: &Path, name: &str, meta: &Value) {
     let Ok(json) = serde_json::to_vec(meta) else {
         return;
     };
-    if std::fs::create_dir_all(dir).is_err() {
-        return;
-    }
-    let path = dir.join(enc(name));
-    let tmp = dir.join(format!(".{}.{}.tmp", enc(name), std::process::id()));
-    if std::fs::write(&tmp, &json).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
-    }
+    let _ = crate::susi_config::atomic_write_bytes(&dir.join(enc(name)), &json);
 }
 
 fn read_cap(dir: &Path, name: &str) -> Option<Value> {

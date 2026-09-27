@@ -187,15 +187,9 @@ pub fn update_with<R>(f: impl FnOnce(&mut Vec<ServiceRecord>) -> R) -> EaiResult
 
 /// Test seam: save to an explicit path instead of the shared location.
 pub fn save_to(path: &std::path::Path, records: &[ServiceRecord]) -> EaiResult<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)
-            .map_err(|e| EaiError::filesystem(format!("create {}: {e}", dir.display())))?;
-    }
     let body = serde_json::to_string_pretty(records)
         .map_err(|e| EaiError::internal(format!("serialize service table: {e}")))?;
-    let tmp = path.with_extension(format!("json.tmp{}", std::process::id()));
-    fs::write(&tmp, &body)
-        .and_then(|()| fs::rename(&tmp, path))
+    crate::susi_config::atomic_write_bytes(path, body.as_bytes())
         .map_err(|e| EaiError::filesystem(format!("persist {}: {e}", path.display())))
 }
 

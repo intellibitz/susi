@@ -141,13 +141,6 @@ fn enc(key: &str) -> String {
     crate::susi_core::plane_bus_ipc::enc(key)
 }
 
-fn now_nanos() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0)
-}
-
 /// Load the shared substrate HMAC key, creating it (0600) on first boot.
 /// All wired copies — daemon's and vendored — must sign/verify with it.
 pub fn load_or_create_key(dir: &Path) -> [u8; 32] {
@@ -270,10 +263,7 @@ impl MacPolicy {
             &token.resource,
         )));
         if let Ok(bytes) = serde_json::to_vec(token) {
-            let tmp = dir.join(format!(".{}.tmp", now_nanos()));
-            if std::fs::write(&tmp, &bytes).is_ok() {
-                let _ = std::fs::rename(&tmp, &path);
-            }
+            let _ = crate::susi_config::atomic_write_bytes(&path, &bytes);
         }
     }
 

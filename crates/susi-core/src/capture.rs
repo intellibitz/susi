@@ -250,10 +250,7 @@ impl EvidenceSession {
                 "workspace": session.workspace,
             });
             if let Ok(bytes) = serde_json::to_vec(&meta) {
-                let tmp = dir.join(".session.tmp");
-                if std::fs::write(&tmp, &bytes).is_ok() {
-                    let _ = std::fs::rename(&tmp, dir.join("session.json"));
-                }
+                let _ = crate::susi_config::atomic_write_bytes(&dir.join("session.json"), &bytes);
             }
             let _ = session.session_dir.set(dir);
         }
@@ -451,10 +448,7 @@ impl EvidenceSession {
             let name = format!("{:020}-{}", now_nanos(), std::process::id());
             let path = inbox.join(&name);
             if let Ok(bytes) = serde_json::to_vec(&wire) {
-                let tmp = inbox.join(format!(".{name}.tmp"));
-                if std::fs::write(&tmp, &bytes).is_ok() {
-                    let _ = std::fs::rename(&tmp, path);
-                }
+                let _ = crate::susi_config::atomic_write_bytes(&path, &bytes);
             }
             return;
         }

@@ -152,12 +152,8 @@ impl IpcPlaneBus {
     fn publish_endpoint(&self, kind: &str, key: &str) {
         let Some(ep) = self.endpoint() else { return };
         let dir = self.rendezvous.join(kind);
-        let _ = std::fs::create_dir_all(&dir);
         let body = json!({ "endpoint": ep.to_string(), "key": key }).to_string();
-        let tmp = dir.join(format!(".{}.tmp", enc(key)));
-        if std::fs::write(&tmp, body).is_ok() {
-            let _ = std::fs::rename(&tmp, dir.join(enc(key)));
-        }
+        let _ = crate::susi_config::atomic_write_bytes(&dir.join(enc(key)), body.as_bytes());
     }
 
     /// Ordered remote candidates: every exact topic file across live

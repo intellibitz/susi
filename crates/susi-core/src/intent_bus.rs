@@ -209,10 +209,10 @@ impl IntentBus {
             return;
         }
         if let Ok(body) = serde_json::to_string_pretty(msg) {
-            let tmp = dir.join(format!(".{}.tmp", msg.id));
-            if std::fs::write(&tmp, &body).is_ok() {
-                let _ = std::fs::rename(&tmp, dir.join(format!("{}.json", enc(&msg.id))));
-            }
+            let _ = crate::susi_config::atomic_write_bytes(
+                &dir.join(format!("{}.json", enc(&msg.id))),
+                body.as_bytes(),
+            );
         }
     }
 
