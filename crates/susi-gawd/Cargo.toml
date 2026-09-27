@@ -6,6 +6,7 @@ edition = "2021"
 build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
+susi-native-client = { workspace = true }
 syn = { version = "3.0.6", features = ["full", "visit"] }
 reqwest = { workspace = true }
 crossbeam = "0.8"

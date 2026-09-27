@@ -27,7 +27,7 @@ fn shared_contracts_have_no_consumer_copies() {
             continue;
         }
         let src = crate_dir.join("src");
-        for module in ["susi_core", "susi_sandbox", "susi_native"] {
+        for module in ["susi_core", "susi_sandbox"] {
             let path = src.join(module);
             if path.exists() {
                 duplicates.push(path);

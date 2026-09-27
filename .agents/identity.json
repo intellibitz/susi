@@ -178,6 +178,11 @@
           "tier": 1
         },
         {
+          "function": "First-party typed loopback client for the `susi-native` Wasmer service. Feature planes compile this crate once and never source-mount or link the Wasmer implementation.",
+          "symbol": "susi-native-client / WasmHost",
+          "tier": 1
+        },
+        {
           "function": "Parses the built-in core module manifest list and prints configured port info at startup.",
           "symbol": "SubstrateKernelLoader",
           "tier": 1

@@ -2560,6 +2560,16 @@
       "milestone": "RSI iteration 95/100: version sync replaces its targets atomically. susi admin sync / enforce_version_consistency and the release path rewrite Cargo.toml's [package] version, the README version badge, the governance ledgers (.agents/identity.json, roadmap.json, evidence.json), and the binary.hash trust anchor, all with plain std::fs::write; a crash or kill mid-write could leave Cargo.toml or a ledger truncated (breaking the build or the governance record), and the binary.hash write was a second writer of the trust anchor that iteration 31 had made atomic in daemon_state. A single write_whole helper now routes all four through susi_config::atomic_write_bytes, and ingest_natural_intent's first-run evidence seed does the same. Verified that no plain fs::write remains in version.rs outside its test module. cargo test -p susi-gawd admin (17 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-native-client::WasmHost",
+        "ref": "file://crates/susi-native-client/src/lib.rs"
+      },
+      "id": "EV-2022928-262",
+      "milestone": "RSI iteration 96/100: the first-party native-service IPC client is a real crate instead of a misleading vendored source tree. `crates/susi-native/vendor_template/susi_native` was source-mounted independently by susi-gawd and susi-tools, compiling the same transport and WasmHost facade into both consumers while calling SUSI-owned code vendored. The canonical implementation now lives in `susi-native-client`, depends only on the foundation error/path contracts plus serde_json, and both feature planes use that explicit dependency; Wasmer/Wasix remain linked only into the `susi-native` service. Architecture checks declare and enforce the three new edges, the source-mount verifier no longer treats the removed tree as canonical, and README/ARCHITECTURE/identity describe the boundary. Verified by cargo run -p xtask --locked -- verify-architecture; cargo test -p susi-native-client -p susi-tools -p susi-gawd --locked (572 passed, 3 ignored); cargo test --test architecture_tests --test vendor_sync_tests --locked (23 passed); and cargo clippy --workspace --all-targets --locked -- -D warnings. A full cargo test --workspace --locked run reached the pre-existing live-provider empirical_validation_tests path, then was stopped after test_empirical_epistemic_integrity_fictitious waited more than two minutes following an invalid configured GitHub MCP npm path; all suites reached before that test passed, but the full run is not claimed as complete.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

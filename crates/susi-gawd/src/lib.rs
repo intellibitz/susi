@@ -79,12 +79,8 @@ pub mod susi_config;
 #[path = "../../susi-sandbox/vendor_template/susi_sandbox/mod.rs"]
 pub mod susi_sandbox;
 
-// Vendored `susi-native` surface + IPC client: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[rustfmt::skip]
-#[path = "../../susi-native/vendor_template/susi_native/mod.rs"]
-pub mod susi_native;
+// One compiled native-service client; Wasmer remains isolated in the service.
+pub use susi_native_client as susi_native;
 
 // Vendored `susi_core` microkernel subset (canonical tree:
 // `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state

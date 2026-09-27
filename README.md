@@ -229,6 +229,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists (whole words), dedupes only exact repeats, redacts credentials, and writes the ledger atomically |
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 119 `susi-daemon` modules are wired into a production path; 88 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing |
+| Native service boundary | Wasmer is linked only by `susi-native`; feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 
 ## Install

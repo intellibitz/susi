@@ -35,6 +35,9 @@ const COMPOSITION_ROOTS: &[(&str, &[&str])] = &[
             "susi-tools",
         ],
     ),
+    ("susi-gawd", &["susi-native-client"]),
+    ("susi-tools", &["susi-native-client"]),
+    ("susi-native-client", &["susi-error", "susi-paths"]),
 ];
 
 #[derive(Deserialize)]
@@ -144,7 +147,7 @@ fn verify_source_mounts(root: &Path, failures: &mut Vec<String>) -> Result<(), S
     let canonical_mounts = [
         root.join("crates/susi-core/src/embedded.rs"),
         root.join("crates/susi-sandbox/vendor_template/susi_sandbox/mod.rs"),
-        root.join("crates/susi-native/vendor_template/susi_native/mod.rs"),
+        root.join("crates/susi-native-client/src/lib.rs"),
         root.join("crates/susi-core/src/susi_error.rs"),
         root.join("crates/susi-core/src/susi_paths.rs"),
         root.join("crates/susi-core/src/susi_config.rs"),

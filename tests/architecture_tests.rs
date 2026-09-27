@@ -88,15 +88,22 @@ fn workspace_graph() -> HashMap<String, HashSet<String>> {
 }
 
 #[test]
-fn every_non_composition_susi_crate_has_zero_susi_dependencies() {
+fn every_non_composition_susi_crate_has_only_declared_client_edges() {
     let graph = workspace_graph();
     for (package, dependencies) in graph {
         if package == "susi" || package == "susi-daemon" {
             continue;
         }
-        assert!(
-            dependencies.is_empty(),
-            "{package} must have zero Cargo dependencies on SUSI packages; found {dependencies:?}"
+        let expected: HashSet<String> = match package.as_str() {
+            "susi-gawd" | "susi-tools" => ["susi-native-client".to_string()].into_iter().collect(),
+            "susi-native-client" => ["susi-error".to_string(), "susi-paths".to_string()]
+                .into_iter()
+                .collect(),
+            _ => HashSet::new(),
+        };
+        assert_eq!(
+            dependencies, expected,
+            "{package} has undeclared Cargo dependencies on SUSI packages"
         );
     }
 }
@@ -506,7 +513,7 @@ fn susi_server_must_not_depend_on_workspace_crates() {
 }
 
 #[test]
-fn susi_tools_must_not_depend_on_workspace_crates() {
+fn susi_tools_must_only_depend_on_the_native_client() {
     // susi-tools vendors the susi_core subset (`src/susi_core/` from
     // crates/susi-core/vendor_template/) plus the leaf modules — the second
     // consumer converted under the microkernel path.
@@ -514,9 +521,25 @@ fn susi_tools_must_not_depend_on_workspace_crates() {
     let text = std::fs::read_to_string(root.join("crates/susi-tools/Cargo.toml"))
         .expect("susi-tools Cargo.toml");
     let deps = parse_workspace_deps(&text);
-    assert!(
-        deps.is_empty(),
-        "susi-tools vendors susi_core + leaf modules; workspace deps drifted: {deps:?}"
+    assert_eq!(
+        deps,
+        ["susi-native-client".to_string()].into_iter().collect(),
+        "susi-tools workspace deps drifted: {deps:?}"
+    );
+}
+
+#[test]
+fn susi_native_client_has_only_foundation_dependencies() {
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-native-client/Cargo.toml"))
+        .expect("susi-native-client Cargo.toml");
+    let deps = parse_workspace_deps(&text);
+    assert_eq!(
+        deps,
+        ["susi-error".to_string(), "susi-paths".to_string()]
+            .into_iter()
+            .collect(),
+        "susi-native-client workspace deps drifted: {deps:?}"
     );
 }
 
