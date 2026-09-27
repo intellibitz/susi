@@ -112,6 +112,8 @@ mod service {
 pub mod cluster_key;
 #[path = "../../susi-config/src/cloud_env.rs"]
 pub mod cloud_env;
+#[path = "../../susi-config/src/file_lock.rs"]
+pub mod file_lock;
 #[path = "../../susi-config/src/json_util.rs"]
 mod json_util;
 #[path = "../../susi-config/src/types.rs"]

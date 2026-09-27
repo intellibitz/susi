@@ -82,14 +82,18 @@ pub fn append_signed_entry(
 }
 
 /// The caller-supplied fields of one audit entry.
-struct Entry<'a> {
-    level: &'a str,
-    event_type: &'a str,
-    details: &'a str,
-    pid: u32,
+pub(crate) struct Entry<'a> {
+    pub(crate) level: &'a str,
+    pub(crate) event_type: &'a str,
+    pub(crate) details: &'a str,
+    pub(crate) pid: u32,
 }
 
-fn append_with_key(audit_file: &Path, key: &[u8; 32], entry: &Entry) -> std::io::Result<String> {
+pub(crate) fn append_with_key(
+    audit_file: &Path,
+    key: &[u8; 32],
+    entry: &Entry,
+) -> std::io::Result<String> {
     let Entry {
         level,
         event_type,
@@ -97,6 +101,19 @@ fn append_with_key(audit_file: &Path, key: &[u8; 32], entry: &Entry) -> std::io:
         pid,
     } = *entry;
     let _guard = CHAIN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // CHAIN_LOCK covers threads; the daemon and CLI processes append to the
+    // same logs, and two of them reading one tip would fork the chain. An
+    // unobtainable lock fails the append rather than risk that.
+    let dir = audit_file.parent().unwrap_or_else(|| Path::new("."));
+    let lock_name = format!(
+        "{}.chain",
+        audit_file
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("audit")
+    );
+    let _file_lock = crate::susi_config::file_lock::FileLock::acquire(dir, &lock_name)
+        .ok_or_else(|| std::io::Error::other("audit chain lock unavailable"))?;
     let prev = last_hash(audit_file);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -147,7 +164,7 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
     verify_with_key(audit_file, &key)
 }
 
-fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
+pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
     let content = fs::read_to_string(audit_file).unwrap_or_default();
     if content.trim().is_empty() {
         return Ok(0);

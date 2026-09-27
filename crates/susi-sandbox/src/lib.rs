@@ -171,6 +171,67 @@ mod audit_chain_tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
+    #[test]
+    fn append_waits_for_the_cross_process_chain_lock() {
+        let log = temp_audit();
+        // Another "process" holds the chain lock: the append must not
+        // proceed on a possibly stale tip.
+        let held = crate::susi_config::file_lock::FileLock::acquire(
+            log.parent().unwrap(),
+            "audit.log.chain",
+        )
+        .unwrap();
+        assert!(append_signed_entry(&log, "Info", "T", "blocked", 1).is_err());
+        drop(held);
+        append_signed_entry(&log, "Info", "T", "after", 1).unwrap();
+        assert_eq!(verify_chain(&log), Ok(1));
+    }
+
+    #[test]
+    fn concurrent_processes_extend_one_unforked_chain() {
+        const WORKERS: usize = 4;
+        const APPENDS: usize = 300;
+        let key = [0x42u8; 32];
+        if let Ok(log) = std::env::var("SUSI_CHAIN_WORKER_LOG") {
+            let log = PathBuf::from(log);
+            // Start together so appends genuinely contend.
+            let go = log.with_extension("go");
+            while !go.exists() {
+                std::thread::yield_now();
+            }
+            for i in 0..APPENDS {
+                let details = format!("{}-{i}", std::process::id());
+                let entry = Entry {
+                    level: "Info",
+                    event_type: "T",
+                    details: &details,
+                    pid: std::process::id(),
+                };
+                append_with_key(&log, &key, &entry).unwrap();
+            }
+            return;
+        }
+        let log = temp_audit();
+        let exe = std::env::current_exe().unwrap();
+        let children: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                std::process::Command::new(&exe)
+                    .args([
+                        "concurrent_processes_extend_one_unforked_chain",
+                        "--nocapture",
+                    ])
+                    .env("SUSI_CHAIN_WORKER_LOG", &log)
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        fs::write(log.with_extension("go"), "").unwrap();
+        for mut c in children {
+            assert!(c.wait().unwrap().success(), "worker failed");
+        }
+        assert_eq!(verify_with_key(&log, &key), Ok(WORKERS * APPENDS));
+    }
+
     fn temp_audit() -> PathBuf {
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);

@@ -43,6 +43,7 @@ pub mod cloud_env;
 pub mod cluster_key;
 mod config;
 pub mod extensions;
+pub mod file_lock;
 mod json_util;
 mod types;
 pub mod versioned_store;
