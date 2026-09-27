@@ -2470,6 +2470,16 @@
       "milestone": "RSI iteration 86/100: self-validation checks what it claims, and its failures are errors. execute_autonomous_self_validation reported '- Genome Integrity: N Compiled Rules Verified.' after only counting AlphaSelf::RULES, and logged 'Autonomous foundational readiness test completed.' although no test ran; the self_validate MCP tool ('Execute autonomous substrate self-validation') also returned Ok('# Substrate Self-Validation Failed ...') on error, which EvidenceSession records as a successful, citable receipt. The report now performs one real check, that the compiled genome is non-empty and every rule has a non-blank title and imperative, and fails with a governance error otherwise; the line reads 'Compiled Genome: N rules, each with a title and an imperative'; the audit event says a report was generated. The MCP tool returns Err on failure, and its description now says what it does (report the hardware profile and tensor device, and check the compiled genome). cargo test -p susi-gmcp (247), -p susi-gawd (374), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ContextGraph::persist / persist_verified_peer_to (lock failure)",
+        "ref": "symbol://ContextGraph::persist"
+      },
+      "id": "EV-2022927-253",
+      "milestone": "RSI iteration 87/100: two read-modify-write paths no longer proceed unlocked when their cross-process lock is unavailable. FileLock::acquire returns None after about 3 s of contention or a wedged holder; most call sites bail on None (commit log, service table, audit chain, reflex staging), but two bound it as let _lock = ... and continued: ContextGraph::persist, which rewrites the whole graph log (an unlocked rewrite can replace the file under a sibling's append, silently dropping it), and peer_registry::persist_verified_peer_to, whose own comment said 'Skipping on lock failure converges anyway' while the code performed the roster read-modify-write without the lock. persist now returns a filesystem error and skips compaction (its callers already treat compaction as best effort), and persist_verified_peer_to returns without writing, as its comment described (the peer re-verifies on its next signed handshake). Audit method: every FileLock::acquire site was listed; commit_log::check_term_at, which continues but saves only when the lock is held, is correct and unchanged. cargo test -p susi-core context_graph (9), -p susi-gawd-swarm peer_registry (4), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -964,9 +964,16 @@ impl ContextGraph {
         };
         // The truncate below must not interleave with a sibling's
         // append — the same lock append_event takes.
-        let _lock = path
+        // Without the lock, skip the rewrite rather than race it: an
+        // unlocked rewrite could replace the file under a sibling's append.
+        let Some(_lock) = path
             .parent()
-            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"));
+            .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "context_graph"))
+        else {
+            return Err(EaiError::filesystem(
+                "context graph lock unavailable; compaction skipped",
+            ));
+        };
         // Fold any sibling-appended tail into memory BEFORE rewriting —
         // truncating against a stale in-memory view would silently drop
         // lines this process never saw.

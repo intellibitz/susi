@@ -85,7 +85,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    with the shared credential redactor and replaced atomically).
    The context graph (missions, tool calls, patch cycles, observations) is
    bounded, compacted by atomic rename, and re-read correctly by sibling
-   processes after a compaction.
+   processes after a compaction; compaction is skipped, never run unlocked,
+   when the cross-process lock is unavailable.
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
    The blackboard, governance, and mission-trace files all pass through the
    shared credential redactor and are replaced atomically.

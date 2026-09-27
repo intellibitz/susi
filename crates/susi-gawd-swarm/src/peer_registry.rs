@@ -62,9 +62,13 @@ pub fn persist_verified_peer_to(node: &ClusterPeerNode, path: &std::path::Path) 
     // admission all mutate peers.json; an unlocked load→write clobbers.
     // Skipping on lock failure converges anyway — the peer re-verifies
     // on its next signed handshake.
-    let _lock = path
+    let Some(_lock) = path
         .parent()
-        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"));
+        .and_then(|dir| crate::susi_core::commit_log::FileLock::acquire(dir, "peers"))
+    else {
+        // What the comment above always promised: skip, don't write unlocked.
+        return;
+    };
     // Edit JSON rows, not typed nodes: rewriting from a typed view dropped
     // every row that failed to type-parse, and a damaged file read as
     // empty was rewritten with this one peer, erasing the roster.
