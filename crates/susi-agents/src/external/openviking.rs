@@ -65,11 +65,10 @@ pub fn health_ok() -> (bool, String) {
     let Some(ov) = resolve_program("ov") else {
         return (false, "ov missing".into());
     };
-    match Command::new(ov)
-        .args(["health", "-o", "json"])
-        .stdin(std::process::Stdio::null())
-        .output()
-    {
+    match crate::susi_core::bounded_cmd::output_within(
+        Command::new(ov).args(["health", "-o", "json"]),
+        std::time::Duration::from_secs(10),
+    ) {
         Ok(o) if o.status.success() => {
             let body = String::from_utf8_lossy(&o.stdout);
             (true, body.lines().next().unwrap_or("ok").trim().to_string())

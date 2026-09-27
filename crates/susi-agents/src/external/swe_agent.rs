@@ -55,14 +55,12 @@ pub fn model_override() -> Option<String> {
 }
 
 pub fn docker_present() -> bool {
-    Command::new("docker")
-        .args(["info"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // `docker info` blocks for a long time against a wedged daemon.
+    crate::susi_core::bounded_cmd::output_within(
+        Command::new("docker").arg("info"),
+        std::time::Duration::from_secs(10),
+    )
+    .is_ok_and(|o| o.status.success())
 }
 
 /// Local readiness: `sweagent` on PATH + LLM credentials (+ docker recommended).

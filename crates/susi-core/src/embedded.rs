@@ -52,6 +52,8 @@ pub mod registry_ipc;
 pub mod service_table;
 #[path = "task_manager.rs"]
 pub mod task_manager;
+#[path = "bounded_cmd.rs"]
+pub mod bounded_cmd;
 #[path = "telemetry.rs"]
 pub mod telemetry;
 #[path = "truth.rs"]

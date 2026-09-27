@@ -69,8 +69,8 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 pub use swe_agent::{
-    doctor as swe_agent_doctor, setup as swe_agent_setup, status as swe_agent_status,
-    AGENT_ID as SWE_AGENT_ID,
+    docker_present, doctor as swe_agent_doctor, setup as swe_agent_setup,
+    status as swe_agent_status, AGENT_ID as SWE_AGENT_ID,
 };
 pub use temporal::PROFILE as TEMPORAL_PROFILE;
 

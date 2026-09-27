@@ -380,14 +380,11 @@ fn resolve_runner(runner: &str) -> Option<PathBuf> {
     }
     // Soft fallback: ask the OS via `command -v` style presence for common launchers.
     if matches!(runner, "npx" | "uvx" | "node" | "python3" | "docker") {
-        let ok = Command::new(runner)
-            .arg("--version")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .ok()
-            .is_some_and(|s| s.success());
+        let ok = crate::susi_core::bounded_cmd::output_within(
+            Command::new(runner).arg("--version"),
+            std::time::Duration::from_secs(10),
+        )
+        .is_ok_and(|o| o.status.success());
         if ok {
             return Some(PathBuf::from(runner));
         }

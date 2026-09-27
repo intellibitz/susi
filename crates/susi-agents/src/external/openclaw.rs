@@ -73,7 +73,10 @@ pub fn model_override() -> Option<String> {
 
 /// Soft check: OpenClaw requires Node 22.22.3+/24.15+/25.9+.
 pub fn node_version_detail() -> (bool, String) {
-    match Command::new("node").arg("--version").output() {
+    match crate::susi_core::bounded_cmd::output_within(
+        Command::new("node").arg("--version"),
+        std::time::Duration::from_secs(10),
+    ) {
         Ok(o) if o.status.success() => {
             let raw = String::from_utf8_lossy(&o.stdout);
             let v = raw.trim().trim_start_matches('v');

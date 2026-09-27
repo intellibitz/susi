@@ -77,6 +77,10 @@ pub mod provider;
 pub mod queue;
 pub mod receipt_archive;
 pub use crate::susi_error::redact;
+pub mod bounded_cmd;
+#[cfg(test)]
+#[path = "tests/bounded_cmd.rs"]
+mod bounded_cmd_tests;
 pub mod registry;
 pub mod registry_ipc;
 pub mod service_table;

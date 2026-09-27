@@ -221,13 +221,12 @@ impl Adapter {
                 config_env,
             } => {
                 let program = resolve_program(python).context("Python executable missing")?;
-                let status = Command::new(&program)
-                    .args(["-c", &format!("import {import_name}")])
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .with_context(|| format!("failed to probe import {import_name}"))?;
+                let status = crate::susi_core::bounded_cmd::output_within(
+                    Command::new(&program).args(["-c", &format!("import {import_name}")]),
+                    std::time::Duration::from_secs(10),
+                )
+                .with_context(|| format!("failed to probe import {import_name}"))?
+                .status;
                 if !status.success() {
                     bail!("Python package not importable: {import_name}");
                 }

@@ -3,7 +3,6 @@ use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
 use std::path::Path;
-use std::process::Command;
 use susi_daemon::SusiDaemon;
 
 #[derive(Debug, Subcommand)]
@@ -19,14 +18,7 @@ fn load_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 fn docker_available() -> bool {
-    Command::new("docker")
-        .arg("info")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()
-        .is_some_and(|s| s.success())
+    susi_agents::external::docker_present()
 }
 
 fn count_wasm_reflexes() -> usize {

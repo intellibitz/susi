@@ -169,13 +169,13 @@ fn artifacts_in_use(pid: u32) -> BTreeSet<String> {
 
 /// Per-pid GPU memory (MiB) from `nvidia-smi`; empty when unavailable.
 fn gpu_memory_by_pid() -> BTreeMap<u32, u64> {
-    let Ok(output) = std::process::Command::new("nvidia-smi")
-        .args([
+    let Ok(output) = susi_core::bounded_cmd::output_within(
+        std::process::Command::new("nvidia-smi").args([
             "--query-compute-apps=pid,used_memory",
             "--format=csv,noheader,nounits",
-        ])
-        .output()
-    else {
+        ]),
+        std::time::Duration::from_secs(5),
+    ) else {
         return BTreeMap::new();
     };
     if !output.status.success() {

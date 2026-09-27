@@ -422,14 +422,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
 
     // --- Sandbox (Wasmer critical; Docker host-gated) ---
     out.push(sandbox_check(&scratch));
-    let docker = std::process::Command::new("docker")
-        .arg("info")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()
-        .is_some_and(|s| s.success());
+    let docker = susi_agents::external::docker_present();
     out.push(check(
         "sandbox_docker",
         false,
@@ -518,14 +511,11 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
     // A GPU host running a CPU-only build leaves the 17x inference
     // speedup (EV-2022920-035) unrealized — worth surfacing, not
     // worth failing the crown over.
-    let gpu_present = std::process::Command::new("nvidia-smi")
-        .arg("-L")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .ok()
-        .is_some_and(|s| s.success());
+    let gpu_present = susi_core::bounded_cmd::output_within(
+        std::process::Command::new("nvidia-smi").arg("-L"),
+        std::time::Duration::from_secs(5),
+    )
+    .is_ok_and(|o| o.status.success());
     let cuda_built = cfg!(feature = "cuda");
     let accel = profile
         .as_ref()

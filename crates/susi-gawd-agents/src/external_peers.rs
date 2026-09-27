@@ -12,7 +12,7 @@ use crate::susi_core::registry::{AgentCapability, CapabilityRegistry};
 use crate::susi_error::{EaiError, EaiResult};
 use crate::susi_sandbox::manager::{ExternalPeerAgentSpec, SusiConfig};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 #[cfg(test)]
@@ -87,56 +87,29 @@ fn run_peer_process(
     timeout: Duration,
 ) -> EaiResult<String> {
     let bin_label = bin.display().to_string();
-    let mut child = Command::new(bin)
-        .args(args)
+    let mut cmd = Command::new(bin);
+    cmd.args(args)
         .envs(crate::susi_config::cloud_env_overlay())
-        .current_dir(workspace)
-        // A CLI that prompts must see EOF, not wait on our terminal.
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| EaiError::process(format!("external peer spawn failed: {e}")))?;
-    // Drain both pipes concurrently so a chatty child never blocks on a
-    // full pipe while we wait for it.
-    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
-        std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Some(mut pipe) = pipe {
-                let _ = std::io::Read::read_to_end(&mut pipe, &mut buf);
-            }
-            buf
-        })
-    };
-    let stdout = drain(child.stdout.take().map(|p| Box::new(p) as _));
-    let stderr = drain(child.stderr.take().map(|p| Box::new(p) as _));
-    let deadline = std::time::Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-            Ok(None) | Err(_) => {
-                // Timed out (or lost track of it): the peer must not outlive
-                // the call — it may be spending API credits.
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(EaiError::process(format!(
-                    "external peer timed out after {}s ({bin_label}); process killed",
-                    timeout.as_secs()
-                )));
-            }
+        .current_dir(workspace);
+    // Bounded: a peer that exceeds its timeout is killed, not orphaned (it
+    // may be spending API credits).
+    let output = crate::susi_core::bounded_cmd::output_within(&mut cmd, timeout).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::TimedOut {
+            EaiError::process(format!(
+                "external peer timed out after {}s ({bin_label}); process killed",
+                timeout.as_secs()
+            ))
+        } else {
+            EaiError::process(format!("external peer spawn failed: {e}"))
         }
-    };
-    let join = |h: std::thread::JoinHandle<Vec<u8>>| h.join().unwrap_or_default();
-    let (out, err) = (join(stdout), join(stderr));
-    let mut text = String::from_utf8_lossy(&out).into_owned();
-    if !err.is_empty() {
+    })?;
+    let status = output.status;
+    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+    if !output.stderr.is_empty() {
         if !text.is_empty() {
             text.push('\n');
         }
-        text.push_str(&String::from_utf8_lossy(&err));
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
     }
     let text = SecurityDetector::redact(&text);
     if status.success() {

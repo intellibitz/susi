@@ -94,7 +94,10 @@ impl EngineDoctor {
 }
 
 fn check_python(python: &str) -> (bool, String) {
-    match Command::new(python).arg("--version").output() {
+    match crate::susi_core::bounded_cmd::output_within(
+        Command::new(python).arg("--version"),
+        std::time::Duration::from_secs(10),
+    ) {
         Ok(o) if o.status.success() => {
             let v = String::from_utf8_lossy(&o.stdout);
             let e = String::from_utf8_lossy(&o.stderr);
@@ -107,7 +110,10 @@ fn check_python(python: &str) -> (bool, String) {
 
 fn check_import(python: &str, module: &str) -> (bool, String) {
     let code = format!("import {module}; print(getattr({module}, '__version__', 'ok'))");
-    match Command::new(python).args(["-c", &code]).output() {
+    match crate::susi_core::bounded_cmd::output_within(
+        Command::new(python).args(["-c", &code]),
+        std::time::Duration::from_secs(10),
+    ) {
         Ok(o) if o.status.success() => {
             (true, String::from_utf8_lossy(&o.stdout).trim().to_string())
         }

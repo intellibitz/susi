@@ -263,10 +263,13 @@ impl HardwareProfiler {
     /// e.g. an 8188 MiB card reports as "7GB") and independent of total
     /// capacity, which doesn't reflect memory already in use.
     fn determine_gpu_vram_free_bytes() -> Option<u64> {
-        let output = std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"])
-            .output()
-            .ok()?;
+        // Bounded: nvidia-smi can hang indefinitely on a wedged driver.
+        let output = crate::susi_core::bounded_cmd::output_within(
+            std::process::Command::new("nvidia-smi")
+                .args(["--query-gpu=memory.free", "--format=csv,noheader,nounits"]),
+            std::time::Duration::from_secs(5),
+        )
+        .ok()?;
         if !output.status.success() {
             return None;
         }
@@ -367,10 +370,11 @@ impl HardwareProfiler {
         // NVIDIA's proprietary driver never populates the AMD-specific
         // mem_info_vram_total sysfs attribute below, so query nvidia-smi
         // directly for NVIDIA hardware first.
-        if let Ok(output) = std::process::Command::new("nvidia-smi")
-            .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"])
-            .output()
-        {
+        if let Ok(output) = crate::susi_core::bounded_cmd::output_within(
+            std::process::Command::new("nvidia-smi")
+                .args(["--query-gpu=memory.total", "--format=csv,noheader,nounits"]),
+            std::time::Duration::from_secs(5),
+        ) {
             if output.status.success() {
                 if let Some(first_line) = String::from_utf8_lossy(&output.stdout).lines().next() {
                     if let Ok(mib) = first_line.trim().parse::<u64>() {

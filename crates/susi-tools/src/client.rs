@@ -221,8 +221,16 @@ impl GmcpClient {
         };
 
         // Meta Execution Scout: Identify best-suited executor for the host environment
-        let has_uvx = Command::new("uvx").arg("--version").output().is_ok();
-        let has_npx = Command::new("npx").arg("--version").output().is_ok();
+        let has_uvx = crate::susi_core::bounded_cmd::output_within(
+            Command::new("uvx").arg("--version"),
+            std::time::Duration::from_secs(10),
+        )
+        .is_ok();
+        let has_npx = crate::susi_core::bounded_cmd::output_within(
+            Command::new("npx").arg("--version"),
+            std::time::Duration::from_secs(10),
+        )
+        .is_ok();
 
         let (cmd, args) = if package.starts_with("pypi:") || package.contains("python") {
             if has_uvx {
@@ -442,8 +450,16 @@ impl GmcpClient {
         let start = std::time::Instant::now();
 
         // Attempt trial initialization (Dry-run configuration)
-        let has_uvx = Command::new("uvx").arg("--version").output().is_ok();
-        let has_npx = Command::new("npx").arg("--version").output().is_ok();
+        let has_uvx = crate::susi_core::bounded_cmd::output_within(
+            Command::new("uvx").arg("--version"),
+            std::time::Duration::from_secs(10),
+        )
+        .is_ok();
+        let has_npx = crate::susi_core::bounded_cmd::output_within(
+            Command::new("npx").arg("--version"),
+            std::time::Duration::from_secs(10),
+        )
+        .is_ok();
 
         if (package.contains("python") && !has_uvx) || (!package.contains("python") && !has_npx) {
             return (0.1, 999); // Low trust if environment cannot execute
