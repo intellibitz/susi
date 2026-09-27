@@ -323,7 +323,7 @@ existing import paths keep resolving.
 - `ARCHITECTURE.md` documents `plane_bus`.
 - No new unwired `susi-daemon` module: modules unreachable from any production
   path (other crates, the root binary, `lib.rs` re-exports) may only decrease
-  from the 88 found on 2026-09-27 (73 remain after two deletion batches).
+  from the 88 found on 2026-09-27 (65 remain after three deletion batches).
 
 CI runs the full workspace test suite (includes these tests) and `cargo deny`.
 Criterion benches live under `crates/susi-core/benches/`; nightly fuzz targets
