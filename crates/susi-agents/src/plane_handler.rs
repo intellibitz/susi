@@ -34,17 +34,6 @@ fn catalog_kind(payload: &Value) -> CatalogKind {
 impl PlaneHandler for AgentsPlaneHandler {
     fn handle(&self, topic: &str, payload: Value) -> Result<Value, String> {
         match topic {
-            topics::AGENTS_EXTERNAL_RESOLVE => {
-                let id = payload
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .ok_or("id required")?;
-                let (kind, def) = external::resolve_managed(id).map_err(|e| e.to_string())?;
-                Ok(json!({
-                    "kind": format!("{kind:?}"),
-                    "definition": def,
-                }))
-            }
             topics::AGENTS_EXTERNAL_RUN => {
                 let ws = workspace_path(&payload);
                 let kind = catalog_kind(&payload);

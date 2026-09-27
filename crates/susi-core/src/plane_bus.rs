@@ -123,7 +123,6 @@ pub mod topics {
     pub const GEMI_MODELS_SELECT_MIN: &str = "gemi.models.select_min";
     pub const GEMI_CODING_PREFER: &str = "gemi.coding.prefer";
 
-    pub const AGENTS_EXTERNAL_RESOLVE: &str = "agents.external.resolve";
     pub const AGENTS_EXTERNAL_RUN: &str = "agents.external.run";
     pub const AGENTS_META_LIST: &str = "agents.meta.list";
     pub const AGENTS_META_REGISTER: &str = "agents.meta.register";
