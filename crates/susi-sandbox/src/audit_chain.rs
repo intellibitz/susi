@@ -68,8 +68,35 @@ pub fn append_signed_entry(
     details: &str,
     pid: u32,
 ) -> std::io::Result<String> {
-    let _guard = CHAIN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let key = load_or_create_hmac_key()?;
+    append_with_key(
+        audit_file,
+        &key,
+        &Entry {
+            level,
+            event_type,
+            details,
+            pid,
+        },
+    )
+}
+
+/// The caller-supplied fields of one audit entry.
+struct Entry<'a> {
+    level: &'a str,
+    event_type: &'a str,
+    details: &'a str,
+    pid: u32,
+}
+
+fn append_with_key(audit_file: &Path, key: &[u8; 32], entry: &Entry) -> std::io::Result<String> {
+    let Entry {
+        level,
+        event_type,
+        details,
+        pid,
+    } = *entry;
+    let _guard = CHAIN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let prev = last_hash(audit_file);
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -89,7 +116,7 @@ pub fn append_signed_entry(
     hasher.update(b"|");
     hasher.update(pid.to_string().as_bytes());
     let entry_hash = hex::encode(hasher.finalize());
-    let signature = mac_hex(&key, &entry_hash);
+    let signature = mac_hex(key, &entry_hash);
 
     let log_entry = serde_json::json!({
         "ts": ts,
@@ -117,6 +144,10 @@ pub fn append_signed_entry(
 /// Verify the HMAC + hash-link chain in an audit log.
 pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
     let key = load_or_create_hmac_key().map_err(|e| e.to_string())?;
+    verify_with_key(audit_file, &key)
+}
+
+fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
     let content = fs::read_to_string(audit_file).unwrap_or_default();
     if content.trim().is_empty() {
         return Ok(0);
@@ -176,7 +207,7 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
         if recomputed != entry_hash {
             return Err(format!("line {}: entry_hash mismatch", idx + 1));
         }
-        if mac_hex(&key, entry_hash) != hmac {
+        if mac_hex(key, entry_hash) != hmac {
             return Err(format!("line {}: HMAC signature invalid", idx + 1));
         }
         expected_prev = entry_hash.to_string();
@@ -205,13 +236,22 @@ mod tests {
     #[test]
     fn forged_mac_fails_verification() {
         let log = scratch("forge").join("audit.log");
-        append_signed_entry(&log, "Info", "TEST", "genuine", 1).unwrap();
-        assert_eq!(verify_chain(&log), Ok(1));
+        // Explicit key: sibling tests may repoint the substrate home (and so
+        // the host key path) concurrently.
+        let key = [0x5a; 32];
+        let entry = Entry {
+            level: "Info",
+            event_type: "TEST",
+            details: "genuine",
+            pid: 1,
+        };
+        append_with_key(&log, &key, &entry).unwrap();
+        assert_eq!(verify_with_key(&log, &key), Ok(1));
         let content = fs::read_to_string(&log).unwrap();
         let mut entry: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
         entry["hmac"] = serde_json::json!("00".repeat(32));
         fs::write(&log, format!("{entry}\n")).unwrap();
-        let err = verify_chain(&log).unwrap_err();
+        let err = verify_with_key(&log, &key).unwrap_err();
         assert!(err.contains("HMAC signature invalid"), "{err}");
     }
 }
