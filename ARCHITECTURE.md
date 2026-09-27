@@ -354,7 +354,7 @@ service crate, which every consumer depends on (IPC + local fallback).
 - `ARCHITECTURE.md` documents `plane_bus`.
 - No new unwired `susi-daemon` module: modules unreachable from any production
   path (other crates, the root binary, `lib.rs` re-exports) may only decrease
-  from the 88 found on 2026-09-27 (65 remain after three deletion batches).
+  from the 88 found on 2026-09-27 (59 remain after four deletion batches).
 - No new cross-crate `#[path]` mount: 159 existed on 2026-09-28; the count
   may only decrease (142 after `susi-paths` became a crate dependency, 125
   after `susi-error`, 105 after `susi-config`, 94 after

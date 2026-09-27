@@ -2740,6 +2740,16 @@
       "milestone": "Dedup pass step 14: dropped Cargo edges that only the old `#[path]` mounts needed. After the contract crates became real dependencies, twelve feature-plane Cargo.toml files still listed ed25519-dalek / x25519-dalek / chacha20poly1305 (cluster-key crypto lives in susi-config), and several still listed ureq/hex/sha2/getrandom/libc/md5 with no remaining rustc use: susi-gemi, susi-gemi-models, susi-core, susi-gawd-agents, susi-gawd, susi-gawd-swarm, susi-gawd-a2a, susi-tools, susi-gmcp, susi-server, susi-agents, and x25519-dalek on susi-daemon. No Rust source changed. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "unreachable-daemon deletion batch 4",
+        "ref": "file://crates/susi-daemon/src/lib.rs"
+      },
+      "id": "EV-2022928-280",
+      "milestone": "Dedup pass step 15: a fourth unreachable-daemon deletion batch removes six isolated sketches with zero inbound references: `ab_swarm`, `approval`, `cell_profile`, `compliance_map`, `playbook`, and `security_scan`. Each was exercised only by tests in its own file. A path-reference audit matching `unreachable_daemon_modules_only_decrease` found no caller outside the `lib.rs` module declaration. This removes 356 source lines and reduces the daemon surface from 96 to 90 modules while preserving the same 31 production-reachable modules. The compiled-only count and ratchet ceiling fall from 65 to 59. README, ARCHITECTURE, AGENTS.md, and identity report the reduced surface. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

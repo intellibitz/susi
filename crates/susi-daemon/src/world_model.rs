@@ -218,7 +218,7 @@ impl WorldModel {
 
 /// Structural anomalies: claims or receipts with no evidence, nodes outside
 /// the allowed region set, and `affects` edges whose target was never written
-/// (Bullet 59's scan input — the scan itself lives in `security_scan`).
+/// (Bullet 59's scan input; the former `security_scan` caller was removed).
 pub fn structural_findings(model: &WorldModel, allowed_regions: &[String]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for node in model.latest_nodes() {

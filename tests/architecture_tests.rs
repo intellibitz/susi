@@ -637,7 +637,7 @@ fn reachability_from_core_stays_downward() {
 // modules unreachable; later passes deleted isolated sketches that nothing
 // called. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 65;
+const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 59;
 
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
