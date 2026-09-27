@@ -388,12 +388,30 @@ impl RateLimiter {
         }
     }
 
+    /// The client a bucket belongs to. One IPv6 host is routinely assigned a
+    /// whole /64, so keying by the full address let a single client rotate
+    /// source addresses past its budget (and flood the map into evicting
+    /// other clients' buckets). IPv4-mapped IPv6 counts as its IPv4 address.
+    fn bucket_key(ip: IpAddr) -> IpAddr {
+        match ip {
+            IpAddr::V4(v4) => IpAddr::V4(v4),
+            IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+                Some(v4) => IpAddr::V4(v4),
+                None => {
+                    let prefix = u128::from(v6) & (u128::MAX << 64);
+                    IpAddr::V6(std::net::Ipv6Addr::from(prefix))
+                }
+            },
+        }
+    }
+
     /// Returns true if `ip` is still within its per-minute request budget.
     /// A `limit` of 0 disables rate limiting entirely.
     pub fn check(&self, ip: IpAddr, limit: u32) -> bool {
         if limit == 0 {
             return true;
         }
+        let ip = Self::bucket_key(ip);
 
         let now = Instant::now();
 
@@ -590,6 +608,22 @@ mod tests {
             !limiter.check(ip, 3),
             "4th request over limit should be blocked"
         );
+    }
+
+    #[test]
+    fn ipv6_clients_share_a_bucket_per_64_and_mapped_v4_is_v4() {
+        let limiter = RateLimiter::with_capacity(100);
+        let a: IpAddr = "2001:db8:1:2::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:ffff::9".parse().unwrap();
+        let other: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert!(limiter.check(a, 2));
+        assert!(limiter.check(b, 2));
+        assert!(!limiter.check(a, 2), "same /64 shares one budget");
+        assert!(limiter.check(other, 2), "a different /64 has its own");
+        let v4: IpAddr = "192.0.2.7".parse().unwrap();
+        let mapped: IpAddr = "::ffff:192.0.2.7".parse().unwrap();
+        assert!(limiter.check(v4, 1));
+        assert!(!limiter.check(mapped, 1));
     }
 
     #[test]

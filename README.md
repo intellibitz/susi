@@ -117,6 +117,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     so concurrent processes never overwrite each other's rollback snapshots,
     and a transaction can only be closed against the workspace it snapshotted.
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
+    HTTP rate limits bucket IPv6 clients per /64, so rotating addresses
+    within one allocation does not reset the budget.
     The daemon's binary trust anchor hashes the whole binary (a read error
     fails instead of truncating the digest) and is replaced atomically.
 12. **Reflexes** — Wasm reflexes under the data dir; automatic native

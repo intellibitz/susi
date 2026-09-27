@@ -2140,6 +2140,16 @@
       "milestone": "RSI iteration 53/100: the security veto blocks actions that carry this host's real credentials, not just known vendor prefixes (Mandate 10). SecurityDetector::audit_action only matched the configured secret_tokens prefixes (sk-, ghp_, AIza, xoxb-, github_pat_, and a few others), so an agent goal or exec_command line containing the actual value of HF_TOKEN (hf_..., not in the list), the host bearer SUSI_HOST_TOKEN, or any provider key without a listed prefix passed the governance check untouched. audit_action now first vetoes any argument containing the value of an environment variable named *_API_KEY, *_TOKEN, or *_SECRET (8+ characters), using the same rule the error-metrics and trust-boundary redactors apply; the rule lives once in susi_error::redact as mask_credentials_from (explicit variable list, used by the veto and its test) with mask_env_credentials delegating to it. A test proves a Bearer header carrying a held HF_TOKEN value is vetoed while benign text and a non-credential variable's value (PATH) are not. cargo test -p susi-gawd-agents security (4 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RateLimiter::check / bucket_key",
+        "ref": "symbol://RateLimiter::bucket_key"
+      },
+      "id": "EV-2022927-220",
+      "milestone": "RSI iteration 54/100: the Mandate 40 per-client rate limit can no longer be bypassed by rotating IPv6 addresses. RateLimiter keyed buckets by the exact source IpAddr; an IPv6 client is routinely delegated a whole /64 (2^64 addresses), so one host could send each request from a fresh address and never exhaust rate_limit_per_minute, and doing so also filled the 50,000-entry map, whose over-capacity path evicts an arbitrary bucket, resetting other clients' counters. Buckets are now keyed per client: IPv4 as is, IPv4-mapped IPv6 as its IPv4 address (so the same client cannot double its budget across address families), and other IPv6 addresses by their /64 prefix. A test proves two addresses in one /64 share a budget, a neighbouring /64 has its own, and ::ffff:192.0.2.7 shares 192.0.2.7's bucket. cargo test -p susi-core net_guard (10 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
