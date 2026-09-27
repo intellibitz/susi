@@ -1800,6 +1800,16 @@
       "milestone": "RSI iteration 19/100: one untrainable record no longer stalls reflex training. parse_training_entries still refuses to guess labels, but a well-formed record with a blank intent or an action outside the reflex vocabulary is now skipped and counted instead of failing the whole batch. Previously the reflex trainer restored the failed claim, so the same batch failed every cycle, and once the vocabulary reached its DIM cap an unknown action could never become trainable. Skips are recorded through EaiError::inference and reported in the training result; malformed or blank lines still fail loudly, and a batch with no trainable records still errors. A regression test mixes known, unknown-action, blank-intent, and case-variant records and proves a torn line still fails. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiPulse::reason / ReflexEngine::try_solve",
+        "ref": "symbol://SusiPulse::reason"
+      },
+      "id": "EV-2022927-186",
+      "milestone": "RSI iteration 20/100: a Tier-0 reflex failure no longer masquerades as a solved answer. When the neural classifier, generative reflex, and local full-answer tiers all failed, SusiPulse::reason returned Ok(\"I'm unable to generate an answer at this time.\") and cached it; ReflexEngine::try_solve then reported ReflexDecision::Solved, so GemiRuntime::reason_internal returned the apology and never reached cloud escalation or discovered providers, and the cached apology outlived the transient failure until the weights changed. reason() now returns Err when no tier answers (never cached), and try_generate_answer fails its task and returns Err on an empty decode instead of the same placeholder. The reflex cache is also keyed by workspace (a list_directory reflex embeds the workspace path and was served across workspaces) and bounded at 1024 entries in the long-lived daemon. Unit tests cover the bound and workspace separation; cargo test -p susi-gemi pulse and cargo clippy -p susi-gemi --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

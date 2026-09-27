@@ -242,14 +242,14 @@ impl GenerativeReflexEngine {
             .decode(&all_tokens, true)
             .map_err(|e| anyhow!("Decoding Error: {}", e))?;
 
-        // Ensure we generated non‑empty output
+        // An empty decode is a failed generation, not an answer: reporting
+        // it as Ok would let the reflex tier claim a solve it never made.
         let trimmed = output.trim();
-        let final_output = if trimmed.is_empty() {
-            "I'm unable to generate an answer at this time."
-        } else {
-            trimmed
-        };
+        if trimmed.is_empty() {
+            task_handle.mark_failed("Reflex generation produced no text.");
+            return Err(anyhow!("reflex generation produced no text"));
+        }
         task_handle.mark_completed("Reflex full answer generation successful.");
-        Ok(final_output.to_string())
+        Ok(trimmed.to_string())
     }
 }
