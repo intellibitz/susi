@@ -85,7 +85,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     staging happens once at successful receipt capture and pairs the action with
     the credential-redacted mission from that same live evidence session. The
     model persists an append-only action vocabulary beside its weights so new
-    ecosystem capabilities cannot reorder learned output labels.
+    ecosystem capabilities cannot reorder learned output labels; the vocabulary
+    records the exact weights SHA-256 and mismatched pairs fail closed.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

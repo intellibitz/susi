@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; successful tool-receipt capture stages each credential-redacted mission/action pair once; training validates exact actions, preserves output indices in a persisted append-only vocabulary, is cross-process serialized, resumes from global weights, and surfaces failures.",
+      "summary": "Wasm under the data dir; receipt capture stages credential-redacted mission/action pairs once; training preserves output indices in a persisted vocabulary cryptographically bound to exact weights, is cross-process serialized, resumes cumulatively, and fails closed on mismatch.",
       "title": "Reflexes"
     },
     {

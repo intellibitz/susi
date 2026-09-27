@@ -1690,6 +1690,16 @@
       "milestone": "RSI iteration 8/100: neural reflex output labels now have a stable persisted vocabulary. Previously training and prediction each rebuilt and sorted the live agent/tool registry, so adding a capability could shift existing indices and reinterpret learned weights as different actions. SusiAlphaModel now stores its validated action vocabulary beside the weights, loads that exact mapping for inference and cumulative training, appends newly discovered capabilities without reordering existing labels, rejects missing/corrupt/duplicate/oversized vocabularies for published weights, and restricts prediction to mapped output slots. Fresh models persist weights and vocabulary together; model/config read and initialization failures are no longer silently replaced with random published state. Regression tests prove extension preserves existing indices and case-insensitive duplicates fail validation. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ActionVocabulary",
+        "ref": "symbol://ActionVocabulary"
+      },
+      "id": "EV-2022927-175",
+      "milestone": "RSI iteration 9/100: persisted reflex action labels are now cryptographically bound to the exact checkpoint they interpret. A separate weights rename and vocabulary write could previously leave a crash-mixed pair that loaded successfully but mapped output indices through the wrong labels. The vocabulary sidecar now has a strict versioned schema and the SHA-256 of the published safetensors file; every inference and cumulative-training load recomputes and compares that digest before accepting the mapping. Unknown schema, malformed sidecar, invalid labels, or weight mismatch fails closed. A regression test writes a valid pair, proves it loads, mutates only the weights, and proves mismatch rejection. This establishes detection; automatic last-known-good recovery is a separate subsequent iteration. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

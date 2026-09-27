@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use candle_core::{DType, Tensor};
 use candle_nn::{AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +63,22 @@ fn vocabulary_path(weights_path: &Path) -> PathBuf {
     weights_path.with_extension("intents.json")
 }
 
+const VOCABULARY_SCHEMA: &str = "susi/reflex-vocabulary/v1";
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ActionVocabulary {
+    schema: String,
+    weights_sha256: String,
+    intents: Vec<String>,
+}
+
+fn file_sha256(path: &Path) -> Result<String> {
+    let bytes = std::fs::read(path)
+        .map_err(|error| anyhow!("read reflex weights {}: {error}", path.display()))?;
+    Ok(hex::encode(Sha256::digest(bytes)))
+}
+
 fn validate_vocabulary(intents: Vec<String>) -> Result<Vec<String>> {
     if intents.is_empty() {
         return Err(anyhow!("reflex action vocabulary is empty"));
@@ -91,11 +108,23 @@ fn load_vocabulary(weights_path: &Path) -> Result<Vec<String>> {
     let path = vocabulary_path(weights_path);
     let bytes = std::fs::read(&path)
         .map_err(|error| anyhow!("read reflex action vocabulary {}: {error}", path.display()))?;
-    validate_vocabulary(
-        serde_json::from_slice(&bytes).map_err(|error| {
-            anyhow!("parse reflex action vocabulary {}: {error}", path.display())
-        })?,
-    )
+    let vocabulary: ActionVocabulary = serde_json::from_slice(&bytes)
+        .map_err(|error| anyhow!("parse reflex action vocabulary {}: {error}", path.display()))?;
+    if vocabulary.schema != VOCABULARY_SCHEMA {
+        return Err(anyhow!(
+            "unsupported reflex action vocabulary schema {:?}",
+            vocabulary.schema
+        ));
+    }
+    let actual_hash = file_sha256(weights_path)?;
+    if vocabulary.weights_sha256 != actual_hash {
+        return Err(anyhow!(
+            "reflex weights/vocabulary mismatch: expected {}, found {}",
+            vocabulary.weights_sha256,
+            actual_hash
+        ));
+    }
+    validate_vocabulary(vocabulary.intents)
 }
 
 fn extend_vocabulary(mut persisted: Vec<String>, discovered: Vec<String>) -> Vec<String> {
@@ -114,7 +143,12 @@ fn extend_vocabulary(mut persisted: Vec<String>, discovered: Vec<String>) -> Vec
 }
 
 fn save_vocabulary(weights_path: &Path, intents: &[String]) -> Result<()> {
-    let bytes = serde_json::to_vec_pretty(intents)?;
+    let vocabulary = ActionVocabulary {
+        schema: VOCABULARY_SCHEMA.into(),
+        weights_sha256: file_sha256(weights_path)?,
+        intents: intents.to_vec(),
+    };
+    let bytes = serde_json::to_vec_pretty(&vocabulary)?;
     crate::susi_config::atomic_write_bytes(&vocabulary_path(weights_path), &bytes)
         .map_err(|error| anyhow!("persist reflex action vocabulary: {error}"))
 }
@@ -535,5 +569,18 @@ mod tests {
     fn vocabulary_validation_rejects_case_insensitive_duplicates() {
         let error = validate_vocabulary(vec!["status".into(), "STATUS".into()]).unwrap_err();
         assert!(error.to_string().contains("duplicate action"));
+    }
+
+    #[test]
+    fn vocabulary_is_bound_to_exact_weight_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let weights = dir.path().join("alpha.safetensors");
+        std::fs::write(&weights, b"weights-v1").unwrap();
+        save_vocabulary(&weights, &["status".into(), "reason".into()]).unwrap();
+        assert_eq!(load_vocabulary(&weights).unwrap(), ["status", "reason"]);
+
+        std::fs::write(&weights, b"weights-v2").unwrap();
+        let error = load_vocabulary(&weights).unwrap_err();
+        assert!(error.to_string().contains("weights/vocabulary mismatch"));
     }
 }
