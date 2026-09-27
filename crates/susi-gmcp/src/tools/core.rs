@@ -211,12 +211,16 @@ impl CoreTools {
 
     #[tool(
         name = "inference_placement",
-        description = "Explain whether SUSI will run inference locally or in cloud and why"
+        description = "Explain whether SUSI will run inference locally or in cloud and why. Args: optional requires, max_cost, allow_cloud (default true)"
     )]
     pub fn inference_placement(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let requires = arg.get("requires").and_then(|value| value.as_str());
         let max_cost = arg.get("max_cost").and_then(|value| value.as_f64());
-        let placement = ModelManager::placement(requires, max_cost);
+        let allow_cloud = arg
+            .get("allow_cloud")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true);
+        let placement = ModelManager::placement_with_cloud(requires, max_cost, allow_cloud);
         serde_json::to_string_pretty(&placement)
             .map_err(|error| EaiError::internal(format!("encode placement: {error}")))
     }
