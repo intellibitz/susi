@@ -2480,6 +2480,16 @@
       "milestone": "RSI iteration 87/100: two read-modify-write paths no longer proceed unlocked when their cross-process lock is unavailable. FileLock::acquire returns None after about 3 s of contention or a wedged holder; most call sites bail on None (commit log, service table, audit chain, reflex staging), but two bound it as let _lock = ... and continued: ContextGraph::persist, which rewrites the whole graph log (an unlocked rewrite can replace the file under a sibling's append, silently dropping it), and peer_registry::persist_verified_peer_to, whose own comment said 'Skipping on lock failure converges anyway' while the code performed the roster read-modify-write without the lock. persist now returns a filesystem error and skips compaction (its callers already treat compaction as best effort), and persist_verified_peer_to returns without writing, as its comment described (the peer re-verifies on its next signed handshake). Audit method: every FileLock::acquire site was listed; commit_log::check_term_at, which continues but saves only when the lock is held, is correct and unchanged. cargo test -p susi-core context_graph (9), -p susi-gawd-swarm peer_registry (4), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAuditLogger::read_audit_log / tail_lines",
+        "ref": "symbol://SusiAuditLogger::read_audit_log"
+      },
+      "id": "EV-2022927-254",
+      "milestone": "RSI iteration 88/100: reading recent audit activity no longer loads the whole audit chain. read_audit_log (used by the drift audit's frequent-intent and bottleneck analysis and by the sovereign dashboard) read .susi/audit.log in full with read_to_string on every call, split it into lines, and kept the last N. The workspace audit log is an append-only HMAC chain that is never rotated, so the cost grew with the workspace's whole history, and one invalid UTF-8 byte anywhere made the call return an empty string, which callers render as 'no activity'. A new tail_lines reads backwards from the end in 64 KiB chunks only until it holds more than N newlines, and decodes lossily. A test writes an over-128 KiB log beginning with an invalid byte and proves the last three lines are exact and that a limit beyond the file returns all 10,001 lines with the invalid-byte line present. cargo test -p susi-sandbox audit_log_tail, -p susi-gawd evolution, -p susi-gmcp sovereign, and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

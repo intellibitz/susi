@@ -103,6 +103,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 6. **Audit** — append-only HMAC accountability chain; cross-process writers
    serialize, complete JSONL records are emitted in one write, stale tip
    checkpoints rebuild from the verified log, and unreadable input fails closed.
+   Recent-activity readers (drift audit, dashboard) read only the log's tail.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
    First-run host config comes from the defaults compiled into the binary,
    never from a `config.default.json` in whatever directory SUSI runs in.

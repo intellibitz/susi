@@ -126,6 +126,29 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn audit_log_tail_spans_chunks_and_survives_invalid_utf8() {
+        let ws = std::env::temp_dir().join(format!("susi-audit-tail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join(".susi")).unwrap();
+        let mut body = Vec::new();
+        body.extend_from_slice(b"bad \xff byte\n");
+        for i in 0..10000 {
+            body.extend_from_slice(format!("{{\"type\":\"E\",\"n\":{i}}}\n").as_bytes());
+        }
+        assert!(body.len() > 128 * 1024);
+        std::fs::write(ws.join(".susi/audit.log"), &body).unwrap();
+        let tail = SusiAuditLogger::read_audit_log(&ws, 3);
+        assert_eq!(
+            tail,
+            "{\"type\":\"E\",\"n\":9997}\n{\"type\":\"E\",\"n\":9998}\n{\"type\":\"E\",\"n\":9999}"
+        );
+        let all = SusiAuditLogger::read_audit_log(&ws, 20_000);
+        assert_eq!(all.lines().count(), 10001);
+        assert!(all.starts_with("bad"));
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
     fn test_checkpoint_lifecycle() {
         let ws = Path::new(".");
         let mut fields = DynamicRegistry::new();

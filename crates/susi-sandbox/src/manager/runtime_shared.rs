@@ -123,19 +123,47 @@ impl SusiAuditLogger {
         }
     }
 
+    /// The last `limit` lines of the workspace audit log. The log is an
+    /// append-only HMAC chain that is never rotated, so this reads backwards
+    /// from the end in fixed-size chunks instead of loading the whole file
+    /// on every drift audit and dashboard call; bytes are decoded lossily so
+    /// one invalid byte no longer turns the whole read into "no activity".
     pub fn read_audit_log(workspace: &Path, limit: usize) -> String {
-        let audit_file = workspace.join(".susi/audit.log");
-        if let Ok(content) = fs::read_to_string(audit_file) {
-            let lines: Vec<&str> = content.lines().collect();
-            let start = if lines.len() > limit {
-                lines.len() - limit
-            } else {
-                0
-            };
-            return lines[start..].join("\n");
-        }
-        String::new()
+        tail_lines(&workspace.join(".susi/audit.log"), limit)
     }
+}
+
+/// Last `limit` lines of `path` (empty when absent or unreadable).
+fn tail_lines(path: &Path, limit: usize) -> String {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 64 * 1024;
+    if limit == 0 {
+        return String::new();
+    }
+    let Ok(mut file) = fs::File::open(path) else {
+        return String::new();
+    };
+    let Ok(len) = file.metadata().map(|m| m.len()) else {
+        return String::new();
+    };
+    let mut pos = len;
+    let mut buf: Vec<u8> = Vec::new();
+    // One more newline than `limit` guarantees the earliest kept line is
+    // complete (a trailing newline also counts as one).
+    while pos > 0 && buf.iter().filter(|b| **b == b'\n').count() <= limit {
+        let step = CHUNK.min(pos);
+        pos -= step;
+        let mut chunk = vec![0u8; usize::try_from(step).unwrap_or(0)];
+        if file.seek(SeekFrom::Start(pos)).is_err() || file.read_exact(&mut chunk).is_err() {
+            return String::new();
+        }
+        chunk.extend_from_slice(&buf);
+        buf = chunk;
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(limit);
+    lines[start..].join("\n")
 }
 
 // === BACKUP MANAGER ===
