@@ -242,7 +242,9 @@ impl GawdAgent for SusiRuntimeAgent {
         }
         // 1. Check whether a cloud API key is configured
         let cloud_env_keys = ["SUSI_API_KEY", "MODEL_API_KEY", "EAI_API_KEY", "API_KEY"];
-        let cloud_available = cloud_env_keys.iter().any(|k| std::env::var(k).is_ok());
+        let cloud_available = cloud_env_keys
+            .iter()
+            .any(|k| crate::susi_config::env_or_cloud_env(k).is_ok());
 
         // 2. Check whether a valid local model is already present
         let verifications =
@@ -944,7 +946,7 @@ pub(crate) fn resolve_inference_key(api_key_env: &str) -> Option<String> {
     if api_key_env.trim().is_empty() {
         return None;
     }
-    if let Ok(v) = std::env::var(api_key_env) {
+    if let Ok(v) = crate::susi_config::env_or_cloud_env(api_key_env) {
         if !v.trim().is_empty() {
             return Some(v);
         }

@@ -110,6 +110,8 @@ mod service {
 
 #[path = "../../susi-config/src/cluster_key.rs"]
 pub mod cluster_key;
+#[path = "../../susi-config/src/cloud_env.rs"]
+pub mod cloud_env;
 #[path = "../../susi-config/src/json_util.rs"]
 mod json_util;
 #[path = "../../susi-config/src/types.rs"]
@@ -121,6 +123,7 @@ pub mod extensions;
 #[path = "../../susi-config/src/config.rs"]
 mod config;
 
+pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, create_private_dir, install_private_file, remove_file_if_present, confined_workspace_join, http_agent, load_or_create_secret, merge_missing_json_defaults,

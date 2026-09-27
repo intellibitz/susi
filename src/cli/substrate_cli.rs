@@ -109,7 +109,6 @@ pub fn execute(action: Option<SubstrateCommands>, workspace: &Path) -> Result<()
     match action.unwrap_or(SubstrateCommands::Status) {
         SubstrateCommands::Status => {
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
-            susi_gemi::http_provider::apply_cloud_env_file();
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             let _ = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);

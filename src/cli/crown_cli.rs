@@ -629,7 +629,6 @@ fn report(workspace: &Path) -> serde_json::Value {
 
 pub fn execute(action: Option<CrownCommands>, workspace: &Path) -> Result<()> {
     let _ = susi_sandbox::extensions::ensure_extensions_substrate();
-    susi_gemi::http_provider::apply_cloud_env_file();
     let substrate = susi_paths::SusiDirs::substrate_home();
     let _ = std::fs::create_dir_all(&substrate);
 

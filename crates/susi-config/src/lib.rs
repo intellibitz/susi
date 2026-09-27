@@ -39,6 +39,7 @@ pub mod susi_paths;
 // The shared modules below are also `#[path]`-mounted by every other crate
 // (via `crates/susi-core/src/susi_config.rs`), so they name siblings with
 // `super::` and reach the service through `super::service`.
+pub mod cloud_env;
 pub mod cluster_key;
 mod config;
 pub mod extensions;
@@ -59,6 +60,7 @@ mod service {
     }
 }
 
+pub use cloud_env::{cloud_env_overlay, env_or_cloud_env};
 pub use config::{redact_credentials, SusiConfig};
 pub use json_util::{
     atomic_replace_file, atomic_write_bytes, atomic_write_json_pretty, confined_workspace_join,

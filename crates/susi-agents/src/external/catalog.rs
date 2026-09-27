@@ -248,14 +248,14 @@ impl Adapter {
                 api_key_env,
                 org_id_env,
             } => {
-                if std::env::var(api_key_env)
+                if crate::susi_config::env_or_cloud_env(api_key_env)
                     .unwrap_or_default()
                     .trim()
                     .is_empty()
                 {
                     bail!("set {api_key_env} for cloud API access");
                 }
-                if std::env::var(org_id_env)
+                if crate::susi_config::env_or_cloud_env(org_id_env)
                     .unwrap_or_default()
                     .trim()
                     .is_empty()
@@ -265,7 +265,7 @@ impl Adapter {
                 Ok("credential and org id present; API access checked at execution".into())
             }
             Self::Manus { api_key_env } => {
-                if std::env::var(api_key_env)
+                if crate::susi_config::env_or_cloud_env(api_key_env)
                     .unwrap_or_default()
                     .trim()
                     .is_empty()

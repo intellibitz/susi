@@ -280,7 +280,7 @@ fn env_value(key: &str) -> Option<String> {
         _ => {}
     }
     for name in candidates {
-        if let Ok(value) = std::env::var(&name) {
+        if let Ok(value) = crate::susi_config::env_or_cloud_env(&name) {
             if !value.trim().is_empty() {
                 return Some(value);
             }

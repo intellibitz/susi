@@ -71,7 +71,6 @@ pub mod topics {
     pub const GEMI_MODELS_LOADED: &str = "gemi.models.loaded";
     pub const GEMI_MODELS_PRELOAD: &str = "gemi.models.preload";
     pub const GEMI_MODELS_UNLOAD: &str = "gemi.models.unload";
-    pub const GEMI_CLOUD_APPLY_ENV: &str = "gemi.cloud.apply_env";
     pub const GEMI_CLOUD_REGISTER: &str = "gemi.cloud.register";
     pub const GEMI_CLOUD_FAILOVER: &str = "gemi.cloud.failover";
     /// Explain the live local/cloud inference placement without executing it.
@@ -674,10 +673,6 @@ pub mod gemi {
     /// Evict `model` from the GEMI plane's inference cache.
     pub fn unload_model(model: &str) -> Result<Value, String> {
         req(topics::GEMI_MODELS_UNLOAD, json!({ "model": model }))
-    }
-
-    pub fn apply_cloud_env_file() {
-        let _ = req(topics::GEMI_CLOUD_APPLY_ENV, json!({}));
     }
 
     pub fn register_configured_cloud_endpoints() -> Value {

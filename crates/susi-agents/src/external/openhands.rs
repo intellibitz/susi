@@ -22,7 +22,11 @@ pub fn llm_credentials_present() -> bool {
         "OPENROUTER_API_KEY",
         "DEEPSEEK_API_KEY",
     ] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }

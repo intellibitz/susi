@@ -422,8 +422,8 @@ impl GawdAgentFleet {
                 "{}_API_BASE",
                 endpoint.name.to_uppercase().replace('.', "_")
             );
-            let base_url =
-                std::env::var(&env_var_name).unwrap_or_else(|_| endpoint.api_base.clone());
+            let base_url = crate::susi_config::env_or_cloud_env(&env_var_name)
+                .unwrap_or_else(|_| endpoint.api_base.clone());
             if base_url.trim().is_empty() {
                 continue;
             }

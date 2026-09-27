@@ -186,7 +186,7 @@ impl ModelManager {
         );
         fs::create_dir_all(models_dir)?;
         let policy = cfg.model_lifecycle();
-        let token = std::env::var("HF_TOKEN").ok();
+        let token = crate::susi_config::env_or_cloud_env("HF_TOKEN").ok();
         let mut error = String::new();
         for _ in 0..policy.download_attempts.clamp(1, 8) {
             match crate::download::transfer(

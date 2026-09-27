@@ -26,7 +26,11 @@ pub fn credentials_present() -> bool {
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
     ] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }
@@ -138,7 +142,7 @@ pub fn apply_process_env(cmd: &mut Command) {
         "DEER_FLOW_PROJECT_ROOT",
         "DEER_FLOW_SKILLS_PATH",
     ] {
-        if let Ok(v) = std::env::var(key) {
+        if let Ok(v) = crate::susi_config::env_or_cloud_env(key) {
             cmd.env(key, v);
         }
     }

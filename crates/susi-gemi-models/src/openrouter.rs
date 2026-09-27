@@ -8,9 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::cloud::{
-    apply_cloud_env_file, effective_inference_endpoints_pub, list_api_key_status, resolve_api_key,
-};
+use crate::cloud::{effective_inference_endpoints_pub, list_api_key_status, resolve_api_key};
 
 pub const VENDOR_ID: &str = "openrouter";
 pub const ENGINE_NAME: &str = "OpenRouter";
@@ -77,7 +75,6 @@ impl OpenRouterManager {
     }
 
     pub fn key_present(&self) -> bool {
-        apply_cloud_env_file();
         !resolve_api_key(API_KEY_ENV, ENGINE_NAME).is_empty()
     }
 
@@ -89,7 +86,6 @@ impl OpenRouterManager {
 
     /// Local readiness only — does not call OpenRouter.
     pub fn doctor(&self) -> Result<String> {
-        apply_cloud_env_file();
         if !self.endpoint_configured() {
             bail!("OpenRouter inference endpoint missing from config (api_base required)");
         }
@@ -119,7 +115,6 @@ impl OpenRouterManager {
     }
 
     pub fn status(&self) -> serde_json::Value {
-        apply_cloud_env_file();
         let vendors = list_api_key_status();
         let key_present = vendors
             .iter()
@@ -178,7 +173,6 @@ impl OpenRouterManager {
     }
 
     pub fn resolve_api_key(&self) -> String {
-        apply_cloud_env_file();
         resolve_api_key(API_KEY_ENV, ENGINE_NAME)
     }
 }

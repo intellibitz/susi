@@ -13,7 +13,7 @@ fn resolve_model_placeholder() -> String {
         "ANTHROPIC_MODEL",
         "OPENAI_MODEL",
     ] {
-        let v = std::env::var(key).unwrap_or_default();
+        let v = crate::susi_config::env_or_cloud_env(key).unwrap_or_default();
         let trimmed = v.trim();
         if !trimmed.is_empty() {
             return trimmed.to_string();
@@ -90,6 +90,9 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         .stdin(Stdio::null())
         .stdout(output)
         .stderr(error)
+        // Registered cloud.env keys the parent env lacks: agents see the
+        // same keys SUSI's own lookups do, without mutating our env.
+        .envs(crate::susi_config::cloud_env_overlay())
         .env("SUSI_AGENT_PROMPT", &run.prompt);
     // OpenHands headless banners pollute JSONL capture; suppress when we can.
     if matches!(&run.adapter, Adapter::Command { program, .. } if program == "openhands") {

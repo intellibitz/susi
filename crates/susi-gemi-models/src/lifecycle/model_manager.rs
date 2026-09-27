@@ -232,7 +232,7 @@ impl ModelManager {
             .zip(url::Url::parse(&cfg.hf_base_url()).ok())
             .is_some_and(|(target, base)| target.origin() == base.origin());
         let token = trusted_origin
-            .then(|| std::env::var("HF_TOKEN").ok())
+            .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())
             .flatten();
         let policy = cfg.model_lifecycle();
         let mut last_error = String::new();

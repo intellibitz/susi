@@ -26,7 +26,11 @@ pub fn credentials_present() -> bool {
 
 fn env_credentials_present() -> bool {
     for key in ["GEMINI_API_KEY", "GOOGLE_API_KEY"] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }
@@ -97,7 +101,7 @@ fn cached_oauth_usable() -> bool {
 
 pub fn model_override() -> Option<String> {
     for key in ["GEMINI_MODEL", "GOOGLE_GENAI_MODEL"] {
-        let m = std::env::var(key).unwrap_or_default();
+        let m = crate::susi_config::env_or_cloud_env(key).unwrap_or_default();
         let trimmed = m.trim();
         if !trimmed.is_empty() {
             return Some(trimmed.to_string());
@@ -189,7 +193,7 @@ pub fn apply_headless_env(cmd: &mut Command, workspace: &Path) {
     if std::env::var_os("GEMINI_CLI_HOME").is_some() {
         return;
     }
-    if std::env::var("GEMINI_API_KEY")
+    if crate::susi_config::env_or_cloud_env("GEMINI_API_KEY")
         .unwrap_or_default()
         .trim()
         .is_empty()

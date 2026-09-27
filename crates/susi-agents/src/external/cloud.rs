@@ -37,12 +37,13 @@ impl Cloud {
             ),
             _ => bail!("not a cloud adapter"),
         };
-        let key = std::env::var(env).with_context(|| format!("missing {env}"))?;
+        let key =
+            crate::susi_config::env_or_cloud_env(env).with_context(|| format!("missing {env}"))?;
         if key.trim().is_empty() {
             bail!("missing {env}");
         }
         let org_id = if let Some(org_env) = org_env {
-            let org = std::env::var(org_env).with_context(|| {
+            let org = crate::susi_config::env_or_cloud_env(org_env).with_context(|| {
                 format!("missing {org_env} (Devin API v3 requires an organization id)")
             })?;
             let org = org.trim().to_string();

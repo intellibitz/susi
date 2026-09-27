@@ -8,27 +8,21 @@ use std::path::Path;
 /// Prep steps before a control-plane CLI handler runs (not a swarm mission).
 #[derive(Clone, Copy)]
 pub(crate) enum PlanePrep {
-    /// No cloud.env / ecosystem priming.
+    /// No priming.
     None,
-    /// Apply `~/.susi/cloud.env` only.
-    Cloud,
-    /// Cloud.env + ensure substrate home exists.
-    CloudSubstrate,
-    /// Cloud.env + substrate home + catalog priming (`prime_catalogs`).
-    CloudEcosystem,
+    /// Ensure the substrate home exists.
+    Substrate,
+    /// Substrate home + catalog priming (`prime_catalogs`).
+    Ecosystem,
 }
 
 pub(crate) fn apply_plane_prep(prep: PlanePrep) {
     match prep {
         PlanePrep::None => {}
-        PlanePrep::Cloud => {
-            susi_gemi::http_provider::apply_cloud_env_file();
-        }
-        PlanePrep::CloudSubstrate | PlanePrep::CloudEcosystem => {
-            susi_gemi::http_provider::apply_cloud_env_file();
+        PlanePrep::Substrate | PlanePrep::Ecosystem => {
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
-            if matches!(prep, PlanePrep::CloudEcosystem) {
+            if matches!(prep, PlanePrep::Ecosystem) {
                 let _ = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             }
         }

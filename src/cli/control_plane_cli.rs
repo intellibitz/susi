@@ -71,7 +71,7 @@ pub(crate) fn dispatch(
         }));
     }
     if let Some(Commands::Auto { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::CloudSubstrate, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             auto_cli::execute(action, cwd)
         }));
     }
@@ -101,7 +101,7 @@ pub(crate) fn dispatch(
         }));
     }
     if let Some(Commands::Plan { args }) = command {
-        return Ok(run_plane_cwd(PlanePrep::CloudSubstrate, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::Substrate, |cwd| {
             plan_cli::execute(args, cwd)
         }));
     }
@@ -152,12 +152,12 @@ pub(crate) fn dispatch(
         }));
     }
     if let Some(Commands::Agents { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
             agent_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Frameworks { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
             framework_cli::execute(action, cwd)
         }));
     }
@@ -169,7 +169,7 @@ pub(crate) fn dispatch(
         }
         Some(Commands::Models { .. }) => {
             if let Some(Commands::Models { action }) = command {
-                return Ok(run_plane_cwd(PlanePrep::CloudEcosystem, |cwd| {
+                return Ok(run_plane_cwd(PlanePrep::Ecosystem, |cwd| {
                     model_cli::execute(action, cwd)
                 }));
             }
@@ -177,57 +177,57 @@ pub(crate) fn dispatch(
         _ => {}
     }
     if let Some(Commands::OpenWeight { action }) = command {
-        return Ok(run_plane(PlanePrep::CloudEcosystem, || {
+        return Ok(run_plane(PlanePrep::Ecosystem, || {
             open_weight_cli::execute(action)
         }));
     }
     if let Some(Commands::Frontier { action }) = command {
-        return Ok(run_plane(PlanePrep::CloudEcosystem, || {
+        return Ok(run_plane(PlanePrep::Ecosystem, || {
             frontier_cli::execute(action)
         }));
     }
     if let Some(Commands::OpenRouter { action }) = command {
-        return Ok(run_plane(PlanePrep::Cloud, || {
+        return Ok(run_plane(PlanePrep::None, || {
             openrouter_cli::execute(action)
         }));
     }
     if let Some(Commands::OpenHands { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             openhands_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Gemini { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             gemini_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::Aider { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             aider_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::SweAgent { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             swe_agent_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::OpenClaw { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             openclaw_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::BrowserUse { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             browser_use_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::OpenViking { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             openviking_cli::execute(action, cwd)
         }));
     }
     if let Some(Commands::DeerFlow { action }) = command {
-        return Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+        return Ok(run_plane_cwd(PlanePrep::None, |cwd| {
             deerflow_cli::execute(action, cwd)
         }));
     }
@@ -250,7 +250,7 @@ pub(crate) fn dispatch(
         Some(Commands::N8n { action }) => (&susi_agents::external::N8N_PROFILE, action),
         other => return Err(other),
     };
-    Ok(run_plane_cwd(PlanePrep::Cloud, |cwd| {
+    Ok(run_plane_cwd(PlanePrep::None, |cwd| {
         python_engine_cli::execute(profile, action, cwd)
     }))
 }
@@ -267,7 +267,7 @@ pub(crate) fn dispatch_mcp(
         })
         | Some(Commands::Mcp { action: None }) => Err(command),
         Some(Commands::Mcp { action }) => {
-            apply_plane_prep(PlanePrep::CloudEcosystem);
+            apply_plane_prep(PlanePrep::Ecosystem);
             Ok(plane_exit(
                 env::current_dir()
                     .map_err(anyhow::Error::from)

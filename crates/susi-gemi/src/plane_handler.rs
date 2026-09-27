@@ -360,10 +360,6 @@ impl PlaneHandler for GemiPlaneHandler {
                 let snap = telemetry::sample();
                 serde_json::to_value(snap).map_err(|e| e.to_string())
             }
-            topics::GEMI_CLOUD_APPLY_ENV => {
-                http_provider::apply_cloud_env_file();
-                Ok(json!({ "ok": true }))
-            }
             topics::GEMI_CLOUD_REGISTER => {
                 http_provider::register_configured_cloud_endpoints(CapabilityRegistry::global());
                 Ok(json!({ "ok": true }))

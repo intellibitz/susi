@@ -32,7 +32,11 @@ fn env_credentials_present() -> bool {
         "TOGETHER_API_KEY",
         "OPENCLAW_API_KEY",
     ] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }
@@ -58,7 +62,7 @@ fn openclaw_home() -> Option<PathBuf> {
 
 pub fn model_override() -> Option<String> {
     for key in ["OPENCLAW_MODEL", "LLM_MODEL", "AIDER_MODEL"] {
-        let m = std::env::var(key).unwrap_or_default();
+        let m = crate::susi_config::env_or_cloud_env(key).unwrap_or_default();
         let trimmed = m.trim();
         if !trimmed.is_empty() {
             return Some(trimmed.to_string());

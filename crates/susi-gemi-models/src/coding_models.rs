@@ -19,9 +19,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::cloud::{
-    apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
-};
+use crate::cloud::{effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodingModelDefinition {
@@ -131,7 +129,6 @@ impl CodingModelManager {
 
     /// Local readiness only — does not call a paid model.
     pub fn preflight(&self, id: &str) -> Result<String> {
-        apply_cloud_env_file();
         let def = self.effective(id)?;
         let endpoint = endpoint_for(&def.engine)
             .with_context(|| format!("inference endpoint '{}' is not configured", def.engine))?;
@@ -158,7 +155,6 @@ impl CodingModelManager {
 
     /// Resolve endpoint + key metadata for engines to construct an HTTP provider.
     pub fn resolve_endpoint(&self, id: &str) -> Result<CodingModelEndpoint> {
-        apply_cloud_env_file();
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
         let endpoint = endpoint_for(&def.engine).context("endpoint missing after preflight")?;

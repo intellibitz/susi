@@ -130,7 +130,11 @@ fn check_credentials(profile: &EngineProfile) -> (bool, String) {
         return (true, "no API key required for local/stdlib entry".into());
     }
     for key in profile.credential_envs {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return (true, format!("{key} present"));
         }
     }

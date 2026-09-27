@@ -642,7 +642,6 @@ impl SusiDaemon {
         crate::privacy::wire_mac_policy(&workspace);
         crate::ambient::start_ambient_indexer(&workspace);
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
-        susi_gemi::http_provider::apply_cloud_env_file();
         let lock_file_path = Self::get_lock_file(&global_dir);
 
         // Ensure lock file is cleaned if stale (> 1 hour old and process is dead)

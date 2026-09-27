@@ -22,7 +22,11 @@ pub fn credentials_present() -> bool {
 
 fn env_api_key_present() -> bool {
     for key in ["OPENVIKING_API_KEY", "OV_API_KEY", "VIKING_API_KEY"] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }

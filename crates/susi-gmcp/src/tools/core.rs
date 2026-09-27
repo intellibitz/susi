@@ -1766,7 +1766,6 @@ impl CoreTools {
         description = "List top developer/agent models and local setup readiness"
     )]
     pub fn coding_models_list(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
-        crate::susi_core::plane_bus::gemi::apply_cloud_env_file();
         let rows = crate::susi_core::plane_bus::gemi::coding_catalog();
         serde_json::to_string(&rows).map_err(|e| EaiError::protocol(e.to_string()))
     }
@@ -1780,7 +1779,6 @@ impl CoreTools {
             .get("model")
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("model is required"))?;
-        crate::susi_core::plane_bus::gemi::apply_cloud_env_file();
         Ok(format!("{{\"preferred\":\"{model}\"}}"))
     }
 

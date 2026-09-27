@@ -26,7 +26,6 @@ pub async fn bootstrap_zero_config_substrate() {
     }
 
     // Keys first so MCP/model/peer preflights see ~/.susi/cloud.env.
-    susi_gemi::http_provider::apply_cloud_env_file();
 
     // 0. Extension packs: seed ~/.susi/extensions/default, auto-discover packs.
     match crate::susi_sandbox::extensions::ensure_extensions_substrate() {

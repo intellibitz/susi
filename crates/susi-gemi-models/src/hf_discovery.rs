@@ -204,7 +204,7 @@ fn fetch_dynamic_ladder(
 ) -> Vec<ModelLadderConfigStep> {
     let policy = cfg.model_lifecycle();
     let mut headers = reqwest::header::HeaderMap::new();
-    if let Ok(token) = std::env::var("HF_TOKEN") {
+    if let Ok(token) = crate::susi_config::env_or_cloud_env("HF_TOKEN") {
         if let Ok(value) = format!("Bearer {token}").parse() {
             headers.insert(reqwest::header::AUTHORIZATION, value);
         }

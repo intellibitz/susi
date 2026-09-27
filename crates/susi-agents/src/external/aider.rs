@@ -29,7 +29,11 @@ pub fn llm_credentials_present() -> bool {
         "AIDER_OPENAI_API_KEY",
         "AIDER_ANTHROPIC_API_KEY",
     ] {
-        if !std::env::var(key).unwrap_or_default().trim().is_empty() {
+        if !crate::susi_config::env_or_cloud_env(key)
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
             return true;
         }
     }
@@ -52,7 +56,7 @@ fn config_file_present() -> bool {
 
 pub fn model_override() -> Option<String> {
     for key in ["AIDER_MODEL", "OPENAI_MODEL"] {
-        let m = std::env::var(key).unwrap_or_default();
+        let m = crate::susi_config::env_or_cloud_env(key).unwrap_or_default();
         let trimmed = m.trim();
         if !trimmed.is_empty() {
             return Some(trimmed.to_string());

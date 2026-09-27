@@ -16,60 +16,7 @@ use crate::susi_sandbox::extensions::{load_cloud_vendors, CloudVendorEntry};
 /// Zero-config cloud secrets: `~/.susi/cloud.env` (KEY=value lines).
 /// Shell / process env always wins; this file only fills missing keys so an
 /// always-on systemd daemon still sees API keys without editing config.json.
-pub fn cloud_env_path() -> PathBuf {
-    crate::susi_paths::SusiDirs::config_dir().join("cloud.env")
-}
-
-/// Parse a dotenv-style file into key/value pairs (no side effects).
-pub fn parse_env_file(content: &str) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for raw in content.lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let line = line.strip_prefix("export ").unwrap_or(line).trim();
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-        let key = key.trim();
-        if key.is_empty() || key.contains(char::is_whitespace) {
-            continue;
-        }
-        let mut value = value.trim().to_string();
-        if (value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\''))
-        {
-            value = value[1..value.len().saturating_sub(1)].to_string();
-        }
-        if value.is_empty() {
-            continue;
-        }
-        out.push((key.to_string(), value));
-    }
-    out
-}
-
-/// Load `~/.susi/cloud.env` into the process environment for any key not
-/// already set. Idempotent; safe to call from CLI and daemon boot.
-#[allow(unsafe_code)]
-pub fn apply_cloud_env_file() {
-    let path = cloud_env_path();
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return;
-    };
-    for (key, value) in parse_env_file(&content) {
-        match std::env::var(&key) {
-            Ok(existing) if !existing.is_empty() => continue,
-            _ => {
-                // SAFETY: susi owns these vendor key names; we only set when unset.
-                unsafe {
-                    std::env::set_var(&key, &value);
-                }
-            }
-        }
-    }
-}
+pub use crate::susi_config::cloud_env::{cloud_env_path, parse_env_file};
 
 fn generic_vendor_api_key_env(vendor: &str) -> String {
     format!(
@@ -124,10 +71,9 @@ pub fn known_cloud_vendors() -> Vec<(String, String)> {
         .collect()
 }
 
-/// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix) and apply
-/// into the current process. Does **not** register HTTP providers — that stays
+/// Upsert `KEY=value` in `~/.susi/cloud.env` (chmod 600 on Unix); lookups
+/// see it immediately. Does **not** register HTTP providers — that stays
 /// in the engines crate (`susi_gemi::http_provider::register_api_key`).
-#[allow(unsafe_code)]
 pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf), String> {
     let key = api_key.trim();
     if key.is_empty() {
@@ -147,19 +93,14 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<(String, PathBuf)
     {
         return Err(format!("invalid environment variable name: {env_name}"));
     }
+    // Lookups read cloud.env directly (env_or_cloud_env); nothing is
+    // copied into the process environment.
     let path = upsert_cloud_env_key(&env_name, key)?;
-    // Force into this process even if a stale empty value existed.
-    // SAFETY: CLI-scoped env mutation of a validated vendor key name,
-    // performed before any worker threads read the environment.
-    unsafe {
-        std::env::set_var(&env_name, key);
-    }
-    apply_cloud_env_file();
     Ok((env_name, path))
 }
 
-/// Remove a vendor key from `~/.susi/cloud.env` and the current process env.
-#[allow(unsafe_code)]
+/// Remove a vendor key from `~/.susi/cloud.env`. A key set in the caller's
+/// own shell environment still applies — that is the user's, not SUSI's.
 pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     let env_name = resolve_vendor_env_name(vendor)
         .ok_or_else(|| "vendor name must not be empty".to_string())?;
@@ -179,7 +120,7 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
         kept.push(raw.to_string());
     }
     if !removed
-        && std::env::var(&env_name)
+        && crate::susi_config::env_or_cloud_env(&env_name)
             .ok()
             .filter(|v| !v.is_empty())
             .is_none()
@@ -197,11 +138,6 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     // Atomic + owner-only: the daemon reloads this key file while CLIs edit
     // it, and an in-place truncate would show it every key missing.
     crate::susi_config::atomic_write_bytes(&path, body.as_bytes()).map_err(|e| e.to_string())?;
-    // SAFETY: CLI-scoped env mutation of a vendor key name, performed
-    // before any worker threads read the environment.
-    unsafe {
-        std::env::remove_var(&env_name);
-    }
     Ok(format!("Removed {} from {}", env_name, path.display()))
 }
 
@@ -215,7 +151,10 @@ pub fn list_api_key_status() -> Vec<(String, String, bool)> {
         .into_iter()
         .map(|(vendor, env)| {
             let present = file_keys.contains(&env)
-                || std::env::var(&env).ok().filter(|v| !v.is_empty()).is_some();
+                || crate::susi_config::env_or_cloud_env(&env)
+                    .ok()
+                    .filter(|v| !v.is_empty())
+                    .is_some();
             (vendor, env, present)
         })
         .collect()
@@ -315,7 +254,9 @@ fn remap_retired_endpoint_model(
 }
 
 fn env_nonempty(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
+    crate::susi_config::env_or_cloud_env(name)
+        .ok()
+        .filter(|v| !v.is_empty())
 }
 
 /// Resolve an API key from env / vendor convention (never logs the value).

@@ -57,7 +57,9 @@ fn api_key_ready(spec: &ExternalPeerAgentSpec) -> bool {
     match &spec.api_key_env {
         None => true,
         Some(env_name) if env_name.trim().is_empty() => true,
-        Some(env_name) => std::env::var_os(env_name).is_some_and(|v| !v.is_empty()),
+        Some(env_name) => {
+            crate::susi_config::env_or_cloud_env(env_name).is_ok_and(|v| !v.is_empty())
+        }
     }
 }
 
@@ -92,6 +94,7 @@ fn run_peer_process(
     std::thread::spawn(move || {
         let result = Command::new(&bin)
             .args(&args)
+            .envs(crate::susi_config::cloud_env_overlay())
             .current_dir(&workspace)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -132,7 +135,9 @@ fn run_peer_process(
 
 fn resolve_bearer(spec: &ExternalPeerAgentSpec) -> String {
     match &spec.api_key_env {
-        Some(env) if !env.trim().is_empty() => std::env::var(env).unwrap_or_default(),
+        Some(env) if !env.trim().is_empty() => {
+            crate::susi_config::env_or_cloud_env(env).unwrap_or_default()
+        }
         _ => String::new(),
     }
 }

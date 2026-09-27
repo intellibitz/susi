@@ -417,9 +417,9 @@ async fn generate_triton(
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
 // depend on engines). Re-export for existing `susi_gemi::http_provider::…` callers.
 pub use susi_gemi_models::cloud::{
-    apply_cloud_env_file, cloud_env_path, effective_inference_endpoints,
-    effective_inference_endpoints_pub, known_cloud_vendors, list_api_key_status, parse_env_file,
-    remove_api_key, resolve_vendor_env_name,
+    cloud_env_path, effective_inference_endpoints, effective_inference_endpoints_pub,
+    known_cloud_vendors, list_api_key_status, parse_env_file, remove_api_key,
+    resolve_vendor_env_name,
 };
 
 /// Upsert `KEY=value` in `~/.susi/cloud.env`, apply into the process, then
@@ -473,7 +473,6 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
 pub fn register_configured_cloud_endpoints(
     registry: &crate::susi_core::registry::CapabilityRegistry,
 ) {
-    apply_cloud_env_file();
     if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
         if std::env::var("SUSI_VERBOSE").is_ok() {
             eprintln!("[PRIVACY] local_only mode — skipping cloud inference endpoint registration");
@@ -561,7 +560,8 @@ pub fn register_configured_cloud_endpoints(
     }
 
     // Prefer OpenRouter when its key is present and no cloud preference is set.
-    let openrouter_key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+    let openrouter_key =
+        crate::susi_config::env_or_cloud_env("OPENROUTER_API_KEY").unwrap_or_default();
     if !openrouter_key.is_empty()
         && crate::routing::InferenceRouter::load_preference()
             .preferred_cloud
@@ -578,7 +578,6 @@ pub fn register_configured_cloud_endpoints(
 /// is present (local engines with empty api_key_env always admit). Live `/models`
 /// discovery remains unbounded on top of this ladder.
 pub fn register_model_catalog(registry: &crate::susi_core::registry::CapabilityRegistry) {
-    apply_cloud_env_file();
     let endpoints = effective_inference_endpoints();
     let by_name: std::collections::BTreeMap<String, _> = endpoints
         .into_iter()
@@ -976,6 +975,12 @@ mod tests {
     fn upsert_and_register_roundtrip_in_temp_cloud_env() {
         let _guard = crate::engines::env_test_lock();
         let isolated = IsolatedCloudHome::new("susi_key_reg");
+        // A key in the developer's shell env would (correctly) win over
+        // cloud.env; clear it for the duration of the test.
+        let prev_key = std::env::var_os("DEEPSEEK_API_KEY");
+        unsafe {
+            std::env::remove_var("DEEPSEEK_API_KEY");
+        }
 
         let msg = register_api_key("deepseek", "sk-test-deepseek").unwrap();
         assert!(msg.contains("DEEPSEEK_API_KEY"));
@@ -988,14 +993,22 @@ mod tests {
         assert!(path.exists());
         let body = std::fs::read_to_string(&path).unwrap();
         assert!(body.contains("DEEPSEEK_API_KEY=sk-test-deepseek"));
+        // Visible to lookups, never copied into the process environment.
         assert_eq!(
-            std::env::var("DEEPSEEK_API_KEY").unwrap(),
+            crate::susi_config::env_or_cloud_env("DEEPSEEK_API_KEY").unwrap(),
             "sk-test-deepseek"
         );
+        assert!(std::env::var_os("DEEPSEEK_API_KEY").is_none());
 
         remove_api_key("deepseek").unwrap();
         let body = std::fs::read_to_string(cloud_env_path()).unwrap_or_default();
         assert!(!body.contains("DEEPSEEK_API_KEY"));
+        assert!(crate::susi_config::env_or_cloud_env("DEEPSEEK_API_KEY").is_err());
+        if let Some(v) = prev_key {
+            unsafe {
+                std::env::set_var("DEEPSEEK_API_KEY", v);
+            }
+        }
         drop(isolated);
     }
 

@@ -11,9 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::cloud::{
-    apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
-};
+use crate::cloud::{effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key};
 
 pub const ENGINE_NAME: &str = "Ollama";
 pub const DEFAULT_API_BASE: &str = "http://localhost:11434/v1";
@@ -179,7 +177,6 @@ impl OpenWeightManager {
 
     /// Local readiness: endpoint + (for remote engines) credentials. Does not pull weights.
     pub fn doctor(&self, id: Option<&str>) -> Result<String> {
-        apply_cloud_env_file();
         let ids: Vec<String> = match id {
             Some(one) => vec![Self::definition(one)?.id],
             None => Self::catalog()?.into_iter().map(|m| m.id).collect(),
@@ -240,7 +237,6 @@ impl OpenWeightManager {
     }
 
     pub fn status(&self) -> serde_json::Value {
-        apply_cloud_env_file();
         let endpoint = Self::endpoint_for(ENGINE_NAME);
         serde_json::json!({
             "engine": ENGINE_NAME,
@@ -349,7 +345,6 @@ impl OpenWeightManager {
 
     /// Resolve api_base + model tag for engines to build an HttpProvider.
     pub fn resolve_endpoint(&self, id: &str) -> Result<(OpenWeightDefinition, String, String)> {
-        apply_cloud_env_file();
         let def = self.effective(id)?;
         let endpoint = Self::endpoint_for(&def.engine)
             .with_context(|| format!("inference endpoint '{}' missing", def.engine))?;

@@ -297,3 +297,33 @@ fn credential_redaction_covers_governance_tokens_and_env_secrets() {
         assert!(out.contains("ok=plain"), "{out}");
     });
 }
+
+#[test]
+fn cloud_env_keys_are_read_from_file_without_touching_process_env() {
+    with_temp_home(|| {
+        let path = crate::cloud_env::cloud_env_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            "SUSI_PROBE_FILE_ONLY_KEY=from-file\nSUSI_PROBE_SHADOWED_KEY=from-file\n",
+        )
+        .unwrap();
+        unsafe {
+            std::env::set_var("SUSI_PROBE_SHADOWED_KEY", "from-env");
+        }
+        let file_only = crate::env_or_cloud_env("SUSI_PROBE_FILE_ONLY_KEY");
+        let shadowed = crate::env_or_cloud_env("SUSI_PROBE_SHADOWED_KEY");
+        let missing = crate::env_or_cloud_env("SUSI_PROBE_ABSENT_KEY");
+        let overlay = crate::cloud_env_overlay();
+        let in_env = std::env::var_os("SUSI_PROBE_FILE_ONLY_KEY");
+        unsafe {
+            std::env::remove_var("SUSI_PROBE_SHADOWED_KEY");
+        }
+        assert_eq!(file_only.as_deref(), Ok("from-file"));
+        assert_eq!(shadowed.as_deref(), Ok("from-env"));
+        assert!(missing.is_err());
+        assert!(in_env.is_none(), "lookup must not copy keys into the env");
+        assert!(overlay.contains(&("SUSI_PROBE_FILE_ONLY_KEY".into(), "from-file".into())));
+        assert!(!overlay.iter().any(|(k, _)| k == "SUSI_PROBE_SHADOWED_KEY"));
+    });
+}

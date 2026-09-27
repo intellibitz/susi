@@ -112,7 +112,6 @@ pub fn execute(action: Option<AutoCommands>, workspace: &Path) -> Result<()> {
             let substrate = susi_paths::SusiDirs::substrate_home();
             let _ = std::fs::create_dir_all(&substrate);
             let _ = susi_sandbox::extensions::ensure_extensions_substrate();
-            susi_gemi::http_provider::apply_cloud_env_file();
             let report = susi_daemon::discovery_pipeline::prime_catalogs(&substrate);
             print_json(&report)?;
         }
