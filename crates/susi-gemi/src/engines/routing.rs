@@ -53,6 +53,7 @@ pub struct PlacementDecision {
     pub cloud_candidates: Vec<String>,
     pub requires: Option<String>,
     pub max_cost: Option<f64>,
+    pub allow_cloud: bool,
 }
 
 pub struct InferenceRouter;
@@ -593,7 +594,7 @@ impl InferenceRouter {
     /// deliberately serializable so CLI, MCP, and control-plane surfaces can
     /// explain *why* a request stays local or leaves the host.
     pub fn plan_placement(available_providers: &[String]) -> PlacementDecision {
-        Self::plan_placement_for(available_providers, None, None)
+        Self::plan_placement_for(available_providers, None, None, true)
     }
 
     /// Workload-aware variant of [`Self::plan_placement`]. Capability and
@@ -603,6 +604,7 @@ impl InferenceRouter {
         available_providers: &[String],
         requires: Option<&str>,
         max_cost: Option<f64>,
+        allow_cloud: bool,
     ) -> PlacementDecision {
         let global_cfg = SusiConfig::load_global().unwrap_or_default();
         let cfg = global_cfg.inference_routing();
@@ -614,11 +616,18 @@ impl InferenceRouter {
 
         // Hard edge-privacy gate: local_only MAC mode never escalates unless
         // an explicit cloud.inference capability token was granted.
-        if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
+        if !allow_cloud
+            || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
+        {
             return PlacementDecision {
                 target: "local".to_string(),
                 provider: None,
-                reason: "privacy policy blocks cloud inference".to_string(),
+                reason: if allow_cloud {
+                    "privacy policy blocks cloud inference"
+                } else {
+                    "request prohibits cloud inference"
+                }
+                .to_string(),
                 policy,
                 local_model,
                 local_ready,
@@ -626,6 +635,7 @@ impl InferenceRouter {
                 cloud_candidates: Vec::new(),
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -656,6 +666,7 @@ impl InferenceRouter {
                 cloud_candidates: clouds,
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -678,6 +689,7 @@ impl InferenceRouter {
                 cloud_candidates: clouds,
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -694,6 +706,7 @@ impl InferenceRouter {
                 cloud_candidates: clouds,
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -710,6 +723,7 @@ impl InferenceRouter {
                 cloud_candidates: clouds,
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -728,6 +742,7 @@ impl InferenceRouter {
                 cloud_candidates: clouds,
                 requires: requires.map(str::to_string),
                 max_cost,
+                allow_cloud,
             };
         }
 
@@ -752,6 +767,7 @@ impl InferenceRouter {
             cloud_candidates: clouds,
             requires: requires.map(str::to_string),
             max_cost,
+            allow_cloud,
         }
     }
 
@@ -1022,6 +1038,21 @@ mod tests {
             "openai-gpt-4o-mini"
         ));
         InferenceRouter::save_preference(&prev);
+    }
+
+    #[test]
+    fn request_can_prohibit_cloud_placement() {
+        let decision = InferenceRouter::plan_placement_for(
+            &["openai-gpt-4o-mini".to_string()],
+            None,
+            None,
+            false,
+        );
+        assert_eq!(decision.target, "local");
+        assert_eq!(decision.provider, None);
+        assert_eq!(decision.reason, "request prohibits cloud inference");
+        assert!(!decision.allow_cloud);
+        assert!(decision.cloud_candidates.is_empty());
     }
 
     #[test]

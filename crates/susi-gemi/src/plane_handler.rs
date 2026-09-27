@@ -198,8 +198,15 @@ impl PlaneHandler for GemiPlaneHandler {
                 let providers = CapabilityRegistry::global().list_providers();
                 let requires = payload.get("requires").and_then(|value| value.as_str());
                 let max_cost = payload.get("max_cost").and_then(|value| value.as_f64());
+                let allow_cloud = payload
+                    .get("allow_cloud")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(true);
                 serde_json::to_value(InferenceRouter::plan_placement_for(
-                    &providers, requires, max_cost,
+                    &providers,
+                    requires,
+                    max_cost,
+                    allow_cloud,
                 ))
                 .map_err(|e| e.to_string())
             }
