@@ -170,7 +170,7 @@ candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1
 # without the CLI package owning Candle dependencies.
 [features]
 default = []
-cuda = ["susi-gemi/cuda", "susi-daemon/cuda", "susi-server/cuda"]
+cuda = ["susi-gemi/cuda"]
 mkl = ["susi-gemi/mkl"]
 metal = ["susi-gemi/metal"]
 # Enable with: RUSTFLAGS='--cfg tokio_unstable' cargo build --features tokio-console

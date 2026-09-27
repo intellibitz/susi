@@ -230,7 +230,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 96 `susi-daemon` modules are wired into a production path; 65 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing. Twenty-three isolated feature sketches (1607 source lines) have been removed rather than advertised, including BI export, marketplace, playground/simulation, a disconnected reliability batch, dormant storage/policy helpers, and sandbox resource sketches nothing called. |
 | Native service boundary | Wasmer is linked only by `susi-native`; feature planes share one compiled, typed `susi-native-client` instead of source-mounting a misleading `vendor_template` copy |
-| Repository hygiene | the root carries no scratch artifacts: a stray 4.5 MB `test_verify` binary and five unreferenced experiment/output files were removed |
+| Repository hygiene | the root carries no scratch artifacts (a stray 4.5 MB `test_verify` binary and five unreferenced experiment files were removed); every declared dependency is used by some target (checked with rustc's `unused_crate_dependencies`), and GPU features exist only where Candle reads them (`susi-gemi`, `susi-gemi-models`) |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
 
 ## Install

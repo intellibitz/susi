@@ -15,7 +15,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 rayon = "1.12"
-log = "0.4"
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
@@ -28,13 +27,7 @@ tracing = { workspace = true }
 shlex = "2.0"
 
 [build-dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }
-
-[features]
-default = []
-cuda = []
-metal = []
 
 [lints]
 workspace = true

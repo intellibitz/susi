@@ -20,7 +20,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 rayon = "1.12"
-log = "0.4"
 tokio = { workspace = true }
 parking_lot = { workspace = true }
 flume = { workspace = true }
@@ -30,13 +29,7 @@ tracing = { workspace = true }
 shlex = "2.0"
 
 [build-dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }
-
-[features]
-default = []
-cuda = []
-metal = []
 
 [lints]
 workspace = true

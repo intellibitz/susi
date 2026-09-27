@@ -7226,7 +7226,6 @@ dependencies = [
  "parking_lot",
  "proptest",
  "rcgen",
- "rustls",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -7251,12 +7250,10 @@ dependencies = [
 name = "susi-dsh-cell"
 version = "0.14.1"
 dependencies = [
- "anyhow",
  "proptest",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -7282,7 +7279,6 @@ dependencies = [
  "flume",
  "getrandom 0.4.3",
  "hex",
- "log",
  "md5",
  "parking_lot",
  "proptest",
@@ -7317,7 +7313,6 @@ dependencies = [
  "flume",
  "getrandom 0.4.3",
  "hex",
- "log",
  "parking_lot",
  "proptest",
  "ra2a",
@@ -7347,7 +7342,6 @@ dependencies = [
  "flume",
  "getrandom 0.4.3",
  "hex",
- "log",
  "parking_lot",
  "proptest",
  "rayon",
@@ -7374,7 +7368,6 @@ dependencies = [
  "flume",
  "getrandom 0.4.3",
  "hex",
- "log",
  "md5",
  "parking_lot",
  "proptest",
@@ -7462,7 +7455,6 @@ dependencies = [
 name = "susi-gmcp"
 version = "0.14.1"
 dependencies = [
- "anyhow",
  "bytes",
  "chacha20poly1305",
  "crossbeam",
@@ -7568,7 +7560,6 @@ dependencies = [
  "hyper-util",
  "parking_lot",
  "proptest",
- "rayon",
  "regex",
  "serde",
  "serde_json",
@@ -7612,12 +7603,10 @@ dependencies = [
 name = "susi-universal-cell"
 version = "0.14.1"
 dependencies = [
- "anyhow",
  "proptest",
  "serde",
  "serde_json",
  "tokio",
- "tracing",
 ]
 
 [[package]]

@@ -2610,6 +2610,16 @@
       "milestone": "Dedup pass step 1: removed six tracked scratch artifacts from the repository root that no code, test, script, or document referenced: a 4,506,208-byte compiled `test_verify` binary with its `test_verify.rs` hello-world source, `test_tool.rs` and `test_shlex.py` shlex experiments, their `final_proof.txt` output, and a `bar` file containing `foo`. The untracked empty `{workspace}/.susi` directory (left by an earlier, since-fixed unexpanded sqlite MCP argument) and an ignored `test_run.log` were also deleted locally. No Rust source changed. Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (3433 passed; the one failure, susi-gemi-models `download::tests::interrupted_transfer_resumes_and_publishes_atomically`, is a pre-existing full-suite flake that passes 5/5 in isolation).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "unused dependency and feature audit",
+        "ref": "file://Cargo.toml"
+      },
+      "id": "EV-2022928-267",
+      "milestone": "Dedup pass step 2: removed dependency edges and Cargo features that nothing compiles against. A workspace-wide `RUSTFLAGS=-W unused_crate_dependencies cargo check --all-targets` pass (which, unlike a per-directory grep, sees the `#[path]`-mounted sources every crate compiles) flagged these as unused in every target: `rustls` in susi-daemon (TLS goes through `tokio-rustls`, whose default features keep the crypto provider), `anyhow` and `tracing` in susi-dsh-cell and susi-universal-cell, the `anyhow` dev-dependency in susi-gmcp, `rayon` in susi-server, `log` in susi-gawd, susi-gawd-agents, susi-gawd-swarm and susi-gawd-a2a, and the `serde` build-dependency of the shared gawd build script. Eleven empty `cuda`/`metal` features on susi-gawd, susi-gawd-agents, susi-gawd-swarm, susi-gawd-a2a, susi-server and susi-daemon were read by no `cfg` anywhere, so they were removed; the root `cuda` feature now forwards only to `susi-gemi/cuda`, which is where Candle's CUDA backend is actually selected (`cargo tree --features cuda` confirms candle-core still gets `cuda`). Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (same per-binary results as baseline; the only failure is the pre-existing susi-gemi-models download-resume test, which passes 261/261 when that crate's suite runs alone).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -17,7 +17,6 @@ tokio = { workspace = true, features = ["rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"
-log = "0.4"
 ureq = { version = "3.4.2", features = ["json"] }
 hex = { workspace = true }
 sha2 = { workspace = true }
@@ -35,7 +34,6 @@ tower = { version = "0.5", features = ["limit"] }
 tokio-rustls = "0.26"
 
 [build-dependencies]
-serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
@@ -43,11 +41,6 @@ proptest = "1.11.0"
 tempfile = "3.27.0"
 # Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
 # host. Production `susi-gawd` reaches `susi-native` over IPC only.
-
-[features]
-default = []
-cuda = []
-metal = []
 
 [lints]
 workspace = true
