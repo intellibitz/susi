@@ -206,11 +206,22 @@ impl BloatAuditor {
             if file_type.is_dir() {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
-                if name == "target" || name.starts_with('.') {
+                // Test-only trees: integration tests, benches, fuzz targets,
+                // examples, and `src/tests/` files mounted under
+                // `#[cfg(test)]` (they carry no attribute of their own).
+                if name == "target"
+                    || name.starts_with('.')
+                    || matches!(name.as_ref(), "tests" | "benches" | "fuzz" | "examples")
+                {
                     continue;
                 }
                 Self::walk_rust_files(&path, out);
-            } else if path.extension().is_some_and(|e| e == "rs") {
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && !path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|stem| stem.ends_with("_tests") || stem.ends_with("_test"))
+            {
                 out.push(path);
             }
         }
@@ -468,8 +479,14 @@ mod tests {
         std::fs::create_dir_all(dir.join("target/debug")).unwrap();
         std::fs::write(dir.join("crates/a/src/lib.rs"), "fn a() {}").unwrap();
         std::fs::write(dir.join("target/debug/gen.rs"), "fn gen() {}").unwrap();
+        std::fs::create_dir_all(dir.join("crates/a/src/tests")).unwrap();
+        std::fs::write(dir.join("crates/a/src/tests/x.rs"), "fn t() {}").unwrap();
+        std::fs::write(dir.join("crates/a/src/wire_tests.rs"), "fn t() {}").unwrap();
         let report = BloatAuditor::audit_workspace(&dir).unwrap();
-        assert_eq!(report.files_scanned, 1, "crates/ scanned, target/ skipped");
+        assert_eq!(
+            report.files_scanned, 1,
+            "crates/ scanned; target/ and test files skipped"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -492,7 +509,7 @@ mod tests {
             report.total_todo_markers,
             report.total_secret_pattern_hits
         );
-        assert!(report.files_scanned > 300, "crates/ must be scanned");
+        assert!(report.files_scanned > 250, "crates/ must be scanned");
     }
 
     #[test]

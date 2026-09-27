@@ -133,6 +133,7 @@ impl TypedEventBus {
         }
     }
 
+    // Mandate 42: justified at the downcast below (TypeId-keyed invariant).
     #[allow(clippy::expect_used)]
     pub fn subscribe<E: Send + Sync + Clone + 'static>(&self) -> flume::Receiver<E> {
         let subscribers = {

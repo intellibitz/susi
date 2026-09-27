@@ -825,3 +825,59 @@ fn unreachable_daemon_modules_only_decrease() {
         dead.len()
     );
 }
+
+// ── Allow audit trail ───────────────────────────────────────────────────
+//
+// AGENTS.md: "An #[allow] without a written justification is a compliance
+// violation." Every allow of a denied panic-path lint must carry a `//`
+// comment on its line, in the comment block right above it, or within the
+// next few lines of the item it covers (the body's `Mandate 42: safe`
+// note). Test-only files are exempt, as the lints are.
+
+#[test]
+fn every_panic_path_allow_is_justified() {
+    const LINTS: &[&str] = &[
+        "unwrap_used",
+        "expect_used",
+        "panic",
+        "unreachable",
+        "todo",
+        "unimplemented",
+        "wildcard_enum_match_arm",
+    ];
+    let root = workspace_root();
+    let mut files = Vec::new();
+    rust_files(&root.join("src"), &mut files);
+    rust_files(&root.join("crates"), &mut files);
+    let mut unjustified = Vec::new();
+    for file in files {
+        let path = file.to_string_lossy().to_string();
+        if path.contains("/tests/") || path.contains("/benches/") || path.ends_with("_tests.rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim_start();
+            if !(trimmed.starts_with("#[allow(") || trimmed.starts_with("#![allow(")) {
+                continue;
+            }
+            if !LINTS
+                .iter()
+                .any(|lint| line.contains(&format!("clippy::{lint}")))
+            {
+                continue;
+            }
+            let same_line = line.contains("//");
+            let above = i > 0 && lines[i - 1].trim_start().starts_with("//");
+            let below = lines.iter().skip(i + 1).take(8).any(|l| l.contains("//"));
+            if !(same_line || above || below) {
+                unjustified.push(format!("{}:{}", path, i + 1));
+            }
+        }
+    }
+    assert!(
+        unjustified.is_empty(),
+        "panic-path #[allow]s without a written justification: {unjustified:?}"
+    );
+}

@@ -34,6 +34,8 @@ const HOST_CONTRACT_PORT_KEYS: &[&str] = &[
 ];
 
 impl SusiConfig {
+    // Mandate 42: safe - parses the include_str! bundled default config; a
+    // parse failure is a build-time bug caught by any test run.
     #[allow(clippy::expect_used)]
     fn bundled_defaults() -> &'static Self {
         static DEFAULTS: std::sync::OnceLock<SusiConfig> = std::sync::OnceLock::new();

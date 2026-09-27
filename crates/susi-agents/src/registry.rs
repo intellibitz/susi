@@ -34,6 +34,8 @@ impl AgentMetaRegistry {
         crate::susi_paths::SusiDirs::data_dir().join("agent_registry.json")
     }
 
+    // Mandate 42: safe - parses a file compiled in via include_str!; a parse
+    // failure is a build-time bug caught by any test run, never a runtime input.
     #[allow(clippy::expect_used)]
     fn bootstrap_data(&self) -> Vec<AgentProfile> {
         serde_json::from_str(include_str!("../../../config/agents.default.json"))

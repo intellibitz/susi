@@ -35,6 +35,8 @@ fn bundled_defaults() -> ...   // include_str! asset — parse failure is a
 ```
 
 An `#[allow]` without a written justification is a compliance violation.
+`tests/architecture_tests.rs` (`every_panic_path_allow_is_justified`) enforces
+this for the panic-path lints.
 
 ## Writing code here
 
