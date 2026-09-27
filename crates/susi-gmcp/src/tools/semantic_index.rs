@@ -73,10 +73,11 @@ impl SemanticIndex {
             .unwrap_or_default()
     }
 
-    fn save_watermark(workspace: &Path, wm: &Watermark) {
-        if let Ok(s) = serde_json::to_string(wm) {
-            let _ = fs::write(Self::watermark_path(workspace), s);
-        }
+    fn save_watermark(workspace: &Path, wm: &Watermark) -> EaiResult<()> {
+        let serialized = serde_json::to_vec(wm)
+            .map_err(|e| EaiError::internal(format!("serialize semantic watermark: {e}")))?;
+        crate::susi_config::atomic_write_bytes(&Self::watermark_path(workspace), &serialized)
+            .map_err(|e| EaiError::filesystem(format!("persist semantic watermark: {e}")))
     }
 
     fn build_schema() -> (Schema, Field, Field, Field) {
@@ -231,7 +232,7 @@ impl SemanticIndex {
         writer
             .commit()
             .map_err(|e| EaiError::process(e.to_string()))?;
-        Self::save_watermark(workspace, &wm);
+        Self::save_watermark(workspace, &wm)?;
         Ok(added)
     }
 
@@ -337,10 +338,13 @@ impl SemanticIndex {
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
         for ((id, _), vec) in pending.iter().zip(vectors.iter()) {
             let line = serde_json::json!({"doc_id": id, "vector": vec});
-            let _ = f.write_all(format!("{}\n", line).as_bytes());
+            f.write_all(format!("{}\n", line).as_bytes())
+                .map_err(|e| EaiError::filesystem(format!("append embedding vector: {e}")))?;
             wm.embedded.push(id.clone());
         }
-        Self::save_watermark(workspace, &wm);
+        f.sync_data()
+            .map_err(|e| EaiError::filesystem(format!("sync embedding vectors: {e}")))?;
+        Self::save_watermark(workspace, &wm)?;
         Ok(())
     }
 
@@ -479,6 +483,15 @@ mod tests {
         fs::write(ws.join("notes.md"), "the quorum commit lives in amas.rs").unwrap();
         let hits = SemanticIndex::search(&ws, "quorum commit", 5).unwrap();
         assert!(hits.iter().any(|h| h.doc_id == "file:notes.md"));
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn watermark_persistence_errors_are_not_reported_as_success() {
+        let ws = temp_workspace("watermark_error");
+        let path = SemanticIndex::watermark_path(&ws);
+        fs::create_dir_all(&path).unwrap();
+        assert!(SemanticIndex::save_watermark(&ws, &Watermark::default()).is_err());
         let _ = fs::remove_dir_all(&ws);
     }
 }
