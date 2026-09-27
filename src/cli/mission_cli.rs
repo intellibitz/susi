@@ -265,20 +265,6 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
             let answer = ama.solve_clean(&intent_str, cwd, SUSI_VERSION);
             println!("{}", answer);
         }
-        Commands::Accept => match susi_sandbox::manager::IntentBundleManager::accept_all(cwd) {
-            Ok(msg) => println!("{}", msg),
-            Err(e) => {
-                eprintln!("Accept failed: {}", e);
-                std::process::exit(1);
-            }
-        },
-        Commands::Undo => match susi_sandbox::manager::IntentBundleManager::rollback_all(cwd) {
-            Ok(msg) => println!("{}", msg),
-            Err(e) => {
-                eprintln!("Undo failed: {}", e);
-                std::process::exit(1);
-            }
-        },
         Commands::Review => {
             print_golden_rule_summary(cwd, global_dir);
         }
@@ -497,11 +483,9 @@ fn uninstall(global_dir: &Path) {
 
 fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
     use susi_gemi::hardware::HardwareProfiler;
-    use susi_sandbox::manager::IntentBundleManager;
 
     println!("=== SUSI SUBSTRATE SUMMARY ===");
     let os_report = HardwareProfiler::audit_os_environment_care();
-    let staged = IntentBundleManager::get_staged_bundles(workspace);
 
     match SusiDaemon::check_status(workspace, global_dir) {
         Some(pid) => println!("- Global Daemon: Active (PID: {})", pid),
@@ -511,27 +495,7 @@ fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
         "- Environment Care ({}) : Reclaimable {}",
         os_report.os_name, os_report.reclaimable_cache_formatted
     );
-    println!(
-        "- Local Workspace ({}) : {} Staged Intent Bundles",
-        workspace.display(),
-        staged.len()
-    );
-
-    if !staged.is_empty() {
-        println!("\nStaged Intent Bundles:");
-        for b in &staged {
-            println!(
-                "  * [{}] {} (Fixes: {})",
-                if b.is_applied() { "APPLIED" } else { "STAGED" },
-                b.title(),
-                b.staged_fixes.len()
-            );
-        }
-    }
-
     println!("\nQuick Action Commands:");
-    println!("  susi accept    # Apply all staged intent fixes");
-    println!("  susi undo      # Revert all staged intent fixes");
     println!("  susi os-clean  # Reclaim OS-level cache bloat");
     println!("  susi status    # System health pulse");
 }

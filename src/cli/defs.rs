@@ -383,11 +383,7 @@ pub(crate) enum Commands {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         intent: Vec<String>,
     },
-    /// Accept and merge all staged intent bundles in the current workspace
-    Accept,
-    /// Rollback and undo all staged intent fixes in the current workspace
-    Undo,
-    /// Review staged intent bundles and OS environment status
+    /// Review daemon and OS environment status
     Review,
     /// Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed
     #[command(name = "os-clean")]
@@ -525,8 +521,6 @@ pub(crate) fn command_requires_daemon(command: &Commands) -> bool {
         Commands::Mcp { .. } => false,
         Commands::Clean
         | Commands::Review
-        | Commands::Accept
-        | Commands::Undo
         | Commands::OsClean
         | Commands::Uninstall
         | Commands::Stop

@@ -1,10 +1,9 @@
-//! Sandbox runtime helpers: docker exec, audit, backup, intent bundles, memory.
+//! Sandbox runtime helpers: docker exec, audit, memory.
 use crate::susi_error::{EaiError, EaiResult};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::susi_config::confined_workspace_join;
 use crate::susi_config::SusiConfig;
 use crate::susi_config::*;
 
@@ -499,54 +498,6 @@ mod tests {
         assert_eq!(
             before, after,
             "a configured failure marker must suppress promotion"
-        );
-
-        let _ = fs::remove_dir_all(ws);
-    }
-
-    #[test]
-    fn test_intent_bundle_staging_and_rollback_lifecycle() {
-        let ws = Path::new("test_bundle_ws");
-        let _ = fs::create_dir_all(ws);
-
-        let test_file = ws.join("test_code.txt");
-        let _ = fs::write(&test_file, "original code");
-
-        let mut fix_fields = DynamicRegistry::new();
-        fix_fields.insert("file_path".to_string(), serde_json::json!("test_code.txt"));
-        fix_fields.insert(
-            "original_content".to_string(),
-            serde_json::json!("original code"),
-        );
-        fix_fields.insert(
-            "staged_content".to_string(),
-            serde_json::json!("refactored code"),
-        );
-
-        let mut bundle_fields = DynamicRegistry::new();
-        bundle_fields.insert("bundle_id".to_string(), serde_json::json!("b1"));
-
-        let bundle = IntentBundle {
-            fields: bundle_fields,
-            staged_fixes: vec![StagedFix { fields: fix_fields }],
-            applied: false,
-            title: "Test Bundle".to_string(),
-        };
-
-        IntentBundleManager::stage_bundle(ws, bundle).expect("Staging failed");
-        let staged = IntentBundleManager::get_staged_bundles(ws);
-        assert_eq!(staged.len(), 1);
-
-        IntentBundleManager::accept_all(ws).expect("Accept failed");
-        let content = fs::read_to_string(&test_file).unwrap_or_default();
-        assert_eq!(content, "refactored code");
-
-        IntentBundleManager::rollback_all(ws).expect("Rollback failed");
-        let rolled_back = fs::read_to_string(&test_file).unwrap_or_default();
-        assert_eq!(rolled_back, "original code");
-        assert!(
-            IntentBundleManager::get_staged_bundles(ws).is_empty(),
-            "rollback must clear the ledger, or bundles still read as applied"
         );
 
         let _ = fs::remove_dir_all(ws);

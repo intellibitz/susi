@@ -217,6 +217,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Self-validation | `self_validate` reports the hardware profile and tensor device and checks the compiled genome; a failure is an error, never a successful receipt |
 | Install | `susi install` runs the substrate initializer directly and reports its real outcome |
 | Model override | `susi select-model <id>` writes the override directly and rejects empty or multi-line ids |
+| Workspace changes | applied through transactions (`susi tx`, `apply_patch_cycle`); the unused staged-bundle commands (`accept` / `undo`) were removed |
 | Cleanup | `susi os clean` (alias `susi os-clean`) removes only SUSI-owned residue: pre-cap rotated metrics, a stale flat audit log, and oversized stray binaries |
 | Configuration | every key in the bundled `config.default.json` is read by code (orphan keys such as `beacon_interval_secs` were removed) |
 | Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists, matched as whole words |

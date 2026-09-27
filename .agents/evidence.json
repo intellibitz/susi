@@ -2500,6 +2500,16 @@
       "milestone": "RSI iteration 89/100: an unused and hazardous workspace-backup routine is removed. SusiBackupManager::backup_work copied the entire workspace into .susi/backups/backup_<ts> with a recursive copy that followed symlinks (Path::is_dir follows them, so a link cycle recursed without bound and a link to an outside directory copied files from outside the workspace into it) and copied build output such as target/ in full. Nothing in the product called it: a repo-wide search found only its re-export in manager_shared.rs and one integration test (test_backup_logic) that exercised the function itself. The routine, its re-export, and that test are removed; workspace rollback remains TxManager's snapshot transactions. cargo test -p susi-sandbox (30 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "IntentBundleManager / susi accept / susi undo (removed)",
+        "ref": "file://crates/susi-sandbox/src/manager/runtime_shared.rs"
+      },
+      "id": "EV-2022927-256",
+      "milestone": "RSI iteration 90/100: a feature with no producer, duplicating a live one, is removed. susi accept ('Accept and merge all staged intent bundles'), susi undo ('Rollback and undo all staged intent fixes'), and the bundle section of susi review operated on .susi/staged_bundles.json through IntentBundleManager, but a repo-wide search found nothing in the product that ever staged a bundle: IntentBundleManager::stage_bundle had no caller outside its own unit test. The commands therefore always reported an empty ledger, while stage/apply/roll-back of workspace changes is already provided by TxManager transactions and the transactional apply_patch_cycle (iterations 22 and 32-34). Reviewing the code before removal also showed it would have been unsafe to revive as-is: a damaged ledger read as empty, accept_all returned an error before saving partial progress (leaving applied fixes that undo would not revert), and fixes overwrote files without checking they still matched their staged originals. Removed: the Accept and Undo commands, the bundle listing and quick-action lines in review (which keeps its daemon and OS-environment summary), IntentBundleManager and its test, and the DynamicIntentBundle/DynamicStagedFix config types; the two identity.json protocols that described 'staging intent bundles (susi accept)' now describe transactional patch cycles. cargo test -p susi-sandbox (29), -p susi-config (44), --bin susi, and cargo clippy --workspace --all-targets -D warnings pass (the vendored sandbox runtime compiles in susi-server).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
