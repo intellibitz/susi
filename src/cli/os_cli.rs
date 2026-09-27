@@ -53,6 +53,11 @@ pub enum OsCommands {
         #[arg(long)]
         no_cloud: bool,
     },
+    /// Re-admit a repaired cloud provider after routing quarantine
+    RouteReset {
+        /// Exact provider id shown by `susi os route --json`
+        provider: String,
+    },
     /// Unified lifecycle facade for local AI ecosystem components
     Manage {
         #[command(subcommand)]
@@ -229,8 +234,31 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
             max_cost,
             no_cloud,
         } => route(json || top_json, requires.as_deref(), max_cost, !no_cloud),
+        OsCommands::RouteReset { provider } => route_reset(&provider, top_json),
         OsCommands::Manage { resource } => manage(resource, _workspace),
     }
+}
+
+fn route_reset(provider: &str, json: bool) -> Result<()> {
+    let provider = provider.trim();
+    if provider.is_empty() {
+        anyhow::bail!("provider must not be empty");
+    }
+    let cleared = susi_gemi::routing::InferenceRouter::clear_provider_cooldown(provider);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "provider": provider,
+                "cleared": cleared,
+            }))?
+        );
+    } else if cleared {
+        println!("Re-admitted provider `{provider}` to inference placement.");
+    } else {
+        println!("Provider `{provider}` was not quarantined.");
+    }
+    Ok(())
 }
 
 fn route(
