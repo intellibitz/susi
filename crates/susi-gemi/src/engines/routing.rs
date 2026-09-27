@@ -89,6 +89,12 @@ const VENDOR_DOWN_COOLDOWN_SECS: u64 = 600;
 /// key, so the scope key is the leading vendor token.
 fn vendor_scope(name: &str) -> Option<String> {
     let rest = name.strip_prefix("catalog-").unwrap_or(name);
+    if rest.to_ascii_lowercase().starts_with("mcp-") {
+        // MCP provider IDs do not encode a reliably separable server/tool
+        // boundary. Treat each bridge as its own scope rather than letting
+        // one server outage quarantine every MCP-backed model.
+        return Some(rest.to_ascii_lowercase());
+    }
     rest.split(['-', '/'])
         .next()
         .filter(|s| !s.is_empty())
@@ -1454,6 +1460,18 @@ mod tests {
         InferenceRouter::record_failure(&provider, "connection REFUSED by upstream");
         assert!(InferenceRouter::provider_cooled(&sibling));
         InferenceRouter::clear_provider_cooldown(&provider);
+    }
+
+    #[test]
+    fn mcp_provider_failures_do_not_quarantine_unrelated_bridges() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("mcp-scope");
+        let failed = format!("mcp-server-a-chat-{}", std::process::id());
+        let unrelated = format!("mcp-server-b-chat-{}", std::process::id());
+        InferenceRouter::record_failure(&failed, "connection refused");
+        assert!(InferenceRouter::provider_cooled(&failed));
+        assert!(!InferenceRouter::provider_cooled(&unrelated));
+        InferenceRouter::clear_provider_cooldown(&failed);
     }
 
     #[test]
