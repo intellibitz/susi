@@ -169,7 +169,7 @@ impl LeadingMcpManager {
     /// Zero-config: enable every leading MCP whose launcher + env keys are ready,
     /// unless the user previously `disable`d it.
     pub fn auto_enable_ready(&self) -> Result<Vec<String>> {
-        let disabled = load_user_disabled(&self.config);
+        let disabled = load_user_disabled(&self.config)?;
         let mut enabled = Vec::new();
         let mut catalog = Self::catalog()?;
         catalog.sort_by_key(|m| m.rank);
@@ -238,19 +238,12 @@ impl LeadingMcpDefinition {
     }
 }
 
+/// The one strict reader (`GmcpClient::read_mcp_config`): a damaged or
+/// unreadable config is an error, never an empty config that `enable` /
+/// `disable` would then save over every other server.
 fn load_mcp_config() -> Result<McpConfig> {
     let path = GmcpClient::get_config_path();
-    match fs::read_to_string(&path) {
-        Ok(content) => Ok(serde_json::from_str(&content).unwrap_or(McpConfig {
-            mcp_servers: HashMap::new(),
-            extra: HashMap::new(),
-        })),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(McpConfig {
-            mcp_servers: HashMap::new(),
-            extra: HashMap::new(),
-        }),
-        Err(e) => Err(e.into()),
-    }
+    GmcpClient::read_mcp_config(&path).map_err(|code| anyhow::anyhow!("{code}: {}", path.display()))
 }
 
 fn save_mcp_config(config: &McpConfig) -> Result<()> {
@@ -396,16 +389,23 @@ fn user_disabled_path(config_dir: &Path) -> PathBuf {
     config_dir.join("user_disabled.json")
 }
 
-fn load_user_disabled(config_dir: &Path) -> Vec<String> {
-    match fs::read_to_string(user_disabled_path(config_dir)) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
-        Err(_) => Vec::new(),
+/// Servers the user disabled. Absent is an empty list; a damaged or
+/// unreadable list is an error. Reading it as empty re-admitted every
+/// server the user had turned off on the next auto-enable, and the next
+/// disable rewrote the list with a single entry.
+fn load_user_disabled(config_dir: &Path) -> Result<Vec<String>> {
+    let path = user_disabled_path(config_dir);
+    match fs::read_to_string(&path) {
+        Ok(text) => serde_json::from_str(&text)
+            .map_err(|e| anyhow::anyhow!("damaged {}: {e}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(anyhow::anyhow!("unreadable {}: {e}", path.display())),
     }
 }
 
 fn mark_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
     crate::susi_config::create_private_dir(config_dir)?;
-    let mut list = load_user_disabled(config_dir);
+    let mut list = load_user_disabled(config_dir)?;
     if !list.iter().any(|x| x == id) {
         list.push(id.to_string());
     }
@@ -416,7 +416,7 @@ fn mark_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
 }
 
 fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
-    let mut list = load_user_disabled(config_dir);
+    let mut list = load_user_disabled(config_dir)?;
     let before = list.len();
     list.retain(|x| x != id);
     if list.len() == before {
@@ -432,6 +432,32 @@ fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damaged_user_disabled_list_is_an_error_not_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi_user_disabled_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        assert!(load_user_disabled(&dir).unwrap().is_empty());
+        mark_user_disabled(&dir, "github").unwrap();
+        mark_user_disabled(&dir, "sentry").unwrap();
+        assert_eq!(load_user_disabled(&dir).unwrap(), ["github", "sentry"]);
+        fs::write(user_disabled_path(&dir), "[\"github\"").unwrap();
+        assert!(load_user_disabled(&dir).is_err());
+        assert!(mark_user_disabled(&dir, "context7").is_err());
+        assert!(clear_user_disabled(&dir, "github").is_err());
+        assert_eq!(
+            fs::read_to_string(user_disabled_path(&dir)).unwrap(),
+            "[\"github\""
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn twenty_two_ranked_leading_mcp_servers() {

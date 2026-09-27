@@ -99,7 +99,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `app://*` transmit grant; the broker still checks per-sender dispatch grants.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
    Admitting or auto-configuring an MCP server refuses a damaged or unreadable
-   `mcp_config.json` instead of rewriting it as only the server being added.
+   `mcp_config.json` instead of rewriting it as only the server being added;
+   `susi mcp` and auto-enable share that reader, and a damaged disabled-list
+   stops auto-enable instead of re-admitting servers the user turned off.
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back
