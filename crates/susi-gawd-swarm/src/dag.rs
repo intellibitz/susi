@@ -23,6 +23,10 @@ pub struct MissionDag {
 
 pub type SwarmDag = MissionDag;
 
+/// One node's run: index, output, elapsed ms, and the receipt arguments of
+/// the commands it executed.
+type NodeRun = (usize, EaiResult<String>, u64, Vec<String>);
+
 impl MissionDag {
     pub fn new(initial_goal: &str) -> Self {
         Self {
@@ -75,7 +79,7 @@ impl MissionDag {
             let bb = Arc::clone(blackboard);
             let tx = event_sender.clone();
 
-            let batch_results: Vec<(usize, EaiResult<String>, u64)> = ready_indices
+            let batch_results: Vec<NodeRun> = ready_indices
                 .into_par_iter()
                 .map(|idx| {
                     let node = &self.nodes[idx];
@@ -93,11 +97,16 @@ impl MissionDag {
                     );
 
                     let mut executed_scripts = String::new();
+                    // Receipt arguments this node produced (JSON of the
+                    // exec_command argument), for binding its own evidence.
+                    let mut node_calls = Vec::new();
                     for block in res.split("```").skip(1).step_by(2) {
                         if let Some(cmd) = shell_block_command(block) {
                             eprintln!("[DAG Agent] Detected shell block. Executing native tool...");
                             let wrapped_cmd = format!("sh -c '{}'", cmd.replace('\'', "'\\''"));
-                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &serde_json::Value::String(wrapped_cmd), &ws).unwrap_or_else(|e| format!("[Error] {e}"));
+                            let call = serde_json::Value::String(wrapped_cmd);
+                            node_calls.push(call.to_string());
+                            let result = crate::susi_core::plane_bus::tools::execute_tool("exec_command", &call, &ws).unwrap_or_else(|e| format!("[Error] {e}"));
                             executed_scripts.push_str(&format!("\n\nExecution Result for `{cmd}`:\n{}\n", result));
                         }
                     }
@@ -111,11 +120,11 @@ impl MissionDag {
                     }
 
                     let elapsed = start.elapsed().as_millis() as u64;
-                    (idx, Ok(res), elapsed)
+                    (idx, Ok(res), elapsed, node_calls)
                 })
                 .collect();
 
-            for (idx, res, elapsed) in batch_results {
+            for (idx, res, elapsed, node_calls) in batch_results {
                 if let Ok(output) = res {
                     // Crown path: citation answers resolve from the live ledger;
                     // narratives without required citations fail TRUTH_UNVERIFIED.
@@ -140,9 +149,15 @@ impl MissionDag {
                             if let Some(session) =
                                 crate::susi_core::capture::EvidenceSession::for_workspace(workspace)
                             {
-                                if let Some(receipt) =
-                                    session.receipts().into_iter().find(|r| r.successful)
-                                {
+                                // This node's own successful call — not the
+                                // session's first receipt, which bound every
+                                // node to whatever tool ran earliest (often
+                                // another node's, or an unrelated call).
+                                if let Some(receipt) = session.receipts().into_iter().rev().find(|r| {
+                                    r.successful
+                                        && r.tool == "exec_command"
+                                        && node_calls.contains(&r.arguments)
+                                }) {
                                     if let Ok(record) = session.bind_receipt(
                                         &receipt.id,
                                         &self.nodes[idx].title,

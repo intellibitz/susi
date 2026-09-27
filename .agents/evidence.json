@@ -2170,6 +2170,16 @@
       "milestone": "RSI iteration 56/100: DAG agents run the command they were given for every shell tag. MissionDag::execute_dag extracts fenced shell blocks from model output and runs them through exec_command, but it stripped the language tag with chained trim_start_matches(\"bash\").trim_start_matches(\"sh\").trim_start_matches(\"shell\"): for a block tagged shell the sh pass removed the first two letters, so the node executed 'ell ...' (a failed or wrong command) instead of the requested one; a tag such as shellscript also matched no rule consistently. shell_block_command now takes the tag as the whole first line of the block and accepts exactly bash, sh, or shell, keeping the existing refusals of empty commands and '!'-prefixed lines. A test covers all three tags, a longer lookalike tag, a non-shell language, a '!' line, and an empty body. cargo test -p susi-gawd-swarm shell_block and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "MissionDag::execute_dag (evidence binding)",
+        "ref": "symbol://MissionDag::execute_dag"
+      },
+      "id": "EV-2022927-223",
+      "milestone": "RSI iteration 57/100: DAG evidence trails bind each task node to its own receipt. After a node's output passed the Truth gate, execute_dag bound its EvidenceRecord to session.receipts().find(|r| r.successful), the first successful receipt of the whole mission session. Every node in the DAG therefore carried the same receipt, usually another node's command or an unrelated earlier tool call, so the Evidence pillar's claim trail misattributed who observed what. Each node run now records the exact receipt arguments of the exec_command calls it issued (the JSON of its wrapped command, which is what capture_call stores), and the node binds the most recent successful exec_command receipt whose arguments match one of its own calls; a node that ran no command binds nothing rather than borrowing another's. Verification is partial and stated as such: the matching relies on receipts recording the call's arguments verbatim (true for capture_call, apart from credential redaction or the 4 KiB argument cap, where the node would then bind nothing), and no end-to-end DAG run with a live model was performed in this iteration. cargo test -p susi-gawd-swarm and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
