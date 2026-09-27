@@ -389,7 +389,7 @@ pub(crate) enum Commands {
     Undo,
     /// Review staged intent bundles and OS environment status
     Review,
-    /// Execute proactive OS package and cache hygiene
+    /// Remove SUSI-owned residue (never host or other apps' caches) and report bytes freed
     #[command(name = "os-clean")]
     OsClean,
     /// Perform compliance audit and technical verification

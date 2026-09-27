@@ -668,41 +668,24 @@ impl HardwareProfiler {
 
     pub fn audit_os_environment_care() -> OsCareReport {
         let os_name = Self::get_os_info();
-        let home = crate::susi_paths::SusiDirs::home_dir();
-
         let mut reclaimable = 0u64;
         let mut recommendations = Vec::new();
 
-        // Check pacman / cargo / temp caches
+        // Host package cache: advice only. It is the host's, not SUSI's —
+        // `susi os-clean` never touches it, so it is not "reclaimable" here.
         let pacman_cache = std::path::PathBuf::from("/var/cache/pacman/pkg");
         if pacman_cache.is_dir() {
             if let Ok(entries) = std::fs::read_dir(&pacman_cache) {
                 let bytes: u64 = entries
                     .flatten()
-                    .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+                    .filter_map(|e| e.metadata().ok())
+                    .filter(std::fs::Metadata::is_file)
+                    .map(|m| m.len())
                     .sum();
                 if bytes > 500_000_000 {
-                    reclaimable += bytes;
                     recommendations.push(format!(
-                        "Clean pacman package cache ({:.1} GB reclaimable)",
+                        "Host pacman package cache holds {:.1} GB (clean with `paccache -r`; susi leaves host caches alone)",
                         bytes as f64 / 1e9
-                    ));
-                }
-            }
-        }
-
-        let user_cache = home.join(".cache");
-        if user_cache.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&user_cache) {
-                let bytes: u64 = entries
-                    .flatten()
-                    .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
-                    .sum();
-                if bytes > 1_000_000_000 {
-                    reclaimable += bytes / 4;
-                    recommendations.push(format!(
-                        "Prune stale build targets in ~/.cache ({:.1} GB reclaimable)",
-                        (bytes / 4) as f64 / 1e9
                     ));
                 }
             }
@@ -739,39 +722,32 @@ impl HardwareProfiler {
         }
     }
 
+    /// Removes only SUSI-owned residue the audit counts as reclaimable and
+    /// reports the bytes actually freed. It never deletes outside SUSI's
+    /// own data dir (earlier versions removed any `~/.cache` entry whose
+    /// name merely contained "temp"/"tmp").
     pub fn execute_os_clean() -> String {
-        let report = Self::audit_os_environment_care();
-        if report.reclaimable_cache_bytes == 0 {
-            return "OS environment is already clean and optimal.".to_string();
-        }
-
-        let home = crate::susi_paths::SusiDirs::home_dir();
-        let user_cache = home.join(".cache");
-        if user_cache.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&user_cache) {
-                for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.contains("temp") || name.contains("tmp") {
-                        let _ = std::fs::remove_dir_all(entry.path());
-                    }
-                }
-            }
-        }
-
         // Pre-cap residue: the metrics sink rotates one generation at 64MiB,
         // so a `.1` larger than that can only come from before the cap
         // existed (178MiB observed) — it is diagnostic history the current
         // scheme will never produce again.
         const METRICS_CAP_BYTES: u64 = 64 * 1024 * 1024;
         let rotated = crate::susi_paths::SusiDirs::data_dir().join("error_metrics.jsonl.1");
-        if std::fs::metadata(&rotated)
-            .map(|m| m.len() > METRICS_CAP_BYTES)
-            .unwrap_or(false)
-        {
-            let _ = std::fs::remove_file(&rotated);
+        let Some(len) = std::fs::metadata(&rotated)
+            .ok()
+            .map(|m| m.len())
+            .filter(|len| *len > METRICS_CAP_BYTES)
+        else {
+            return "Nothing to reclaim: no SUSI-owned residue found.".to_string();
+        };
+        match std::fs::remove_file(&rotated) {
+            Ok(()) => format!(
+                "Reclaimed {:.2} GB: removed pre-cap metrics rotation {}.",
+                len as f64 / 1e9,
+                rotated.display()
+            ),
+            Err(e) => format!("FAILED to remove {}: {e}", rotated.display()),
         }
-
-        "SUCCESS: Executed OS environment care. Reclaimed space across OS caches.".to_string()
     }
 }
 
