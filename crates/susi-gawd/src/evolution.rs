@@ -6,7 +6,6 @@
 // called this one "Motion Rule Protocol" too, exactly the collision
 // Mandate 20's own note warns about.
 
-use crate::reflex_synth::ReflexSynthesizer;
 use crate::susi_error::EaiResult;
 use crate::susi_sandbox::manager::SusiAuditLogger;
 use std::collections::HashMap;
@@ -16,32 +15,20 @@ pub struct EvolutionManager;
 
 impl EvolutionManager {
     /// Autonomous Drift Detection
-    /// Periodic audit of the substrate health and capability surface.
+    /// Periodic audit of the substrate health and capability surface. It
+    /// reports observations; it does not write code into the workspace.
     pub fn perform_autonomous_drift_audit(workspace: &Path) -> EaiResult<String> {
-        // 1. Audit for High-Frequency Capability Gaps
-        let gap = Self::detect_high_frequency_gap(workspace);
-
-        // 2. Audit for Staged Experience (Substrate Ingestion Motion)
-        let ingestion_res =
+        let frequent = match Self::detect_high_frequency_gap(workspace) {
+            Some((intent, count)) => format!(
+                "Most frequent recent intent: '{intent}' ({count}x) — a candidate for a WASI reflex (`ReflexSynthesizer::synthesize_wasm_reflex`)."
+            ),
+            None => "No intent recurred often enough to suggest a reflex.".to_string(),
+        };
+        let ingestion =
             crate::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace)?;
-
-        // Constraint-Free Evolution - Bottleneck Detection
         let bottlenecks = Self::detect_bottlenecks(workspace);
-
-        // 3. If a high-frequency gap is detected and not yet synthesized, trigger synthesis
-        if gap != "calculate square root" {
-            // Heuristic check for non-default gap
-            eprintln!("[Evolution Manager] Capability drift detected: {}. Initializing autonomous repair...", gap);
-            let res = ReflexSynthesizer::distill_native_reflex(&gap, workspace)?;
-            return Ok(format!(
-                "Autonomous evolution successful: {}\n\n{}",
-                res, bottlenecks
-            ));
-        }
-
         Ok(format!(
-            "Substrate Optimal. {}\n\n{}",
-            ingestion_res, bottlenecks
+            "Drift audit: {frequent}\n{ingestion}\n\n{bottlenecks}"
         ))
     }
 
@@ -90,25 +77,58 @@ impl EvolutionManager {
         report
     }
 
-    pub fn detect_high_frequency_gap(workspace: &Path) -> String {
+    /// The most frequent mission intent among the last 100 audit entries
+    /// (`*MISSION_START` records), if it recurred at least three times.
+    pub fn detect_high_frequency_gap(workspace: &Path) -> Option<(String, usize)> {
+        const MIN_OCCURRENCES: usize = 3;
         let log_content = SusiAuditLogger::read_audit_log(workspace, 100);
-        let mut intent_freq = HashMap::new();
-
+        let mut intent_freq: HashMap<String, usize> = HashMap::new();
         for line in log_content.lines() {
-            if line.contains("[MISSION_START]") {
-                if let Some(intent) = line.split("[MISSION_START]").nth(1) {
-                    let trimmed = intent.trim();
-                    if trimmed.len() > 3 {
-                        *intent_freq.entry(trimmed.to_string()).or_insert(0) += 1;
-                    }
-                }
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if !entry["type"]
+                .as_str()
+                .is_some_and(|t| t.ends_with("MISSION_START"))
+            {
+                continue;
+            }
+            let intent = entry["details"].as_str().unwrap_or_default().trim();
+            if intent.len() > 3 {
+                *intent_freq.entry(intent.to_string()).or_insert(0) += 1;
             }
         }
-
         intent_freq
             .into_iter()
-            .max_by_key(|&(_, count)| count)
-            .map(|(intent, _)| intent)
-            .unwrap_or_else(|| "calculate square root".to_string())
+            .filter(|(_, count)| *count >= MIN_OCCURRENCES)
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frequent_intents_come_from_json_audit_entries_with_a_floor() {
+        let ws = std::env::temp_dir().join(format!("susi_evo_gap_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join(".susi")).unwrap();
+        let entry = |t: &str, d: &str| serde_json::json!({ "type": t, "details": d }).to_string();
+        let mut lines = vec![
+            entry("WEB_MISSION_START", "summarize the logs"),
+            entry("WEB_MISSION_START", "summarize the logs"),
+            entry("LATENCY_VIOLATION", "summarize the logs"),
+        ];
+        std::fs::write(ws.join(".susi/audit.log"), lines.join("\n")).unwrap();
+        assert_eq!(EvolutionManager::detect_high_frequency_gap(&ws), None);
+
+        lines.push(entry("MISSION_START", "summarize the logs"));
+        std::fs::write(ws.join(".susi/audit.log"), lines.join("\n")).unwrap();
+        assert_eq!(
+            EvolutionManager::detect_high_frequency_gap(&ws),
+            Some(("summarize the logs".to_string(), 3))
+        );
+        let _ = std::fs::remove_dir_all(&ws);
     }
 }

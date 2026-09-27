@@ -155,13 +155,12 @@ impl CoreTools {
 
     #[tool(
         name = "distill_genome",
-        description = "Distill the hard-compiled genome into the Tier 2 reasoning model"
+        description = "Distill the compiled genome into the workspace experience buffer (indexed by semantic search)"
     )]
     pub fn distill_genome(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        match gawd::audit_reasoning_substrate(workspace) {
-            Ok(report) => Ok(format!("# Genome Distillation Successful\n\n{}", report)),
-            Err(e) => Ok(format!("# Genome Distillation Failed\n\nError: {}", e)),
-        }
+        gawd::audit_reasoning_substrate(workspace)
+            .map(|report| format!("# Genome Distillation\n\n{report}"))
+            .map_err(EaiError::governance)
     }
 
     #[tool(

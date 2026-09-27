@@ -37,57 +37,6 @@ fn sanitize_reflex_slug(intent: &str) -> EaiResult<String> {
 }
 
 impl ReflexSynthesizer {
-    /// Writes a boilerplate `SusiTool` stub for `intent` to
-    /// `src/gmcp/reflexes/<intent>.rs`. `execute()` just echoes its argument
-    /// back in a canned string — this scaffolds a reflex, it doesn't
-    /// implement one.
-    pub fn distill_native_reflex(intent: &str, workspace: &Path) -> EaiResult<String> {
-        let slug = sanitize_reflex_slug(intent)?;
-        let struct_name = intent
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>()
-            .join("");
-        let code = format!(
-            "// SUSI Native Reflex: {}\n\
-            use susi_tools::SusiTool;\n\
-            use crate::susi_error::EaiResult;\n\n\
-            pub struct {}Reflex;\n\n\
-            impl SusiTool for {}Reflex {{\n\
-                fn name(&self) -> String {{ \"{}\".to_string() }}\n\
-                fn description(&self) -> String {{ \"Synthesized reflex for {}\".to_string() }}\n\
-                fn execute(&self, arg: &serde_json::Value, _ws: &std::path::Path) -> EaiResult<String> {{\n\
-                    let arg_str = if let Some(s) = arg.as_str() {{ s.to_string() }} else {{ arg.to_string() }};\n\
-                    Ok(format!(\"Synthesized reflex executed for intent '{}' with arg: {{}}\", arg_str))\n\
-                }}\n\
-            }}\n\n\
-            #[cfg(test)]\n\
-            mod tests_v2 {{\n\
-                #[test]\n\
-                fn test_autonomous_evolution_pass() {{\n\
-                    assert!(true);\n\
-                }}\n\
-            }}",
-            intent, struct_name, struct_name, slug, intent, intent
-        );
-
-        let reflex_path = workspace.join(format!("src/gmcp/reflexes/{}.rs", slug));
-        // Mandate 42: safe - `reflex_path` is `workspace.join("src/gmcp/reflexes/...")`,
-        // a join with a non-empty multi-segment relative path, so it always has
-        // at least one path component beyond `workspace` and `.parent()` can
-        // never be `None` here, regardless of what `workspace` itself is.
-        if let Some(dir) = reflex_path.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        fs::write(&reflex_path, code)?;
-
-        Ok(format!(
-            "Native reflex '{}' distilled and staged with Test-Driven specifications in {}.",
-            intent,
-            reflex_path.display()
-        ))
-    }
-
     /// Synthesizes and compiles a WASI reflex that can be hot-loaded by
     /// `ToolRegistry::execute_tool` (the `reflex_<name>` convention) without a
     /// daemon restart — the concrete mechanism behind roadmap.json's VC-200-002
@@ -178,20 +127,6 @@ impl ReflexSynthesizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_native_reflex_synthesis_logic() {
-        let tmp_dir = std::env::temp_dir();
-        let intent = "test reflex intent";
-        let res = ReflexSynthesizer::distill_native_reflex(intent, &tmp_dir);
-        assert!(res.is_ok());
-
-        let reflex_path = tmp_dir.join("src/gmcp/reflexes/test_reflex_intent.rs");
-        assert!(reflex_path.exists());
-
-        let code = fs::read_to_string(reflex_path).unwrap();
-        assert!(code.contains("pub struct testreflexintentReflex;"));
-    }
 
     #[test]
     fn test_wasm_reflex_source_is_valid_rust_and_input_dependent() {

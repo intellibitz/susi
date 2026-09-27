@@ -1,5 +1,6 @@
 // Converts the compiled-in rules/axioms/components (AlphaSelf) into synthetic
-// Q&A training samples for the local Tier 2 reasoning model.
+// Q&A samples in the workspace experience buffer, where semantic search
+// indexes them alongside recorded interactions.
 
 use crate::self_core::AlphaSelf;
 use crate::susi_error::EaiResult;
@@ -15,9 +16,16 @@ struct ReasoningSample {
 
 pub struct GenomeDistiller;
 
+/// The workspace experience buffer — the file interaction capture appends
+/// to and semantic search indexes (`<workspace>/.susi/reasoning_experience.jsonl`).
+pub fn experience_path(workspace: &Path) -> std::path::PathBuf {
+    workspace.join(".susi").join("reasoning_experience.jsonl")
+}
+
 impl GenomeDistiller {
-    /// Distills the hard-compiled .md files into synthetic Q&A pairs for model training.
-    pub fn distill_genome_to_experience(_workspace: &Path) -> EaiResult<usize> {
+    /// Appends the compiled genome as synthetic Q&A samples to the
+    /// workspace experience buffer; returns how many were written.
+    pub fn distill_genome_to_experience(workspace: &Path) -> EaiResult<usize> {
         let mut samples = Vec::new();
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -63,27 +71,24 @@ impl GenomeDistiller {
             });
         }
 
-        // 4. Append to reasoning_experience.jsonl for later training
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        if !global_dir.exists() {
-            fs::create_dir_all(&global_dir)?;
+        // 4. Append to the workspace experience buffer (previously a
+        // config-dir file that nothing read).
+        let exp_file = experience_path(workspace);
+        if let Some(parent) = exp_file.parent() {
+            fs::create_dir_all(parent)?;
         }
-        let exp_file = global_dir.join("reasoning_experience.jsonl");
-        let mut count = 0;
-        if let Ok(mut f) = fs::OpenOptions::new()
+        let mut f = fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(exp_file)
-        {
-            use std::io::Write;
-            for sample in samples {
-                if let Ok(json) = serde_json::to_string(&sample) {
-                    let _ = writeln!(f, "{}", json);
-                    count += 1;
-                }
+            .open(&exp_file)?;
+        use std::io::Write;
+        let mut count = 0;
+        for sample in samples {
+            if let Ok(json) = serde_json::to_string(&sample) {
+                writeln!(f, "{json}")?;
+                count += 1;
             }
         }
-
         Ok(count)
     }
 }

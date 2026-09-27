@@ -1,5 +1,5 @@
-// Ensures reasoning_experience.jsonl has data (distilling it from AlphaSelf
-// if empty), then trains the local Tier 2 reasoning model from it.
+// Ensures the workspace experience buffer has data (distilling it from
+// AlphaSelf if empty) and reports what it holds. No model is trained here.
 
 use crate::genome_distiller::GenomeDistiller;
 use crate::susi_error::EaiResult;
@@ -9,32 +9,24 @@ pub struct ReasoningTrainer;
 
 impl ReasoningTrainer {
     pub fn audit_reasoning_substrate(workspace: &Path) -> EaiResult<String> {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let experience_file = global_dir.join("reasoning_experience.jsonl");
-
-        // Ensure the experience buffer has data if it's currently empty
-        let existing_count = if experience_file.exists() {
+        let experience_file = crate::genome_distiller::experience_path(workspace);
+        let count = || {
             std::fs::read_to_string(&experience_file)
-                .unwrap_or_default()
-                .lines()
-                .count()
+                .map(|text| text.lines().filter(|l| !l.trim().is_empty()).count())
+                .unwrap_or(0)
+        };
+        let existing = count();
+        let distilled = if existing == 0 {
+            GenomeDistiller::distill_genome_to_experience(workspace)?
         } else {
             0
         };
-
-        if existing_count == 0 {
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!("[Reasoning Trainer] Experience buffer empty. Distilling Genome into synthetic wisdom...");
-            }
-            let distilled = GenomeDistiller::distill_genome_to_experience(workspace)?;
-            if std::env::var("SUSI_VERBOSE").is_ok() {
-                eprintln!(
-                    "[Reasoning Trainer] Added {} genome-anchored samples.",
-                    distilled
-                );
-            }
-        }
-
-        Ok("Tier 2 Reasoning Substrate Optimal.".into())
+        Ok(format!(
+            "Experience buffer {}: {} samples ({} distilled from the compiled genome this run). \
+             Indexed by semantic search; no model is trained by this audit.",
+            experience_file.display(),
+            count(),
+            distilled
+        ))
     }
 }

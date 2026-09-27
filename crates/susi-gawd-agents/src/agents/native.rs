@@ -518,14 +518,17 @@ impl GawdAgent for EvolutionAgent {
             || lower.contains("models")
             || lower.contains("version")
         {
-            let res = "Evolutionary health: Substrate Optimal.".to_string();
+            // No audit runs for status queries — say so rather than
+            // asserting a health result nobody measured.
+            let res = "Evolution: drift audit not run for status queries.".to_string();
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
         }
 
         static DRIFT_AUDIT_RUNNING: std::sync::atomic::AtomicBool =
             std::sync::atomic::AtomicBool::new(false);
-        if !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        let started = !DRIFT_AUDIT_RUNNING.swap(true, std::sync::atomic::Ordering::SeqCst);
+        if started {
             let ws = workspace.to_path_buf();
             rayon::spawn(move || {
                 struct AuditGuard;
@@ -535,10 +538,24 @@ impl GawdAgent for EvolutionAgent {
                     }
                 }
                 let _guard = AuditGuard;
-                let _ = crate::admin_hooks::hooks().perform_autonomous_drift_audit(&ws);
+                let outcome = match crate::admin_hooks::hooks().perform_autonomous_drift_audit(&ws)
+                {
+                    Ok(report) => report,
+                    Err(e) => format!("drift audit failed: {e}"),
+                };
+                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                    &ws,
+                    "EVOLUTION_DRIFT_AUDIT",
+                    &outcome,
+                );
             });
         }
-        let res = "Evolutionary health: Substrate Optimal.".to_string();
+        let res = if started {
+            "Evolution: drift audit started in the background; its result is recorded as EVOLUTION_DRIFT_AUDIT in the audit log."
+        } else {
+            "Evolution: a drift audit is already running."
+        }
+        .to_string();
         blackboard.insert(self.name(), res.clone());
         Ok(res)
     }
@@ -888,7 +905,7 @@ impl GawdAgent for SelfHealingAgent {
         let ws = workspace.to_path_buf();
         let audit = crate::admin_hooks::hooks()
             .perform_autonomous_drift_audit(&ws)
-            .unwrap_or_else(|_| "Substrate drift audit nominal.".to_string());
+            .unwrap_or_else(|e| format!("drift audit failed: {e}"));
         let res = format!(
             "[SelfHealingAgent]: Autonomous health check completed. {}",
             audit
