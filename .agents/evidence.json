@@ -2460,6 +2460,16 @@
       "milestone": "RSI iteration 85/100: the model-provisioning verifier is named and described for what it does. ModelManager::verify_and_provision_32b_and_72b_models, the susi verify-download-agent help ('...and 32b/72b model provisioning'), and the verify_model_download_agent MCP tool description ('ensure 32b and 72b models are provisioned') all promised 32B and 72B models, but the function walks HardwareProfiler::get_progressive_model_ladder, the hardware-selected ladder (whatever sizes fit the host), and reports each step's download state; iteration 78 already removed the matching '32b and 72b ... fully operational' success line. The function is renamed verify_and_provision_model_ladder (both callers updated) and both descriptions now say 'the hardware-selected model ladder'. No behavior change. cargo clippy --workspace --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "self_validation::execute_autonomous_self_validation / CoreTools::self_validate",
+        "ref": "symbol://CoreTools::self_validate"
+      },
+      "id": "EV-2022927-252",
+      "milestone": "RSI iteration 86/100: self-validation checks what it claims, and its failures are errors. execute_autonomous_self_validation reported '- Genome Integrity: N Compiled Rules Verified.' after only counting AlphaSelf::RULES, and logged 'Autonomous foundational readiness test completed.' although no test ran; the self_validate MCP tool ('Execute autonomous substrate self-validation') also returned Ok('# Substrate Self-Validation Failed ...') on error, which EvidenceSession records as a successful, citable receipt. The report now performs one real check, that the compiled genome is non-empty and every rule has a non-blank title and imperative, and fails with a governance error otherwise; the line reads 'Compiled Genome: N rules, each with a title and an imperative'; the audit event says a report was generated. The MCP tool returns Err on failure, and its description now says what it does (report the hardware profile and tensor device, and check the compiled genome). cargo test -p susi-gmcp (247), -p susi-gawd (374), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

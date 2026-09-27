@@ -211,6 +211,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Sovereign dashboard | `susi sovereign-dashboard` counts audited activity by its real event type (no invented self-heal/distillation counters) |
 | Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
 | Model ladder | `susi verify-download-agent` reports network status and each step of the hardware-selected model ladder (no fixed 32B/72B promise) |
+| Self-validation | `self_validate` reports the hardware profile and tensor device and checks the compiled genome; a failure is an error, never a successful receipt |
 | Install | `susi install` runs the substrate initializer directly and reports its real outcome |
 | Model override | `susi select-model <id>` writes the override directly and rejects empty or multi-line ids |
 | Cleanup | `susi os clean` (alias `susi os-clean`) removes only SUSI-owned residue: pre-cap rotated metrics, a stale flat audit log, and oversized stray binaries |

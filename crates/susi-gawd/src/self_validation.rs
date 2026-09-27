@@ -22,17 +22,29 @@ pub fn execute_autonomous_self_validation(workspace: &Path) -> EaiResult<String>
     let device = HardwareProfiler::get_candle_device_label();
     report.push_str(&format!("- **Neural Device**: {device}\n"));
 
-    // Verify Local Genome Integrity
-    let genome_integrity = crate::self_core::AlphaSelf::RULES.len();
+    // The one check this report makes: the compiled genome is present and
+    // every rule has a title and an imperative. (It used to print "N
+    // Compiled Rules Verified." after only counting them.)
+    let rules = crate::self_core::AlphaSelf::RULES;
+    let blank = rules
+        .iter()
+        .filter(|r| r.title.trim().is_empty() || r.imperative.trim().is_empty())
+        .count();
+    if rules.is_empty() || blank > 0 {
+        return Err(crate::susi_error::EaiError::governance(format!(
+            "compiled genome invalid: {} rules, {blank} with a blank title or imperative",
+            rules.len()
+        )));
+    }
     report.push_str(&format!(
-        "- **Genome Integrity**: {} Compiled Rules Verified.\n",
-        genome_integrity
+        "- **Compiled Genome**: {} rules, each with a title and an imperative\n",
+        rules.len()
     ));
 
     SusiAuditLogger::log_event(
         workspace,
         "SELF_VALIDATION",
-        "Autonomous foundational readiness test completed.",
+        "Self-validation report generated (hardware profile, tensor device, compiled genome).",
     );
 
     Ok(report)

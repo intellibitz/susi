@@ -157,18 +157,20 @@ impl CoreTools {
 
     #[tool(
         name = "self_validate",
-        description = "Execute autonomous substrate self-validation"
+        description = "Report the hardware profile and tensor device, and check the compiled genome"
     )]
     pub fn self_validate(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
+        // A failure is an error, not an Ok string: tool receipts treat Ok
+        // output as a successful, citable result.
         match gawd::self_validate(workspace) {
             Ok(report) => Ok(format!(
                 "# Substrate Self-Validation Successful\n\n{}",
                 report
             )),
-            Err(e) => Ok(format!(
-                "# Substrate Self-Validation Failed\n\nError: {}",
+            Err(e) => Err(EaiError::governance(format!(
+                "Substrate self-validation failed: {}",
                 e
-            )),
+            ))),
         }
     }
 
