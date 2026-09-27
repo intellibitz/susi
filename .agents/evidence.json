@@ -2380,6 +2380,16 @@
       "milestone": "RSI iteration 77/100: the autonomous drift audit's bottleneck section reports real failure events. EvolutionManager::detect_bottlenecks (part of perform_autonomous_drift_audit) counted 'Mission Failures' as entries of type MISSION_FAILED or TOOL_FAILURE, which no code logs, plus any entry whose details merely contained 'failed' (so 'retry the failed build' in a MISSION_START counted as a failure), then appended canned 'Recommended Genome Mutations' (a GPU-accelerated reflex, specialist agent synthesis) that nothing acts on and that were unrelated to the data. It now reports reflex latency violations and, per event type, the failure-signal events the substrate actually logs (types ending _FAILED, _VIOLATION, or _DETECTED, e.g. MOTION_RULE_PUSH_FAILED, HALLUCINATION_DETECTED, READINESS_VIOLATION), and drops the canned advice. A test writes a latency violation, a HALLUCINATION_DETECTED, and a MISSION_START mentioning 'failed', and proves the first two are counted, the third is not, and no mutation advice appears. cargo test -p susi-gawd evolution (2 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "unmeasured status claims (reflex_trainer, host_hooks, LibraryScoutAgent, mission_cli, master banner)",
+        "ref": "file://crates/susi-gawd/src/reflex_trainer.rs"
+      },
+      "id": "EV-2022927-244",
+      "milestone": "RSI iteration 78/100: five outputs that asserted states nothing measured now say what is known (Mandates 1-2). A search for 'optimal', '100%', 'fully operational' and similar in user-facing strings found: ReflexTrainer::audit_distillation_state reporting 'Reflex substrate optimal.' whenever fewer staged samples than the threshold existed (now 'No reflex training due: fewer than N valid staged samples'); the swarm's unwired NoOpHostHooks returning Ok('Reflex substrate optimal (host hooks unwired)') although nothing was audited (now a [HOST_UNWIRED] internal error; its only caller, the AMAS loop, discards the result); LibraryScoutAgent answering 'Substrate libraries optimal.' to status/ls-style goals it does not analyze (now 'No library scouting applies to this query.'); the model-download report printing 'SUCCESS: 32b and 72b model download agent verified and fully operational' whatever models the steps actually covered (now 'all N download steps completed and verified', printed only when every step is COMPLETED as before); and the master trace banner claiming '100% Omni-Trace Coverage Active', a figure nothing computes (now 'Omni-Trace active'). No test asserted the old strings. Also recorded for iteration 77: README now notes the drift audit's bottleneck section. cargo test -p susi-gawd reflex (12 passed), -p susi-gawd-swarm (309), -p susi-gawd-agents (262), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

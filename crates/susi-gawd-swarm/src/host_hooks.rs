@@ -20,7 +20,10 @@ pub fn init(hooks: Box<dyn HostHooks>) {
 struct NoOpHostHooks;
 impl HostHooks for NoOpHostHooks {
     fn audit_distillation_state(&self, _workspace: &Path) -> EaiResult<String> {
-        Ok("Reflex substrate optimal (host hooks unwired).".into())
+        // Nothing was audited: say so rather than report a healthy state.
+        Err(crate::susi_error::EaiError::internal(
+            "[HOST_UNWIRED] distillation audit unavailable: host hooks were never initialized",
+        ))
     }
 }
 

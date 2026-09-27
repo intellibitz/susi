@@ -1122,7 +1122,9 @@ impl GawdAgent for LibraryScoutAgent {
             || trimmed == "version"
             || trimmed == "models"
         {
-            return Ok("[LibraryScoutAgent]: Substrate libraries optimal.".to_string());
+            return Ok(
+                "[LibraryScoutAgent]: No library scouting applies to this query.".to_string(),
+            );
         }
 
         // Enhanced Library Scouting with reasoning and 'cargo add' suggestions

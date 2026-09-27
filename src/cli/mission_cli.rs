@@ -295,7 +295,8 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                     }
                     if all_verified {
                         println!(
-                            "\nSUCCESS: 32b and 72b model download agent verified and fully operational."
+                            "\nSUCCESS: all {} download steps completed and verified.",
+                            report.steps.len()
                         );
                     } else {
                         println!(

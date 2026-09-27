@@ -174,6 +174,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     usable left is discarded. Records with a blank intent or an action
     outside the vocabulary are skipped and reported, so one unlabelable
     sample cannot fail the batch every cycle.
+    Drift audits report reflex latency violations and logged `*_FAILED` /
+    `*_VIOLATION` / `*_DETECTED` events by type, and an idle trainer says
+    training is not due rather than calling the substrate "optimal".
     When no reflex tier answers, the request escalates to deep reasoning
     (cloud/discovered providers) instead of returning a cached apology; the
     reflex cache is keyed per workspace and bounded. The published model is

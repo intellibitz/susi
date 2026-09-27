@@ -18,7 +18,8 @@ impl ReflexTrainer {
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global()?;
         let Some(claim) = claim_staged_samples(workspace, cfg.reflex_training_threshold())? else {
             return Ok(format!(
-                "Reflex substrate optimal.\n{}",
+                "No reflex training due: fewer than {} valid staged samples.\n{}",
+                cfg.reflex_training_threshold(),
                 staging_health_line(workspace)
             ));
         };
