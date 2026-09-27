@@ -18,11 +18,7 @@
 //! HTTP IPC client; there is no local fallback — `wasmer`/`wasmer-wasix`
 //! stay linked into the service binary only.
 
-// Vendored `susi-error` contract + IPC reporter: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_error.rs"]
-pub mod susi_error;
+pub use susi_error;
 
 pub mod wasm;
 

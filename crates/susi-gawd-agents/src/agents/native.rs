@@ -1266,10 +1266,7 @@ impl GawdAgent for AdminAgent {
             }
             Some("install") => {
                 let global_dir = Self::global_dir();
-                crate::susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)
-                    .map_err(|e| {
-                        crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-                    })?;
+                crate::susi_sandbox::manager::SandboxManager::ensure_global_sandbox(&global_dir)?;
                 Ok("SUSI runtime initialized and sandboxed.".to_string())
             }
             Some("uninstall") => {

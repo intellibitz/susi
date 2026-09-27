@@ -10,12 +10,23 @@
     )
 )]
 
+//! The `EaiError` contract every SUSI crate returns, plus the error-event
+//! sink behind it. Error events go to the standalone `susi-error` service
+//! (`POST 127.0.0.1:18081/log_error`, override via `SUSI_ERROR_PORT`); when
+//! it is unreachable, or when this process *is* the service, they are
+//! appended to the shared `error_metrics.jsonl` directly, so the metrics
+//! guarantee never depends on service health.
+
 pub mod redact;
 #[cfg(test)]
 #[path = "redact_tests.rs"]
 mod redact_test_suite;
 
+use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 /// Substrate data dir, through the same `SusiDirs` contract as every crate.
 fn data_dir() -> PathBuf {
@@ -28,7 +39,7 @@ pub fn error_metrics_path() -> PathBuf {
     data_dir().join("error_metrics.jsonl")
 }
 
-mod sink;
+pub mod sink;
 use sink::METRICS_CAP_BYTES;
 
 /// Rotated metrics generation that predates the cap: a `.1` file larger
@@ -97,15 +108,90 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
         .any(|line| line.map_or(true, |l| l.contains("\"entry_hash\"")))
 }
 
-#[path = "contract.rs"]
 mod contract;
 pub use contract::{EaiError, EaiResult};
 
-/// Error-event sink for the shared contract: this process *is* the
-/// `susi-error` service, so events go straight to the metrics file.
+/// Set by [`serve`]: the service must not post events to itself.
+static SERVICE_MODE: AtomicBool = AtomicBool::new(false);
+
+/// Error-event sink for the contract: the `susi-error` service when
+/// reachable, else the local metrics file.
 fn record_event(entry: &serde_json::Value) {
-    // Best effort: nowhere left to report a failed error report.
-    let _ = sink::append_metrics_line(&error_metrics_path(), entry);
+    if SERVICE_MODE.load(Ordering::Relaxed) || !post_event(entry) {
+        // Best effort: nowhere left to report a failed error report.
+        let _ = sink::append_metrics_line(&error_metrics_path(), entry);
+    }
+}
+
+/// Best-effort `POST /log_error` against the `susi-error` service.
+fn post_event(entry: &serde_json::Value) -> bool {
+    let port = std::env::var("SUSI_ERROR_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(18081);
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let timeout = Duration::from_millis(200);
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(timeout));
+    let _ = stream.set_write_timeout(Some(timeout));
+    let body = entry.to_string();
+    let req = format!(
+        "POST /log_error HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+        body.len(),
+        body
+    );
+    stream.write_all(req.as_bytes()).is_ok()
+}
+
+/// Rebuilds an error from another boundary's rendered text, preserving its
+/// kind/code so the metrics stream stays truthful.
+#[must_use]
+pub fn rewrap(kind_name: &str, msg: String) -> EaiError {
+    // Rendered errors already carry the kind's Display prefix — peel it (and
+    // nested repeats) so errors don't render "Authorization Error:
+    // Authorization Error: …". Foreign-kind prefixes are kept: they record
+    // where the error originated.
+    let prefix = match kind_name {
+        "Governance" => "Governance Violation: ",
+        "Hardware" => "Hardware Error: ",
+        "Protocol" => "Protocol Error: ",
+        "Inference" => "Inference Error: ",
+        "Sandbox" => "Sandbox Error: ",
+        "Config" => "Configuration Error: ",
+        "Io" => "I/O Error: ",
+        "Network" => "Network Error: ",
+        "Filesystem" => "Filesystem Error: ",
+        "Process" => "Process Error: ",
+        "Authentication" => "Authentication Error: ",
+        "Authorization" => "Authorization Error: ",
+        "Internal" => "Internal Engine Error: ",
+        _ => "",
+    };
+    let mut msg = msg;
+    while !prefix.is_empty() {
+        if let Some(rest) = msg.strip_prefix(prefix) {
+            msg = rest.to_string();
+        } else {
+            break;
+        }
+    }
+    match kind_name {
+        "Governance" => EaiError::governance(msg),
+        "Hardware" => EaiError::hardware(msg),
+        "Protocol" => EaiError::protocol(msg),
+        "Inference" => EaiError::inference(msg),
+        "Sandbox" => EaiError::sandbox(msg),
+        "Config" => EaiError::config(msg),
+        "Io" => EaiError::io(msg),
+        "Network" => EaiError::network(msg),
+        "Filesystem" => EaiError::filesystem(msg),
+        "Process" => EaiError::process(msg),
+        "Authentication" => EaiError::authentication(msg),
+        "Authorization" => EaiError::authorization(msg),
+        _ => EaiError::internal(msg),
+    }
 }
 
 /// Embedded REST service mode: accepts error events over HTTP and appends
@@ -144,6 +230,7 @@ async fn require_bearer(
 }
 
 pub fn serve(port: u16) -> std::io::Result<()> {
+    SERVICE_MODE.store(true, Ordering::Relaxed);
     use axum::{extract::Query, http::StatusCode, routing::get, routing::post, Json, Router};
     use serde::Deserialize;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};

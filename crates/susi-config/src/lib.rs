@@ -23,11 +23,7 @@
 //! `susi-paths` services through the vendored IPC-client modules below,
 //! never on feature crates above it.
 
-// Vendored `susi-error` contract + IPC reporter: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_error.rs"]
-pub mod susi_error;
+pub use susi_error;
 
 // The shared modules below are also `#[path]`-mounted by every other crate
 // (via `crates/susi-core/src/susi_config.rs`), so they name siblings with

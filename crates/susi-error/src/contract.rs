@@ -1,8 +1,5 @@
-//! The `EaiError` contract shared by every crate: the susi-error service
-//! compiles it here, every other crate `#[path]`-mounts it through
-//! `crates/susi-core/src/susi_error.rs`. Where an error event is recorded
-//! is the mounting module's `record_event` — the service appends to the
-//! metrics file itself; clients post to the service with a local fallback.
+//! The `EaiError` contract shared by every crate. Error events are recorded
+//! through the crate root's `record_event`.
 
 use std::backtrace::Backtrace;
 use std::error::Error as StdError;
@@ -23,9 +20,6 @@ pub enum EaiError {
     Authentication(String, Backtrace),
     Authorization(String, Backtrace),
     Internal(String, Backtrace),
-    // Constructed only by crates that box foreign errors; mounting crates
-    // that never do would otherwise warn on the shared contract.
-    #[allow(dead_code)]
     Unknown(Box<dyn StdError + Send + Sync>, Backtrace),
 }
 

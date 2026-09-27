@@ -1,6 +1,5 @@
-//! Append-only writer for `error_metrics.jsonl`, shared by the `susi-error`
-//! service and every crate's vendored contract (path-mounted from
-//! `susi-core/src/susi_error.rs`) so both write the same way.
+//! Append-only writer for `error_metrics.jsonl`, used by the `susi-error`
+//! service and by every client's local fallback so both write the same way.
 
 /// The sink is append-only and error paths are hot — without a cap the
 /// file grows without bound (178MB observed). Past the cap it rotates one

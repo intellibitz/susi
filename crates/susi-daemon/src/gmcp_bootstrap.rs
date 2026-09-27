@@ -19,7 +19,7 @@ where
         + Sync
         + 'static,
 {
-    move |v, p| f(v, p).map_err(|e| susi_tools::susi_error::rewrap(e.kind_name(), e.to_string()))
+    move |v, p| f(v, p)
 }
 
 /// Populates a freshly created `ToolRegistry` with every concrete tool this

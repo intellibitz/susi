@@ -18,11 +18,7 @@
 //! process over a thin HTTP IPC client (with local filesystem fallback where
 //! safe). Audit HMAC key ops are never exposed over HTTP.
 
-// Vendored `susi-error` contract + IPC reporter: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[path = "../../susi-core/src/susi_error.rs"]
-pub mod susi_error;
+pub use susi_error;
 
 // Vendored `susi-config` surface + IPC client: full surface kept
 // identical across crates; per-crate dead_code allowance is the audit trail.

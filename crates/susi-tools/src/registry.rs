@@ -59,7 +59,6 @@ impl ToolRegistry {
                 workspace: &Path,
             ) -> crate::susi_core::susi_error::EaiResult<String> {
                 (self.handler)(args, workspace)
-                    .map_err(|e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
             }
         }
         crate::susi_core::registry::CapabilityRegistry::global().register_tool(CapTool {
@@ -165,11 +164,7 @@ impl ToolRegistry {
                 name,
                 arg,
                 workspace,
-                || {
-                    GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str).map_err(
-                        |e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()),
-                    )
-                },
+                || GmcpClient::execute_external_tool_result(parts[0], parts[1], &arg_str),
             )
             .unwrap_or_else(|error| error.to_string());
         }
@@ -204,9 +199,6 @@ impl ToolRegistry {
                         crate::susi_native::wasm::WasmHost::execute_untrusted_wasm(
                             &wasm_path, &arg_str,
                         )
-                        .map_err(|e| {
-                            crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-                        })
                     },
                 ) {
                     Ok(res) => return res,
@@ -225,11 +217,7 @@ impl ToolRegistry {
                 name,
                 arg,
                 workspace,
-                || {
-                    tool.execute(arg, workspace).map_err(|e| {
-                        crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string())
-                    })
-                },
+                || tool.execute(arg, workspace),
             ) {
                 Ok(res) => res,
                 Err(e) => format!("{}", e),

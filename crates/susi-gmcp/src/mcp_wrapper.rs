@@ -31,7 +31,6 @@ impl Tool for McpDynamicTool {
             args.to_string()
         };
         GmcpClient::execute_external_tool_result(&self.server_name, &self.mcp_tool_name, &args_str)
-            .map_err(|e| crate::susi_core::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 }
 

@@ -8,13 +8,6 @@
 use std::path::Path;
 use susi_gemi::hardware::HardwareProfiler;
 
-/// Vendored-error boundary: downstream tiers return their own vendored
-/// `EaiError` while `EngineHooks` expects susi-tools' vendored `EaiError`.
-/// `rewrap` preserves the error kind across the boundary.
-fn to_tools_err(e: susi_gawd::susi_error::EaiError) -> susi_tools::susi_error::EaiError {
-    susi_tools::susi_error::rewrap(e.kind_name(), e.to_string())
-}
-
 /// Host implementation of [`susi_tools::EngineHooks`].
 pub struct SusiEngineHooks;
 
@@ -69,14 +62,12 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         // `susi_gawd::safety`/`security` re-export susi-gawd-agents' detectors,
         // so these return the agents vendored `EaiError` — inferred, since
         // that concrete type is not nameable from this crate.
-        susi_gawd::safety::SafetyDetector::audit_action(tool, detail, workspace)
-            .map_err(|e| susi_tools::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        susi_gawd::safety::SafetyDetector::audit_action(tool, detail, workspace)?;
         susi_gawd::security::SecurityDetector::audit_action(tool, detail, workspace)
-            .map_err(|e| susi_tools::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     fn sanitize_input(&self, input: &str) -> susi_tools::susi_error::EaiResult<String> {
-        susi_gawd::ama::SusiMasterAgent::sanitize_input(input).map_err(to_tools_err)
+        susi_gawd::ama::SusiMasterAgent::sanitize_input(input)
     }
 
     fn solve_mission(&self, intent: &str, workspace: &Path, version: &str) -> String {
@@ -84,8 +75,7 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
     }
 
     fn bloat_audit(&self, workspace: &Path) -> susi_tools::susi_error::EaiResult<String> {
-        let report = susi_gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)
-            .map_err(to_tools_err)?;
+        let report = susi_gawd::bloat_audit::BloatAuditor::audit_workspace(workspace)?;
         Ok(susi_gawd::bloat_audit::BloatAuditor::render_report(&report))
     }
 
@@ -98,15 +88,13 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         workspace: &Path,
     ) -> susi_tools::susi_error::EaiResult<String> {
         susi_gawd::reason_trainer::ReasoningTrainer::audit_reasoning_substrate(workspace)
-            .map_err(to_tools_err)
     }
 
     fn self_validate(&self, workspace: &Path) -> susi_tools::susi_error::EaiResult<String> {
         susi_gawd::self_validation::execute_autonomous_self_validation(workspace)
-            .map_err(to_tools_err)
     }
 
     fn train_reflexes(&self, workspace: &Path) -> susi_tools::susi_error::EaiResult<String> {
-        susi_gawd::reflex_trainer::ReflexTrainer::force_train(workspace).map_err(to_tools_err)
+        susi_gawd::reflex_trainer::ReflexTrainer::force_train(workspace)
     }
 }

@@ -1,7 +1,6 @@
 //! Pure, dependency-free secret-token redaction (Mandate 10: No Secret
 //! Leaks). Callers own loading the configured patterns (from `SusiConfig`),
-//! so this primitive depends on nothing — every crate `#[path]`-mounts this
-//! file through `crates/susi-core/src/susi_error.rs`.
+//! so this primitive depends on nothing.
 
 /// Replaces every occurrence of each pattern (plus trailing token-shaped
 /// characters `[A-Za-z0-9_-]`) in `text` with `[REDACTED]`. An occurrence

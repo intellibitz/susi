@@ -344,8 +344,7 @@ impl CoreTools {
                 "*",
             )
         {
-            gawd_hooks::audit_action("sandbox_exec", clean, workspace)
-                .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+            gawd_hooks::audit_action("sandbox_exec", clean, workspace)?;
             return Self::shared_runtime()?
                 .block_on(async {
                     // Requires the standalone `susi-sandbox` service (`127.0.0.1:18083`);
@@ -360,8 +359,7 @@ impl CoreTools {
                 });
         }
 
-        gawd_hooks::audit_action("exec_command", clean, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("exec_command", clean, workspace)?;
 
         let task_handle = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("exec_command", clean);
@@ -464,8 +462,7 @@ impl CoreTools {
             .unwrap_or("status");
         let name = arg.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let audit = format!("{action} {name}").trim().to_string();
-        gawd_hooks::audit_action("os_services", &audit, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("os_services", &audit, workspace)?;
 
         match action {
             "status" | "list" => {
@@ -531,8 +528,7 @@ impl CoreTools {
             .unwrap_or(50)
             .min(500) as usize;
         let filter = arg.get("filter").and_then(|v| v.as_str()).unwrap_or("");
-        gawd_hooks::audit_action("os_ps", filter, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("os_ps", filter, workspace)?;
         os_ps_proc(limit, filter)
     }
 
@@ -541,8 +537,7 @@ impl CoreTools {
         description = "Host summary from /proc: kernel, uptime, load average, memory totals, cpu count"
     )]
     pub fn os_sysinfo(_arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("os_sysinfo", "", workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("os_sysinfo", "", workspace)?;
         os_sysinfo_proc()
     }
 
@@ -566,8 +561,7 @@ impl CoreTools {
             }
         };
         let audit = format!("{sig_name} {pid}");
-        gawd_hooks::audit_action("os_kill", &audit, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("os_kill", &audit, workspace)?;
 
         // Fails closed: only pids the daemon itself supervises may be
         // signalled through this tool — an arbitrary-pid kill would be a
@@ -607,8 +601,7 @@ impl CoreTools {
             .and_then(|v| v.as_u64())
             .unwrap_or(50)
             .min(500) as usize;
-        gawd_hooks::audit_action("os_logs", name, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("os_logs", name, workspace)?;
         // Only registered leaf services — a free-form name would read
         // arbitrary logs under substrate_home.
         let Some(svc) = crate::susi_core::service_table::leaf_service(name) else {
@@ -653,8 +646,7 @@ impl CoreTools {
         description = "Accept a replicated swarm commit record. Args: the CommitRecord JSON object. Verifies the coordinator's cluster-key signature and internal consistency before appending to the local ledger — unsigned/forged records fail closed."
     )]
     pub fn commit_record(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("commit_record", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("commit_record", &arg.to_string(), workspace)?;
         let record: crate::susi_core::commit_log::CommitRecord =
             serde_json::from_value(arg.clone())
                 .map_err(|e| EaiError::protocol(format!("bad commit record: {e}")))?;
@@ -763,8 +755,7 @@ impl CoreTools {
         description = "Batch intake of replicated commit records for anti-entropy pushes. Args: {records: [CommitRecord, ...]} (max 1000) — every record re-runs signature, coordinator-membership, and term gates; the accepted set appends in one ledger pass, and any remaining sequence gap is repaired from the coordinator once. Returns an applied/skipped/refused summary."
     )]
     pub fn commit_records(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("commit_records", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("commit_records", &arg.to_string(), workspace)?;
         let records: Vec<crate::susi_core::commit_log::CommitRecord> = serde_json::from_value(
             arg.get("records")
                 .cloned()
@@ -966,8 +957,7 @@ impl CoreTools {
         description = "Delegate a task to a remote A2A agent endpoint (susi peer or external). Args: {peer: \"self\" | node_id | ip | http://ip[:port], message: string}. Roster-gated: only loopback or verified cluster members resolve. Every request carries this node's Ed25519 request signature, which is how bound members authorize us; the host Bearer token is sent only to this node's own A2A port. Returns the completed task's agent reply text."
     )]
     pub fn a2a_delegate(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("a2a_delegate", &arg.to_string(), workspace)?;
         let peer = arg
             .get("peer")
             .and_then(|v| v.as_str())
@@ -1074,8 +1064,7 @@ impl CoreTools {
             &arg.get("record")
                 .map_or_else(|| arg.to_string(), |r| r.to_string()),
             workspace,
-        )
-        .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        )?;
         let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
             arg.get("record")
                 .cloned()
@@ -1188,8 +1177,7 @@ impl CoreTools {
         description = "Commit phase of cluster-key rotation: apply a committed cluster_rekey_activate record. Args: {record: CommitRecord}. Verifies the record's signature (current key — members are still pre-rotation when this arrives), requires coordinator authority, then appends it; the append's apply activates the staged cluster.key.next when its fingerprint matches the committed one. Members that never staged stay on the old epoch."
     )]
     pub fn cluster_rekey_commit(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("cluster_rekey_commit", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("cluster_rekey_commit", &arg.to_string(), workspace)?;
         let record: crate::susi_core::commit_log::CommitRecord = serde_json::from_value(
             arg.get("record")
                 .cloned()
@@ -1259,8 +1247,7 @@ impl CoreTools {
         description = "Leader-only membership proposal (Raft's leader-proposed configuration-entry rule): a member asks the elected leader to seal and replicate a roster delta. Args: {member: \"node_id@address\", kind?: \"member_add\"|\"member_remove\"|\"member_unban\" (default member_add)}. Refuses unless this node is the currently claimed leader. member_add refuses banned subjects or the leader itself; member_remove requires the subject in the leader's roster; member_unban requires the subject banned. On success the record is sealed, appended, and pushed to the roster including the subject."
     )]
     pub fn member_propose(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("member_propose", &arg.to_string(), workspace)?;
         let member = arg
             .get("member")
             .and_then(|v| v.as_str())
@@ -1324,7 +1311,7 @@ impl CoreTools {
         });
         // Electorate = this leader's explicit roster at seal time.
         let roster = gawd::cluster_roster().map_err(|e| {
-            crate::susi_error::rewrap("internal", format!("cluster roster unavailable: {e}"))
+            crate::susi_error::EaiError::internal(format!("cluster roster unavailable: {e}"))
         })?;
         // A delegated add must not resurrect a banned member — the ban
         // list is local state the proposer may not share.
@@ -1437,8 +1424,7 @@ impl CoreTools {
         description = "Endorse a sealed privileged record (member/rekey kind) — the joint-consensus vote a leader collects before committing a roster/config delta. Args: {record: <CommitRecord json>}. Verifies the record's HMAC signature under this member's cluster.key and refuses non-privileged kinds, then returns {node, sig} where sig is this node's Ed25519 signature over susi-endorse-v1:{record.signature}. An endorsement is only a vote on that exact record — all intake gates still apply when it lands."
     )]
     pub fn member_endorse(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
-        gawd_hooks::audit_action("member_endorse", &arg.to_string(), workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("member_endorse", &arg.to_string(), workspace)?;
         let rec_val = arg
             .get("record")
             .ok_or_else(|| EaiError::protocol("missing 'record' field"))?;
@@ -1692,8 +1678,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("prompt is required"))?;
         let audit = format!("{agent}: {prompt}");
-        gawd_hooks::audit_action("agents_run", &audit, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("agents_run", &audit, workspace)?;
         let run = agents::external_run(workspace, "execution", agent, prompt)
             .map_err(EaiError::process)?;
         serde_json::to_string(&run).map_err(|e| EaiError::protocol(e.to_string()))
@@ -2015,10 +2000,8 @@ impl CoreTools {
         // governance detectors every other action-capable tool call gets
         // (see `exec_command` above) before the raw prompt ever reaches
         // the model.
-        let sanitized = gawd_hooks::sanitize_input(&arg_s)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
-        gawd_hooks::audit_action("reason", &sanitized, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let sanitized = gawd_hooks::sanitize_input(&arg_s)?;
+        gawd_hooks::audit_action("reason", &sanitized, workspace)?;
         // When the mission captured real tool calls, this reasoning call must
         // answer by citing those receipts — free narrative cannot certify.
         let prompt = format!(
@@ -2215,8 +2198,7 @@ impl CoreTools {
             .and_then(|v| v.as_str())
             .ok_or_else(|| EaiError::protocol("Missing cmd"))?;
 
-        gawd_hooks::audit_action("sandbox_exec", cmd, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        gawd_hooks::audit_action("sandbox_exec", cmd, workspace)?;
 
         Self::shared_runtime()?
             .block_on(async {
@@ -2396,9 +2378,7 @@ impl CoreTools {
     pub fn context_graph_compact(_arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let graph = ContextGraph::global();
         let _ = graph.replay();
-        let (old_lines, new_lines) = graph
-            .compact()
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let (old_lines, new_lines) = graph.compact()?;
         Ok(serde_json::to_string_pretty(&serde_json::json!({
             "compacted": true,
             "old_lines": old_lines,
@@ -2562,7 +2542,6 @@ impl CoreTools {
         let request_json = serde_json::to_string(arg)
             .map_err(|e| EaiError::governance(format!("serialize patch request: {e}")))?;
         gawd_hooks::apply_patch_cycle(workspace, &request_json, &cfg.trust_level())
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     #[tool(
@@ -2683,9 +2662,12 @@ impl CoreTools {
                     .collect()
             })
             .unwrap_or_default();
-        let tx = crate::susi_core::agent_tx::TxManager::global()
-            .begin(workspace, description, &files, Default::default())
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let tx = crate::susi_core::agent_tx::TxManager::global().begin(
+            workspace,
+            description,
+            &files,
+            Default::default(),
+        )?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -2699,9 +2681,7 @@ impl CoreTools {
         // A transaction begun by another process (e.g. `susi tx begin`)
         // exists only in the durable journal until hydrated.
         txm.hydrate(workspace);
-        let tx = txm
-            .commit(id, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let tx = txm.commit(id, workspace)?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
 
@@ -2716,9 +2696,7 @@ impl CoreTools {
             .ok_or_else(|| EaiError::governance("tx_abort requires id"))?;
         let txm = crate::susi_core::agent_tx::TxManager::global();
         txm.hydrate(workspace);
-        let tx = txm
-            .abort(id, workspace)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let tx = txm.abort(id, workspace)?;
         Ok(serde_json::to_string_pretty(&tx).unwrap_or_else(|_| "{}".into()))
     }
     #[tool(

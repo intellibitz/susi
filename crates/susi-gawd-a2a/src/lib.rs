@@ -19,8 +19,7 @@
 
 extern crate self as susi_gawd_agents;
 
-#[path = "../../susi-core/src/susi_error.rs"]
-pub mod susi_error;
+pub use susi_error;
 #[rustfmt::skip]
 #[path = "../../susi-core/src/susi_config.rs"] pub mod susi_config;
 #[rustfmt::skip]

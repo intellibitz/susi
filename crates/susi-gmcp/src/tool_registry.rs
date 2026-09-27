@@ -54,7 +54,6 @@ impl GmcpClient {
 
     pub fn execute_external_tool(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {
         plane_tools::execute_external_tool(remote, tool, goal)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
     }
 
     pub fn execute_external_tool_result(remote: &str, tool: &str, goal: &str) -> EaiResult<String> {

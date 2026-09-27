@@ -365,9 +365,7 @@ impl InferenceHost {
     /// Evict a model from the cache.
     pub fn unload(model_id: &str) -> EaiResult<serde_json::Value> {
         let path = Self::resolve_model_id(model_id)?;
-        let evicted = Self::cache()
-            .evict(&path)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        let evicted = Self::cache().evict(&path)?;
         let Some((weights, device)) = evicted else {
             return Ok(serde_json::json!({
                 "path": path,
@@ -428,24 +426,20 @@ impl InferenceHost {
             .unwrap_or_default()
             .kv_cache_capacity_tokens();
         Self::make_room(model_path, device);
-        Self::cache()
-            .get_or_load(model_path, device, kv_capacity, |path| {
-                if task_handle.is_cancelled() {
-                    return Err(susi_gemi_models::susi_error::EaiError::inference(
-                        "Model loading cancelled",
-                    ));
-                }
-                let model = Self::load_model(path, device, kv_capacity).map_err(|e| {
-                    susi_gemi_models::susi_error::rewrap(e.kind_name(), e.to_string())
-                })?;
-                if task_handle.is_cancelled() {
-                    return Err(susi_gemi_models::susi_error::EaiError::inference(
-                        "Model loading cancelled",
-                    ));
-                }
-                Ok(model)
-            })
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))
+        Self::cache().get_or_load(model_path, device, kv_capacity, |path| {
+            if task_handle.is_cancelled() {
+                return Err(susi_gemi_models::susi_error::EaiError::inference(
+                    "Model loading cancelled",
+                ));
+            }
+            let model = Self::load_model(path, device, kv_capacity)?;
+            if task_handle.is_cancelled() {
+                return Err(susi_gemi_models::susi_error::EaiError::inference(
+                    "Model loading cancelled",
+                ));
+            }
+            Ok(model)
+        })
     }
 
     fn load_model(
@@ -470,8 +464,7 @@ impl InferenceHost {
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         // Integrity Verification
-        ModelManager::verify_model_integrity(model_path)
-            .map_err(|e| crate::susi_error::rewrap(e.kind_name(), e.to_string()))?;
+        ModelManager::verify_model_integrity(model_path)?;
 
         let mut file = std::fs::File::open(model_path).map_err(|e| {
             EaiError::inference(format!(
