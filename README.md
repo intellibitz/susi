@@ -100,7 +100,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     drift audits and training reports include that staging-health line.
     Claimed buffers drop torn or blank lines and train only when the
     remaining samples still meet the threshold; a claim with nothing
-    usable left is discarded.
+    usable left is discarded. Records with a blank intent or an action
+    outside the vocabulary are skipped and reported, so one unlabelable
+    sample cannot fail the batch every cycle.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

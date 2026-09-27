@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt staging is observable in audits and training reports, claims drop torn lines and train only at a real sample threshold, crash-orphans recover oldest-first, and weights publish as hash-bound active/last-known-good generations.",
+      "summary": "Wasm under the data dir; receipt staging is observable in audits and training reports, claims drop torn lines and train only at a real sample threshold, unlabelable records are skipped instead of stalling the batch, crash-orphans recover oldest-first, and weights publish as hash-bound active/last-known-good generations.",
       "title": "Reflexes"
     },
     {

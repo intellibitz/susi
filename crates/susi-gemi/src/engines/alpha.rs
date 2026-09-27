@@ -15,11 +15,19 @@ pub struct DistillationStaged {
     pub timestamp: u64,
 }
 
-fn parse_training_entries(
-    content: &str,
-    dynamic_intents: &[String],
-) -> Result<Vec<(DistillationStaged, u32)>> {
+#[derive(Debug)]
+struct TrainingBatch {
+    entries: Vec<(DistillationStaged, u32)>,
+    skipped: usize,
+}
+
+/// Malformed or blank lines fail the batch. Well-formed records that cannot
+/// be labeled (blank intent, action outside the vocabulary) are skipped and
+/// counted: a restored claim would otherwise fail on them every cycle, and
+/// once the vocabulary is full an unknown action never becomes trainable.
+fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<TrainingBatch> {
     let mut entries = Vec::new();
+    let mut skipped = 0usize;
     for (line_index, line) in content.lines().enumerate() {
         if line.trim().is_empty() {
             return Err(anyhow!(
@@ -34,29 +42,35 @@ fn parse_training_entries(
             )
         })?;
         if entry.intent.trim().is_empty() {
-            return Err(anyhow!(
-                "empty distillation intent at line {}",
-                line_index + 1
-            ));
+            skipped += 1;
+            continue;
         }
         let action = entry.action.trim();
-        let label = dynamic_intents
+        let Some(label) = dynamic_intents
             .iter()
             .position(|candidate| candidate.eq_ignore_ascii_case(action))
-            .ok_or_else(|| {
-                anyhow!(
-                    "unknown distillation action {:?} at line {}",
-                    entry.action,
-                    line_index + 1
-                )
-            })?;
+        else {
+            skipped += 1;
+            continue;
+        };
         let label = u32::try_from(label).map_err(|_| anyhow!("intent label exceeds u32"))?;
         entries.push((entry, label));
     }
     if entries.is_empty() {
+        if skipped > 0 {
+            return Err(anyhow!(
+                "No trainable distillation records: {skipped} skipped (blank intent or action outside the reflex vocabulary)."
+            ));
+        }
         return Err(anyhow!("Empty distillation dataset."));
     }
-    Ok(entries)
+    if skipped > 0 {
+        // Construction records the skip in the typed error-metrics sink.
+        let _emit = crate::susi_error::EaiError::inference(format!(
+            "skipped {skipped} untrainable distillation record(s)"
+        ));
+    }
+    Ok(TrainingBatch { entries, skipped })
 }
 
 fn vocabulary_path(weights_path: &Path) -> PathBuf {
@@ -488,9 +502,9 @@ impl SusiAlphaModel {
         let mut samples = Vec::new();
         let mut labels = Vec::new();
 
-        let entries = parse_training_entries(&content, &dynamic_intents)?;
+        let batch = parse_training_entries(&content, &dynamic_intents)?;
 
-        for (entry, label) in entries {
+        for (entry, label) in batch.entries {
             let vec = Self::semantic_centroid_projection(&entry.intent, None)?;
             samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
             labels.push(label);
@@ -525,7 +539,15 @@ impl SusiAlphaModel {
                 publication.cleanup_failures.join("; ")
             )
         };
-        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.{cleanup}", samples.len()))
+        let skipped = if batch.skipped == 0 {
+            String::new()
+        } else {
+            format!(
+                " Skipped {} untrainable record(s) (blank intent or action outside the reflex vocabulary).",
+                batch.skipped
+            )
+        };
+        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.{skipped}{cleanup}", samples.len()))
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
@@ -733,7 +755,10 @@ mod tests {
             &intents(),
         )
         .unwrap_err();
-        assert!(unknown.to_string().contains("unknown distillation action"));
+        assert!(unknown
+            .to_string()
+            .contains("No trainable distillation records"));
+        assert!(unknown.to_string().contains("1 skipped"));
     }
 
     #[test]
@@ -743,8 +768,30 @@ mod tests {
             &intents(),
         )
         .unwrap();
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].1, 1);
+        assert_eq!(parsed.entries.len(), 1);
+        assert_eq!(parsed.entries[0].1, 1);
+        assert_eq!(parsed.skipped, 0);
+    }
+
+    #[test]
+    fn untrainable_records_are_skipped_without_rejecting_the_batch() {
+        let content = [
+            r#"{"intent":"inspect","action":"status","timestamp":1}"#,
+            r#"{"intent":"inspect","action":"uninstalled_tool","timestamp":2}"#,
+            r#"{"intent":"   ","action":"reason","timestamp":3}"#,
+            r#"{"intent":"think","action":"Reason","timestamp":4}"#,
+        ]
+        .join("\n");
+        let parsed = parse_training_entries(&content, &intents()).unwrap();
+        assert_eq!(parsed.skipped, 2);
+        let labels: Vec<u32> = parsed.entries.iter().map(|(_, label)| *label).collect();
+        assert_eq!(labels, [1, 0]);
+
+        let torn = format!("{content}\n{{\"intent\":\"torn");
+        assert!(parse_training_entries(&torn, &intents())
+            .unwrap_err()
+            .to_string()
+            .contains("line 5"));
     }
 
     #[test]

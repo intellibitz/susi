@@ -1790,6 +1790,16 @@
       "milestone": "RSI iteration 18/100: a torn or blank line in a claimed training buffer no longer rejects the batch or inflates the threshold. After the atomic claim rename, SUSI keeps only complete JSON lines, records each drop through EaiError::io, and rewrites the claim. Survivors below the threshold are restored to the live buffer; a claim with nothing usable left is retired and the cycle stays idle instead of training a deleted file. Regression tests cover a torn tail plus a blank line, a below-threshold restore, and an all-malformed claim that leaves no reflex-claim directory. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "parse_training_entries / TrainingBatch",
+        "ref": "symbol://parse_training_entries"
+      },
+      "id": "EV-2022927-185",
+      "milestone": "RSI iteration 19/100: one untrainable record no longer stalls reflex training. parse_training_entries still refuses to guess labels, but a well-formed record with a blank intent or an action outside the reflex vocabulary is now skipped and counted instead of failing the whole batch. Previously the reflex trainer restored the failed claim, so the same batch failed every cycle, and once the vocabulary reached its DIM cap an unknown action could never become trainable. Skips are recorded through EaiError::inference and reported in the training result; malformed or blank lines still fail loudly, and a batch with no trainable records still errors. A regression test mixes known, unknown-action, blank-intent, and case-variant records and proves a torn line still fails. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
