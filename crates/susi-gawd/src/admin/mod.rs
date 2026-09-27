@@ -266,17 +266,22 @@ impl SusiAdmin {
         let mut doc: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| EaiError::config(format!("evidence.json: invalid JSON: {e}")))?;
 
-        let intent_trimmed = intent.trim().to_lowercase();
+        // The ledger is committed and shared: store the intent redacted.
+        let intent = crate::susi_config::redact_credentials(intent.trim());
+        let intent = intent.as_str();
+        let intent_trimmed = intent.to_lowercase();
         let entries = doc
             .get_mut("entries")
             .and_then(|v| v.as_array_mut())
             .ok_or_else(|| EaiError::config("evidence.json: missing entries array"))?;
 
+        // Exact (case-insensitive) match: a substring test treated any
+        // short intent as "already present" because most milestones
+        // contain common words, silently dropping it.
         let is_duplicate = entries.iter().any(|e| {
             e.get("milestone")
                 .and_then(|m| m.as_str())
-                .map(|m| m.to_lowercase().contains(&intent_trimmed))
-                .unwrap_or(false)
+                .is_some_and(|m| m.trim().to_lowercase() == intent_trimmed)
         });
         if is_duplicate {
             return Ok(format!(
@@ -317,7 +322,9 @@ impl SusiAdmin {
 
         let pretty = serde_json::to_string_pretty(&doc)
             .map_err(|e| EaiError::config(format!("evidence.json: serialize: {e}")))?;
-        fs::write(&evidence_path, pretty + "\n")?;
+        // Replaced whole: a torn plain write corrupted the governance ledger.
+        crate::susi_config::atomic_write_bytes(&evidence_path, (pretty + "\n").as_bytes())
+            .map_err(|e| EaiError::filesystem(format!("write {}: {e}", evidence_path.display())))?;
 
         Ok(format!(
             "Intent ingested successfully as {prefix} into sovereign memory"
@@ -350,6 +357,38 @@ mod intent_classify_tests {
         assert!(contains_phrase("run who am i here", "who am i"));
         assert!(!contains_phrase("draft a promotion plan", "motion"));
         assert!(!contains_phrase("track user emotions", "motion"));
+    }
+
+    #[test]
+    fn short_intents_are_ingested_redacted_and_exact_repeats_deduped() {
+        let ws = std::env::temp_dir().join(format!("susi-ingest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join(".susi")).unwrap();
+        std::fs::write(
+            ws.join(".susi/evidence.json"),
+            r#"{"entries":[{"id":"EV-2022927-001","milestone":"add retries to the downloader","proof":"VERIFIED"}]}"#,
+        )
+        .unwrap();
+        let count = || {
+            let v: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(ws.join(".susi/evidence.json")).unwrap(),
+            )
+            .unwrap();
+            v["entries"].as_array().unwrap().len()
+        };
+        SusiAdmin::ingest_natural_intent(&ws, "add retries").unwrap();
+        assert_eq!(
+            count(),
+            2,
+            "a substring of an existing milestone is not a duplicate"
+        );
+        let again = SusiAdmin::ingest_natural_intent(&ws, "Add Retries").unwrap();
+        assert!(again.contains("already present"), "{again}");
+        assert_eq!(count(), 2);
+        SusiAdmin::ingest_natural_intent(&ws, "rotate ghp_ingestProbe999 now").unwrap();
+        let text = std::fs::read_to_string(ws.join(".susi/evidence.json")).unwrap();
+        assert!(!text.contains("ghp_ingestProbe999"), "{text}");
+        let _ = std::fs::remove_dir_all(&ws);
     }
 
     #[test]

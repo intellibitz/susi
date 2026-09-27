@@ -2540,6 +2540,16 @@
       "milestone": "RSI iteration 93/100: the context graph redacts at the point of record, for every recorder. record_tool_call already stored only an argument digest, but record_agent_observation persisted 200- and 500-character excerpts of raw agent output as node label and summary, and record_external_context stored adapter payloads verbatim (ambient file previews, patch-cycle descriptions and outcomes, telemetry snapshots) plus a free-text label. The graph is persisted to context_graph.jsonl and queryable by agents and operators. Observation text and external-context labels now pass through susi_config::redact_credentials, and payloads through a new redact_json that redacts every string leaf while keeping structure and non-string values. The iteration-92 preview redaction in the ambient indexer is removed as redundant (one redaction point instead of two); its test still passes through the graph. A new test records an observation with a ghp_ token and an external context whose label holds an sk- key and whose nested payload array holds an xoxb- token, and proves none reaches the stored nodes while numeric fields survive. cargo test -p susi-core context_graph (10), -p susi-daemon ambient (2), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAdmin::ingest_natural_intent",
+        "ref": "symbol://SusiAdmin::ingest_natural_intent"
+      },
+      "id": "EV-2022927-260",
+      "milestone": "RSI iteration 94/100: natural-intent ingestion into the evidence ledger no longer drops short intents, stores them redacted, and writes the ledger atomically. ingest_natural_intent (susi pulse / sovereign-memory ingestion into .agents/evidence.json or .susi/evidence.json) treated an intent as 'already present in memory' when any existing milestone merely contained it as a substring; with long milestones full of common words, short intents such as 'add retries' were silently discarded. It also stored the operator's text raw and rewrote the governance ledger with a plain std::fs::write, so a torn write corrupted evidence.json. Duplicates are now exact case-insensitive matches of the trimmed text, the intent passes through susi_config::redact_credentials before storage, and the ledger is replaced through atomic_write_bytes. A test ingests 'add retries' beside the milestone 'add retries to the downloader' (stored, count 2), repeats it as 'Add Retries' (reported as already present, count unchanged), and ingests a ghp_ token (absent from the file). cargo test -p susi-gawd intent_classify (3 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -225,7 +225,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Workspace changes | applied through transactions (`susi tx`, `apply_patch_cycle`); the unused staged-bundle commands (`accept` / `undo`) were removed |
 | Cleanup | `susi os clean` (alias `susi os-clean`) removes only SUSI-owned residue: pre-cap rotated metrics, a stale flat audit log, and oversized stray binaries |
 | Configuration | every key in the bundled `config.default.json` is read by code (orphan keys such as `beacon_interval_secs` were removed) |
-| Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists, matched as whole words |
+| Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists (whole words), dedupes only exact repeats, redacts credentials, and writes the ledger atomically |
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
 | Daemon feature surface | 31 of 119 `susi-daemon` modules are wired into a production path; 88 are compiled and self-tested only (not features yet) and a ratchet test keeps that number from growing |
 | Automation | `susi automate <intent>` — evidence-gated swarm mission (Mandate 46; not unbounded autopilot). A failed plan step reports that earlier steps' workspace changes were not rolled back |
