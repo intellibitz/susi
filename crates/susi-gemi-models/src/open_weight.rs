@@ -11,7 +11,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::catalog_store::{atomic_json, private_dir};
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
@@ -136,8 +135,11 @@ impl OpenWeightManager {
 
     pub fn configure(&self, id: &str, over: &OpenWeightOverride) -> Result<OpenWeightDefinition> {
         let def = Self::definition(id)?;
-        private_dir(&self.root)?;
-        atomic_json(&self.root.join(format!("{}.json", def.id)), over)?;
+        crate::susi_config::create_private_dir(&self.root)?;
+        crate::susi_config::atomic_write_json_pretty(
+            &self.root.join(format!("{}.json", def.id)),
+            over,
+        )?;
         self.effective(&def.id)
     }
 
@@ -285,7 +287,7 @@ impl OpenWeightManager {
                 def.engine
             )
         })?;
-        private_dir(&self.root)?;
+        crate::susi_config::create_private_dir(&self.root)?;
         fs::write(self.preferred_path(), &def.id)?;
         crate::ModelManager::set_selected_model(&def.ollama_tag).map_err(|e| anyhow::anyhow!(e))?;
         Ok(format!(

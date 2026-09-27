@@ -231,26 +231,16 @@ pub(crate) fn state_path() -> PathBuf {
 }
 
 pub(crate) fn private_dir(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
-    }
-    Ok(())
+    super::json_util::create_private_dir(path).map_err(|e| e.to_string())
 }
 
+/// Owner-only file write that readers never observe torn or, under a
+/// permissive umask, momentarily world-readable.
 pub(crate) fn write_private_file(path: &Path, contents: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         private_dir(parent)?;
     }
-    std::fs::write(path, contents).map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    super::json_util::atomic_write_bytes(path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
 fn read_state() -> ExtensionsState {

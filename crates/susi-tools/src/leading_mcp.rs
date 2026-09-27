@@ -98,18 +98,17 @@ impl LeadingMcpManager {
 
     pub fn configure(&self, id: &str, over: &LeadingMcpOverride) -> Result<LeadingMcpDefinition> {
         let def = Self::definition(id)?;
-        private_dir(&self.config)?;
-        atomic_json(&self.config.join(format!("{}.json", def.id)), over)?;
+        crate::susi_config::create_private_dir(&self.config)?;
+        crate::susi_config::atomic_write_json_pretty(
+            &self.config.join(format!("{}.json", def.id)),
+            over,
+        )?;
         self.effective(&def.id)
     }
 
     pub fn reset(&self, id: &str) -> Result<LeadingMcpDefinition> {
         let def = Self::definition(id)?;
-        match fs::remove_file(self.config.join(format!("{}.json", def.id))) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
+        crate::susi_config::remove_file_if_present(&self.config.join(format!("{}.json", def.id)))?;
         self.effective(&def.id)
     }
 
@@ -257,9 +256,9 @@ fn load_mcp_config() -> Result<McpConfig> {
 fn save_mcp_config(config: &McpConfig) -> Result<()> {
     let path = GmcpClient::get_config_path();
     if let Some(parent) = path.parent() {
-        private_dir(parent)?;
+        crate::susi_config::create_private_dir(parent)?;
     }
-    atomic_json(&path, config)
+    Ok(crate::susi_config::atomic_write_json_pretty(&path, config)?)
 }
 
 fn env_satisfied(key: &str) -> bool {
@@ -396,16 +395,6 @@ fn resolve_runner(runner: &str) -> Option<PathBuf> {
     None
 }
 
-fn private_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
-}
-
 fn user_disabled_path(config_dir: &Path) -> PathBuf {
     config_dir.join("user_disabled.json")
 }
@@ -418,12 +407,15 @@ fn load_user_disabled(config_dir: &Path) -> Vec<String> {
 }
 
 fn mark_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
-    private_dir(config_dir)?;
+    crate::susi_config::create_private_dir(config_dir)?;
     let mut list = load_user_disabled(config_dir);
     if !list.iter().any(|x| x == id) {
         list.push(id.to_string());
     }
-    atomic_json(&user_disabled_path(config_dir), &list)
+    Ok(crate::susi_config::atomic_write_json_pretty(
+        &user_disabled_path(config_dir),
+        &list,
+    )?)
 }
 
 fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
@@ -433,12 +425,11 @@ fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
     if list.len() == before {
         return Ok(());
     }
-    private_dir(config_dir)?;
-    atomic_json(&user_disabled_path(config_dir), &list)
-}
-
-fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    Ok(crate::susi_config::atomic_write_json_pretty(path, value)?)
+    crate::susi_config::create_private_dir(config_dir)?;
+    Ok(crate::susi_config::atomic_write_json_pretty(
+        &user_disabled_path(config_dir),
+        &list,
+    )?)
 }
 
 #[cfg(test)]

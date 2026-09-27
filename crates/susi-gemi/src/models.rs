@@ -2,8 +2,6 @@
 
 pub use crate::susi_sandbox;
 
-#[path = "../../susi-gemi-models/src/catalog_store.rs"]
-pub mod catalog_store;
 #[path = "../../susi-gemi-models/src/cloud.rs"]
 pub mod cloud;
 #[path = "../../susi-gemi-models/src/coding_models.rs"]

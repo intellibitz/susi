@@ -19,7 +19,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::catalog_store::{atomic_json, private_dir};
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
@@ -116,18 +115,17 @@ impl CodingModelManager {
 
     pub fn configure(&self, id: &str, over: &CodingModelOverride) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        private_dir(&self.config)?;
-        atomic_json(&self.config.join(format!("{}.json", def.id)), over)?;
+        crate::susi_config::create_private_dir(&self.config)?;
+        crate::susi_config::atomic_write_json_pretty(
+            &self.config.join(format!("{}.json", def.id)),
+            over,
+        )?;
         self.effective(&def.id)
     }
 
     pub fn reset(&self, id: &str) -> Result<CodingModelDefinition> {
         let def = Self::definition(id)?;
-        match fs::remove_file(self.config.join(format!("{}.json", def.id))) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
+        crate::susi_config::remove_file_if_present(&self.config.join(format!("{}.json", def.id)))?;
         self.effective(&def.id)
     }
 
@@ -187,7 +185,7 @@ impl CodingModelManager {
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
         self.preflight(&def.id)?;
-        private_dir(&crate::susi_paths::SusiDirs::config_dir())?;
+        crate::susi_config::create_private_dir(&crate::susi_paths::SusiDirs::config_dir())?;
         let prefer = crate::susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
         fs::write(&prefer, &def.id)?;
         // Also set the runtime override to the provider model id for cloud routing.

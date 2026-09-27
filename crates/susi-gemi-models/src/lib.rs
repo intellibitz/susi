@@ -60,7 +60,6 @@ pub mod susi_sandbox;
 #[path = "../../susi-core/src/embedded.rs"]
 pub mod susi_core;
 
-pub mod catalog_store;
 pub mod cloud;
 pub mod coding_models;
 pub(crate) mod download;

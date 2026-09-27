@@ -181,17 +181,19 @@ impl AgentManager {
     pub fn configure(&self, id: &str, adapter: &Adapter) -> Result<()> {
         let def = definition(self.kind, id)?;
         adapter.validate()?;
-        private_dir(&self.config)?;
-        atomic_json(&self.config.join(format!("{}.json", def.id)), adapter)
+        crate::susi_config::create_private_dir(&self.config)?;
+        crate::susi_config::atomic_write_json_pretty(
+            &self.config.join(format!("{}.json", def.id)),
+            adapter,
+        )?;
+        Ok(())
     }
 
     pub fn reset(&self, id: &str) -> Result<()> {
         let def = definition(self.kind, id)?;
-        match fs::remove_file(self.config.join(format!("{}.json", def.id))) {
-            Ok(()) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e.into()),
-        }
+        Ok(crate::susi_config::remove_file_if_present(
+            &self.config.join(format!("{}.json", def.id)),
+        )?)
     }
 
     pub fn prepare(&self, agent: &str, prompt: &str) -> Result<RunRecord> {
@@ -212,7 +214,7 @@ impl AgentManager {
         }
         adapter.preflight()?;
         let id = unique_id()?;
-        private_dir(&self.root)?;
+        crate::susi_config::create_private_dir(&self.root)?;
         fs::create_dir(self.root.join(&id))?;
         let now = now();
         let run = RunRecord {
@@ -372,9 +374,9 @@ impl AgentManager {
             .join(self.kind.config_subdir())
             .join("ready.json");
         if let Some(parent) = status_path.parent() {
-            private_dir(parent)?;
+            crate::susi_config::create_private_dir(parent)?;
         }
-        atomic_json(&status_path, &ready)?;
+        crate::susi_config::atomic_write_json_pretty(&status_path, &ready)?;
         Ok(ready)
     }
 
@@ -485,7 +487,10 @@ impl AgentManager {
     fn save(&self, run: &RunRecord) -> Result<()> {
         let mut run = run.clone();
         run.updated_at = now();
-        atomic_json(&self.run_dir(&run.id)?.join("run.json"), &run)
+        Ok(crate::susi_config::atomic_write_json_pretty(
+            &self.run_dir(&run.id)?.join("run.json"),
+            &run,
+        )?)
     }
 
     fn cancel_requested(&self, id: &str) -> Result<bool> {
@@ -508,19 +513,6 @@ fn unique_id() -> Result<String> {
     getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("task ID entropy: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-fn private_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    }
-    Ok(())
-}
-fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    Ok(crate::susi_config::atomic_write_json_pretty(path, value)?)
-}
-
 /// Redact known credential values on display; raw vendor logs stay in the private run directory.
 pub fn redact(text: &str) -> String {
     let mut result = text.to_owned();

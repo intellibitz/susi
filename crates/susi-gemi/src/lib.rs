@@ -96,10 +96,10 @@ pub use engines::{
     speculative,
 };
 
+pub use models::cloud;
 pub(crate) use models::download;
 pub use models::model_cache;
 pub use models::ModelManager;
-pub use models::{catalog_store, cloud};
 pub use models::{
     coding_models, frontier, hardware, hf_discovery, intent, open_weight, openrouter,
 };

@@ -202,7 +202,7 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
     .context("provider response missing recognized status field")?;
     run.status = map_status(cloud.manus, status);
     let dir = manager.run_dir(&run.id)?;
-    super::atomic_json(&dir.join("provider.json"), &value)?;
+    crate::susi_config::atomic_write_json_pretty(&dir.join("provider.json"), &value)?;
     // Preserve all pages of Manus outputs, including artifact URLs, as JSONL.
     // Replace the snapshot only after a complete, successful fetch.
     if cloud.manus {
@@ -237,14 +237,14 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
             }
             cursor = next;
         }
-        super::atomic_json(&dir.join("stdout.log"), &pages)?;
+        crate::susi_config::atomic_write_json_pretty(&dir.join("stdout.log"), &pages)?;
     } else {
         // Snapshot messages when available; keep the session object as a fallback.
         let messages_path = format!("{}/messages", cloud.remote_path(run)?);
         if let Ok(messages) = response(cloud.request(reqwest::Method::GET, &messages_path)) {
-            super::atomic_json(&dir.join("stdout.log"), &messages)?;
+            crate::susi_config::atomic_write_json_pretty(&dir.join("stdout.log"), &messages)?;
         } else {
-            super::atomic_json(&dir.join("stdout.log"), &value)?;
+            crate::susi_config::atomic_write_json_pretty(&dir.join("stdout.log"), &value)?;
         }
     }
     Ok(())

@@ -34,6 +34,27 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
     atomic_write_bytes(path, json.as_bytes()).map_err(|error| EaiError::config(error.to_string()))
 }
 
+/// Creates `path` (and parents) as an owner-only directory (0700 on Unix)
+/// for host state that may hold credentials or private overrides.
+pub fn create_private_dir(path: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// Removes the file at `path`; a file that is already absent is success.
+pub fn remove_file_if_present(path: &Path) -> std::io::Result<()> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Loads the 32-byte secret at `path`, creating it on first use.
 ///
 /// Creation is atomic and never replaces an existing secret: the bytes are

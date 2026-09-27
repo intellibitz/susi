@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::catalog_store::{atomic_json, private_dir};
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, is_remote_cloud, resolve_api_key,
 };
@@ -144,18 +143,17 @@ impl FrontierManager {
 
     pub fn configure(&self, id: &str, over: &FrontierOverride) -> Result<FrontierDefinition> {
         let def = Self::definition(id)?;
-        private_dir(&self.config)?;
-        atomic_json(&self.config.join(format!("{}.json", def.id)), over)?;
+        crate::susi_config::create_private_dir(&self.config)?;
+        crate::susi_config::atomic_write_json_pretty(
+            &self.config.join(format!("{}.json", def.id)),
+            over,
+        )?;
         self.effective(&def.id)
     }
 
     pub fn reset(&self, id: &str) -> Result<FrontierDefinition> {
         let def = Self::definition(id)?;
-        match fs::remove_file(self.config.join(format!("{}.json", def.id))) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
+        crate::susi_config::remove_file_if_present(&self.config.join(format!("{}.json", def.id)))?;
         self.effective(&def.id)
     }
 
@@ -231,7 +229,7 @@ impl FrontierManager {
     pub fn prefer(&self, id: &str) -> Result<String> {
         let def = self.effective(id)?;
         self.preflight(id)?;
-        private_dir(&self.config)?;
+        crate::susi_config::create_private_dir(&self.config)?;
         // Persist variant/engine pin when the lookup resolved a non-default model id.
         let base = Self::definition(&def.id)?;
         if base.model != def.model || base.engine != def.engine {

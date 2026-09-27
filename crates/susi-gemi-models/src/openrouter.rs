@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use crate::catalog_store::private_dir;
 use crate::cloud::{
     apply_cloud_env_file, effective_inference_endpoints_pub, list_api_key_status, resolve_api_key,
 };
@@ -143,7 +142,7 @@ impl OpenRouterManager {
     /// Pin OpenRouter as preferred cloud; optionally pin a model/route id.
     pub fn prefer(&self, model: Option<&str>) -> Result<String> {
         self.doctor()?;
-        private_dir(&self.root)?;
+        crate::susi_config::create_private_dir(&self.root)?;
         if let Some(m) = model.map(str::trim).filter(|s| !s.is_empty()) {
             // Accept catalog id or raw OpenRouter model slug.
             let model_id = match Self::definition(m) {
