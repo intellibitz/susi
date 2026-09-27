@@ -115,23 +115,42 @@ pub(super) fn read_file_nofollow(path: &Path) -> EaiResult<String> {
 
 pub(super) fn confine_exec_argv(workspace: &Path, args: &[String]) -> EaiResult<()> {
     for arg in args.iter().skip(1) {
-        if arg.starts_with('-') {
-            continue;
-        }
-        let p = Path::new(arg);
-        if p.is_absolute() {
-            return Err(EaiError::filesystem(format!(
-                "Absolute paths not allowed in exec_command: {arg}"
-            )));
-        }
-        if arg.contains("..") {
-            return Err(EaiError::filesystem(format!(
-                "Parent directory traversal not allowed in exec_command: {arg}"
-            )));
-        }
-        if arg.contains('/') || arg.contains('\\') {
-            let _ = secure_path(workspace, arg)?;
-        }
+        // A path can ride inside an option (`--output=/etc/x`, `-o/etc/x`,
+        // `-C..`); check the option's value exactly like a positional path.
+        let candidate = if let Some(long) = arg.strip_prefix("--") {
+            match long.split_once('=') {
+                Some((_, value)) => value,
+                None => continue,
+            }
+        } else if let Some(short) = arg.strip_prefix('-') {
+            match short.char_indices().nth(1) {
+                Some((i, _)) => &short[i..],
+                None => continue,
+            }
+        } else {
+            arg.as_str()
+        };
+        confine_exec_path(workspace, arg, candidate)?;
+    }
+    Ok(())
+}
+
+fn confine_exec_path(workspace: &Path, arg: &str, candidate: &str) -> EaiResult<()> {
+    if candidate.is_empty() {
+        return Ok(());
+    }
+    if Path::new(candidate).is_absolute() || candidate.starts_with('~') {
+        return Err(EaiError::filesystem(format!(
+            "Absolute paths not allowed in exec_command: {arg}"
+        )));
+    }
+    if candidate.contains("..") {
+        return Err(EaiError::filesystem(format!(
+            "Parent directory traversal not allowed in exec_command: {arg}"
+        )));
+    }
+    if candidate.contains('/') || candidate.contains('\\') {
+        let _ = secure_path(workspace, candidate)?;
     }
     Ok(())
 }
@@ -314,4 +333,44 @@ pub(super) fn os_sysinfo_proc() -> EaiResult<String> {
         mem_line("MemTotal:"),
         mem_line("MemAvailable:")
     ))
+}
+
+#[cfg(test)]
+mod confine_tests {
+    use super::confine_exec_argv;
+
+    fn argv(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn paths_hidden_in_options_are_confined() {
+        let ws = std::env::temp_dir();
+        for escape in [
+            ["git", "--git-dir=/root/.ssh"],
+            ["tool", "--output=/etc/cron.d/x"],
+            ["cc", "-o/etc/passwd"],
+            ["make", "-C.."],
+            ["tool", "--cfg=../../secret"],
+            ["tool", "--home=~/.aws"],
+        ] {
+            assert!(
+                confine_exec_argv(&ws, &argv(&escape)).is_err(),
+                "{escape:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_flags_and_values_still_pass() {
+        let ws = std::env::temp_dir();
+        for ok in [
+            vec!["cargo", "test", "--", "--nocapture"],
+            vec!["git", "log", "--format=%H", "-n", "5"],
+            vec!["ls", "-la"],
+            vec!["grep", "-rn", "needle", "."],
+        ] {
+            assert!(confine_exec_argv(&ws, &argv(&ok)).is_ok(), "{ok:?}");
+        }
+    }
 }
