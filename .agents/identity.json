@@ -263,11 +263,6 @@
           "tier": 0
         },
         {
-          "function": "Distilled Tier 2 logic weights (`susi-reason.safetensors`).",
-          "symbol": "NativeReasoningModel",
-          "tier": 2
-        },
-        {
           "function": "`susi models` (`susi_gemi_models::coding_models`): ranked coding/agent cloud models — list/doctor/setup/configure/prefer/probe.",
           "symbol": "CodingModelManager",
           "tier": 2

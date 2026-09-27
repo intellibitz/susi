@@ -1950,6 +1950,16 @@
       "milestone": "RSI iteration 34/100: transactions close only against their own workspace, and the MCP surface can close transactions other processes began. TxManager::abort restored each snapshot by joining its relative path onto whatever workspace the caller passed, not the one it snapshotted, so tx_abort (MCP) or susi tx abort run from another project would write the first project's file contents into the second. Ids are reserved per workspace journal (iteration 32), so the same id can name different transactions in different workspaces. Separately, the MCP tx_commit and tx_abort tools never hydrated the durable .susi/tx journal, so the daemon answered 'unknown tx' for any transaction begun by susi tx begin in a CLI process. commit and abort now refuse, with a governance error, a workspace that does not canonicalize to the transaction's own (commit gained a workspace parameter; patch_cycle and the CLI pass theirs), and tx_commit/tx_abort hydrate the workspace journal first. A regression test proves abort and commit from another workspace are refused and leave its file untouched, and the owning workspace can still abort. cargo test -p susi-core agent_tx (4 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi_gemi::reasoning (removed)",
+        "ref": "file://crates/susi-gemi/src/engines/reasoning.rs"
+      },
+      "id": "EV-2022927-201",
+      "milestone": "RSI iteration 35/100: a phantom Tier-2 reasoning model is removed from the code and the constitution. susi_gemi::reasoning::SusiReasoningModel (a four-layer Candle MLP loading models/susi-reason.safetensors) had no caller anywhere in the workspace, its missing-weights error told users to run 'susi train_reason', a command that does not exist, and nothing in the tree ever wrote those weights. identity.json nevertheless listed it in Pillar II as the component NativeReasoningModel, 'Distilled Tier 2 logic weights'. The module, its duplicate ReasoningSample type, the reasoning re-export, and the NativeReasoningModel component row are removed; deep reasoning is what it already was in practice, routed to real local (GGUF/Ollama/vLLM) or cloud LLMs by GemiRuntime. Verified before removal: a repo-wide search found no use of SusiReasoningModel, susi_gemi::reasoning, train_reason, or susi-reason.safetensors outside the deleted file and the identity row. cargo clippy --workspace --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

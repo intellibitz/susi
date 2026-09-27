@@ -13,7 +13,6 @@ pub mod candle_provider;
 pub mod http_provider;
 pub mod mcp_provider;
 pub mod qwen2_split;
-pub mod reasoning;
 pub mod reflex;
 pub mod reflex_llm;
 pub mod routing;

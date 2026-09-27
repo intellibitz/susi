@@ -92,8 +92,7 @@ pub use crate::susi_core::telemetry;
 pub use engines::runtime as engine;
 pub(crate) use engines::token_stream;
 pub use engines::{
-    alpha, candle_provider, http_provider, mcp_provider, qwen2_split, reasoning, reflex, routing,
-    speculative,
+    alpha, candle_provider, http_provider, mcp_provider, qwen2_split, reflex, routing, speculative,
 };
 
 pub use models::cloud;
