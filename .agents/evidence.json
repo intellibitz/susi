@@ -2700,6 +2700,16 @@
       "milestone": "Dedup pass step 10: the remaining within-plane `#[path]` mounts become Cargo edges. `susi-gawd` dropped its remounts of six swarm files and four A2A files and now depends on `susi-gawd-swarm` and `susi-gawd-a2a`, re-exporting their modules and keeping the host AMA wrapper that wires hooks on `SusiMasterAgent::new`. `susi-gemi` dropped its remount of eleven `susi-gemi-models` files (`crates/susi-gemi/src/models.rs` deleted) and now depends on `susi-gemi-models`, re-exported as `models`. The `extern crate self as susi_gawd_swarm` / `susi_gawd_a2a` / `susi_gemi_models` aliases were removed. New regression test `within_plane_crates_are_never_source_mounted_into_a_consumer` fails the build if those trees are remounted. Cross-crate `#[path]` mounts: 24 → 3 (ceiling lowered; the three remaining are the shared server transport helpers). Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings passed (clippy with --all-targets also type-checks test code); the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-http-transport extraction",
+        "ref": "file://crates/susi-http-transport/src/lib.rs"
+      },
+      "id": "EV-2022928-276",
+      "milestone": "Dedup pass step 11: new crate `susi-http-transport` owns the TLS-sniffing accept loop (`dual_transport`) and the Hyper connection builder (`http_conn`) that GEMI REST, GMCP and A2A used to share by `#[path]`-mounting `susi-server` sources. Feature planes cannot take a Cargo edge on `susi-server` (same leaf rank, peer-plane ban), so the helpers moved into their own rank-2 crate with no SUSI workspace dependencies. `susi-server`, `susi-gmcp` and `susi-gawd-a2a` now depend on it. The three remaining cross-crate `#[path]` mounts are gone; the ratchet ceiling is 0. New regression test `susi_server_transport_is_never_source_mounted_into_a_consumer` fails the build if those files are remounted. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings passed (clippy with --all-targets also type-checks test code); the test suite was NOT executed for this step, deferred by the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -199,6 +199,41 @@ fn within_plane_crates_are_never_source_mounted_into_a_consumer() {
     );
 }
 
+/// The shared HTTP accept/connection helpers live in `susi-http-transport`.
+/// Remounting `susi-server` transport files would give each listener its
+/// own copy of the TLS-sniff and header-timeout policy.
+#[test]
+fn susi_server_transport_is_never_source_mounted_into_a_consumer() {
+    let crates = workspace_root().join("crates");
+    let mut offenders = Vec::new();
+    let mut pending = vec![crates.clone()];
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read crate directory") {
+            let path = entry.expect("read crate entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs")
+                || path.starts_with(crates.join("susi-server"))
+                || path.starts_with(crates.join("susi-http-transport"))
+            {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read Rust source");
+            if text.contains("#[path = \"../../susi-server/") {
+                offenders.push(path);
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "server transport must be reached through susi-http-transport, not a source mount: {offenders:?}"
+    );
+}
+
 #[test]
 fn checked_in_rust_implementations_are_not_byte_duplicates() {
     let root = workspace_root();

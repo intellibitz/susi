@@ -1,6 +1,5 @@
 //! Dual-protocol transport shared by every SUSI HTTP surface (GEMI REST,
-//! GMCP, A2A). Canonical source: `crates/susi-server/src/dual_transport.rs`,
-//! `#[path]`-mounted by the other servers.
+//! GMCP, A2A).
 //!
 //! Each accepted socket sniffs its first byte. A TLS ClientHello (`0x16`) is
 //! served over TLS when an acceptor is configured; anything else is plain
@@ -8,7 +7,7 @@
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-pub(crate) enum MaybeTls {
+pub enum MaybeTls {
     Plain(tokio::net::TcpStream),
     Tls(Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>),
 }
@@ -87,7 +86,7 @@ impl AsyncWrite for MaybeTls {
 ///
 /// `surface` prefixes handshake-failure logs (e.g. `"[A2A]"`). Returns
 /// `None` when the connection must be dropped.
-pub(crate) async fn negotiate_transport(
+pub async fn negotiate_transport(
     stream: tokio::net::TcpStream,
     remote: bool,
     tls: Option<&tokio_rustls::TlsAcceptor>,
@@ -108,7 +107,7 @@ pub(crate) async fn negotiate_transport(
 const NEGOTIATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Runs a negotiation under `limit`; `None` (connection dropped) on expiry.
-pub(crate) async fn bounded(
+pub async fn bounded(
     limit: std::time::Duration,
     surface: &str,
     negotiation: impl std::future::Future<Output = Option<MaybeTls>>,
@@ -120,7 +119,7 @@ pub(crate) async fn bounded(
     negotiated.ok().flatten()
 }
 
-pub(crate) async fn negotiate_unbounded(
+pub async fn negotiate_unbounded(
     stream: tokio::net::TcpStream,
     remote: bool,
     tls: Option<&tokio_rustls::TlsAcceptor>,

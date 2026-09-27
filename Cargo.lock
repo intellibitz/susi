@@ -7355,6 +7355,7 @@ dependencies = [
  "susi-core",
  "susi-error",
  "susi-gawd-agents",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "tokio",
@@ -7539,6 +7540,7 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "syn 3.0.6",
@@ -7550,6 +7552,15 @@ dependencies = [
  "ureq 3.4.2",
  "url",
  "x25519-dalek",
+]
+
+[[package]]
+name = "susi-http-transport"
+version = "0.1.0"
+dependencies = [
+ "hyper-util",
+ "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
@@ -7642,6 +7653,7 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
+ "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
  "tokio",

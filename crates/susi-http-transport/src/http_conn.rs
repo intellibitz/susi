@@ -1,6 +1,5 @@
 //! Hyper connection settings shared by the hyper-served SUSI surfaces
-//! (GEMI REST, GMCP). Canonical source: `crates/susi-server/src/http_conn.rs`,
-//! `#[path]`-mounted by `susi-gmcp`.
+//! (GEMI REST, GMCP).
 
 use hyper_util::rt::{TokioExecutor, TokioTimer};
 use hyper_util::server::conn::auto::Builder;
@@ -10,7 +9,7 @@ use hyper_util::server::conn::auto::Builder;
 const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Connection builder with the header-read bound applied.
-pub(crate) fn connection_builder() -> Builder<TokioExecutor> {
+pub fn connection_builder() -> Builder<TokioExecutor> {
     let mut builder = Builder::new(TokioExecutor::new());
     builder
         .http1()

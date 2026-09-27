@@ -23,12 +23,7 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::executor::GawdA2AExecutor;
 
-// Canonical dual-protocol (TLS-sniffing) transport shared with the GEMI
-// REST and GMCP servers.
-#[rustfmt::skip]
-#[path = "../../susi-server/src/dual_transport.rs"]
-mod dual_transport;
-use dual_transport::{negotiate_transport, MaybeTls};
+use susi_http_transport::dual_transport::{negotiate_transport, MaybeTls};
 
 /// An axum `Listener` that serves both plain HTTP and TLS on each bound
 /// socket by peeking at the first byte before deciding the transport.

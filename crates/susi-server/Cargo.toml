@@ -6,6 +6,7 @@ edition = "2024"
 
 [dependencies]
 susi-core = { workspace = true }
+susi-http-transport = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }

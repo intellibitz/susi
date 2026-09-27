@@ -1,0 +1,15 @@
+[package]
+name = "susi-http-transport"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Shared TLS-sniffing HTTP accept loop and Hyper connection builder."
+
+[dependencies]
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
+tokio-rustls = "0.26"
+hyper-util = { version = "0.1", features = ["full"] }
+
+[lints]
+workspace = true

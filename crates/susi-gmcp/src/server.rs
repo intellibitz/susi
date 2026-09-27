@@ -23,14 +23,8 @@ use std::{
 use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
 
-// Canonical dual-protocol (TLS-sniffing) transport shared with the GEMI
-// REST and A2A servers.
-#[rustfmt::skip]
-#[path = "../../susi-server/src/dual_transport.rs"]
-mod dual_transport;
-#[path = "../../susi-server/src/http_conn.rs"]
-mod http_conn;
-use dual_transport::negotiate_transport;
+use susi_http_transport::dual_transport::negotiate_transport;
+use susi_http_transport::http_conn;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
 type HttpService = StreamableHttpService<GmcpService, LocalSessionManager>;

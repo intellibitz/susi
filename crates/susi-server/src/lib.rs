@@ -50,8 +50,8 @@ use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
 // configured; anything else is plain HTTP — internal `http://127.0.0.1`
 // callers are unaffected. `require_tls_remote` drops non-TLS bytes from
 // off-host peers; loopback plaintext is always allowed.
-mod dual_transport;
-mod http_conn;
+use susi_http_transport::dual_transport;
+use susi_http_transport::http_conn;
 
 /// Concurrent GEMI REST connections; excess connections are closed at accept.
 const MAX_CONNECTIONS: usize = 512;

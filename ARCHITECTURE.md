@@ -72,16 +72,17 @@ never consume an unterminated source tail.
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, dev-build auto-install, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `auto_install`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
+| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder | `dual_transport`, `http_conn` | tokio, tokio-rustls, hyper-util | all workspace crates | no | no | sockets |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client` | peer feature planes | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
-| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` | peer feature planes | transport | tasks | yes |
+| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | `susi-gawd-{agents,swarm,a2a}` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, `susi-http-transport`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + `susi-abi` + server + tools + agents (composition root) | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
@@ -113,12 +114,8 @@ consumers), and a ratchet
 mounts from growing.
 
 Shared code that is still compiled into each consumer through `#[path]`
-(pending conversion to a crate edge):
-
-| Canonical source | What it is | Mounted by |
-|---|---|---|
-| `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GMCP, A2A |
-| `crates/susi-server/src/http_conn.rs` | HTTP connection helper | GMCP |
+(pending conversion to a crate edge): **none**. The
+`cross_crate_source_mounts_only_decrease` ratchet ceiling is 0.
 
 **`susi-core` is a Cargo dependency, not a mount.** Every plane declares
 `susi-core = { workspace = true }` and re-exports it (`pub use susi_core;`),
@@ -145,6 +142,11 @@ and A2A crates and re-exports their modules; `susi-gemi` depends on
 `susi-gemi-models` and re-exports it as `models`.
 `within_plane_crates_are_never_source_mounted_into_a_consumer` makes a
 remount a hard failure.
+
+**`susi-http-transport` is a Cargo dependency, not a mount.** GEMI REST,
+GMCP and A2A share one TLS-sniffing accept loop and one Hyper connection
+builder; `susi_server_transport_is_never_source_mounted_into_a_consumer`
+makes a remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary
 (`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`,

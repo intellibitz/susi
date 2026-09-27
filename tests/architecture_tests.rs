@@ -100,6 +100,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-error", 1),
     ("susi-config", 2),
     ("susi-native-client", 2),
+    ("susi-http-transport", 2),
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-native", 3),
@@ -726,7 +727,7 @@ fn unreachable_daemon_modules_only_decrease() {
 // code belongs in a crate reached through a Cargo edge. The count may only
 // go down.
 
-const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 3;
+const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 0;
 
 fn owning_crate(path: &std::path::Path) -> Option<PathBuf> {
     let crates = workspace_root().join("crates");
@@ -763,9 +764,10 @@ fn cross_crate_source_mounts() -> Vec<String> {
 #[test]
 fn cross_crate_source_mounts_only_decrease() {
     let mounts = cross_crate_source_mounts();
+    // Ceiling is 0: `len() <= 0` trips clippy::absurd_extreme_comparisons.
     assert!(
-        mounts.len() <= CROSS_CRATE_SOURCE_MOUNTS_CEILING,
-        "{} cross-crate #[path] mounts (ceiling {CROSS_CRATE_SOURCE_MOUNTS_CEILING}); \
+        mounts.is_empty(),
+        "{} cross-crate #[path] mounts remain (ceiling {CROSS_CRATE_SOURCE_MOUNTS_CEILING}); \
          depend on the owning crate instead: {mounts:#?}",
         mounts.len()
     );
