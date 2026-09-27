@@ -244,7 +244,8 @@ fn route_reset(provider: &str, json: bool, workspace: &Path) -> Result<()> {
     if !susi_gemi::susi_core::plane_bus::gemi::valid_provider_id(provider) {
         anyhow::bail!("provider must be 1-256 printable non-whitespace ASCII characters");
     }
-    let cleared = susi_gemi::routing::InferenceRouter::clear_provider_cooldown(provider);
+    let cleared =
+        susi_gemi::susi_core::plane_bus::gemi::ModelManager::clear_provider_cooldown(provider);
     if cleared {
         susi_gemi::susi_sandbox::manager::SusiAuditLogger::log_event(
             workspace,
