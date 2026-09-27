@@ -2370,6 +2370,16 @@
       "milestone": "RSI iteration 76/100: the Sovereign Dashboard reports the activity SUSI actually audits instead of invented categories (Mandate 2). susi sovereign-dashboard and the sovereign_dashboard MCP tool counted audit-log lines containing SELF_HEALING, SECURITY_HARDENING or MASKED, OPTIMIZATION or BLOAT_REJECTION, and MEMORY_CONSOLIDATION, and printed them as 'Autonomous Self-Heals', 'Security Hardening Pulses', 'Bloat Rejection Optimizations', and 'Neural Memory Distillations'. A repo-wide search found no code that ever logs any of those event types (the logged types include LATENCY_VIOLATION, INFERENCE_PLACEMENT, SUBSTRATE_AUDIT, EVOLUTION_DRIFT_AUDIT, HALLUCINATION_DETECTED, RELEASE_CUT, and the *MISSION_START family), so the dashboard displayed zeros for work that is never recorded, or a false count whenever an unrelated entry's text merely mentioned one of the words. It now parses each entry and counts it by its real type field, sorted by frequency, and says so plainly when there is no audited activity; the recent-activity trace is unchanged. A test writes three entries (one mentioning SELF_HEALING in its details) and proves the counts are LATENCY_VIOLATION 2 and MISSION_START 1 with no 'Self-Heals' category. cargo test -p susi-gmcp sovereign_dashboard and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "EvolutionManager::detect_bottlenecks",
+        "ref": "symbol://EvolutionManager::detect_bottlenecks"
+      },
+      "id": "EV-2022927-243",
+      "milestone": "RSI iteration 77/100: the autonomous drift audit's bottleneck section reports real failure events. EvolutionManager::detect_bottlenecks (part of perform_autonomous_drift_audit) counted 'Mission Failures' as entries of type MISSION_FAILED or TOOL_FAILURE, which no code logs, plus any entry whose details merely contained 'failed' (so 'retry the failed build' in a MISSION_START counted as a failure), then appended canned 'Recommended Genome Mutations' (a GPU-accelerated reflex, specialist agent synthesis) that nothing acts on and that were unrelated to the data. It now reports reflex latency violations and, per event type, the failure-signal events the substrate actually logs (types ending _FAILED, _VIOLATION, or _DETECTED, e.g. MOTION_RULE_PUSH_FAILED, HALLUCINATION_DETECTED, READINESS_VIOLATION), and drops the canned advice. A test writes a latency violation, a HALLUCINATION_DETECTED, and a MISSION_START mentioning 'failed', and proves the first two are counted, the third is not, and no mutation advice appears. cargo test -p susi-gawd evolution (2 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

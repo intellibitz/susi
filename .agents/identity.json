@@ -168,7 +168,7 @@
           "tier": 1
         },
         {
-          "function": "Drift audit: reports intents that recur often enough to be reflex candidates, the workspace experience-buffer state, and audit-log bottlenecks (latency violations, failures). Observational only — it writes no code; reflex synthesis is `ReflexSynthesizer::synthesize_wasm_reflex`, invoked on capability gaps. Mandate 20's \"Alpha-Self Evolution Order\" governs how evolution is sequenced (not Pillar IV's release \"Motion Rule\" — see that mandate's naming-collision note).",
+          "function": "Drift audit: reports intents that recur often enough to be reflex candidates, the workspace experience-buffer and receipt-staging state, and audit-log bottlenecks (reflex latency violations and logged *_FAILED/*_VIOLATION/*_DETECTED events, by type); it reports observations and prescribes nothing.",
           "symbol": "EvolutionManager",
           "tier": 1
         },
