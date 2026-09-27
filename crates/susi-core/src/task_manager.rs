@@ -144,31 +144,52 @@ impl TelemetryHistoryStore {
 
     fn load_history(&self) {
         let file = Self::get_history_file();
-        if file.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&file) {
-                if let Ok(map) = serde_json::from_str::<
-                    std::collections::HashMap<String, IntentTelemetryProfile>,
-                >(&content)
-                {
-                    for (k, v) in map {
-                        self.profiles.insert(k, v);
-                    }
+        let content = match std::fs::read_to_string(&file) {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                // Construction records the loss in the typed error-metrics sink.
+                let _emit = crate::susi_error::EaiError::io(format!(
+                    "read telemetry history {}: {e}",
+                    file.display()
+                ));
+                return;
+            }
+        };
+        match serde_json::from_str::<std::collections::HashMap<String, IntentTelemetryProfile>>(
+            &content,
+        ) {
+            Ok(map) => {
+                for (k, v) in map {
+                    self.profiles.insert(k, v);
                 }
+            }
+            Err(e) => {
+                let _emit = crate::susi_error::EaiError::io(format!(
+                    "discarding unparseable telemetry history {}: {e}",
+                    file.display()
+                ));
             }
         }
     }
 
+    /// Persist calibration atomically: this runs after every completed
+    /// task, and a torn plain write made `load_history` discard every
+    /// category's learned lease on the next start.
     pub fn save_history(&self) {
         let file = Self::get_history_file();
-        if let Some(parent) = file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
         let mut map = std::collections::HashMap::new();
         for r in self.profiles.iter() {
             map.insert(r.key().clone(), r.value().clone());
         }
-        if let Ok(json) = serde_json::to_string_pretty(&map) {
-            let _ = std::fs::write(file, json);
+        let result = serde_json::to_vec_pretty(&map)
+            .map_err(std::io::Error::other)
+            .and_then(|json| crate::susi_config::atomic_write_bytes(&file, &json));
+        if let Err(e) = result {
+            let _emit = crate::susi_error::EaiError::io(format!(
+                "save telemetry history {}: {e}",
+                file.display()
+            ));
         }
     }
 

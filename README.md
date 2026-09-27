@@ -72,7 +72,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    reporting one is recorded as `[ABANDONED]`, not left `Running`; finished
    records are pruned oldest-first past 512 so the daemon's table stays bounded.
    The watchdog's idle lease per task category is learned from the measured
-   gap between progress reports, not a constant.
+   gap between progress reports, not a constant, and persisted atomically.
 6. **Audit** — append-only HMAC accountability chain; cross-process writers
    serialize, complete JSONL records are emitted in one write, stale tip
    checkpoints rebuild from the verified log, and unreadable input fails closed.

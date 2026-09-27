@@ -1860,6 +1860,16 @@
       "milestone": "RSI iteration 25/100: the Mandate 32 idle lease is actually calibrated from observation. get_idle_threshold_ms documents a lease of 5x the worst observed idle gap per category, but TaskHandle::mark_completed always passed a hard-coded 100 ms as max_observed_idle_ms, so every calibrated category's p99_idle_interval_ms was the 200 ms floor and the lease collapsed to the operator floor whatever the real workload did. A slow category (e.g. model_download between chunk callbacks, or neural_inference prefill before its first token) was never learned. TaskHandle now records milliseconds since start of each progress report and folds every gap (start to first report, report to report, last report to completion) into max_idle_ms, which mark_completed passes to the telemetry store. Known limitation, stated rather than hidden: time a task spends paused is counted as idle, which can only loosen, never tighten, the learned lease. A unit test sleeps 60 ms between reports and proves the measured gap is at least 60 ms. cargo test -p susi-core task_manager (7 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "TelemetryHistoryStore::save_history",
+        "ref": "symbol://TelemetryHistoryStore::save_history"
+      },
+      "id": "EV-2022927-192",
+      "milestone": "RSI iteration 26/100: learned idle-lease calibration survives crashes. TelemetryHistoryStore::save_history rewrote data_dir/telemetry_history.json with a plain std::fs::write after every completed task and discarded the error; a crash or concurrent writer mid-write left a torn file, and load_history silently ignored the parse failure, so every category restarted uncalibrated with no signal that learned leases had been lost. save_history now serializes and writes through susi_config::atomic_write_bytes (staged file, fsync, rename), and read, parse, and write failures are recorded through EaiError::io instead of being swallowed. Known limitation, stated: two processes still last-writer-win on the whole map (no merge). cargo test -p susi-core task_manager (7 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
