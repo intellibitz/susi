@@ -500,6 +500,21 @@ fn spawn_and_record(
     }
 }
 
+/// A service that ran this long before dying was not crash-looping.
+const STABLE_RUN_SECS: u64 = 600;
+
+/// Whether `rec` has used up its restart budget. Only crashes close
+/// together count: a service that ran stably before this death gets a
+/// fresh budget. The counter used to grow for the daemon's whole life, so
+/// a service crashing once every few days was suspended on its tenth
+/// crash as if it were looping.
+fn crash_loop_exhausted(rec: &mut service_table::ServiceRecord, now: u64) -> bool {
+    if now.saturating_sub(rec.started_at) >= STABLE_RUN_SECS {
+        rec.restarts = 0;
+    }
+    rec.restarts >= MAX_RESTARTS
+}
+
 /// Respawn one supervised service after a crash; returns the new record.
 fn respawn(
     svc: &LeafService,
@@ -507,7 +522,11 @@ fn respawn(
     shutdown: &AtomicBool,
 ) {
     if let Some(rec) = table.iter_mut().find(|r| r.name == svc.name) {
-        if rec.restarts >= MAX_RESTARTS {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if crash_loop_exhausted(rec, now) {
             let until = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
@@ -846,6 +865,26 @@ mod tests {
         assert!(signal(pid, SIGTERM));
         let _ = child.wait();
         assert!(!service_table::pid_alive(pid));
+    }
+
+    #[test]
+    fn restart_budget_counts_only_recent_crashes() {
+        let mut rec = service_table::ServiceRecord {
+            name: "susi-native".into(),
+            pid: 1,
+            port: 18084,
+            started_at: 1_000,
+            restarts: MAX_RESTARTS,
+            disabled_until: None,
+            external: false,
+            stopped: false,
+        };
+        // Died quickly after its last start: still looping.
+        assert!(crash_loop_exhausted(&mut rec, 1_000 + 5));
+        assert_eq!(rec.restarts, MAX_RESTARTS);
+        // Ran stably before dying: fresh budget.
+        assert!(!crash_loop_exhausted(&mut rec, 1_000 + STABLE_RUN_SECS));
+        assert_eq!(rec.restarts, 0);
     }
 
     #[test]

@@ -170,6 +170,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     reflex cache is keyed per workspace and bounded. The published model is
     loaded once and reused until its bundle is republished.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
+    Supervised leaf services back off only on real crash loops: a service
+    that ran stably for 10 minutes before dying gets a fresh restart budget.
     No distilled "Tier-2 reasoning" weights or vision/audio encoders are
     claimed: native inference loads GGUF (llama/qwen2); everything else runs
     on real local (Ollama/vLLM) or cloud LLMs over HTTP.
