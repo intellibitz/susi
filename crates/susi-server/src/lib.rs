@@ -2186,6 +2186,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn silent_clients_are_dropped_after_the_negotiation_bound() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _silent = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let started = std::time::Instant::now();
+        let out = dual_transport::bounded(
+            std::time::Duration::from_millis(150),
+            "[test]",
+            dual_transport::negotiate_unbounded(stream, false, None, false, "[test]"),
+        )
+        .await;
+        assert!(out.is_none());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
     async fn negotiate_transport_serves_plain_http_on_loopback() {
         // ASCII 'G' of "GET" is not a TLS record — loopback plain HTTP proceeds.
         assert!(

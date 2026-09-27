@@ -94,6 +94,39 @@ pub(crate) async fn negotiate_transport(
     require_tls_remote: bool,
     surface: &str,
 ) -> Option<MaybeTls> {
+    bounded(
+        NEGOTIATE_TIMEOUT,
+        surface,
+        negotiate_unbounded(stream, remote, tls, require_tls_remote, surface),
+    )
+    .await
+}
+
+/// Bound on the first-byte sniff plus TLS handshake. Without it a client
+/// that connects and sends nothing holds its task and file descriptor
+/// forever — a slowloris that exhausts fds on the public port.
+const NEGOTIATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Runs a negotiation under `limit`; `None` (connection dropped) on expiry.
+pub(crate) async fn bounded(
+    limit: std::time::Duration,
+    surface: &str,
+    negotiation: impl std::future::Future<Output = Option<MaybeTls>>,
+) -> Option<MaybeTls> {
+    let negotiated = tokio::time::timeout(limit, negotiation).await;
+    if negotiated.is_err() {
+        eprintln!("{surface} dropped connection: no handshake within {limit:?}");
+    }
+    negotiated.ok().flatten()
+}
+
+pub(crate) async fn negotiate_unbounded(
+    stream: tokio::net::TcpStream,
+    remote: bool,
+    tls: Option<&tokio_rustls::TlsAcceptor>,
+    require_tls_remote: bool,
+    surface: &str,
+) -> Option<MaybeTls> {
     let mut probe = [0u8; 1];
     let is_tls = matches!(stream.peek(&mut probe).await, Ok(1) if probe[0] == 0x16);
     if is_tls {
