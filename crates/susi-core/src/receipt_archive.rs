@@ -17,6 +17,8 @@ use crate::susi_core::capture::ToolReceipt;
 
 pub const ARCHIVE_REL: &str = ".susi/receipt_archive.jsonl";
 pub const ARCHIVE_SCHEMA: &str = "susi/receipt_archive/v1";
+const ROTATE_BYTES: u64 = 16 * 1024 * 1024;
+const KEEP_GENERATIONS: u32 = 8;
 
 /// One append-only audit line. Response bodies are omitted — hashes + provenance only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -91,8 +93,6 @@ impl ReceiptArchive {
     /// shift up, and the oldest beyond `KEEP_GENERATIONS` is dropped.
     /// Total footprint stays under `ROTATE_BYTES * (KEEP_GENERATIONS + 1)`.
     fn rotate_if_large(path: &Path) {
-        const ROTATE_BYTES: u64 = 16 * 1024 * 1024;
-        const KEEP_GENERATIONS: u32 = 8;
         let oversized = std::fs::metadata(path)
             .map(|m| m.len() > ROTATE_BYTES)
             .unwrap_or(false);
@@ -136,12 +136,25 @@ impl ReceiptArchive {
     /// Read archived lines for audit tooling. Does **not** restore live ledger
     /// authority — callers must not feed these into citation resolution.
     pub fn load_audit_lines(workspace: &Path) -> Vec<ArchivedReceipt> {
-        let Ok(text) = std::fs::read_to_string(Self::path(workspace)) else {
-            return Vec::new();
-        };
-        text.lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str(l).ok())
+        let live = Self::path(workspace);
+        let name = live
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+        let mut paths = (1..=KEEP_GENERATIONS)
+            .rev()
+            .map(|generation| live.with_file_name(format!("{name}.{generation}")))
+            .collect::<Vec<_>>();
+        paths.push(live);
+        paths
+            .into_iter()
+            .filter_map(|path| std::fs::read_to_string(path).ok())
+            .flat_map(|text| {
+                text.lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .filter_map(|line| serde_json::from_str(line).ok())
+                    .collect::<Vec<_>>()
+            })
             .collect()
     }
 }
@@ -233,6 +246,35 @@ mod tests {
             !path.exists(),
             "rotation leaves no live file to append over"
         );
+    }
+
+    #[test]
+    fn load_reads_rotated_generations_oldest_first() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("oldest", &serde_json::json!({}), &ws.0, || {
+            Ok("one".to_string())
+        })
+        .unwrap();
+        let live = ReceiptArchive::path(&ws.0);
+        let name = live.file_name().unwrap().to_str().unwrap();
+        std::fs::rename(&live, live.with_file_name(format!("{name}.2"))).unwrap();
+        EvidenceSession::capture_call("middle", &serde_json::json!({}), &ws.0, || {
+            Ok("two".to_string())
+        })
+        .unwrap();
+        std::fs::rename(&live, live.with_file_name(format!("{name}.1"))).unwrap();
+        EvidenceSession::capture_call("newest", &serde_json::json!({}), &ws.0, || {
+            Ok("three".to_string())
+        })
+        .unwrap();
+
+        let tools = ReceiptArchive::load_audit_lines(&ws.0)
+            .into_iter()
+            .map(|receipt| receipt.tool)
+            .collect::<Vec<_>>();
+        assert_eq!(tools, ["oldest", "middle", "newest"]);
     }
 
     #[test]
