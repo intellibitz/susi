@@ -607,6 +607,18 @@ async fn handle_gemi_request(
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
             let placement = if let Some(model) = completion.model.as_deref() {
+                let (routable, cooled) = provider_ids();
+                if !completion.allow_cloud
+                    && routable
+                        .iter()
+                        .chain(cooled.iter())
+                        .any(|provider| provider == model)
+                {
+                    return Ok(api_error(
+                        StatusCode::BAD_REQUEST,
+                        "susi.allow_cloud=false conflicts with the requested cloud model",
+                    ));
+                }
                 json!({
                     "target": "explicit",
                     "provider": model,
@@ -616,11 +628,35 @@ async fn handle_gemi_request(
                     "allow_cloud": completion.allow_cloud,
                 })
             } else {
-                gemi::ModelManager::placement(completion.requires.as_deref(), completion.max_cost)
+                gemi::ModelManager::placement_with_cloud(
+                    completion.requires.as_deref(),
+                    completion.max_cost,
+                    completion.allow_cloud,
+                )
             };
+            if !completion.allow_cloud
+                && placement
+                    .get("local_ready")
+                    .and_then(|value| value.as_bool())
+                    == Some(false)
+            {
+                return Ok(api_error(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "cloud inference is prohibited and no ready local model is available",
+                ));
+            }
             let planned_model = placement
                 .get("provider")
                 .and_then(|value| value.as_str())
+                .or_else(|| {
+                    (!completion.allow_cloud)
+                        .then(|| {
+                            placement
+                                .get("local_model")
+                                .and_then(|value| value.as_str())
+                        })
+                        .flatten()
+                })
                 .map(str::to_string);
             let requested_model = completion.model.clone().or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
