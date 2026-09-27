@@ -172,10 +172,11 @@ impl GmcpClient {
                             resp.into_body().read_json::<Vec<GlobalMcpEntry>>()
                         {
                             if !remote_entries.is_empty() {
-                                let _ = fs::write(
+                                let _ = crate::susi_config::atomic_write_bytes(
                                     &reg_p,
                                     serde_json::to_string_pretty(&remote_entries)
-                                        .unwrap_or_default(),
+                                        .unwrap_or_default()
+                                        .as_bytes(),
                                 );
                             }
                         }
@@ -261,7 +262,7 @@ impl GmcpClient {
 
         config.mcp_servers.insert(name.to_string(), new_srv);
         if let Ok(updated) = serde_json::to_string_pretty(&config) {
-            if fs::write(&config_path, updated).is_ok() {
+            if crate::susi_config::atomic_write_bytes(&config_path, updated.as_bytes()).is_ok() {
                 return "SUCCESS_CONFIGURED".to_string();
             }
         }
@@ -299,7 +300,7 @@ impl GmcpClient {
         };
         config.mcp_servers.insert(name.to_string(), new_srv);
         if let Ok(updated) = serde_json::to_string_pretty(&config) {
-            if fs::write(&config_path, updated).is_ok() {
+            if crate::susi_config::atomic_write_bytes(&config_path, updated.as_bytes()).is_ok() {
                 return "SUCCESS_ADMITTED".to_string();
             }
         }
@@ -427,9 +428,11 @@ impl GmcpClient {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let _ = fs::write(
+        let _ = crate::susi_config::atomic_write_bytes(
             &registry_path,
-            serde_json::to_string_pretty(&entries).unwrap_or_default(),
+            serde_json::to_string_pretty(&entries)
+                .unwrap_or_default()
+                .as_bytes(),
         );
         entries
     }

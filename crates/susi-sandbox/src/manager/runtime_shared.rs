@@ -26,7 +26,10 @@ impl SandboxManager {
                 SusiConfig::default()
             };
             let json = serde_json::to_string_pretty(&cfg).unwrap_or_else(|_| "{}".to_string());
-            fs::write(config_path, json).map_err(|e| EaiError::filesystem(e.to_string()))?;
+            // No-replace: a concurrent bootstrapper (or the user) may have
+            // created config.json since the exists() check.
+            crate::susi_config::install_private_file(&config_path, json.as_bytes())
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
         }
         Ok(())
     }
@@ -46,11 +49,11 @@ impl SandboxManager {
     }
 
     pub fn save_mission_checkpoint(workspace: &Path, checkpoint: &NeuralCheckpoint) {
-        let susi_dir = workspace.join(".susi");
-        let _ = fs::create_dir_all(&susi_dir);
-        let _ = fs::write(
-            susi_dir.join("mission_checkpoint.json"),
-            serde_json::to_string_pretty(checkpoint).unwrap_or_default(),
+        let _ = crate::susi_config::atomic_write_bytes(
+            &workspace.join(".susi").join("mission_checkpoint.json"),
+            serde_json::to_string_pretty(checkpoint)
+                .unwrap_or_default()
+                .as_bytes(),
         );
     }
 
@@ -201,7 +204,7 @@ impl IntentBundleManager {
         let _ = fs::create_dir_all(&susi_dir);
         let json = serde_json::to_string_pretty(bundles)
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
-        fs::write(Self::bundles_path(workspace), json)
+        crate::susi_config::atomic_write_bytes(&Self::bundles_path(workspace), json.as_bytes())
             .map_err(|e| EaiError::filesystem(e.to_string()))
     }
 
