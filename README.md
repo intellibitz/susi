@@ -70,7 +70,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    start no longer leaves an empty `cluster.key` that strands the node.
    Operator bans fail closed: a damaged `peers_banned.json` refuses membership
    and is never overwritten, rather than reading as empty. The verified
-   roster (`peers.json`) is likewise never rewritten from a damaged read.
+   roster (`peers.json`) is likewise never rewritten from a damaged read,
+   including from `susi peers`, which reports the damage instead.
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
    The context graph (missions, tool calls, patch cycles, observations) is
    bounded, compacted by atomic rename, and re-read correctly by sibling

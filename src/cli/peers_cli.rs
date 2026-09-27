@@ -99,18 +99,17 @@ fn banned_path() -> PathBuf {
     susi_paths::SusiDirs::config_dir().join("peers_banned.json")
 }
 
-fn load_banned() -> Vec<serde_json::Value> {
-    let Ok(text) = std::fs::read_to_string(banned_path()) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&text).unwrap_or_default()
+/// Ban list and roster through the one strict reader the swarm uses:
+/// absent is empty, damaged or unreadable is an error. The lenient copies
+/// here read damage as empty, so `peers remove` rewrote the ban list with
+/// only the new ban and `peers add` admitted banned members and rewrote
+/// the roster from nothing.
+fn load_banned() -> Result<Vec<serde_json::Value>> {
+    susi_config::cluster_key::read_json_rows_strict(&banned_path()).map_err(anyhow::Error::msg)
 }
 
-fn load_registry() -> Vec<serde_json::Value> {
-    let Ok(text) = std::fs::read_to_string(registry_path()) else {
-        return Vec::new();
-    };
-    serde_json::from_str(&text).unwrap_or_default()
+fn load_registry() -> Result<Vec<serde_json::Value>> {
+    susi_config::cluster_key::read_json_rows_strict(&registry_path()).map_err(anyhow::Error::msg)
 }
 
 /// A persisted peer is only "live" if it ponged within the swarm's staleness
@@ -153,7 +152,13 @@ fn commit_membership(
     }
     let self_id = susi_config::cluster_key::wire_node_id();
     let term = commit_log::load_term();
-    let roster = load_registry();
+    let roster = match load_registry() {
+        Ok(roster) => roster,
+        Err(e) => {
+            eprintln!("note: membership record not pushed — {e}");
+            return;
+        }
+    };
     // Raft's leader-proposed configuration-entry rule: only the claimed
     // leader seals roster deltas. A standalone node (empty roster, no
     // leader yet) leads itself — `peers add` is the bootstrap path and
@@ -257,7 +262,15 @@ fn commit_membership(
     // its own eviction promptly (the stand-down marker) instead of
     // waiting for its next pull sweep. A re-add's subject is already
     // back in the roster and covered by the peer list.
-    let mut targets: Vec<String> = load_registry()
+    // Re-read: sealing applied the record to peers.json locally.
+    let current = match load_registry() {
+        Ok(current) => current,
+        Err(e) => {
+            eprintln!("note: membership record not pushed — {e}");
+            return;
+        }
+    };
+    let mut targets: Vec<String> = current
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -322,7 +335,7 @@ fn endorse_targets(roster: &[serde_json::Value], self_id: &str) -> Vec<(String, 
 fn local_cluster_status() -> serde_json::Value {
     let term = commit_log::load_term();
     let records = commit_log::load();
-    let roster = load_registry();
+    let roster = load_registry().unwrap_or_default();
     let bound = roster
         .iter()
         .filter(|p| {
@@ -355,7 +368,7 @@ fn local_cluster_status() -> serde_json::Value {
 /// signed-request channel, so bound members answer on key possession
 /// alone; unreachable members show as offline rather than blocking.
 fn status(json_out: bool) -> Result<()> {
-    let roster = load_registry();
+    let roster = load_registry()?;
     let targets: Vec<(String, String)> = roster
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
@@ -574,7 +587,7 @@ fn rekey(force: bool) -> Result<()> {
     // ledger never authorized.
     let self_id = susi_config::cluster_key::wire_node_id();
     let term = commit_log::load_term();
-    let roster_now = load_registry();
+    let roster_now = load_registry()?;
     let we_lead = term.leader == self_id || (term.leader.is_empty() && roster_now.is_empty());
     if !we_lead {
         bail!(
@@ -590,7 +603,7 @@ fn rekey(force: bool) -> Result<()> {
         bail!("could not generate a new cluster key (getrandom failed)");
     };
     let fingerprint = susi_config::cluster_key::key_fingerprint(&new_key);
-    let mut electorate: Vec<String> = load_registry()
+    let mut electorate: Vec<String> = load_registry()?
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -647,7 +660,7 @@ fn rekey(force: bool) -> Result<()> {
         "key_hex": hex::encode(new_key),
     });
     let bearer = susi_config::cluster_key::peer_bearer();
-    let targets: Vec<String> = load_registry()
+    let targets: Vec<String> = load_registry()?
         .iter()
         .filter(|n| n.get("admission").and_then(|a| a.as_str()) == Some("explicit"))
         .filter_map(|n| {
@@ -803,8 +816,8 @@ fn liveness(n: &serde_json::Value) -> &'static str {
 }
 
 fn list(json: bool) -> Result<()> {
-    let nodes = load_registry();
-    let banned = load_banned();
+    let nodes = load_registry()?;
+    let banned = load_banned()?;
     let evicted = susi_paths::SusiDirs::config_dir()
         .join("cluster_evicted.json")
         .exists();
@@ -918,7 +931,15 @@ fn list(json: bool) -> Result<()> {
 fn delegate_membership(kind: &str, node_id: &str, address: &str) -> bool {
     let self_id = susi_config::cluster_key::wire_node_id();
     let term = commit_log::load_term();
-    let we_lead = term.leader == self_id || (term.leader.is_empty() && load_registry().is_empty());
+    // A damaged roster cannot say who leads: stop before any local mutation.
+    let roster = match load_registry() {
+        Ok(roster) => roster,
+        Err(e) => {
+            eprintln!("error: {e} — repair it before changing membership");
+            return true;
+        }
+    };
+    let we_lead = term.leader == self_id || (term.leader.is_empty() && roster.is_empty());
     if we_lead {
         return false;
     }
@@ -928,15 +949,7 @@ fn delegate_membership(kind: &str, node_id: &str, address: &str) -> bool {
         );
         return true;
     }
-    propose_member(
-        &term.leader,
-        kind,
-        node_id,
-        address,
-        &load_registry(),
-        "",
-        "",
-    );
+    propose_member(&term.leader, kind, node_id, address, &roster, "", "");
     true
 }
 
@@ -946,7 +959,7 @@ fn remove(peer: &str) -> Result<()> {
     // the same lock).
     let _peers_lock =
         susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
-    let nodes = load_registry();
+    let nodes = load_registry()?;
     // An eviction is replicated cluster-wide — a broad prefix must not
     // wipe the membership in one shot. Exact id/address always works; a
     // prefix only resolves when it names exactly one member.
@@ -1009,7 +1022,7 @@ fn remove(peer: &str) -> Result<()> {
     // Record the ban — without it the evicted member re-verifies on its next
     // signed pong and silently rejoins. The swarm's signed-pong handler reads
     // peers_banned.json at admission.
-    let mut banned = load_banned();
+    let mut banned = load_banned()?;
     let now = now_secs();
     for n in &evicted {
         let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -1234,7 +1247,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
         verify_endpoint(&node_id, &address)?;
         // A banned member was operator-evicted — re-adding must be a
         // deliberate `peers unban` first, not an accidental re-add.
-        let banned = load_banned();
+        let banned = load_banned()?;
         if banned.iter().any(|b| {
             b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
                 || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
@@ -1272,7 +1285,7 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
         // receiver side, and locally via append's apply).
         let _peers_lock =
             susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
-        let mut nodes = load_registry();
+        let mut nodes = load_registry()?;
         nodes.retain(|n| {
             n.get("node_id").and_then(|v| v.as_str()) != Some(node_id.as_str())
                 && n.get("address").and_then(|v| v.as_str()) != Some(address.as_str())
@@ -1358,11 +1371,11 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
 fn probe(host: &str, port: Option<u16>) -> Result<()> {
     let ((node_id, checksum, bloom_hex, roster, pubkey, bind_sig), ip) = handshake(host, port)?;
     let address = format!("{}:{}", ip, peer_http_port());
-    let banned = load_banned().iter().any(|b| {
+    let banned = load_banned()?.iter().any(|b| {
         b.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
             || b.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
     });
-    let known = load_registry().iter().any(|n| {
+    let known = load_registry()?.iter().any(|n| {
         n.get("node_id").and_then(|v| v.as_str()) == Some(node_id.as_str())
             || n.get("address").and_then(|v| v.as_str()) == Some(address.as_str())
     });
@@ -1408,7 +1421,7 @@ fn probe(host: &str, port: Option<u16>) -> Result<()> {
 fn unban(peer: &str) -> Result<()> {
     let _peers_lock =
         susi_core::commit_log::FileLock::acquire(&susi_paths::SusiDirs::config_dir(), "peers");
-    let banned = load_banned();
+    let banned = load_banned()?;
     // Same unambiguous-prefix rule as `peers remove` — each lifted ban
     // is replicated cluster-wide, so a broad prefix must not sweep
     // multiple evictions open in one shot.

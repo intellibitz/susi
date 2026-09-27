@@ -2080,6 +2080,16 @@
       "milestone": "RSI iteration 47/100: a damaged extension-pack state no longer silently resets the operator's pack selection (Mandate 35). ensure_extensions_substrate runs on every zero-config start and read <extensions>/state.json with from_str(..).unwrap_or_default(), treating read errors the same way, so a torn or unreadable state.json became the default state; the function then auto-loaded every discovered pack, including ones the operator had unloaded, and wrote that state back, erasing the chosen active pack and the unload list. load_pack and unload_pack had the same read-then-rewrite shape. read_state now returns an error for damaged or unreadable state (absent is still the default). Zero-config startup, which must not brick, logs the damage and runs on the seeded default pack in memory without rewriting state.json; load_pack and unload_pack refuse with the error; list_packs, which only displays, shows default state. A test damages state.json after seeding and proves startup returns the default pack while leaving the file byte-identical, and an unload refuses and also leaves it untouched. cargo test -p susi-config extension (17 passed) and cargo clippy --workspace --all-targets -D warnings pass (extensions.rs is path-mounted into susi-core).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "peers_cli::load_registry / load_banned",
+        "ref": "file://src/cli/peers_cli.rs"
+      },
+      "id": "EV-2022927-214",
+      "milestone": "RSI iteration 48/100: the susi peers CLI no longer reads a damaged roster or ban list as empty. peers_cli.rs kept its own lenient readers of peers.json and peers_banned.json (read_to_string then from_str(..).unwrap_or_default()), duplicating the swarm readers fixed in iterations 37-38 and reopening their failure modes from the operator surface: peers remove rebuilt the ban list from a damaged read and wrote back only the new ban (erasing earlier ones), peers add checked bans against an empty list and rewrote the roster from nothing, and status/list reported a damaged roster as a standalone node. Both readers now delegate to susi_config::cluster_key::read_json_rows_strict (absent is empty, damaged or unreadable is an error). Mutating commands propagate the error; delegate_membership returns 'handled' without local mutation when the roster cannot say who leads; commit_membership skips the push with a note (its target list still re-reads after the local apply); local_cluster_status, which only displays, falls back to empty. Smoke-tested against the real binary with an isolated SUSI_HOME: with a truncated peers.json, susi peers remove and susi peers list now print the parse error and leave the file byte-identical, while the previous build (checked by stashing the change) printed 'no verified peers — this node runs standalone'. cargo clippy --workspace --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
