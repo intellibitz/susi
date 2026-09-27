@@ -82,6 +82,9 @@ pub mod registry_ipc;
 pub mod service_table;
 pub mod task_manager;
 pub mod telemetry;
+#[cfg(test)]
+#[path = "tests/telemetry.rs"]
+mod telemetry_tests;
 pub mod truth;
 
 // Top-level exports for the fundamental susi-core types
