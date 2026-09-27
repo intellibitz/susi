@@ -23,7 +23,7 @@
 
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const BLOCK: usize = 64;
 const PROTO: &str = "susi-peer-v1";
@@ -150,37 +150,9 @@ fn key_bytes_from_file(path: &std::path::Path) -> Option<[u8; 32]> {
     Some(key)
 }
 
-/// Write a key file with 0600 mode atomically (tmp + rename).
-fn write_key_file(path: &PathBuf, key: &[u8; 32]) -> bool {
-    if let Some(dir) = path.parent() {
-        if fs::create_dir_all(dir).is_err() {
-            return false;
-        }
-    }
-    let tmp = path.with_extension("tmp");
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
-        let written = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)
-            .and_then(|mut f| f.write_all(hex::encode(key).as_bytes()))
-            .is_ok();
-        if !written {
-            return false;
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        if fs::write(&tmp, hex::encode(key)).is_err() {
-            return false;
-        }
-    }
-    fs::rename(&tmp, path).is_ok()
+/// Write a key file with 0600 mode atomically (unique staging + rename).
+fn write_key_file(path: &Path, key: &[u8; 32]) -> bool {
+    super::json_util::atomic_write_bytes(path, hex::encode(key).as_bytes()).is_ok()
 }
 
 /// A fresh random 32-byte cluster key — the coordinator-side half of
@@ -207,7 +179,7 @@ pub fn stage_key(key: &[u8; 32]) -> bool {
 }
 
 /// Test seam: stage to an explicit path.
-pub fn stage_key_to(key: &[u8; 32], path: &PathBuf) -> bool {
+pub fn stage_key_to(key: &[u8; 32], path: &Path) -> bool {
     write_key_file(path, key)
 }
 

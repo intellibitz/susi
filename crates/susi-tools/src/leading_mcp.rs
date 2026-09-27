@@ -2,8 +2,7 @@
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -439,26 +438,7 @@ fn clear_user_disabled(config_dir: &Path, id: &str) -> Result<()> {
 }
 
 fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let tmp = path.with_extension("tmp");
-    let result = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.flush()?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
+    Ok(crate::susi_config::atomic_write_json_pretty(path, value)?)
 }
 
 #[cfg(test)]

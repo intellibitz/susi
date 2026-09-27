@@ -162,16 +162,9 @@ fn save_cooldowns(map: &std::collections::HashMap<String, u64>) {
     let Ok(bytes) = serde_json::to_vec(&live) else {
         return;
     };
-    let path = cooldowns_path();
-    if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
-    }
-    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
-    if std::fs::write(&tmp, &bytes).is_ok() {
-        let _ = std::fs::rename(&tmp, &path);
-    }
+    // Unique per writer, not just per process: two threads persisting
+    // quarantine at once must not share a staging file.
+    let _ = crate::susi_config::atomic_write_bytes(&cooldowns_path(), &bytes);
 }
 
 fn provider_down_map() -> &'static std::sync::RwLock<std::collections::HashMap<String, u64>> {

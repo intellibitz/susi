@@ -1005,9 +1005,7 @@ fn remove(peer: &str) -> Result<()> {
         .collect();
     let path = registry_path();
     let body = serde_json::to_string_pretty(&kept)?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, body)?;
-    std::fs::rename(&tmp, &path)?;
+    susi_config::atomic_write_bytes(&path, body.as_bytes())?;
     // Record the ban — without it the evicted member re-verifies on its next
     // signed pong and silently rejoins. The swarm's signed-pong handler reads
     // peers_banned.json at admission.
@@ -1025,10 +1023,10 @@ fn remove(peer: &str) -> Result<()> {
             }));
         }
     }
-    let bpath = banned_path();
-    let btmp = bpath.with_extension("json.tmp");
-    std::fs::write(&btmp, serde_json::to_string_pretty(&banned)?)?;
-    std::fs::rename(&btmp, &bpath)?;
+    susi_config::atomic_write_bytes(
+        &banned_path(),
+        serde_json::to_string_pretty(&banned)?.as_bytes(),
+    )?;
     drop(_peers_lock);
     for n in &evicted {
         let id = n.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -1319,10 +1317,10 @@ fn add(host: &str, port: Option<u16>) -> Result<()> {
             }));
             learned += 1;
         }
-        let path = registry_path();
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_string_pretty(&nodes)?)?;
-        std::fs::rename(&tmp, &path)?;
+        susi_config::atomic_write_bytes(
+            &registry_path(),
+            serde_json::to_string_pretty(&nodes)?.as_bytes(),
+        )?;
         if learned > 0 {
             println!("verified + admitted: {node_id} ({address}); learned {learned} roster entr(ies) via gossip");
         } else {
@@ -1466,10 +1464,10 @@ fn unban(peer: &str) -> Result<()> {
         .filter(|b| **b != lifted[0])
         .cloned()
         .collect();
-    let bpath = banned_path();
-    let btmp = bpath.with_extension("json.tmp");
-    std::fs::write(&btmp, serde_json::to_string_pretty(&kept)?)?;
-    std::fs::rename(&btmp, &bpath)?;
+    susi_config::atomic_write_bytes(
+        &banned_path(),
+        serde_json::to_string_pretty(&kept)?.as_bytes(),
+    )?;
     drop(_peers_lock);
     for b in &lifted {
         let id = b.get("node_id").and_then(|v| v.as_str()).unwrap_or("?");

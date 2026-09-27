@@ -451,10 +451,10 @@ impl SusiMemory {
                             .join("\n")
                     })
                     .unwrap_or_default();
-                let tmp = exp_file.with_extension("tmp");
-                if fs::write(&tmp, format!("{keep}\n")).is_ok() {
-                    let _ = fs::rename(&tmp, &exp_file);
-                }
+                let _ = crate::susi_config::atomic_write_bytes(
+                    &exp_file,
+                    format!("{keep}\n").as_bytes(),
+                );
             }
             if let Ok(mut f) = fs::OpenOptions::new()
                 .create(true)

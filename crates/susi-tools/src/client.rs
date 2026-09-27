@@ -501,19 +501,13 @@ fn write_live_cache(tools: &[McpTool]) -> std::io::Result<()> {
     let Some(mtime) = config_mtime_secs() else {
         return Ok(());
     };
-    let path = live_cache_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let cache = LiveToolCache {
         config_mtime_secs: mtime,
         probed_at_secs: now_secs(),
         tools: tools.to_vec(),
     };
     let body = serde_json::to_string(&cache).map_err(std::io::Error::other)?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, body)?;
-    fs::rename(tmp, path)
+    crate::susi_config::atomic_write_bytes(&live_cache_path(), body.as_bytes())
 }
 
 fn wildcard_tools() -> Vec<McpTool> {
