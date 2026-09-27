@@ -1540,6 +1540,16 @@
       "milestone": "ModelSubstrate binds its CUDA context in Drop, closing the remaining VRAM-leak paths (a request finishing after its model was evicted; cache replacement on a fresh request thread). GPU regression test drops the last weights handle on a context-less thread: failed with CUDA_ERROR_INVALID_CONTEXT before the fix and again when the Drop bind is removed; passes with it, alongside the eviction test, 3/3 runs serialized. Live on the rebuilt CUDA daemon: two load/unload cycles 106 -> 554 -> 106 MiB. fmt, clippy -D warnings (default and --features cuda), 2980 workspace tests (105 binaries, strict recount), xtask verify-architecture pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "audit_chain::verify_chain",
+        "ref": "symbol://verify_chain"
+      },
+      "id": "EV-2022927-160",
+      "milestone": "Audit chain HMAC verification re-enforced. 73bf0ec4 had commented out the MAC comparison in verify_chain, so from that commit until this fix the chain was hash-linked but not authenticated, contrary to the identity doc's 'append-only HMAC-SHA256 chain' claim. Root causes fixed instead of the check: racy host-key creation (now staged + hard-linked no-replace; wrong-length key is an error, not a regeneration) and crown_verify_tests verifying the checkout's audit.log under a temp-HOME key (now a scratch workspace). New tests: 16-thread concurrent key creation converges on one key; truncated key is rejected unmodified; forged MAC fails verification. fmt, clippy -D warnings --all-targets, 3046 workspace tests pass, 0 failed.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
