@@ -1730,6 +1730,16 @@
       "milestone": "RSI iteration 12/100: immutable reflex checkpoint generations now have bounded lifecycle retention. After the new manifest is durably published, SUSI preserves exactly the active and last-known-good checkpoint pairs and removes only generation files matching its strict <stem>.<u128-generation>.<u32-pid>.safetensors naming scheme plus their vocabulary sidecars; legacy configured weights and unrelated similarly named files are not candidates. Cleanup runs only after pointer publication, so failure cannot invalidate the active bundle, and any removal failures are surfaced in the successful training report as cleanup warnings rather than falsely turning a completed model publication into a failed training transaction. Regression coverage proves active/previous and unrelated files survive while an older generated pair is removed. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "claim_staged_samples / restore_claim",
+        "ref": "symbol://claim_staged_samples"
+      },
+      "id": "EV-2022927-179",
+      "milestone": "RSI iteration 13/100: reflex training no longer loses receipts captured during a training run. The trainer previously read the live workspace JSONL and deleted that same path after training, racing receipt capture; any append between read and delete vanished unlearned. Automatic and forced training now acquire the producer's cross-process staging lock, atomically rename the eligible buffer into a unique claim workspace, release the lock so capture immediately continues into a new live file, and train only the immutable claim. Success retires only the claim. Failure reacquires the lock and atomically restores claimed bytes before any newly captured bytes, preserving both ordering and data. Tests prove concurrent post-claim samples survive successful retirement and failed training restoration produces old-then-new records with no residual claim directory. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

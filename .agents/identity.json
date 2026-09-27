@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; hash-bound immutable generations publish atomically, retain active plus last-known-good, fail over after corruption, and report retention-cleanup failures.",
+      "summary": "Wasm under the data dir; receipt-backed samples are atomically claimed/restored without losing concurrent captures; cumulative training publishes hash-bound immutable generations, retains active plus last-known-good, and fails over after corruption.",
       "title": "Reflexes"
     },
     {

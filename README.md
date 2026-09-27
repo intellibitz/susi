@@ -92,6 +92,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     manifest retains one validated previous generation for automatic fallback.
     Generations older than active plus previous are pruned after publication;
     cleanup failures are returned as training warnings.
+    Training atomically claims a staging snapshot, leaving concurrently captured
+    receipts in the live buffer; failed training restores the claim ahead of them.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
