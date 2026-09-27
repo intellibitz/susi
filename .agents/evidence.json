@@ -2270,6 +2270,16 @@
       "milestone": "RSI iteration 66/100: the leaf-service supervisor detects crash loops instead of counting lifetime crashes. service_table::record increments ServiceRecord.restarts on every respawn and nothing decayed it; it was reset only after the MAX_RESTARTS (10) cap tripped and the 300 s suspension elapsed. A leaf service (susi-native, susi-sandbox, susi-config, ...) that crashed once every few days was therefore suspended on its tenth crash since daemon boot, a five-minute outage of that plane triggered by a pattern that is not a loop. respawn now consults crash_loop_exhausted: if the service ran at least STABLE_RUN_SECS (600 s) since its last start before dying, its budget resets before the cap check, so only crashes close together count toward suspension. A test proves a quick re-death after exhausting the budget still suspends, and a death after a stable run gets a fresh budget. cargo test -p susi-daemon restart_budget and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "HighDensityContextStore::persist_inspectable",
+        "ref": "symbol://HighDensityContextStore::persist_inspectable"
+      },
+      "id": "EV-2022927-233",
+      "milestone": "RSI iteration 67/100: the inspectable mission blackboard uses the one credential redactor and is replaced atomically. persist_inspectable (which writes <workspace>/.susi/last_blackboard.json, the Blackboard pillar's glass-box surface read by susi blackboard and the crown) redacted agent outputs with a private hard-coded list of four prefixes (sk-, ghp_, github_pat_, xoxb-), a duplicate of the governance list that missed its other entries (AIza, AWS key names, private-key headers) and never masked credential values held in the environment. It also wrote the file with an unchecked plain fs::write, so a concurrent reader could parse a torn file. Outputs now go through susi_config::redact_credentials (environment-held *_API_KEY/*_TOKEN/*_SECRET values plus the configured governance.secret_tokens, falling back to the bundled list) and the file is replaced through atomic_write_bytes. The existing test now also stores an AIza key and a ghp_ token and proves neither reaches the file. cargo test -p susi-core agent_types and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

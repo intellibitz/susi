@@ -81,7 +81,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    and is never overwritten, rather than reading as empty. The verified
    roster (`peers.json`) is likewise never rewritten from a damaged read,
    including from `susi peers`, which reports the damage instead.
-4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
+4. **Blackboard** — live shared state (`.susi/last_blackboard.json`, redacted
+   with the shared credential redactor and replaced atomically).
    The context graph (missions, tool calls, patch cycles, observations) is
    bounded, compacted by atomic rename, and re-read correctly by sibling
    processes after a compaction.

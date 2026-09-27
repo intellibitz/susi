@@ -139,15 +139,10 @@ impl HighDensityContextStore {
         let path = dir.join("last_blackboard.json");
         let mut entries = Vec::new();
         for (agent, output) in self.snapshot() {
-            let redacted = crate::susi_core::redact::redact_patterns(
-                &[
-                    "sk-".into(),
-                    "ghp_".into(),
-                    "github_pat_".into(),
-                    "xoxb-".into(),
-                ],
-                &output,
-            );
+            // The one credential redactor (env-held keys plus the configured
+            // governance patterns); a private four-prefix list here missed
+            // AIza/AWS/private-key tokens and every unprefixed held key.
+            let redacted = crate::susi_config::redact_credentials(&output);
             entries.push(serde_json::json!({
                 "agent": agent,
                 "bytes": output.len(),
@@ -159,9 +154,13 @@ impl HighDensityContextStore {
             "entries": entries,
             "agent_count": entries.len(),
         });
-        let _ = std::fs::write(
+        // Replaced whole: readers (`susi blackboard`, the crown's glass-box
+        // check) parse this file, and a torn write read as corrupt.
+        let _ = crate::susi_config::atomic_write_bytes(
             &path,
-            serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into()),
+            serde_json::to_string_pretty(&body)
+                .unwrap_or_else(|_| "{}".into())
+                .as_bytes(),
         );
         path
     }
@@ -191,6 +190,10 @@ mod tests {
     fn persist_inspectable_writes_blackboard_file() {
         let store = HighDensityContextStore::new(8);
         store.insert("SafetyAgent".into(), "clear".into());
+        store.insert(
+            "ScoutAgent".into(),
+            "keys: AIzaSyDemoKey123456 and ghp_demoToken987".into(),
+        );
         let dir = std::env::temp_dir().join(format!(
             "susi_bb_{}_{}",
             std::process::id(),
@@ -205,6 +208,9 @@ mod tests {
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("SafetyAgent"));
         assert!(text.contains("mission_blackboard"));
+        // Every governance pattern is masked, not only the old four.
+        assert!(!text.contains("AIzaSyDemoKey123456"), "{text}");
+        assert!(!text.contains("ghp_demoToken987"), "{text}");
         let _ = std::fs::remove_dir_all(dir);
     }
 }
