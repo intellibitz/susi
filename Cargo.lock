@@ -7157,13 +7157,10 @@ name = "susi-agents"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
  "getrandom 0.4.3",
- "hex",
  "libc",
  "parking_lot",
  "proptest",
@@ -7171,7 +7168,6 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -7179,8 +7175,6 @@ dependencies = [
  "susi-sandbox-client",
  "tokio",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7207,11 +7201,9 @@ dependencies = [
 name = "susi-core"
 version = "0.1.0"
 dependencies = [
- "chacha20poly1305",
  "criterion",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
  "getrandom 0.4.3",
  "hex",
@@ -7230,7 +7222,6 @@ dependencies = [
  "tokio",
  "tracing",
  "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7269,7 +7260,6 @@ dependencies = [
  "ureq 3.4.2",
  "wasmtime",
  "winapi",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7300,14 +7290,9 @@ name = "susi-gawd"
 version = "0.14.1"
 dependencies = [
  "axum",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
- "md5",
  "parking_lot",
  "proptest",
  "ra2a",
@@ -7316,7 +7301,6 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-abi",
  "susi-config",
@@ -7334,8 +7318,6 @@ dependencies = [
  "tokio-rustls",
  "tower",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7343,13 +7325,9 @@ name = "susi-gawd-a2a"
 version = "0.1.0"
 dependencies = [
  "axum",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
  "parking_lot",
  "proptest",
  "ra2a",
@@ -7358,7 +7336,6 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-config",
  "susi-core",
@@ -7372,20 +7349,15 @@ dependencies = [
  "tower",
  "tracing",
  "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
 name = "susi-gawd-agents"
 version = "0.1.0"
 dependencies = [
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
  "parking_lot",
  "proptest",
  "rayon",
@@ -7393,7 +7365,6 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-config",
  "susi-core",
@@ -7402,21 +7373,15 @@ dependencies = [
  "susi-sandbox-client",
  "tokio",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
 name = "susi-gawd-swarm"
 version = "0.1.0"
 dependencies = [
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
  "md5",
  "parking_lot",
  "proptest",
@@ -7425,7 +7390,6 @@ dependencies = [
  "reqwest 0.13.5",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-config",
  "susi-core",
@@ -7435,8 +7399,6 @@ dependencies = [
  "susi-sandbox-client",
  "tokio",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7444,15 +7406,11 @@ name = "susi-gemi"
 version = "0.14.1"
 dependencies = [
  "anyhow",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
  "hex",
  "indicatif",
- "libc",
  "once_cell",
  "parking_lot",
  "proptest",
@@ -7475,9 +7433,7 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tracing",
- "ureq 3.4.2",
  "url",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7485,12 +7441,9 @@ name = "susi-gemi-models"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
  "hex",
  "libc",
  "once_cell",
@@ -7511,9 +7464,7 @@ dependencies = [
  "tokenizers",
  "tokio",
  "tracing",
- "ureq 3.4.2",
  "url",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7521,13 +7472,10 @@ name = "susi-gmcp"
 version = "0.14.1"
 dependencies = [
  "bytes",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "fastembed",
  "flume",
- "getrandom 0.4.3",
  "headless_chrome",
  "hex",
  "http-body-util",
@@ -7541,7 +7489,6 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "shlex 2.0.1",
  "susi-abi",
  "susi-config",
@@ -7558,7 +7505,6 @@ dependencies = [
  "tracing",
  "ureq 3.4.2",
  "url",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7641,13 +7587,9 @@ version = "0.14.1"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -7656,7 +7598,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -7667,8 +7608,6 @@ dependencies = [
  "tokio-rustls",
  "tokio-stream",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -7676,13 +7615,9 @@ name = "susi-tools"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chacha20poly1305",
  "crossbeam",
  "dashmap",
- "ed25519-dalek",
  "flume",
- "getrandom 0.4.3",
- "hex",
  "parking_lot",
  "proptest",
  "regex",
@@ -7690,7 +7625,6 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
- "sha2 0.11.0",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -7699,8 +7633,6 @@ dependencies = [
  "susi-sandbox-client",
  "tokio",
  "tracing",
- "ureq 3.4.2",
- "x25519-dalek",
 ]
 
 [[package]]

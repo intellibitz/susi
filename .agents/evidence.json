@@ -2730,6 +2730,16 @@
       "milestone": "Dedup pass step 13: new crate `susi-adapters-llm` owns the SUSI-authored LLM provider wire (`inference_wire`: OpenAI chat/completions, Anthropic Messages, Gemini generateContent, Triton generate) that used to live in `susi-core`. This is the first-party adapter layer, distinct from genuinely vendored GPU source in `susi-vendor-candle`. `susi-core` re-exports the module so `susi_core::inference_wire` call sites in GEMI and GAWD keep resolving. Existing extraction/retry tests moved with the file (not executed this step). New regression test `susi_adapters_llm_is_never_source_mounted_into_a_consumer`. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "post-remount unused dependency sweep",
+        "ref": "file://Cargo.toml"
+      },
+      "id": "EV-2022928-279",
+      "milestone": "Dedup pass step 14: dropped Cargo edges that only the old `#[path]` mounts needed. After the contract crates became real dependencies, twelve feature-plane Cargo.toml files still listed ed25519-dalek / x25519-dalek / chacha20poly1305 (cluster-key crypto lives in susi-config), and several still listed ureq/hex/sha2/getrandom/libc/md5 with no remaining rustc use: susi-gemi, susi-gemi-models, susi-core, susi-gawd-agents, susi-gawd, susi-gawd-swarm, susi-gawd-a2a, susi-tools, susi-gmcp, susi-server, susi-agents, and x25519-dalek on susi-daemon. No Rust source changed. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

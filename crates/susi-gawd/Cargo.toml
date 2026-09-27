@@ -26,17 +26,9 @@ tokio = { workspace = true, features = ["rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rayon = "1.12"
-ureq = { version = "3.4.2", features = ["json"] }
-hex = { workspace = true }
-sha2 = { workspace = true }
-getrandom = { workspace = true }
-ed25519-dalek = { workspace = true }
-x25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
 shlex = "2.0"
-md5 = "0.8.1"
 ra2a = { version = "0.10.1", features = ["server", "client"] }
 axum = "0.8.9"
 tower = { version = "0.5", features = ["limit"] }

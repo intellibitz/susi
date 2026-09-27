@@ -16,9 +16,6 @@ regex = "1.13"
 anyhow = { workspace = true }
 reqwest = { workspace = true }
 getrandom = { workspace = true }
-ed25519-dalek = { workspace = true }
-x25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
 libc = "0.2"
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -26,9 +23,6 @@ dashmap = { workspace = true }
 parking_lot = { workspace = true }
 flume = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
-ureq = { version = "3.4.2", features = ["json"] }
-hex = { workspace = true }
-sha2 = { workspace = true }
 tracing = { workspace = true }
 
 [lints]
