@@ -519,6 +519,10 @@ impl InferenceRouter {
         requires: Option<&str>,
         max_cost: Option<f64>,
     ) {
+        if requires.is_some_and(|value| !Self::supports_requirement(value)) {
+            clouds.clear();
+            return;
+        }
         if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
             clouds.retain(|name| {
                 let name = name.to_ascii_lowercase();
@@ -535,6 +539,13 @@ impl InferenceRouter {
                 !name.contains("opus") && !name.contains("gpt-4-")
             });
         }
+    }
+
+    fn supports_requirement(requirement: &str) -> bool {
+        matches!(
+            requirement.to_ascii_lowercase().as_str(),
+            "text" | "chat" | "reasoning" | "code" | "vision"
+        )
     }
 
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
@@ -613,6 +624,23 @@ impl InferenceRouter {
         let local_model = crate::models::ModelManager::get_selected_model(None);
         let local_ready = Self::local_model_ready(local_model.as_deref(), &global_cfg);
         let stats = Self::load_stats_for(local_model.as_deref().unwrap_or(""));
+
+        if requires.is_some_and(|value| !Self::supports_requirement(value)) {
+            return PlacementDecision {
+                target: "unavailable".to_string(),
+                provider: None,
+                reason: "required capability is not supported by the current routing contract"
+                    .to_string(),
+                policy,
+                local_model,
+                local_ready,
+                local_stats: stats,
+                cloud_candidates: Vec::new(),
+                requires: requires.map(str::to_string),
+                max_cost,
+                allow_cloud,
+            };
+        }
 
         // Hard edge-privacy gate: local_only MAC mode never escalates unless
         // an explicit cloud.inference capability token was granted.
@@ -1093,6 +1121,20 @@ mod tests {
         assert_eq!(decision.provider, None);
         assert!(decision.reason.contains("required capability"));
         assert!(decision.cloud_candidates.is_empty());
+    }
+
+    #[test]
+    fn unknown_requirement_never_routes_to_an_arbitrary_provider() {
+        let decision = InferenceRouter::plan_placement_for(
+            &["openai-gpt-4o-mini".to_string()],
+            Some("telepathy"),
+            None,
+            true,
+        );
+        assert_eq!(decision.target, "unavailable");
+        assert_eq!(decision.provider, None);
+        assert!(decision.cloud_candidates.is_empty());
+        assert!(decision.reason.contains("not supported"));
     }
 
     #[test]

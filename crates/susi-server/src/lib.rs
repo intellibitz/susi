@@ -292,6 +292,12 @@ fn validated_requirement(value: &str) -> Result<String, &'static str> {
     {
         return Err("requires must be 1-64 letters, numbers, '-' or '_'");
     }
+    if !matches!(
+        value.to_ascii_lowercase().as_str(),
+        "text" | "chat" | "reasoning" | "code" | "vision"
+    ) {
+        return Err("requires must be one of: text, chat, reasoning, code, vision");
+    }
     Ok(value.to_string())
 }
 
@@ -634,17 +640,13 @@ async fn handle_gemi_request(
                     completion.allow_cloud,
                 )
             };
-            if !completion.allow_cloud
-                && placement.get("target").and_then(|value| value.as_str()) == Some("unavailable")
-            {
+            if placement.get("target").and_then(|value| value.as_str()) == Some("unavailable") {
                 return Ok(api_error(
                     StatusCode::SERVICE_UNAVAILABLE,
                     placement
                         .get("reason")
                         .and_then(|value| value.as_str())
-                        .unwrap_or(
-                            "cloud inference is prohibited and local inference is unavailable",
-                        ),
+                        .unwrap_or("no eligible inference target is available"),
                 ));
             }
             let planned_model = placement
@@ -1936,6 +1938,7 @@ mod tests {
         );
         assert!(placement_query(Some("requires=vision&requires=text")).is_err());
         assert!(placement_query(Some("requires=vision%20input")).is_err());
+        assert!(placement_query(Some("requires=telepathy")).is_err());
         assert!(placement_query(Some("max_cost=NaN")).is_err());
         assert!(placement_query(Some("max_cost=-1")).is_err());
         assert!(placement_query(Some("surprise=true")).is_err());
