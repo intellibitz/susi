@@ -402,29 +402,9 @@ impl CoreTools {
 
         // Drain both pipes concurrently: reading only after exit deadlocks
         // any command that writes more than a pipe buffer (~64 KiB) — the
-        // child blocks on write and never exits. Keep at most 8 MiB each.
-        fn drain(
-            pipe: Option<impl std::io::Read + Send + 'static>,
-        ) -> std::thread::JoinHandle<Vec<u8>> {
-            std::thread::spawn(move || {
-                const CAP: usize = 8 * 1024 * 1024;
-                let mut kept = Vec::new();
-                let Some(mut pipe) = pipe else {
-                    return kept;
-                };
-                let mut chunk = [0u8; 8192];
-                while let Ok(n) = pipe.read(&mut chunk) {
-                    if n == 0 {
-                        break;
-                    }
-                    let room = CAP.saturating_sub(kept.len());
-                    kept.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
-                }
-                kept
-            })
-        }
-        let mut stdout = Some(drain(child.stdout.take()));
-        let mut stderr = Some(drain(child.stderr.take()));
+        // child blocks on write and never exits.
+        let mut stdout = Some(drain_exec_pipe(child.stdout.take(), task_handle.clone()));
+        let mut stderr = Some(drain_exec_pipe(child.stderr.take(), task_handle.clone()));
 
         let mut stdout_buf = Vec::new();
         let mut stderr_buf = Vec::new();
@@ -441,7 +421,16 @@ impl CoreTools {
                 ));
             }
 
-            if let Ok(Some(status)) = child.try_wait() {
+            let status = match child.try_wait() {
+                Ok(status) => status,
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    task_handle.mark_failed(&format!("wait failed: {e}"));
+                    return Err(EaiError::process(format!("Exec wait failed: {e}")));
+                }
+            };
+            if let Some(status) = status {
                 if let Some(reader) = stdout.take() {
                     stdout_buf = reader.join().unwrap_or_default();
                 }
@@ -466,7 +455,6 @@ impl CoreTools {
                 }
             }
 
-            task_handle.report_progress();
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
     }
@@ -2768,6 +2756,63 @@ impl CoreTools {
             "Delegation request written to {}. The Swarm will await the IDE's response.",
             req_path.display()
         ))
+    }
+}
+
+/// Drain one child pipe on its own thread, keeping at most 8 MiB. Output is
+/// the command's only observable progress: each chunk read reports progress,
+/// so the idle-lease watchdog (Mandate 32) sees a silent, hung command as
+/// idle instead of a wait loop reporting progress on its behalf.
+fn drain_exec_pipe(
+    pipe: Option<impl std::io::Read + Send + 'static>,
+    task: std::sync::Arc<crate::susi_core::task_manager::TaskHandle>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        const CAP: usize = 8 * 1024 * 1024;
+        let mut kept = Vec::new();
+        let Some(mut pipe) = pipe else {
+            return kept;
+        };
+        let mut chunk = [0u8; 8192];
+        while let Ok(n) = pipe.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            task.report_progress();
+            let room = CAP.saturating_sub(kept.len());
+            kept.extend_from_slice(chunk.get(..n.min(room)).unwrap_or_default());
+        }
+        kept
+    })
+}
+
+#[cfg(test)]
+mod exec_pipe_tests {
+    use super::drain_exec_pipe;
+    use crate::susi_core::task_manager::SwarmTaskManager;
+    use std::sync::atomic::Ordering;
+
+    #[test]
+    fn exec_pipe_progress_comes_only_from_output() {
+        let manager = SwarmTaskManager {
+            tasks: dashmap::DashMap::new(),
+            cancel_map: dashmap::DashMap::new(),
+            pause_map: dashmap::DashMap::new(),
+        };
+        let silent = manager.register_task("exec_pipe_test", "silent");
+        let out = drain_exec_pipe(Some(std::io::Cursor::new(Vec::new())), silent.clone());
+        assert!(out.join().unwrap().is_empty());
+        assert_eq!(silent.progress_count.load(Ordering::Acquire), 0);
+
+        let chatty = manager.register_task("exec_pipe_test", "chatty");
+        let out = drain_exec_pipe(
+            Some(std::io::Cursor::new(b"hello".to_vec())),
+            chatty.clone(),
+        );
+        assert_eq!(out.join().unwrap(), b"hello");
+        assert!(chatty.progress_count.load(Ordering::Acquire) >= 1);
+        silent.mark_failed("done");
+        chatty.mark_failed("done");
     }
 }
 
