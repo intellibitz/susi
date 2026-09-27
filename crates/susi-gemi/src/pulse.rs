@@ -68,7 +68,7 @@ impl SusiPulse {
         }
 
         // Neural Reflex Attempt (Tier 0 Classifier)
-        if let Ok(model) = SusiAlphaModel::load(&global_dir) {
+        if let Ok(model) = SusiAlphaModel::cached(&global_dir) {
             if let Ok(neural_action) = model.predict_intent(prompt_trimmed) {
                 let mut final_action = neural_action;
                 if final_action.contains("list_directory") {

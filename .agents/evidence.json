@@ -1810,6 +1810,16 @@
       "milestone": "RSI iteration 20/100: a Tier-0 reflex failure no longer masquerades as a solved answer. When the neural classifier, generative reflex, and local full-answer tiers all failed, SusiPulse::reason returned Ok(\"I'm unable to generate an answer at this time.\") and cached it; ReflexEngine::try_solve then reported ReflexDecision::Solved, so GemiRuntime::reason_internal returned the apology and never reached cloud escalation or discovered providers, and the cached apology outlived the transient failure until the weights changed. reason() now returns Err when no tier answers (never cached), and try_generate_answer fails its task and returns Err on an empty decode instead of the same placeholder. The reflex cache is also keyed by workspace (a list_directory reflex embeds the workspace path and was served across workspaces) and bounded at 1024 entries in the long-lived daemon. Unit tests cover the bound and workspace separation; cargo test -p susi-gemi pulse and cargo clippy -p susi-gemi --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiAlphaModel::cached",
+        "ref": "symbol://SusiAlphaModel::cached"
+      },
+      "id": "EV-2022927-187",
+      "milestone": "RSI iteration 21/100: the Tier-0 reflex hot path stops reloading the published model per prompt, and a dead public surface is removed. SusiPulse::reason called SusiAlphaModel::load for every uncached prompt, re-reading the config, resolving the bundle manifest, re-hashing the vocabulary binding, and re-mmapping the weights against the sub-2ms reflex mandate. Meanwhile SusiAlphaModel::global() had no callers (a dead pub surface carrying two unwrap allowances) and was a OnceLock that could never observe new weights. global() is replaced by SusiAlphaModel::cached, which reuses the loaded model until the bundle fingerprint changes and caches only when the fingerprint read before and after the load match and are stable, so a publication that races the load (including the bootstrap bundle load itself publishes) can never pin an older model under a newer fingerprint. A unit test proves the bootstrap load is not cached, the next load is, and repeated calls share one Arc. cargo test -p susi-gemi alpha and cargo clippy -p susi-gemi --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

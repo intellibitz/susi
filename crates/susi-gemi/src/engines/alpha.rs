@@ -263,6 +263,12 @@ fn publish_checkpoint(
     })
 }
 
+/// A fingerprint that identifies one published bundle. Without a readable
+/// bundle mtime there is nothing to detect a republish by, so never cache.
+fn fingerprint_is_stable(fingerprint: &str) -> bool {
+    fingerprint != "missing" && fingerprint != "unknown-mtime"
+}
+
 fn file_sha256(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)
         .map_err(|error| anyhow!("read reflex weights {}: {error}", path.display()))?;
@@ -353,26 +359,28 @@ pub struct SusiAlphaModel {
 impl SusiAlphaModel {
     pub const DIM: usize = 128;
 
-    pub fn global() -> &'static Self {
-        static MODEL: std::sync::OnceLock<SusiAlphaModel> = std::sync::OnceLock::new();
-        MODEL.get_or_init(|| {
-            Self::load(&crate::susi_paths::SusiDirs::config_dir()).unwrap_or_else(|_| {
-                let device = crate::hardware::HardwareProfiler::get_candle_device();
-                let varmap = VarMap::new();
-                let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-                // A fresh VarMap only allocates two DIM x DIM layers; failure is
-                // device OOM at bootstrap, and this &'static global has no error path.
-                #[allow(clippy::unwrap_used)]
-                let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex")).unwrap();
-                #[allow(clippy::unwrap_used)] // same invariant as fc1
-                let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out")).unwrap();
-                Self {
-                    fc1,
-                    fc2,
-                    intents: Self::list_dynamic_intents(),
-                }
-            })
-        })
+    /// The published reflex model, reloaded only when the bundle fingerprint
+    /// changes. Callers on the reflex hot path would otherwise re-read the
+    /// config and re-mmap the weights for every uncached prompt.
+    pub fn cached(global_dir: &Path) -> Result<std::sync::Arc<Self>> {
+        type Slot = Option<(PathBuf, String, std::sync::Arc<SusiAlphaModel>)>;
+        static CACHE: once_cell::sync::Lazy<parking_lot::RwLock<Slot>> =
+            once_cell::sync::Lazy::new(|| parking_lot::RwLock::new(None));
+        let before = Self::get_model_fingerprint(global_dir);
+        if let Some((dir, cached_fingerprint, model)) = CACHE.read().as_ref() {
+            if dir == global_dir && *cached_fingerprint == before && fingerprint_is_stable(&before)
+            {
+                return Ok(model.clone());
+            }
+        }
+        let model = std::sync::Arc::new(Self::load(global_dir)?);
+        // Cache only when no publication raced the load (including the
+        // bootstrap bundle `load` itself may publish); otherwise an older
+        // model could be pinned under a newer fingerprint.
+        let after = Self::get_model_fingerprint(global_dir);
+        *CACHE.write() = (before == after && fingerprint_is_stable(&after))
+            .then(|| (global_dir.to_path_buf(), after, model.clone()));
+        Ok(model)
     }
 
     #[allow(unsafe_code)]
@@ -807,6 +815,19 @@ mod tests {
     fn vocabulary_validation_rejects_case_insensitive_duplicates() {
         let error = validate_vocabulary(vec!["status".into(), "STATUS".into()]).unwrap_err();
         assert!(error.to_string().contains("duplicate action"));
+    }
+
+    #[test]
+    fn cached_model_is_reused_until_the_bundle_is_republished() {
+        let dir = tempfile::tempdir().unwrap();
+        // First call publishes the bootstrap bundle, so it cannot be cached.
+        let bootstrap = SusiAlphaModel::cached(dir.path()).unwrap();
+        let first = SusiAlphaModel::cached(dir.path()).unwrap();
+        assert!(!std::sync::Arc::ptr_eq(&bootstrap, &first));
+        let again = SusiAlphaModel::cached(dir.path()).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&first, &again));
+        assert!(!fingerprint_is_stable("missing"));
+        assert!(!fingerprint_is_stable("unknown-mtime"));
     }
 
     #[test]

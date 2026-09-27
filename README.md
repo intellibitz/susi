@@ -105,7 +105,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     sample cannot fail the batch every cycle.
     When no reflex tier answers, the request escalates to deep reasoning
     (cloud/discovered providers) instead of returning a cached apology; the
-    reflex cache is keyed per workspace and bounded.
+    reflex cache is keyed per workspace and bounded. The published model is
+    loaded once and reused until its bundle is republished.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
