@@ -2070,6 +2070,16 @@
       "milestone": "RSI iteration 46/100: the leading-MCP control plane (susi mcp enable/disable and zero-config auto-enable) can no longer erase MCP configuration or re-admit servers the user turned off. leading_mcp.rs kept its own reader of mcp_config.json with serde_json::from_str(..).unwrap_or(empty), a duplicate of the GmcpClient reader fixed in iteration 44 with the same fail-open, so a torn config read as empty and enable/disable saved it back with one server, dropping every other configured server. load_user_disabled likewise read a damaged or unreadable user_disabled.json as an empty list: auto_enable_ready then re-enabled every server the user had disabled, and the next disable rewrote the list with a single entry. load_mcp_config now delegates to GmcpClient::read_mcp_config (made pub(crate); one strict reader instead of two), and load_user_disabled returns an error on damage or read failure, which mark/clear and auto_enable_ready propagate instead of acting on an empty list. A test proves the list round-trips, and that on a damaged file load, mark, and clear all fail and leave the file byte-identical. cargo test -p susi-tools leading_mcp (7 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "extensions::read_state / ensure_extensions_substrate",
+        "ref": "symbol://ensure_extensions_substrate"
+      },
+      "id": "EV-2022927-213",
+      "milestone": "RSI iteration 47/100: a damaged extension-pack state no longer silently resets the operator's pack selection (Mandate 35). ensure_extensions_substrate runs on every zero-config start and read <extensions>/state.json with from_str(..).unwrap_or_default(), treating read errors the same way, so a torn or unreadable state.json became the default state; the function then auto-loaded every discovered pack, including ones the operator had unloaded, and wrote that state back, erasing the chosen active pack and the unload list. load_pack and unload_pack had the same read-then-rewrite shape. read_state now returns an error for damaged or unreadable state (absent is still the default). Zero-config startup, which must not brick, logs the damage and runs on the seeded default pack in memory without rewriting state.json; load_pack and unload_pack refuse with the error; list_packs, which only displays, shows default state. A test damages state.json after seeding and proves startup returns the default pack while leaving the file byte-identical, and an unload refuses and also leaves it untouched. cargo test -p susi-config extension (17 passed) and cargo clippy --workspace --all-targets -D warnings pass (extensions.rs is path-mounted into susi-core).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

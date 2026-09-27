@@ -243,11 +243,17 @@ pub(crate) fn write_private_file(path: &Path, contents: &str) -> Result<(), Stri
     super::json_util::atomic_write_bytes(path, contents.as_bytes()).map_err(|e| e.to_string())
 }
 
-fn read_state() -> ExtensionsState {
+/// Pack state. Absent is the default state; damaged or unreadable is an
+/// error. Reading it as default made the next write reset the operator's
+/// active pack and re-load every pack they had unloaded.
+fn read_state() -> Result<ExtensionsState, String> {
     let path = state_path();
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
-        Err(_) => ExtensionsState::default(),
+        Ok(text) => {
+            serde_json::from_str(&text).map_err(|e| format!("damaged {}: {e}", path.display()))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ExtensionsState::default()),
+        Err(e) => Err(format!("unreadable {}: {e}", path.display())),
     }
 }
 
@@ -377,7 +383,18 @@ pub fn seed_default_pack() -> Result<PathBuf, String> {
 pub fn ensure_extensions_substrate() -> Result<ExtensionPack, String> {
     private_dir(&extensions_root())?;
     seed_default_pack()?;
-    let mut state = read_state();
+    let mut state = match read_state() {
+        Ok(state) => state,
+        Err(e) => {
+            // Zero-config must not brick on it, and must not overwrite it:
+            // run on the seeded default pack until the operator repairs it.
+            eprintln!("[extensions] {e}; using the default pack without rewriting state");
+            return Ok(ExtensionPack {
+                id: DEFAULT_PACK_ID.to_string(),
+                root: extensions_root().join(DEFAULT_PACK_ID),
+            });
+        }
+    };
     if !state.loaded.iter().any(|id| id == DEFAULT_PACK_ID) {
         state.loaded.push(DEFAULT_PACK_ID.to_string());
     }
@@ -446,7 +463,7 @@ pub fn invalidate_extension_caches() {
 /// List installed / discoverable packs.
 pub fn list_packs() -> Vec<PackStatus> {
     let _ = ensure_extensions_substrate();
-    let state = read_state();
+    let state = read_state().unwrap_or_default();
     let mut packs = Vec::new();
     let mut seen = std::collections::HashSet::new();
 
@@ -565,7 +582,7 @@ pub fn load_pack(id: &str) -> Result<PackStatus, String> {
         // this pack only, leave active pack unchanged.
         return Err(format!("pack `{id}` rejected: {e}"));
     }
-    let mut state = read_state();
+    let mut state = read_state()?;
     state.unloaded.retain(|x| x != id);
     if !state.loaded.iter().any(|x| x == id) {
         state.loaded.push(id.to_string());
@@ -591,7 +608,7 @@ pub fn unload_pack(id: &str) -> Result<PackStatus, String> {
         return Err("pack id must not be empty".into());
     }
     ensure_extensions_substrate()?;
-    let mut state = read_state();
+    let mut state = read_state()?;
     state.loaded.retain(|x| x != id);
     if !state.unloaded.iter().any(|x| x == id) {
         state.unloaded.push(id.to_string());

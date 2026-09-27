@@ -327,3 +327,25 @@ fn cloud_env_keys_are_read_from_file_without_touching_process_env() {
         assert!(!overlay.iter().any(|(k, _)| k == "SUSI_PROBE_SHADOWED_KEY"));
     });
 }
+
+#[test]
+fn damaged_state_is_never_rewritten_or_reset() {
+    with_temp_home(|| {
+        ensure_extensions_substrate().unwrap();
+        std::fs::write(state_path(), "{\"active\":\"my-pack\",\"unloaded\":[").unwrap();
+        // Zero-config startup falls back to the default pack in memory…
+        let pack = ensure_extensions_substrate().unwrap();
+        assert_eq!(pack.id, "default");
+        // …without overwriting the operator's damaged state.
+        assert_eq!(
+            std::fs::read_to_string(state_path()).unwrap(),
+            "{\"active\":\"my-pack\",\"unloaded\":["
+        );
+        // Explicit state changes refuse instead of resetting it.
+        assert!(unload_pack("default").is_err());
+        assert_eq!(
+            std::fs::read_to_string(state_path()).unwrap(),
+            "{\"active\":\"my-pack\",\"unloaded\":["
+        );
+    });
+}

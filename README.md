@@ -102,6 +102,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `mcp_config.json` instead of rewriting it as only the server being added;
    `susi mcp` and auto-enable share that reader, and a damaged disabled-list
    stops auto-enable instead of re-admitting servers the user turned off.
+   A damaged extension-pack `state.json` is never rewritten: startup runs on
+   the default pack and load/unload refuse until the operator repairs it.
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
     checked before any write, and write, spawn, or test failure rolls back
