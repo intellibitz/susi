@@ -168,7 +168,7 @@
           "tier": 1
         },
         {
-          "function": "Substrate self-healing: runs the test-driven evolutionary cycle that is Mandate 20's \"Alpha-Self Evolution Order\" (not Pillar IV's release \"Motion Rule\" — see that mandate's naming-collision note).",
+          "function": "Drift audit: reports intents that recur often enough to be reflex candidates, the workspace experience-buffer state, and audit-log bottlenecks (latency violations, failures). Observational only — it writes no code; reflex synthesis is `ReflexSynthesizer::synthesize_wasm_reflex`, invoked on capability gaps. Mandate 20's \"Alpha-Self Evolution Order\" governs how evolution is sequenced (not Pillar IV's release \"Motion Rule\" — see that mandate's naming-collision note).",
           "symbol": "EvolutionManager",
           "tier": 1
         },
