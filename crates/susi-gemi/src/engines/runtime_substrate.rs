@@ -12,9 +12,10 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use crate::qwen2_split as qwen2gguf;
-use candle_core::quantized::gguf_file;
-use candle_transformers::models::quantized_llama as llama;
+use susi_vendor_candle::candle_core;
+use susi_vendor_candle::candle_core::quantized::gguf_file;
+use susi_vendor_candle::candle_transformers::models::quantized_llama as llama;
+use susi_vendor_candle::qwen2_split as qwen2gguf;
 
 /// Inference graph for explicitly supported GGUF architectures. Dense Qwen2
 /// requires its bias-aware backend; Llama uses Candle's quantized Llama graph.

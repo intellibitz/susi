@@ -1,0 +1,32 @@
+[package]
+name = "susi-vendor-candle"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Candle/CUDA/Metal vendor substrate: device probe and Qwen2 GGUF split."
+
+[dependencies]
+tracing = { workspace = true }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+candle-core = { version = "0.11.0" }
+candle-nn = { version = "0.11.0" }
+candle-transformers = { version = "0.11.0" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
+candle-nn = { version = "0.11.0", features = ["metal", "accelerate"] }
+candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
+
+[features]
+default = []
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+susi-paths = { workspace = true }

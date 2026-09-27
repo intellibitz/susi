@@ -7435,9 +7435,6 @@ name = "susi-gemi"
 version = "0.14.1"
 dependencies = [
  "anyhow",
- "candle-core",
- "candle-nn",
- "candle-transformers",
  "chacha20poly1305",
  "crossbeam",
  "dashmap",
@@ -7463,6 +7460,7 @@ dependencies = [
  "susi-gemi-models",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-candle",
  "sysinfo",
  "tempfile",
  "tokenizers",
@@ -7478,7 +7476,6 @@ name = "susi-gemi-models"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "candle-core",
  "chacha20poly1305",
  "crossbeam",
  "dashmap",
@@ -7501,6 +7498,7 @@ dependencies = [
  "susi-error",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-candle",
  "tokenizers",
  "tokio",
  "tracing",
@@ -7705,6 +7703,17 @@ dependencies = [
  "serde_json",
  "susi-abi",
  "tokio",
+]
+
+[[package]]
+name = "susi-vendor-candle"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "susi-paths",
+ "tracing",
 ]
 
 [[package]]

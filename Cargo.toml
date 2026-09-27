@@ -12,6 +12,7 @@ members = [
     "crates/susi-sandbox",
     "crates/susi-sandbox-client",
     "crates/susi-http-transport",
+    "crates/susi-vendor-candle",
     "crates/susi-agents",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -84,6 +85,7 @@ susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-http-transport = { path = "crates/susi-http-transport" }
+susi-vendor-candle = { path = "crates/susi-vendor-candle" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }
 susi-gmcp = { path = "crates/susi-gmcp" }
@@ -169,9 +171,9 @@ candle-transformers = { git = "https://github.com/huggingface/candle", rev = "1b
 candle-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 candle-metal-kernels = { git = "https://github.com/huggingface/candle", rev = "1bbda281093b29a62ab2331b239894778b3aefb2" }
 
-# GPU backends live in susi-gemi (and models). Root only forwards features so
-# `cargo build -p susi --features cuda|mkl|metal` enables the inference stack
-# without the CLI package owning Candle dependencies.
+# GPU backends live in susi-vendor-candle. Root forwards features through
+# susi-gemi so `cargo build -p susi --features cuda|mkl|metal` enables the
+# inference stack without the CLI package owning Candle dependencies.
 [features]
 default = []
 cuda = ["susi-gemi/cuda"]

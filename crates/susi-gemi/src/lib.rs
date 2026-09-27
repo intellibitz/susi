@@ -55,8 +55,9 @@ pub use crate::susi_core::telemetry;
 pub use engines::runtime as engine;
 pub(crate) use engines::token_stream;
 pub use engines::{
-    alpha, candle_provider, http_provider, mcp_provider, qwen2_split, reflex, routing, speculative,
+    alpha, candle_provider, http_provider, mcp_provider, reflex, routing, speculative,
 };
+pub use susi_vendor_candle::qwen2_split;
 
 pub use models::cloud;
 pub use models::model_cache;

@@ -73,10 +73,11 @@ never consume an unterminated source tail.
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, dev-build auto-install, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `auto_install`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder | `dual_transport`, `http_conn` | tokio, tokio-rustls, hyper-util | all workspace crates | no | no | sockets |
+| `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split (forked from candle-transformers) | `device`, `qwen2_split`, re-exported `candle_core` / `candle_nn` / `candle_transformers` | candle-core, candle-nn, candle-transformers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | providers | model weights | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect) | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client` | peer feature planes | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` + `susi-http-transport` | peer feature planes | transport | tasks | yes |
@@ -147,6 +148,13 @@ remount a hard failure.
 GMCP and A2A share one TLS-sniffing accept loop and one Hyper connection
 builder; `susi_server_transport_is_never_source_mounted_into_a_consumer`
 makes a remount a hard failure.
+
+**`susi-vendor-candle` is a Cargo dependency, not a mount.** Candle,
+CUDA, Metal and the Qwen2 GGUF split live in one rank-2 crate so
+`susi-gemi` and `susi-gemi-models` share one feature graph and one
+process-wide device cache;
+`susi_vendor_candle_is_never_source_mounted_into_a_consumer` makes a
+remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary
 (`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`,

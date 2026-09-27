@@ -8,6 +8,7 @@ use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
 use std::io::Write;
 use std::sync::{Arc, OnceLock};
+use susi_vendor_candle::candle_core;
 use tokenizers::Tokenizer;
 
 pub trait NativeInferenceEngine: Send + Sync {

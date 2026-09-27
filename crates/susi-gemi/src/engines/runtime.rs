@@ -22,13 +22,15 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 #[cfg(test)]
-use candle_core::quantized::gguf_file;
-#[cfg(test)]
 use runtime_substrate::PromptFormat;
 #[cfg(test)]
 use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
+use susi_vendor_candle::candle_core;
+#[cfg(test)]
+use susi_vendor_candle::candle_core::quantized::gguf_file;
 #[cfg(test)]
 use tokenizers::Tokenizer;
 

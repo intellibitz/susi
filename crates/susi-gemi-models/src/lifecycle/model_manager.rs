@@ -98,7 +98,9 @@ impl ModelManager {
         let Ok(metadata) = file.metadata() else {
             return false;
         };
-        let Ok(content) = candle_core::quantized::gguf_file::Content::read(&mut file) else {
+        let Ok(content) =
+            susi_vendor_candle::candle_core::quantized::gguf_file::Content::read(&mut file)
+        else {
             return false;
         };
         !content.tensor_infos.is_empty()

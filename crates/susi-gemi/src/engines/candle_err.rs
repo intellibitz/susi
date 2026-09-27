@@ -4,6 +4,6 @@ use crate::susi_error::EaiError;
 
 /// Map a Candle error into [`EaiError::Inference`].
 #[inline]
-pub fn from_candle(err: candle_core::Error) -> EaiError {
+pub fn from_candle(err: susi_vendor_candle::candle_core::Error) -> EaiError {
     EaiError::inference(err.to_string())
 }

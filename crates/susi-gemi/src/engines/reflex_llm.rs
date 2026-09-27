@@ -9,6 +9,7 @@ use super::runtime::InferenceHost;
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_core::task_manager::SwarmTaskManager;
+use susi_vendor_candle::candle_core;
 use tokenizers::Tokenizer;
 
 pub struct GenerativeReflexEngine;

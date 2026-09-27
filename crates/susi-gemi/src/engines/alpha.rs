@@ -2,11 +2,14 @@
 // 100% Rust implementation using Candle for Tier 0 Reflex Distillation
 
 use anyhow::{anyhow, Result};
-use candle_core::{DType, Tensor};
-use candle_nn::{AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use susi_vendor_candle::candle_core::{DType, Tensor};
+use susi_vendor_candle::candle_nn;
+use susi_vendor_candle::candle_nn::{
+    AdamW, Linear, Module, Optimizer, ParamsAdamW, VarBuilder, VarMap,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DistillationStaged {

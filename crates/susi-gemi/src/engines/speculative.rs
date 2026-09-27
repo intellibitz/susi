@@ -50,13 +50,13 @@
 use crate::engine::{apply_repeat_penalty, InferenceHost};
 use crate::hardware::HardwareProfiler;
 use crate::models::ModelManager;
-use crate::qwen2_split::ModelWeights as Qwen2Weights;
 use crate::susi_core::task_manager::TaskHandle;
 use crate::susi_error::{EaiError, EaiResult};
-use candle_core::quantized::gguf_file;
-use candle_core::{Device, IndexOp, Tensor};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use susi_vendor_candle::candle_core::quantized::gguf_file;
+use susi_vendor_candle::candle_core::{Device, IndexOp, Tensor};
+use susi_vendor_candle::qwen2_split::ModelWeights as Qwen2Weights;
 use tokenizers::Tokenizer;
 
 /// Rules out llama.cpp's KB-scale `ggml-vocab-*.gguf` test fixtures (found
@@ -547,7 +547,7 @@ impl SpeculativeDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candle_core::quantized::gguf_file;
+    use susi_vendor_candle::candle_core::quantized::gguf_file;
 
     fn load(path: &Path) -> Qwen2Weights {
         let mut file = std::fs::File::open(path).expect("open gguf");

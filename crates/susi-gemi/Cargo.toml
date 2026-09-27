@@ -8,6 +8,7 @@ edition = "2021"
 susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
 susi-gemi-models = { workspace = true }
+susi-vendor-candle = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
@@ -38,21 +39,11 @@ ed25519-dalek = { workspace = true }
 x25519-dalek = { workspace = true }
 chacha20poly1305 = { workspace = true }
 
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-candle-core = { version = "0.11.0" }
-candle-nn = { version = "0.11.0" }
-candle-transformers = { version = "0.11.0" }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-candle-core = { version = "0.11.0", features = ["metal", "accelerate"] }
-candle-nn = { version = "0.11.0", features = ["metal", "accelerate"] }
-candle-transformers = { version = "0.11.0", features = ["metal", "accelerate"] }
-
 [features]
 default = []
-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
-mkl = ["candle-core/mkl", "candle-nn/mkl", "candle-transformers/mkl"]
-metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+cuda = ["susi-vendor-candle/cuda", "susi-gemi-models/cuda"]
+mkl = ["susi-vendor-candle/mkl"]
+metal = ["susi-vendor-candle/metal", "susi-gemi-models/metal"]
 
 [lints]
 workspace = true
