@@ -93,39 +93,31 @@ impl CoreTools {
             crate::susi_sandbox::manager::SusiAuditLogger::read_audit_log(workspace, 100);
         let mut report = "# SUSI Sovereign Dashboard - Invisible Work Audit\n\n".to_string();
 
-        let mut self_heals = 0;
-        let mut security_hardens = 0;
-        let mut optimizations = 0;
-        let mut memory_distillations = 0;
-
+        // Count what the audit log actually records, by event type. The
+        // dashboard used to count fixed categories (self-heals, security
+        // hardening, bloat rejections, memory distillations) that no code
+        // ever logs, so it reported invented zeros — or false hits when an
+        // unrelated entry's text merely contained one of those words.
+        let mut by_type: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for line in log_content.lines() {
-            if line.contains("SELF_HEALING") {
-                self_heals += 1;
-            }
-            if line.contains("SECURITY_HARDENING") || line.contains("MASKED") {
-                security_hardens += 1;
-            }
-            if line.contains("OPTIMIZATION") || line.contains("BLOAT_REJECTION") {
-                optimizations += 1;
-            }
-            if line.contains("MEMORY_CONSOLIDATION") {
-                memory_distillations += 1;
+            if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(kind) = entry["type"].as_str() {
+                    *by_type.entry(kind.to_string()).or_default() += 1;
+                }
             }
         }
-
-        report.push_str(&format!("- **Autonomous Self-Heals**: {}\n", self_heals));
-        report.push_str(&format!(
-            "- **Security Hardening Pulses**: {}\n",
-            security_hardens
-        ));
-        report.push_str(&format!(
-            "- **Bloat Rejection Optimizations**: {}\n",
-            optimizations
-        ));
-        report.push_str(&format!(
-            "- **Neural Memory Distillations**: {}\n\n",
-            memory_distillations
-        ));
+        let mut counts: Vec<(String, usize)> = by_type.into_iter().collect();
+        counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        if counts.is_empty() {
+            report.push_str("- No audited substrate activity in the last 100 entries.\n\n");
+        } else {
+            report.push_str("### Audited activity by event type (last 100 entries):\n");
+            for (kind, count) in &counts {
+                report.push_str(&format!("- **{kind}**: {count}\n"));
+            }
+            report.push('\n');
+        }
 
         report.push_str("### Recent Autonomous Activity Trace:\n");
         for line in log_content.lines().rev().take(10) {
@@ -2785,6 +2777,32 @@ fn drain_exec_pipe(
         }
         kept
     })
+}
+
+#[cfg(test)]
+mod sovereign_dashboard_tests {
+    use super::CoreTools;
+
+    #[test]
+    fn dashboard_counts_real_event_types_only() {
+        let ws = std::env::temp_dir().join(format!("susi-dash-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(ws.join(".susi")).unwrap();
+        let entry =
+            |t: &str, d: &str| serde_json::json!({ "type": t, "details": d, "ts": 1 }).to_string();
+        let log = [
+            entry("LATENCY_VIOLATION", "reflex 3ms"),
+            entry("LATENCY_VIOLATION", "reflex 4ms"),
+            entry("MISSION_START", "summarize SELF_HEALING notes"),
+        ]
+        .join("\n");
+        std::fs::write(ws.join(".susi/audit.log"), log).unwrap();
+        let report = CoreTools::sovereign_dashboard(&serde_json::json!({}), &ws).unwrap();
+        assert!(report.contains("**LATENCY_VIOLATION**: 2"), "{report}");
+        assert!(report.contains("**MISSION_START**: 1"), "{report}");
+        assert!(!report.contains("Self-Heals"), "{report}");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 }
 
 #[cfg(test)]

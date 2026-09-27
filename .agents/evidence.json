@@ -2360,6 +2360,16 @@
       "milestone": "RSI iteration 75/100: the bundled configuration no longer advertises settings that do nothing. Following iteration 74 (an unread intent_classify section), every SusiConfig accessor was checked for callers (all used) and every top-level key of config/config.default.json was searched for as a quoted string or identifier across crates/ and src/. Four keys are read by nothing and have no hard-coded twin: susi_repo, stdin_timeout_secs (no stdin timeout exists), beacon_interval_secs (no beacon feature exists), and susi_alpha_default (reflex weights are addressed through alpha_weights_filename/alpha_weights_url). An operator editing them saw no effect, and two implied behavior SUSI does not have. They are removed from the bundled defaults (existing host configs keep them harmlessly; merge only adds missing keys). external_peer_agents_note, also unread, is documentation for operators and is kept. cargo test -p susi-config (44 passed), -p susi-sandbox (29 passed), --test architecture_tests (19 passed), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "CoreTools::sovereign_dashboard",
+        "ref": "symbol://CoreTools::sovereign_dashboard"
+      },
+      "id": "EV-2022927-242",
+      "milestone": "RSI iteration 76/100: the Sovereign Dashboard reports the activity SUSI actually audits instead of invented categories (Mandate 2). susi sovereign-dashboard and the sovereign_dashboard MCP tool counted audit-log lines containing SELF_HEALING, SECURITY_HARDENING or MASKED, OPTIMIZATION or BLOAT_REJECTION, and MEMORY_CONSOLIDATION, and printed them as 'Autonomous Self-Heals', 'Security Hardening Pulses', 'Bloat Rejection Optimizations', and 'Neural Memory Distillations'. A repo-wide search found no code that ever logs any of those event types (the logged types include LATENCY_VIOLATION, INFERENCE_PLACEMENT, SUBSTRATE_AUDIT, EVOLUTION_DRIFT_AUDIT, HALLUCINATION_DETECTED, RELEASE_CUT, and the *MISSION_START family), so the dashboard displayed zeros for work that is never recorded, or a false count whenever an unrelated entry's text merely mentioned one of the words. It now parses each entry and counts it by its real type field, sorted by frequency, and says so plainly when there is no audited activity; the recent-activity trace is unchanged. A test writes three entries (one mentioning SELF_HEALING in its details) and proves the counts are LATENCY_VIOLATION 2 and MISSION_START 1 with no 'Self-Heals' category. cargo test -p susi-gmcp sovereign_dashboard and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
