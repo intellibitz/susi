@@ -382,6 +382,7 @@ impl SwarmTaskManager {
             result: Arc::clone(&result),
         };
 
+        self.prune_finished();
         self.tasks.insert(task_id.clone(), record);
         self.cancel_map
             .insert(task_id.clone(), Arc::clone(&cancel_flag));
@@ -399,6 +400,37 @@ impl SwarmTaskManager {
             name: name.to_string(),
             start_time: Instant::now(),
         })
+    }
+
+    /// Upper bound on task records. Finished records were never removed, so
+    /// the long-lived daemon's task table (and every `list_tasks` payload)
+    /// grew by one entry per inference, download, and command forever.
+    const MAX_TASK_RECORDS: usize = 512;
+
+    /// Drop the oldest finished records once the table is over its bound.
+    /// Live (Running/Paused) tasks are never evicted.
+    fn prune_finished(&self) {
+        if self.tasks.len() < Self::MAX_TASK_RECORDS {
+            return;
+        }
+        let mut finished: Vec<(u64, String)> = self
+            .tasks
+            .iter()
+            .filter(|r| {
+                !matches!(
+                    TaskStatus::from(r.status.load(Ordering::Acquire)),
+                    TaskStatus::Running | TaskStatus::Paused
+                )
+            })
+            .map(|r| (r.start_time_secs, r.key().clone()))
+            .collect();
+        finished.sort_unstable();
+        let excess = (self.tasks.len() + 1).saturating_sub(Self::MAX_TASK_RECORDS);
+        for (_, task_id) in finished.into_iter().take(excess) {
+            self.tasks.remove(&task_id);
+            self.cancel_map.remove(&task_id);
+            self.pause_map.remove(&task_id);
+        }
     }
 
     fn start_watchdog(&self) {
@@ -627,6 +659,25 @@ mod tests {
                 .expect("paused task did not wake");
             worker.join().unwrap();
         }
+    }
+
+    #[test]
+    fn finished_records_are_bounded_and_live_tasks_survive() {
+        let manager = SwarmTaskManager {
+            tasks: DashMap::new(),
+            cancel_map: DashMap::new(),
+            pause_map: DashMap::new(),
+        };
+        let live = manager.register_task("lifecycle_test", "live");
+        for _ in 0..SwarmTaskManager::MAX_TASK_RECORDS * 2 {
+            manager
+                .register_task("lifecycle_test", "done")
+                .mark_failed("done");
+        }
+        assert!(manager.tasks.len() <= SwarmTaskManager::MAX_TASK_RECORDS);
+        assert_eq!(manager.cancel_map.len(), manager.tasks.len());
+        assert_eq!(manager.pause_map.len(), manager.tasks.len());
+        assert!(manager.tasks.contains_key(&live.task_id));
     }
 
     #[test]

@@ -68,7 +68,7 @@
     },
     {
       "id": 5,
-      "summary": "Mandate 26 (not naked secrets); traces + blackboard + governance + crown reports + `.susi/receipt_archive.jsonl` (audit-only; truth uses live ledger); secrets redacted (Mandate 38). Task listings never show a phantom Running task: a handle released without an outcome finishes as [ABANDONED].",
+      "summary": "Mandate 26 (not naked secrets); traces + blackboard + governance + crown reports + `.susi/receipt_archive.jsonl` (audit-only; truth uses live ledger); secrets redacted (Mandate 38). Task listings never show a phantom Running task: a handle released without an outcome finishes as [ABANDONED], and finished records are pruned oldest-first past 512 while live tasks are kept.",
       "title": "Glass box"
     },
     {

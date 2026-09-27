@@ -1840,6 +1840,16 @@
       "milestone": "RSI iteration 23/100: the swarm task table no longer shows phantom Running tasks. A TaskHandle released without mark_completed/mark_failed (an owner returning early through ?, e.g. GenerativeReflexEngine::try_solve/try_generate_answer when the reflex model or tokenizer is not provisioned, or ModelManager's foreground install on artifact_name failure) left its record Running forever, and categories with fewer than three calibrated samples are never reaped by the idle watchdog, so glass-box task listings reported work that had already ended. TaskHandle now implements Drop: a handle released while still Running or Paused finishes as Failed with an [ABANDONED] result. finish() is first-writer-wins, so an explicit outcome, a kill, or a watchdog stall is never overwritten, and background downloads that hold an Arc clone are unaffected until the last clone drops. A unit test proves a dropped live handle is recorded as abandoned and an explicitly failed handle keeps its real error. cargo test -p susi-core task_manager (5 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SwarmTaskManager::prune_finished",
+        "ref": "symbol://SwarmTaskManager::prune_finished"
+      },
+      "id": "EV-2022927-190",
+      "milestone": "RSI iteration 24/100: the daemon's swarm task table is bounded. SwarmTaskManager never removed a record, so every neural inference, reflex call, model download, exec_command, and fleet agent dispatch added one TaskRecord plus a cancel flag and a pause flag for the life of the process, and every list_tasks payload grew with them. register_task now prunes the oldest finished (Completed/Failed/Stalled/Killed) records once the table reaches 512, removing their cancel and pause entries too; Running and Paused tasks are never evicted. A unit test registers 1024 finished tasks beside one live task and proves the table stays within the bound, the three maps stay in step, and the live task survives. cargo test -p susi-core task_manager (6 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
