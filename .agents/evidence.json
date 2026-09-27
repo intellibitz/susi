@@ -2550,6 +2550,16 @@
       "milestone": "RSI iteration 94/100: natural-intent ingestion into the evidence ledger no longer drops short intents, stores them redacted, and writes the ledger atomically. ingest_natural_intent (susi pulse / sovereign-memory ingestion into .agents/evidence.json or .susi/evidence.json) treated an intent as 'already present in memory' when any existing milestone merely contained it as a substring; with long milestones full of common words, short intents such as 'add retries' were silently discarded. It also stored the operator's text raw and rewrote the governance ledger with a plain std::fs::write, so a torn write corrupted evidence.json. Duplicates are now exact case-insensitive matches of the trimmed text, the intent passes through susi_config::redact_credentials before storage, and the ledger is replaced through atomic_write_bytes. A test ingests 'add retries' beside the milestone 'add retries to the downloader' (stored, count 2), repeats it as 'Add Retries' (reported as already present, count unchanged), and ingests a ghp_ token (absent from the file). cargo test -p susi-gawd intent_classify (3 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "admin::version write_whole",
+        "ref": "file://crates/susi-gawd/src/admin/version.rs"
+      },
+      "id": "EV-2022927-261",
+      "milestone": "RSI iteration 95/100: version sync replaces its targets atomically. susi admin sync / enforce_version_consistency and the release path rewrite Cargo.toml's [package] version, the README version badge, the governance ledgers (.agents/identity.json, roadmap.json, evidence.json), and the binary.hash trust anchor, all with plain std::fs::write; a crash or kill mid-write could leave Cargo.toml or a ledger truncated (breaking the build or the governance record), and the binary.hash write was a second writer of the trust anchor that iteration 31 had made atomic in daemon_state. A single write_whole helper now routes all four through susi_config::atomic_write_bytes, and ingest_natural_intent's first-run evidence seed does the same. Verified that no plain fs::write remains in version.rs outside its test module. cargo test -p susi-gawd admin (17 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -94,7 +94,7 @@ impl SusiAdmin {
             }
         }
         if changed {
-            fs::write(path, updated.join("\n") + "\n")?;
+            write_whole(path, (updated.join("\n") + "\n").as_bytes())?;
         }
         Ok(changed)
     }
@@ -268,7 +268,7 @@ impl SusiAdmin {
             // line-ending drift would still dirty the tree on every audit.
             // Only write when the reconstructed file actually differs.
             if new_content != readme_content {
-                fs::write(&readme_path, new_content)?;
+                write_whole(&readme_path, new_content.as_bytes())?;
             }
         }
 
@@ -297,7 +297,7 @@ impl SusiAdmin {
                 }
                 let pretty = serde_json::to_string_pretty(&doc)
                     .map_err(|e| EaiError::config(format!("{file_name}: serialize: {e}")))?;
-                fs::write(&path, pretty + "\n")?;
+                write_whole(&path, (pretty + "\n").as_bytes())?;
             }
         }
 
@@ -322,7 +322,7 @@ impl SusiAdmin {
                     &hash_source,
                 )
             {
-                fs::write(&hash_file, hash).map_err(|e| EaiError::filesystem(e.to_string()))?;
+                write_whole(&hash_file, hash.as_bytes())?;
             }
         }
 
@@ -376,6 +376,14 @@ impl SusiAdmin {
 
         Ok(())
     }
+}
+
+/// Replace a sync target whole. `susi admin sync` rewrites Cargo.toml, the
+/// README badge, the governance ledgers, and the binary.hash trust anchor;
+/// a crash mid plain-write could leave any of them truncated.
+fn write_whole(path: &Path, bytes: &[u8]) -> EaiResult<()> {
+    crate::susi_config::atomic_write_bytes(path, bytes)
+        .map_err(|e| EaiError::filesystem(format!("write {}: {e}", path.display())))
 }
 
 #[cfg(test)]

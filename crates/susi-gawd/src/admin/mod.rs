@@ -255,7 +255,11 @@ impl SusiAdmin {
             if !evidence_path.exists() {
                 fs::create_dir_all(workspace.join(".susi"))
                     .map_err(|e| EaiError::filesystem(e.to_string()))?;
-                fs::write(&evidence_path, crate::self_core::AlphaSelf::EVIDENCE_JSON)?;
+                crate::susi_config::atomic_write_bytes(
+                    &evidence_path,
+                    crate::self_core::AlphaSelf::EVIDENCE_JSON.as_bytes(),
+                )
+                .map_err(|e| EaiError::filesystem(e.to_string()))?;
             }
         }
 
