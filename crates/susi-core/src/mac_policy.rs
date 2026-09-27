@@ -527,11 +527,22 @@ impl MacPolicy {
         }
     }
 
+    /// Tools that send data off-host but whose names match none of the
+    /// substring rules below; without this list they were classified as
+    /// local reads and bypassed the egress gate under `local_only`.
+    const EGRESS_TOOLS: &'static [&'static str] = &[
+        "a2a_delegate",      // task to a remote A2A peer
+        "agents_send",       // message to a cloud agent task
+        "power_reason",      // delegation to remote MCP servers
+        "meta_scout_agents", // capability listing from connected remotes
+    ];
+
     /// Map a tool name to required (action, resource) pairs.
     pub fn requirements_for_tool(tool: &str) -> Vec<(&'static str, &'static str)> {
         let t = tool.to_ascii_lowercase();
         // Network / cloud surfaces
-        if t.contains("browser")
+        if Self::EGRESS_TOOLS.contains(&t.as_str())
+            || t.contains("browser")
             || t.starts_with("mcp_")
             || t.starts_with("leading_mcp")
             || t.contains("scout_model")
@@ -577,7 +588,7 @@ impl MacPolicy {
     pub fn authorize_tool(
         &self,
         tool: &str,
-        _arg: &serde_json::Value,
+        arg: &serde_json::Value,
         _workspace: &Path,
         subject: Option<&str>,
     ) -> EaiResult<()> {
@@ -601,7 +612,13 @@ impl MacPolicy {
             )));
         }
 
-        let reqs = Self::requirements_for_tool(tool);
+        let mut reqs = Self::requirements_for_tool(tool);
+        // Task inspection is local unless `refresh` asks the cloud vendor.
+        if matches!(tool, "agents_status" | "frameworks_status")
+            && arg.get("refresh").and_then(|v| v.as_bool()) == Some(true)
+        {
+            reqs.push((actions::NETWORK_EGRESS, "*"));
+        }
         for (action, resource) in reqs {
             if action == actions::NETWORK_EGRESS && self.blocks_network_by_default() {
                 if !self.is_permitted(subject, action, resource) {
@@ -659,6 +676,28 @@ mod tests {
         let _ = p.consent_egress("susi", 60);
         assert!(p
             .authorize_tool("browser_automate", &arg, Path::new("."), None)
+            .is_ok());
+    }
+
+    #[test]
+    fn local_only_gates_every_off_host_tool() {
+        let p = MacPolicy::new([7u8; 32], PrivacyMode::LocalOnly, true);
+        let ws = Path::new(".");
+        let none = serde_json::json!({});
+        for tool in MacPolicy::EGRESS_TOOLS {
+            assert!(p.authorize_tool(tool, &none, ws, None).is_err(), "{tool}");
+        }
+        let refresh = serde_json::json!({ "refresh": true });
+        assert!(p.authorize_tool("agents_status", &none, ws, None).is_ok());
+        assert!(p
+            .authorize_tool("agents_status", &refresh, ws, None)
+            .is_err());
+        p.consent_egress("susi", 60);
+        for tool in MacPolicy::EGRESS_TOOLS {
+            assert!(p.authorize_tool(tool, &none, ws, None).is_ok(), "{tool}");
+        }
+        assert!(p
+            .authorize_tool("agents_status", &refresh, ws, None)
             .is_ok());
     }
 
