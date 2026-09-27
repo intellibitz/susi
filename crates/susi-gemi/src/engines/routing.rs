@@ -37,6 +37,12 @@ pub struct CloudEscalation {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProviderCooldown {
+    pub provider: String,
+    pub until_unix: u64,
+}
+
 /// Explainable local/cloud placement chosen by the inference router.
 ///
 /// This is the single operator-facing view of the same decision used by the
@@ -51,7 +57,7 @@ pub struct PlacementDecision {
     pub local_ready: bool,
     pub local_stats: LocalInferenceStats,
     pub cloud_candidates: Vec<String>,
-    pub cooled_candidates: Vec<String>,
+    pub cooled_candidates: Vec<ProviderCooldown>,
     pub requires: Option<String>,
     pub max_cost: Option<f64>,
     pub allow_cloud: bool,
@@ -149,17 +155,24 @@ impl InferenceRouter {
     /// its own, or the credential-scope cooldown a sibling's auth/quota
     /// failure imposed on the whole vendor.
     pub fn provider_cooled(name: &str) -> bool {
+        Self::provider_cooldown_until(name).is_some()
+    }
+
+    /// Effective provider-or-vendor quarantine deadline, excluding expired
+    /// entries. A vendor-wide deadline wins when it extends beyond the
+    /// individual provider deadline.
+    pub fn provider_cooldown_until(name: &str) -> Option<u64> {
         let map = provider_down_map()
             .read()
             .unwrap_or_else(|e| e.into_inner());
         let now = now_unix();
-        if map.get(name).is_some_and(|until| now < *until) {
-            return true;
-        }
-        vendor_scope(name).is_some_and(|scope| {
+        let provider = map.get(name).copied().filter(|until| now < *until);
+        let vendor = vendor_scope(name).and_then(|scope| {
             map.get(&format!("vendor:{scope}"))
-                .is_some_and(|until| now < *until)
-        })
+                .copied()
+                .filter(|until| now < *until)
+        });
+        provider.into_iter().chain(vendor).max()
     }
 
     /// Mark a provider down after a failed attempt; a success clears it via
@@ -729,10 +742,14 @@ impl InferenceRouter {
         if clouds.is_empty() {
             clouds = Self::list_cloud_providers(available_providers);
         }
-        let cooled_candidates: Vec<String> = clouds
+        let cooled_candidates: Vec<ProviderCooldown> = clouds
             .iter()
-            .filter(|name| Self::provider_cooled(name))
-            .cloned()
+            .filter_map(|name| {
+                Self::provider_cooldown_until(name).map(|until_unix| ProviderCooldown {
+                    provider: name.clone(),
+                    until_unix,
+                })
+            })
             .collect();
         Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
@@ -1358,6 +1375,7 @@ mod tests {
         assert!(!InferenceRouter::provider_cooled(&name));
         InferenceRouter::record_provider_failure(&name);
         assert!(InferenceRouter::provider_cooled(&name));
+        assert!(InferenceRouter::provider_cooldown_until(&name).is_some());
         InferenceRouter::record_provider_success(&name);
         assert!(!InferenceRouter::provider_cooled(&name));
     }
