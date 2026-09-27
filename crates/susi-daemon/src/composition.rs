@@ -9,9 +9,9 @@ use std::path::Path;
 
 /// Register in-process plane-bus handlers for gemi / gawd / tools / agents.
 ///
-/// The four planes live in separate crates with vendored bus copies. Each
+/// The four planes live in separate crates over one shared bus. Each
 /// `register` publishes a loopback endpoint under this process's bus
-/// directory, so a request from any copy resolves. Sibling binaries
+/// directory, so a request from any plane resolves. Sibling binaries
 /// (`susi-gemi`, `susi-gmcp`, `susi-gawd`, `susi-dsh-cell`) are not part of
 /// the release image; spawning them left every topic unanswered.
 pub fn wire_plane_bus() {

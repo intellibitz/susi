@@ -48,6 +48,41 @@ fn shared_contracts_have_no_consumer_copies() {
     );
 }
 
+/// `susi-core` is the microkernel every plane shares. Consumers reach it
+/// through a Cargo edge (`pub use susi_core;`); a `#[path]` mount into its
+/// tree would give that consumer its own types and `OnceLock` statics, and
+/// the bus/registry/capture rendezvous would silently stop matching.
+#[test]
+fn susi_core_is_never_source_mounted_into_a_consumer() {
+    let crates = workspace_root().join("crates");
+    let mut offenders = Vec::new();
+    let mut pending = vec![crates.clone()];
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read crate directory") {
+            let path = entry.expect("read crate entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs")
+                || path.starts_with(crates.join("susi-core"))
+            {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read Rust source");
+            if text.contains("#[path = \"../../susi-core/") {
+                offenders.push(path);
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "susi-core must be reached through a Cargo edge, not a source mount: {offenders:?}"
+    );
+}
+
 #[test]
 fn checked_in_rust_implementations_are_not_byte_duplicates() {
     let root = workspace_root();

@@ -1,8 +1,8 @@
 //! Local embedding provider backed by `fastembed` — the same embedder
 //! `SemanticIndex` uses, exposed through the capability registry so
 //! `gemi.infer.embed` (and `/v1/embeddings`) works with zero external
-//! dependencies. Registers into this copy's registry; the IPC rendezvous
-//! serves it to every other vendored `susi_core` copy in the process.
+//! dependencies. Registers into this process's registry; the IPC rendezvous
+//! serves it to every peer process on the same substrate.
 //!
 //! The provider is embedding-only: `generate` fails loudly rather than
 //! pretending to be a chat backend, and `cloud_failover_order` never

@@ -59,9 +59,9 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         detail: &str,
         workspace: &Path,
     ) -> susi_tools::susi_error::EaiResult<()> {
-        // `susi_gawd::safety`/`security` re-export susi-gawd-agents' detectors,
-        // so these return the agents vendored `EaiError` — inferred, since
-        // that concrete type is not nameable from this crate.
+        // `susi_gawd::safety`/`security` re-export susi-gawd-agents'
+        // detectors; the error type is inferred because that path is not
+        // nameable from this crate.
         susi_gawd::safety::SafetyDetector::audit_action(tool, detail, workspace)?;
         susi_gawd::security::SecurityDetector::audit_action(tool, detail, workspace)
     }

@@ -16,16 +16,7 @@ pub use susi_config;
 
 pub use susi_sandbox_client as susi_sandbox;
 
-// Vendored `susi_core` microkernel subset (canonical tree:
-// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
-// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
-// substrate files. Allows keep the tree byte-identical across consumers:
-// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
-// stop edition-2024 style drift against the edition-2021 canonical source.
-#[allow(dead_code, clippy::collapsible_if)]
-#[rustfmt::skip]
-#[path = "../../susi-core/src/embedded.rs"]
-pub mod susi_core;
+pub use susi_core;
 
 // GEMI HTTP REST Substrate: OpenAI-Compatible Interface & Adaptive Web Interface
 // 100% Rust implementation serving Tier 1 & Tier 2 Intelligence Swarms
@@ -130,9 +121,9 @@ impl GemiServer {
             eprintln!("[GEMI Web] UI Interface: {}://{}/app", scheme, addr);
         }
 
-        // The vendored susi_core copy owns its own ContextGraph::global() —
-        // bind the same workspace JSONL log the daemon binds for its copy so
-        // both sides read/write one shared event log (reads replay() it).
+        // `ContextGraph::global()` is per-process — bind the same workspace
+        // JSONL log the daemon binds so both processes read/write one shared
+        // event log (reads replay() it).
         ContextGraph::init_global_storage(workspace.join("context_graph.jsonl"));
 
         // Runs on its own daemon thread (caller wraps it in catch_unwind), so

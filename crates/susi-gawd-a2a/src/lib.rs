@@ -20,10 +20,9 @@
 extern crate self as susi_gawd_agents;
 
 pub use susi_config;
+pub use susi_core;
 pub use susi_error;
 pub use susi_sandbox_client as susi_sandbox;
-#[rustfmt::skip]
-#[path = "../../susi-core/src/embedded.rs"] pub mod susi_core;
 #[path = "../../susi-gawd-agents/src/accountability.rs"]
 pub mod accountability;
 #[path = "../../susi-gawd-agents/src/admin_hooks.rs"]

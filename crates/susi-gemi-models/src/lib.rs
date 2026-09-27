@@ -27,15 +27,7 @@ pub use susi_config;
 
 pub use susi_sandbox_client as susi_sandbox;
 
-// Vendored `susi-core` contract: byte-identical to
-// `crates/susi-core/vendor_template/susi_core/`. dead_code +
-// collapsible_if: the canonical tree is edition-2021-shaped while this
-// crate is 2024 — forking lint fixes per consumer would break the
-// byte-identical invariant. rustfmt::skip for the same reason.
-#[allow(dead_code, clippy::collapsible_if)]
-#[rustfmt::skip]
-#[path = "../../susi-core/src/embedded.rs"]
-pub mod susi_core;
+pub use susi_core;
 
 pub mod cloud;
 pub mod coding_models;

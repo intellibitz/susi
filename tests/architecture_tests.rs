@@ -199,6 +199,8 @@ fn no_workspace_crate_cycles() {
 fn layer_matrix_forbidden_edges() {
     // ARCHITECTURE.md "must not import" column, enforced per crate.
     // Each entry: (crate, workspace crates it may not depend on).
+    // `susi-core` is foundation (rank 3): crates above it depend on the one
+    // compiled copy. It stays banned for the crates at or below its rank.
     let forbidden: &[(&str, &[&str])] = &[
         (
             "susi-gmcp",
@@ -215,7 +217,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -233,7 +234,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -251,7 +251,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -268,7 +267,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -297,7 +295,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -315,7 +312,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -333,7 +329,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -350,7 +345,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-server",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         (
@@ -368,7 +362,6 @@ fn layer_matrix_forbidden_edges() {
                 "susi-daemon",
                 "susi-sandbox",
                 "susi-native",
-                "susi-core",
             ],
         ),
         ("susi-daemon", &["susi-sandbox", "susi-native"]),
@@ -733,7 +726,7 @@ fn unreachable_daemon_modules_only_decrease() {
 // code belongs in a crate reached through a Cargo edge. The count may only
 // go down.
 
-const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 94;
+const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 84;
 
 fn owning_crate(path: &std::path::Path) -> Option<PathBuf> {
     let crates = workspace_root().join("crates");

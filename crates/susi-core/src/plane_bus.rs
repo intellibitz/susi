@@ -136,8 +136,8 @@ pub trait PlaneHandler: Send + Sync {
 
 /// Process-wide plane bus — facade over [`IpcPlaneBus`]. Every method
 /// delegates to the IPC backend so registrations and requests made through
-/// this `global()` are visible to all vendored `susi_core` copies in the
-/// same process (shared `<cache>/bus/<pid>/` rendezvous).
+/// this `global()` are visible to every plane in the process and, over the
+/// shared `<cache>/bus/<pid>/` rendezvous, to sibling cell processes.
 pub struct PlaneBus {
     inner: Arc<IpcPlaneBus>,
 }
@@ -146,8 +146,8 @@ impl PlaneBus {
     pub fn global() -> &'static PlaneBus {
         static BUS: OnceLock<PlaneBus> = OnceLock::new();
         BUS.get_or_init(|| PlaneBus {
-            // Shared with this crate's registry_ipc/broker/etc. so one
-            // listener serves all modules.
+            // Shared with registry_ipc/broker/etc. so one listener serves
+            // all modules.
             inner: IpcPlaneBus::global(),
         })
     }

@@ -222,8 +222,8 @@ pub struct CommitInput<'a> {
 
 /// Everything the signature covers — the record minus the signature
 /// itself, serialized in a fixed field order. Both sides of the wire
-/// serialize this identical shape, so the HMAC is reproducible anywhere
-/// the vendored copy runs.
+/// serialize this identical shape, so the HMAC is reproducible in every
+/// process that carries the ledger.
 #[derive(Serialize)]
 struct SignedFields<'a> {
     epoch: &'a str,
@@ -479,12 +479,12 @@ impl CommitRecord {
 
     /// The exact bytes the signature covers (compact JSON of
     /// `SignedFields` — serde emits struct fields in declaration order,
-    /// so this is stable across processes and vendored copies).
-    /// `pub(crate)` so consumer-crate tests can re-sign a record after
-    /// mutating fields (e.g. fabricating a seq gap); production callers
-    /// go through `seal`.
+    /// so this is stable across processes).
+    /// Public so consumer-crate tests can re-sign a record after mutating
+    /// fields (e.g. fabricating a seq gap); production callers go through
+    /// `seal`.
     #[doc(hidden)]
-    pub(crate) fn signed_payload(&self) -> String {
+    pub fn signed_payload(&self) -> String {
         serde_json::to_string(&SignedFields {
             epoch: &self.epoch,
             coordinator: &self.coordinator,
@@ -584,8 +584,7 @@ pub enum KeyEpoch {
 /// XDG env vars, so any test that sets `XDG_CONFIG_HOME`/`HOME` must hold
 /// this guard across the whole seal → verify → append sequence, or a
 /// parallel test can swap the env mid-sequence and break signature
-/// agreement. `pub(crate)` so vendored copies share the lock with their
-/// consumer crate's own tests.
+/// agreement. Public so consumer crates' own tests take the same lock.
 #[doc(hidden)]
 pub static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -2852,8 +2851,9 @@ mod tests {
             children.push(
                 std::process::Command::new(&exe)
                     // Substring filter, not --exact: the test's full name
-                    // differs between canonical (commit_log::tests::…) and
-                    // vendored binaries (susi_core::commit_log::tests::…).
+                    // differs between this crate's own binary
+                    // (commit_log::tests::…) and a consumer's re-export path
+                    // (susi_core::commit_log::tests::…).
                     .args([
                         "cross_process_term_claims_serialize_through_file_lock",
                         "--nocapture",

@@ -551,7 +551,7 @@ mod tests {
 
     /// Shared env-mutation guard: `HOME`/`XDG_CONFIG_HOME` flip the same
     /// config-dir resolution `cluster_key()` reads, so this serializes
-    /// against the vendored commit_log tests' seal→verify windows too.
+    /// against susi-core's commit_log seal→verify windows too.
     fn home_lock() -> std::sync::MutexGuard<'static, ()> {
         crate::susi_core::commit_log::ENV_LOCK
             .lock()

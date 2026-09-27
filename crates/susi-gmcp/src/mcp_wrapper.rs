@@ -35,9 +35,9 @@ impl Tool for McpDynamicTool {
 }
 
 /// Probe configured MCP servers and hot-plug their live tools into the
-/// shared capability registry. Uses this copy's vendored
-/// `CapabilityRegistry::global()` — one catalog across vendored and linked
-/// `susi_core` copies via the `<cache>/bus/<pid>/` rendezvous.
+/// shared capability registry. Uses `CapabilityRegistry::global()` — one
+/// catalog across every process on the substrate via the
+/// `<cache>/bus/<pid>/` rendezvous.
 pub fn register_mcp_servers() {
     let registry = CapabilityRegistry::global();
     let live = GmcpClient::discover_live_tools();

@@ -906,7 +906,7 @@ mod tests {
     }
 
     /// Full supervision loop against the real leaf binaries: isolated XDG
-    /// root (the vendored `SusiDirs` honors `SUSI_XDG`/`XDG_*_HOME`) plus
+    /// root (`SusiDirs` honors `SUSI_XDG`/`XDG_*_HOME`) plus
     /// per-run unique service ports, so nothing touches the host substrate,
     /// its canonical ports, or stale children leaked by an earlier run —
     /// fixed ports let an orphaned process get adopted as "external" and
@@ -922,7 +922,7 @@ mod tests {
             eprintln!("skipping: leaf service binaries not built");
             return;
         }
-        // Env mutation must be serialized — vendored susi_core/susi_config
+        // Env mutation must be serialized — susi_core/susi_config
         // tests in this same binary flip XDG vars too, and a mid-test swap
         // moves table_path() so shutdown_all loads an empty table and
         // signals nothing (observed: all 5 ports still bound).

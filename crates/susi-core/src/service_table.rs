@@ -5,8 +5,8 @@
 //! processes. This module is the shared contract every plane can read:
 //! which services exist, which pids the daemon currently supervises, and
 //! whether a given port is live. The table itself is a single JSON file
-//! under `substrate_home/services.json`, written atomically, so a vendored
-//! copy in any consumer process observes the same process table the daemon
+//! under `substrate_home/services.json`, written atomically, so any cell
+//! process observes the same process table the daemon
 //! wrote — the same file-backed rendezvous pattern as `plane_bus_ipc`,
 //! `broker`, and `capture`.
 

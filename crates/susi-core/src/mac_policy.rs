@@ -143,7 +143,7 @@ pub struct MacPolicy {
     enforce: AtomicBool,
     /// Shared substrate state dir (set on the wired path): grants persist to
     /// `<dir>/mac.grants/` and privacy mode reads/writes `<dir>/privacy_mode`
-    /// so vendored `susi_core` copies share policy state with this process.
+    /// so sibling cell processes share policy state with this one.
     state_dir: Option<PathBuf>,
 }
 
@@ -154,7 +154,7 @@ fn enc(key: &str) -> String {
 }
 
 /// Load the shared substrate HMAC key, creating it (0600) on first boot.
-/// All wired copies — daemon's and vendored — must sign/verify with it, so
+/// Every wired process — the daemon and each cell — signs/verifies with it, so
 /// creation is race-safe and a malformed key is an error, never rotated.
 pub fn load_or_create_key(dir: &Path) -> std::io::Result<[u8; 32]> {
     crate::susi_config::load_or_create_secret(&dir.join("mac.hmac.key"))
@@ -303,7 +303,7 @@ impl MacPolicy {
     }
 
     /// Initialize the global policy (first call wins). Wired via the
-    /// substrate state dir so vendored copies share grants and mode.
+    /// substrate state dir so sibling processes share grants and mode.
     pub fn init_global(key: [u8; 32], mode: PrivacyMode, mandatory_sandbox: bool) -> &'static Self {
         POLICY.get_or_init(|| {
             Self::new(key, mode, mandatory_sandbox)
@@ -311,7 +311,7 @@ impl MacPolicy {
         })
     }
 
-    /// The wired constructor vendored copies use for `global()`: shared key
+    /// The wired constructor every cell uses for `global()`: shared key
     /// file, sticky mode, persisted grants — all under `substrate_home`.
     pub fn wired() -> Self {
         let dir = susi_paths::SusiDirs::substrate_home();
@@ -600,7 +600,7 @@ impl MacPolicy {
                 return true;
             }
         }
-        // Grants persisted by other wired copies (vendored susi_core).
+        // Grants persisted by other wired processes.
         self.persisted_grant(subject, action, resource).is_some()
     }
 

@@ -67,7 +67,7 @@ pub enum EvidenceAssessment {
 
 /// Resolve symlinks and reject traversal, absolute escapes, directories and
 /// special files before reading. File evidence is always workspace-scoped.
-pub(crate) fn confined_file(workspace: &Path, path: &Path) -> Option<PathBuf> {
+pub fn confined_file(workspace: &Path, path: &Path) -> Option<PathBuf> {
     let root = workspace.canonicalize().ok()?;
     let target = root.join(path).canonicalize().ok()?;
     (target.starts_with(&root) && target.is_file()).then_some(target)

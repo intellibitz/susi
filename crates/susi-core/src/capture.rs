@@ -48,7 +48,7 @@ fn active_sessions() -> &'static parking_lot::RwLock<ActiveSessions> {
 }
 
 /// Publish (or clear) the rendezvous file naming `session` as the owner
-/// vendored copies deposit receipts for.
+/// peer processes deposit receipts for.
 fn publish_rendezvous(workspace: &Path, session: Option<&EvidenceSession>) {
     let Some(dir) = evidence_rendezvous(workspace) else {
         return;
@@ -113,8 +113,8 @@ impl ToolReceipt {
     }
 }
 
-/// Cross-copy receipt wire record: a `ToolReceipt` without `Instant`
-/// (non-transferable). Vendored `susi_core` copies write these into the
+/// Cross-process receipt wire record: a `ToolReceipt` without `Instant`
+/// (non-transferable). Peer processes write these into the
 /// owning session's rendezvous `inbox/`; the owner drains them on read and
 /// stamps `captured_at` at ingest time.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,7 +129,7 @@ pub struct InboxReceipt {
 }
 
 /// Process-scoped evidence rendezvous: `<cache>/bus/<pid>/evidence/<ws>/`.
-/// `session.json` advertises the owning copy's live session; vendored copies
+/// `session.json` advertises the owning process's live session; peers
 /// deposit receipts under `inbox/`.
 fn evidence_rendezvous(workspace: &Path) -> Option<PathBuf> {
     let canonical = workspace.canonicalize().ok()?;
@@ -152,11 +152,11 @@ pub struct EvidenceSession {
     next: AtomicU64,
     receipts: DashMap<String, ToolReceipt>,
     redact: fn(&str) -> String,
-    /// Rendezvous dir published on `activate` — vendored copies record into
-    /// `inbox/` and this copy drains them on read.
+    /// Rendezvous dir published on `activate` — peer processes record into
+    /// `inbox/` and this process drains them on read.
     session_dir: OnceLock<PathBuf>,
-    /// Set only on sessions reconstituted from another copy's rendezvous
-    /// file (vendored `for_workspace` fallback): receipts go to that inbox
+    /// Set only on sessions reconstituted from another process's rendezvous
+    /// file (the `for_workspace` fallback): receipts go to that inbox
     /// instead of the local map.
     remote_inbox: Option<PathBuf>,
 }
@@ -269,7 +269,7 @@ impl EvidenceSession {
     /// Publish the session as the sole active ledger for its workspace until
     /// the guard drops. Missions activate once at their entry point.
     ///
-    /// Also publishes a rendezvous file so vendored `susi_core` copies can
+    /// Also publishes a rendezvous file so peer processes can
     /// find this session and deposit receipts into its `inbox/`.
     pub fn activate(session: &Arc<Self>) -> EvidenceActivation {
         active_sessions()
@@ -352,7 +352,7 @@ impl EvidenceSession {
         Self::remote_session(&canonical).map(Arc::new)
     }
 
-    /// Merge receipts deposited by vendored copies into the local ledger.
+    /// Merge receipts deposited by peer processes into the local ledger.
     /// Cheap: a readdir on an (usually empty) `inbox/` dir.
     fn drain_inbox(&self) {
         let Some(dir) = self.session_dir.get() else {

@@ -68,8 +68,8 @@ pub trait Tool: Send + Sync + 'static {
 /// in the susi ecosystem. This acts as the central router for dynamic discovery.
 ///
 /// Delegates to [`crate::susi_core::registry_ipc::IpcCapabilityRegistry`] so capabilities
-/// registered here are discoverable and invocable from vendored `susi_core`
-/// copies in the same process (shared `<cache>/bus/<pid>/` rendezvous). MAC
+/// registered here are discoverable and invocable from every plane in the
+/// process (shared `<cache>/bus/<pid>/` rendezvous). MAC
 /// authorization + evidence capture are applied once at the tool boundary by
 /// the IPC layer, for local and remote dispatch alike.
 #[derive(Clone)]
@@ -104,7 +104,7 @@ impl CapabilityRegistry {
 
     /// Process-wide capability registry used by zero-config substrate
     /// discovery — shares the `<cache>/bus/<pid>/` rendezvous with every
-    /// vendored `susi_core` copy in this process.
+    /// plane in this process.
     pub fn global() -> &'static Self {
         static INSTANCE: OnceLock<CapabilityRegistry> = OnceLock::new();
         INSTANCE.get_or_init(|| Self {

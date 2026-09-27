@@ -6,6 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+susi-core = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }

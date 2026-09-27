@@ -6,7 +6,7 @@ use susi_core::mac_policy::{MacPolicy, PrivacyMode};
 /// Wire the process-wide MAC policy. Idempotent (OnceLock first-wins).
 ///
 /// Delegates to `MacPolicy::wired()` — the one construction path every
-/// vendored copy uses — so the daemon and the leaf crates share the key
+/// process uses — so the daemon and the cell binaries share the key
 /// loader, the sticky-mode precedence, and its fail-closed `local_only`
 /// fallback when the substrate key is unavailable.
 pub fn wire_mac_policy(_substrate: &Path) {

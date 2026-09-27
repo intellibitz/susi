@@ -30,7 +30,7 @@ pub(crate) mod token_stream;
 /// `http_provider.rs` used to) can still race against each other, since
 /// `cargo test` runs all of a crate's tests in one process by default.
 ///
-/// The lock is the vendored `commit_log::ENV_LOCK`: `cluster_key()` resolves
+/// The lock is susi-core's `commit_log::ENV_LOCK`: `cluster_key()` resolves
 /// through the same env vars, so commit-ledger tests' seal→verify sequences
 /// must serialize against env mutation too — a private lock would leave
 /// that interleaving unprotected.

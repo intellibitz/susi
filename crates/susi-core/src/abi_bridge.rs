@@ -2,12 +2,10 @@
 //! syscall-mapped `plane_bus`, and now MAC-gated context-graph reads) to the
 //! shared `susi-abi` wire vocabulary.
 //!
-//! Kept out of the vendored files it touches (`capture.rs`, `evidence.rs`,
-//! `context_graph.rs`, `mac_policy.rs`) on purpose: those are byte-identical
-//! into zero-dependency consumer namespaces through canonical `#[path]` mounts,
-//! and susi-core is currently the only crate with a real Cargo edge to
-//! `susi-abi`. This file stays outside the vendored `src/susi_core/` tree so
-//! that edge never leaks into the vendored copies.
+//! Kept in its own module rather than inside the files it touches
+//! (`capture.rs`, `evidence.rs`, `context_graph.rs`, `mac_policy.rs`) so the
+//! ABI vocabulary stays a boundary concern: those modules hold susi-core's
+//! own types and never name a `susi_abi::` shape directly.
 
 use crate::capture::ToolReceipt;
 use crate::context_graph::{ContextGraph, ContextGraphStats, Subgraph};

@@ -1,4 +1,4 @@
-//! IPC backend for `registry` — capability dispatch across vendored copies.
+//! IPC backend for `registry` — capability dispatch across cell processes.
 //!
 //! [`IpcCapabilityRegistry`] keeps the same mental model as
 //! [`crate::susi_core::registry::CapabilityRegistry`] but each entry lives in exactly one
@@ -280,8 +280,8 @@ impl Provider for RemoteProvider {
     }
 }
 
-/// Capability registry facade that interoperates across independent vendored
-/// copies sharing one `<cache>/bus/<pid>` rendezvous. Registration is local
+/// Capability registry facade that interoperates across independent
+/// processes sharing one `<cache>/bus/<pid>` rendezvous. Registration is local
 /// plus a bus topic + metadata file; lookup falls back to a remote proxy.
 #[derive(Clone)]
 pub struct IpcCapabilityRegistry {

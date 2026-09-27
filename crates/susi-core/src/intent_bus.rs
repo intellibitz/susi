@@ -139,13 +139,13 @@ pub struct IntentBus {
     needs: DashMap<String, IntentMessage>,
     next_id: std::sync::atomic::AtomicU64,
     /// Shared rendezvous dir (`<cache>/bus/<pid>/intents/`) when wired —
-    /// providers/needs persist as JSON files so vendored `susi_core` copies
-    /// in this process match against the same catalog. `None` = pure
+    /// providers/needs persist as JSON files so every plane in this process
+    /// matches against the same catalog. `None` = pure
     /// in-memory (hermetic tests, unwired contexts).
     dir: Option<PathBuf>,
 }
 
-/// Per-process rendezvous shared with vendored copies via `IpcPlaneBus`.
+/// Per-process rendezvous shared with peer processes via `IpcPlaneBus`.
 fn shared_dir() -> PathBuf {
     susi_paths::SusiDirs::cache_dir()
         .join("bus")

@@ -22,20 +22,10 @@ pub use susi_config;
 
 pub use susi_sandbox_client as susi_sandbox;
 
-// Vendored `susi_core` microkernel subset (canonical tree:
-// `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac state
-// rendezvous with the daemon's real susi_core via `<cache>/bus/<pid>/` +
-// substrate files. Allows keep the tree byte-identical across consumers:
-// dead_code audits the unexercised surface; rustfmt::skip + collapsible_if
-// stop edition-2024 style drift against the edition-2021 canonical source.
-#[allow(dead_code, clippy::collapsible_if)]
-#[rustfmt::skip]
-#[path = "../../susi-core/src/embedded.rs"]
-pub mod susi_core;
+pub use susi_core;
 
-// The vendored `susi_core` re-exports this crate's `susi_error` module
-// (`susi_core::susi_error` is `crate::susi_error`), so no `From` bridge is
-// needed — `?` converts trivially.
+// `susi_core::susi_error` is the same `susi-error` crate this one depends
+// on, so no `From` bridge is needed — `?` converts trivially.
 
 pub mod accountability;
 pub mod admin_hooks;

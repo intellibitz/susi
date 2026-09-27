@@ -2863,7 +2863,7 @@ mod unwired_governance_tests {
     /// The bus rendezvous is cross-process (`<cache>/bus/*/`), so a sibling
     /// test process — or a live daemon on this host — could satisfy the
     /// `gawd.*` topics and defeat the "unwired" premise. Point the cache dir
-    /// at a private temp root before the vendored `IpcPlaneBus` binds. Under
+    /// at a private temp root before the `IpcPlaneBus` binds. Under
     /// nextest each test is its own process; under `cargo test` the env swap
     /// races with peers but only shrinks the visible rendezvous, which is
     /// the conservative direction for a fail-closed assertion.

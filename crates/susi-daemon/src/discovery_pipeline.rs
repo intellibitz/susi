@@ -7,9 +7,8 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-// The vendored `susi_core` inside susi-gemi shares the process capability
-// catalog with the real `susi_core` (bus rendezvous), so its global() is the
-// same registry — and it is the type susi_gemi's discovery entrypoints take.
+// Reached through susi-gemi's re-export: the same `susi-core` crate, and the
+// type susi_gemi's discovery entrypoints take.
 use susi_gemi::susi_core::registry::CapabilityRegistry;
 
 /// Universal Autonomous Substrate Bootstrapper
@@ -72,7 +71,7 @@ pub async fn bootstrap_zero_config_substrate() {
         registry.register_provider(susi_gemi::candle_provider::CandleProvider);
     }
 
-    // 3b. Local embedder: susi-gmcp's vendored copy self-registers through
+    // 3b. Local embedder: susi-gmcp self-registers through
     // the shared IPC rendezvous, so `gemi.infer.embed` and /v1/embeddings
     // work with zero external configuration.
     susi_gmcp::embed_provider::register_local_embed_provider();

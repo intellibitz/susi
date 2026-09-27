@@ -3,8 +3,8 @@
 //!
 //! Identical public API as before, but state lives under
 //! `<cache>/bus/<pid>/broker/` (the same rendezvous root as
-//! `IpcPlaneBus`) instead of in-memory maps, so vendored `susi_core`
-//! copies and separate processes observe the same grants, pending
+//! `IpcPlaneBus`) instead of in-memory maps, so separate cell
+//! processes observe the same grants, pending
 //! requests, and inboxes. Lifetime matches the old in-process semantics:
 //! broker state is process-scoped, not durable across restarts — reads
 //! scan every live pid dir under `bus/`, writes stay in this process's

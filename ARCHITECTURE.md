@@ -72,18 +72,18 @@ never consume an unterminated source tail.
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde, ureq | everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, dev-build auto-install, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `auto_install`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **canonical source-mounted `susi_core`**: registry/capture/mac_policy over the bus rendezvous; `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except the dedicated native client; peers via mounted `plane_bus` | tools | registry | yes |
-| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **canonical source-mounted `susi_core`**: registry/task_manager/agent_types over the bus rendezvous; `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **canonical source-mounted `susi_core`**: task_manager only; `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **canonical source-mounted `susi_core`**, `susi-config`; `susi-sandbox-client` | **all workspace crates** | providers | model weights | yes |
-| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **canonical source-mounted `susi_core`**; `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + **canonical source-mounted `susi_core`**, `susi-config`; `susi-sandbox-client` | **all workspace crates** | no | blackboard | yes |
-| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | locally compiled agents-tier source | **all workspace crates** | transport | tasks | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + **canonical source-mounted `susi_core`** + `susi-native-client` | workspace crates except the dedicated native client | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **canonical source-mounted `susi_core`**: plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; `susi-config`; `susi-sandbox-client`, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **canonical source-mounted `susi_core`**: plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
+| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | providers | model weights | yes |
+| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client` | peer feature planes | agents | mission-local | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
+| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | locally compiled agents-tier source + `susi-core` | peer feature planes | transport | tasks | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client | no | genome/reflexes | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
-| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real deps, not vendored) | — | — | cwd workspace | yes |
+| `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
 peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`
@@ -115,70 +115,56 @@ Shared code that is still compiled into each consumer through `#[path]`
 
 | Canonical source | What it is | Mounted by |
 |---|---|---|
-| `crates/susi-core/src/embedded.rs` | `susi_core` microkernel subset, incl. `mcp_client` (MCP Streamable HTTP peer client), `a2a_wire` (A2A v1.0 `message/send`), `inference_wire` (provider request/reply shapes) | feature crates |
-| `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GEMI REST, GMCP, A2A |
+| `crates/susi-abi/src/lib.rs` + `embedded.rs` | zero-dependency Swarm OS ABI | `susi-core`, `susi-daemon`, `susi-gawd`, `susi-gemi`, `susi-gmcp`, the cell binaries |
 | `crates/susi-abi/src/cell_server.rs` | swarm-cell TCP server (framing, token auth, trust scoring, heartbeat) | the five cell binaries |
+| `crates/susi-gawd-agents/src/*.rs` | fleet, safety/security, peers | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-a2a` |
+| `crates/susi-gawd-{swarm,a2a}/src/*.rs` | AMA/DAG/cloud recovery and the A2A wire | `susi-gawd` |
+| `crates/susi-gemi-models/src/*.rs` | model select / provision / catalogs | `susi-gemi` |
+| `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GMCP, A2A |
 
-`susi-core` is the final leaf-service conversion (`127.0.0.1:18085`,
-`SUSI_CORE_PORT`, reserved) — the microkernel step. Vendored `susi_core`
-mounts cannot share `PlaneBus::global()`/`CapabilityRegistry::global()`
-statics (each mounted module is a distinct type), so embedded modules back
-`plane_bus` with **`plane_bus_ipc::IpcPlaneBus`**: a filesystem
-rendezvous under `<cache>/bus/<pid>/` (endpoint files for exact topics and
-prefixes) plus a lazily-bound per-copy `127.0.0.1:0` listener serving
-`POST /handle` and `POST /stream`. Stream ids embed the opener's endpoint
-(`ipc://<addr>/<id>`) so `stream_emit` routes cross-copy; stale endpoint
-files are pruned on connect failure and dead pid dirs swept via `/proc`.
-Writes stay scoped to the owning process's pid dir (ownership/liveness),
-while **reads scan every numeric-named sibling pid dir** — own dir first,
-then sorted siblings — so embedded modules *and separate plane processes*
-resolve each other's registrations through the same `bus/` root. Exact
-topic registrations outrank prefix handlers process-wide.
-**`registry_ipc::IpcCapabilityRegistry`**
-applies the same pattern to the capability catalog: `register_tool` keeps
-the trait object local, serves `capability.tool.<name>` on the owner's bus
-(MAC + evidence capture run in the owner-side dispatch handler), and writes
-metadata under `caps/`; lookups in other copies return a `RemoteTool` /
-`RemoteProvider` proxy that forwards `execute`/`generate`/`embed` over the
-bus. Agent capabilities are pure data — `caps/agent/` files only. Process-
-global registries (`MacPolicy` — already file-keyed via
-`~/.susi/mac.hmac.key`, `IpcBroker`, `IntentBus`, …) become service- or
-endpoint-backed the same way when consumers vendor `susi_core`.
+**`susi-core` is a Cargo dependency, not a mount.** Every plane declares
+`susi-core = { workspace = true }` and re-exports it (`pub use susi_core;`),
+so `crate::susi_core::<module>` resolves to the one compiled copy;
+`tests/duplication_tests.rs`
+(`susi_core_is_never_source_mounted_into_a_consumer`) makes a regression of
+the old `#[path]` mount a hard failure.
 
-**Mounting consumers: `susi-server`, `susi-tools`, `susi-agents`,
-`susi-gmcp`, `susi-gawd-agents`, `susi-gawd-swarm`, `susi-gawd`,
-`susi-gemi`.** Each mounts `crates/susi-core/src/embedded.rs` as its own
-`susi_core` module via `#[path]` (one checked-in source, a distinct type
-namespace per consumer) — `plane_bus` facades with
-`PlaneBus` delegating to `IpcPlaneBus`, `plane_bus_ipc`, a file-backed
-`IpcBroker` under `<cache>/bus/<pid>/broker/` (grants/requests/inbox as
-JSON files — the in-crate `susi_core::broker::IpcBroker` is the same
-file-backed implementation, so CLI and daemon broker state interop),
-`registry` delegating to `IpcCapabilityRegistry` (so tools
-registered in one copy dispatch cross-copy and cross-process),
-`capture`/`evidence`/
-`receipt_archive` with a receipts inbox drained by the owning session
-(session rendezvous scans sibling pid dirs),
-file-backed `mac_policy` sharing `~/.susi/mac.hmac.key`,
-`intent_bus` (providers/needs persisted under the rendezvous, scanned
-across pid dirs so cross-process matching works), `agent_tx` (per-copy
-`open` map; durable
-`.susi/tx/` journal is already workspace-shared), `bus` (per-copy
-`TypedEventBus` — the only typed subscribers live in their publishing
-crate today), plus
-`context_graph`/`net_guard`/`telemetry`/`agent_types`/`provider`/
-`task_manager`/`truth`/`manifold`/`queue`/`service_table` (telemetry
-history file-backed; the service table is a single shared file under
-`substrate_home/services.json`; task handles and pulse queues stay
-per-copy) with
-`crate::` paths remounted to the vendored tree. `mod.rs` re-exports the
-crate-root leaf modules (`susi_core::susi_error`, `susi_core::redact`) so
-call sites resolve unchanged. `GemiServer::start_http_server` binds the
-vendored `ContextGraph` to `<workspace>/context_graph.jsonl` — the same
-log the daemon's copy uses, and every read path already `replay()`s it.
-Vendored `#[cfg(test)]` modules run once per consumer test binary — the
-same assertions then prove every vendored copy, not just the canonical
-crate. All copies must remain byte-identical to the template.
+One copy per *process*, not per crate: the daemon and each cell binary
+(`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`,
+`susi-universal-cell`) run in their own address spaces, so
+`PlaneBus::global()` / `CapabilityRegistry::global()` statics are still
+per-process. `plane_bus` is therefore backed by
+**`plane_bus_ipc::IpcPlaneBus`**: a filesystem rendezvous under
+`<cache>/bus/<pid>/` (endpoint files for exact topics and prefixes) plus a
+lazily-bound `127.0.0.1:0` listener serving `POST /handle` and
+`POST /stream`. Stream ids embed the opener's endpoint (`ipc://<addr>/<id>`)
+so `stream_emit` routes cross-process; stale endpoint files are pruned on
+connect failure and dead pid dirs swept via `/proc`. Writes stay scoped to
+the owning process's pid dir (ownership/liveness), while **reads scan every
+numeric-named sibling pid dir** — own dir first, then sorted siblings — so
+separate plane processes resolve each other's registrations through the
+same `bus/` root. Exact topic registrations outrank prefix handlers
+process-wide.
+
+**`registry_ipc::IpcCapabilityRegistry`** applies the same pattern to the
+capability catalog: `register_tool` keeps the trait object local, serves
+`capability.tool.<name>` on the owner's bus (MAC + evidence capture run in
+the owner-side dispatch handler), and writes metadata under `caps/`; lookups
+in another process return a `RemoteTool` / `RemoteProvider` proxy that
+forwards `execute`/`generate`/`embed` over the bus. Agent capabilities are
+pure data — `caps/agent/` files only.
+
+The rest of the microkernel state follows the same file-backed rendezvous so
+processes agree: `IpcBroker` under `<cache>/bus/<pid>/broker/` (grants,
+requests and inboxes as JSON files, so CLI and daemon broker state
+interop), `capture`/`evidence`/`receipt_archive` with a receipts inbox
+drained by the owning session, `mac_policy` sharing `~/.susi/mac.hmac.key`,
+`intent_bus` (providers/needs persisted under the rendezvous, scanned across
+pid dirs), `agent_tx` (durable `.susi/tx/` journal, workspace-shared),
+`telemetry` history, and `service_table` at
+`substrate_home/services.json`. `GemiServer::start_http_server` binds
+`ContextGraph` to `<workspace>/context_graph.jsonl` — the same log the
+daemon binds, and every read path already `replay()`s it.
 
 Within-plane Cargo edges remain allowed: `susi-gemi` → `susi-gemi-models`;
 `susi-gawd` → `susi-gawd-{agents,swarm,a2a}`; `susi-gawd-swarm` →
@@ -402,7 +388,7 @@ operation log, and there is no cross-coordinator term ordering.
 | **Liveness decay** | `last_seen_secs` on every roster entry; the scout sweep marks peers stale after `PEER_STALE_SECS` (30s) without a pong — dead members lose quorum weight and election eligibility until they re-verify. `elect_leader` re-checks staleness defensively. | `susi-gawd-swarm::amas` |
 | **Peer channel** | `susi_core::mcp_client::call_tool` — session-aware MCP `tools/call` over Streamable HTTP (`initialize` → `Mcp-Session-Id` → `notifications/initialized` → call, SSE-framed responses). All peer dispatch, commit replication, lock broadcast, and anti-entropy fetch run through it; a bearer attaches only for Local/Explicit roster members. The credential is `cluster_key::peer_bearer()` — `HMAC(cluster.key, "susi-peer-bearer-v1")`, identical on every member and never persisted — because the host `api_token` is a per-node secret a remote daemon cannot validate. `NetGuard::is_authorized` accepts either the local `api_token` or the derived peer bearer (constant-time compare). | `susi-core::mcp_client`, `cluster_key::peer_bearer`, `net_guard` |
 | **Quorum** | Pinned electorate per round: `supervise_mission` snapshots local fleet + dispatched `PeerNode_<id>` keys at broadcast; `quorum_majority` thresholds against the electorate, not respondents — mid-vote churn shrinks responses instead of lowering the bar. | `susi-gawd-swarm::amas` |
-| **Commit ledger** | `CommitRecord` (epoch, coordinator, seq, term, leader, prev_epoch, electorate, tally, quorum, value hash, HMAC signature) appended to `~/.susi/commit_log.jsonl` after verification; torn lines skipped on load. Kernel ABI — vendored to all consumers. | `susi-core::commit_log` |
+| **Commit ledger** | `CommitRecord` (epoch, coordinator, seq, term, leader, prev_epoch, electorate, tally, quorum, value hash, HMAC signature) appended to `~/.susi/commit_log.jsonl` after verification; torn lines skipped on load. Kernel ABI — one compiled copy, shared by Cargo edge. | `susi-core::commit_log` |
 | **Terms** | `~/.susi/term.json` holds `{term, leader}` — bumped by `claim_leadership` on every leader transition and signed into each record. A pushed record from an older term is rejected (`check_term` → `Stale`); a newer term is adopted (Raft's step-down rule); same-term leader conflicts surface as anomalies. Terms gate *new writes*, not history — anti-entropy fills of old-term records still append. Only member coordinators may drive term state: a non-member's forged high term never adopts into `term.json` (it would freeze every honest push as Stale). | `commit_log::{claim_leadership, check_term, coordinator_known}` |
 | **Replication** | Coordinator pushes each sealed record to voting peers via the governed `commit_record` GMCP tool; receivers re-verify signature + quorum consistency + term before appending. | `susi-gmcp::tools::core`, `susi-daemon::gmcp_bootstrap` |
 | **Leader election** | Deterministic bully over the verified roster (max `trust_score`, `node_id` tie-break) — every member converges on the same leader with no election round-trip; records stamp the elected `leader` for audit. | `SusiSupervisor::elect_leader` |

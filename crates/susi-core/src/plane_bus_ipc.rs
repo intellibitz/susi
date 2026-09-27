@@ -1,11 +1,11 @@
 //! IPC backend for `plane_bus` — the microkernel rendezvous.
 //!
-//! Vendored `susi_core` copies in feature crates cannot share the in-process
-//! `PlaneBus::global()` static: each vendored module is a distinct type with
-//! its own `OnceLock`. `IpcPlaneBus` gives every copy the same wire semantics
-//! over loopback instead:
+//! SUSI runs its planes as separate cell processes (`susi-gawd`,
+//! `susi-gemi`, `susi-gmcp`, the universal/dsh cells, the daemon), each with
+//! its own `PlaneBus::global()` `OnceLock`. `IpcPlaneBus` gives every process
+//! the same wire semantics over loopback instead:
 //!
-//! - `register` / `register_prefix` lazily bind a per-copy `127.0.0.1:0`
+//! - `register` / `register_prefix` lazily bind a `127.0.0.1:0`
 //!   listener and publish the endpoint under `<cache>/bus/<pid>/` — a
 //!   filesystem rendezvous scoped to the owning process (`std::process::id`),
 //!   so parallel processes (daemon, CLI, test binaries) keep today's
@@ -14,7 +14,7 @@
 //!   payload (`POST /handle` → `{ok|err}`); exact topic files are tried
 //!   before prefix files, mirroring the in-process lookup order.
 //! - `open_stream` embeds the caller's endpoint in the stream id
-//!   (`ipc://<addr>/<id>`) so `stream_emit` reaches the right copy from
+//!   (`ipc://<addr>/<id>`) so `stream_emit` reaches the right process from
 //!   anywhere; the `/stream` endpoint feeds the local flume receiver.
 //! - Stale endpoint files are pruned on connect failure; dead pid dirs are
 //!   swept on init where `/proc` is available.
@@ -65,9 +65,9 @@ type HandlerMap = Arc<DashMap<String, Arc<dyn PlaneHandler>>>;
 type StreamMap = Arc<DashMap<String, flume::Sender<Value>>>;
 
 /// Process-scoped IPC plane bus — same method surface as
-/// [`crate::susi_core::plane_bus::PlaneBus`]. Vendored `susi_core` copies back their
-/// `PlaneBus` with this so a handler registered through one vendored module
-/// resolves from every other vendored copy in the same process.
+/// [`crate::susi_core::plane_bus::PlaneBus`]. Every cell process backs its
+/// `PlaneBus` with this, so a handler registered by one module resolves from
+/// every other module and from sibling processes over the rendezvous.
 pub struct IpcPlaneBus {
     handlers: HandlerMap,
     prefixes: HandlerMap,
@@ -94,9 +94,9 @@ impl IpcPlaneBus {
         Self::with_rendezvous(dir)
     }
 
-    /// The shared bus for this copy: all vendored modules in one consumer
-    /// crate route through it, so a registration from `registry_ipc` is
-    /// reachable via `plane_bus` lookups and vice versa.
+    /// The shared bus for this process: every module routes through it, so a
+    /// registration from `registry_ipc` is reachable via `plane_bus` lookups
+    /// and vice versa.
     pub fn global() -> Arc<Self> {
         static BUS: OnceLock<Arc<IpcPlaneBus>> = OnceLock::new();
         Arc::clone(BUS.get_or_init(|| Arc::new(Self::new())))
@@ -308,7 +308,7 @@ impl IpcPlaneBus {
     }
 
     /// Allocate a stream channel; the id embeds this copy's endpoint so
-    /// `stream_emit` from any vendored copy reaches `rx` over loopback.
+    /// `stream_emit` from any peer process reaches `rx` over loopback.
     pub fn open_stream(&self) -> (String, flume::Receiver<Value>) {
         let id = format!(
             "{}-{}",
