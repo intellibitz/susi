@@ -187,7 +187,7 @@ impl CodingModelManager {
         self.preflight(&def.id)?;
         crate::susi_config::create_private_dir(&crate::susi_paths::SusiDirs::config_dir())?;
         let prefer = crate::susi_paths::SusiDirs::config_dir().join("preferred_coding_model.txt");
-        fs::write(&prefer, &def.id)?;
+        crate::susi_config::atomic_write_bytes(&prefer, def.id.as_bytes())?;
         // Also set the runtime override to the provider model id for cloud routing.
         crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
         Ok(format!(

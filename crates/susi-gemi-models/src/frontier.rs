@@ -244,7 +244,7 @@ impl FrontierManager {
                 },
             )?;
         }
-        fs::write(self.preferred_path(), &def.id)?;
+        crate::susi_config::atomic_write_bytes(&self.preferred_path(), def.id.as_bytes())?;
         crate::ModelManager::set_selected_model(&def.model).map_err(|e| anyhow::anyhow!(e))?;
         Ok(format!(
             "preferred frontier model set to {} (api id {})",

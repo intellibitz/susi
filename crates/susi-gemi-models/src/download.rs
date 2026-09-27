@@ -172,9 +172,9 @@ pub(crate) fn transfer(
     }
     checkpoint.url = url.into();
     checkpoint.validator = validator;
-    fs::write(
+    crate::susi_config::atomic_write_bytes(
         &checkpoint_path,
-        serde_json::to_vec(&checkpoint).map_err(|e| e.to_string())?,
+        &serde_json::to_vec(&checkpoint).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
     if total > start {

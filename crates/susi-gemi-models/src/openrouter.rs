@@ -152,7 +152,10 @@ impl OpenRouterManager {
                     m.to_string()
                 }
             };
-            fs::write(self.preferred_model_path(), &model_id)?;
+            crate::susi_config::atomic_write_bytes(
+                &self.preferred_model_path(),
+                model_id.as_bytes(),
+            )?;
             Ok(format!(
                 "OpenRouter preferred; model pinned to {model_id}. Clear with `susi openrouter prefer --clear-model`."
             ))

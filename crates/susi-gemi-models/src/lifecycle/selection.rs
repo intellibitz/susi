@@ -13,10 +13,12 @@ use super::ModelManager;
 
 impl ModelManager {
     pub fn set_selected_model(model_name: &str) -> Result<String, String> {
-        let susi_dir = crate::susi_paths::SusiDirs::config_dir();
-        let _ = fs::create_dir_all(&susi_dir);
-        let model_file = susi_dir.join("selected_model_override.txt");
-        fs::write(&model_file, model_name.trim()).map_err(|e| e.to_string())?;
+        // Atomic: every inference reads this; an empty read means "no
+        // override" and silently reroutes to the default model.
+        let model_file =
+            crate::susi_paths::SusiDirs::config_dir().join("selected_model_override.txt");
+        crate::susi_config::atomic_write_bytes(&model_file, model_name.trim().as_bytes())
+            .map_err(|e| e.to_string())?;
         Ok(format!(
             "Selected active model override set to: '{}'",
             model_name.trim()

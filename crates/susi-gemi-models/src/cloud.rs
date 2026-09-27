@@ -194,21 +194,9 @@ pub fn remove_api_key(vendor: &str) -> Result<String, String> {
     } else {
         format!("{}\n", kept.join("\n"))
     };
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true).mode(0o600);
-        let mut file = options.open(&path).map_err(|e| e.to_string())?;
-        file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
-        file.sync_all().map_err(|e| e.to_string())?;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-    }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&path, body).map_err(|e| e.to_string())?;
-    }
+    // Atomic + owner-only: the daemon reloads this key file while CLIs edit
+    // it, and an in-place truncate would show it every key missing.
+    crate::susi_config::atomic_write_bytes(&path, body.as_bytes()).map_err(|e| e.to_string())?;
     // SAFETY: CLI-scoped env mutation of a vendor key name, performed
     // before any worker threads read the environment.
     unsafe {
@@ -257,25 +245,10 @@ fn upsert_cloud_env_key(env_name: &str, value: &str) -> Result<PathBuf, String> 
         lines.push(format!("{}={}", env_name, value));
     }
     let body = format!("{}\n", lines.join("\n"));
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-        let _ = std::fs::set_permissions(
-            path.parent().unwrap_or_else(|| std::path::Path::new(".")),
-            std::fs::Permissions::from_mode(0o700),
-        );
-        let mut options = std::fs::OpenOptions::new();
-        options.write(true).create(true).truncate(true).mode(0o600);
-        let mut file = options.open(&path).map_err(|e| e.to_string())?;
-        file.write_all(body.as_bytes()).map_err(|e| e.to_string())?;
-        file.sync_all().map_err(|e| e.to_string())?;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    if let Some(parent) = path.parent() {
+        crate::susi_config::create_private_dir(parent).map_err(|e| e.to_string())?;
     }
-    #[cfg(not(unix))]
-    {
-        std::fs::write(&path, body).map_err(|e| e.to_string())?;
-    }
+    crate::susi_config::atomic_write_bytes(&path, body.as_bytes()).map_err(|e| e.to_string())?;
     Ok(path)
 }
 
