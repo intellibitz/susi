@@ -78,7 +78,7 @@
     },
     {
       "id": 7,
-      "summary": "Mandate 44; packs/MCP/models/peers auto-prime (`susi auto`); host installs/keys still gate cloud.",
+      "summary": "Mandate 44; packs/MCP/models/peers auto-prime (`susi auto`); host installs/keys still gate cloud. First-run host config is always seeded from the defaults compiled into the binary, never from a file in the current directory.",
       "title": "Zero-config Auto"
     },
     {

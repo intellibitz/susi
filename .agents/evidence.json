@@ -2430,6 +2430,16 @@
       "milestone": "RSI iteration 82/100: susi select-model writes the model override itself, and the override rejects names that would corrupt it. The command substituted the model name into select_model_pulse and sent it to the swarm (ama.solve_clean), so whether the override was actually written depended on a model choosing to do it, while ModelManager::set_selected_model (already used by the gemi.models.select topic) writes it deterministically. It now calls set_selected_model directly and exits non-zero on failure. set_selected_model accepted any string: an empty name wrote an empty selected_model_override.txt, which every inference reads as 'no override', while reporting the override 'set to '''; a newline or other control character would split the one-line file. It now rejects empty, over-512-character, and control-character names before writing. The unread select_model_pulse is removed from AdminPulses and config.default.json. A test proves empty, whitespace, newline, tab, and oversized names are rejected (they return before any write, so the test never touches the real config dir). cargo test -p susi-gemi-models selection_tests, -p susi-config (44), and cargo clippy --workspace --all-targets -D warnings pass. Remaining swarm-driven pulses: install and mcp-scout.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SandboxManager::ensure_global_sandbox_locally",
+        "ref": "symbol://SandboxManager::ensure_global_sandbox_locally"
+      },
+      "id": "EV-2022927-249",
+      "milestone": "RSI iteration 83/100: the host configuration can no longer be seeded from the current directory. When ~/.susi/config.json did not exist, ensure_global_sandbox_locally (behind SandboxManager::ensure_global_sandbox, used by first-run provisioning) read Path::new(\"config.default.json\"), a path relative to the process's working directory, and installed it as the host's global config if it parsed. Running SUSI for the first time inside any repository that ships a file with that name (including a hostile clone) adopted that repository's governance patterns (secret tokens, destructive commands, critical paths), inference endpoints and API bases, and privacy settings as the host configuration. The seed is now always SusiConfig::default(), which is the bundled config.default.json compiled into the binary via include_str!. A repo-wide search for other working-directory-relative reads of .json/.toml/.env/.key files (Path::new, PathBuf::from, read_to_string with a bare file name) found none. cargo test -p susi-sandbox and cargo clippy --workspace --all-targets -D warnings pass; the change removes a branch and was not exercised with a crafted working directory (changing a test process's cwd would race parallel tests).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
