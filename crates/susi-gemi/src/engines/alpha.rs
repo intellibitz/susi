@@ -79,13 +79,26 @@ struct ActionVocabulary {
 struct ReflexBundle {
     schema: String,
     weights_file: String,
+    #[serde(default)]
+    previous_weights_file: Option<String>,
 }
 
 fn bundle_path(configured_weights: &Path) -> PathBuf {
     configured_weights.with_extension("bundle.json")
 }
 
-fn resolve_checkpoint(configured_weights: &Path) -> Result<Option<PathBuf>> {
+fn local_checkpoint_path(configured_weights: &Path, filename: &str) -> Result<PathBuf> {
+    let file = Path::new(filename);
+    if file.file_name().and_then(|name| name.to_str()) != Some(filename) {
+        return Err(anyhow!("reflex bundle contains a non-local weights path"));
+    }
+    let parent = configured_weights
+        .parent()
+        .ok_or_else(|| anyhow!("configured reflex weights have no parent"))?;
+    Ok(parent.join(file))
+}
+
+fn resolve_checkpoint_candidates(configured_weights: &Path) -> Result<Vec<PathBuf>> {
     let manifest_path = bundle_path(configured_weights);
     if manifest_path.exists() {
         let bytes = std::fs::read(&manifest_path)?;
@@ -96,25 +109,36 @@ fn resolve_checkpoint(configured_weights: &Path) -> Result<Option<PathBuf>> {
                 manifest.schema
             ));
         }
-        let file = Path::new(&manifest.weights_file);
-        if file.file_name().and_then(|name| name.to_str()) != Some(manifest.weights_file.as_str()) {
-            return Err(anyhow!("reflex bundle contains a non-local weights path"));
+        let mut candidates = vec![local_checkpoint_path(
+            configured_weights,
+            &manifest.weights_file,
+        )?];
+        if let Some(previous) = manifest.previous_weights_file {
+            candidates.push(local_checkpoint_path(configured_weights, &previous)?);
         }
-        let parent = configured_weights
-            .parent()
-            .ok_or_else(|| anyhow!("configured reflex weights have no parent"))?;
-        let active = parent.join(file);
-        if !active.is_file() {
-            return Err(anyhow!(
-                "active reflex checkpoint is missing: {}",
-                active.display()
-            ));
-        }
-        return Ok(Some(active));
+        return Ok(candidates);
     }
     Ok(configured_weights
         .is_file()
-        .then(|| configured_weights.to_path_buf()))
+        .then(|| configured_weights.to_path_buf())
+        .into_iter()
+        .collect())
+}
+
+fn usable_checkpoint(configured_weights: &Path) -> Result<Option<(PathBuf, Vec<String>)>> {
+    let candidates = resolve_checkpoint_candidates(configured_weights)?;
+    let mut last_error = None;
+    for candidate in &candidates {
+        match load_vocabulary(candidate) {
+            Ok(intents) => return Ok(Some((candidate.clone(), intents))),
+            Err(error) => last_error = Some(error),
+        }
+    }
+    if candidates.is_empty() {
+        Ok(None)
+    } else {
+        Err(last_error.unwrap_or_else(|| anyhow!("no usable reflex checkpoint")))
+    }
 }
 
 fn publish_checkpoint(
@@ -144,6 +168,11 @@ fn publish_checkpoint(
     let manifest = ReflexBundle {
         schema: BUNDLE_SCHEMA.into(),
         weights_file: filename,
+        previous_weights_file: usable_checkpoint(configured_weights)?.and_then(|(path, _)| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(str::to_owned)
+        }),
     };
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     crate::susi_config::atomic_write_bytes(&bundle_path(configured_weights), &bytes)
@@ -270,15 +299,26 @@ impl SusiAlphaModel {
         let weights_path = global_dir.join("models").join(&alpha_filename);
         let device = crate::hardware::HardwareProfiler::get_candle_device();
 
-        if let Some(active_weights) = resolve_checkpoint(&weights_path)? {
-            let intents = load_vocabulary(&active_weights)?;
-            // SAFETY: mmap of a weights file the substrate owns; it is not modified while mapped.
-            let vb = unsafe {
-                VarBuilder::from_mmaped_safetensors(&[&active_weights], DType::F32, &device)
-            }?;
-            let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
-            let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
-            return Ok(Self { fc1, fc2, intents });
+        let candidates = resolve_checkpoint_candidates(&weights_path)?;
+        if !candidates.is_empty() {
+            let mut last_error = None;
+            for active_weights in candidates {
+                let attempt = (|| -> Result<Self> {
+                    let intents = load_vocabulary(&active_weights)?;
+                    // SAFETY: mmap of an immutable generation owned by the substrate.
+                    let vb = unsafe {
+                        VarBuilder::from_mmaped_safetensors(&[&active_weights], DType::F32, &device)
+                    }?;
+                    let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
+                    let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+                    Ok(Self { fc1, fc2, intents })
+                })();
+                match attempt {
+                    Ok(model) => return Ok(model),
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            return Err(last_error.unwrap_or_else(|| anyhow!("no usable reflex checkpoint")));
         }
 
         // Initialize default weights only when no published model exists.
@@ -355,9 +395,9 @@ impl SusiAlphaModel {
         std::fs::create_dir_all(&models_dir)?;
         let weights_path = models_dir.join(&alpha_filename);
         let discovered_intents = Self::list_dynamic_intents();
-        let active_weights = resolve_checkpoint(&weights_path)?;
-        let dynamic_intents = if let Some(active) = &active_weights {
-            extend_vocabulary(load_vocabulary(active)?, discovered_intents)
+        let active_checkpoint = usable_checkpoint(&weights_path)?;
+        let dynamic_intents = if let Some((_, intents)) = &active_checkpoint {
+            extend_vocabulary(intents.clone(), discovered_intents)
         } else {
             validate_vocabulary(discovered_intents)?
         };
@@ -368,7 +408,7 @@ impl SusiAlphaModel {
 
         let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
         let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
-        if let Some(active) = active_weights {
+        if let Some((active, _)) = active_checkpoint {
             varmap.load(active)?;
         }
 
@@ -669,13 +709,35 @@ mod tests {
             br#"{"schema":"susi/reflex-bundle/v1","weights_file":"alpha.1.7.safetensors"}"#,
         )
         .unwrap();
-        assert_eq!(resolve_checkpoint(&configured).unwrap(), Some(active));
+        assert_eq!(
+            resolve_checkpoint_candidates(&configured).unwrap(),
+            [active]
+        );
 
         crate::susi_config::atomic_write_bytes(
             &bundle_path(&configured),
             br#"{"schema":"susi/reflex-bundle/v1","weights_file":"../escape.safetensors"}"#,
         )
         .unwrap();
-        assert!(resolve_checkpoint(&configured).is_err());
+        assert!(resolve_checkpoint_candidates(&configured).is_err());
+    }
+
+    #[test]
+    fn unusable_active_checkpoint_falls_back_to_previous_generation() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("alpha.safetensors");
+        let previous = dir.path().join("alpha.previous.safetensors");
+        std::fs::write(&previous, b"previous").unwrap();
+        save_vocabulary(&previous, &["status".into()]).unwrap();
+        std::fs::write(dir.path().join("alpha.active.safetensors"), b"corrupt").unwrap();
+        crate::susi_config::atomic_write_bytes(
+            &bundle_path(&configured),
+            br#"{"schema":"susi/reflex-bundle/v1","weights_file":"alpha.active.safetensors","previous_weights_file":"alpha.previous.safetensors"}"#,
+        )
+        .unwrap();
+
+        let (resolved, intents) = usable_checkpoint(&configured).unwrap().unwrap();
+        assert_eq!(resolved, previous);
+        assert_eq!(intents, ["status"]);
     }
 }

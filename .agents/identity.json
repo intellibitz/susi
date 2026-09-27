@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; stable action vocabularies are hash-bound to immutable checkpoint generations published through one atomic manifest, with mismatch/path failures closed.",
+      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; hash-bound immutable checkpoint generations publish through one atomic manifest, retain one last-known-good generation, and fail over after active corruption.",
       "title": "Reflexes"
     },
     {

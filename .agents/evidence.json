@@ -1710,6 +1710,16 @@
       "milestone": "RSI iteration 10/100: reflex checkpoint publication is now crash-safe as a bundle. In-place weights replacement followed by vocabulary replacement had a detectable but unrecoverable mixed-pair window. Training and fresh initialization now write an immutable generation-specific safetensors file and its hash-bound vocabulary first, then atomically publish a small versioned manifest naming that generation. Readers resolve only the manifest's same-directory filename and reject traversal, unsupported schema, missing checkpoint, corrupt vocabulary, or digest mismatch; a crash before the manifest update leaves the prior generation active. Legacy configured weight files remain readable and migrate on the next successful training publication. Cache fingerprinting follows the manifest rather than a legacy filename. Regression coverage proves valid local resolution and traversal rejection. Generation retention cleanup remains a later lifecycle iteration; correctness no longer depends on it. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "usable_checkpoint",
+        "ref": "symbol://usable_checkpoint"
+      },
+      "id": "EV-2022927-177",
+      "milestone": "RSI iteration 11/100: reflex bundles now retain and recover from one last-known-good generation. Each publication records the previously validated checkpoint in the atomic manifest. Inference validates active vocabulary/hash/safetensors construction first and automatically tries previous on any active failure; cumulative training selects the first hash-valid active-or-previous source instead of becoming permanently wedged by a damaged active file. Both manifest paths are constrained to local filenames. A regression test creates a corrupt active generation and valid hash-bound previous generation and proves usable_checkpoint selects the previous mapping. This converts iteration 9's detection and iteration 10's crash-safe pointer into an operational recovery path. Retention cleanup of generations older than active+previous remains the next lifecycle concern. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
