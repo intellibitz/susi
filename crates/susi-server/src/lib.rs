@@ -307,6 +307,20 @@ fn validated_max_cost(value: Option<f64>) -> Result<f64, &'static str> {
         .ok_or("max_cost must be a non-negative finite number")
 }
 
+fn explicit_model_conflict(
+    is_cloud: bool,
+    requires: Option<&str>,
+    allow_cloud: bool,
+) -> Option<&'static str> {
+    if is_cloud && !allow_cloud {
+        return Some("susi.allow_cloud=false conflicts with the requested cloud model");
+    }
+    if !is_cloud && requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
+        return Some("the requested local model cannot satisfy susi.requires=vision");
+    }
+    None
+}
+
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
@@ -614,16 +628,16 @@ async fn handle_gemi_request(
             };
             let placement = if let Some(model) = completion.model.as_deref() {
                 let (routable, cooled) = provider_ids();
-                if !completion.allow_cloud
-                    && routable
-                        .iter()
-                        .chain(cooled.iter())
-                        .any(|provider| provider == model)
-                {
-                    return Ok(api_error(
-                        StatusCode::BAD_REQUEST,
-                        "susi.allow_cloud=false conflicts with the requested cloud model",
-                    ));
+                let is_cloud = routable
+                    .iter()
+                    .chain(cooled.iter())
+                    .any(|provider| provider == model);
+                if let Some(message) = explicit_model_conflict(
+                    is_cloud,
+                    completion.requires.as_deref(),
+                    completion.allow_cloud,
+                ) {
+                    return Ok(api_error(StatusCode::BAD_REQUEST, message));
                 }
                 json!({
                     "target": "explicit",
@@ -1964,6 +1978,20 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("X-Susi-Placement")
         );
+    }
+
+    #[test]
+    fn explicit_models_cannot_bypass_placement_constraints() {
+        assert!(
+            explicit_model_conflict(true, None, false)
+                .is_some_and(|message| message.contains("allow_cloud"))
+        );
+        assert!(
+            explicit_model_conflict(false, Some("vision"), true)
+                .is_some_and(|message| message.contains("requires=vision"))
+        );
+        assert_eq!(explicit_model_conflict(false, Some("code"), false), None);
+        assert_eq!(explicit_model_conflict(true, Some("vision"), true), None);
     }
 
     #[test]
