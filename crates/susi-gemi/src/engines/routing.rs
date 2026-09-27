@@ -127,7 +127,12 @@ fn save_cooldowns(map: &std::collections::HashMap<String, u64>) {
         return;
     };
     let path = cooldowns_path();
-    let tmp = path.with_extension("tmp");
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
     if std::fs::write(&tmp, &bytes).is_ok() {
         let _ = std::fs::rename(&tmp, &path);
     }
@@ -1367,6 +1372,31 @@ mod tests {
         assert!(InferenceRouter::clear_provider_cooldown(&name));
         assert!(!InferenceRouter::provider_cooled(&name));
         assert!(!InferenceRouter::clear_provider_cooldown(&name));
+    }
+
+    #[test]
+    fn cooldown_persistence_creates_fresh_config_directory() {
+        let _env = crate::engines::env_test_lock();
+        let root = std::env::temp_dir().join(format!(
+            "susi-cd-fresh-{}-{}",
+            std::process::id(),
+            now_unix()
+        ));
+        let path = root.join("nested/provider_cooldowns.json");
+        // SAFETY: test-only env override, serialized by env_test_lock and
+        // restored below before the directory is removed.
+        unsafe {
+            std::env::set_var("SUSI_COOLDOWNS_FILE", &path);
+        }
+        InferenceRouter::record_provider_failure(&format!(
+            "fresh-config-provider-{}",
+            std::process::id()
+        ));
+        unsafe {
+            std::env::remove_var("SUSI_COOLDOWNS_FILE");
+        }
+        assert!(path.is_file());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
