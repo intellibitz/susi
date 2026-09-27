@@ -141,11 +141,73 @@ fn usable_checkpoint(configured_weights: &Path) -> Result<Option<(PathBuf, Vec<S
     }
 }
 
+struct PublishOutcome {
+    cleanup_failures: Vec<String>,
+}
+
+fn is_generated_checkpoint(filename: &str, stem: &str) -> bool {
+    let Some(middle) = filename
+        .strip_prefix(&format!("{stem}."))
+        .and_then(|name| name.strip_suffix(".safetensors"))
+    else {
+        return false;
+    };
+    let mut parts = middle.split('.');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some(generation), Some(pid), None)
+            if generation.parse::<u128>().is_ok() && pid.parse::<u32>().is_ok()
+    )
+}
+
+fn prune_checkpoint_generations(configured_weights: &Path, keep: &[PathBuf]) -> Vec<String> {
+    let Some(parent) = configured_weights.parent() else {
+        return vec!["configured reflex weights have no parent".into()];
+    };
+    let Some(stem) = configured_weights
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+    else {
+        return vec!["configured reflex weights have no UTF-8 stem".into()];
+    };
+    let entries = match std::fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(error) => return vec![format!("scan reflex generations: {error}")],
+    };
+    let mut failures = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if !is_generated_checkpoint(filename, stem) || keep.iter().any(|kept| kept == &path) {
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(&path) {
+            failures.push(format!(
+                "remove stale checkpoint {}: {error}",
+                path.display()
+            ));
+            continue;
+        }
+        let vocabulary = vocabulary_path(&path);
+        if let Err(error) = std::fs::remove_file(&vocabulary) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                failures.push(format!(
+                    "remove stale checkpoint vocabulary {}: {error}",
+                    vocabulary.display()
+                ));
+            }
+        }
+    }
+    failures
+}
+
 fn publish_checkpoint(
     varmap: &VarMap,
     configured_weights: &Path,
     intents: &[String],
-) -> Result<PathBuf> {
+) -> Result<PublishOutcome> {
     let parent = configured_weights
         .parent()
         .ok_or_else(|| anyhow!("configured reflex weights have no parent"))?;
@@ -158,6 +220,7 @@ fn publish_checkpoint(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
+    let previous = usable_checkpoint(configured_weights)?.map(|(path, _)| path);
     let filename = format!("{stem}.{generation}.{}.safetensors", std::process::id());
     let weights = parent.join(&filename);
     varmap.save(&weights)?;
@@ -168,7 +231,7 @@ fn publish_checkpoint(
     let manifest = ReflexBundle {
         schema: BUNDLE_SCHEMA.into(),
         weights_file: filename,
-        previous_weights_file: usable_checkpoint(configured_weights)?.and_then(|(path, _)| {
+        previous_weights_file: previous.as_ref().and_then(|path| {
             path.file_name()
                 .and_then(|name| name.to_str())
                 .map(str::to_owned)
@@ -177,7 +240,13 @@ fn publish_checkpoint(
     let bytes = serde_json::to_vec_pretty(&manifest)?;
     crate::susi_config::atomic_write_bytes(&bundle_path(configured_weights), &bytes)
         .map_err(|error| anyhow!("publish reflex bundle: {error}"))?;
-    Ok(weights)
+    let mut keep = vec![weights];
+    if let Some(previous) = previous {
+        keep.push(previous);
+    }
+    Ok(PublishOutcome {
+        cleanup_failures: prune_checkpoint_generations(configured_weights, &keep),
+    })
 }
 
 fn file_sha256(path: &Path) -> Result<String> {
@@ -446,9 +515,17 @@ impl SusiAlphaModel {
             opt.backward_step(&loss)?;
         }
 
-        publish_checkpoint(&varmap, &weights_path, &dynamic_intents)?;
+        let publication = publish_checkpoint(&varmap, &weights_path, &dynamic_intents)?;
 
-        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.", samples.len()))
+        let cleanup = if publication.cleanup_failures.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " Cleanup warnings: {}.",
+                publication.cleanup_failures.join("; ")
+            )
+        };
+        Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.{cleanup}", samples.len()))
     }
 
     pub fn get_model_fingerprint(global_dir: &Path) -> String {
@@ -739,5 +816,29 @@ mod tests {
         let (resolved, intents) = usable_checkpoint(&configured).unwrap().unwrap();
         assert_eq!(resolved, previous);
         assert_eq!(intents, ["status"]);
+    }
+
+    #[test]
+    fn generation_pruning_keeps_active_previous_and_unrelated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("alpha.safetensors");
+        let active = dir.path().join("alpha.3.7.safetensors");
+        let previous = dir.path().join("alpha.2.7.safetensors");
+        let stale = dir.path().join("alpha.1.7.safetensors");
+        let unrelated = dir.path().join("alpha.custom.safetensors");
+        for path in [&active, &previous, &stale, &unrelated] {
+            std::fs::write(path, b"weights").unwrap();
+        }
+        std::fs::write(vocabulary_path(&stale), b"vocab").unwrap();
+
+        assert!(
+            prune_checkpoint_generations(&configured, &[active.clone(), previous.clone()])
+                .is_empty()
+        );
+        assert!(active.exists());
+        assert!(previous.exists());
+        assert!(!stale.exists());
+        assert!(!vocabulary_path(&stale).exists());
+        assert!(unrelated.exists());
     }
 }

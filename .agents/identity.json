@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; hash-bound immutable checkpoint generations publish through one atomic manifest, retain one last-known-good generation, and fail over after active corruption.",
+      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; hash-bound immutable generations publish atomically, retain active plus last-known-good, fail over after corruption, and report retention-cleanup failures.",
       "title": "Reflexes"
     },
     {
