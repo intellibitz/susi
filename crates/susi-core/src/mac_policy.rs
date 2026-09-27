@@ -182,6 +182,25 @@ fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
     }
 }
 
+/// Whether a grant on `granted` covers a request for `requested`.
+///
+/// Exact match; an explicit trailing `*` globs its prefix (`app://*`);
+/// otherwise the request must sit *under* the grant at a `/` boundary.
+/// A bare `starts_with` let a grant on `/srv/ws` authorize `/srv/ws2`,
+/// and one on `https://api.example.com` authorize
+/// `https://api.example.com.evil.net`.
+pub fn grant_covers(granted: &str, requested: &str) -> bool {
+    if granted == requested {
+        return true;
+    }
+    if let Some(prefix) = granted.strip_suffix('*') {
+        return requested.starts_with(prefix);
+    }
+    requested
+        .strip_prefix(granted)
+        .is_some_and(|rest| granted.ends_with('/') || rest.starts_with('/'))
+}
+
 fn process_local_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     if getrandom::fill(&mut key).is_ok() {
@@ -344,7 +363,7 @@ impl MacPolicy {
                 };
                 if t.subject == subject
                     && t.action == action
-                    && resource.starts_with(&t.resource)
+                    && grant_covers(&t.resource, resource)
                     && live(&t)
                 {
                     return Some(t);
@@ -522,12 +541,13 @@ impl MacPolicy {
                 }
             }
         }
-        // Prefix resource: grant resource is a prefix of requested
+        // Scoped resource: the grant covers the requested one (see
+        // `grant_covers` for the boundary rule).
         for entry in self.grants.iter() {
             let t = entry.value();
             if t.subject == subject
                 && t.action == action
-                && resource.starts_with(&t.resource)
+                && grant_covers(&t.resource, resource)
                 && self.verify(t)
                 && !t.is_expired(now)
             {
@@ -822,6 +842,36 @@ mod tests {
         policy.set_mode(PrivacyMode::Open).unwrap();
         assert_eq!(read_sticky_mode(&dir), Some(PrivacyMode::Open));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scoped_grants_stop_at_a_path_or_host_boundary() {
+        let p = policy(PrivacyMode::LocalOnly);
+        p.grant("cell-a", actions::FILESYSTEM_READ, "/srv/ws", None);
+        assert!(p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws"));
+        assert!(p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws/src/lib.rs"));
+        assert!(!p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws2"));
+        assert!(!p.is_permitted("cell-a", actions::FILESYSTEM_READ, "/srv/ws-secrets/key"));
+        p.grant(
+            "cell-a",
+            actions::NETWORK_EGRESS,
+            "https://api.example.com",
+            None,
+        );
+        assert!(p.is_permitted(
+            "cell-a",
+            actions::NETWORK_EGRESS,
+            "https://api.example.com/v1"
+        ));
+        assert!(!p.is_permitted(
+            "cell-a",
+            actions::NETWORK_EGRESS,
+            "https://api.example.com.evil.net/x"
+        ));
+        // An explicit trailing `*` is a glob over its prefix.
+        p.grant("cell-a", actions::TRANSMIT, "app://*", None);
+        assert!(p.is_permitted("cell-a", actions::TRANSMIT, "app://agent-b"));
+        assert!(!p.is_permitted("cell-a", actions::TRANSMIT, "tcp://agent-b"));
     }
 
     #[test]

@@ -2020,6 +2020,16 @@
       "milestone": "RSI iteration 41/100: a damaged privacy posture now fails closed instead of downgrading a local_only host. Every wired MacPolicy copy (daemon plus the vendored susi_core in each leaf crate) re-reads substrate_home/privacy_mode on each mode() call, and parsed it with the lenient PrivacyMode::parse, which maps anything unrecognized (an empty file, a torn write, garbage) to Balanced. Balanced makes blocks_cloud_inference false and drops mandatory_sandbox, so a local_only host silently re-enabled cloud inference and unsandboxed host exec. MacPolicy::set_mode also rewrote that file with a plain, error-ignoring std::fs::write, right after persist_privacy_mode had written it atomically, which reopened exactly the torn-read window persist_privacy_mode's own comment guards against, and a failed write still reported a switch other processes never saw. The sticky file is now parsed exactly (PrivacyMode::parse_persisted); unrecognized or unreadable content enforces LocalOnly with an error log, and absence still means no override. set_mode is the single atomic writer for wired policies and returns io::Result; persist_privacy_mode delegates to it, writing directly only when the global policy is unwired (substrate key unavailable, forced local_only) so the choice still persists for the next boot. A test covers absent, each valid mode, and empty or partial content failing closed, plus an atomic set_mode round-trip. cargo test -p susi-core mac_policy (8 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "mac_policy::grant_covers / security::scope_matches",
+        "ref": "symbol://grant_covers"
+      },
+      "id": "EV-2022927-208",
+      "milestone": "RSI iteration 42/100: scoped capability grants stop at a path or host boundary. MacPolicy::is_permitted (and its persisted-grant scan) accepted any grant whose resource was a raw string prefix of the request, and the daemon's syscall CapabilityPolicy did the same for scoped grants (workspace.starts_with(scope)). A cell granted filesystem.read on a canonical workspace /srv/ws was therefore authorized for /srv/ws2 and /srv/ws-secrets, and a grant on https://api.example.com also covered https://api.example.com.evil.net. Confirmed by a failing test before the fix. One rule, mac_policy::grant_covers, now decides coverage: exact match; an explicit trailing * globs its prefix (the default app://* transmit grant keeps working); otherwise the request must sit under the grant at a / boundary. Both the in-memory and persisted MAC lookups and the daemon's scope_matches use it (no second copy). Tests: scoped_grants_stop_at_a_path_or_host_boundary (path child allowed, sibling paths denied, URL child allowed, look-alike host denied, glob allowed within its scheme only) and a sibling-path case added to the daemon's scoped_grant_restricts_workspace. cargo test -p susi-core mac_policy (9 passed) and abi_bridge (9 passed), -p susi-daemon security (8 passed), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

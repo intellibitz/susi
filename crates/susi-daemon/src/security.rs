@@ -190,10 +190,14 @@ fn required_capability_for_op(op: SyscallOp) -> &'static str {
 }
 
 /// Checks scope constraints: if the grant has a scope, the request's
-/// workspace must start with that scope prefix.
+/// workspace must be that scope or sit under it at a path boundary (the
+/// MAC layer's rule; a raw prefix let `/home/user/project` authorize
+/// `/home/user/project-secrets`).
 fn scope_matches(grant: &CapabilityGrant, req: &SyscallRequest) -> bool {
     match (&grant.scope, &req.workspace) {
-        (Some(scope), Some(workspace)) => workspace.starts_with(scope.as_str()),
+        (Some(scope), Some(workspace)) => {
+            susi_core::mac_policy::grant_covers(scope.as_str(), workspace.as_str())
+        }
         (Some(_), None) => false, // scoped grant but no workspace in request
         (None, _) => true,        // unscoped grant — matches everything
     }
@@ -295,6 +299,9 @@ mod tests {
 
         let denied = make_request(SyscallOp::Infer, Some("/tmp/other"));
         assert_eq!(policy.evaluate(&denied), PolicyVerdict::Deny);
+
+        let sibling = make_request(SyscallOp::Infer, Some("/home/user/project-secrets"));
+        assert_eq!(policy.evaluate(&sibling), PolicyVerdict::Deny);
 
         let no_ws = make_request(SyscallOp::Infer, None);
         assert_eq!(policy.evaluate(&no_ws), PolicyVerdict::Deny);
