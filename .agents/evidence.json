@@ -2320,6 +2320,16 @@
       "milestone": "RSI iteration 71/100: secret detection no longer fires inside ordinary words. Triaging the bloat audit's secret-pattern hits in production sources showed all seven were false positives, mostly the bundled sk- prefix inside words (ta-sk-queue, di-sk-backed, ri-sk-). The same raw substring matching drove two live paths: SecurityDetector::audit_action vetoed any goal containing such a word as a leaked key (e.g. 'write a risk-assessment doc'), and the shared redactor rewrote 'task-queue' as 'ta[REDACTED]' across error metrics and, since iterations 67-68, the blackboard, governance, and mission-trace files. One rule now lives in susi_error::redact: secret_match_starts yields only occurrences where the preceding character is not ASCII alphanumeric; redact_patterns (via redact_one), the new contains_secret_pattern (used by the SecurityDetector veto), and the bloat auditor all use it. Tokens after spaces, '=', ':', or punctuation still match, so the existing property tests (any tail after a prefix is redacted) and the error-metrics redaction test pass unchanged. New tests: ordinary words are neither redacted nor flagged while key=sk-... and (AIza...) are; the security veto accepts 'write a risk-assessment doc'. Re-measured audit: secret-pattern hits 7 -> 4 (remaining are comments naming prefixes and the crown's deliberate ghp_ probe). cargo test -p susi-error (11), -p susi-gawd-agents (259), -p susi-config (44), -p susi-core (208), -p susi-gawd-swarm (306), --test crown_verify_tests, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SafetyDetector::audit_action / names_absolute_path",
+        "ref": "symbol://names_absolute_path"
+      },
+      "id": "EV-2022927-238",
+      "milestone": "RSI iteration 72/100: the safety veto's critical-path check matches whole absolute path components instead of substrings. SafetyDetector checked governance.critical_system_paths (/etc/passwd, /etc/shadow, /boot, /proc, /sys, /dev) with lower-cased contains(), so for write_file, exec_command, and every SUSI_SOLVE goal it vetoed ordinary work: 'cargo build in ~/dev/myapp' (a common home layout) was refused as targeting '/dev', as were ./dev/notes.md, docs/bootstrap.md ('/boot'), /systemd-units ('/sys'), and /processing ('/proc'). Confirmed with a failing test before the change. names_absolute_path now requires the match to start at a boundary (not after a letter, digit, ~, ., /, _ or -, so it is not inside another path) and to end the component (end of text or a character other than a letter, digit, _, - or .). Stated trade-off: a sibling like /etc/passwd- (a shadow backup name) is no longer caught by the /etc/passwd entry; operators can list it explicitly. A test allows five legitimate goals and blocks five that really name /etc/shadow, /dev/sda, /boot, /proc/sys/..., and '/sys/firmware'. cargo test -p susi-gawd-agents safety (6 passed), --test crown_verify_tests, and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

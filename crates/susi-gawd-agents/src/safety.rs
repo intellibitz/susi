@@ -43,7 +43,7 @@ impl SafetyDetector {
         // 2. Critical Path Check (Dynamic)
         if tool_name == "write_file" || tool_name == "exec_command" || tool_name == "SUSI_SOLVE" {
             for path in &patterns.critical_system_paths {
-                if lower_arg.contains(&path.to_lowercase()) {
+                if names_absolute_path(&lower_arg, &path.to_lowercase()) {
                     return Err(EaiError::governance(format!(
                         "Action targets critical system path '{}'",
                         path
@@ -105,6 +105,25 @@ const ALLOWED_EXEC_BINS: &[&str] = &[
     "python",
     "python3",
 ];
+
+/// Whether `text` names the absolute path `path` as whole components:
+/// not inside another path (`~/dev`, `./dev`, `docs/boot`) and not as a
+/// prefix of a longer name (`/devel`, `/bootstrap`, `/system`). A bare
+/// substring check vetoed goals like "cargo build in ~/dev/myapp".
+fn names_absolute_path(text: &str, path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    text.match_indices(path).any(|(i, _)| {
+        let before = text[..i].chars().next_back();
+        let after = text[i + path.len()..].chars().next();
+        let starts = before
+            .is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '~' | '.' | '/' | '_' | '-')));
+        let ends = path.ends_with('/')
+            || after.is_none_or(|c| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.')));
+        starts && ends
+    })
+}
 
 /// The root- or home-level target of a recursive `rm` anywhere in `text`
 /// (already lower-cased), whatever the flag spelling or spacing.
@@ -466,6 +485,35 @@ mod tests {
         // Note: These tests depend on the default config being loaded or present in ~/.susi/config.json
         // In a CI/test environment, we might need a controlled global_dir.
         assert!(SafetyDetector::audit_action("exec_command", "rm -rf /", ws).is_err());
+    }
+
+    #[test]
+    fn critical_paths_match_whole_path_components_only() {
+        let ws = Path::new(".");
+        for ok in [
+            "cargo build in ~/dev/myapp",
+            "read ./dev/notes.md",
+            "summarize docs/bootstrap.md",
+            "check /systemd-units in the repo docs",
+            "profile the /processing pipeline",
+        ] {
+            assert!(
+                SafetyDetector::audit_action("SUSI_SOLVE", ok, ws).is_ok(),
+                "should allow: {ok}"
+            );
+        }
+        for bad in [
+            "cat /etc/shadow",
+            "write to /dev/sda",
+            "ls /boot",
+            "echo 1 > /proc/sys/kernel/panic",
+            "wipe '/sys/firmware'",
+        ] {
+            assert!(
+                SafetyDetector::audit_action("SUSI_SOLVE", bad, ws).is_err(),
+                "should block: {bad}"
+            );
+        }
     }
 
     #[test]
