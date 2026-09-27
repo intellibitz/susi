@@ -513,26 +513,8 @@ fn unique_id() -> Result<String> {
     getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("task ID entropy: {e}"))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-/// Redact known credential values on display; raw vendor logs stay in the private run directory.
-pub fn redact(text: &str) -> String {
-    let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
-        if value.len() >= 8
-            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
-        {
-            result = result.replace(&value, "[REDACTED]");
-        }
-    }
-    crate::susi_core::redact::redact_patterns(
-        &[
-            format!("{}-", "sk"),
-            format!("{}_", "ghp"),
-            format!("{}_", "github_pat"),
-            format!("{}-", "xoxb"),
-        ],
-        &result,
-    )
-}
+/// Redact credentials on display; raw vendor logs stay in the private run directory.
+pub use crate::susi_config::redact_credentials as redact;
 fn tracing_failure(id: &str, error: &str) {
     crate::susi_sandbox::manager::SusiAuditLogger::log(
         &crate::susi_paths::SusiDirs::config_dir(),

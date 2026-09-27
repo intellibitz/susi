@@ -49,7 +49,7 @@ pub fn probe(prompt: &str) -> Result<String> {
     let text = runtime
         .block_on(provider.generate(prompt))
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    Ok(redact_secrets(&text))
+    Ok(crate::susi_config::redact_credentials(&text))
 }
 
 /// Live model ids from OpenRouter `GET /models` (requires key). Caps list size.
@@ -103,19 +103,4 @@ async fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
         bail!("OpenRouter /models returned no model ids");
     }
     Ok(ids)
-}
-
-fn redact_secrets(text: &str) -> String {
-    let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
-        if value.len() >= 8
-            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
-        {
-            result = result.replace(&value, "[REDACTED]");
-        }
-    }
-    crate::susi_core::redact::redact_patterns(
-        &["sk-".into(), "sk-or-".into(), "ghp_".into()],
-        &result,
-    )
 }

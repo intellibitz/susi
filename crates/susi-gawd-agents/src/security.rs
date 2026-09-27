@@ -44,12 +44,7 @@ impl SecurityDetector {
     /// persist to telemetry/audit logs — no reliance on an LLM's output happening
     /// to mention a sentinel word.
     pub fn redact(text: &str) -> String {
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let patterns = match SusiConfig::load(&global_dir) {
-            Ok(cfg) => cfg.governance().secret_tokens,
-            Err(_) => return text.to_string(),
-        };
-        crate::susi_core::redact::redact_patterns(&patterns, text)
+        crate::susi_config::redact_credentials(text)
     }
 }
 

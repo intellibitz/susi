@@ -271,3 +271,29 @@ fn resolve_pack_path_jails_escapes_without_filesystem_read() {
         assert!(resolve_pack_path(&pack, "loot").is_none());
     });
 }
+
+#[test]
+fn credential_redaction_covers_governance_tokens_and_env_secrets() {
+    with_temp_home(|| {
+        let env_secret = "not-a-token-shape-but-secret-123";
+        unsafe {
+            std::env::set_var("SUSI_REDACT_PROBE_API_KEY", env_secret);
+        }
+        let text = format!(
+            "google=AIzaSyA1b2C3 pat=github_pat_11ABCdef slack=xoxb-123-abc env={env_secret} ok=plain"
+        );
+        let out = crate::redact_credentials(&text);
+        unsafe {
+            std::env::remove_var("SUSI_REDACT_PROBE_API_KEY");
+        }
+        for leaked in [
+            "AIzaSyA1b2C3",
+            "github_pat_11ABCdef",
+            "xoxb-123-abc",
+            env_secret,
+        ] {
+            assert!(!out.contains(leaked), "{leaked} leaked: {out}");
+        }
+        assert!(out.contains("ok=plain"), "{out}");
+    });
+}

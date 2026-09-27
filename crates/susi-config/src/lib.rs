@@ -59,7 +59,7 @@ mod service {
     }
 }
 
-pub use config::SusiConfig;
+pub use config::{redact_credentials, SusiConfig};
 pub use json_util::{
     atomic_write_bytes, atomic_write_json_pretty, confined_workspace_join, create_private_dir,
     http_agent, load_or_create_secret, merge_missing_json_defaults,

@@ -35,20 +35,5 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
     let text = runtime
         .block_on(provider.generate(prompt))
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    Ok(redact_secrets(&text))
-}
-
-fn redact_secrets(text: &str) -> String {
-    let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
-        if value.len() >= 8
-            && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
-        {
-            result = result.replace(&value, "[REDACTED]");
-        }
-    }
-    crate::susi_core::redact::redact_patterns(
-        &["sk-".into(), "ghp_".into(), "github_pat_".into()],
-        &result,
-    )
+    Ok(crate::susi_config::redact_credentials(&text))
 }
