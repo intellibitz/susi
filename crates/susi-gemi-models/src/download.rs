@@ -28,6 +28,75 @@ pub(crate) fn artifact_name(url: &str) -> Result<String, String> {
     Ok(name.to_string())
 }
 
+/// The SHA-256 a Hugging Face `X-Linked-ETag` carries (quoted 64-hex).
+fn linked_etag_digest(value: &str) -> Option<String> {
+    let tag = value.trim().trim_matches('"').to_ascii_lowercase();
+    (tag.len() == 64 && tag.bytes().all(|b| b.is_ascii_hexdigit())).then_some(tag)
+}
+
+/// The SHA-256 the host publishes for `url`, if any. Hugging Face sends it
+/// as `X-Linked-ETag` on the resolve redirect, which a redirect-following
+/// client never sees, so this asks without following. `None` means the
+/// host publishes no digest (or could not be asked): the download is then
+/// validated structurally only, and no provenance checksum is recorded.
+pub(crate) fn published_sha256(url: &str, token: Option<&str>) -> Option<String> {
+    let client = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30))
+        .build()
+        .ok()?;
+    let mut request = client.head(url);
+    if let Some(token) = token {
+        request = request.bearer_auth(token);
+    }
+    let response = request.send().ok()?;
+    linked_etag_digest(response.headers().get("x-linked-etag")?.to_str().ok()?)
+}
+
+/// Move a validated `part` into place. With a published digest, the bytes
+/// must hash to it first (a mismatch discards the part so the next attempt
+/// starts clean), and the digest is recorded in the model's provenance so
+/// `verify_model_integrity` detects later corruption on load.
+fn publish(
+    part: &Path,
+    destination: &Path,
+    url: &str,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
+    if let Some(expected) = expected_sha256 {
+        let actual = super::lifecycle::ModelManager::calculate_simple_checksum(part)
+            .map_err(|e| e.to_string())?;
+        if actual != expected {
+            OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(part)
+                .map_err(|e| e.to_string())?;
+            return Err(format!(
+                "Checksum mismatch: published sha256 {expected}, downloaded {actual}"
+            ));
+        }
+    }
+    fs::rename(part, destination).map_err(|e| e.to_string())?;
+    if let Some(expected) = expected_sha256 {
+        let provenance = super::lifecycle::ModelProvenance {
+            source_url: url.to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            original_checksum: Some(expected.to_string()),
+        };
+        crate::susi_config::atomic_write_json_pretty(
+            &destination.with_extension("provenance.json"),
+            &provenance,
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 fn range_bounds(value: &str) -> Option<(u64, u64, u64)> {
     let (span, total) = value.strip_prefix("bytes ")?.split_once('/')?;
     let (start, end) = span.split_once('-')?;
@@ -44,6 +113,7 @@ pub(crate) fn transfer(
     cancelled: &dyn Fn() -> bool,
     progress: &dyn Fn(u64, u64),
     validate: &dyn Fn(&Path) -> bool,
+    expected_sha256: Option<&str>,
 ) -> Result<(), String> {
     let lock_path = PathBuf::from(format!("{}.lock", destination.display()));
     let lock = OpenOptions::new()
@@ -109,7 +179,7 @@ pub(crate) fn transfer(
             .and_then(|s| s.strip_prefix("bytes */"))
             .and_then(|n| n.parse::<u64>().ok());
         if remote_len == Some(offset) && validate(&part) {
-            fs::rename(&part, destination).map_err(|e| e.to_string())?;
+            publish(&part, destination, url, expected_sha256)?;
             progress(offset, offset);
             return Ok(());
         }
@@ -217,7 +287,7 @@ pub(crate) fn transfer(
     if !validate(&part) {
         return Err("Artifact validation failed".into());
     }
-    fs::rename(&part, destination).map_err(|e| e.to_string())?;
+    publish(&part, destination, url, expected_sha256)?;
     progress(downloaded, downloaded);
     Ok(())
 }
@@ -268,10 +338,10 @@ mod tests {
             ("range: bytes=5-", "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes 5-9/10\r\nContent-Length: 5\r\nETag: \"v1\"\r\nConnection: close\r\n\r\nfghij"),
         ]);
         let validate = |p: &Path| fs::read(p).is_ok_and(|b| b == b"abcdefghij");
-        assert!(transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate).is_err());
+        assert!(transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate, None).is_err());
         assert!(!path.exists());
         assert!(dir.join("model.gguf.part").exists());
-        transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate).unwrap();
+        transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &validate, None).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"abcdefghij");
         assert!(!dir.join("model.gguf.part").exists());
         server.join().unwrap();
@@ -293,9 +363,16 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &|p| {
-            fs::read(p).is_ok_and(|b| b == b"abcdefghij")
-        })
+        transfer(
+            &url,
+            &path,
+            5,
+            None,
+            &|| false,
+            &|_, _| {},
+            &|p| fs::read(p).is_ok_and(|b| b == b"abcdefghij"),
+            None,
+        )
         .unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"abcdefghij");
         server.join().unwrap();
@@ -317,11 +394,70 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        assert!(transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &|_| true).is_err());
+        assert!(transfer(&url, &path, 5, None, &|| false, &|_, _| {}, &|_| true, None).is_err());
         assert!(!path.exists());
         assert_eq!(fs::read(dir.join("model.gguf.part")).unwrap(), b"abcde");
         server.join().unwrap();
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn published_digest_gates_publication_and_is_recorded() {
+        use sha2::Digest;
+        let body = b"abcdefghij";
+        let good = hex::encode(sha2::Sha256::digest(body));
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabcdefghij";
+
+        let dir = workspace("digest_bad");
+        let path = dir.join("model.gguf");
+        let (url, srv) = server(vec![("get /model.gguf", response)]);
+        let bad = "0".repeat(64);
+        let err = transfer(
+            &url,
+            &path,
+            5,
+            None,
+            &|| false,
+            &|_, _| {},
+            &|_| true,
+            Some(&bad),
+        )
+        .unwrap_err();
+        assert!(err.contains("Checksum mismatch"), "{err}");
+        assert!(!path.exists());
+        srv.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+
+        let dir = workspace("digest_good");
+        let path = dir.join("model.gguf");
+        let (url, srv) = server(vec![("get /model.gguf", response)]);
+        transfer(
+            &url,
+            &path,
+            5,
+            None,
+            &|| false,
+            &|_, _| {},
+            &|_| true,
+            Some(&good),
+        )
+        .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), body);
+        let provenance: super::super::lifecycle::ModelProvenance =
+            serde_json::from_slice(&fs::read(dir.join("model.provenance.json")).unwrap()).unwrap();
+        assert_eq!(provenance.original_checksum.as_deref(), Some(good.as_str()));
+        assert!(super::super::lifecycle::ModelManager::verify_model_integrity(&path).is_ok());
+        fs::write(&path, b"tampered!!").unwrap();
+        assert!(super::super::lifecycle::ModelManager::verify_model_integrity(&path).is_err());
+        srv.join().unwrap();
+        fs::remove_dir_all(dir).unwrap();
+
+        assert_eq!(
+            linked_etag_digest(&format!("\"{}\"", good.to_uppercase())),
+            Some(good)
+        );
+        assert_eq!(linked_etag_digest("\"v1\""), None);
     }
 
     #[test]

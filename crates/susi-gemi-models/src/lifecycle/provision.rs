@@ -187,6 +187,7 @@ impl ModelManager {
         fs::create_dir_all(models_dir)?;
         let policy = cfg.model_lifecycle();
         let token = crate::susi_config::env_or_cloud_env("HF_TOKEN").ok();
+        let expected_sha256 = crate::download::published_sha256(&url, token.as_deref());
         let mut error = String::new();
         for _ in 0..policy.download_attempts.clamp(1, 8) {
             match crate::download::transfer(
@@ -197,6 +198,7 @@ impl ModelManager {
                 &|| false,
                 &|_, _| {},
                 &|p| tokenizers::Tokenizer::from_file(p).is_ok(),
+                expected_sha256.as_deref(),
             ) {
                 Ok(()) => return Ok(()),
                 Err(e) => {

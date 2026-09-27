@@ -108,7 +108,7 @@
     },
     {
       "id": 13,
-      "summary": "`bootstrap_zero_config_substrate` + Candle/weight ladder.",
+      "summary": "`bootstrap_zero_config_substrate` + Candle/weight ladder. Model downloads are verified against the publisher's SHA-256 when one is published (Hugging Face `X-Linked-ETag`) and recorded as provenance that every cold load re-checks; otherwise they are validated structurally only.",
       "title": "Provision"
     },
     {

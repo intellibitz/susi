@@ -397,13 +397,27 @@ impl ModelManager {
             .map_err(|_| crate::susi_error::EaiError::governance("Malformed model provenance"))?;
 
         if let Some(trusted_checksum) = provenance.original_checksum {
+            // Downloads now record the publisher's digest, so this runs on
+            // every cold load; hashing multi-GB weights each time is paid
+            // once per unchanged file (same length and mtime) per process.
+            type Stamp = (u64, std::time::SystemTime, String);
+            static VERIFIED: std::sync::OnceLock<DashMap<PathBuf, Stamp>> =
+                std::sync::OnceLock::new();
+            let meta = fs::metadata(model_path)?;
+            let stamp = (meta.len(), meta.modified()?, trusted_checksum.clone());
+            let verified = VERIFIED.get_or_init(DashMap::new);
+            if verified.get(model_path).is_some_and(|seen| *seen == stamp) {
+                return Ok(());
+            }
             let actual_checksum = Self::calculate_simple_checksum(model_path)?;
             if actual_checksum != trusted_checksum {
+                verified.remove(model_path);
                 return Err(crate::susi_error::EaiError::governance(format!(
                     "Model TAMPERING detected! Hash mismatch for {}",
                     model_path.display()
                 )));
             }
+            verified.insert(model_path.to_path_buf(), stamp);
         }
 
         Ok(())

@@ -235,6 +235,8 @@ impl ModelManager {
             .then(|| crate::susi_config::env_or_cloud_env("HF_TOKEN").ok())
             .flatten();
         let policy = cfg.model_lifecycle();
+        // Asked once: the publisher's digest does not change between retries.
+        let expected_sha256 = crate::download::published_sha256(target, token.as_deref());
         let mut last_error = String::new();
         for attempt in 0..policy.download_attempts.clamp(1, 8) {
             task_handle.check_pause();
@@ -269,6 +271,7 @@ impl ModelManager {
                         p.metadata().is_ok_and(|m| m.len() > 0)
                     }
                 },
+                expected_sha256.as_deref(),
             );
             match result {
                 Ok(()) => {
