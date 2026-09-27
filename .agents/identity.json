@@ -238,23 +238,13 @@
           "tier": 0
         },
         {
-          "function": "Hardware-aware inference layer supporting multiple model formats.",
-          "symbol": "UniversalExecutionSubstrate",
+          "function": "Hardware-aware local inference host (`susi-gemi::engines::runtime_substrate::InferenceHost`): loads and caches GGUF weights (llama/qwen2 families, GPU layer split when the backend allows); other model formats and hosts are reached through HTTP providers, not loaded natively.",
+          "symbol": "InferenceHost",
           "tier": 2
         },
         {
           "function": "Local/cloud reasoning and placement bridge: crates `susi-gemi-models` (select/provision/lifecycle) + `susi-gemi` engines (run); one policy routes ready local models, configured cloud providers, or explicit models and emits an auditable placement decision id.",
           "symbol": "GEMI",
-          "tier": 2
-        },
-        {
-          "function": "Candle-based image-feature extractor (untrained linear projection); not yet a trained vision-language model.",
-          "symbol": "SUSI-Vision",
-          "tier": 2
-        },
-        {
-          "function": "Candle-based audio-feature extractor (untrained linear projection); not yet a trained acoustic model.",
-          "symbol": "SUSI-Audio",
           "tier": 2
         },
         {

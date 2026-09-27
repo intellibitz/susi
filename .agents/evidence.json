@@ -1960,6 +1960,16 @@
       "milestone": "RSI iteration 35/100: a phantom Tier-2 reasoning model is removed from the code and the constitution. susi_gemi::reasoning::SusiReasoningModel (a four-layer Candle MLP loading models/susi-reason.safetensors) had no caller anywhere in the workspace, its missing-weights error told users to run 'susi train_reason', a command that does not exist, and nothing in the tree ever wrote those weights. identity.json nevertheless listed it in Pillar II as the component NativeReasoningModel, 'Distilled Tier 2 logic weights'. The module, its duplicate ReasoningSample type, the reasoning re-export, and the NativeReasoningModel component row are removed; deep reasoning is what it already was in practice, routed to real local (GGUF/Ollama/vLLM) or cloud LLMs by GemiRuntime. Verified before removal: a repo-wide search found no use of SusiReasoningModel, susi_gemi::reasoning, train_reason, or susi-reason.safetensors outside the deleted file and the identity row. cargo clippy --workspace --all-targets -D warnings passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "identity.json Pillar II components",
+        "ref": "file://.agents/identity.json"
+      },
+      "id": "EV-2022927-202",
+      "milestone": "RSI iteration 36/100: the constitution's component table no longer lists components that do not exist. Pillar II still carried SUSI-Vision and SUSI-Audio rows ('Candle-based image/audio-feature extractor (untrained linear projection)') although commit 1d9c616f removed that multimodal code and 6a0fac47 dropped its roadmap vector; a repo-wide search finds no vision or audio extractor in crates/ or src/. Both rows are removed. The UniversalExecutionSubstrate row named no symbol and claimed support for 'multiple model formats'; it is renamed to the real symbol InferenceHost and now states what runtime_substrate.rs loads natively (GGUF llama/qwen2 with a GPU layer split) and that other formats are reached only through HTTP providers. Method: every component symbol was grepped as a whole word across crates/ and src/; the remaining zero-hit rows (SUSI-Alpha, NativeAlphaModel, ExternalAgentManager) are display names for real code (SusiAlphaModel, the susi-alpha weights, susi_agents::external::AgentManager) and are kept.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

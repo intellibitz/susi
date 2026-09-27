@@ -127,8 +127,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     reflex cache is keyed per workspace and bounded. The published model is
     loaded once and reused until its bundle is republished.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
-    No distilled "Tier-2 reasoning" weights are claimed: deep reasoning runs
-    on real local (GGUF/Ollama/vLLM) or cloud LLMs.
+    No distilled "Tier-2 reasoning" weights or vision/audio encoders are
+    claimed: native inference loads GGUF (llama/qwen2); everything else runs
+    on real local (Ollama/vLLM) or cloud LLMs over HTTP.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 
 Verify: `susi crown` (exit non-zero if any critical USP fails).
