@@ -14,6 +14,50 @@ pub struct DistillationStaged {
     pub timestamp: u64,
 }
 
+fn parse_training_entries(
+    content: &str,
+    dynamic_intents: &[String],
+) -> Result<Vec<(DistillationStaged, u32)>> {
+    let mut entries = Vec::new();
+    for (line_index, line) in content.lines().enumerate() {
+        if line.trim().is_empty() {
+            return Err(anyhow!(
+                "empty distillation record at line {}",
+                line_index + 1
+            ));
+        }
+        let entry: DistillationStaged = serde_json::from_str(line).map_err(|error| {
+            anyhow!(
+                "invalid distillation record at line {}: {error}",
+                line_index + 1
+            )
+        })?;
+        if entry.intent.trim().is_empty() {
+            return Err(anyhow!(
+                "empty distillation intent at line {}",
+                line_index + 1
+            ));
+        }
+        let action = entry.action.trim();
+        let label = dynamic_intents
+            .iter()
+            .position(|candidate| candidate.eq_ignore_ascii_case(action))
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown distillation action {:?} at line {}",
+                    entry.action,
+                    line_index + 1
+                )
+            })?;
+        let label = u32::try_from(label).map_err(|_| anyhow!("intent label exceeds u32"))?;
+        entries.push((entry, label));
+    }
+    if entries.is_empty() {
+        return Err(anyhow!("Empty distillation dataset."));
+    }
+    Ok(entries)
+}
+
 /// SUSI-Alpha Intent Classifier (Neural Reflex)
 pub struct SusiAlphaModel {
     fc1: Linear,
@@ -155,19 +199,12 @@ impl SusiAlphaModel {
         let mut labels = Vec::new();
 
         let dynamic_intents = Self::list_dynamic_intents();
+        let entries = parse_training_entries(&content, &dynamic_intents)?;
 
-        for line in content.lines() {
-            if let Ok(entry) = serde_json::from_str::<DistillationStaged>(line) {
-                let vec = Self::semantic_centroid_projection(&entry.intent, None)?;
-                samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
-
-                let action_clean = entry.action.to_lowercase();
-                let label_idx = dynamic_intents
-                    .iter()
-                    .position(|i| action_clean.contains(&i.to_lowercase()))
-                    .unwrap_or(dynamic_intents.len() - 1) as u32;
-                labels.push(label_idx);
-            }
+        for (entry, label) in entries {
+            let vec = Self::semantic_centroid_projection(&entry.intent, None)?;
+            samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
+            labels.push(label);
         }
 
         // Neural Seeding (Synthetic Priming): Ensure new tools have at least one sample
@@ -175,10 +212,6 @@ impl SusiAlphaModel {
             let vec = Self::semantic_centroid_projection(intent, None)?;
             samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
             labels.push(idx as u32);
-        }
-
-        if samples.is_empty() {
-            return Err(anyhow!("Empty distillation dataset."));
         }
 
         let x = Tensor::cat(&samples, 0)?;
@@ -373,6 +406,12 @@ impl SusiAlphaModel {
 mod tests {
     use super::*;
 
+    const INTENTS: &[&str] = &["reason", "status"];
+
+    fn intents() -> Vec<String> {
+        INTENTS.iter().map(|intent| (*intent).to_string()).collect()
+    }
+
     #[test]
     fn test_list_dynamic_intents() {
         let intents = SusiAlphaModel::list_dynamic_intents();
@@ -390,5 +429,29 @@ mod tests {
             SusiAlphaModel::semantic_centroid_projection("check engine status", None).unwrap();
         assert_eq!(vec1.len(), SusiAlphaModel::DIM);
         assert_eq!(vec1, vec2);
+    }
+
+    #[test]
+    fn training_entries_require_valid_json_and_known_exact_action() {
+        let malformed = parse_training_entries("not-json", &intents()).unwrap_err();
+        assert!(malformed.to_string().contains("line 1"));
+
+        let unknown = parse_training_entries(
+            r#"{"intent":"inspect","action":"status report","timestamp":1}"#,
+            &intents(),
+        )
+        .unwrap_err();
+        assert!(unknown.to_string().contains("unknown distillation action"));
+    }
+
+    #[test]
+    fn training_entries_map_canonical_action_without_substring_guessing() {
+        let parsed = parse_training_entries(
+            r#"{"intent":"inspect","action":"STATUS","timestamp":1}"#,
+            &intents(),
+        )
+        .unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].1, 1);
     }
 }

@@ -1640,6 +1640,16 @@
       "milestone": "RSI iteration 3/100: automatic and forced reflex training now consume the experience buffer that SUSI actually writes. ProtocolKnowledgeBase stages pairs at <workspace>/.susi/distillation_staged.jsonl, but ReflexTrainer ignored its workspace argument and looked only in the host config directory; therefore normal workspace experience could never trigger or feed training. SusiAlphaModel now separates the globally published model directory from an explicit staged-data path, while the existing global-buffer entry point remains as a compatibility wrapper. ReflexTrainer uses the invoking workspace buffer for thresholding, training, and post-success retirement, while retaining the globally shared weights and cross-process training lock. Targeted fmt, test, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "parse_training_entries",
+        "ref": "symbol://parse_training_entries"
+      },
+      "id": "EV-2022927-170",
+      "milestone": "RSI iteration 4/100: reflex training corpus validation now fails closed before tensor construction or checkpoint publication. Previously malformed JSONL records were silently skipped, empty corpora still trained on synthetic seeds, and unknown action text was assigned to the lexicographically last dynamic intent, poisoning the classifier with fabricated labels. Every record must now be valid JSON, carry a non-empty intent, and name one exact registered action case-insensitively; malformed, blank, empty, and unknown-action corpora return an error and remain staged for diagnosis. Regression tests prove malformed records retain line attribution, substring guesses are rejected, and canonical case-insensitive actions map to the correct label. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
