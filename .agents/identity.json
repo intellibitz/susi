@@ -173,7 +173,7 @@
           "tier": 1
         },
         {
-          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090–9094 and spawns from `~/.susi/bin/susi`. Its binary trust anchor (`binary.hash`) is the SHA-256 of the whole binary (read errors fail, never truncate the digest) and is replaced atomically. Of its 104 modules, 31 are reachable from a production path; 73 are compiled and self-tested only and are not claimed as features; an architecture ratchet forbids adding more. Fifteen isolated feature sketches have been removed across two deletion batches.",
+          "function": "Persistent background host bound to `~/.susi`; owns host-contract ports 9090–9094 and spawns from `~/.susi/bin/susi`. Its binary trust anchor (`binary.hash`) is the SHA-256 of the whole binary (read errors fail, never truncate the digest) and is replaced atomically. Of its 104 modules, 31 are reachable from a production path; 73 are compiled and self-tested only and are not claimed as features; an architecture ratchet forbids adding more. Fifteen isolated feature sketches totaling 727 source lines have been removed across two deletion batches.",
           "symbol": "SusiDaemon",
           "tier": 1
         },
