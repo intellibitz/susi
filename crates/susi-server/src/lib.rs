@@ -441,6 +441,7 @@ async fn handle_gemi_request(
                     "/context-graph/compact",
                     "/telemetry",
                     "/runtime/placement",
+                    "/runtime/placement/decisions/{decision_id}",
                     "/runtime/providers/reset",
                     "/runtime/models",
                     "/runtime/models/load",
@@ -501,6 +502,35 @@ async fn handle_gemi_request(
             .await
             .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
             Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::GET, p) if p.starts_with(PLACEMENT_DECISIONS_PREFIX) => {
+            let id = p.trim_start_matches(PLACEMENT_DECISIONS_PREFIX).to_string();
+            if !valid_placement_id(&id) {
+                return Ok(api_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid placement decision id",
+                ));
+            }
+            let ws = Arc::clone(&workspace);
+            let found = tokio::task::spawn_blocking(move || {
+                let log = crate::susi_sandbox::manager::SusiAuditLogger::read_audit_log(
+                    &ws,
+                    PLACEMENT_LOOKUP_WINDOW,
+                );
+                find_placement_decision(&log, &id)
+            })
+            .await
+            .ok()
+            .flatten();
+            Ok(match found {
+                Some(record) => json_response(StatusCode::OK, &record),
+                None => api_error(
+                    StatusCode::NOT_FOUND,
+                    &format!(
+                        "no INFERENCE_PLACEMENT audit entry with that decision id in the last {PLACEMENT_LOOKUP_WINDOW} audit entries"
+                    ),
+                ),
+            })
         }
         (&Method::POST, "/runtime/providers/reset") => {
             let provider = match provider_reset_input(&body_bytes) {
@@ -1348,6 +1378,45 @@ fn placement_value(decision_id: &str, target: &str) -> serde_json::Value {
     })
 }
 
+const PLACEMENT_DECISIONS_PREFIX: &str = "/runtime/placement/decisions/";
+/// How many trailing audit entries a decision lookup scans.
+const PLACEMENT_LOOKUP_WINDOW: usize = 20_000;
+
+/// Decision ids are `placement-<pid>-<unix>-<seq>`; anything else is refused
+/// before touching the audit log.
+fn valid_placement_id(id: &str) -> bool {
+    id.len() <= 64
+        && id.strip_prefix("placement-").is_some_and(|rest| {
+            let parts: Vec<&str> = rest.split('-').collect();
+            parts.len() == 3
+                && parts
+                    .iter()
+                    .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        })
+}
+
+/// The newest audited placement decision with `id`, plus the audit entry's
+/// timestamp and hash so the record can be checked against the chain.
+fn find_placement_decision(audit_log: &str, id: &str) -> Option<serde_json::Value> {
+    audit_log.lines().rev().find_map(|line| {
+        let entry: serde_json::Value = serde_json::from_str(line).ok()?;
+        if entry.get("type")?.as_str()? != "INFERENCE_PLACEMENT" {
+            return None;
+        }
+        let decision: serde_json::Value =
+            serde_json::from_str(entry.get("details")?.as_str()?).ok()?;
+        (decision.pointer("/contract/decision_id")?.as_str()? == id).then(|| {
+            json!({
+                "decision": decision,
+                "audit": {
+                    "ts": entry.get("ts"),
+                    "entry_hash": entry.get("entry_hash"),
+                },
+            })
+        })
+    })
+}
+
 fn add_placement_body(payload: &mut serde_json::Value, decision_id: &str, target: &str) {
     payload["susi_placement"] = placement_value(decision_id, target);
 }
@@ -2102,6 +2171,40 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("X-Susi-Placement, X-Susi-Placement-Id")
         );
+    }
+
+    #[test]
+    fn placement_decisions_are_found_by_id_newest_first() {
+        let entry = |id: &str, target: &str, hash: &str| {
+            json!({
+                "type": "INFERENCE_PLACEMENT",
+                "ts": 7,
+                "entry_hash": hash,
+                "details": json!({"target": target, "contract": {"decision_id": id}}).to_string(),
+            })
+            .to_string()
+        };
+        let log = [
+            entry("placement-1-2-3", "local", "old"),
+            json!({"type": "WEB_MISSION_START", "details": "placement-1-2-3"}).to_string(),
+            entry("placement-9-9-9", "cloud", "other"),
+            entry("placement-1-2-3", "cloud", "new"),
+        ]
+        .join("\n");
+        let found = find_placement_decision(&log, "placement-1-2-3").unwrap();
+        assert_eq!(found["decision"]["target"], "cloud");
+        assert_eq!(found["audit"]["entry_hash"], "new");
+        assert!(find_placement_decision(&log, "placement-4-4-4").is_none());
+        assert!(valid_placement_id("placement-12-1790000000-3"));
+        for bad in [
+            "placement-1-2",
+            "placement-a-2-3",
+            "../audit.log",
+            "placement-1-2-3-4",
+            "",
+        ] {
+            assert!(!valid_placement_id(bad), "{bad}");
+        }
     }
 
     #[test]
