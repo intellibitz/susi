@@ -14,10 +14,14 @@ use std::process::Command;
 
 #[test]
 fn crown_verify_exits_zero_in_workspace() {
-    let workspace = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let home = std::env::temp_dir().join(format!("susi_crown_verify_{}", std::process::id()));
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(&home).expect("temp HOME");
+    // A scratch workspace, not the checkout: the repo's `.susi/audit.log` is
+    // signed under the developer's real host key, which the temp HOME does
+    // not hold, so its chain is (correctly) unverifiable here.
+    let workspace = home.join("workspace");
+    fs::create_dir_all(&workspace).expect("temp workspace");
 
     let susi = env!("CARGO_BIN_EXE_susi");
     let output = Command::new(susi)
