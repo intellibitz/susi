@@ -91,6 +91,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    checkpoints rebuild from the verified log, and unreadable input fails closed.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
+   The privacy posture fails closed: a damaged `privacy_mode` file enforces
+   `local_only` instead of silently reading as `balanced`.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is

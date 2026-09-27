@@ -83,7 +83,7 @@
     },
     {
       "id": 8,
-      "summary": "Mandate 37; Safety/Security before parallel fleet (`.susi/last_governance.json`).",
+      "summary": "Mandate 37; Safety/Security before parallel fleet (`.susi/last_governance.json`). The privacy posture fails closed: a damaged or unreadable `privacy_mode` enforces `local_only`, and mode switches are persisted atomically or reported as failed.",
       "title": "Governance-first"
     },
     {

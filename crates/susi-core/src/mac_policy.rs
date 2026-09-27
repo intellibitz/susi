@@ -37,6 +37,18 @@ impl PrivacyMode {
         }
     }
 
+    /// Exact parse of a persisted mode (`as_str` output). The sticky file
+    /// is machine-written, so anything else — empty, torn, garbled — is
+    /// damage, not a request for the lenient `parse` default.
+    pub fn parse_persisted(s: &str) -> Option<Self> {
+        match s.trim() {
+            "balanced" => Some(Self::Balanced),
+            "local_only" => Some(Self::LocalOnly),
+            "open" => Some(Self::Open),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Balanced => "balanced",
@@ -151,6 +163,25 @@ pub fn load_or_create_key(dir: &Path) -> std::io::Result<[u8; 32]> {
 /// A key private to this process, for a policy that cannot join the
 /// shared substrate key. OS entropy when available; otherwise a digest of
 /// process-unique inputs — never an all-zero key.
+/// The sticky posture under `dir`. Absent means "no override" (`None`).
+/// Present but unreadable or unrecognized fails closed to `LocalOnly`: the
+/// lenient parse used to turn an empty or torn file into `Balanced`, which
+/// re-enabled cloud inference and host exec on a `local_only` host.
+fn read_sticky_mode(dir: &Path) -> Option<PrivacyMode> {
+    let path = dir.join("privacy_mode");
+    match std::fs::read_to_string(&path) {
+        Ok(text) => Some(PrivacyMode::parse_persisted(&text).unwrap_or_else(|| {
+            tracing::error!(path = %path.display(), "unrecognized privacy_mode; enforcing local_only");
+            PrivacyMode::LocalOnly
+        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            tracing::error!(%error, path = %path.display(), "unreadable privacy_mode; enforcing local_only");
+            Some(PrivacyMode::LocalOnly)
+        }
+    }
+}
+
 fn process_local_key() -> [u8; 32] {
     let mut key = [0u8; 32];
     if getrandom::fill(&mut key).is_ok() {
@@ -232,10 +263,7 @@ impl MacPolicy {
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
         let privacy = cfg.privacy();
         // Mode: sticky file beats config default.
-        let mode = std::fs::read_to_string(dir.join("privacy_mode"))
-            .ok()
-            .map(|s| PrivacyMode::parse(s.trim()))
-            .unwrap_or_else(|| PrivacyMode::parse(&privacy.mode));
+        let mode = read_sticky_mode(&dir).unwrap_or_else(|| PrivacyMode::parse(&privacy.mode));
         let mandatory =
             privacy.mandatory_sandbox_for_exec || matches!(mode, PrivacyMode::LocalOnly);
         Self::new(key, mode, mandatory).with_state_dir(dir)
@@ -327,10 +355,7 @@ impl MacPolicy {
     }
 
     fn sticky_mode(&self) -> Option<PrivacyMode> {
-        let dir = self.state_dir.as_ref()?;
-        std::fs::read_to_string(dir.join("privacy_mode"))
-            .ok()
-            .map(|s| PrivacyMode::parse(s.trim()))
+        read_sticky_mode(self.state_dir.as_ref()?)
     }
 
     pub fn mode(&self) -> PrivacyMode {
@@ -342,12 +367,19 @@ impl MacPolicy {
         *self.mode.read().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub fn set_mode(&self, mode: PrivacyMode) {
+    /// Switch the posture. For a wired policy the sticky file is what every
+    /// other copy enforces, so it is replaced atomically and a failed write
+    /// is returned: reporting a switch other processes never see would be a
+    /// silent downgrade of the operator's intent.
+    pub fn set_mode(&self, mode: PrivacyMode) -> std::io::Result<()> {
+        if let Some(dir) = self.state_dir.as_ref() {
+            crate::susi_config::atomic_write_bytes(
+                &dir.join("privacy_mode"),
+                mode.as_str().as_bytes(),
+            )?;
+        }
         if let Ok(mut g) = self.mode.write() {
             *g = mode;
-        }
-        if let Some(dir) = self.state_dir.as_ref() {
-            let _ = std::fs::write(dir.join("privacy_mode"), mode.as_str());
         }
         // Drop elevated grants so the new posture is authoritative.
         self.revoke("susi", actions::NETWORK_EGRESS, "*");
@@ -356,6 +388,13 @@ impl MacPolicy {
         self.mandatory_sandbox
             .store(matches!(mode, PrivacyMode::LocalOnly), Ordering::Relaxed);
         self.seed_defaults();
+        Ok(())
+    }
+
+    /// Whether this policy shares its posture through the sticky file
+    /// (`set_mode` then persists it); unwired copies keep it in memory.
+    pub fn persists_mode(&self) -> bool {
+        self.state_dir.is_some()
     }
 
     pub fn mandatory_sandbox(&self) -> bool {
@@ -753,11 +792,36 @@ mod tests {
     fn switching_to_local_only_revokes_cloud_grants() {
         let p = policy(PrivacyMode::Balanced);
         assert!(p.is_permitted("susi", actions::CLOUD_INFERENCE, "*"));
-        p.set_mode(PrivacyMode::LocalOnly);
+        p.set_mode(PrivacyMode::LocalOnly).unwrap();
         assert!(p.blocks_cloud_inference());
         assert!(!p.is_permitted("susi", actions::NETWORK_EGRESS, "*"));
         assert!(!p.is_permitted("susi", actions::PROCESS_EXEC, "*"));
         assert!(p.mandatory_sandbox());
+    }
+
+    #[test]
+    fn damaged_sticky_mode_fails_closed() {
+        let dir = std::env::temp_dir().join(format!(
+            "susi-mac-mode-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_sticky_mode(&dir), None);
+        for (text, want) in [
+            ("open", PrivacyMode::Open),
+            ("balanced\n", PrivacyMode::Balanced),
+            ("local_only", PrivacyMode::LocalOnly),
+            ("", PrivacyMode::LocalOnly),
+            ("loc", PrivacyMode::LocalOnly),
+        ] {
+            std::fs::write(dir.join("privacy_mode"), text).unwrap();
+            assert_eq!(read_sticky_mode(&dir), Some(want), "{text:?}");
+        }
+        let policy = policy(PrivacyMode::Balanced).with_state_dir(dir.clone());
+        policy.set_mode(PrivacyMode::Open).unwrap();
+        assert_eq!(read_sticky_mode(&dir), Some(PrivacyMode::Open));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
