@@ -149,10 +149,14 @@ impl BloatAuditor {
         Ok(report)
     }
 
+    /// Configured governance tokens; an unreadable host config falls back to
+    /// the bundled list so secret-shaped literals are never unscanned.
     fn load_secret_patterns() -> Vec<String> {
-        crate::susi_sandbox::manager::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
-            .map(|c| c.governance().secret_tokens)
+        use crate::susi_sandbox::manager::SusiConfig;
+        SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
             .unwrap_or_default()
+            .governance()
+            .secret_tokens
     }
 
     fn discover_rust_files(dir: &Path) -> Vec<PathBuf> {
