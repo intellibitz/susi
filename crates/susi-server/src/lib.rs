@@ -1267,6 +1267,7 @@ fn build_streaming_response(
         stop,
         include_usage,
         prompt_tokens,
+        Some(placement_value(placement_id, placement_target)),
         move |callback, meta| {
             let _permit = permit;
             gemi::GemiEngine::generate_reasoning_stream_with_model_meta(
@@ -1325,11 +1326,17 @@ fn add_placement_headers(response: &mut Response<BoxBody>, target: &str, decisio
     }
 }
 
-fn add_placement_body(payload: &mut serde_json::Value, decision_id: &str, target: &str) {
-    payload["susi_placement"] = json!({
+/// Placement correlation carried in response bodies, for SDKs and proxies
+/// that discard the `X-Susi-Placement*` headers.
+fn placement_value(decision_id: &str, target: &str) -> serde_json::Value {
+    json!({
         "decision_id": decision_id,
         "target": target,
-    });
+    })
+}
+
+fn add_placement_body(payload: &mut serde_json::Value, decision_id: &str, target: &str) {
+    payload["susi_placement"] = placement_value(decision_id, target);
 }
 
 fn completion_id() -> String {
@@ -1522,6 +1529,19 @@ fn stream_chunk(
     delta: serde_json::Value,
     finish_reason: Option<&str>,
 ) -> String {
+    format!(
+        "data: {}\n\n",
+        stream_chunk_value(identity, model, legacy, delta, finish_reason)
+    )
+}
+
+fn stream_chunk_value(
+    identity: (&str, u64),
+    model: &str,
+    legacy: bool,
+    delta: serde_json::Value,
+    finish_reason: Option<&str>,
+) -> serde_json::Value {
     let (id, created) = identity;
     let reason = finish_reason
         .map(|r| json!(r))
@@ -1532,11 +1552,8 @@ fn stream_chunk(
     } else {
         json!({"index": 0, "delta": delta, "finish_reason": reason})
     };
-    format!(
-        "data: {}\n\n",
-        json!({"id": id, "created": created, "model": model,
-        "object": if legacy { "text_completion" } else { "chat.completion.chunk" }, "choices": [choice]})
-    )
+    json!({"id": id, "created": created, "model": model,
+    "object": if legacy { "text_completion" } else { "chat.completion.chunk" }, "choices": [choice]})
 }
 
 #[allow(clippy::too_many_arguments)] // response-shape params travel
@@ -1548,6 +1565,7 @@ fn completion_stream(
     stop: Vec<String>,
     include_usage: bool,
     prompt_tokens: u64,
+    placement: Option<serde_json::Value>,
     solve: impl FnOnce(&dyn Fn(String), &dyn Fn(&str)) -> String + Send + 'static,
 ) -> tokio::sync::mpsc::Receiver<String> {
     // Bound queued frames and split large frames so a slow client cannot
@@ -1569,14 +1587,19 @@ fn completion_stream(
             if role_sent.replace(true) {
                 return true;
             }
-            tx.blocking_send(stream_chunk(
+            // Placement correlation rides the opening frame only: it is a
+            // per-response fact, not per-chunk content.
+            let mut frame = stream_chunk_value(
                 (&id, created),
                 &label(),
                 legacy,
                 json!({"role": "assistant"}),
                 None,
-            ))
-            .is_ok()
+            );
+            if let Some(placement) = &placement {
+                frame["susi_placement"] = placement.clone();
+            }
+            tx.blocking_send(format!("data: {frame}\n\n")).is_ok()
         };
         let meta_cb = |name: &str| {
             *actual.borrow_mut() = Some(name.to_string());
@@ -2413,6 +2436,7 @@ mod tests {
             Vec::new(),
             false,
             0,
+            None,
             |_, _| "Hello 🦀".into(),
         );
         let mut content = String::new();
@@ -2435,6 +2459,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn streaming_placement_rides_only_the_opening_frame() {
+        let mut rx = completion_stream(
+            "m".into(),
+            false,
+            None,
+            Vec::new(),
+            false,
+            0,
+            Some(placement_value("placement-test-3", "cloud")),
+            |_, _| "answer".into(),
+        );
+        let mut frames = Vec::new();
+        while let Some(frame) = rx.recv().await {
+            if frame == "data: [DONE]\n\n" {
+                break;
+            }
+            let value: serde_json::Value =
+                serde_json::from_str(frame.strip_prefix("data: ").unwrap().trim()).unwrap();
+            frames.push(value);
+        }
+        assert_eq!(frames[0]["choices"][0]["delta"]["role"], "assistant");
+        assert_eq!(
+            frames[0]["susi_placement"],
+            json!({"decision_id": "placement-test-3", "target": "cloud"})
+        );
+        assert!(
+            frames[1..]
+                .iter()
+                .all(|f| f.get("susi_placement").is_none())
+        );
+    }
+
+    #[tokio::test]
     async fn streaming_does_not_duplicate_callback_output_and_chunks_unicode() {
         let answer = "🦀".repeat(3000);
         let expected = answer.clone();
@@ -2445,6 +2502,7 @@ mod tests {
             Vec::new(),
             false,
             0,
+            None,
             move |callback, _| {
                 callback(answer.clone());
                 answer
@@ -2481,6 +2539,7 @@ mod tests {
             Vec::new(),
             true,
             4,
+            None,
             move |callback, _| {
                 callback("hello there world".to_string());
                 String::new()
@@ -2521,6 +2580,7 @@ mod tests {
             Vec::new(),
             false,
             0,
+            None,
             move |_, _| {
                 let _permit = permit;
                 "answer".into()
@@ -2549,6 +2609,7 @@ mod tests {
             Vec::new(),
             false,
             0,
+            None,
             move |callback, _| {
                 let _permit = permit;
                 let _ = started_tx.send(());
