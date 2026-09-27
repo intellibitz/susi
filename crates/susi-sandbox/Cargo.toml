@@ -9,21 +9,13 @@ publish = false
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
+susi-sandbox-client = { workspace = true }
 axum = "0.8.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 bollard = "0.21.1"
 futures = "0.3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
-tracing = { workspace = true }
-ureq = { version = "3.4.2", features = ["json"] }
-parking_lot = { workspace = true }
-hex = { workspace = true }
-sha2 = { workspace = true }
-getrandom = { workspace = true }
-ed25519-dalek = { workspace = true }
-x25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
 
 [lints]
 workspace = true

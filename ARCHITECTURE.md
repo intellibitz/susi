@@ -70,17 +70,18 @@ never consume an unterminated source tail.
 | `susi-native` | Leaf REST (`:18084`): Wasmer Wasm host | service `WasmHost` | `susi-paths`, `susi-error`; wasmer (service only) | feature planes | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde, ureq | everything above paths/error | no | config files | yes |
-| `susi-sandbox` | Leaf REST (`:18083`): Docker sandbox + daemon integrity (re-exports config via `manager`) | `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`; bollard (service only) | gawd/gmcp (prefer hooks) | Docker optional | config files | yes |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **canonical source-mounted `susi_core`**: registry/capture/mac_policy over the bus rendezvous; source-mounted sandbox/config/error IPC; `susi-native-client`; rmcp/reqwest | workspace crates except the dedicated native client; peers via mounted `plane_bus` | tools | registry | yes |
-| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **canonical source-mounted `susi_core`**: registry/task_manager/agent_types over the bus rendezvous; `susi-config`; source-mounted sandbox IPC | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **canonical source-mounted `susi_core`**: task_manager only; `susi-config`; vendored sandbox IPC | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
-| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **canonical source-mounted `susi_core`**, `susi-config`; vendored sandbox IPC | **all workspace crates** | providers | model weights | yes |
-| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **canonical source-mounted `susi_core`**; `susi-config`; vendored sandbox IPC | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + **canonical source-mounted `susi_core`**, `susi-config`; vendored sandbox IPC | **all workspace crates** | no | blackboard | yes |
+| `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
+| `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, dev-build auto-install, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `auto_install`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | **canonical source-mounted `susi_core`**: registry/capture/mac_policy over the bus rendezvous; `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except the dedicated native client; peers via mounted `plane_bus` | tools | registry | yes |
+| `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | **canonical source-mounted `susi_core`**: registry/task_manager/agent_types over the bus rendezvous; `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer); peers via mounted `plane_bus` | peers | registries | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | **canonical source-mounted `susi_core`**: task_manager only; `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier and ABI source + **canonical source-mounted `susi_core`**, `susi-config`; `susi-sandbox-client` | **all workspace crates** | providers | model weights | yes |
+| `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | **canonical source-mounted `susi_core`**; `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer) | agents | mission-local | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + **canonical source-mounted `susi_core`**, `susi-config`; `susi-sandbox-client` | **all workspace crates** | no | blackboard | yes |
 | `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | locally compiled agents-tier source | **all workspace crates** | transport | tasks | yes |
 | `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + **canonical source-mounted `susi_core`** + `susi-native-client` | workspace crates except the dedicated native client | no | genome/reflexes | yes |
-| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **canonical source-mounted `susi_core`**: plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; `susi-config`; vendored sandbox IPC, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
-| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **canonical source-mounted `susi_core`**: plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; `susi-paths`, `susi-error`, `susi-config`; vendored sandbox IPC | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
+| `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | **canonical source-mounted `susi_core`**: plane_bus/intent_bus/agent_tx/mac over the bus rendezvous; `susi-config`; `susi-sandbox-client`, rmcp | **all workspace crates** (zero-dep consumer); swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
+| `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | **canonical source-mounted `susi_core`**: plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL; `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client` | **all workspace crates** (zero-dep consumer); GAWD/GEMI via vendored `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + server + tools + agents (composition root) | — | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + leaf `susi-paths`/`susi-error` (real deps, not vendored) | — | — | cwd workspace | yes |
 
@@ -88,9 +89,8 @@ Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
 peer dependencies** on each other (no `susi-gemi` ↔ `susi-gawd` ↔ `susi-tools`
 ↔ `susi-agents` ↔ `susi-gmcp` ↔ `susi-server` edges). They communicate only
 through **`susi_core::plane_bus`** (topics + JSON DTOs) and shared foundation
-(`susi-paths`, `susi-error`, `susi-config` and the `susi-native-client` crate
-as real Cargo dependencies, `susi-core`, plus a source-mounted IPC client for
-the `susi-sandbox` leaf REST service on `127.0.0.1:18083`).
+(`susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client` and
+`susi-native-client` as real Cargo dependencies, plus `susi-core`).
 **`susi-daemon`** and the root **`susi`** package register `plane_handler`
 implementations and may link every plane.
 
@@ -103,7 +103,10 @@ the rank table. Shared code is being moved from `#[path]` mounts to crates:
 the service answers with; every crate returns the one `susi_error::EaiError`,
 whose events post to the error service with a local-file fallback; the global
 `SusiConfig` read/write prefers the config service and falls back to the
-local files), and a ratchet
+local files; `susi-sandbox-client` owns the sandbox IPC client and the
+audit-chain / auto-install / daemon-state / manager helpers the service and
+every client share, so bollard stays linked only by `susi-sandbox`), and a
+ratchet
 (`cross_crate_source_mounts_only_decrease`) keeps the remaining cross-crate
 mounts from growing.
 
@@ -113,7 +116,6 @@ Shared code that is still compiled into each consumer through `#[path]`
 | Canonical source | What it is | Mounted by |
 |---|---|---|
 | `crates/susi-core/src/embedded.rs` | `susi_core` microkernel subset, incl. `mcp_client` (MCP Streamable HTTP peer client), `a2a_wire` (A2A v1.0 `message/send`), `inference_wire` (provider request/reply shapes) | feature crates |
-| `crates/susi-sandbox/vendor_template/susi_sandbox/` | legacy-named sandbox IPC client; mounts `susi-sandbox/src` for audit chain, auto-install and local daemon state | feature crates |
 | `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GEMI REST, GMCP, A2A |
 | `crates/susi-abi/src/cell_server.rs` | swarm-cell TCP server (framing, token auth, trust scoring, heartbeat) | the five cell binaries |
 
@@ -314,9 +316,9 @@ the GEMI (or other adapter) edge.
 
 `SusiConfig` and the dynamic-registry substrate (typed config fragments,
 extension packs, `VersionedJsonStore`) live in the `susi-config` leaf REST
-service; consumers vendor a byte-identical `susi_config` module (IPC + local
-fallback). Vendored `susi_sandbox::manager` still re-exports that surface so
-existing import paths keep resolving.
+service crate, which every consumer depends on (IPC + local fallback).
+`susi_sandbox_client::manager` re-exports that surface so existing
+`susi_sandbox::manager` import paths keep resolving.
 
 ## Architecture tests
 
@@ -333,7 +335,8 @@ existing import paths keep resolving.
   from the 88 found on 2026-09-27 (65 remain after three deletion batches).
 - No new cross-crate `#[path]` mount: 159 existed on 2026-09-28; the count
   may only decrease (142 after `susi-paths` became a crate dependency, 125
-  after `susi-error`, 105 after `susi-config`).
+  after `susi-error`, 105 after `susi-config`, 94 after
+  `susi-sandbox-client`).
 
 `tests/duplication_tests.rs` rejects byte-identical Rust files and physical
 copies of shared contracts inside consumer crates.

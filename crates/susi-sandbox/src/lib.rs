@@ -13,34 +13,19 @@
 //! # susi-sandbox
 //!
 //! Leaf REST service for sandbox ensure / Docker exec / daemon integrity
-//! helpers. Default bind: `127.0.0.1:18083` (`SUSI_SANDBOX_PORT`). Feature
-//! crates vendor a byte-identical `susi_sandbox` module and reach this
-//! process over a thin HTTP IPC client (with local filesystem fallback where
-//! safe). Audit HMAC key ops are never exposed over HTTP.
-
-pub use susi_error;
+//! helpers. Default bind: `127.0.0.1:18083` (`SUSI_SANDBOX_PORT`). bollard is
+//! linked only by this crate; feature crates depend on `susi-sandbox-client`,
+//! which also owns the helpers re-exported here. Audit HMAC key ops are never
+//! exposed over HTTP.
 
 pub use susi_config;
+pub use susi_error;
+pub use susi_sandbox_client::{
+    audit_chain, auto_install, daemon_state, extensions, manager, versioned_store, SandboxManager,
+    VersionedJsonStore,
+};
 
-pub mod audit_chain;
-pub mod auto_install;
-pub mod daemon_state;
-pub use crate::susi_config::extensions;
-pub mod manager;
-pub use crate::susi_config::versioned_store;
-pub use crate::susi_config::VersionedJsonStore;
-pub use manager::SandboxManager;
-
-/// Serializes tests that mutate or read process-global environment-derived
-/// paths (`HOME`, `XDG_CONFIG_HOME`, `SUSI_*`). Mutators must hold this lock
-/// for the whole env-swap window; readers of `SusiDirs`-derived paths must
-/// hold it while resolving so a swapped HOME cannot flip path selection
-/// mid-test.
-#[cfg(test)]
-pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
-}
+mod docker;
 
 /// Embedded REST service mode: sandbox ensure/docker-exec and daemon
 /// integrity helpers over HTTP. Shared by the standalone `susi-sandbox`
@@ -64,7 +49,7 @@ async fn require_bearer(
 }
 
 pub fn serve(port: u16) -> std::io::Result<()> {
-    use crate::daemon_state::SusiDaemonState;
+    use crate::daemon_state::local::SusiDaemonState;
     use crate::SandboxManager;
     use axum::{
         extract::Query,
@@ -99,14 +84,14 @@ pub fn serve(port: u16) -> std::io::Result<()> {
     }
 
     async fn ensure_global(Json(req): Json<EnsureGlobalReq>) -> StatusCode {
-        match SandboxManager::ensure_global_sandbox(&req.global_dir) {
+        match SandboxManager::ensure_global_sandbox_locally(&req.global_dir) {
             Ok(()) => StatusCode::NO_CONTENT,
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
 
     async fn docker_exec(Json(req): Json<DockerExecReq>) -> Result<Json<String>, StatusCode> {
-        SandboxManager::execute_in_docker(&req.cmd)
+        crate::docker::execute_in_docker(&req.cmd)
             .await
             .map(Json)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
@@ -128,6 +113,7 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
     }
 
+    susi_sandbox_client::enter_service_mode();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
@@ -144,150 +130,4 @@ pub fn serve(port: u16) -> std::io::Result<()> {
             eprintln!("susi-sandbox service listening on {addr}");
             axum::serve(listener, app).await
         })
-}
-
-#[cfg(test)]
-mod audit_chain_tests {
-    use crate::audit_chain::*;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    #[test]
-    fn append_waits_for_the_cross_process_chain_lock() {
-        let log = temp_audit();
-        // Another "process" holds the chain lock: the append must not
-        // proceed on a possibly stale tip.
-        let held = crate::susi_config::file_lock::FileLock::acquire(
-            log.parent().unwrap(),
-            "audit.log.chain",
-        )
-        .unwrap();
-        assert!(append_signed_entry(&log, "Info", "T", "blocked", 1).is_err());
-        drop(held);
-        append_signed_entry(&log, "Info", "T", "after", 1).unwrap();
-        assert_eq!(verify_chain(&log), Ok(1));
-    }
-
-    #[test]
-    fn concurrent_processes_extend_one_unforked_chain() {
-        const WORKERS: usize = 4;
-        const APPENDS: usize = 300;
-        let key = [0x42u8; 32];
-        if let Ok(log) = std::env::var("SUSI_CHAIN_WORKER_LOG") {
-            let log = PathBuf::from(log);
-            // Start together so appends genuinely contend.
-            let go = log.with_extension("go");
-            while !go.exists() {
-                std::thread::yield_now();
-            }
-            for i in 0..APPENDS {
-                let details = format!("{}-{i}", std::process::id());
-                let entry = Entry {
-                    level: "Info",
-                    event_type: "T",
-                    details: &details,
-                    pid: std::process::id(),
-                };
-                append_with_key(&log, &key, &entry).unwrap();
-            }
-            return;
-        }
-        let log = temp_audit();
-        let exe = std::env::current_exe().unwrap();
-        let children: Vec<_> = (0..WORKERS)
-            .map(|_| {
-                std::process::Command::new(&exe)
-                    .args([
-                        "concurrent_processes_extend_one_unforked_chain",
-                        "--nocapture",
-                    ])
-                    .env("SUSI_CHAIN_WORKER_LOG", &log)
-                    .spawn()
-                    .unwrap()
-            })
-            .collect();
-        fs::write(log.with_extension("go"), "").unwrap();
-        for mut c in children {
-            assert!(c.wait().unwrap().success(), "worker failed");
-        }
-        assert_eq!(verify_with_key(&log, &key), Ok(WORKERS * APPENDS));
-    }
-
-    #[test]
-    fn concurrent_processes_never_tear_jsonl_lines() {
-        const WORKERS: usize = 4;
-        const APPENDS: usize = 200;
-        if let Ok(ws) = std::env::var("SUSI_JSONL_WORKER_WS") {
-            let ws = PathBuf::from(ws);
-            let go = ws.join("go");
-            while !go.exists() {
-                std::thread::yield_now();
-            }
-            // Large, structured outcomes: many Display write calls per line
-            // if the line is not emitted as one write.
-            let outcome = serde_json::json!({ "k": "v".repeat(512), "n": [1, 2, 3] }).to_string();
-            for i in 0..APPENDS {
-                crate::manager::SusiMemory::save_interaction(
-                    &ws,
-                    &format!("intent {} {i}", std::process::id()),
-                    &outcome,
-                    "test",
-                );
-            }
-            return;
-        }
-        let ws = temp_audit().parent().unwrap().to_path_buf();
-        let exe = std::env::current_exe().unwrap();
-        let children: Vec<_> = (0..WORKERS)
-            .map(|_| {
-                std::process::Command::new(&exe)
-                    .args(["concurrent_processes_never_tear_jsonl_lines", "--nocapture"])
-                    .env("SUSI_JSONL_WORKER_WS", &ws)
-                    .spawn()
-                    .unwrap()
-            })
-            .collect();
-        fs::write(ws.join("go"), "").unwrap();
-        for mut c in children {
-            assert!(c.wait().unwrap().success(), "worker failed");
-        }
-        let text = fs::read_to_string(ws.join(".susi/memory.jsonl")).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), WORKERS * APPENDS);
-        for (n, line) in lines.iter().enumerate() {
-            assert!(
-                serde_json::from_str::<serde_json::Value>(line).is_ok(),
-                "line {} torn: {}",
-                n + 1,
-                &line[..line.len().min(80)]
-            );
-        }
-    }
-
-    fn temp_audit() -> PathBuf {
-        static N: AtomicU64 = AtomicU64::new(0);
-        let n = N.fetch_add(1, Ordering::SeqCst);
-        let dir =
-            std::env::temp_dir().join(format!("susi_audit_chain_{}_{}", std::process::id(), n));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        dir.join("audit.log")
-    }
-
-    #[test]
-    fn signed_entries_verify_and_detect_tamper() {
-        // The HMAC key path derives from SusiDirs::substrate_home(); serialize
-        // against tests that swap HOME so the key does not change mid-test.
-        let _guard = crate::env_test_lock();
-        let path = temp_audit();
-        append_signed_entry(&path, "Info", "TEST_A", "alpha-payload", 1).unwrap();
-        append_signed_entry(&path, "Info", "TEST_B", "beta-payload", 1).unwrap();
-        assert_eq!(verify_chain(&path).unwrap(), 2);
-
-        let mut content = fs::read_to_string(&path).unwrap();
-        content = content.replace("alpha-payload", "EVIL-payload");
-        fs::write(&path, &content).unwrap();
-        assert!(verify_chain(&path).is_err());
-    }
 }

@@ -6,6 +6,7 @@ edition = "2021"
 build = "../susi-gawd-agents/build.rs"
 
 [dependencies]
+susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }

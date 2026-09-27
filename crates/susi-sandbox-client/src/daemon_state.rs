@@ -1,11 +1,10 @@
-//! IPC-first wrapper over the canonical local daemon-state implementation:
-//! each call asks the `susi-sandbox` service first and falls back to the
-//! local filesystem helpers when it is unreachable.
+//! IPC-first wrapper over the local daemon-state implementation: each call
+//! asks the `susi-sandbox` service first and falls back to [`local`] when it
+//! is unreachable.
 
 use std::path::Path;
 
-#[path = "../../src/daemon_state.rs"]
-mod local;
+pub mod local;
 
 pub struct SusiDaemonState;
 

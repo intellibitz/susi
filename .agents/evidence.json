@@ -2650,6 +2650,16 @@
       "milestone": "Dedup pass step 5: `susi-config` is now the single owner of the configuration contract. `crates/susi-core/src/susi_config.rs` re-mounted all eight of the crate's source files (`cluster_key`, `cloud_env`, `file_lock`, `json_util`, `types`, `versioned_store`, `extensions`, `config`) plus its own `service` IPC client, and was mounted as `pub mod susi_config` into twelve crates and compiled into susi-core, so every crate carried a private `SusiConfig` type and private config statics; the crate itself had a no-op `service` stub. The crate's `service` module is now the real client (global config read/write prefers the config service, explicit `SUSI_XDG`/`XDG_*_HOME` or the service process itself resolve locally via a flag set by `serve`, and `cluster_key` stays local); every consumer depends on `susi-config` and re-exports it as `susi_config`, and the shim is deleted along with its edition-2024 `collapsible_if` waiver, since the sources now compile once. Cross-crate `#[path]` mounts: 125 → 105 (ceiling lowered). Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (3395 passed, 0 failed).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-sandbox-client extraction",
+        "ref": "file://crates/susi-sandbox-client/src/lib.rs"
+      },
+      "id": "EV-2022928-271",
+      "milestone": "Dedup pass step 6: new crate `susi-sandbox-client` replaces `crates/susi-sandbox/vendor_template/susi_sandbox/`, a sandbox IPC client tree that eleven crates (susi-tools, susi-gemi, susi-gemi-models, susi-server, susi-agents, susi-gmcp, susi-gawd, susi-gawd-agents, susi-gawd-swarm, susi-gawd-a2a, susi-daemon) `#[path]`-mounted as a private `susi_sandbox` module, and which itself re-mounted the service crate's `audit_chain.rs`, `auto_install.rs`, `daemon_state.rs`, `manager_shared.rs` and `manager/runtime_shared.rs`. Those shared files moved into the client crate with `git mv` (the local daemon-state implementation is now `daemon_state::local`). The crate carries the IPC client, an `enter_service_mode` flag so the service never calls itself over IPC, and the tests of the shared runtime and audit chain that previously lived in the service crate. `susi-sandbox` is now the bollard service only: a private `docker` module plus `serve`, re-exporting the client's surface so `susi::sandbox::*` paths keep resolving; nine dependencies it no longer uses were removed. Its `main.rs`, and the `susi-error` and `susi-native` mains, dropped hand-copied `env_port_offset` parsers in favor of `susi_paths::ports::effective`. The leaf-rank table places `susi-sandbox-client` at rank 3 and the `susi-sandbox` service at rank 4. Cross-crate `#[path]` mounts: 105 → 94 (ceiling lowered). Rust diff: +526/−618 lines. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings passed (clippy with --all-targets also type-checks test code); the test suite was not run for this step, at the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

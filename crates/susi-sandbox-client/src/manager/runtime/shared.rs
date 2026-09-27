@@ -1,15 +1,13 @@
-//! Sandbox runtime helpers shared verbatim by the in-process runtime
-//! (`susi-sandbox/src/manager/runtime.rs`) and the IPC-client runtime every
-//! feature crate vendors (`vendor_template/.../manager/runtime.rs`). Only
-//! the transport-specific `SandboxManager` entry points (Docker exec,
-//! global sandbox bootstrap) live in those files; everything here is one
-//! implementation, so a fix lands in every copy at once.
+//! Sandbox runtime helpers behind the transport-specific `SandboxManager`
+//! entry points in `runtime.rs` (Docker exec over the service, global
+//! sandbox bootstrap): config seeding, audit logging, and mission memory.
 
 use super::*;
 
 impl SandboxManager {
     /// Bootstraps the global sandbox dir and config on this host.
-    pub(super) fn ensure_global_sandbox_locally(global_dir: &Path) -> EaiResult<()> {
+    /// Creates the global sandbox layout on the local filesystem.
+    pub fn ensure_global_sandbox_locally(global_dir: &Path) -> EaiResult<()> {
         Self::ensure_gitignore_purity(global_dir);
         if !global_dir.exists() {
             fs::create_dir_all(global_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;

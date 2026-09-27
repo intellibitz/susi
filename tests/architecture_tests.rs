@@ -101,8 +101,9 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-config", 2),
     ("susi-native-client", 2),
     ("susi-core", 3),
-    ("susi-sandbox", 3),
+    ("susi-sandbox-client", 3),
     ("susi-native", 3),
+    ("susi-sandbox", 4),
     ("susi-agents", 4),
     ("susi-tools", 4),
     ("susi-gemi-models", 4),
@@ -732,7 +733,7 @@ fn unreachable_daemon_modules_only_decrease() {
 // code belongs in a crate reached through a Cargo edge. The count may only
 // go down.
 
-const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 105;
+const CROSS_CRATE_SOURCE_MOUNTS_CEILING: usize = 94;
 
 fn owning_crate(path: &std::path::Path) -> Option<PathBuf> {
     let crates = workspace_root().join("crates");

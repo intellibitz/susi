@@ -10,6 +10,7 @@ members = [
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-sandbox",
+    "crates/susi-sandbox-client",
     "crates/susi-agents",
     "crates/susi-tools",
     "crates/susi-gemi-models",
@@ -80,6 +81,7 @@ susi-core = { path = "crates/susi-core" }
 susi-native = { path = "crates/susi-native" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
+susi-sandbox-client = { path = "crates/susi-sandbox-client" }
 susi-gemi-models = { path = "crates/susi-gemi-models" }
 susi-gemi = { path = "crates/susi-gemi" }
 susi-gmcp = { path = "crates/susi-gmcp" }

@@ -18,12 +18,7 @@ pub use susi_error;
 
 pub use susi_config;
 
-// Vendored `susi-sandbox` surface + IPC client: full surface kept
-// identical across crates; per-crate dead_code allowance is the audit trail.
-#[allow(dead_code)]
-#[rustfmt::skip]
-#[path = "../../susi-sandbox/vendor_template/susi_sandbox/mod.rs"]
-pub mod susi_sandbox;
+pub use susi_sandbox_client as susi_sandbox;
 
 // Vendored `susi_core` microkernel subset (canonical tree:
 // `susi-core/vendor_template/susi_core/`): bus/registry/capture/mac/intent
