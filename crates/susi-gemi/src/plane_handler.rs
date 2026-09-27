@@ -210,6 +210,17 @@ impl PlaneHandler for GemiPlaneHandler {
                 ))
                 .map_err(|e| e.to_string())
             }
+            topics::GEMI_ROUTING_CLEAR_COOLDOWN => {
+                let provider = payload
+                    .get("provider")
+                    .and_then(|value| value.as_str())
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| "provider is required".to_string())?;
+                Ok(json!({
+                    "provider": provider,
+                    "cleared": InferenceRouter::clear_provider_cooldown(provider),
+                }))
+            }
             topics::GEMI_MODELS_SCAN => {
                 let dir = path_field(&payload, "global_dir");
                 match ModelManager::deep_scan_home_and_register(&dir) {

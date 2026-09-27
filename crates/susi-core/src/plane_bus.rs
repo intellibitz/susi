@@ -76,6 +76,8 @@ pub mod topics {
     pub const GEMI_CLOUD_FAILOVER: &str = "gemi.cloud.failover";
     /// Explain the live local/cloud inference placement without executing it.
     pub const GEMI_ROUTING_PLAN: &str = "gemi.routing.plan";
+    /// Clear a repaired provider's routing quarantine.
+    pub const GEMI_ROUTING_CLEAR_COOLDOWN: &str = "gemi.routing.clear_cooldown";
     /// Report a failed provider attempt so the GEMI plane's cooldown
     /// routing can skip it (and its credential/endpoint scope) — used by
     /// consumers that call providers directly, e.g. swarm recovery.
@@ -375,6 +377,18 @@ pub mod gemi {
                     "allow_cloud": allow_cloud,
                 }),
             )
+        }
+
+        /// Re-admit a repaired provider to placement. Returns `true` only
+        /// when a provider or vendor-scope quarantine was actually removed.
+        pub fn clear_provider_cooldown(provider: &str) -> bool {
+            req_ok(
+                topics::GEMI_ROUTING_CLEAR_COOLDOWN,
+                json!({ "provider": provider }),
+            )
+            .get("cleared")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
         }
     }
 
