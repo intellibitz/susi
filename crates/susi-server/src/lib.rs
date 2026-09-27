@@ -372,7 +372,7 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/runtime/placement") => {
-            let payload = tokio::task::spawn_blocking(gemi::ModelManager::placement)
+            let payload = tokio::task::spawn_blocking(|| gemi::ModelManager::placement(None, None))
                 .await
                 .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
             Ok(json_response(StatusCode::OK, &payload))

@@ -196,8 +196,12 @@ impl PlaneHandler for GemiPlaneHandler {
             topics::GEMI_ROUTING_PLAN => {
                 http_provider::register_configured_cloud_endpoints(CapabilityRegistry::global());
                 let providers = CapabilityRegistry::global().list_providers();
-                serde_json::to_value(InferenceRouter::plan_placement(&providers))
-                    .map_err(|e| e.to_string())
+                let requires = payload.get("requires").and_then(|value| value.as_str());
+                let max_cost = payload.get("max_cost").and_then(|value| value.as_f64());
+                serde_json::to_value(InferenceRouter::plan_placement_for(
+                    &providers, requires, max_cost,
+                ))
+                .map_err(|e| e.to_string())
             }
             topics::GEMI_MODELS_SCAN => {
                 let dir = path_field(&payload, "global_dir");

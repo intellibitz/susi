@@ -119,6 +119,7 @@ susi status
 
 # Explain the live local-vs-cloud placement decision (same policy the runtime uses)
 susi os route
+susi os route --requires vision --max-cost 0.01
 
 # Cloud keys (peer of models) — env or ~/.susi/cloud.env
 susi keys set openai          # prompts, or pipe the key on stdin

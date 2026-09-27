@@ -355,8 +355,11 @@ pub mod gemi {
         /// Return the GEMI plane's live, explainable local/cloud placement.
         /// The value stays schema-flexible at the kernel boundary while the
         /// owning plane retains the strongly typed policy implementation.
-        pub fn placement() -> Value {
-            req_ok(topics::GEMI_ROUTING_PLAN, json!({}))
+        pub fn placement(requires: Option<&str>, max_cost: Option<f64>) -> Value {
+            req_ok(
+                topics::GEMI_ROUTING_PLAN,
+                json!({ "requires": requires, "max_cost": max_cost }),
+            )
         }
     }
 

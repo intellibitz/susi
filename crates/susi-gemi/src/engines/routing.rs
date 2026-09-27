@@ -51,6 +51,8 @@ pub struct PlacementDecision {
     pub local_ready: bool,
     pub local_stats: LocalInferenceStats,
     pub cloud_candidates: Vec<String>,
+    pub requires: Option<String>,
+    pub max_cost: Option<f64>,
 }
 
 pub struct InferenceRouter;
@@ -506,27 +508,32 @@ impl InferenceRouter {
         registry: &crate::susi_core::registry::CapabilityRegistry,
     ) -> Option<String> {
         let mut clouds = Self::cloud_failover_order(registry);
-
-        // Capability constraint: Vision
-        if requires == Some("vision") {
-            clouds.retain(|name| {
-                let n = name.to_ascii_lowercase();
-                n.contains("gpt-4o") || n.contains("claude-3-5-sonnet") || n.contains("gemini")
-            });
-        }
-
-        // Financial constraint: Max Cost per request/token proxy
-        if let Some(cost) = max_cost {
-            if cost <= 0.01 {
-                // Filter out frontier expensive models
-                clouds.retain(|name| {
-                    let n = name.to_ascii_lowercase();
-                    !n.contains("opus") && !n.contains("gpt-4-") // Allows gpt-4o-mini
-                });
-            }
-        }
+        Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
         clouds.first().cloned()
+    }
+
+    fn apply_cloud_constraints(
+        clouds: &mut Vec<String>,
+        requires: Option<&str>,
+        max_cost: Option<f64>,
+    ) {
+        if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
+            clouds.retain(|name| {
+                let name = name.to_ascii_lowercase();
+                name.contains("gpt-4o")
+                    || name.contains("claude-3-5-sonnet")
+                    || name.contains("gemini")
+                    || name.contains("vision")
+                    || name.contains("vl-")
+            });
+        }
+        if max_cost.is_some_and(|cost| cost <= 0.01) {
+            clouds.retain(|name| {
+                let name = name.to_ascii_lowercase();
+                !name.contains("opus") && !name.contains("gpt-4-")
+            });
+        }
     }
 
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
@@ -586,6 +593,17 @@ impl InferenceRouter {
     /// deliberately serializable so CLI, MCP, and control-plane surfaces can
     /// explain *why* a request stays local or leaves the host.
     pub fn plan_placement(available_providers: &[String]) -> PlacementDecision {
+        Self::plan_placement_for(available_providers, None, None)
+    }
+
+    /// Workload-aware variant of [`Self::plan_placement`]. Capability and
+    /// budget constraints narrow the cloud candidates before policy chooses
+    /// a target; the unfiltered method remains the runtime-compatible default.
+    pub fn plan_placement_for(
+        available_providers: &[String],
+        requires: Option<&str>,
+        max_cost: Option<f64>,
+    ) -> PlacementDecision {
         let global_cfg = SusiConfig::load_global().unwrap_or_default();
         let cfg = global_cfg.inference_routing();
         let pref = Self::load_preference();
@@ -606,6 +624,8 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: Vec::new(),
+                requires: requires.map(str::to_string),
+                max_cost,
             };
         }
 
@@ -617,6 +637,7 @@ impl InferenceRouter {
         if clouds.is_empty() {
             clouds = Self::list_cloud_providers(available_providers);
         }
+        Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
         if clouds.is_empty() {
             return PlacementDecision {
@@ -633,6 +654,8 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                requires: requires.map(str::to_string),
+                max_cost,
             };
         }
 
@@ -653,6 +676,24 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                requires: requires.map(str::to_string),
+                max_cost,
+            };
+        }
+
+        if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
+            let provider = Self::pick_cloud(&clouds, &pref, &cfg);
+            return PlacementDecision {
+                target: "cloud".to_string(),
+                provider: Some(provider),
+                reason: "vision capability requires a matching provider".to_string(),
+                policy,
+                local_model,
+                local_ready,
+                local_stats: stats,
+                cloud_candidates: clouds,
+                requires: requires.map(str::to_string),
+                max_cost,
             };
         }
 
@@ -667,6 +708,8 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                requires: requires.map(str::to_string),
+                max_cost,
             };
         }
 
@@ -683,6 +726,8 @@ impl InferenceRouter {
                 local_ready,
                 local_stats: stats,
                 cloud_candidates: clouds,
+                requires: requires.map(str::to_string),
+                max_cost,
             };
         }
 
@@ -705,6 +750,8 @@ impl InferenceRouter {
             local_ready,
             local_stats: stats,
             cloud_candidates: clouds,
+            requires: requires.map(str::to_string),
+            max_cost,
         }
     }
 
@@ -866,6 +913,24 @@ mod tests {
             1
         ));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cloud_constraints_share_capability_and_budget_filtering() {
+        let mut clouds = vec![
+            "openai-gpt-4o-mini".to_string(),
+            "anthropic-claude-opus".to_string(),
+            "google-gemini-flash".to_string(),
+            "local-text-only".to_string(),
+        ];
+        InferenceRouter::apply_cloud_constraints(&mut clouds, Some("VISION"), Some(0.01));
+        assert_eq!(
+            clouds,
+            vec![
+                "openai-gpt-4o-mini".to_string(),
+                "google-gemini-flash".to_string()
+            ]
+        );
     }
 
     #[test]

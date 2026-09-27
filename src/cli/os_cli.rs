@@ -43,6 +43,12 @@ pub enum OsCommands {
         /// Emit machine-readable JSON
         #[arg(long)]
         json: bool,
+        /// Required model capability, for example `vision`
+        #[arg(long)]
+        requires: Option<String>,
+        /// Maximum acceptable request-cost hint in USD
+        #[arg(long)]
+        max_cost: Option<f64>,
     },
     /// Unified lifecycle facade for local AI ecosystem components
     Manage {
@@ -214,17 +220,22 @@ pub fn execute(action: Option<OsCommands>, top_json: bool, _workspace: &Path) ->
         OsCommands::Clean => clean(),
         OsCommands::Ecosystem { json, doctor } => ecosystem(json || top_json, doctor, _workspace),
         OsCommands::Runtime { json } => super::os_runtime::print(json || top_json),
-        OsCommands::Route { json } => route(json || top_json),
+        OsCommands::Route {
+            json,
+            requires,
+            max_cost,
+        } => route(json || top_json, requires.as_deref(), max_cost),
         OsCommands::Manage { resource } => manage(resource, _workspace),
     }
 }
 
-fn route(json: bool) -> Result<()> {
+fn route(json: bool, requires: Option<&str>, max_cost: Option<f64>) -> Result<()> {
     susi_gemi::http_provider::register_configured_cloud_endpoints(
         susi_gemi::susi_core::registry::CapabilityRegistry::global(),
     );
     let providers = susi_gemi::susi_core::registry::CapabilityRegistry::global().list_providers();
-    let decision = susi_gemi::routing::InferenceRouter::plan_placement(&providers);
+    let decision =
+        susi_gemi::routing::InferenceRouter::plan_placement_for(&providers, requires, max_cost);
     if json {
         println!("{}", serde_json::to_string_pretty(&decision)?);
         return Ok(());
@@ -241,6 +252,12 @@ fn route(json: bool) -> Result<()> {
         decision.local_model.as_deref().unwrap_or("auto-select")
     );
     println!("ready:     {}", decision.local_ready);
+    if let Some(requires) = decision.requires.as_deref() {
+        println!("requires:  {requires}");
+    }
+    if let Some(max_cost) = decision.max_cost {
+        println!("max cost:  ${max_cost:.4}");
+    }
     println!("reason:    {}", decision.reason);
     println!("clouds:    {}", decision.cloud_candidates.len());
     Ok(())
