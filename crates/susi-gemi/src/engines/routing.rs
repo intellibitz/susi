@@ -543,6 +543,10 @@ impl InferenceRouter {
         }
     }
 
+    fn remove_cooled_providers(clouds: &mut Vec<String>) {
+        clouds.retain(|name| !Self::provider_cooled(name));
+    }
+
     fn supports_requirement(requirement: &str) -> bool {
         matches!(
             requirement.to_ascii_lowercase().as_str(),
@@ -694,6 +698,7 @@ impl InferenceRouter {
         if clouds.is_empty() {
             clouds = Self::list_cloud_providers(available_providers);
         }
+        Self::remove_cooled_providers(&mut clouds);
         Self::apply_cloud_constraints(&mut clouds, requires, max_cost);
 
         if clouds.is_empty() {
@@ -1277,6 +1282,18 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&name));
         InferenceRouter::record_provider_success(&name);
         assert!(!InferenceRouter::provider_cooled(&name));
+    }
+
+    #[test]
+    fn placement_candidates_exclude_cooled_providers() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("placement");
+        let cooled = format!("openai-cooled-{}", std::process::id());
+        let ready = format!("deepseek-ready-{}", std::process::id());
+        InferenceRouter::record_provider_failure(&cooled);
+        let mut providers = vec![cooled, ready.clone()];
+        InferenceRouter::remove_cooled_providers(&mut providers);
+        assert_eq!(providers, vec![ready]);
     }
 
     #[test]
