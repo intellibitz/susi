@@ -1870,6 +1870,16 @@
       "milestone": "RSI iteration 26/100: learned idle-lease calibration survives crashes. TelemetryHistoryStore::save_history rewrote data_dir/telemetry_history.json with a plain std::fs::write after every completed task and discarded the error; a crash or concurrent writer mid-write left a torn file, and load_history silently ignored the parse failure, so every category restarted uncalibrated with no signal that learned leases had been lost. save_history now serializes and writes through susi_config::atomic_write_bytes (staged file, fsync, rename), and read, parse, and write failures are recorded through EaiError::io instead of being swallowed. Known limitation, stated: two processes still last-writer-win on the whole map (no merge). cargo test -p susi-core task_manager (7 passed) and cargo clippy -p susi-core --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ContextGraph::persist / ContextGraph::replay",
+        "ref": "symbol://ContextGraph::persist"
+      },
+      "id": "EV-2022927-193",
+      "milestone": "RSI iteration 27/100: compacting the context graph can no longer destroy it, and sibling processes stay in sync across compaction. ContextGraph::persist (run by compact, compact_if_large at attach, and append_event once the log passes 16 MiB) opened the log with truncate(true) and rewrote it line by line, so a crash or kill mid-rewrite left an empty or partial log and the next start replayed only that remnant. Separately, replay resumed a sibling's cursor whenever the file had not shrunk, so after another process compacted and the log regrew past the cursor, replay started mid-line and silently skipped the first records. persist now serializes into a buffer and replaces the log through susi_config::atomic_write_bytes, recording the new file's (device, inode) under the context_graph lock; replay compares the open file's identity (unix) with the one its cursor belongs to and refolds from zero when the log was replaced (the size check remains the non-unix fallback). A regression test replaces the log by rename with a longer file and proves both records are folded; the existing persist/replay, compaction, torn-tail, and capacity tests still pass (cargo test -p susi-core context_graph: 9 passed). cargo clippy -p susi-core --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

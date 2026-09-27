@@ -67,6 +67,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
 3. **Swarm** — agent-of-agents consensus (GAWD).
 4. **Blackboard** — live shared state (`.susi/last_blackboard.json`).
+   The context graph (missions, tool calls, patch cycles, observations) is
+   bounded, compacted by atomic rename, and re-read correctly by sibling
+   processes after a compaction.
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
    Task listings reflect real outcomes: a task whose owner exits without
    reporting one is recorded as `[ABANDONED]`, not left `Running`; finished

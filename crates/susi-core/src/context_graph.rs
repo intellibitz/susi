@@ -173,6 +173,24 @@ pub struct ContextGraph {
     /// file on every call. A file smaller than the offset was rewritten
     /// by `persist()`/`compact()` and is folded wholesale again.
     replay_offset: parking_lot::Mutex<u64>,
+    /// Identity of the file `replay_offset` points into. `persist()`
+    /// replaces the log by rename, so a sibling's cursor into the old file
+    /// is meaningless once the identity changes, even if the new file has
+    /// already grown past it.
+    replay_file_id: parking_lot::Mutex<Option<(u64, u64)>>,
+}
+
+/// `(device, inode)` of an open log file; `None` where the platform does
+/// not expose it (the size check still catches shrinking rewrites).
+#[cfg(unix)]
+fn file_identity(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    Some((meta.dev(), meta.ino()))
+}
+
+#[cfg(not(unix))]
+fn file_identity(_meta: &std::fs::Metadata) -> Option<(u64, u64)> {
+    None
 }
 
 impl Default for ContextGraph {
@@ -191,6 +209,7 @@ impl ContextGraph {
             reverse: DashMap::new(),
             storage_path: parking_lot::Mutex::new(None),
             replay_offset: parking_lot::Mutex::new(0),
+            replay_file_id: parking_lot::Mutex::new(None),
         }
     }
 
@@ -870,11 +889,20 @@ impl ContextGraph {
             return Ok(());
         }
         use std::io::{BufRead, Seek};
-        let file_len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let mut offset = self.replay_offset.lock();
-        let start = if file_len < *offset { 0 } else { *offset };
         let mut file =
             std::fs::File::open(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let meta = file
+            .metadata()
+            .map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let identity = file_identity(&meta);
+        let mut known_identity = self.replay_file_id.lock();
+        let replaced = identity.is_some() && *known_identity != identity;
+        let start = if replaced || meta.len() < *offset {
+            0
+        } else {
+            *offset
+        };
         file.seek(std::io::SeekFrom::Start(start))
             .map_err(|e| EaiError::filesystem(e.to_string()))?;
         let mut reader = std::io::BufReader::new(file);
@@ -920,6 +948,7 @@ impl ContextGraph {
             }
         }
         *offset = consumed;
+        *known_identity = identity;
         self.enforce_capacity();
         Ok(())
     }
@@ -948,24 +977,22 @@ impl ContextGraph {
         for edge in self.edges.iter() {
             lines.push(ContextGraphEvent::EdgeAdded(edge.value().clone()));
         }
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| EaiError::filesystem(e.to_string()))?;
-        use std::io::Write;
+        let mut buf = Vec::new();
         for event in lines {
-            let line = serde_json::to_string(&event)?;
-            file.write_all(format!("{line}\n").as_bytes())
-                .map_err(|e| EaiError::filesystem(e.to_string()))?;
+            serde_json::to_writer(&mut buf, &event)?;
+            buf.push(b'\n');
         }
+        // Replace by rename: truncating in place lost the whole graph if
+        // the process died mid-rewrite.
+        crate::susi_config::atomic_write_bytes(&path, &buf)
+            .map_err(|e| EaiError::filesystem(format!("rewrite {}: {e}", path.display())))?;
         // The rewritten file is exactly the in-memory state — advance
-        // the replay cursor to EOF so the next replay doesn't re-fold
-        // lines this process just wrote.
-        if let Ok(meta) = file.metadata() {
-            *self.replay_offset.lock() = meta.len();
-        }
+        // the replay cursor to its EOF so the next replay doesn't re-fold
+        // lines this process just wrote. The lock is still held, so no
+        // sibling append can land before the identity is captured.
+        let meta = std::fs::metadata(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        *self.replay_offset.lock() = meta.len();
+        *self.replay_file_id.lock() = file_identity(&meta);
         Ok(())
     }
 
@@ -1192,6 +1219,46 @@ mod tests {
             "edge to an evicted node must be removed, not left dangling"
         );
         assert_eq!(g.nodes.len(), 32_000);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn replay_refolds_a_log_replaced_by_a_sibling_compaction() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("context_graph.jsonl");
+        let node = |key: &str, label: &str| {
+            let mut line = serde_json::to_string(&ContextGraphEvent::NodeAdded(Node {
+                id: NodeId::stable("external", key),
+                kind: NodeType::Observation,
+                label: label.into(),
+                created_at: 1,
+                properties: HashMap::new(),
+            }))
+            .unwrap();
+            line.push('\n');
+            line
+        };
+        std::fs::write(&path, node("a", "a")).unwrap();
+        let g = ContextGraph::with_storage(path.clone());
+        g.replay().unwrap();
+        let cursor = *g.replay_offset.lock();
+
+        // A sibling compacts by rename into a file that is already longer
+        // than this process's cursor. Resuming at the old offset would
+        // start mid-line and drop the first record.
+        let replacement = format!(
+            "{}{}",
+            node("b", "a much longer label here"),
+            node("c", "c")
+        );
+        assert!(replacement.len() as u64 > cursor);
+        let staged = dir.path().join("staged.jsonl");
+        std::fs::write(&staged, replacement).unwrap();
+        std::fs::rename(&staged, &path).unwrap();
+
+        g.replay().unwrap();
+        assert!(g.node(&NodeId::stable("external", "b")).is_some());
+        assert!(g.node(&NodeId::stable("external", "c")).is_some());
     }
 
     #[test]
