@@ -17,7 +17,10 @@ impl ReflexTrainer {
         recover_orphaned_claims(workspace)?;
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global()?;
         let Some(claim) = claim_staged_samples(workspace, cfg.reflex_training_threshold())? else {
-            return Ok("Reflex substrate optimal.".into());
+            return Ok(format!(
+                "Reflex substrate optimal.\n{}",
+                staging_health_line(workspace)
+            ));
         };
         eprintln!(
             "[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...",
@@ -33,7 +36,7 @@ impl ReflexTrainer {
             }
         };
         retire_claim(&claim)?;
-        Ok(report)
+        Ok(format!("{report}\n{}", staging_health_line(workspace)))
     }
 
     pub fn force_train(workspace: &Path) -> EaiResult<String> {
@@ -47,7 +50,7 @@ impl ReflexTrainer {
         match SusiAlphaModel::train_on_staged_data(&claim.root) {
             Ok(report) => {
                 retire_claim(&claim)?;
-                Ok(report)
+                Ok(format!("{report}\n{}", staging_health_line(workspace)))
             }
             Err(error) => {
                 restore_claim(&claim)?;
@@ -55,6 +58,10 @@ impl ReflexTrainer {
             }
         }
     }
+}
+
+fn staging_health_line(workspace: &Path) -> String {
+    crate::susi_core::receipt_archive::ReceiptArchive::staging_health_summary(workspace).summary()
 }
 
 struct TrainingClaim {
