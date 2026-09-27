@@ -581,16 +581,21 @@ async fn handle_gemi_request(
                 Ok(completion) => completion,
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, &message)),
             };
-            let planned_model = if completion.model.is_none()
-                && (completion.requires.is_some() || completion.max_cost.is_some())
-            {
-                gemi::ModelManager::placement(completion.requires.as_deref(), completion.max_cost)
-                    .get("provider")
-                    .and_then(|value| value.as_str())
-                    .map(str::to_string)
+            let placement = if let Some(model) = completion.model.as_deref() {
+                json!({
+                    "target": "explicit",
+                    "provider": model,
+                    "reason": "caller pinned model",
+                    "requires": completion.requires.as_deref(),
+                    "max_cost": completion.max_cost,
+                })
             } else {
-                None
+                gemi::ModelManager::placement(completion.requires.as_deref(), completion.max_cost)
             };
+            let planned_model = placement
+                .get("provider")
+                .and_then(|value| value.as_str())
+                .map(str::to_string);
             let requested_model = completion.model.clone().or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
@@ -663,6 +668,11 @@ async fn handle_gemi_request(
                 &workspace,
                 "WEB_MISSION_START",
                 &pulse_intent,
+            );
+            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                &workspace,
+                "INFERENCE_PLACEMENT",
+                &placement.to_string(),
             );
             let trimmed_prompt = pulse_intent.trim().to_string();
 
