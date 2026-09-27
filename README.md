@@ -95,6 +95,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    `local_only` instead of silently reading as `balanced`.
    Scoped capability grants stop at a path/host boundary: a grant on
    `/srv/ws` never authorizes `/srv/ws2`.
+   Local agent messaging (`ipc_send`) is authorized by the default
+   `app://*` transmit grant; the broker still checks per-sender dispatch grants.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
     Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is

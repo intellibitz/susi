@@ -2030,6 +2030,16 @@
       "milestone": "RSI iteration 42/100: scoped capability grants stop at a path or host boundary. MacPolicy::is_permitted (and its persisted-grant scan) accepted any grant whose resource was a raw string prefix of the request, and the daemon's syscall CapabilityPolicy did the same for scoped grants (workspace.starts_with(scope)). A cell granted filesystem.read on a canonical workspace /srv/ws was therefore authorized for /srv/ws2 and /srv/ws-secrets, and a grant on https://api.example.com also covered https://api.example.com.evil.net. Confirmed by a failing test before the fix. One rule, mac_policy::grant_covers, now decides coverage: exact match; an explicit trailing * globs its prefix (the default app://* transmit grant keeps working); otherwise the request must sit under the grant at a / boundary. Both the in-memory and persisted MAC lookups and the daemon's scope_matches use it (no second copy). Tests: scoped_grants_stop_at_a_path_or_host_boundary (path child allowed, sibling paths denied, URL child allowed, look-alike host denied, glob allowed within its scheme only) and a sibling-path case added to the daemon's scoped_grant_restricts_workspace. cargo test -p susi-core mac_policy (9 passed) and abi_bridge (9 passed), -p susi-daemon security (8 passed), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "MacPolicy::requirements_for_tool (ipc_send)",
+        "ref": "symbol://MacPolicy::requirements_for_tool"
+      },
+      "id": "EV-2022927-209",
+      "milestone": "RSI iteration 43/100: the agent-to-agent broker tool ipc_send is reachable again. requirements_for_tool demanded (transmit, \"*\") for ipc_send*, but the only transmit grant the policy ever issues is the default (susi, transmit, app://*); the exact-key lookup, the * wildcard lookup, and the scoped match all miss that pair, so authorize_tool returned 'MAC DENY: subject susi lacks transmit on *' in balanced, local_only, and open modes alike, and every MCP/registry call of ipc_send (wrapped by EnforcedTool) failed before IpcBroker's own per-sender dispatch grant was consulted. Confirmed with a failing test in all three modes before the change. ipc_send now requires transmit on app://*, the local-delivery scope the default grant covers; IpcBroker still enforces its dispatch grant per sender. A regression test authorizes ipc_send under all three modes. cargo test -p susi-core mac_policy (10 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

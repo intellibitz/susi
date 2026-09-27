@@ -633,7 +633,11 @@ impl MacPolicy {
             return vec![(actions::FILESYSTEM_READ, "*")];
         }
         if t.starts_with("ipc_send") {
-            return vec![(actions::TRANSMIT, "*")];
+            // Local broker delivery: the scope the default `app://*`
+            // transmit grant covers. Requiring `*` here matched no grant in
+            // any mode, so ipc_send was MAC-denied before the broker's own
+            // per-sender dispatch check ever ran.
+            return vec![(actions::TRANSMIT, "app://*")];
         }
         if t == "reason" || t == "susi_solve" || t.starts_with("agents_") {
             // Local swarm reasoning — read only at MAC layer; cloud blocked separately.
@@ -872,6 +876,23 @@ mod tests {
         p.grant("cell-a", actions::TRANSMIT, "app://*", None);
         assert!(p.is_permitted("cell-a", actions::TRANSMIT, "app://agent-b"));
         assert!(!p.is_permitted("cell-a", actions::TRANSMIT, "tcp://agent-b"));
+    }
+
+    #[test]
+    fn ipc_send_is_authorized_by_the_default_transmit_grant() {
+        for mode in [
+            PrivacyMode::Balanced,
+            PrivacyMode::LocalOnly,
+            PrivacyMode::Open,
+        ] {
+            let p = policy(mode);
+            let ws = std::env::temp_dir();
+            let arg = serde_json::json!({"from": "agent-a", "to": "agent-b", "payload": "x"});
+            assert!(
+                p.authorize_tool("ipc_send", &arg, &ws, None).is_ok(),
+                "{mode:?}"
+            );
+        }
     }
 
     #[test]
