@@ -1550,6 +1550,16 @@
       "milestone": "Audit chain HMAC verification re-enforced. 73bf0ec4 had commented out the MAC comparison in verify_chain, so from that commit until this fix the chain was hash-linked but not authenticated, contrary to the identity doc's 'append-only HMAC-SHA256 chain' claim. Root causes fixed instead of the check: racy host-key creation (now staged + hard-linked no-replace; wrong-length key is an error, not a regeneration) and crown_verify_tests verifying the checkout's audit.log under a temp-HOME key (now a scratch workspace). New tests: 16-thread concurrent key creation converges on one key; truncated key is rejected unmodified; forged MAC fails verification. fmt, clippy -D warnings --all-targets, 3046 workspace tests pass, 0 failed.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "atomic_write_bytes / load_or_create_secret / redact_credentials",
+        "ref": "symbol://redact_credentials"
+      },
+      "id": "EV-2022927-161",
+      "milestone": "Host-state integrity hardening (commits 4ea83f96..ff7537f9). (1) One race-safe writer: susi_config::atomic_write_bytes (unique dot-prefixed create_new staging, fsync, rename) replaces ~25 fixed-name '.tmp' / per-process-name writers across gemi-models, agents, core (broker, commit log, plane bus, intent bus, registry, grants, capture, service table, net guard), tools, sandbox, cluster key, quarantine, and root peers CLI. (2) One secret loader: susi_config::load_or_create_secret (no-replace hard link, strict 32-byte length, entropy failure is an error) now backs the audit-chain key and the MAC-policy key; the daemon's duplicate MAC loader is gone (wire_mac_policy delegates to MacPolicy::wired, which fails closed to local_only when the key is unavailable). Plane-bus secret and grant-audit key no longer become all-zero on entropy failure. (3) One credential redactor: susi_config::redact_credentials (env *_API_KEY/_TOKEN/_SECRET values + governance.secret_tokens, bundled fallback) replaces five drifted redactors; the audit-log chokepoint, capture, and SecurityDetector no longer fail open on config errors; Google 'AIza' keys were previously unredacted by all ad-hoc redactors. (4) Vendored sandbox runtime shares manager/runtime_shared.rs with the service runtime (had drifted). catalog_store.rs removed — supersedes the file anchor in the 2026-09-22 Phase 1 optimization entry. (5) SUSI_TEST_MOCK_INFERENCE no longer returns fabricated 'Simulated inference' text as an answer; it returns a typed inference error. Verified per commit: fmt, clippy -D warnings --all-targets, full workspace tests (2986 top-level tests at ff7537f9, 0 failed, 1 env-gated ignore); top-level counts exclude child-harness re-runs.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
