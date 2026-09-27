@@ -66,8 +66,7 @@ use hyper::body::{Frame, Incoming};
 use hyper::header::{CONTENT_TYPE, HeaderValue};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode};
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::server::conn::auto::Builder as AutoBuilder;
+use hyper_util::rt::TokioIo;
 use serde_json::json;
 use std::convert::Infallible;
 use std::path::PathBuf;
@@ -84,6 +83,10 @@ use susi_core::plane_bus::{gawd, gemi, tools as plane_tools};
 // callers are unaffected. `require_tls_remote` drops non-TLS bytes from
 // off-host peers; loopback plaintext is always allowed.
 mod dual_transport;
+mod http_conn;
+
+/// Concurrent GEMI REST connections; excess connections are closed at accept.
+const MAX_CONNECTIONS: usize = 512;
 use dual_transport::negotiate_transport;
 use tokio_rustls::TlsAcceptor;
 
@@ -175,6 +178,10 @@ impl GemiServer {
             let capacity = crate::susi_sandbox::manager::SusiConfig::load_global_arc()
                 .unwrap_or_default().gemi_max_concurrent_requests();
             let admission = Arc::new(tokio::sync::Semaphore::new(capacity.min(tokio::sync::Semaphore::MAX_PERMITS)));
+            // Open connections are capped separately from completion
+            // admission: an idle keep-alive or slow client costs an fd even
+            // when it never asks for inference.
+            let connections = Arc::new(tokio::sync::Semaphore::new(MAX_CONNECTIONS));
 
             // One accept loop per bound socket (loopback + external when the
             // bind address is a specific non-loopback IP).
@@ -193,6 +200,7 @@ impl GemiServer {
                 };
                 let workspace = Arc::clone(&workspace);
                 let admission = Arc::clone(&admission);
+                let connections = Arc::clone(&connections);
                 let tls = tls.clone();
                 accept_loops.push(tokio::spawn(async move {
                     loop {
@@ -203,12 +211,17 @@ impl GemiServer {
                         continue;
                     }
                 };
+                let Ok(connection) = Arc::clone(&connections).try_acquire_owned() else {
+                    drop(stream);
+                    continue;
+                };
                 let workspace = Arc::clone(&workspace);
                 let peer_ip = peer.ip();
                 let admission = Arc::clone(&admission);
                 let tls = tls.clone();
 
                 tokio::spawn(async move {
+                    let _connection = connection;
                     let remote = !peer_ip.is_loopback();
                     let Some(io) =
                         negotiate_transport(stream, remote, tls.as_ref(), require_tls_remote, "[GEMI REST]").await
@@ -221,7 +234,7 @@ impl GemiServer {
                         let admission = Arc::clone(&admission);
                         async move { handle_gemi_request(req, workspace, peer_ip, admission).await }
                     });
-                    if let Err(e) = AutoBuilder::new(TokioExecutor::new())
+                    if let Err(e) = http_conn::connection_builder()
                         .serve_connection(io, service)
                         .await
                     {

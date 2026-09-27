@@ -8,10 +8,7 @@ use hyper::{
     service::service_fn,
     Method, Request, Response, StatusCode,
 };
-use hyper_util::{
-    rt::{TokioExecutor, TokioIo},
-    server::conn::auto::Builder,
-};
+use hyper_util::rt::TokioIo;
 use rmcp::{
     transport::streamable_http_server::{
         session::local::LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
@@ -31,6 +28,8 @@ use tower_service::Service;
 #[rustfmt::skip]
 #[path = "../../susi-server/src/dual_transport.rs"]
 mod dual_transport;
+#[path = "../../susi-server/src/http_conn.rs"]
+mod http_conn;
 use dual_transport::negotiate_transport;
 
 type BoxBody = http_body_util::combinators::BoxBody<Bytes, Infallible>;
@@ -185,7 +184,7 @@ impl GmcpServer {
                             let svc = service_fn(move |req| {
                                 handle_request(req, service.clone(), peer_ip)
                             });
-                            if let Err(e) = Builder::new(TokioExecutor::new())
+                            if let Err(e) = http_conn::connection_builder()
                                 .serve_connection(TokioIo::new(io), svc)
                                 .await
                             {
