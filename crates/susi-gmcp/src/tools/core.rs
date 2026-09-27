@@ -231,7 +231,7 @@ impl CoreTools {
     )]
     pub fn inference_reset_provider(
         arg: &serde_json::Value,
-        _workspace: &Path,
+        workspace: &Path,
     ) -> EaiResult<String> {
         let provider = arg
             .get("provider")
@@ -240,6 +240,13 @@ impl CoreTools {
             .filter(|value| !value.is_empty())
             .ok_or_else(|| EaiError::config("provider is required"))?;
         let cleared = ModelManager::clear_provider_cooldown(provider);
+        if cleared {
+            crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                workspace,
+                "INFERENCE_PROVIDER_READMITTED",
+                provider,
+            );
+        }
         serde_json::to_string_pretty(&serde_json::json!({
             "provider": provider,
             "cleared": cleared,
