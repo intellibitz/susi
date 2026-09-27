@@ -44,8 +44,12 @@ pub async fn connect<H: ClientHandler>(
             }
         }
         // Redirects must not forward configured credentials to another authority.
+        // Connect is bounded (a blackholed host otherwise waits out the OS SYN
+        // retries); no total timeout, since the streamable-HTTP transport holds
+        // a long-lived SSE response open by design.
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| e.to_string())?;
         handler
