@@ -86,7 +86,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     the credential-redacted mission from that same live evidence session. The
     model persists an append-only action vocabulary beside its weights so new
     ecosystem capabilities cannot reorder learned output labels; the vocabulary
-    records the exact weights SHA-256 and mismatched pairs fail closed.
+    records the exact weights SHA-256 and mismatched pairs fail closed. New
+    immutable checkpoint generations become active through one atomic manifest
+    update, so interrupted training cannot replace the last active bundle.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

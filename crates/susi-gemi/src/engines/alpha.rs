@@ -64,6 +64,7 @@ fn vocabulary_path(weights_path: &Path) -> PathBuf {
 }
 
 const VOCABULARY_SCHEMA: &str = "susi/reflex-vocabulary/v1";
+const BUNDLE_SCHEMA: &str = "susi/reflex-bundle/v1";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -71,6 +72,83 @@ struct ActionVocabulary {
     schema: String,
     weights_sha256: String,
     intents: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReflexBundle {
+    schema: String,
+    weights_file: String,
+}
+
+fn bundle_path(configured_weights: &Path) -> PathBuf {
+    configured_weights.with_extension("bundle.json")
+}
+
+fn resolve_checkpoint(configured_weights: &Path) -> Result<Option<PathBuf>> {
+    let manifest_path = bundle_path(configured_weights);
+    if manifest_path.exists() {
+        let bytes = std::fs::read(&manifest_path)?;
+        let manifest: ReflexBundle = serde_json::from_slice(&bytes)?;
+        if manifest.schema != BUNDLE_SCHEMA {
+            return Err(anyhow!(
+                "unsupported reflex bundle schema {:?}",
+                manifest.schema
+            ));
+        }
+        let file = Path::new(&manifest.weights_file);
+        if file.file_name().and_then(|name| name.to_str()) != Some(manifest.weights_file.as_str()) {
+            return Err(anyhow!("reflex bundle contains a non-local weights path"));
+        }
+        let parent = configured_weights
+            .parent()
+            .ok_or_else(|| anyhow!("configured reflex weights have no parent"))?;
+        let active = parent.join(file);
+        if !active.is_file() {
+            return Err(anyhow!(
+                "active reflex checkpoint is missing: {}",
+                active.display()
+            ));
+        }
+        return Ok(Some(active));
+    }
+    Ok(configured_weights
+        .is_file()
+        .then(|| configured_weights.to_path_buf()))
+}
+
+fn publish_checkpoint(
+    varmap: &VarMap,
+    configured_weights: &Path,
+    intents: &[String],
+) -> Result<PathBuf> {
+    let parent = configured_weights
+        .parent()
+        .ok_or_else(|| anyhow!("configured reflex weights have no parent"))?;
+    std::fs::create_dir_all(parent)?;
+    let stem = configured_weights
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .ok_or_else(|| anyhow!("configured reflex weights have no UTF-8 stem"))?;
+    let generation = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let filename = format!("{stem}.{generation}.{}.safetensors", std::process::id());
+    let weights = parent.join(&filename);
+    varmap.save(&weights)?;
+    if let Err(error) = save_vocabulary(&weights, intents) {
+        let _ = std::fs::remove_file(&weights);
+        return Err(error);
+    }
+    let manifest = ReflexBundle {
+        schema: BUNDLE_SCHEMA.into(),
+        weights_file: filename,
+    };
+    let bytes = serde_json::to_vec_pretty(&manifest)?;
+    crate::susi_config::atomic_write_bytes(&bundle_path(configured_weights), &bytes)
+        .map_err(|error| anyhow!("publish reflex bundle: {error}"))?;
+    Ok(weights)
 }
 
 fn file_sha256(path: &Path) -> Result<String> {
@@ -192,11 +270,11 @@ impl SusiAlphaModel {
         let weights_path = global_dir.join("models").join(&alpha_filename);
         let device = crate::hardware::HardwareProfiler::get_candle_device();
 
-        if weights_path.exists() {
-            let intents = load_vocabulary(&weights_path)?;
+        if let Some(active_weights) = resolve_checkpoint(&weights_path)? {
+            let intents = load_vocabulary(&active_weights)?;
             // SAFETY: mmap of a weights file the substrate owns; it is not modified while mapped.
             let vb = unsafe {
-                VarBuilder::from_mmaped_safetensors(&[&weights_path], DType::F32, &device)
+                VarBuilder::from_mmaped_safetensors(&[&active_weights], DType::F32, &device)
             }?;
             let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
             let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
@@ -211,9 +289,8 @@ impl SusiAlphaModel {
 
         let models_dir = global_dir.join("models");
         std::fs::create_dir_all(&models_dir)?;
-        varmap.save(&weights_path)?;
         let intents = validate_vocabulary(Self::list_dynamic_intents())?;
-        save_vocabulary(&weights_path, &intents)?;
+        publish_checkpoint(&varmap, &weights_path, &intents)?;
 
         Ok(Self { fc1, fc2, intents })
     }
@@ -278,8 +355,9 @@ impl SusiAlphaModel {
         std::fs::create_dir_all(&models_dir)?;
         let weights_path = models_dir.join(&alpha_filename);
         let discovered_intents = Self::list_dynamic_intents();
-        let dynamic_intents = if weights_path.exists() {
-            extend_vocabulary(load_vocabulary(&weights_path)?, discovered_intents)
+        let active_weights = resolve_checkpoint(&weights_path)?;
+        let dynamic_intents = if let Some(active) = &active_weights {
+            extend_vocabulary(load_vocabulary(active)?, discovered_intents)
         } else {
             validate_vocabulary(discovered_intents)?
         };
@@ -290,8 +368,8 @@ impl SusiAlphaModel {
 
         let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
         let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
-        if weights_path.exists() {
-            varmap.load(&weights_path)?;
+        if let Some(active) = active_weights {
+            varmap.load(active)?;
         }
 
         let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())?;
@@ -328,11 +406,7 @@ impl SusiAlphaModel {
             opt.backward_step(&loss)?;
         }
 
-        // Atomic Model Save
-        let tmp_path = weights_path.with_extension("tmp");
-        varmap.save(&tmp_path)?;
-        std::fs::rename(tmp_path, weights_path)?;
-        save_vocabulary(&models_dir.join(&alpha_filename), &dynamic_intents)?;
+        publish_checkpoint(&varmap, &weights_path, &dynamic_intents)?;
 
         Ok(format!("Native distillation complete. Trained cumulatively on {} samples with the dynamic intent surface.", samples.len()))
     }
@@ -342,7 +416,7 @@ impl SusiAlphaModel {
             .unwrap_or_default()
             .alpha_weights_filename();
         let weights_path = global_dir.join("models").join(alpha_filename);
-        if let Ok(meta) = std::fs::metadata(weights_path) {
+        if let Ok(meta) = std::fs::metadata(bundle_path(&weights_path)) {
             // Some filesystems (e.g. certain FUSE mounts) don't support mtime.
             return match meta.modified() {
                 Ok(t) => format!("{:?}", t),
@@ -582,5 +656,26 @@ mod tests {
         std::fs::write(&weights, b"weights-v2").unwrap();
         let error = load_vocabulary(&weights).unwrap_err();
         assert!(error.to_string().contains("weights/vocabulary mismatch"));
+    }
+
+    #[test]
+    fn bundle_manifest_resolves_only_local_immutable_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let configured = dir.path().join("alpha.safetensors");
+        let active = dir.path().join("alpha.1.7.safetensors");
+        std::fs::write(&active, b"checkpoint").unwrap();
+        crate::susi_config::atomic_write_bytes(
+            &bundle_path(&configured),
+            br#"{"schema":"susi/reflex-bundle/v1","weights_file":"alpha.1.7.safetensors"}"#,
+        )
+        .unwrap();
+        assert_eq!(resolve_checkpoint(&configured).unwrap(), Some(active));
+
+        crate::susi_config::atomic_write_bytes(
+            &bundle_path(&configured),
+            br#"{"schema":"susi/reflex-bundle/v1","weights_file":"../escape.safetensors"}"#,
+        )
+        .unwrap();
+        assert!(resolve_checkpoint(&configured).is_err());
     }
 }

@@ -1700,6 +1700,16 @@
       "milestone": "RSI iteration 9/100: persisted reflex action labels are now cryptographically bound to the exact checkpoint they interpret. A separate weights rename and vocabulary write could previously leave a crash-mixed pair that loaded successfully but mapped output indices through the wrong labels. The vocabulary sidecar now has a strict versioned schema and the SHA-256 of the published safetensors file; every inference and cumulative-training load recomputes and compares that digest before accepting the mapping. Unknown schema, malformed sidecar, invalid labels, or weight mismatch fails closed. A regression test writes a valid pair, proves it loads, mutates only the weights, and proves mismatch rejection. This establishes detection; automatic last-known-good recovery is a separate subsequent iteration. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "publish_checkpoint / resolve_checkpoint",
+        "ref": "symbol://publish_checkpoint"
+      },
+      "id": "EV-2022927-176",
+      "milestone": "RSI iteration 10/100: reflex checkpoint publication is now crash-safe as a bundle. In-place weights replacement followed by vocabulary replacement had a detectable but unrecoverable mixed-pair window. Training and fresh initialization now write an immutable generation-specific safetensors file and its hash-bound vocabulary first, then atomically publish a small versioned manifest naming that generation. Readers resolve only the manifest's same-directory filename and reject traversal, unsupported schema, missing checkpoint, corrupt vocabulary, or digest mismatch; a crash before the manifest update leaves the prior generation active. Legacy configured weight files remain readable and migrate on the next successful training publication. Cache fingerprinting follows the manifest rather than a legacy filename. Regression coverage proves valid local resolution and traversal rejection. Generation retention cleanup remains a later lifecycle iteration; correctness no longer depends on it. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

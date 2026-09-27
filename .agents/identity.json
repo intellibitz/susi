@@ -103,7 +103,7 @@
     },
     {
       "id": 12,
-      "summary": "Wasm under the data dir; receipt capture stages credential-redacted mission/action pairs once; training preserves output indices in a persisted vocabulary cryptographically bound to exact weights, is cross-process serialized, resumes cumulatively, and fails closed on mismatch.",
+      "summary": "Wasm under the data dir; receipt-backed samples train cumulatively under cross-process exclusion; stable action vocabularies are hash-bound to immutable checkpoint generations published through one atomic manifest, with mismatch/path failures closed.",
       "title": "Reflexes"
     },
     {
