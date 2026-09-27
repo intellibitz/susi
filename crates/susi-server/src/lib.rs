@@ -238,6 +238,44 @@ impl GemiServer {
     }
 }
 
+fn placement_query(query: Option<&str>) -> Result<(Option<String>, Option<f64>), &'static str> {
+    let mut requires = None;
+    let mut max_cost = None;
+    for pair in query.into_iter().flat_map(|value| value.split('&')) {
+        if pair.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = pair.split_once('=') else {
+            return Err("placement query parameters must use key=value");
+        };
+        match key {
+            "requires" if requires.is_none() => {
+                if value.is_empty()
+                    || value.len() > 64
+                    || !value
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+                {
+                    return Err("requires must be 1-64 letters, numbers, '-' or '_'");
+                }
+                requires = Some(value.to_string());
+            }
+            "max_cost" if max_cost.is_none() => {
+                let Ok(value) = value.parse::<f64>() else {
+                    return Err("max_cost must be a non-negative finite number");
+                };
+                if !value.is_finite() || value < 0.0 {
+                    return Err("max_cost must be a non-negative finite number");
+                }
+                max_cost = Some(value);
+            }
+            "requires" | "max_cost" => return Err("duplicate placement query parameter"),
+            _ => return Err("unknown placement query parameter"),
+        }
+    }
+    Ok((requires, max_cost))
+}
+
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
@@ -246,6 +284,7 @@ async fn handle_gemi_request(
 ) -> Result<Response<BoxBody>, Infallible> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+    let query = req.uri().query().map(str::to_string);
     // Extract the auth material before consuming the body — the signed
     // request fields borrow the request headers.
     let authorization = req
@@ -372,9 +411,15 @@ async fn handle_gemi_request(
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/runtime/placement") => {
-            let payload = tokio::task::spawn_blocking(|| gemi::ModelManager::placement(None, None))
-                .await
-                .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
+            let (requires, max_cost) = match placement_query(query.as_deref()) {
+                Ok(constraints) => constraints,
+                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
+            };
+            let payload = tokio::task::spawn_blocking(move || {
+                gemi::ModelManager::placement(requires.as_deref(), max_cost)
+            })
+            .await
+            .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
             Ok(json_response(StatusCode::OK, &payload))
         }
         (&Method::GET, "/v1/models" | "/models") => {
@@ -1732,6 +1777,20 @@ fn estimated_usage(prompt_tokens: u64, completion_tokens: u64) -> serde_json::Va
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placement_query_accepts_constraints_and_rejects_ambiguous_input() {
+        assert_eq!(placement_query(None).unwrap(), (None, None));
+        assert_eq!(
+            placement_query(Some("requires=vision&max_cost=0.01")).unwrap(),
+            (Some("vision".to_string()), Some(0.01))
+        );
+        assert!(placement_query(Some("requires=vision&requires=text")).is_err());
+        assert!(placement_query(Some("requires=vision%20input")).is_err());
+        assert!(placement_query(Some("max_cost=NaN")).is_err());
+        assert!(placement_query(Some("max_cost=-1")).is_err());
+        assert!(placement_query(Some("surprise=true")).is_err());
+    }
 
     /// Drive one accepted connection through `negotiate_transport` after the
     /// client pre-writes `first` bytes for the loopback peek to classify.

@@ -142,6 +142,7 @@ susi mcp-add remote-http http://127.0.0.1:3100/mcp
 #   Authorization: Bearer "$(cat ~/.susi/api_token)"
 # Read-only placement contract for remote operators and cloud control planes:
 #   GET http://127.0.0.1:9091/runtime/placement
+#   GET http://127.0.0.1:9091/runtime/placement?requires=vision&max_cost=0.01
 ```
 
 Remote access / HTTPS — every socket sniffs each connection's first byte, so
