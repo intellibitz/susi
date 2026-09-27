@@ -95,8 +95,10 @@ fn save_scan_state(workspace: &Path, state: &HashMap<String, u64>) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
+    // Replaced whole: a torn plain write read back as empty and reset every
+    // workspace's state, re-ingesting whole trees on the next pass.
     if let Ok(text) = serde_json::to_string(&root) {
-        let _ = std::fs::write(path, text);
+        let _ = crate::susi_config::atomic_write_bytes(&path, text.as_bytes());
     }
 }
 
@@ -174,11 +176,14 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
             }
             state.insert(rel.clone(), mtime);
             changed += 1;
-            let preview: String = std::fs::read_to_string(&path)
+            // The preview is persisted in the context graph: redact it
+            // (a changed config.json or notes file can hold a key).
+            let raw: String = std::fs::read_to_string(&path)
                 .unwrap_or_default()
                 .chars()
                 .take(240)
                 .collect();
+            let preview = crate::susi_config::redact_credentials(&raw);
             ContextGraph::global().record_external_context(
                 "ambient_fs",
                 &format!("file changed: {rel}"),
@@ -198,6 +203,24 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_file_previews_are_redacted_in_the_graph() {
+        let ws = std::env::temp_dir().join(format!("susi-ambient-redact-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&ws);
+        std::fs::create_dir_all(&ws).unwrap();
+        std::fs::write(
+            ws.join("notes.md"),
+            "deploy token ghp_ambientProbe12345 here",
+        )
+        .unwrap();
+        let mut state = HashMap::new();
+        assert_eq!(scan_with_state(&ws, &mut state), 1);
+        let events = serde_json::to_string(&ContextGraph::global().recent_events(50)).unwrap();
+        assert!(events.contains("notes.md"), "{events}");
+        assert!(!events.contains("ghp_ambientProbe12345"), "{events}");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
 
     #[test]
     fn pulse_does_not_panic_on_empty_dir() {

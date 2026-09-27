@@ -2520,6 +2520,16 @@
       "milestone": "RSI iteration 91/100: interaction memory is redacted and no longer claims a validation it never ran. SusiMemory::save_interaction (called by the sandbox service and susi-server for every served interaction) appended the raw intent and outcome to .susi/memory.jsonl and, when promoted, to .susi/reasoning_experience.jsonl; both are indexed by semantic search and replayed as context, and neither was redacted, so credentials in a prompt or answer were persisted in plain text. Promoted entries were also stamped validation: STRICT_SEMANTIC_PASS, but the only check is output length above memory_experience_heuristics.min_output_len plus the absence of configured failure markers. Both records now pass through susi_config::redact_credentials before writing, and the label reads HEURISTIC_LENGTH_AND_NO_FAILURE_MARKER (no code read the old label). Left as a stated follow-up: memory.jsonl still has no size cap, because the semantic index consumes it incrementally by byte watermark and a rewrite would need that reader's cooperation. The memory lifecycle test now saves a ghp_ and an sk- token and proves neither reaches memory.jsonl. cargo test -p susi-sandbox (29), -p susi-gmcp semantic (9), and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ambient::scan_with_state / save_scan_state",
+        "ref": "symbol://scan_with_state"
+      },
+      "id": "EV-2022927-258",
+      "milestone": "RSI iteration 92/100: the ambient file indexer redacts what it records and persists its scan state atomically. For every changed .rs/.md/.txt/.toml/.json/.py/.ts file in a watched workspace, scan_with_state recorded the file's first 240 characters as an external_context node in the context graph, which is persisted to disk and queryable by agents; nothing redacted it, so a key in a changed config.json or notes file was copied into the graph. save_scan_state rewrote the host-wide ambient_scan_state.json (per-workspace mtimes) with an unchecked plain fs::write; a torn write read back as empty, resetting every workspace's state so the next pass re-recorded whole trees, the flood this state exists to prevent. Previews now pass through susi_config::redact_credentials and the state file is replaced through atomic_write_bytes. A test indexes a file containing a ghp_ token and proves the graph event names the file but not the token. cargo test -p susi-daemon ambient (2 passed) and cargo clippy --workspace --all-targets -D warnings pass. Also recorded: the iteration-87 workspace checkpoint finished with 0 failures across 112 test-result lines (earlier runs showed 114; runs overlapped with concurrent builds, so a clean uncontended run is scheduled for the final iteration).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
