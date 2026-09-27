@@ -206,18 +206,25 @@ impl GmcpClient {
             .clone()
     }
 
+    /// Load `mcp_config.json` for a read-modify-write. Absent means no
+    /// servers yet. A torn or unreadable file is an error: callers must not
+    /// rewrite it as an empty config, which would drop every other server.
+    fn read_mcp_config(path: &std::path::Path) -> Result<McpConfig, &'static str> {
+        match fs::read_to_string(path) {
+            Ok(content) => serde_json::from_str(&content).map_err(|_| "ERROR_CONFIG_DAMAGED"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(McpConfig {
+                mcp_servers: HashMap::new(),
+                extra: HashMap::new(),
+            }),
+            Err(_) => Err("ERROR_CONFIG_UNREADABLE"),
+        }
+    }
+
     pub fn auto_configure_server(name: &str, package: &str) -> String {
         let config_path = Self::get_config_path();
-        let mut config = if let Ok(content) = fs::read_to_string(&config_path) {
-            serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig {
-                mcp_servers: HashMap::new(),
-                extra: HashMap::new(),
-            })
-        } else {
-            McpConfig {
-                mcp_servers: HashMap::new(),
-                extra: HashMap::new(),
-            }
+        let mut config = match Self::read_mcp_config(&config_path) {
+            Ok(config) => config,
+            Err(code) => return code.to_string(),
         };
 
         // Meta Execution Scout: Identify best-suited executor for the host environment
@@ -289,16 +296,9 @@ impl GmcpClient {
             return "ERROR_INVALID_ARGS".to_string();
         }
         let config_path = Self::get_config_path();
-        let mut config = if let Ok(content) = fs::read_to_string(&config_path) {
-            serde_json::from_str::<McpConfig>(&content).unwrap_or(McpConfig {
-                mcp_servers: HashMap::new(),
-                extra: HashMap::new(),
-            })
-        } else {
-            McpConfig {
-                mcp_servers: HashMap::new(),
-                extra: HashMap::new(),
-            }
+        let mut config = match Self::read_mcp_config(&config_path) {
+            Ok(config) => config,
+            Err(code) => return code.to_string(),
         };
         let new_srv = McpServerConfig {
             command: command_or_url.to_string(),
@@ -621,5 +621,67 @@ mod tests {
             }
         }
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn isolated_home() -> (
+        std::sync::MutexGuard<'static, ()>,
+        PathBuf,
+        Option<std::ffi::OsString>,
+    ) {
+        let guard = home_lock();
+        let dir = std::env::temp_dir().join(format!(
+            "susi_mcp_cfg_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let prev = std::env::var_os("SUSI_HOME");
+        unsafe {
+            std::env::set_var("SUSI_HOME", &dir);
+        }
+        (guard, dir, prev)
+    }
+
+    fn restore_home(dir: &std::path::Path, prev: Option<std::ffi::OsString>) {
+        unsafe {
+            match prev {
+                Some(h) => std::env::set_var("SUSI_HOME", h),
+                None => std::env::remove_var("SUSI_HOME"),
+            }
+        }
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn admit_refuses_damaged_config_without_erasing_servers() {
+        let (_guard, dir, prev) = isolated_home();
+        let path = GmcpClient::get_config_path();
+        let original = "{\"mcp_servers\":{\"keep\":{\"command\":\"echo\",\"args\":[]}},\"torn\"";
+        fs::write(&path, original).unwrap();
+        let res = GmcpClient::admit_mcp_server("added", "npx", &["-y".into()]);
+        assert_eq!(res, "ERROR_CONFIG_DAMAGED");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        let res = GmcpClient::auto_configure_server("added", "some-package");
+        assert_eq!(res, "ERROR_CONFIG_DAMAGED");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+        restore_home(&dir, prev);
+    }
+
+    #[test]
+    fn admit_refuses_unreadable_config_without_replacing_it() {
+        let (_guard, dir, prev) = isolated_home();
+        let path = GmcpClient::get_config_path();
+        fs::create_dir(&path).unwrap();
+        let res = GmcpClient::admit_mcp_server("added", "npx", &[]);
+        assert_eq!(res, "ERROR_CONFIG_UNREADABLE");
+        assert!(
+            path.is_dir(),
+            "unreadable config must not be replaced by a file"
+        );
+        restore_home(&dir, prev);
     }
 }

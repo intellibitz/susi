@@ -2040,6 +2040,16 @@
       "milestone": "RSI iteration 43/100: the agent-to-agent broker tool ipc_send is reachable again. requirements_for_tool demanded (transmit, \"*\") for ipc_send*, but the only transmit grant the policy ever issues is the default (susi, transmit, app://*); the exact-key lookup, the * wildcard lookup, and the scoped match all miss that pair, so authorize_tool returned 'MAC DENY: subject susi lacks transmit on *' in balanced, local_only, and open modes alike, and every MCP/registry call of ipc_send (wrapped by EnforcedTool) failed before IpcBroker's own per-sender dispatch grant was consulted. Confirmed with a failing test in all three modes before the change. ipc_send now requires transmit on app://*, the local-delivery scope the default grant covers; IpcBroker still enforces its dispatch grant per sender. A regression test authorizes ipc_send under all three modes. cargo test -p susi-core mac_policy (10 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "GmcpClient::read_mcp_config",
+        "ref": "symbol://read_mcp_config"
+      },
+      "id": "EV-2022927-210",
+      "milestone": "RSI iteration 44/100: admitting an MCP server can no longer erase the rest of mcp_config.json. auto_configure_server and admit_mcp_server both loaded the file with serde_json::from_str().unwrap_or(empty) (and treated any read error as empty), then atomically wrote the result back. A torn file, or a file that could not be read, therefore became a config containing only the server being added. read_mcp_config now treats NotFound as an empty config and returns ERROR_CONFIG_DAMAGED or ERROR_CONFIG_UNREADABLE without writing. Regression tests prove a torn file is left byte-identical by both writers, and a directory standing in for the file is not replaced. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

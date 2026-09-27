@@ -88,7 +88,7 @@
     },
     {
       "id": 9,
-      "summary": "`CapabilityRegistry` + extension packs; end-to-end managed catalogs (`susi models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).",
+      "summary": "`CapabilityRegistry` + extension packs; end-to-end managed catalogs (`susi models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`). MCP admission refuses a damaged or unreadable `mcp_config.json` instead of replacing every configured server with the one being added.",
       "title": "Pluggable"
     },
     {
