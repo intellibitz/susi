@@ -95,6 +95,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 8. **Governance-first** — Safety/Security before parallel fleet.
    The safety veto catches recursive removal of `/` or home in any flag
    spelling (`rm -fr /`, `rm -r -f ~`, …); content checks stay pattern-based.
+   The security veto rejects any action carrying the value of a credential
+   the host holds (`*_API_KEY` / `*_TOKEN` / `*_SECRET`), whatever its prefix.
    The privacy posture fails closed: a damaged `privacy_mode` file enforces
    `local_only` instead of silently reading as `balanced`.
    Scoped capability grants stop at a path/host boundary: a grant on

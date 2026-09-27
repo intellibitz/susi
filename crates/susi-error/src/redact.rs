@@ -37,8 +37,18 @@ fn redact_one(text: &str, pattern: &str) -> String {
 /// actually holds, which is what an error message most often echoes back.
 #[must_use]
 pub fn mask_env_credentials(text: &str) -> String {
+    mask_credentials_from(text, std::env::vars())
+}
+
+/// `mask_env_credentials` over an explicit variable list (testable without
+/// mutating the process environment).
+#[must_use]
+pub fn mask_credentials_from(
+    text: &str,
+    vars: impl IntoIterator<Item = (String, String)>,
+) -> String {
     let mut result = text.to_owned();
-    for (key, value) in std::env::vars() {
+    for (key, value) in vars {
         if value.len() >= 8
             && (key.ends_with("_API_KEY") || key.ends_with("_TOKEN") || key.ends_with("_SECRET"))
         {
