@@ -219,18 +219,19 @@ impl InferenceRouter {
             save_cooldowns(&map);
             return;
         }
+        let lower = error.to_ascii_lowercase();
         let scoped = [
-            "HTTP 401",
-            "HTTP 402",
-            "HTTP 403",
-            "HTTP 429",
+            "http 401",
+            "http 402",
+            "http 403",
+            "http 429",
             "error sending request",
-            "Connection refused",
+            "connection refused",
             "tcp connect error",
             "timed out",
         ]
         .iter()
-        .any(|s| error.contains(s));
+        .any(|pattern| lower.contains(pattern));
         if scoped {
             Self::record_vendor_failure(name);
         }
@@ -1442,6 +1443,17 @@ mod tests {
         assert!(InferenceRouter::provider_cooled(&sibling));
         assert!(InferenceRouter::provider_cooled(&catalog_sibling));
         assert!(!InferenceRouter::provider_cooled(&stranger));
+    }
+
+    #[test]
+    fn provider_failure_classification_is_case_insensitive() {
+        let _env = crate::engines::env_test_lock();
+        let _cd = CooldownFileGuard::new("case");
+        let provider = format!("casevendor-model-{}", std::process::id());
+        let sibling = format!("casevendor-other-{}", std::process::id());
+        InferenceRouter::record_failure(&provider, "connection REFUSED by upstream");
+        assert!(InferenceRouter::provider_cooled(&sibling));
+        InferenceRouter::clear_provider_cooldown(&provider);
     }
 
     #[test]
