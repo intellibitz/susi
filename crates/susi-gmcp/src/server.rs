@@ -121,7 +121,12 @@ impl GmcpServer {
         runtime.block_on(async move {
             let cfg =
                 crate::susi_sandbox::manager::SusiConfig::load_global_arc().unwrap_or_default();
-            let permits = Arc::new(tokio::sync::Semaphore::new(cfg.max_concurrent_agents()));
+            // Clamped: Semaphore::new panics above MAX_PERMITS, and a
+            // configured 0 would refuse every connection forever.
+            let permits = Arc::new(tokio::sync::Semaphore::new(
+                cfg.max_concurrent_agents()
+                    .clamp(1, tokio::sync::Semaphore::MAX_PERMITS),
+            ));
             let application = GmcpService::new(workspace);
             if let Err(e) = crate::catalog::install(&application) {
                 eprintln!("[GMCP] Catalog failed: {e}");
