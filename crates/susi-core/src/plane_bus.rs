@@ -387,14 +387,15 @@ pub mod gemi {
 
         /// Re-admit a repaired provider to placement. Returns `true` only
         /// when a provider or vendor-scope quarantine was actually removed.
-        pub fn clear_provider_cooldown(provider: &str) -> bool {
-            req_ok(
+        pub fn clear_provider_cooldown(provider: &str) -> Result<bool, String> {
+            let value = req(
                 topics::GEMI_ROUTING_CLEAR_COOLDOWN,
                 json!({ "provider": provider }),
-            )
-            .get("cleared")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
+            )?;
+            value
+                .get("cleared")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| "GEMI cooldown reset returned no boolean result".to_string())
         }
     }
 

@@ -495,11 +495,20 @@ async fn handle_gemi_request(
                 Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
             };
             let reset_provider = provider.clone();
-            let cleared = tokio::task::spawn_blocking(move || {
+            let cleared = match tokio::task::spawn_blocking(move || {
                 gemi::ModelManager::clear_provider_cooldown(&reset_provider)
             })
             .await
-            .unwrap_or(false);
+            {
+                Ok(Ok(cleared)) => cleared,
+                Ok(Err(message)) => return Ok(api_error(StatusCode::BAD_GATEWAY, &message)),
+                Err(_) => {
+                    return Ok(api_error(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "provider recovery task failed",
+                    ));
+                }
+            };
             if cleared {
                 crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                     &workspace,

@@ -239,7 +239,9 @@ impl CoreTools {
             .map(str::trim)
             .filter(|value| crate::susi_core::plane_bus::gemi::valid_provider_id(value))
             .ok_or_else(|| EaiError::config("provider is required"))?;
-        let cleared = ModelManager::clear_provider_cooldown(provider);
+        let cleared = ModelManager::clear_provider_cooldown(provider).map_err(|message| {
+            EaiError::network(format!("reset provider quarantine: {message}"))
+        })?;
         if cleared {
             crate::susi_sandbox::manager::SusiAuditLogger::log_event(
                 workspace,
