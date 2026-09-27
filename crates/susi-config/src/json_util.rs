@@ -28,24 +28,33 @@ pub type ProviderType = String;
 // Factored out once here instead of three separately hand-rolled (and, until
 // this was noticed, inconsistently deep) copies.
 
-/// Writes `value` as pretty JSON to `path` via a same-directory temp file +
-/// rename, so a concurrent reader — another process's CLI invocation, the
-/// daemon's own background cycle — never observes a torn/empty file.
-/// On Unix the temp file is created `0600` so secrets that land in config
-/// (or adjacent host JSON) are not world-readable under a permissive umask.
+/// Writes `value` as pretty JSON to `path` via [`atomic_write_bytes`].
 pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResult<()> {
     let json = serde_json::to_string_pretty(value).map_err(|e| EaiError::config(e.to_string()))?;
-    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    atomic_write_bytes(path, json.as_bytes()).map_err(|error| EaiError::config(error.to_string()))
+}
+
+/// Replaces `path` with `bytes` via a same-directory temp file + rename, so a
+/// concurrent reader — another process's CLI invocation, the daemon's own
+/// background cycle — never observes a torn/empty file. Each writer stages
+/// into its own `create_new` temp file (process id + counter), so concurrent
+/// writers in any process never share or truncate one another's staging
+/// file; the last rename wins with a complete file. The parent directory is
+/// created on demand. On Unix the file is `0600` so secrets that land in
+/// host state are not world-readable under a permissive umask.
+pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-    // Each writer owns a distinct file, including simultaneous writes in one process.
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        Some(_) | None => Path::new("."),
+    };
+    fs::create_dir_all(dir)?;
     let (tmp_path, mut file) = loop {
         let tmp_path = dir.join(format!(
             ".{}.tmp.{}.{}",
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("config"),
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("state"),
             std::process::id(),
             NEXT_TEMP.fetch_add(1, Ordering::Relaxed),
         ));
@@ -59,12 +68,10 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
         match options.open(&tmp_path) {
             Ok(file) => break (tmp_path, file),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(EaiError::config(error.to_string())),
+            Err(error) => return Err(error),
         }
     };
-    let result = file
-        .write_all(json.as_bytes())
-        .and_then(|()| file.sync_all());
+    let result = file.write_all(bytes).and_then(|()| file.sync_all());
     drop(file);
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
     if result.is_err() {
@@ -75,7 +82,7 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
     }
-    result.map_err(|error| EaiError::config(error.to_string()))
+    result
 }
 
 /// Join `user_path` under `workspace`, rejecting absolutes, `..`, and escapes.

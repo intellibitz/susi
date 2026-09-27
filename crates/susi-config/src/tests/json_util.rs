@@ -47,3 +47,28 @@ fn symlinked_leaf_or_dir_cannot_escape() {
     let _ = std::fs::remove_dir_all(&ws);
     let _ = std::fs::remove_dir_all(&outside);
 }
+
+#[test]
+fn concurrent_atomic_writers_never_tear_or_collide() {
+    let ws = workspace("atomic");
+    let path = ws.join("fresh/nested/state.json");
+    let payloads: Vec<Vec<u8>> = (0..16u8).map(|i| vec![b'a' + i; 64 * 1024]).collect();
+    std::thread::scope(|scope| {
+        for payload in &payloads {
+            let path = &path;
+            scope.spawn(move || crate::json_util::atomic_write_bytes(path, payload).unwrap());
+        }
+    });
+    let written = std::fs::read(&path).unwrap();
+    assert!(
+        payloads.contains(&written),
+        "final file must be one whole payload"
+    );
+    let leftovers: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name() != "state.json")
+        .collect();
+    assert!(leftovers.is_empty(), "staging files leaked: {leftovers:?}");
+    let _ = std::fs::remove_dir_all(&ws);
+}
