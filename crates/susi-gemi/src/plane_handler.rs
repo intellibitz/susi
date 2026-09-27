@@ -149,6 +149,7 @@ impl PlaneHandler for GemiPlaneHandler {
                             "magic_header": r.magic_header,
                             "test_inference_status": r.test_inference_status,
                             "latency_ms": r.latency_ms,
+                            "checksum_known": r.checksum_known,
                             "checksum_verified": r.checksum_verified,
                         })
                     })

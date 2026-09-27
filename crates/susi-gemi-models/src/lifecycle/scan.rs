@@ -24,14 +24,15 @@ impl ModelManager {
                 let path = PathBuf::from(m.model_id());
                 if path.is_file() {
                     let size_bytes = path.metadata().map(|meta| meta.len()).unwrap_or(0);
-                    let mut has_valid_gguf_header = false;
+                    let mut magic_header = String::new();
                     if let Ok(mut file) = fs::File::open(&path) {
                         use std::io::Read;
                         let mut header = [0u8; 4];
-                        if file.read_exact(&mut header).is_ok() && &header == b"GGUF" {
-                            has_valid_gguf_header = true;
+                        if file.read_exact(&mut header).is_ok() {
+                            magic_header = String::from_utf8_lossy(&header).into_owned();
                         }
                     }
+                    let has_valid_gguf_header = magic_header == "GGUF";
                     let minimum_bytes = path
                         .file_name()
                         .and_then(|name| name.to_str())
@@ -41,11 +42,12 @@ impl ModelManager {
                         Self::is_complete_gguf(has_valid_gguf_header, size_bytes, minimum_bytes)
                             && Self::valid_gguf_payload(&path);
 
-                    let checksum = Self::calculate_simple_checksum(&path).unwrap_or_default();
-                    let verified = match m.checksum() {
-                        Some(c) => c == checksum.as_str(),
-                        None => true,
-                    };
+                    // No reference checksum means unverified, not verified.
+                    let reference = m.checksum();
+                    let verified = reference.is_some_and(|c| {
+                        Self::calculate_simple_checksum(&path)
+                            .is_ok_and(|actual| c == actual.as_str())
+                    });
 
                     results.push(ModelVerificationResult {
                         model_id: m.name().to_string(),
@@ -56,9 +58,10 @@ impl ModelManager {
                             size_bytes as f32 / 1_000_000_000.0
                         ),
                         is_valid_gguf,
-                        magic_header: "GGUF".into(),
-                        test_inference_status: "SUCCESS".into(),
+                        magic_header,
+                        test_inference_status: "NOT_RUN".into(),
                         latency_ms: 0,
+                        checksum_known: reference.is_some(),
                         checksum_verified: verified,
                     });
                 }

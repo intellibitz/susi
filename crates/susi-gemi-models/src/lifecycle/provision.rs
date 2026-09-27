@@ -405,7 +405,18 @@ impl ModelManager {
         for vr in verif_results {
             report.push_str(&format!(
                 "  * Model: {} | Size: {} | GGUF Valid: {} | Checksum OK: {}\n",
-                vr.model_id, vr.file_size_formatted, vr.is_valid_gguf, vr.checksum_verified
+                vr.model_id,
+                vr.file_size_formatted,
+                vr.is_valid_gguf,
+                if vr.checksum_known {
+                    if vr.checksum_verified {
+                        "yes"
+                    } else {
+                        "MISMATCH"
+                    }
+                } else {
+                    "n/a (no reference checksum)"
+                }
             ));
         }
         report.push('\n');

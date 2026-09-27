@@ -104,11 +104,23 @@ impl SusiAdmin {
             report.push_str("- [WARNING] Models: No local model substrates found.\n");
         } else if let Some(items) = model_verifications.as_array() {
             for v in items {
-                let verified = v
-                    .get("checksum_verified")
-                    .and_then(|x| x.as_bool())
-                    .unwrap_or(false);
-                let status = if verified { "PASS" } else { "FAIL" };
+                let flag = |key: &str| v.get(key).and_then(|x| x.as_bool()).unwrap_or(false);
+                let (valid, known, verified) = (
+                    flag("is_valid_gguf"),
+                    flag("checksum_known"),
+                    flag("checksum_verified"),
+                );
+                // A model with no reference checksum is unverified — not a
+                // pass, and not by itself a failure. A bad header or a
+                // checksum mismatch is a failure.
+                let failed = !valid || (known && !verified);
+                let status = if failed {
+                    "FAIL"
+                } else if known {
+                    "PASS"
+                } else {
+                    "UNVERIFIED"
+                };
                 let model_id = v
                     .get("model_id")
                     .and_then(|x| x.as_str())
@@ -116,7 +128,7 @@ impl SusiAdmin {
                 report.push_str(&format!(
                     "- [{status}] Model Integrity: {model_id} (Verified: {verified})\n"
                 ));
-                if !verified {
+                if failed {
                     overall_success = false;
                 }
             }

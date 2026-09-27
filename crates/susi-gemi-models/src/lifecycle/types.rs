@@ -7,9 +7,14 @@ pub struct ModelVerificationResult {
     pub file_size_bytes: u64,
     pub file_size_formatted: String,
     pub is_valid_gguf: bool,
+    /// The file's actual first four bytes (lossy), not an assumed "GGUF".
     pub magic_header: String,
+    /// `NOT_RUN`: this is a static file check; no inference is executed.
     pub test_inference_status: String,
     pub latency_ms: u128,
+    /// Whether a reference checksum is registered for this model.
+    pub checksum_known: bool,
+    /// True only when a reference checksum exists and matches the file.
     pub checksum_verified: bool,
 }
 
