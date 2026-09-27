@@ -503,6 +503,13 @@ async fn handle_gemi_request(
             })
             .await
             .unwrap_or(false);
+            if cleared {
+                crate::susi_sandbox::manager::SusiAuditLogger::log_event(
+                    &workspace,
+                    "INFERENCE_PROVIDER_READMITTED",
+                    &provider,
+                );
+            }
             Ok(json_response(
                 StatusCode::OK,
                 &json!({ "provider": provider, "cleared": cleared }),
