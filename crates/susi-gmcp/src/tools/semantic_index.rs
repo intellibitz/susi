@@ -128,12 +128,26 @@ impl SemanticIndex {
             }
             let already = *wm.jsonl_lines.get(name).unwrap_or(&0);
             let f = fs::File::open(&path).map_err(|e| EaiError::filesystem(e.to_string()))?;
+            let mut reader = BufReader::new(f);
             let mut count = 0usize;
-            for line in BufReader::new(f).lines() {
-                let line = match line {
-                    Ok(l) => l,
-                    Err(_) => continue,
-                };
+            loop {
+                let mut line = String::new();
+                let bytes = reader
+                    .read_line(&mut line)
+                    .map_err(|e| EaiError::filesystem(format!("read {}: {e}", path.display())))?;
+                if bytes == 0 {
+                    break;
+                }
+                // A sibling may still be appending the final record. Do not
+                // index or watermark a partial line; the next refresh will
+                // see it after its terminating newline arrives.
+                if !line.ends_with('\n') {
+                    break;
+                }
+                line.pop();
+                if line.ends_with('\r') {
+                    line.pop();
+                }
                 count += 1;
                 if count <= already || line.trim().is_empty() {
                     continue;
@@ -483,6 +497,22 @@ mod tests {
             .unwrap();
         writeln!(f, "{{\"intent\":\"c\",\"outcome\":\"d\"}}").unwrap();
         assert_eq!(SemanticIndex::refresh(&ws).unwrap(), 1);
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn refresh_does_not_watermark_a_torn_jsonl_tail() {
+        let ws = temp_workspace("torn_tail");
+        let memory = ws.join(".susi/memory.jsonl");
+        fs::write(&memory, "{\"intent\":\"unfinished").unwrap();
+        assert_eq!(SemanticIndex::refresh(&ws).unwrap(), 0);
+
+        let mut file = fs::OpenOptions::new().append(true).open(&memory).unwrap();
+        file.write_all(b"\",\"outcome\":\"now complete\"}\n")
+            .unwrap();
+        assert_eq!(SemanticIndex::refresh(&ws).unwrap(), 1);
+        let hits = SemanticIndex::search(&ws, "unfinished complete", 5).unwrap();
+        assert_eq!(hits.len(), 1);
         let _ = fs::remove_dir_all(&ws);
     }
 
