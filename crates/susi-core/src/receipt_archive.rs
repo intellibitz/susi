@@ -39,6 +39,13 @@ pub struct ArchivedReceipt {
     pub output_hash: String,
     pub successful: bool,
     pub archived_at: u64,
+    /// Whether the training sample derived from this receipt was persisted
+    /// to the staging buffer. `Some(true)` = persisted, `Some(false)` =
+    /// staging failed (error entered the typed metrics), `None` = no staging
+    /// attempted (unsuccessful receipt or empty intent/action).
+    /// Additive: older v1 records predate this field and deserialize as `None`.
+    #[serde(default)]
+    pub training_staged: Option<bool>,
 }
 
 pub struct ReceiptArchive;
@@ -49,6 +56,8 @@ impl ReceiptArchive {
     }
 
     /// Best-effort append. Archive write failure never fails the mission.
+    /// The archived record now includes `training_staged` so operators can
+    /// observe whether each receipt's training sample was actually persisted.
     pub fn append(
         workspace: &Path,
         session_id: &str,
@@ -56,7 +65,11 @@ impl ReceiptArchive {
         training_intent: &str,
         receipt: &ToolReceipt,
     ) {
-        let record = ArchivedReceipt {
+        // Determine staging eligibility before building the record.
+        let staging_eligible = receipt.successful
+            && !training_intent.trim().is_empty()
+            && !receipt.tool.trim().is_empty();
+        let mut record = ArchivedReceipt {
             schema: ARCHIVE_SCHEMA.into(),
             kind: "tool_receipt".into(),
             session_id: session_id.to_string(),
@@ -72,9 +85,8 @@ impl ReceiptArchive {
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
-        };
-        let Ok(line) = serde_json::to_string(&record) else {
-            return;
+            // Populated after the staging attempt; `None` for ineligible receipts.
+            training_staged: None,
         };
         let path = Self::path(workspace);
         let Some(parent) = path.parent() else {
@@ -94,18 +106,30 @@ impl ReceiptArchive {
         };
         Self::rotate_if_large(&path);
         if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+            // Stage the training sample first so the outcome is recorded in
+            // the archive line — the archive line is the single observable
+            // record of the staging attempt.
+            if staging_eligible {
+                record.training_staged = Some(Self::append_training_sample(
+                    parent,
+                    training_intent,
+                    receipt,
+                ));
+            }
+            let Ok(line) = serde_json::to_string(&record) else {
+                return;
+            };
             let mut bytes = line.into_bytes();
             bytes.push(b'\n');
-            if file.write_all(&bytes).is_ok() && receipt.successful {
-                Self::append_training_sample(parent, training_intent, receipt);
-            }
+            let _ = file.write_all(&bytes);
         }
     }
 
-    fn append_training_sample(dir: &Path, training_intent: &str, receipt: &ToolReceipt) {
-        if training_intent.trim().is_empty() || receipt.tool.trim().is_empty() {
-            return;
-        }
+    /// Stage a training sample derived from a successful receipt. Returns
+    /// `true` when the sample was durably written, `false` on any failure.
+    /// Failures now emit a typed `EaiError::io` so they enter the
+    /// `error_metrics.jsonl` sink instead of disappearing.
+    fn append_training_sample(dir: &Path, training_intent: &str, receipt: &ToolReceipt) -> bool {
         let record = serde_json::json!({
             "intent": training_intent,
             "action": receipt.tool,
@@ -116,21 +140,51 @@ impl ReceiptArchive {
                 "output_hash": receipt.output_hash,
             },
         });
-        let Ok(mut bytes) = serde_json::to_vec(&record) else {
-            return;
+        let bytes = match serde_json::to_vec(&record) {
+            Ok(mut b) => {
+                b.push(b'\n');
+                b
+            }
+            Err(err) => {
+                let _emit = crate::susi_error::EaiError::io(format!(
+                    "training sample serialization failed for receipt {}: {err}",
+                    receipt.id
+                ));
+                return false;
+            }
         };
-        bytes.push(b'\n');
         let Some(_lock) =
             crate::susi_core::commit_log::FileLock::acquire(dir, "distillation_staged")
         else {
-            return;
+            let _emit = crate::susi_error::EaiError::io(format!(
+                "training sample staging lock acquisition failed for receipt {}",
+                receipt.id
+            ));
+            return false;
         };
-        if let Ok(mut file) = OpenOptions::new()
+        let staged_path = dir.join("distillation_staged.jsonl");
+        match OpenOptions::new()
             .create(true)
             .append(true)
-            .open(dir.join("distillation_staged.jsonl"))
+            .open(&staged_path)
         {
-            let _ = file.write_all(&bytes);
+            Ok(mut file) => match file.write_all(&bytes) {
+                Ok(()) => true,
+                Err(err) => {
+                    let _emit = crate::susi_error::EaiError::io(format!(
+                        "training sample write failed for receipt {}: {err}",
+                        receipt.id
+                    ));
+                    false
+                }
+            },
+            Err(err) => {
+                let _emit = crate::susi_error::EaiError::io(format!(
+                    "training sample staging file open failed for receipt {}: {err}",
+                    receipt.id
+                ));
+                false
+            }
         }
     }
 
@@ -260,6 +314,11 @@ mod tests {
         assert_eq!(lines[0].training_intent.as_deref(), Some("archive-mission"));
         assert_eq!(lines[0].output_hash.len(), 64);
         assert!(lines[0].successful);
+        assert_eq!(
+            lines[0].training_staged,
+            Some(true),
+            "successful receipt must record training_staged=true"
+        );
         let staged = std::fs::read_to_string(ws.0.join(".susi/distillation_staged.jsonl")).unwrap();
         let sample: serde_json::Value = serde_json::from_str(staged.trim()).unwrap();
         assert_eq!(sample["intent"], "archive-mission");
@@ -373,5 +432,80 @@ mod tests {
         .unwrap();
 
         assert!(!ReceiptArchive::path(&ws.0).exists());
+    }
+
+    #[test]
+    fn unsuccessful_receipt_records_no_staging_attempt() {
+        let ws = Workspace::new();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call(
+            "exec_command",
+            &serde_json::json!({"cmd": "false"}),
+            &ws.0,
+            || Err(crate::susi_error::EaiError::io("command failed")),
+        )
+        .unwrap_err();
+        let lines = ReceiptArchive::load_audit_lines(&ws.0);
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].successful);
+        assert_eq!(
+            lines[0].training_staged, None,
+            "unsuccessful receipts must not attempt staging"
+        );
+        assert!(
+            !ws.0.join(".susi/distillation_staged.jsonl").exists(),
+            "no staging file should exist for unsuccessful receipts"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staging_failure_records_training_staged_false() {
+        let ws = Workspace::new();
+        let susi_dir = ws.0.join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        // Block staging by creating a directory where the file should be —
+        // open() will fail on a directory path.
+        std::fs::create_dir_all(susi_dir.join("distillation_staged.jsonl")).unwrap();
+        let session = session(&ws);
+        let _activation = EvidenceSession::activate(&session);
+        EvidenceSession::capture_call("test_tool", &serde_json::json!({}), &ws.0, || {
+            Ok("success".to_string())
+        })
+        .unwrap();
+        let lines = ReceiptArchive::load_audit_lines(&ws.0);
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].successful);
+        assert_eq!(
+            lines[0].training_staged,
+            Some(false),
+            "staging failure must be recorded as training_staged=false"
+        );
+    }
+
+    #[test]
+    fn v1_records_without_training_staged_deserialize() {
+        // Older v1 records predate the training_staged field. They must
+        // deserialize as None so load_audit_lines never rejects them.
+        let v1 = serde_json::json!({
+            "schema": ARCHIVE_SCHEMA,
+            "kind": "tool_receipt",
+            "session_id": "s1",
+            "mission_goal_hash": "abc",
+            "training_intent": "test",
+            "receipt_id": "r1",
+            "tool": "exec_command",
+            "arguments": "{}",
+            "observed_at": 1000,
+            "output_hash": "def",
+            "successful": true,
+            "archived_at": 1001
+        });
+        let parsed: ArchivedReceipt = serde_json::from_value(v1).unwrap();
+        assert_eq!(
+            parsed.training_staged, None,
+            "v1 records must deserialize training_staged as None"
+        );
     }
 }

@@ -1750,6 +1750,16 @@
       "milestone": "RSI iteration 14/100: crash-stranded reflex training claims now recover deterministically. Automatic and forced training hold a workspace-wide cross-process training-cycle lease from recovery through claim retirement, preventing another process from mistaking a live claim for an orphan; the existing PID-aware FileLock reclaims the lease after process death. Before each cycle, SUSI finds only strictly named reflex-claim-<u128-generation>-<u32-pid> directories, orders them by generation, merges their complete bytes ahead of the current live staging buffer under the producer lock, atomically publishes the restored buffer, and removes recovered claim directories. Unrelated directories are untouched and read/write/removal failures surface. A regression test proves two out-of-order orphan directories recover oldest-first before live samples and are retired. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "append_training_sample / ArchivedReceipt.training_staged",
+        "ref": "symbol://append_training_sample"
+      },
+      "id": "EV-2022927-181",
+      "milestone": "RSI iteration 15/100: learning ingestion is now observable instead of best-effort and silent. Each archived receipt records whether its training sample was actually persisted to the staging buffer: `training_staged` is `Some(true)` when the sample was durably written, `Some(false)` when staging failed (lock acquisition, file open, or write), and `None` when no staging was attempted (unsuccessful receipt or empty intent/action). Failures now emit a typed `EaiError::io` that enters the `error_metrics.jsonl` sink instead of disappearing. The `ArchivedReceipt` field is additive with `#[serde(default)]` so older v1 records without it deserialize as `None`. Regression coverage proves: successful staging records `true`, unsuccessful receipts record `None` with no staging file, staging blocked by a directory-in-place records `false`, and v1 records without the field deserialize correctly. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
