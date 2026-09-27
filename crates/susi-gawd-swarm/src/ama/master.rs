@@ -799,16 +799,10 @@ impl SusiMasterAgent {
         let mut step_reports = Vec::new();
         let mut step_summaries = Vec::new();
 
-        // Multi-agent transaction boundary for the planning loop.
-        let plan_tx = crate::susi_core::agent_tx::TxManager::global()
-            .begin(
-                workspace,
-                &format!("autonomous plan: {goal}"),
-                &[],
-                Default::default(),
-            )
-            .ok();
-
+        // No transaction wraps the plan: steps write through arbitrary
+        // agents and tools, and a transaction begun with no file list (as
+        // this loop once did) snapshots nothing while the failure report
+        // claimed a rollback. A failed step reports what it cannot undo.
         for (i, step) in plan.iter().enumerate() {
             eprintln!(
                 "\n[AUTONOMOUS PLAN] Step {}/{}: {}",
@@ -838,17 +832,13 @@ impl SusiMasterAgent {
             );
 
             if !success {
-                if let Some(ref tx) = plan_tx {
-                    let _ =
-                        crate::susi_core::agent_tx::TxManager::global().abort(&tx.id, workspace);
-                }
                 let mut final_report = SusiMissionReport {
                     goal: goal.clone(),
                     status: "FAILED".to_string(),
                     agents: report.agents,
                     interactions: report.interactions,
                     final_answer: format!(
-                        "Autonomous plan aborted at step {} (transaction rolled back). {}\n\nPrior steps:\n{}",
+                        "Autonomous plan aborted at step {}. Workspace changes made by earlier steps were not rolled back. {}\n\nPrior steps:\n{}",
                         i + 1,
                         report.final_answer,
                         step_summaries.join("\n")
@@ -857,10 +847,6 @@ impl SusiMasterAgent {
                 attach_evidence_ledger(&mut final_report, session.as_ref(), workspace);
                 return Ok(final_report);
             }
-        }
-
-        if let Some(ref tx) = plan_tx {
-            let _ = crate::susi_core::agent_tx::TxManager::global().commit(&tx.id);
         }
 
         // Synthesize final answer from step results.

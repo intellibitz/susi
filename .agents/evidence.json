@@ -1930,6 +1930,16 @@
       "milestone": "RSI iteration 32/100: agent transactions can no longer overwrite each other's rollback snapshots, and their durable state is honest. TxManager minted ids tx-N from a per-process counter and wrote the snapshot to <workspace>/.susi/tx/tx-N.json with an unchecked fs::write. A process that had not called hydrate (the daemon's patch cycle, a swarm plan transaction, an MCP tx_begin) started again at tx-1 and overwrote an earlier transaction's file, including an Open one whose snapshot was the only way for a later process to roll it back. begin also reported success when the durable copy was never written, and commit/abort ignored their persist failures, so a committed transaction could remain Open on disk and be rolled back by a later process. Ids are now reserved on disk with create_new (retrying on AlreadyExists), every persist replaces the file through susi_config::atomic_write_bytes, and begin, commit, and abort return persist failures. The unused TxManager::track_file (no callers; it snapshotted unreadable files as empty content, which an abort would have written back over the real file) is removed as a dead pub surface. A regression test runs begin from two fresh managers on one workspace, proves distinct ids, that the first snapshot survives on disk, and that a third, hydrated manager can still abort the first transaction and restore the file. cargo test -p susi-core agent_tx (3 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SusiMasterAgent::solve_autonomous",
+        "ref": "symbol://SusiMasterAgent::solve_autonomous"
+      },
+      "id": "EV-2022927-199",
+      "milestone": "RSI iteration 33/100: the autonomous planner stops claiming a rollback it never performed (Mandate 1). solve_autonomous opened a TxManager transaction for the whole plan with an empty file list, so it snapshotted nothing; when a step failed it aborted that empty transaction and reported 'Autonomous plan aborted at step N (transaction rolled back)', while every file earlier steps had written through agents and tools stayed changed. A step returning Err through ? also left the transaction Open in .susi/tx forever. The no-op transaction is removed, and the failure report now states that workspace changes made by earlier steps were not rolled back. A real plan-wide rollback would need every agent write routed through a tracked snapshot; that is not claimed. ARCHITECTURE.md's planning-loop row now says the same. cargo clippy -p susi-gawd-swarm --all-targets -D warnings passes.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

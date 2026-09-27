@@ -342,7 +342,7 @@
       "mandates": [
         {
           "id": 1,
-          "imperative": "Never lie about what happened. Self-reported status, execution outcomes, test results, and known limitations must always match reality, even when the truth is a failure.",
+          "imperative": "Never lie about what happened. Self-reported status, execution outcomes, test results, and known limitations must always match reality, even when the truth is a failure. Example (2026-09-27): the autonomous planner reported '(transaction rolled back)' after aborting a transaction that had snapshotted no files; the claim was removed rather than kept as reassurance.",
           "title": "No Lies"
         },
         {
