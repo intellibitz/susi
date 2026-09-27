@@ -881,7 +881,7 @@ impl GawdAgent for SelfHealingAgent {
             || trimmed == "version"
             || trimmed == "models"
         {
-            let res = "[SelfHealingAgent]: Substrate health verified for reflex query.".to_string();
+            let res = "[SelfHealingAgent]: no health check runs for reflex queries.".to_string();
             blackboard.insert(self.name(), res.clone());
             return Ok(res);
         }
