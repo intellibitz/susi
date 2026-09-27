@@ -2180,6 +2180,16 @@
       "milestone": "RSI iteration 57/100: DAG evidence trails bind each task node to its own receipt. After a node's output passed the Truth gate, execute_dag bound its EvidenceRecord to session.receipts().find(|r| r.successful), the first successful receipt of the whole mission session. Every node in the DAG therefore carried the same receipt, usually another node's command or an unrelated earlier tool call, so the Evidence pillar's claim trail misattributed who observed what. Each node run now records the exact receipt arguments of the exec_command calls it issued (the JSON of its wrapped command, which is what capture_call stores), and the node binds the most recent successful exec_command receipt whose arguments match one of its own calls; a node that ran no command binds nothing rather than borrowing another's. Verification is partial and stated as such: the matching relies on receipts recording the call's arguments verbatim (true for capture_call, apart from credential redaction or the 4 KiB argument cap, where the node would then bind nothing), and no end-to-end DAG run with a live model was performed in this iteration. cargo test -p susi-gawd-swarm and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "EvidenceSession::activate / EvidenceActivation::drop",
+        "ref": "symbol://EvidenceSession::activate"
+      },
+      "id": "EV-2022927-224",
+      "milestone": "RSI iteration 58/100: an earlier mission keeps its evidence ledger when a later mission on the same workspace finishes first. EvidenceSession::activate published one active session per canonical workspace, and rayon workers (which never inherit the thread-local current session) record receipts through that slot or through the workspace rendezvous file for vendored copies. A second activation replaced the first, and when the second mission ended its guard removed both the slot and session.json, so the still-running first mission's worker and vendored-copy receipts were silently dropped and its final answer could no longer cite its own tool calls. Activations are now a per-workspace stack: the newest owns the workspace, a finishing activation removes only itself, and if it was the owner the rendezvous file is republished for the mission still running (or removed when none remains). Known limitation, stated: while two missions overlap on one workspace, worker receipts still go to the newer one (attribution by workspace, not by mission); per-mission attribution would need the session carried into worker threads. A regression test activates A then B, ends B, records from a worker thread, and proves the receipt lands in A and not B (the previous code dropped it). cargo test -p susi-core capture (16 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

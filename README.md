@@ -65,6 +65,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 
 1. **Truth** — absolute sources only; models never certify.
 2. **Evidence** — `EvidenceSession` / `ToolReceipt` ledger; no naked assertions.
+   Overlapping missions on one workspace no longer strand the earlier one's
+   ledger: activations stack, and a finishing mission hands ownership back.
 3. **Swarm** — agent-of-agents consensus (GAWD); `susi crown` checks that the
    GAWD, GEMI, tools, and agents planes are each wired on the plane bus.
    DAG task agents run fenced `bash`/`sh`/`shell` blocks through the governed

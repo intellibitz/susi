@@ -33,14 +33,43 @@ tokio::task_local! {
     static ASYNC_CURRENT: Option<Arc<EvidenceSession>>;
 }
 
-/// One live session per canonical workspace. Swarm agents on rayon workers
-/// never inherit thread-locals, so activation publishes authority process-wide.
-/// A second mission on the same workspace replaces the prior activation — two
-/// concurrent owners would silently mix receipts and break attribution.
-fn active_sessions() -> &'static parking_lot::RwLock<HashMap<PathBuf, Arc<EvidenceSession>>> {
-    static ACTIVE: OnceLock<parking_lot::RwLock<HashMap<PathBuf, Arc<EvidenceSession>>>> =
-        OnceLock::new();
+/// Live sessions per canonical workspace, most recent activation last. Swarm
+/// agents on rayon workers never inherit thread-locals, so activation
+/// publishes authority process-wide; the newest activation owns the
+/// workspace. It is a stack, not a single slot: when a later mission on the
+/// same workspace finished first, the slot (and rendezvous file) used to be
+/// cleared while the earlier mission still ran, so that mission's worker
+/// receipts had nowhere to land and it could no longer cite its own calls.
+type ActiveSessions = HashMap<PathBuf, Vec<Arc<EvidenceSession>>>;
+
+fn active_sessions() -> &'static parking_lot::RwLock<ActiveSessions> {
+    static ACTIVE: OnceLock<parking_lot::RwLock<ActiveSessions>> = OnceLock::new();
     ACTIVE.get_or_init(|| parking_lot::RwLock::new(HashMap::new()))
+}
+
+/// Publish (or clear) the rendezvous file naming `session` as the owner
+/// vendored copies deposit receipts for.
+fn publish_rendezvous(workspace: &Path, session: Option<&EvidenceSession>) {
+    let Some(dir) = evidence_rendezvous(workspace) else {
+        return;
+    };
+    match session {
+        Some(session) => {
+            let _ = std::fs::create_dir_all(dir.join("inbox"));
+            let meta = serde_json::json!({
+                "id": session.id,
+                "goal": session.goal,
+                "workspace": session.workspace,
+            });
+            if let Ok(bytes) = serde_json::to_vec(&meta) {
+                let _ = crate::susi_config::atomic_write_bytes(&dir.join("session.json"), &bytes);
+            }
+            let _ = session.session_dir.set(dir);
+        }
+        None => {
+            let _ = std::fs::remove_file(dir.join("session.json"));
+        }
+    }
 }
 
 /// A source reference, never an agent-supplied copy of a tool response.
@@ -152,14 +181,18 @@ pub struct EvidenceActivation {
 impl Drop for EvidenceActivation {
     fn drop(&mut self) {
         let mut active = active_sessions().write();
-        if active
-            .get(&self.workspace)
-            .is_some_and(|session| session.id == self.id)
-        {
+        let Some(stack) = active.get_mut(&self.workspace) else {
+            return;
+        };
+        let was_owner = stack.last().is_some_and(|s| s.id == self.id);
+        stack.retain(|s| s.id != self.id);
+        let next = stack.last().cloned();
+        if stack.is_empty() {
             active.remove(&self.workspace);
-            if let Some(dir) = evidence_rendezvous(&self.workspace) {
-                let _ = std::fs::remove_file(dir.join("session.json"));
-            }
+        }
+        if was_owner {
+            // Hand the rendezvous back to the mission still running, if any.
+            publish_rendezvous(&self.workspace, next.as_deref());
         }
     }
 }
@@ -241,19 +274,10 @@ impl EvidenceSession {
     pub fn activate(session: &Arc<Self>) -> EvidenceActivation {
         active_sessions()
             .write()
-            .insert(session.workspace.clone(), Arc::clone(session));
-        if let Some(dir) = evidence_rendezvous(&session.workspace) {
-            let _ = std::fs::create_dir_all(dir.join("inbox"));
-            let meta = serde_json::json!({
-                "id": session.id,
-                "goal": session.goal,
-                "workspace": session.workspace,
-            });
-            if let Ok(bytes) = serde_json::to_vec(&meta) {
-                let _ = crate::susi_config::atomic_write_bytes(&dir.join("session.json"), &bytes);
-            }
-            let _ = session.session_dir.set(dir);
-        }
+            .entry(session.workspace.clone())
+            .or_default()
+            .push(Arc::clone(session));
+        publish_rendezvous(&session.workspace, Some(session));
         EvidenceActivation {
             workspace: session.workspace.clone(),
             id: session.id.clone(),
@@ -317,7 +341,10 @@ impl EvidenceSession {
                 return Some(session);
             }
         }
-        let session = active_sessions().read().get(&canonical).cloned();
+        let session = active_sessions()
+            .read()
+            .get(&canonical)
+            .and_then(|stack| stack.last().cloned());
         if let Some(s) = &session {
             s.drain_inbox();
             return session;
@@ -852,6 +879,27 @@ mod tests {
         .join()
         .unwrap();
         assert_eq!(session.receipts()[0].output, "observation");
+    }
+
+    #[test]
+    fn earlier_mission_keeps_receipts_after_a_later_one_ends() {
+        let ws = Workspace::new();
+        let first = session(&ws);
+        let _first_active = EvidenceSession::activate(&first);
+        let second = session(&ws);
+        let second_active = EvidenceSession::activate(&second);
+        drop(second_active);
+        let path = ws.0.clone();
+        std::thread::spawn(move || {
+            EvidenceSession::capture_call("mcp_tool", &serde_json::json!(null), &path, || {
+                Ok("after overlap".to_string())
+            })
+            .unwrap();
+        })
+        .join()
+        .unwrap();
+        assert_eq!(first.receipts()[0].output, "after overlap");
+        assert!(second.receipts().is_empty());
     }
 
     #[test]
