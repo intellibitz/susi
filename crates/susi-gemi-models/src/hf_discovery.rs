@@ -131,15 +131,8 @@ pub fn discover_dynamic_ladder() -> Vec<ModelLadderConfigStep> {
         if !steps.is_empty() {
             guard.steps = steps;
             guard.refreshed_at = now();
-            let path = cache_path();
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
             if let Ok(bytes) = serde_json::to_vec(&*guard) {
-                let temporary = path.with_extension("json.tmp");
-                if std::fs::write(&temporary, bytes).is_ok() {
-                    let _ = std::fs::rename(temporary, path);
-                }
+                let _ = crate::susi_config::atomic_write_bytes(&cache_path(), &bytes);
             }
         }
         guard.refreshing = false;

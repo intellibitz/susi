@@ -65,7 +65,7 @@ pub use python_engine::{EngineDoctor, EngineProfile};
 use serde::{Deserialize, Serialize};
 pub use smolagents::PROFILE as SMOLAGENTS_PROFILE;
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 pub use swe_agent::{
@@ -518,26 +518,7 @@ fn private_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
-    let tmp = path.with_extension(format!("{}.tmp", unique_id()?));
-    let result = (|| -> Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let mut file = options.open(&tmp)?;
-        serde_json::to_writer_pretty(&mut file, value)?;
-        file.flush()?;
-        file.sync_all()?;
-        fs::rename(&tmp, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(tmp);
-    }
-    result
+    Ok(crate::susi_config::atomic_write_json_pretty(path, value)?)
 }
 
 /// Redact known credential values on display; raw vendor logs stay in the private run directory.

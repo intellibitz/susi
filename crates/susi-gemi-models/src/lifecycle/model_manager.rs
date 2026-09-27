@@ -383,13 +383,12 @@ impl ModelManager {
             status: status.to_string(),
         };
         if let Ok(json) = serde_json::to_string(&record) {
-            let temporary = progress_file.with_extension("json.tmp");
-            if fs::write(&temporary, &json).is_ok() {
-                let _ = fs::rename(temporary, &progress_file);
-            }
-            let _ = fs::write(
-                crate::susi_paths::SusiDirs::data_dir().join("download_progress.json"),
-                json,
+            // Both mirrors are polled by other processes mid-download;
+            // neither may ever be observed torn.
+            let _ = crate::susi_config::atomic_write_bytes(&progress_file, json.as_bytes());
+            let _ = crate::susi_config::atomic_write_bytes(
+                &crate::susi_paths::SusiDirs::data_dir().join("download_progress.json"),
+                json.as_bytes(),
             );
         }
     }
