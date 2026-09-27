@@ -93,6 +93,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    checkpoints rebuild from the verified log, and unreadable input fails closed.
 7. **Zero-config Auto** — Mandate 44; `susi auto`; host installs/keys still gate cloud.
 8. **Governance-first** — Safety/Security before parallel fleet.
+   The safety veto catches recursive removal of `/` or home in any flag
+   spelling (`rm -fr /`, `rm -r -f ~`, …); content checks stay pattern-based.
    The privacy posture fails closed: a damaged `privacy_mode` file enforces
    `local_only` instead of silently reading as `balanced`.
    Scoped capability grants stop at a path/host boundary: a grant on

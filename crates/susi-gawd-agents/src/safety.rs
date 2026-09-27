@@ -20,7 +20,17 @@ impl SafetyDetector {
             audit_exec_argv(arg)?;
         }
 
-        // 1. Command Pattern Check (Dynamic)
+        // 1a. Recursive removal of the root or home, in any flag spelling.
+        // The configured patterns are literal substrings, so `rm -fr /`,
+        // `rm -r -f /`, `rm --recursive ~`, or an extra space slipped past
+        // `rm -rf /` / `rm -rf ~`.
+        if let Some(target) = recursive_rm_of_root_or_home(&lower_arg) {
+            return Err(EaiError::governance(format!(
+                "Action recursively removes '{target}'"
+            )));
+        }
+
+        // 1b. Command Pattern Check (Dynamic)
         for pattern in &patterns.destructive_commands {
             if lower_arg.contains(&pattern.to_lowercase()) {
                 return Err(EaiError::governance(format!(
@@ -46,12 +56,13 @@ impl SafetyDetector {
     }
 }
 
-/// Binaries an agent may launch through `exec_command`. Exec wrappers
-/// (`env`, `xargs`, `nohup`, `timeout`, shells) are deliberately absent:
-/// each runs a program this list never vetted, and a bare `env` prints
-/// every secret in the process environment. `cargo` stays: building and
-/// testing the workspace (which runs its build scripts) is the point of a
-/// coding agent.
+/// Binaries an agent may launch through `exec_command`. Generic wrappers
+/// (`env`, `xargs`, `nohup`, `timeout`) are deliberately absent: each runs
+/// a program this list never vetted, and a bare `env` prints every secret
+/// in the process environment. `cargo`, `bash`/`sh`, `python`, and `make`
+/// stay by design (AGENTS.md: SUSI builds and tests itself), so a shell
+/// command line is only as safe as the content checks in `audit_action`
+/// — this list is not a sandbox.
 const ALLOWED_EXEC_BINS: &[&str] = &[
     "cargo",
     "git",
@@ -94,6 +105,50 @@ const ALLOWED_EXEC_BINS: &[&str] = &[
     "python",
     "python3",
 ];
+
+/// The root- or home-level target of a recursive `rm` anywhere in `text`
+/// (already lower-cased), whatever the flag spelling or spacing.
+fn recursive_rm_of_root_or_home(text: &str) -> Option<String> {
+    const TARGETS: &[&str] = &[
+        "/",
+        "/*",
+        "/.",
+        "~",
+        "~/",
+        "~/*",
+        "$home",
+        "$home/",
+        "$home/*",
+        "${home}",
+        "${home}/",
+        "${home}/*",
+    ];
+    let spaced: String = text
+        .chars()
+        .map(|c| if ";&|()`\n{}".contains(c) { ' ' } else { c })
+        .collect();
+    let tokens: Vec<&str> = spaced
+        .split_whitespace()
+        .map(|t| t.trim_matches(|c| c == '\'' || c == '"'))
+        .collect();
+    for (i, token) in tokens.iter().enumerate() {
+        if *token != "rm" && !token.ends_with("/rm") {
+            continue;
+        }
+        let args = &tokens[i + 1..];
+        let recursive = args.iter().any(|a| {
+            *a == "--recursive"
+                || (a.starts_with('-') && !a.starts_with("--") && a.contains(['r', 'R']))
+        });
+        if !recursive {
+            continue;
+        }
+        if let Some(target) = args.iter().find(|a| TARGETS.contains(a)) {
+            return Some((*target).to_string());
+        }
+    }
+    None
+}
 
 fn c4_block(reason: impl std::fmt::Display) -> EaiError {
     EaiError::governance(format!("C4 BLOCK: {reason}"))
@@ -411,5 +466,30 @@ mod tests {
         // Note: These tests depend on the default config being loaded or present in ~/.susi/config.json
         // In a CI/test environment, we might need a controlled global_dir.
         assert!(SafetyDetector::audit_action("exec_command", "rm -rf /", ws).is_err());
+    }
+
+    #[test]
+    fn recursive_root_or_home_removal_is_caught_in_any_spelling() {
+        let ws = Path::new(".");
+        for goal in [
+            "rm -fr /",
+            "rm -r -f /",
+            "rm -rf  /",
+            "rm --recursive --force ~",
+            "sh -c 'rm -Rf $HOME'",
+            "cd x && /bin/rm -r /*",
+            "bash -c \"rm -rf ${HOME}/\"",
+        ] {
+            assert!(
+                SafetyDetector::audit_action("SUSI_SOLVE", goal, ws).is_err(),
+                "should block: {goal}"
+            );
+        }
+        for goal in ["rm -rf target", "rm -r ./build", "rm notes.txt ~"] {
+            assert!(
+                recursive_rm_of_root_or_home(goal).is_none(),
+                "should not flag: {goal}"
+            );
+        }
     }
 }

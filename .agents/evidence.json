@@ -2120,6 +2120,16 @@
       "milestone": "RSI iteration 51/100: the crown's Swarm pillar now checks what its report claims. susi crown verify passed the critical 'swarm' USP whenever gemi.hardware.profile returned a CPU count, while its detail string asserted 'GAWD/GEMI/tools/agents handlers registered', which nothing checked; a composition that failed to wire the GAWD, tools, or agents plane still reported the Swarm pillar as holding. The check now also requires PlaneBus::is_wired for one representative topic per plane (gawd.mission.solve, gemi.hardware.profile, tools.registry.execute, agents.meta.list) and names any unwired plane in the detail. Verified with a live run of the debug binary from an empty directory: swarm holds with 'plane bus gemi.hardware.profile answered (28 cpus); GAWD/GEMI/tools/agents handlers wired' and all_critical_hold is true. cargo test --test crown_verify_tests and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "SafetyDetector::audit_action / recursive_rm_of_root_or_home",
+        "ref": "symbol://recursive_rm_of_root_or_home"
+      },
+      "id": "EV-2022927-218",
+      "milestone": "RSI iteration 52/100: the safety veto catches recursive deletion of the root or home in any spelling. SafetyDetector matched the configured destructive_commands as lower-cased literal substrings, so 'rm -rf /' and 'rm -rf ~' were caught but 'rm -fr /', 'rm -r -f /', 'rm --recursive --force ~', 'rm -rf  /' (two spaces), and '/bin/rm -r /*' passed; because exec_command allowlists bash and sh by design (AGENTS.md), any of these could run inside 'sh -c ...'. A token-level check now runs before the pattern list for every audited action: any rm (or a path ending in /rm) with a recursive flag in any short or long spelling whose operands include /, /*, /., ~, ~/, ~/*, /home/ramadoss, /home/ramadoss or their globs is vetoed, after splitting on shell separators and stripping quotes. The allowlist's doc comment, which claimed shells were deliberately absent while bash, sh, python and make are listed, now states the real design: this list is not a sandbox, and shell lines are only as safe as the content checks. Known limitation, stated: content checks remain pattern-based (e.g. an interpreter one-liner deleting via a library call is not parsed). A test blocks seven bypass spellings and does not flag rm -rf target, rm -r ./build, or a non-recursive rm naming ~. cargo test -p susi-gawd-agents safety (5 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
