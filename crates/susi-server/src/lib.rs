@@ -912,6 +912,7 @@ async fn handle_gemi_request(
                 );
                 payload["usage"] =
                     estimated_usage(approx_tokens(&trimmed_prompt), approx_tokens(&body_text));
+                add_placement_body(&mut payload, &placement_id, &placement_target);
                 let mut response = json_response(StatusCode::OK, &payload);
                 add_placement_headers(&mut response, &placement_target, &placement_id);
                 Ok(response)
@@ -1322,6 +1323,13 @@ fn add_placement_headers(response: &mut Response<BoxBody>, target: &str, decisio
             HeaderValue::from_static("X-Susi-Placement, X-Susi-Placement-Id"),
         );
     }
+}
+
+fn add_placement_body(payload: &mut serde_json::Value, decision_id: &str, target: &str) {
+    payload["susi_placement"] = json!({
+        "decision_id": decision_id,
+        "target": target,
+    });
 }
 
 fn completion_id() -> String {
@@ -2057,6 +2065,16 @@ mod tests {
                 .get("Access-Control-Expose-Headers")
                 .and_then(|value| value.to_str().ok()),
             Some("X-Susi-Placement, X-Susi-Placement-Id")
+        );
+    }
+
+    #[test]
+    fn placement_body_preserves_decision_correlation() {
+        let mut payload = completion_response("model", "answer", false, "stop");
+        add_placement_body(&mut payload, "placement-test-2", "local");
+        assert_eq!(
+            payload["susi_placement"],
+            json!({"decision_id": "placement-test-2", "target": "local"})
         );
     }
 
