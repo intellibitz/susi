@@ -142,28 +142,30 @@ fn enc(key: &str) -> String {
 }
 
 /// Load the shared substrate HMAC key, creating it (0600) on first boot.
-/// All wired copies — daemon's and vendored — must sign/verify with it.
-pub fn load_or_create_key(dir: &Path) -> [u8; 32] {
-    let path = dir.join("mac.hmac.key");
-    if let Ok(bytes) = std::fs::read(&path) {
-        if bytes.len() >= 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes[..32]);
-            return key;
-        }
-    }
+/// All wired copies — daemon's and vendored — must sign/verify with it, so
+/// creation is race-safe and a malformed key is an error, never rotated.
+pub fn load_or_create_key(dir: &Path) -> std::io::Result<[u8; 32]> {
+    crate::susi_config::load_or_create_secret(&dir.join("mac.hmac.key"))
+}
+
+/// A key private to this process, for a policy that cannot join the
+/// shared substrate key. OS entropy when available; otherwise a digest of
+/// process-unique inputs — never an all-zero key.
+fn process_local_key() -> [u8; 32] {
     let mut key = [0u8; 32];
-    let _ = getrandom::fill(&mut key);
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if getrandom::fill(&mut key).is_ok() {
+        return key;
     }
-    if std::fs::write(&path, key).is_ok() {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        }
-    }
+    let seed = format!(
+        "susi-mac-local:{}:{:?}:{}",
+        std::process::id(),
+        std::thread::current().id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    key.copy_from_slice(&Sha256::digest(seed.as_bytes()));
     key
 }
 
@@ -217,10 +219,19 @@ impl MacPolicy {
     /// file, sticky mode, persisted grants — all under `substrate_home`.
     pub fn wired() -> Self {
         let dir = crate::susi_paths::SusiDirs::substrate_home();
-        let key = load_or_create_key(&dir);
+        let key = match load_or_create_key(&dir) {
+            Ok(key) => key,
+            Err(error) => {
+                // No shared key: grants this copy signs cannot be verified
+                // by the rest of the substrate, so fail closed rather than
+                // run a permissive policy on a private key.
+                tracing::error!(%error, dir = %dir.display(), "substrate MAC key unavailable; enforcing local_only");
+                return Self::new(process_local_key(), PrivacyMode::LocalOnly, true);
+            }
+        };
         let cfg = crate::susi_config::SusiConfig::load_global().unwrap_or_default();
         let privacy = cfg.privacy();
-        // Mode: sticky file beats config default (mirrors daemon wire_mac_policy).
+        // Mode: sticky file beats config default.
         let mode = std::fs::read_to_string(dir.join("privacy_mode"))
             .ok()
             .map(|s| PrivacyMode::parse(s.trim()))

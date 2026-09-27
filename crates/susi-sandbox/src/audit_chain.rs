@@ -23,71 +23,10 @@ fn tip_path(audit_file: &Path) -> PathBuf {
     audit_file.with_extension("chain.tip")
 }
 
-/// Load or create the 32-byte host HMAC key.
-///
-/// Creation is atomic and never replaces an existing key: the key is written
-/// in full to a process-unique temporary file and then hard-linked into
-/// place, which fails if another writer won the race. Concurrent first use
-/// (daemon + CLI, parallel tests) therefore converges on one key instead of
-/// each signing with its own. A key file of the wrong length is an error,
-/// never silently regenerated — regeneration would invalidate every signed
-/// entry in history.
+/// Load or create the 32-byte host HMAC key (see
+/// `susi_config::load_or_create_secret` for the creation guarantees).
 pub fn load_or_create_hmac_key() -> std::io::Result<[u8; 32]> {
-    load_or_create_key_at(&key_path())
-}
-
-fn read_key(path: &Path) -> std::io::Result<[u8; 32]> {
-    let bytes = fs::read(path)?;
-    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!(
-                "audit HMAC key {} is {} bytes, expected 32",
-                path.display(),
-                bytes.len()
-            ),
-        )
-    })
-}
-
-fn load_or_create_key_at(path: &Path) -> std::io::Result<[u8; 32]> {
-    match read_key(path) {
-        Ok(key) => return Ok(key),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).map_err(|e| std::io::Error::other(e.to_string()))?;
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let tmp = path.with_extension(format!(
-        "key.tmp.{}.{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let staged = write_private(&tmp, &key).and_then(|()| fs::hard_link(&tmp, path));
-    let _ = fs::remove_file(&tmp);
-    match staged {
-        Ok(()) => Ok(key),
-        // Another writer installed its key first — use theirs.
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_key(path),
-        Err(e) => Err(e),
-    }
-}
-
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    crate::susi_config::load_or_create_secret(&key_path())
 }
 
 /// HMAC-SHA256 — shared implementation lives in `crate::susi_config::cluster_key`
@@ -261,28 +200,6 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         dir
-    }
-
-    #[test]
-    fn concurrent_key_creation_converges_on_one_key() {
-        let path = scratch("race").join("audit.hmac.key");
-        let keys: Vec<[u8; 32]> = std::thread::scope(|scope| {
-            let handles: Vec<_> = (0..16)
-                .map(|_| scope.spawn(|| load_or_create_key_at(&path).unwrap()))
-                .collect();
-            handles.into_iter().map(|h| h.join().unwrap()).collect()
-        });
-        assert!(keys.iter().all(|k| *k == keys[0]));
-        assert_eq!(read_key(&path).unwrap(), keys[0]);
-    }
-
-    #[test]
-    fn truncated_key_is_an_error_not_a_regeneration() {
-        let path = scratch("short").join("audit.hmac.key");
-        fs::write(&path, [7u8; 5]).unwrap();
-        let err = load_or_create_key_at(&path).unwrap_err();
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
-        assert_eq!(fs::read(&path).unwrap(), vec![7u8; 5]);
     }
 
     #[test]

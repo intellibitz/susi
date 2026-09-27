@@ -72,3 +72,35 @@ fn concurrent_atomic_writers_never_tear_or_collide() {
     assert!(leftovers.is_empty(), "staging files leaked: {leftovers:?}");
     let _ = std::fs::remove_dir_all(&ws);
 }
+
+#[test]
+fn concurrent_secret_creation_converges_on_one_secret() {
+    let ws = workspace("secret_race");
+    let path = ws.join("fresh/audit.hmac.key");
+    let keys: Vec<[u8; 32]> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..16)
+            .map(|_| scope.spawn(|| crate::json_util::load_or_create_secret(&path).unwrap()))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    assert!(keys.iter().all(|k| *k == keys[0]));
+    assert_eq!(std::fs::read(&path).unwrap(), keys[0].to_vec());
+    assert_eq!(
+        std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+        1
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}
+
+#[test]
+fn wrong_length_secret_is_an_error_not_a_regeneration() {
+    let ws = workspace("secret_len");
+    for len in [5usize, 33, 64] {
+        let path = ws.join(format!("key{len}"));
+        std::fs::write(&path, vec![7u8; len]).unwrap();
+        let err = crate::json_util::load_or_create_secret(&path).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert_eq!(std::fs::read(&path).unwrap(), vec![7u8; len]);
+    }
+    let _ = std::fs::remove_dir_all(&ws);
+}

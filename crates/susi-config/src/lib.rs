@@ -62,8 +62,8 @@ mod service {
 pub use config::SusiConfig;
 pub use json_util::{
     atomic_write_bytes, atomic_write_json_pretty, confined_workspace_join, http_agent,
-    merge_missing_json_defaults, merge_missing_registry_defaults, DynamicRegistry, DynamicValue,
-    ModelTier, ProviderType, StringRegistry,
+    load_or_create_secret, merge_missing_json_defaults, merge_missing_registry_defaults,
+    DynamicRegistry, DynamicValue, ModelTier, ProviderType, StringRegistry,
 };
 pub use types::*;
 pub use versioned_store::VersionedJsonStore;

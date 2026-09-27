@@ -34,24 +34,66 @@ pub fn atomic_write_json_pretty<T: Serialize>(path: &Path, value: &T) -> EaiResu
     atomic_write_bytes(path, json.as_bytes()).map_err(|error| EaiError::config(error.to_string()))
 }
 
-/// Replaces `path` with `bytes` via a same-directory temp file + rename, so a
-/// concurrent reader — another process's CLI invocation, the daemon's own
-/// background cycle — never observes a torn/empty file. Each writer stages
-/// into its own `create_new` temp file (process id + counter), so concurrent
-/// writers in any process never share or truncate one another's staging
-/// file; the last rename wins with a complete file. The parent directory is
-/// created on demand. On Unix the file is `0600` so secrets that land in
-/// host state are not world-readable under a permissive umask.
-pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+/// Loads the 32-byte secret at `path`, creating it on first use.
+///
+/// Creation is atomic and never replaces an existing secret: the bytes are
+/// written in full to a unique `create_new` staging file (0600 on Unix) and
+/// then hard-linked into place, which fails if another writer won the race.
+/// Concurrent first use (daemon + CLI, parallel tests) therefore converges
+/// on one secret instead of each signing with its own. A secret file of the
+/// wrong length is an error, never silently regenerated or truncated —
+/// replacing it would invalidate everything already signed with it — and an
+/// entropy failure is an error, never a predictable key.
+pub fn load_or_create_secret(path: &Path) -> std::io::Result<[u8; 32]> {
+    match read_secret(path) {
+        Ok(key) => return Ok(key),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let dir = match path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         Some(_) | None => Path::new("."),
     };
     fs::create_dir_all(dir)?;
-    let (tmp_path, mut file) = loop {
+    let mut key = [0u8; 32];
+    getrandom::fill(&mut key).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let (tmp, mut file) = create_staging_file(dir, path)?;
+    let staged = {
+        use std::io::Write;
+        file.write_all(&key)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| fs::hard_link(&tmp, path))
+    };
+    drop(file);
+    let _ = fs::remove_file(&tmp);
+    match staged {
+        Ok(()) => Ok(key),
+        // Another writer installed its secret first — use theirs.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => read_secret(path),
+        Err(e) => Err(e),
+    }
+}
+
+fn read_secret(path: &Path) -> std::io::Result<[u8; 32]> {
+    let bytes = fs::read(path)?;
+    <[u8; 32]>::try_from(bytes.as_slice()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "secret {} is {} bytes, expected 32",
+                path.display(),
+                bytes.len()
+            ),
+        )
+    })
+}
+
+/// A fresh `create_new` staging file beside `path` (dot-prefixed so
+/// directory scanners skip it; 0600 on Unix), unique per process and call.
+fn create_staging_file(dir: &Path, path: &Path) -> std::io::Result<(PathBuf, fs::File)> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+    loop {
         let tmp_path = dir.join(format!(
             ".{}.tmp.{}.{}",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("state"),
@@ -66,11 +108,29 @@ pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
             options.mode(0o600);
         }
         match options.open(&tmp_path) {
-            Ok(file) => break (tmp_path, file),
+            Ok(file) => return Ok((tmp_path, file)),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => return Err(error),
         }
+    }
+}
+
+/// Replaces `path` with `bytes` via a same-directory temp file + rename, so a
+/// concurrent reader — another process's CLI invocation, the daemon's own
+/// background cycle — never observes a torn/empty file. Each writer stages
+/// into its own `create_new` temp file (process id + counter), so concurrent
+/// writers in any process never share or truncate one another's staging
+/// file; the last rename wins with a complete file. The parent directory is
+/// created on demand. On Unix the file is `0600` so secrets that land in
+/// host state are not world-readable under a permissive umask.
+pub fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        Some(_) | None => Path::new("."),
     };
+    fs::create_dir_all(dir)?;
+    let (tmp_path, mut file) = create_staging_file(dir, path)?;
     let result = file.write_all(bytes).and_then(|()| file.sync_all());
     drop(file);
     let result = result.and_then(|()| fs::rename(&tmp_path, path));
