@@ -555,6 +555,10 @@ impl InferenceRouter {
         )
     }
 
+    fn local_supports_requirement(requires: Option<&str>) -> bool {
+        !requires.is_some_and(|value| value.eq_ignore_ascii_case("vision"))
+    }
+
     fn effective_policy(cfg: &InferenceRoutingConfig, pref: &RoutingPreference) -> String {
         if let Some(until) = pref.force_local_until_unix {
             let now = std::time::SystemTime::now()
@@ -656,8 +660,7 @@ impl InferenceRouter {
             || crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
         {
             let request_blocked = !allow_cloud;
-            let unsupported_local_capability =
-                requires.is_some_and(|value| value.eq_ignore_ascii_case("vision"));
+            let unsupported_local_capability = !Self::local_supports_requirement(requires);
             let local_eligible = local_ready && !unsupported_local_capability;
             return PlacementDecision {
                 target: if local_eligible {
@@ -732,7 +735,6 @@ impl InferenceRouter {
         }
 
         let forced_reason = match policy.as_str() {
-            "local_only" => Some(("local", "local_only policy")),
             "cloud_first" => Some(("cloud", "cloud_first policy")),
             "ask" => Some(("cloud", "ask policy — using cloud")),
             _ => None,
@@ -743,6 +745,36 @@ impl InferenceRouter {
                 target: target.to_string(),
                 provider,
                 reason: reason.to_string(),
+                policy,
+                local_model,
+                local_ready,
+                local_stats: stats,
+                cloud_candidates: clouds,
+                cooled_candidates,
+                requires: requires.map(str::to_string),
+                max_cost,
+                allow_cloud,
+            };
+        }
+
+        if policy == "local_only" {
+            let capability_supported = Self::local_supports_requirement(requires);
+            return PlacementDecision {
+                target: if local_ready && capability_supported {
+                    "local"
+                } else {
+                    "unavailable"
+                }
+                .to_string(),
+                provider: None,
+                reason: if !capability_supported {
+                    "local_only policy cannot satisfy the required capability"
+                } else if !local_ready {
+                    "local_only policy has no ready local model"
+                } else {
+                    "local_only policy"
+                }
+                .to_string(),
                 policy,
                 local_model,
                 local_ready,
@@ -1142,6 +1174,13 @@ mod tests {
         assert_eq!(decision.provider, None);
         assert!(decision.reason.contains("required capability"));
         assert!(decision.cloud_candidates.is_empty());
+    }
+
+    #[test]
+    fn local_runtime_capability_gate_is_explicit() {
+        assert!(InferenceRouter::local_supports_requirement(None));
+        assert!(InferenceRouter::local_supports_requirement(Some("code")));
+        assert!(!InferenceRouter::local_supports_requirement(Some("vision")));
     }
 
     #[test]
