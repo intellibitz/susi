@@ -165,7 +165,8 @@ pub fn verify_chain(audit_file: &Path) -> Result<usize, String> {
 }
 
 pub(crate) fn verify_with_key(audit_file: &Path, key: &[u8; 32]) -> Result<usize, String> {
-    let content = fs::read_to_string(audit_file).unwrap_or_default();
+    let content = fs::read_to_string(audit_file)
+        .map_err(|e| format!("cannot read {}: {e}", audit_file.display()))?;
     if content.trim().is_empty() {
         return Ok(0);
     }
@@ -270,5 +271,20 @@ mod tests {
         fs::write(&log, format!("{entry}\n")).unwrap();
         let err = verify_with_key(&log, &key).unwrap_err();
         assert!(err.contains("HMAC signature invalid"), "{err}");
+    }
+
+    #[test]
+    fn unreadable_audit_input_is_not_reported_as_an_empty_valid_chain() {
+        let dir = scratch("read_error");
+        let err = verify_with_key(&dir, &[0x5a; 32]).unwrap_err();
+        assert!(err.contains("cannot read"), "{err}");
+    }
+
+    #[test]
+    fn non_utf8_audit_input_is_not_reported_as_an_empty_valid_chain() {
+        let log = scratch("non_utf8").join("audit.log");
+        fs::write(&log, [0xff, 0xfe, 0xfd]).unwrap();
+        let err = verify_with_key(&log, &[0x5a; 32]).unwrap_err();
+        assert!(err.contains("cannot read"), "{err}");
     }
 }
