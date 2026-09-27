@@ -121,7 +121,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     within one allocation does not reset the budget.
     The daemon's binary trust anchor hashes the whole binary (a read error
     fails instead of truncating the digest) and is replaced atomically.
-12. **Reflexes** — Wasm reflexes under the data dir; automatic native
+12. **Reflexes** — Wasm reflexes under the data dir (synthesized modules are
+    compiled to a staging name and renamed into place, never half-written);
+    automatic native
     distillation fails closed on unreadable staging/configuration, training
     failure, or failure to retire consumed samples. Training is cross-process
     serialized, consumes the invoking workspace's staged experience, and

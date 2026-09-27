@@ -58,11 +58,17 @@ impl ReflexSynthesizer {
         fs::write(&wasm_src, code)?;
 
         let wasm_out = reflex_dir.join(format!("{}.wasm", slug));
+        // rustc writes its output in place, and ToolRegistry lists and
+        // executes every `reflexes/*.wasm` that exists: compiling straight
+        // to the live name let a concurrent call run a half-written module
+        // (and a failed rebuild could leave a truncated one behind). Build
+        // to a private non-`.wasm` name and rename into place on success.
+        let staged = reflex_dir.join(format!("{}.wasm.{}.tmp", slug, std::process::id()));
         // Mandate 42: `to_str()` is `None` on a non-UTF8 path (possible, if
         // rare, under an unusual locale/HOME) - propagate that as a real
         // error instead of panicking, consistent with every other failure
         // mode this function already returns as `Err` below.
-        let wasm_out_str = wasm_out.to_str().ok_or_else(|| {
+        let wasm_out_str = staged.to_str().ok_or_else(|| {
             EaiError::process(format!(
                 "WASM output path is not valid UTF-8: {}",
                 wasm_out.display()
@@ -86,15 +92,29 @@ impl ReflexSynthesizer {
             ])
             .output();
 
-        match build {
-            Ok(output) if output.status.success() => Ok(wasm_out.to_string_lossy().to_string()),
-            Ok(output) => Err(EaiError::process(format!(
+        let output = match build {
+            Ok(output) => output,
+            Err(e) => {
+                let _ = fs::remove_file(&staged);
+                return Err(EaiError::process(format!("rustc invocation failed: {}", e)));
+            }
+        };
+        if !output.status.success() {
+            let _ = fs::remove_file(&staged);
+            return Err(EaiError::process(format!(
                 "WASM compilation failed (is the wasm32-wasip1 rustup target installed? \
                  `rustup target add wasm32-wasip1`): {}",
                 String::from_utf8_lossy(&output.stderr)
-            ))),
-            Err(e) => Err(EaiError::process(format!("rustc invocation failed: {}", e))),
+            )));
         }
+        if let Err(e) = fs::rename(&staged, &wasm_out) {
+            let _ = fs::remove_file(&staged);
+            return Err(EaiError::filesystem(format!(
+                "publish reflex {}: {e}",
+                wasm_out.display()
+            )));
+        }
+        Ok(wasm_out.to_string_lossy().to_string())
     }
 
     /// Generates the reflex's WASI source. Split out from `synthesize_wasm_reflex`
@@ -159,6 +179,25 @@ mod tests {
             "hostile intent text broke the generated source:\n{}",
             src
         );
+    }
+
+    #[test]
+    #[ignore = "requires the wasm32-wasip1 rustup target; writes under the data dir"]
+    fn test_wasm_reflex_publishes_atomically_and_leaves_no_staging_file() {
+        let slug = format!("zz_atomic_probe_{}", std::process::id());
+        let out = ReflexSynthesizer::synthesize_wasm_reflex(&slug, Path::new(".")).unwrap();
+        let dir = crate::susi_paths::SusiDirs::data_dir().join("reflexes");
+        assert!(out.ends_with(&format!("{slug}.wasm")));
+        assert_eq!(&std::fs::read(&out).unwrap()[..4], b"\0asm");
+        let leftovers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with(&slug))
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty());
+        let _ = std::fs::remove_file(&out);
+        let _ = std::fs::remove_file(dir.join(format!("{slug}.rs")));
     }
 
     #[test]
