@@ -533,7 +533,9 @@ impl InferenceRouter {
                     || name.contains("vl-")
             });
         }
-        if max_cost.is_some_and(|cost| cost <= 0.01) {
+        if max_cost == Some(0.0) {
+            clouds.retain(|name| name.to_ascii_lowercase().contains("free"));
+        } else if max_cost.is_some_and(|cost| cost <= 0.01) {
             clouds.retain(|name| {
                 let name = name.to_ascii_lowercase();
                 !name.contains("opus") && !name.contains("gpt-4-")
@@ -1135,6 +1137,16 @@ mod tests {
         assert_eq!(decision.provider, None);
         assert!(decision.cloud_candidates.is_empty());
         assert!(decision.reason.contains("not supported"));
+    }
+
+    #[test]
+    fn zero_cost_ceiling_only_keeps_explicitly_free_cloud_routes() {
+        let mut clouds = vec![
+            "openai-gpt-4o-mini".to_string(),
+            "openrouter-qwen-free".to_string(),
+        ];
+        InferenceRouter::apply_cloud_constraints(&mut clouds, None, Some(0.0));
+        assert_eq!(clouds, vec!["openrouter-qwen-free"]);
     }
 
     #[test]
