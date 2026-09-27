@@ -58,10 +58,6 @@ fn confined_path(workspace: &Path, rel: &str) -> EaiResult<PathBuf> {
         .map_err(|e| EaiError::governance(format!("patch path outside workspace: {rel} ({e})")))
 }
 
-fn backup_dir(workspace: &Path) -> PathBuf {
-    workspace.join(".susi").join("patch_backups")
-}
-
 fn read_file(path: &Path) -> EaiResult<String> {
     std::fs::read_to_string(path).map_err(|e| EaiError::filesystem(format!("read {path:?}: {e}")))
 }
@@ -116,60 +112,48 @@ pub fn apply_patch_cycle(
         });
     }
 
-    // Validate and confine every target path.
-    let mut targets: Vec<(PathBuf, String, String)> = Vec::new();
+    // Validate and confine every target path, and check every file for
+    // staleness before anything is written: a stale later file must not
+    // leave earlier files half-applied. `old` is the full expected text; an
+    // empty `old` only creates a missing (or empty) file.
+    let mut targets: Vec<(PathBuf, &str)> = Vec::new();
     for fp in &request.files {
         let path = confined_path(workspace, &fp.path)?;
-        targets.push((path, fp.old.clone(), fp.new.clone()));
-    }
-
-    let backups = backup_dir(workspace);
-    let _ = std::fs::create_dir_all(&backups);
-
-    // Snapshot current content so we can restore on failure.
-    let mut restore_map: Vec<(PathBuf, Option<String>)> = Vec::new();
-    let file_rels: Vec<String> = request.files.iter().map(|f| f.path.clone()).collect();
-    let tx = crate::susi_core::agent_tx::TxManager::global()
-        .begin(
-            workspace,
-            &request.description,
-            &file_rels,
-            Default::default(),
-        )
-        .ok();
-
-    for (path, _old, _new) in &targets {
-        let original = if path.is_file() {
-            Some(read_file(path)?)
-        } else {
-            None
-        };
-        restore_map.push((path.clone(), original.clone()));
-        let backup_path = backups.join(
-            path.file_name()
-                .unwrap_or_else(|| std::ffi::OsStr::new("patch")),
-        );
-        if let Some(ref content) = original {
-            let _ = std::fs::write(&backup_path, content);
-        }
-    }
-
-    // Apply patches: require exact old-text match unless file does not exist
-    // and old is empty.
-    let mut files_changed = Vec::new();
-    for (path, old, new) in &targets {
         let current = if path.is_file() {
-            read_file(path)?
+            read_file(&path)?
         } else {
             String::new()
         };
-        if !old.is_empty() && current != *old {
+        if current != fp.old {
             return Err(EaiError::governance(format!(
                 "patch stale: {} current text does not match supplied old text",
                 path.display()
             )));
         }
-        write_file(path, new)?;
+        targets.push((path, fp.new.as_str()));
+    }
+
+    // The transaction snapshot is the single rollback source.
+    let file_rels: Vec<String> = request.files.iter().map(|f| f.path.clone()).collect();
+    let txm = crate::susi_core::agent_tx::TxManager::global();
+    let tx = txm.begin(
+        workspace,
+        &request.description,
+        &file_rels,
+        Default::default(),
+    )?;
+    let rollback = |cause: String| -> EaiError {
+        match txm.abort(&tx.id, workspace) {
+            Ok(_) => EaiError::filesystem(format!("{cause}; patch reverted")),
+            Err(e) => EaiError::filesystem(format!("{cause}; ROLLBACK FAILED: {e}")),
+        }
+    };
+
+    let mut files_changed = Vec::new();
+    for (path, new) in &targets {
+        if let Err(e) = write_file(path, new) {
+            return Err(rollback(e.to_string()));
+        }
         files_changed.push(
             path.strip_prefix(workspace)
                 .unwrap_or(path)
@@ -183,32 +167,32 @@ pub fn apply_patch_cycle(
         .test_command
         .clone()
         .unwrap_or_else(|| detect_test_command(workspace));
-    let output = Command::new("sh")
+    let output = match Command::new("sh")
         .arg("-c")
         .arg(&test_cmd)
         .current_dir(workspace)
         .output()
-        .map_err(|e| EaiError::process(format!("failed to run test command: {e}")))?;
+    {
+        Ok(output) => output,
+        Err(e) => return Err(rollback(format!("failed to run test command: {e}"))),
+    };
     let test_passed = output.status.success();
     let test_stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let test_stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     let mut reverted = false;
-    if !test_passed {
-        for (path, original) in &restore_map {
-            if let Some(content) = original {
-                let _ = write_file(path, content);
-            } else {
-                let _ = std::fs::remove_file(path);
+    let mut error = None;
+    if test_passed {
+        txm.commit(&tx.id)?;
+    } else {
+        match txm.abort(&tx.id, workspace) {
+            Ok(_) => {
+                files_changed.clear();
+                reverted = true;
+                error = Some("tests failed; patch reverted".into());
             }
+            Err(e) => error = Some(format!("tests failed; ROLLBACK FAILED: {e}")),
         }
-        files_changed.clear();
-        reverted = true;
-        if let Some(ref t) = tx {
-            let _ = crate::susi_core::agent_tx::TxManager::global().abort(&t.id, workspace);
-        }
-    } else if let Some(ref t) = tx {
-        let _ = crate::susi_core::agent_tx::TxManager::global().commit(&t.id);
     }
 
     let outcome = PatchOutcome {
@@ -218,11 +202,7 @@ pub fn apply_patch_cycle(
         test_stdout,
         test_stderr,
         reverted,
-        error: if test_passed {
-            None
-        } else {
-            Some("tests failed; patch reverted".into())
-        },
+        error,
     };
 
     // Record the feedback cycle outcome in the context graph.
@@ -329,6 +309,74 @@ mod tests {
         assert!(out.reverted);
         let content = std::fs::read_to_string(ws.join("a.txt")).unwrap();
         assert_eq!(content, "old");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn stale_later_file_leaves_earlier_files_untouched() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("a.txt"), "old").unwrap();
+        std::fs::write(ws.join("b.txt"), "drifted").unwrap();
+        let req = PatchRequest {
+            files: vec![
+                FilePatch {
+                    path: "a.txt".into(),
+                    old: "old".into(),
+                    new: "new".into(),
+                },
+                FilePatch {
+                    path: "b.txt".into(),
+                    old: "expected".into(),
+                    new: "x".into(),
+                },
+            ],
+            test_command: Some("true".into()),
+            auto_apply: true,
+            description: "test".into(),
+        };
+        assert!(apply_patch_cycle(&ws, &req, "balanced").is_err());
+        assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "old");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn empty_old_does_not_overwrite_existing_content() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        std::fs::write(ws.join("a.txt"), "keep").unwrap();
+        let req = PatchRequest {
+            files: vec![FilePatch {
+                path: "a.txt".into(),
+                old: "".into(),
+                new: "clobber".into(),
+            }],
+            test_command: Some("true".into()),
+            auto_apply: true,
+            description: "test".into(),
+        };
+        assert!(apply_patch_cycle(&ws, &req, "balanced").is_err());
+        assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "keep");
+        let _ = std::fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn failed_test_removes_created_files() {
+        let ws = temp_ws();
+        let _ = std::fs::create_dir_all(&ws);
+        let req = PatchRequest {
+            files: vec![FilePatch {
+                path: "fresh.txt".into(),
+                old: "".into(),
+                new: "x".into(),
+            }],
+            test_command: Some("false".into()),
+            auto_apply: true,
+            description: "test".into(),
+        };
+        let out = apply_patch_cycle(&ws, &req, "balanced").unwrap();
+        assert!(out.reverted);
+        assert!(!ws.join("fresh.txt").exists());
         let _ = std::fs::remove_dir_all(&ws);
     }
 

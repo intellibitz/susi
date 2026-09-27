@@ -93,7 +93,7 @@
     },
     {
       "id": 10,
-      "summary": "Wasmer `WasmHost::execute_untrusted_wasm`; Docker `sandbox_exec` when available.",
+      "summary": "Wasmer `WasmHost::execute_untrusted_wasm`; Docker `sandbox_exec` when available. Workspace-confined patch cycles preflight every file and roll back through one `TxManager` snapshot; a failed rollback is reported, never claimed as reverted.",
       "title": "Sandbox"
     },
     {

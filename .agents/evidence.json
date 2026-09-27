@@ -1820,6 +1820,16 @@
       "milestone": "RSI iteration 21/100: the Tier-0 reflex hot path stops reloading the published model per prompt, and a dead public surface is removed. SusiPulse::reason called SusiAlphaModel::load for every uncached prompt, re-reading the config, resolving the bundle manifest, re-hashing the vocabulary binding, and re-mmapping the weights against the sub-2ms reflex mandate. Meanwhile SusiAlphaModel::global() had no callers (a dead pub surface carrying two unwrap allowances) and was a OnceLock that could never observe new weights. global() is replaced by SusiAlphaModel::cached, which reuses the loaded model until the bundle fingerprint changes and caches only when the fingerprint read before and after the load match and are stable, so a publication that races the load (including the bootstrap bundle load itself publishes) can never pin an older model under a newer fingerprint. A unit test proves the bootstrap load is not cached, the next load is, and repeated calls share one Arc. cargo test -p susi-gemi alpha and cargo clippy -p susi-gemi --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "apply_patch_cycle",
+        "ref": "symbol://apply_patch_cycle"
+      },
+      "id": "EV-2022927-188",
+      "milestone": "RSI iteration 22/100: the self-patch cycle is all-or-nothing. apply_patch_cycle wrote files one at a time and returned Err on a stale later file or an unspawnable test command without restoring the files it had already written, leaving a half-applied patch; an empty old text silently overwrote an existing file despite the code's own create-only comment; restore errors were discarded and still reported reverted=true; and it kept a second rollback path (in-memory map plus write-only .susi/patch_backups copies that collided on same-named files) beside the TxManager transaction that already snapshotted the same files. Every file is now checked for staleness before any write, TxManager is the single rollback source (begin failure is an error, not .ok()), write and spawn failures abort the transaction, and a failed rollback is reported as ROLLBACK FAILED instead of reverted. Regression tests cover a stale second file leaving the first untouched, empty old refusing to clobber, and a created file removed after a failing test. cargo test -p susi-gawd patch_cycle (7 passed) and cargo clippy -p susi-gawd --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

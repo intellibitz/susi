@@ -75,6 +75,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 8. **Governance-first** — Safety/Security before parallel fleet.
 9. **Pluggable** — `CapabilityRegistry` + extension packs; managed catalogs (`models` / `frontier` / `openweight` / `agents` / `frameworks` / `mcp` / `openrouter`).
 10. **Sandbox** — Wasmer for Wasm; Docker `sandbox_exec` when available.
+    Self-patch cycles (`apply_patch_cycle`) are all-or-nothing: every file is
+    checked before any write, and write, spawn, or test failure rolls back
+    through one transaction snapshot.
 11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
 12. **Reflexes** — Wasm reflexes under the data dir; automatic native
     distillation fails closed on unreadable staging/configuration, training
