@@ -104,6 +104,11 @@ impl SemanticIndex {
     /// Index new content from all known `.susi/` stores and workspace files.
     /// Returns the number of documents added or refreshed.
     pub fn refresh(workspace: &Path) -> EaiResult<usize> {
+        let susi_dir = workspace.join(".susi");
+        fs::create_dir_all(&susi_dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
+        let _refresh_lock =
+            crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "semantic_index")
+                .ok_or_else(|| EaiError::filesystem("semantic index refresh is busy"))?;
         let (index, doc_id, source, content) = Self::open(workspace)?;
         let mut wm = Self::load_watermark(workspace);
         let mut writer = index
@@ -112,7 +117,6 @@ impl SemanticIndex {
         let mut added = 0usize;
 
         // Append-only JSONL stores — index lines beyond the watermark.
-        let susi_dir = workspace.join(".susi");
         for (name, file) in [
             ("memory", "memory.jsonl"),
             ("experience", "reasoning_experience.jsonl"),
@@ -509,6 +513,17 @@ mod tests {
         )
         .unwrap();
         let err = SemanticIndex::ensure_embeddings(&ws).unwrap_err();
+        assert!(err.to_string().contains("busy"), "{err}");
+        let _ = fs::remove_dir_all(&ws);
+    }
+
+    #[test]
+    fn index_refresh_refuses_a_concurrent_watermark_writer() {
+        let ws = temp_workspace("index_lock");
+        let _lock =
+            crate::susi_config::file_lock::FileLock::acquire(&ws.join(".susi"), "semantic_index")
+                .unwrap();
+        let err = SemanticIndex::refresh(&ws).unwrap_err();
         assert!(err.to_string().contains("busy"), "{err}");
         let _ = fs::remove_dir_all(&ws);
     }
