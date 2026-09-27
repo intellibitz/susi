@@ -90,6 +90,9 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
 5. **Glass box** — inspectable traces / blackboard / governance / crown reports (Mandate 26; secrets redacted, not naked).
    The blackboard, governance, and mission-trace files all pass through the
    shared credential redactor and are replaced atomically.
+   Interaction memory (`memory.jsonl`, `reasoning_experience.jsonl`) is
+   redacted the same way; experience entries are labeled by the heuristic
+   that promoted them, not as semantically validated.
    Error metrics are redacted too: credentials in error text (env-held keys,
    bundled token patterns) are masked before `error_metrics.jsonl` records them;
    every writer shares one owner-only, instance-aware sink.

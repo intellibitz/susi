@@ -463,6 +463,15 @@ mod tests {
         SusiMemory::save_interaction(ws, "hello", "world", "test");
         let memory_file = ws.join(".susi/memory.jsonl");
         assert!(memory_file.is_file());
+        SusiMemory::save_interaction(
+            ws,
+            "push with ghp_memoryProbe123",
+            "done using sk-memoryProbe456",
+            "test",
+        );
+        let text = fs::read_to_string(&memory_file).unwrap();
+        assert!(!text.contains("ghp_memoryProbe123"), "{text}");
+        assert!(!text.contains("sk-memoryProbe456"), "{text}");
         let _ = fs::remove_dir_all(ws);
     }
 

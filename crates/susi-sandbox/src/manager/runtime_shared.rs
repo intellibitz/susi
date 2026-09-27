@@ -181,6 +181,11 @@ impl SusiMemory {
         if input.trim().is_empty() || output.trim().is_empty() {
             return;
         }
+        // Both files are indexed and replayed as context: persist them
+        // through the shared credential redactor, never raw.
+        let input = crate::susi_config::redact_credentials(input);
+        let output = crate::susi_config::redact_credentials(output);
+        let (input, output) = (input.as_str(), output.as_str());
 
         let entry = serde_json::json!({
             "intent": input,
@@ -215,7 +220,10 @@ impl SusiMemory {
                 "blackboard_context": "converged",
                 "successful_outcome": output,
                 "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
-                "validation": "STRICT_SEMANTIC_PASS"
+                // What was actually checked: output length and the absence
+                // of configured failure markers (this used to claim a
+                // "STRICT_SEMANTIC_PASS" no code performed).
+                "validation": "HEURISTIC_LENGTH_AND_NO_FAILURE_MARKER"
             });
             // Tail-cap rotation: the file is experience memory, not an
             // archive — past a bound it keeps the most recent entries
