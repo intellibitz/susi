@@ -326,6 +326,21 @@ fn explicit_model_conflict(
     None
 }
 
+fn provider_reset_input(body: &[u8]) -> Result<String, &'static str> {
+    let value: serde_json::Value =
+        serde_json::from_slice(body).map_err(|_| "body must be valid JSON")?;
+    let provider = value
+        .get("provider")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.len() <= 256)
+        .ok_or("body must be {\"provider\": \"<provider id>\"}")?;
+    if !provider.bytes().all(|byte| byte.is_ascii_graphic()) {
+        return Err("provider id must contain printable non-whitespace ASCII");
+    }
+    Ok(provider.to_string())
+}
+
 async fn handle_gemi_request(
     req: Request<Incoming>,
     workspace: Arc<PathBuf>,
@@ -416,6 +431,7 @@ async fn handle_gemi_request(
                     "/context-graph/compact",
                     "/telemetry",
                     "/runtime/placement",
+                    "/runtime/providers/reset",
                     "/runtime/models",
                     "/runtime/models/load",
                     "/runtime/models/unload",
@@ -475,6 +491,22 @@ async fn handle_gemi_request(
             .await
             .unwrap_or_else(|_| json!({ "error": "placement snapshot failed" }));
             Ok(json_response(StatusCode::OK, &payload))
+        }
+        (&Method::POST, "/runtime/providers/reset") => {
+            let provider = match provider_reset_input(&body_bytes) {
+                Ok(provider) => provider,
+                Err(message) => return Ok(api_error(StatusCode::BAD_REQUEST, message)),
+            };
+            let reset_provider = provider.clone();
+            let cleared = tokio::task::spawn_blocking(move || {
+                gemi::ModelManager::clear_provider_cooldown(&reset_provider)
+            })
+            .await
+            .unwrap_or(false);
+            Ok(json_response(
+                StatusCode::OK,
+                &json!({ "provider": provider, "cleared": cleared }),
+            ))
         }
         (&Method::GET, "/v1/models" | "/models") => {
             let ws = (*workspace).clone();
@@ -2009,6 +2041,18 @@ mod tests {
             explicit_model_conflict("openai-gpt", true, None, Some(0.0), true)
                 .is_some_and(|message| message.contains("explicitly free"))
         );
+    }
+
+    #[test]
+    fn provider_reset_body_is_strict_and_bounded() {
+        assert_eq!(
+            provider_reset_input(br#"{"provider":"openai-gpt-4o-mini"}"#).unwrap(),
+            "openai-gpt-4o-mini"
+        );
+        assert!(provider_reset_input(br#"{"provider":""}"#).is_err());
+        assert!(provider_reset_input(br#"{"provider":"bad id"}"#).is_err());
+        assert!(provider_reset_input(br#"{"provider":7}"#).is_err());
+        assert!(provider_reset_input(b"not-json").is_err());
     }
 
     #[test]
