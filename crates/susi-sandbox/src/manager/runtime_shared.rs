@@ -93,15 +93,8 @@ impl SusiAuditLogger {
 
         // Deterministic credential masking (Mandate 10: No Secret Leaks) — every
         // telemetry write funnels through here, so this is the one chokepoint
-        // that guarantees secrets never reach the persistent audit trail. Loads
-        // config and redacts locally (rather than calling into
-        // `gawd::security::SecurityDetector::redact`) so `sandbox` doesn't
-        // depend on `gawd` just to reach a pure text-transform primitive.
-        let global_dir = crate::susi_paths::SusiDirs::config_dir();
-        let secret_patterns = SusiConfig::load(&global_dir)
-            .map(|cfg| cfg.governance().secret_tokens)
-            .unwrap_or_default();
-        let details = crate::susi_error::redact::redact_patterns(&secret_patterns, details);
+        // that guarantees secrets never reach the persistent audit trail.
+        let details = crate::susi_config::redact_credentials(details);
         let details = details.as_str();
 
         tracing::info!(

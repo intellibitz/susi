@@ -260,14 +260,10 @@ impl EvidenceSession {
         }
     }
 
-    /// Default redaction for sessions reconstituted cross-copy: configured
-    /// secret-token patterns, same as the SecurityDetector path.
+    /// Default redaction for sessions reconstituted cross-copy — the shared
+    /// credential redactor, same as the SecurityDetector path.
     fn default_redact(s: &str) -> String {
-        let patterns =
-            crate::susi_config::SusiConfig::load(&crate::susi_paths::SusiDirs::config_dir())
-                .map(|c| c.governance().secret_tokens)
-                .unwrap_or_default();
-        crate::susi_error::redact::redact_patterns(&patterns, s)
+        crate::susi_config::redact_credentials(s)
     }
 
     /// Reconstitute a session handle from another copy's rendezvous file —
