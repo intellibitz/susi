@@ -225,6 +225,28 @@ impl CoreTools {
             .map_err(|error| EaiError::internal(format!("encode placement: {error}")))
     }
 
+    #[tool(
+        name = "inference_reset_provider",
+        description = "Re-admit a repaired inference provider after routing quarantine. Args: {provider: exact provider id}"
+    )]
+    pub fn inference_reset_provider(
+        arg: &serde_json::Value,
+        _workspace: &Path,
+    ) -> EaiResult<String> {
+        let provider = arg
+            .get("provider")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| EaiError::config("provider is required"))?;
+        let cleared = ModelManager::clear_provider_cooldown(provider);
+        serde_json::to_string_pretty(&serde_json::json!({
+            "provider": provider,
+            "cleared": cleared,
+        }))
+        .map_err(|error| EaiError::internal(format!("encode cooldown reset: {error}")))
+    }
+
     #[tool(name = "scout_model", description = "Scout or install model substrate")]
     pub fn scout_model(arg: &serde_json::Value, _workspace: &Path) -> EaiResult<String> {
         let arg_s = arg.as_str().unwrap_or("");
