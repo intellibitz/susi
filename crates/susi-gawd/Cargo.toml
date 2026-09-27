@@ -8,6 +8,7 @@ build = "../susi-gawd-agents/build.rs"
 [dependencies]
 susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
+susi-gawd-agents = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }

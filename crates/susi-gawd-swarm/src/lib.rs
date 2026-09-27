@@ -15,8 +15,6 @@
 //!
 //! Depends on [`susi_gawd_agents`] only. Must not import `ra2a` or `susi-gawd`.
 
-extern crate self as susi_gawd_agents;
-
 pub use susi_error;
 
 pub use susi_config;
@@ -32,39 +30,10 @@ pub mod dag;
 pub mod host_hooks;
 pub mod peer_registry;
 
-#[path = "../../susi-gawd-agents/src/accountability.rs"]
-pub mod accountability;
-#[path = "../../susi-gawd-agents/src/admin_hooks.rs"]
-pub mod admin_hooks;
-#[path = "../../susi-gawd-agents/src/agents/mod.rs"]
-pub mod agents;
-#[path = "../../susi-gawd-agents/src/axiom.rs"]
-pub mod axiom;
-#[path = "../../susi-gawd-agents/src/brain.rs"]
-pub mod brain;
-#[path = "../../susi-gawd-agents/src/dag_hooks.rs"]
-pub mod dag_hooks;
-#[path = "../../susi-gawd-agents/src/external_peers.rs"]
-pub mod external_peers;
-#[path = "../../susi-gawd-agents/src/goal_shape.rs"]
-pub mod goal_shape;
-#[path = "../../susi-gawd-agents/src/live_search.rs"]
-pub mod live_search;
-#[path = "../../susi-gawd-agents/src/pkb.rs"]
-pub mod pkb;
-#[path = "../../susi-gawd-agents/src/safety.rs"]
-pub mod safety;
-#[path = "../../susi-gawd-agents/src/scheduler.rs"]
-pub mod scheduler;
-#[path = "../../susi-gawd-agents/src/security.rs"]
-pub mod security;
-#[path = "../../susi-gawd-agents/src/self_core.rs"]
-pub mod self_core;
-#[path = "../../susi-gawd-agents/src/system_observe.rs"]
-pub mod system_observe;
-#[cfg(test)]
-#[path = "../../susi-gawd-agents/src/test_plane.rs"]
-pub(crate) mod test_plane;
+pub use susi_gawd_agents::{
+    accountability, admin_hooks, agents, axiom, brain, dag_hooks, external_peers, goal_shape, pkb,
+    safety, scheduler, security, self_core, system_observe,
+};
 
 pub use agents::{GawdAgentFleet, GawdAgentInfo, HighDensityContextStore};
 pub use axiom::AxiomSubstrate;

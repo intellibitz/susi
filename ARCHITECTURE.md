@@ -77,9 +77,9 @@ never consume an unterminated source tail.
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client` | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (Candle, HTTP, MCP-as-provider) | providers, engines, `plane_handler` | locally compiled model-tier source + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client` | peer feature planes | agents | mission-local | yes |
-| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | locally compiled agents-tier source + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
-| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | locally compiled agents-tier source + `susi-core` | peer feature planes | transport | tasks | yes |
-| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled agents/swarm/a2a source + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client | no | genome/reflexes | yes |
+| `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes | no | blackboard | yes |
+| `susi-gawd-a2a` | A2A (`ra2a`) wire | task store, executor | `susi-gawd-agents` + `susi-core` | peer feature planes | transport | tasks | yes |
+| `susi-gawd` | Host facade: admin, evolution, reflex synth | re-exports + host modules | locally compiled swarm/a2a source + `susi-gawd-agents` + `susi-abi` + `susi-core` + `susi-native-client` | peer feature planes except the dedicated native client | no | genome/reflexes | yes |
 | `susi-gmcp` | MCP HTTP/stdio server + core tools | MCP surfaces, `plane_handler` via tools/agents/gawd bus | `susi-abi`; `susi-core` (plane_bus/intent_bus/agent_tx/mac over the bus rendezvous); `susi-config`; `susi-sandbox-client`, rmcp | peer feature planes; swarm/admin via `plane_bus::gawd` / `gawd_hooks` | MCP servers | sessions | yes |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
 | `susi-daemon` | Persistent host: lock, ports, composition, rediscovery | `SusiDaemon`, `composition`, `gmcp_bootstrap` | **all** feature crates + `susi-abi` + server + tools + agents (composition root) | — | no | lock/PID | yes |
@@ -117,7 +117,6 @@ Shared code that is still compiled into each consumer through `#[path]`
 
 | Canonical source | What it is | Mounted by |
 |---|---|---|
-| `crates/susi-gawd-agents/src/*.rs` | fleet, safety/security, peers | `susi-gawd`, `susi-gawd-swarm`, `susi-gawd-a2a` |
 | `crates/susi-gawd-{swarm,a2a}/src/*.rs` | AMA/DAG/cloud recovery and the A2A wire | `susi-gawd` |
 | `crates/susi-gemi-models/src/*.rs` | model select / provision / catalogs | `susi-gemi` |
 | `crates/susi-server/src/dual_transport.rs` | TLS-sniffing plain/TLS listener transport | GMCP, A2A |
@@ -134,6 +133,12 @@ declare `susi-abi = { workspace = true }` and re-export it
 (`pub use susi_abi;`); the five cell binaries enable the `cell-server`
 feature for the shared TCP loop. `susi_abi_is_never_source_mounted_into_a_consumer`
 makes a regression of the old `#[path]` / `embedded.rs` mounts a hard failure.
+
+**`susi-gawd-agents` is a Cargo dependency, not a mount.** The swarm, A2A
+and host crates declare `susi-gawd-agents = { workspace = true }` and
+re-export the fleet/detector modules so `crate::safety` / `crate::agents`
+keep resolving; `susi_gawd_agents_is_never_source_mounted_into_a_consumer`
+makes a remount a hard failure.
 
 One copy per *process*, not per crate: the daemon and each cell binary
 (`susi-gawd`, `susi-gemi`, `susi-gmcp`, `susi-dsh-cell`,

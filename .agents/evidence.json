@@ -2680,6 +2680,16 @@
       "milestone": "Dedup pass step 8: `susi-abi` becomes a real crate dependency instead of a duplicated source mount. Five libraries (susi-core, susi-daemon, susi-gawd, susi-gemi, susi-gmcp) compiled a private copy of the ABI via `#[path = \"../../susi-abi/src/lib.rs\"]`, two cell binaries remounted the same tree through `embedded.rs`, and all five cell binaries remounted `cell_server.rs`. Each consumer now declares `susi-abi = { workspace = true }` and re-exports it (`pub use susi_abi;`); the five cell binaries enable the `cell-server` feature so the shared TCP loop (framing, token auth, trust scoring, heartbeat) is compiled once inside the ABI crate rather than five times. `crates/susi-abi/src/embedded.rs` was deleted. New regression test `susi_abi_is_never_source_mounted_into_a_consumer` fails the build if any crate re-mounts ABI source. Cross-crate `#[path]` mounts: 84 → 72 (ceiling lowered). Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings passed (clippy with --all-targets also type-checks test code); the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-gawd-agents single-owner conversion",
+        "ref": "file://crates/susi-gawd-agents/src/lib.rs"
+      },
+      "id": "EV-2022928-274",
+      "milestone": "Dedup pass step 9: `susi-gawd-agents` becomes a real crate dependency instead of a duplicated source mount. Three consumers (susi-gawd, susi-gawd-swarm, susi-gawd-a2a) each remounted 16 agents-tier files (`accountability`, `admin_hooks`, `agents`, `axiom`, `brain`, `dag_hooks`, `external_peers`, `goal_shape`, `live_search`, `pkb`, `safety`, `scheduler`, `security`, `self_core`, `system_observe`, plus `test_plane` under cfg(test)) via `#[path]`, and aliased the current crate as `susi_gawd_agents` so those files compiled in the consumer. Each consumer now declares `susi-gawd-agents = { workspace = true }` and re-exports the public modules, so `crate::safety` / `susi_gawd_agents::agents` resolve to the one compiled copy. The `extern crate self as susi_gawd_agents` aliases were removed. New regression test `susi_gawd_agents_is_never_source_mounted_into_a_consumer` fails the build if any crate re-mounts agents source. Cross-crate `#[path]` mounts: 72 → 24 (ceiling lowered). Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings passed (clippy with --all-targets also type-checks test code); the test suite was NOT executed for this step, deferred by the user's direction.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
