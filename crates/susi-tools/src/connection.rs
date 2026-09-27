@@ -127,7 +127,7 @@ pub(crate) fn call_blocking_result(
             .and_then(|r| r);
         let _ = send.send(result);
     });
-    match receive.recv_timeout(lease + Duration::from_secs(1)) {
+    match receive.recv_timeout(lease.saturating_add(Duration::from_secs(1))) {
         Ok(result) => result,
         Err(error) => Err(error.to_string()),
     }
@@ -152,7 +152,7 @@ pub(crate) fn list_tools_blocking(
             .and_then(|r| r);
         let _ = send.send(result);
     });
-    match receive.recv_timeout(lease + Duration::from_secs(1)) {
+    match receive.recv_timeout(lease.saturating_add(Duration::from_secs(1))) {
         Ok(Ok(tools)) => Ok(tools),
         Ok(Err(e)) => Err(e),
         Err(e) => Err(e.to_string()),

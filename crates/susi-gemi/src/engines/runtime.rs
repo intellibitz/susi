@@ -532,11 +532,14 @@ impl GemiEngine {
         });
 
         let wait_secs = cfg.model_provisioning_wait_secs();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(wait_secs);
+        // checked_add: a huge configured wait means "no deadline", not an
+        // overflow panic (which aborts the daemon under panic = "abort").
+        let deadline =
+            std::time::Instant::now().checked_add(std::time::Duration::from_secs(wait_secs));
         let poll_interval = std::time::Duration::from_secs(10);
         let mut last_reported_pct: i64 = -1;
 
-        while std::time::Instant::now() < deadline {
+        while deadline.is_none_or(|d| std::time::Instant::now() < d) {
             if let Ok(Err(error)) = provisioning.try_recv() {
                 callback(format!("[SUSI] Provisioning unavailable: {error}\n"));
                 return None;
