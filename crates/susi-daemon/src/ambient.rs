@@ -176,14 +176,13 @@ fn scan_with_state(workspace: &Path, state: &mut HashMap<String, u64>) -> usize 
             }
             state.insert(rel.clone(), mtime);
             changed += 1;
-            // The preview is persisted in the context graph: redact it
-            // (a changed config.json or notes file can hold a key).
-            let raw: String = std::fs::read_to_string(&path)
+            // Redacted by the context graph on record (one redaction point
+            // for every external-context adapter).
+            let preview: String = std::fs::read_to_string(&path)
                 .unwrap_or_default()
                 .chars()
                 .take(240)
                 .collect();
-            let preview = crate::susi_config::redact_credentials(&raw);
             ContextGraph::global().record_external_context(
                 "ambient_fs",
                 &format!("file changed: {rel}"),

@@ -2530,6 +2530,16 @@
       "milestone": "RSI iteration 92/100: the ambient file indexer redacts what it records and persists its scan state atomically. For every changed .rs/.md/.txt/.toml/.json/.py/.ts file in a watched workspace, scan_with_state recorded the file's first 240 characters as an external_context node in the context graph, which is persisted to disk and queryable by agents; nothing redacted it, so a key in a changed config.json or notes file was copied into the graph. save_scan_state rewrote the host-wide ambient_scan_state.json (per-workspace mtimes) with an unchecked plain fs::write; a torn write read back as empty, resetting every workspace's state so the next pass re-recorded whole trees, the flood this state exists to prevent. Previews now pass through susi_config::redact_credentials and the state file is replaced through atomic_write_bytes. A test indexes a file containing a ghp_ token and proves the graph event names the file but not the token. cargo test -p susi-daemon ambient (2 passed) and cargo clippy --workspace --all-targets -D warnings pass. Also recorded: the iteration-87 workspace checkpoint finished with 0 failures across 112 test-result lines (earlier runs showed 114; runs overlapped with concurrent builds, so a clean uncontended run is scheduled for the final iteration).",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "ContextGraph::record_agent_observation / record_external_context / redact_json",
+        "ref": "symbol://redact_json"
+      },
+      "id": "EV-2022927-259",
+      "milestone": "RSI iteration 93/100: the context graph redacts at the point of record, for every recorder. record_tool_call already stored only an argument digest, but record_agent_observation persisted 200- and 500-character excerpts of raw agent output as node label and summary, and record_external_context stored adapter payloads verbatim (ambient file previews, patch-cycle descriptions and outcomes, telemetry snapshots) plus a free-text label. The graph is persisted to context_graph.jsonl and queryable by agents and operators. Observation text and external-context labels now pass through susi_config::redact_credentials, and payloads through a new redact_json that redacts every string leaf while keeping structure and non-string values. The iteration-92 preview redaction in the ambient indexer is removed as redundant (one redaction point instead of two); its test still passes through the graph. A new test records an observation with a ghp_ token and an external context whose label holds an sk- key and whose nested payload array holds an xoxb- token, and proves none reaches the stored nodes while numeric fields survive. cargo test -p susi-core context_graph (10), -p susi-daemon ambient (2), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -567,6 +567,9 @@ impl ContextGraph {
         observation: &str,
         workspace: &Path,
     ) -> NodeId {
+        // The graph is persisted and queryable by agents: agent output is
+        // stored only through the shared credential redactor.
+        let observation = &crate::susi_config::redact_credentials(observation);
         let agent_id = NodeId::stable("agent", agent_name);
         self.record_node(Node {
             id: agent_id.clone(),
@@ -642,6 +645,11 @@ impl ContextGraph {
         workspace: Option<&Path>,
         user: Option<&str>,
     ) -> NodeId {
+        // Payloads arrive from adapters (file previews, patch cycles,
+        // telemetry) and are persisted verbatim: redact them here, once,
+        // for every recorder.
+        let payload = &redact_json(payload);
+        let label = &crate::susi_config::redact_credentials(label);
         let source_id = NodeId::stable("external_source", source);
         self.record_node(Node {
             id: source_id.clone(),
@@ -1041,6 +1049,27 @@ impl ContextGraph {
     }
 }
 
+/// `value` with every string leaf passed through the shared credential
+/// redactor (structure and non-string leaves unchanged).
+fn redact_json(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(s) => {
+            serde_json::Value::String(crate::susi_config::redact_credentials(s))
+        }
+        serde_json::Value::Array(items) => {
+            serde_json::Value::Array(items.iter().map(redact_json).collect())
+        }
+        serde_json::Value::Object(map) => serde_json::Value::Object(
+            map.iter()
+                .map(|(k, v)| (k.clone(), redact_json(v)))
+                .collect(),
+        ),
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            value.clone()
+        }
+    }
+}
+
 /// Hard bound on resident context-graph nodes.
 const MAX_GRAPH_NODES: usize = 32_000;
 /// Eviction target once the bound is crossed (1/16 headroom), so the
@@ -1054,6 +1083,35 @@ fn sha256_hex(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recorded_observations_and_payloads_are_redacted() {
+        let g = ContextGraph::new();
+        let ws = std::env::temp_dir();
+        g.record_agent_observation(Some("m"), "Scout", "found ghp_graphProbe111 in env", &ws);
+        g.record_external_context(
+            "probe",
+            "label with sk-graphProbe222",
+            &serde_json::json!({ "nested": ["xoxb-graphProbe333"], "n": 1 }),
+            Some(&ws),
+            None,
+        );
+        let dump = serde_json::to_string(
+            &g.nodes
+                .iter()
+                .map(|n| n.value().clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        for secret in [
+            "ghp_graphProbe111",
+            "sk-graphProbe222",
+            "xoxb-graphProbe333",
+        ] {
+            assert!(!dump.contains(secret), "{secret} leaked: {dump}");
+        }
+        assert!(dump.contains("\"n\":1"));
+    }
 
     #[test]
     fn stable_ids_are_deterministic() {

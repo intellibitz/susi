@@ -93,7 +93,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    Interaction memory (`memory.jsonl`, `reasoning_experience.jsonl`) is
    redacted the same way; experience entries are labeled by the heuristic
    that promoted them, not as semantically validated.
-   Ambient file previews recorded in the context graph are redacted too.
+   The context graph itself redacts every observation, label, and payload
+   string on record, so no adapter can persist a raw credential there.
    Error metrics are redacted too: credentials in error text (env-held keys,
    bundled token patterns) are masked before `error_metrics.jsonl` records them;
    every writer shares one owner-only, instance-aware sink.
