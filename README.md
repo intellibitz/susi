@@ -108,6 +108,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    spelling (`rm -fr /`, `rm -r -f ~`, …); content checks stay pattern-based.
    The security veto rejects any action carrying the value of a credential
    the host holds (`*_API_KEY` / `*_TOKEN` / `*_SECRET`), whatever its prefix.
+   Secret patterns match only at a token start, so words like `risk-assessment`
+   are neither vetoed nor redacted.
    The privacy posture fails closed: a damaged `privacy_mode` file enforces
    `local_only` instead of silently reading as `balanced`.
    Under `local_only`, the HTTP inference provider itself refuses to send

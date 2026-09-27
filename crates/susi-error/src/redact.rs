@@ -4,7 +4,8 @@
 //! file through `crates/susi-core/src/susi_error.rs`.
 
 /// Replaces every occurrence of each pattern (plus trailing token-shaped
-/// characters `[A-Za-z0-9_-]`) in `text` with `[REDACTED]`.
+/// characters `[A-Za-z0-9_-]`) in `text` with `[REDACTED]`. An occurrence
+/// counts only where a token can start (see [`secret_match_starts`]).
 #[must_use]
 pub fn redact_patterns(patterns: &[String], text: &str) -> String {
     let mut redacted = text.to_string();
@@ -16,19 +17,50 @@ pub fn redact_patterns(patterns: &[String], text: &str) -> String {
     redacted
 }
 
+/// Byte offsets where `pattern` begins a token in `text`: the preceding
+/// character (if any) is not ASCII alphanumeric. A bare substring match
+/// flagged ordinary words — `risk-`, `task-`, `disk-` all contain `sk-` —
+/// so the governance veto refused goals like "write a risk-assessment" and
+/// the redactor rewrote "task-queue" as "ta[REDACTED]".
+pub fn secret_match_starts<'a>(
+    text: &'a str,
+    pattern: &'a str,
+) -> impl Iterator<Item = usize> + 'a {
+    text.match_indices(pattern).filter_map(move |(i, _)| {
+        let starts_token = text[..i]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !c.is_ascii_alphanumeric());
+        starts_token.then_some(i)
+    })
+}
+
+/// Whether any configured pattern begins a token in `text`.
+#[must_use]
+pub fn contains_secret_pattern(patterns: &[String], text: &str) -> Option<String> {
+    patterns
+        .iter()
+        .filter(|p| !p.is_empty())
+        .find(|p| secret_match_starts(text, p).next().is_some())
+        .cloned()
+}
+
 fn redact_one(text: &str, pattern: &str) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(i) = rest.find(pattern) {
-        out.push_str(&rest[..i]);
-        let tail = &rest[i + pattern.len()..];
+    let mut copied = 0;
+    for start in secret_match_starts(text, pattern).collect::<Vec<_>>() {
+        if start < copied {
+            continue; // inside a token already redacted
+        }
+        out.push_str(&text[copied..start]);
+        let tail = &text[start + pattern.len()..];
         let end = tail
             .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
             .unwrap_or(tail.len());
         out.push_str("[REDACTED]");
-        rest = &tail[end..];
+        copied = start + pattern.len() + end;
     }
-    out.push_str(rest);
+    out.push_str(&text[copied..]);
     out
 }
 

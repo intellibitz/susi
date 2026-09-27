@@ -320,7 +320,11 @@ impl BloatAuditor {
                 }
 
                 for pattern in secret_patterns {
-                    if !pattern.is_empty() && line.contains(pattern.as_str()) {
+                    if !pattern.is_empty()
+                        && crate::susi_error::redact::secret_match_starts(line, pattern)
+                            .next()
+                            .is_some()
+                    {
                         secret_pattern_hits += 1;
                     }
                 }

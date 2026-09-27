@@ -15,6 +15,23 @@ mod redact_tests {
     }
 
     #[test]
+    fn ordinary_words_containing_a_prefix_are_not_secrets() {
+        let patterns = vec!["sk-".to_string(), "AIza".to_string()];
+        let text = "write a risk-assessment for the task-queue on disk-backed storage";
+        assert_eq!(redact_patterns(&patterns, text), text);
+        assert_eq!(contains_secret_pattern(&patterns, text), None);
+        let leaked = "key=sk-live123 and (AIzaSyX1)";
+        assert_eq!(
+            redact_patterns(&patterns, leaked),
+            "key=[REDACTED] and ([REDACTED])"
+        );
+        assert_eq!(
+            contains_secret_pattern(&patterns, leaked),
+            Some("sk-".into())
+        );
+    }
+
+    #[test]
     fn test_empty_pattern_is_skipped() {
         let patterns = vec![String::new(), "secret".to_string()];
         let redacted = redact_patterns(&patterns, "the secret123 value");

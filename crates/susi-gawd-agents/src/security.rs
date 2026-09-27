@@ -16,14 +16,15 @@ impl SecurityDetector {
 
         let lower_arg = arg.to_lowercase();
 
-        // 1. Secret Leak Check (Dynamic)
-        for pattern in &patterns.secret_tokens {
-            if arg.contains(pattern) {
-                return Err(EaiError::governance(format!(
-                    "Suspicious secret or API key pattern detected ('{}')",
-                    pattern
-                )));
-            }
+        // 1. Secret Leak Check (Dynamic) — token-start matches only, so a
+        // goal mentioning a "risk-assessment" is not a leaked `sk-` key.
+        if let Some(pattern) =
+            crate::susi_error::redact::contains_secret_pattern(&patterns.secret_tokens, arg)
+        {
+            return Err(EaiError::governance(format!(
+                "Suspicious secret or API key pattern detected ('{}')",
+                pattern
+            )));
         }
 
         // 2. Exfiltration Check (Dynamic)
@@ -73,6 +74,14 @@ mod tests {
     fn test_security_audit_safe_arg() {
         let ws = Path::new(".");
         assert!(SecurityDetector::audit_action("status", "cargo build", ws).is_ok());
+    }
+
+    #[test]
+    fn ordinary_hyphenated_words_are_not_vetoed_as_secrets() {
+        let ws = Path::new(".");
+        assert!(
+            SecurityDetector::audit_action("SUSI_SOLVE", "write a risk-assessment doc", ws).is_ok()
+        );
     }
 
     #[test]
