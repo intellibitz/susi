@@ -205,7 +205,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Plugin protocol engines | **~15** inference endpoints (+ discovered local ports) |
 | Plugin protocol models | **~10** coding + **5** frontier + **5** open-weight + OpenRouter routes + **~50** catalog + live `/models`; local GGUF / Ollama |
 | Plugin protocol MCP | **~22** leading servers (top: Filesystem, GitHub, Context7, Playwright, Sentry) + **~100** scout packages |
-| Bloat audit | `susi bloat-audit` scans every non-test Rust source in the workspace; last measured: 407 files, ~107k lines, 9 `unwrap`, 22 `expect`, 18 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
+| Bloat audit | `susi bloat-audit` runs the AST auditor directly (no model narration) and scans every non-test Rust source in the workspace; last measured: 407 files, ~107k lines, 9 `unwrap`, 22 `expect`, 18 `unsafe` blocks — each panic-path `#[allow]` carries a written justification (architecture test) |
 | Sovereign dashboard | `susi sovereign-dashboard` counts audited activity by its real event type (no invented self-heal/distillation counters) |
 | Audit commands | `susi audit` / `susi admin audit` run the static compliance audit; `admin verify` checks version alignment; `admin lint` / `admin audit-deps` run `cargo clippy` / `cargo audit` directly — no model narration |
 | Cleanup | `susi os clean` (alias `susi os-clean`) removes only SUSI-owned residue: pre-cap rotated metrics, a stale flat audit log, and oversized stray binaries |

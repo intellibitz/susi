@@ -183,18 +183,32 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 Err(e) => eprintln!("[SUSI] Failed to generate substrate report: {}", e),
             }
         }
-        Commands::BloatAudit => {
-            let answer = ama.solve_clean("bloat_audit", cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
+        // The AST auditor itself, not a swarm mission asked to "bloat_audit"
+        // (which narrated a report instead of printing the auditor's).
+        Commands::BloatAudit => match susi_gawd::bloat_audit::BloatAuditor::audit_workspace(cwd) {
+            Ok(report) => println!(
+                "{}",
+                susi_gawd::bloat_audit::BloatAuditor::render_report(&report)
+            ),
+            Err(e) => {
+                eprintln!("Bloat audit failed: {}", e);
+                std::process::exit(1);
+            }
+        },
         Commands::SelectModel { model } => {
             let intent = cfg.admin_pulses().select_model_pulse.replace("{}", &model);
             let answer = ama.solve_clean(&intent, cwd, SUSI_VERSION);
             println!("{}", answer);
         }
+        // The scanner itself, not a swarm mission asked to scan.
         Commands::DeepScan => {
-            let answer = ama.solve_clean(&cfg.admin_pulses().deep_scan_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
+            match susi_gemi::models::ModelManager::deep_scan_home_and_register(global_dir) {
+                Ok(text) => println!("{}", text),
+                Err(e) => {
+                    eprintln!("Deep scan failed: {}", e);
+                    std::process::exit(1);
+                }
+            }
         }
         Commands::McpScout => {
             let answer = ama.solve_clean(&cfg.admin_pulses().mcp_scout_pulse, cwd, SUSI_VERSION);

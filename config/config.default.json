@@ -242,7 +242,6 @@
     }
   ],
   "admin_pulses": {
-    "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
     "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
     "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
     "select_model_pulse": "admin pulse: select and override active model substrate to {}"
