@@ -2600,11 +2600,21 @@
       "milestone": "RSI iteration 99/100: a third unreachable-daemon deletion batch removes eight sandbox resource sketches with zero inbound references: `gc`, `gpu_scheduler`, `memory_quota`, `rate_limit`, `ring_buffer`, `sandbox_network`, `scratchfs`, and `wasm_gas`. Each described cell memory, VRAM, network, scratch space, rate, IPC, or WASM gas control, and each was exercised only by tests in its own file. A repository-wide path-reference audit found no caller outside the `lib.rs` module declaration. This removes 880 more source lines and reduces the daemon surface from 104 to 96 modules while preserving the same 31 production-reachable modules. The compiled-only count and ratchet ceiling fall from 73 to 65. README, ARCHITECTURE, AGENTS.md, and identity report the reduced surface. Verified by cargo test -p susi-daemon --locked (245 passed), cargo test --test architecture_tests --locked (20 passed; unreachable count is 65), cargo run -p xtask --locked -- verify-architecture, and cargo clippy --workspace --all-targets --locked -- -D warnings.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "repository root hygiene",
+        "ref": "file://.gitignore"
+      },
+      "id": "EV-2022928-266",
+      "milestone": "Dedup pass step 1: removed six tracked scratch artifacts from the repository root that no code, test, script, or document referenced: a 4,506,208-byte compiled `test_verify` binary with its `test_verify.rs` hello-world source, `test_tool.rs` and `test_shlex.py` shlex experiments, their `final_proof.txt` output, and a `bar` file containing `foo`. The untracked empty `{workspace}/.susi` directory (left by an earlier, since-fixed unexpanded sqlite MCP argument) and an ignored `test_run.log` were also deleted locally. No Rust source changed. Verified by cargo fmt --all --check, cargo clippy --workspace --all-targets --locked -- -D warnings (clean), and cargo test --workspace --locked --no-fail-fast (3433 passed; the one failure, susi-gemi-models `download::tests::interrupted_transfer_resumes_and_publishes_atomically`, is a pre-existing full-suite flake that passes 5/5 in isolation).",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
   "id_scheme": "Two independent counters, EV-2022924-* and EV-2022920-*; IDs are not one continuous sequence and are not always in ascending order within the table.",
-  "last_verification": "2026-09-27",
+  "last_verification": "2026-09-28",
   "schema": "susi/evidence/v1",
   "title": "SUSI Evidence Ledger",
   "version": "0.14.1"
