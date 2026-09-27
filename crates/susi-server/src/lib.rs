@@ -308,8 +308,10 @@ fn validated_max_cost(value: Option<f64>) -> Result<f64, &'static str> {
 }
 
 fn explicit_model_conflict(
+    model: &str,
     is_cloud: bool,
     requires: Option<&str>,
+    max_cost: Option<f64>,
     allow_cloud: bool,
 ) -> Option<&'static str> {
     if is_cloud && !allow_cloud {
@@ -317,6 +319,9 @@ fn explicit_model_conflict(
     }
     if !is_cloud && requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
         return Some("the requested local model cannot satisfy susi.requires=vision");
+    }
+    if is_cloud && max_cost == Some(0.0) && !model.to_ascii_lowercase().contains("free") {
+        return Some("the requested cloud model is not an explicitly free route");
     }
     None
 }
@@ -633,8 +638,10 @@ async fn handle_gemi_request(
                     .chain(cooled.iter())
                     .any(|provider| provider == model);
                 if let Some(message) = explicit_model_conflict(
+                    model,
                     is_cloud,
                     completion.requires.as_deref(),
+                    completion.max_cost,
                     completion.allow_cloud,
                 ) {
                     return Ok(api_error(StatusCode::BAD_REQUEST, message));
@@ -1983,15 +1990,25 @@ mod tests {
     #[test]
     fn explicit_models_cannot_bypass_placement_constraints() {
         assert!(
-            explicit_model_conflict(true, None, false)
+            explicit_model_conflict("openai-gpt", true, None, None, false)
                 .is_some_and(|message| message.contains("allow_cloud"))
         );
         assert!(
-            explicit_model_conflict(false, Some("vision"), true)
+            explicit_model_conflict("local", false, Some("vision"), None, true)
                 .is_some_and(|message| message.contains("requires=vision"))
         );
-        assert_eq!(explicit_model_conflict(false, Some("code"), false), None);
-        assert_eq!(explicit_model_conflict(true, Some("vision"), true), None);
+        assert_eq!(
+            explicit_model_conflict("local", false, Some("code"), Some(0.0), false),
+            None
+        );
+        assert_eq!(
+            explicit_model_conflict("openrouter-free", true, Some("vision"), Some(0.0), true),
+            None
+        );
+        assert!(
+            explicit_model_conflict("openai-gpt", true, None, Some(0.0), true)
+                .is_some_and(|message| message.contains("explicitly free"))
+        );
     }
 
     #[test]
