@@ -691,14 +691,23 @@ async fn handle_gemi_request(
                 ) {
                     return Ok(api_error(StatusCode::BAD_REQUEST, message));
                 }
-                json!({
-                    "target": "explicit",
-                    "provider": model,
-                    "reason": "caller pinned model",
-                    "requires": completion.requires.as_deref(),
-                    "max_cost": completion.max_cost,
-                    "allow_cloud": completion.allow_cloud,
-                })
+                let mut decision = gemi::ModelManager::placement_with_cloud(
+                    completion.requires.as_deref(),
+                    completion.max_cost,
+                    completion.allow_cloud,
+                );
+                if decision.get("contract").is_none() {
+                    return Ok(api_error(
+                        StatusCode::BAD_GATEWAY,
+                        "placement plane returned no versioned contract",
+                    ));
+                }
+                if let Some(object) = decision.as_object_mut() {
+                    object.insert("target".to_string(), json!("explicit"));
+                    object.insert("provider".to_string(), json!(model));
+                    object.insert("reason".to_string(), json!("caller pinned model"));
+                }
+                decision
             } else {
                 gemi::ModelManager::placement_with_cloud(
                     completion.requires.as_deref(),
