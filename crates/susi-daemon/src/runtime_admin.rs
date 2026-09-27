@@ -233,11 +233,7 @@ impl SusiRuntimeAdmin {
 
         // 1. Hardware Saturation Audit
         if profile.acceleration_active {
-            SusiAuditLogger::log_event(
-                workspace,
-                "SUBSTRATE_AUDIT",
-                "GPU Acceleration Verified Optimal.",
-            );
+            SusiAuditLogger::log_event(workspace, "SUBSTRATE_AUDIT", "GPU acceleration active.");
         } else if profile.ram_gb >= 16 {
             SusiAuditLogger::log_event(
                 workspace,

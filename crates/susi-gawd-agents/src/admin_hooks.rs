@@ -67,7 +67,10 @@ impl AdminHooks for NoOpAdminHooks {
         )
     }
     fn perform_autonomous_drift_audit(&self, _workspace: &Path) -> EaiResult<String> {
-        Ok("Substrate drift audit nominal (host hooks unwired).".to_string())
+        Ok(
+            "[ADMIN_UNWIRED] perform_autonomous_drift_audit: susi_gawd_agents::admin_hooks::init was never called."
+                .to_string(),
+        )
     }
     fn apply_patch_cycle(
         &self,
