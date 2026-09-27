@@ -1580,6 +1580,16 @@
       "milestone": "SUSI OS hardening steps 75-90 (commits 944b3815..c500f943). Network availability: streamable-HTTP MCP connect is bounded; plane-bus, GEMI REST, and GMCP connections are capped; silent transport handshakes and slow request headers time out; the shared bounded HTTP builder serves normal traffic. Process lifecycle: timed-out peer CLIs, readiness probes, hardware/host observations, and cancelled exec_command children are killed and reaped with stdin closed. Policy and truthfulness: IDENTITY describes EvolutionManager as an observer rather than a self-healing writer; exec_command confines paths embedded in option values; local_only explicitly gates every egress-capable tool. Configuration safety: overflowing waits cannot abort the daemon and GMCP permits are clamped. Remote-input memory is bounded for cloud inference, catalogs, Ollama tags, and live search. Placement decisions can be resolved by authenticated id to their signed audit record. Finally, audit-chain appends use the shared cross-process FileLock, preventing concurrent CLI/daemon writers from forking the chain or interleaving JSON. Regression coverage includes silent clients, the bounded connection builder, surviving-child detection, option-path escapes, all egress tools, placement lookup, and a four-process audit append race.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "audit checkpoints / receipt archive / semantic index",
+        "ref": "symbol://verify_chain"
+      },
+      "id": "EV-2022927-164",
+      "milestone": "SUSI OS hardening steps 91-100 (commits 35992526..2c51f9b0). Append-only JSONL producers emit each complete record with one write. Audit verification fails closed on unreadable or non-UTF-8 input; length-bound atomic tip checkpoints detect a log append that survived while its tip update did not, rebuild from the verified log, and prevent the next writer from forking the chain. Receipt archive rotation is cross-process serialized and readers traverse all retained generations oldest-first. Semantic vectors are synced before the atomic watermark advances; embedding and text-index refreshes each have cross-process exclusion; incomplete final JSONL records are neither indexed nor watermarked and become visible after completion. Protocol-knowledge distillation now surfaces directory, serialization, open, and write failures instead of reporting false success. Targeted regression tests and per-crate clippy -D warnings passed for every change.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
