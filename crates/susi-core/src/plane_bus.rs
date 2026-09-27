@@ -356,9 +356,24 @@ pub mod gemi {
         /// The value stays schema-flexible at the kernel boundary while the
         /// owning plane retains the strongly typed policy implementation.
         pub fn placement(requires: Option<&str>, max_cost: Option<f64>) -> Value {
+            Self::placement_with_cloud(requires, max_cost, true)
+        }
+
+        /// Placement with a request-scoped cloud egress decision. This keeps
+        /// privacy intent on the kernel message instead of relying on mutable
+        /// process-wide routing configuration.
+        pub fn placement_with_cloud(
+            requires: Option<&str>,
+            max_cost: Option<f64>,
+            allow_cloud: bool,
+        ) -> Value {
             req_ok(
                 topics::GEMI_ROUTING_PLAN,
-                json!({ "requires": requires, "max_cost": max_cost }),
+                json!({
+                    "requires": requires,
+                    "max_cost": max_cost,
+                    "allow_cloud": allow_cloud,
+                }),
             )
         }
     }
