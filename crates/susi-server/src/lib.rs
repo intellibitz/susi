@@ -742,6 +742,11 @@ async fn handle_gemi_request(
                 .and_then(|value| value.as_str())
                 .unwrap_or("unknown")
                 .to_string();
+            let placement_id = placement
+                .pointer("/contract/decision_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown")
+                .to_string();
             let requested_model = completion.model.clone().or(planned_model);
             // OpenAI contract: an unknown `model` is a 400, not a silent
             // reroute. Known names are honored by the governed pipeline's
@@ -834,6 +839,7 @@ async fn handle_gemi_request(
                     path == "/v1/completions",
                     permit,
                     &placement_target,
+                    &placement_id,
                 ))
             } else {
                 let ws = (*workspace).clone();
@@ -907,7 +913,7 @@ async fn handle_gemi_request(
                 payload["usage"] =
                     estimated_usage(approx_tokens(&trimmed_prompt), approx_tokens(&body_text));
                 let mut response = json_response(StatusCode::OK, &payload);
-                add_placement_header(&mut response, &placement_target);
+                add_placement_headers(&mut response, &placement_target, &placement_id);
                 Ok(response)
             }
         }
@@ -1250,6 +1256,7 @@ fn build_streaming_response(
     legacy: bool,
     permit: tokio::sync::OwnedSemaphorePermit,
     placement_target: &str,
+    placement_id: &str,
 ) -> Response<BoxBody> {
     let prompt_tokens = approx_tokens(&prompt);
     let rx = completion_stream(
@@ -1298,16 +1305,21 @@ fn build_streaming_response(
                 "failed to build response",
             )
         });
-    add_placement_header(&mut response, placement_target);
+    add_placement_headers(&mut response, placement_target, placement_id);
     response
 }
 
-fn add_placement_header(response: &mut Response<BoxBody>, target: &str) {
-    if let Ok(value) = HeaderValue::from_str(target) {
-        response.headers_mut().insert("X-Susi-Placement", value);
+fn add_placement_headers(response: &mut Response<BoxBody>, target: &str, decision_id: &str) {
+    let target = HeaderValue::from_str(target);
+    let decision_id = HeaderValue::from_str(decision_id);
+    if let (Ok(target), Ok(decision_id)) = (target, decision_id) {
+        response.headers_mut().insert("X-Susi-Placement", target);
+        response
+            .headers_mut()
+            .insert("X-Susi-Placement-Id", decision_id);
         response.headers_mut().insert(
             "Access-Control-Expose-Headers",
-            HeaderValue::from_static("X-Susi-Placement"),
+            HeaderValue::from_static("X-Susi-Placement, X-Susi-Placement-Id"),
         );
     }
 }
@@ -2024,7 +2036,7 @@ mod tests {
     #[test]
     fn placement_header_exposes_safe_target() {
         let mut response = json_response(StatusCode::OK, &json!({}));
-        add_placement_header(&mut response, "cloud");
+        add_placement_headers(&mut response, "cloud", "placement-test-1");
         assert_eq!(
             response
                 .headers()
@@ -2035,9 +2047,16 @@ mod tests {
         assert_eq!(
             response
                 .headers()
+                .get("X-Susi-Placement-Id")
+                .and_then(|value| value.to_str().ok()),
+            Some("placement-test-1")
+        );
+        assert_eq!(
+            response
+                .headers()
                 .get("Access-Control-Expose-Headers")
                 .and_then(|value| value.to_str().ok()),
-            Some("X-Susi-Placement")
+            Some("X-Susi-Placement, X-Susi-Placement-Id")
         );
     }
 
