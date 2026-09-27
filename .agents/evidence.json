@@ -2580,6 +2580,16 @@
       "milestone": "RSI iteration 97/100: six daemon feature sketches that no production path could reach were deleted instead of being kept as implied features. The existing reachability audit classified `bi_export`, `fault_injection`, `marketplace`, `playground`, `simulation`, and `reference_arch` as unreachable; a repository-wide path-reference audit found no external caller, with simulation referenced only by the equally unreachable playground. Their declarations and 404 source lines are removed. The daemon surface is now 113 modules: 31 production-reachable and 82 compiled-only, and the architecture ceiling is lowered from 88 to 82 so none can return unnoticed. README, ARCHITECTURE, AGENTS.md, and identity state the reduced surface. Verified by cargo test -p susi-daemon --locked (259 passed), cargo test --test architecture_tests --locked (20 passed), cargo run -p xtask --locked -- verify-architecture, and cargo clippy --workspace --all-targets --locked -- -D warnings.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "daemon unreachable-module ratchet",
+        "ref": "file://tests/architecture_tests.rs"
+      },
+      "id": "EV-2022928-264",
+      "milestone": "RSI iteration 98/100: a second unreachable-daemon deletion batch removes nine isolated modules with zero inbound production references: `change_gate`, `cron`, `db_index`, `dead_letter`, `failover`, `green_mode`, `metrics_aggregator`, `residency`, and `secret_store`. Their only behavior was exercised by tests inside their own files; no other module or workspace crate addressed them. This removes 343 more source lines and reduces the daemon surface from 113 to 104 modules while preserving the same 31 production-reachable modules. The compiled-only count and ratchet ceiling fall from 82 to 73. README, ARCHITECTURE, AGENTS.md, and identity report the reduced surface. Verified by cargo test -p susi-daemon --locked (256 passed), cargo test --test architecture_tests --locked (20 passed), cargo run -p xtask --locked -- verify-architecture, and cargo clippy --workspace --all-targets --locked -- -D warnings.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

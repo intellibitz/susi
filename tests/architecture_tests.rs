@@ -711,9 +711,9 @@ fn reachability_from_core_stays_downward() {
 // `lib.rs` re-exports; edges are `crate::`/`super::`/`susi_daemon::` paths
 // and brace imports in non-test code. The 2026-09-27 audit found 88 of 119
 // modules unreachable; six isolated feature sketches were removed in the
-// next cleanup pass. The count may only go down.
+// next cleanup passes. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 82;
+const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 73;
 
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
