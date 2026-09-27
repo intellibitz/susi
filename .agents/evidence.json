@@ -2200,6 +2200,16 @@
       "milestone": "RSI iteration 59/100: the Truth pillar's documentation now matches its deliberately lenient behavior (Mandate 1). Two maintainer commits on 2026-09-26 made missing citations non-fatal: e8ed3223 (verify_mission_with_cross_examine returns the answer with a 'No citations found; answer may be unverified' warning when there is nothing to cite) and 6f5bc4d4 (verify_evidence accepts Unverified records). The code comment still said 'Only a live ledger citation answer can pass here', verify_evidence was still described as the primary verification entrypoint with Ok implying verified, README's pillar read 'absolute sources only', and the identity pillar implied the same. Traced the full path to confirm what actually holds: EvidenceSession::verify_answer still hard-fails uncited narrative whenever the mission captured citable receipts (the error the AMA's auto-citation fallback catches), so the warning path applies only when a mission has nothing to cite; accountability::is_usable does not treat the warning as failure, so such answers complete. The behavior is kept as the maintainer chose; the two doc comments, README pillar 1, and identity pillar 1 now state it precisely. No code behavior changed; cargo fmt --check passes.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "HttpProvider::generate / embed / refuse_off_host_under_local_only",
+        "ref": "symbol://refuse_off_host_under_local_only"
+      },
+      "id": "EV-2022927-226",
+      "milestone": "RSI iteration 60/100: under local_only, the HTTP inference provider itself refuses to send prompts or embedding text off the host/LAN. local_only enforcement for cloud inference relied on callers: endpoint registration is skipped when the posture is already local_only, and try_providers and a few routing paths drop providers whose names match InferenceRouter::is_cloud_provider_name (vendor substrings or a '-'). A provider registered before an operator switched to local_only in a running daemon, or one named outside that heuristic, reached HttpProvider::generate/embed with no check at all, and embed carries workspace text for the semantic index. The only address-based helper, is_remote_cloud, also counted only https:// non-localhost bases as cloud, so a plain-http internet host did not count as off-host. HttpProvider::generate and embed now call refuse_off_host_under_local_only first: when MacPolicy::blocks_cloud_inference() holds and the endpoint is not on this host or LAN (loopback, RFC1918/unique-local, link-local, localhost/*.localhost/*.local; parsed with url, so localhost.evil.com is remote), the call fails with a [PRIVACY] governance error. Balanced and Open modes, and a local_only host holding a cloud grant, are unchanged. A test classifies six local and five remote bases. cargo test -p susi-gemi (375 passed) and cargo clippy --workspace --all-targets -D warnings pass. The gate composes blocks_cloud_inference (covered by the mac_policy tests) with the tested locality rule; a live local_only switch against a remote endpoint was not exercised.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

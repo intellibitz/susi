@@ -107,6 +107,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    the host holds (`*_API_KEY` / `*_TOKEN` / `*_SECRET`), whatever its prefix.
    The privacy posture fails closed: a damaged `privacy_mode` file enforces
    `local_only` instead of silently reading as `balanced`.
+   Under `local_only`, the HTTP inference provider itself refuses to send
+   prompts or embedding text to any endpoint off the host/LAN.
    Scoped capability grants stop at a path/host boundary: a grant on
    `/srv/ws` never authorizes `/srv/ws2`.
    Local agent messaging (`ipc_send`) is authorized by the default

@@ -83,7 +83,7 @@
     },
     {
       "id": 8,
-      "summary": "Mandate 37; Safety/Security before parallel fleet (`.susi/last_governance.json`). The privacy posture fails closed: a damaged or unreadable `privacy_mode` enforces `local_only`, and mode switches are persisted atomically or reported as failed. Scoped grants cover only their exact resource, an explicit `*` glob, or children at a `/` boundary (`/srv/ws` never covers `/srv/ws2`).",
+      "summary": "Mandate 37; Safety/Security before parallel fleet (`.susi/last_governance.json`). The privacy posture fails closed: a damaged or unreadable `privacy_mode` enforces `local_only`, and mode switches are persisted atomically or reported as failed. Scoped grants cover only their exact resource, an explicit `*` glob, or children at a `/` boundary (`/srv/ws` never covers `/srv/ws2`). Under `local_only`, HTTP inference providers refuse to send prompts or embedding text to any endpoint off the host/LAN, whatever the provider is named.",
       "title": "Governance-first"
     },
     {
