@@ -7,6 +7,7 @@ edition = "2021"
 [dependencies]
 susi-abi = { workspace = true, features = ["cell-server"] }
 susi-core = { workspace = true }
+susi-gemi-models = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }

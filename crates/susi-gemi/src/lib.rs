@@ -25,8 +25,6 @@
 //! Flat module paths (`engine`, `http_provider`, `hardware`, …) remain as
 //! compatibility re-exports for existing call sites.
 
-extern crate self as susi_gemi_models;
-
 pub use susi_abi;
 
 pub use susi_error;
@@ -39,8 +37,7 @@ pub use susi_core;
 
 pub mod engines;
 
-// Models tier is compiled from its canonical source tree without a Cargo edge.
-pub mod models;
+pub use susi_gemi_models as models;
 
 // Cross-cutting surfaces that use both tiers
 pub mod plane_handler;
@@ -62,7 +59,6 @@ pub use engines::{
 };
 
 pub use models::cloud;
-pub(crate) use models::download;
 pub use models::model_cache;
 pub use models::ModelManager;
 pub use models::{

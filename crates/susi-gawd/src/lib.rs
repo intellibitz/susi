@@ -24,9 +24,6 @@
 //! DAG: agents ← swarm, agents ← a2a, all three ← gawd. No cycles.
 //! Flat paths (`agents`, `ama`, `amas`, …) remain as compatibility re-exports.
 
-extern crate self as susi_gawd_a2a;
-extern crate self as susi_gawd_swarm;
-
 pub use susi_abi;
 
 use crate::admin_hooks::AdminHooks;
@@ -42,7 +39,7 @@ pub mod swarm {
     pub use crate::{amas, dag, host_hooks, peer_registry};
 
     pub mod ama {
-        pub use crate::swarm_ama::*;
+        pub use susi_gawd_swarm::ama::*;
     }
 }
 
@@ -64,27 +61,8 @@ pub use susi_gawd_agents::{
     safety, scheduler, security, self_core, system_observe,
 };
 
-#[path = "../../susi-gawd-swarm/src/amas.rs"]
-pub mod amas;
-#[path = "../../susi-gawd-swarm/src/cloud_recovery.rs"]
-pub(crate) mod cloud_recovery;
-#[path = "../../susi-gawd-swarm/src/dag.rs"]
-pub mod dag;
-#[path = "../../susi-gawd-swarm/src/host_hooks.rs"]
-pub mod host_hooks;
-#[path = "../../susi-gawd-swarm/src/peer_registry.rs"]
-pub mod peer_registry;
-#[path = "../../susi-gawd-swarm/src/ama/mod.rs"]
-mod swarm_ama;
-
-#[path = "../../susi-gawd-a2a/src/capabilities.rs"]
-pub mod capabilities;
-#[path = "../../susi-gawd-a2a/src/executor.rs"]
-pub mod executor;
-#[path = "../../susi-gawd-a2a/src/server.rs"]
-pub mod server;
-#[path = "../../susi-gawd-a2a/src/task_store.rs"]
-pub mod task_store;
+pub use susi_gawd_a2a::{capabilities, executor, server, task_store};
+pub use susi_gawd_swarm::{amas, dag, host_hooks, peer_registry};
 
 pub mod admin;
 pub mod bloat_audit;
@@ -107,7 +85,7 @@ pub mod ama {
     use super::init_hooks;
     use crate::susi_error::EaiResult;
 
-    pub use crate::swarm_ama::{SusiMissionReport, SusiSwarmReport};
+    pub use susi_gawd_swarm::ama::{SusiMissionReport, SusiSwarmReport};
 
     /// Host-facing AMA constructor. Returns the swarm agent after wiring hooks.
     pub struct SusiMasterAgent;
@@ -115,14 +93,14 @@ pub mod ama {
     impl SusiMasterAgent {
         /// Returns the swarm AMA after wiring host hooks (compat with prior unit-struct API).
         #[allow(clippy::new_ret_no_self)]
-        pub fn new() -> crate::swarm_ama::SusiMasterAgent {
+        pub fn new() -> susi_gawd_swarm::ama::SusiMasterAgent {
             init_hooks();
-            crate::swarm_ama::SusiMasterAgent::new()
+            susi_gawd_swarm::ama::SusiMasterAgent::new()
         }
 
         pub fn sanitize_input(input: &str) -> EaiResult<String> {
             init_hooks();
-            crate::swarm_ama::SusiMasterAgent::sanitize_input(input)
+            susi_gawd_swarm::ama::SusiMasterAgent::sanitize_input(input)
         }
     }
 }

@@ -156,6 +156,49 @@ fn susi_gawd_agents_is_never_source_mounted_into_a_consumer() {
     );
 }
 
+/// Within-plane crates (`susi-gawd-swarm`, `susi-gawd-a2a`, `susi-gemi-models`)
+/// are reached through Cargo edges. Remounting their sources would give the
+/// host crate a second copy of the same types.
+#[test]
+fn within_plane_crates_are_never_source_mounted_into_a_consumer() {
+    let crates = workspace_root().join("crates");
+    let mut offenders = Vec::new();
+    let mut pending = vec![crates.clone()];
+    let banned = [
+        "#[path = \"../../susi-gawd-swarm/",
+        "#[path = \"../../susi-gawd-a2a/",
+        "#[path = \"../../susi-gemi-models/",
+    ];
+
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read crate directory") {
+            let path = entry.expect("read crate entry").path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                continue;
+            }
+            let owned = path.starts_with(crates.join("susi-gawd-swarm"))
+                || path.starts_with(crates.join("susi-gawd-a2a"))
+                || path.starts_with(crates.join("susi-gemi-models"));
+            if owned {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read Rust source");
+            if banned.iter().any(|needle| text.contains(needle)) {
+                offenders.push(path);
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "within-plane crates must be reached through a Cargo edge, not a source mount: {offenders:?}"
+    );
+}
+
 #[test]
 fn checked_in_rust_implementations_are_not_byte_duplicates() {
     let root = workspace_root();
