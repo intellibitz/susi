@@ -242,15 +242,10 @@
     }
   ],
   "admin_pulses": {
-    "audit_deps_pulse": "admin pulse: run dependency security audit",
-    "audit_pulse": "admin pulse: perform compliance audit and technical verification",
     "deep_scan_pulse": "admin pulse: perform parallel deep-scan of substrate home for local models and register them",
     "install_pulse": "admin pulse: initialize sandboxed .susi environment and provision weights",
-    "lint_pulse": "admin pulse: run linting and static analysis (clippy)",
     "mcp_scout_pulse": "admin pulse: perform autonomous web-scouting of open-source MCP servers and benchmark them",
-    "select_model_pulse": "admin pulse: select and override active model substrate to {}",
-    "uninstall_pulse": "admin pulse: remove and clean up sandboxed .susi environment",
-    "verify_pulse": "admin pulse: verify version alignment across manifest and documents"
+    "select_model_pulse": "admin pulse: select and override active model substrate to {}"
   },
   "intent_classify": {
     "query_exact": [

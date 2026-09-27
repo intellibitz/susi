@@ -510,21 +510,11 @@ pub struct AdminPulsesConfig {
     #[serde(default)]
     pub install_pulse: String,
     #[serde(default)]
-    pub uninstall_pulse: String,
-    #[serde(default)]
     pub select_model_pulse: String,
     #[serde(default)]
     pub deep_scan_pulse: String,
     #[serde(default)]
     pub mcp_scout_pulse: String,
-    #[serde(default)]
-    pub audit_pulse: String,
-    #[serde(default)]
-    pub verify_pulse: String,
-    #[serde(default)]
-    pub lint_pulse: String,
-    #[serde(default)]
-    pub audit_deps_pulse: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

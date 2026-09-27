@@ -2400,6 +2400,16 @@
       "milestone": "RSI iteration 79/100: one OS-clean implementation instead of two. susi os-clean ran HardwareProfiler::execute_os_clean, which removed only an oversized rotated error-metrics file, while susi os clean ran os_cli::clean, which removes that same file plus a stale pre-rotation audit.log and oversized stray binaries in ~/.susi/bin; the two commands promised the same thing ('remove SUSI-owned residue') and did different amounts of it. os-clean now calls os_cli::clean (made pub(crate)) and execute_os_clean is deleted. The 64 MiB metrics rotation cap had been copied into hardware.rs twice beside the shared susi-error sink constant from iteration 40; the vendored error module now exposes sink publicly and the remaining audit uses crate::susi_error::sink::METRICS_CAP_BYTES, leaving one definition. The OS-care report's status for 'nothing to reclaim' is renamed from OPTIMAL to NOTHING_RECLAIMABLE (no consumer matched the old string). cargo test -p susi-gemi-models (259 passed), cargo test --bin susi, and cargo clippy --workspace --all-targets -D warnings pass.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi audit / susi admin verify|lint|audit-deps",
+        "ref": "file://src/cli/admin_cli.rs"
+      },
+      "id": "EV-2022927-246",
+      "milestone": "RSI iteration 80/100: audit and admin commands run deterministic checks and real tools instead of asking the model swarm to narrate them. susi audit ('Perform compliance audit and technical verification') sent the audit_pulse to ama.solve_clean, while susi admin audit already ran the static SusiAdmin::audit_compliance (its own comment: 'Use fast static compliance audit instead of LLM agent swarm'); two commands promised the same audit and one produced model narration, the failure mode the sovereign-dashboard code records as fabricated '100%' health figures. susi admin verify ('Verify version alignment') likewise asked the swarm although SusiAdmin::verify_version_alignment exists, and susi admin lint ('Run clippy') and audit-deps ('Run cargo audit') asked the swarm to run tools and report on them. Now: susi audit calls audit_compliance (same as admin audit); admin verify calls verify_version_alignment and exits non-zero on mismatch; admin lint runs cargo clippy --workspace --all-targets -- -D warnings and admin audit-deps runs cargo audit, with inherited output and the tool's exit status. The now-unread admin pulses (audit_pulse, verify_pulse, lint_pulse, audit_deps_pulse, plus uninstall_pulse, which nothing ever read) are removed from AdminPulses and config.default.json (unknown host keys stay preserved by the struct's flattened registry). cargo test -p susi-config (44), --bin susi, --test architecture_tests (19), and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

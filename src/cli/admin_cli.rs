@@ -8,7 +8,6 @@ use susi::SUSI_VERSION;
 
 pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
     let (cwd, global_dir) = (host.cwd, host.global_dir);
-    let cfg = &host.cfg;
     match subcommand {
         AdminCommands::Sync => {
             match susi_gawd::admin::SusiAdmin::enforce_version_consistency(cwd) {
@@ -39,12 +38,16 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 }
             }
         }
-        AdminCommands::Verify => {
-            let answer = host
-                .ama
-                .solve_clean(&cfg.admin_pulses().verify_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
+        // Deterministic checks and real tools, not model narration: the
+        // swarm used to be asked to "verify", "run clippy", and "run cargo
+        // audit" and would report outcomes nobody measured.
+        AdminCommands::Verify => match susi_gawd::admin::SusiAdmin::verify_version_alignment(cwd) {
+            Ok(()) => println!("Version alignment verified: v{SUSI_VERSION}"),
+            Err(e) => {
+                eprintln!("Version alignment check failed: {}", e);
+                std::process::exit(1);
+            }
+        },
         AdminCommands::Release { cut } => {
             match susi_gawd::admin::SusiAdmin::execute_release(cwd, cut) {
                 Ok(msg) => println!("{}", msg),
@@ -54,18 +57,18 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 }
             }
         }
-        AdminCommands::Lint => {
-            let answer = host
-                .ama
-                .solve_clean(&cfg.admin_pulses().lint_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
-        AdminCommands::AuditDeps => {
-            let answer =
-                host.ama
-                    .solve_clean(&cfg.admin_pulses().audit_deps_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
+        AdminCommands::Lint => run_cargo(
+            cwd,
+            &[
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                "--",
+                "-D",
+                "warnings",
+            ],
+        ),
+        AdminCommands::AuditDeps => run_cargo(cwd, &["audit"]),
         AdminCommands::Reload => match susi_sandbox::manager::SusiConfig::reload(global_dir) {
             Ok(reloaded) => {
                 println!(
@@ -95,5 +98,22 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                 std::process::exit(1);
             }
         },
+    }
+}
+
+/// Run `cargo <args>` in `cwd` with inherited output and exit with its
+/// status, so the operator sees the tool's real verdict.
+fn run_cargo(cwd: &std::path::Path, args: &[&str]) {
+    match std::process::Command::new("cargo")
+        .args(args)
+        .current_dir(cwd)
+        .status()
+    {
+        Ok(status) if status.success() => {}
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(e) => {
+            eprintln!("could not run `cargo {}`: {e}", args.join(" "));
+            std::process::exit(1);
+        }
     }
 }

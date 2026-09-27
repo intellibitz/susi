@@ -264,10 +264,17 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 std::process::exit(1);
             }
         }
-        Commands::Audit => {
-            let answer = ama.solve_clean(&cfg.admin_pulses().audit_pulse, cwd, SUSI_VERSION);
-            println!("{}", answer);
-        }
+        // Same deterministic audit as `susi admin audit`. This used to ask
+        // the swarm to narrate a compliance audit, which a model answers
+        // with unverified figures (the Mandate 2 failure recorded on
+        // SovereignDashboard below).
+        Commands::Audit => match susi_gawd::admin::SusiAdmin::audit_compliance(cwd, Some("push")) {
+            Ok(report) => println!("{}", report),
+            Err(e) => {
+                eprintln!("Compliance audit failed: {}", e);
+                std::process::exit(1);
+            }
+        },
         Commands::Keys { action } => keys_cli::run(action),
         Commands::Admin { subcommand } => admin_cli::run(subcommand, host),
         Commands::VerifyDownloadAgent => {
