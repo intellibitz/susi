@@ -640,6 +640,8 @@ impl MacPolicy {
         "agents_send",       // message to a cloud agent task
         "power_reason",      // delegation to remote MCP servers
         "meta_scout_agents", // capability listing from connected remotes
+        "brave_search",      // web search (query leaves the host)
+        "google_search",     // web search (query leaves the host)
     ];
 
     /// Map a tool name to required (action, resource) pairs.
@@ -963,6 +965,21 @@ mod tests {
         ] {
             assert!(!url_stays_local(remote), "{remote}");
         }
+    }
+
+    #[test]
+    fn web_search_tools_need_egress_but_semantic_search_stays_local() {
+        for tool in ["brave_search", "google_search", "web_search"] {
+            assert_eq!(
+                MacPolicy::requirements_for_tool(tool),
+                vec![(actions::NETWORK_EGRESS, "*")],
+                "{tool}"
+            );
+        }
+        assert_eq!(
+            MacPolicy::requirements_for_tool("semantic_search"),
+            vec![(actions::FILESYSTEM_READ, "*")]
+        );
     }
 
     #[test]
