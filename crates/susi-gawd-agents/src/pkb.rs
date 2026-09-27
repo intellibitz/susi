@@ -15,9 +15,7 @@ impl ProtocolKnowledgeBase {
         metadata: Option<serde_json::Value>,
     ) -> EaiResult<()> {
         let susi_dir = workspace.join(".susi");
-        if !susi_dir.exists() {
-            let _ = std::fs::create_dir_all(&susi_dir);
-        }
+        std::fs::create_dir_all(&susi_dir)?;
         let distillation_file = susi_dir.join("distillation_staged.jsonl");
         let entry = serde_json::json!({
             "intent": intent,
@@ -26,14 +24,14 @@ impl ProtocolKnowledgeBase {
             "performance_metadata": metadata,
         });
 
-        if let Ok(mut f) = std::fs::OpenOptions::new()
+        let mut line = serde_json::to_vec(&entry)?;
+        line.push(b'\n');
+        let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(distillation_file)
-        {
-            use std::io::Write;
-            let _ = f.write_all(format!("{}\n", entry).as_bytes());
-        }
+            .open(distillation_file)?;
+        use std::io::Write;
+        file.write_all(&line)?;
         Ok(())
     }
 
@@ -60,5 +58,24 @@ impl ProtocolKnowledgeBase {
             }
         }
         Ok(count)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn staging_reports_persistence_failure() {
+        let workspace =
+            std::env::temp_dir().join(format!("susi-pkb-write-error-{}", std::process::id()));
+        let path = workspace.join(".susi/distillation_staged.jsonl");
+        std::fs::create_dir_all(&path).unwrap();
+
+        assert!(ProtocolKnowledgeBase::stage_distillation_pair(
+            "intent", "action", &workspace, None
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(workspace);
     }
 }
