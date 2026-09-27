@@ -94,6 +94,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     cleanup failures are returned as training warnings.
     Training atomically claims a staging snapshot, leaving concurrently captured
     receipts in the live buffer; failed training restores the claim ahead of them.
+    A workspace training lease prevents claim theft, and crash-orphaned claims
+    recover oldest-first before the next cycle.
 13. **Provision** — daemon bootstrap + auto-prime + Candle/weight ladder.
 14. **Concurrency-first** — Tokio / Rayon / Crossbeam / parking_lot.
 

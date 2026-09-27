@@ -10,6 +10,11 @@ pub struct ReflexTrainer;
 impl ReflexTrainer {
     /// Checks whether the staged-sample count has crossed the training threshold.
     pub fn audit_distillation_state(workspace: &Path) -> EaiResult<String> {
+        let susi_dir = workspace.join(".susi");
+        let _cycle_lock =
+            crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
+                .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
+        recover_orphaned_claims(workspace)?;
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global()?;
         let Some(claim) = claim_staged_samples(workspace, cfg.reflex_training_threshold())? else {
             return Ok("Reflex substrate optimal.".into());
@@ -32,6 +37,11 @@ impl ReflexTrainer {
     }
 
     pub fn force_train(workspace: &Path) -> EaiResult<String> {
+        let susi_dir = workspace.join(".susi");
+        let _cycle_lock =
+            crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
+                .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
+        recover_orphaned_claims(workspace)?;
         let claim = claim_staged_samples(workspace, 1)?
             .ok_or_else(|| EaiError::inference("No staged distillation data found."))?;
         match SusiAlphaModel::train_on_staged_data(&claim.root) {
@@ -82,6 +92,64 @@ fn claim_staged_samples(workspace: &Path, threshold: usize) -> EaiResult<Option<
     }))
 }
 
+fn claim_generation(name: &str) -> Option<u128> {
+    let suffix = name.strip_prefix("reflex-claim-")?;
+    let (generation, pid) = suffix.rsplit_once('-')?;
+    pid.parse::<u32>().ok()?;
+    generation.parse::<u128>().ok()
+}
+
+fn recover_orphaned_claims(workspace: &Path) -> EaiResult<usize> {
+    let susi_dir = workspace.join(".susi");
+    let _staging_lock =
+        crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "distillation_staged")
+            .ok_or_else(|| EaiError::io("acquire orphan-claim recovery lock"))?;
+    let mut claims = Vec::new();
+    match std::fs::read_dir(&susi_dir) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry?;
+                let name = entry.file_name();
+                let Some(name) = name.to_str() else {
+                    continue;
+                };
+                let Some(generation) = claim_generation(name) else {
+                    continue;
+                };
+                let path = entry.path().join(".susi/distillation_staged.jsonl");
+                if path.is_file() {
+                    claims.push((generation, entry.path(), path));
+                }
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(error.into()),
+    }
+    if claims.is_empty() {
+        return Ok(0);
+    }
+    claims.sort_by_key(|(generation, _, _)| *generation);
+    let mut restored = Vec::new();
+    for (_, _, path) in &claims {
+        let bytes = std::fs::read(path)?;
+        restored.extend_from_slice(&bytes);
+        if !restored.is_empty() && !restored.ends_with(b"\n") {
+            restored.push(b'\n');
+        }
+    }
+    let staged_path = susi_dir.join("distillation_staged.jsonl");
+    match std::fs::read(&staged_path) {
+        Ok(current) => restored.extend_from_slice(&current),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    crate::susi_config::atomic_write_bytes(&staged_path, &restored)?;
+    for (_, root, _) in &claims {
+        std::fs::remove_dir_all(root)?;
+    }
+    Ok(claims.len())
+}
+
 fn restore_claim(claim: &TrainingClaim) -> EaiResult<()> {
     let susi_dir = claim
         .staged_path
@@ -125,7 +193,10 @@ fn staged_sample_count(path: &Path) -> EaiResult<Option<usize>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{claim_staged_samples, restore_claim, retire_claim, staged_sample_count};
+    use super::{
+        claim_staged_samples, recover_orphaned_claims, restore_claim, retire_claim,
+        staged_sample_count,
+    };
 
     #[test]
     fn missing_staging_is_idle() {
@@ -181,5 +252,29 @@ mod tests {
         restore_claim(&claim).unwrap();
         assert_eq!(std::fs::read_to_string(staged).unwrap(), "old\nnew\n");
         assert!(!claim.root.exists());
+    }
+
+    #[test]
+    fn orphan_claims_recover_oldest_first_before_live_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        for (name, body) in [
+            ("reflex-claim-20-7", "second\n"),
+            ("reflex-claim-10-7", "first\n"),
+        ] {
+            let claim_dir = susi_dir.join(name).join(".susi");
+            std::fs::create_dir_all(&claim_dir).unwrap();
+            std::fs::write(claim_dir.join("distillation_staged.jsonl"), body).unwrap();
+        }
+        std::fs::write(susi_dir.join("distillation_staged.jsonl"), "live\n").unwrap();
+
+        assert_eq!(recover_orphaned_claims(dir.path()).unwrap(), 2);
+        assert_eq!(
+            std::fs::read_to_string(susi_dir.join("distillation_staged.jsonl")).unwrap(),
+            "first\nsecond\nlive\n"
+        );
+        assert!(!susi_dir.join("reflex-claim-10-7").exists());
+        assert!(!susi_dir.join("reflex-claim-20-7").exists());
     }
 }

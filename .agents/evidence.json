@@ -1740,6 +1740,16 @@
       "milestone": "RSI iteration 13/100: reflex training no longer loses receipts captured during a training run. The trainer previously read the live workspace JSONL and deleted that same path after training, racing receipt capture; any append between read and delete vanished unlearned. Automatic and forced training now acquire the producer's cross-process staging lock, atomically rename the eligible buffer into a unique claim workspace, release the lock so capture immediately continues into a new live file, and train only the immutable claim. Success retires only the claim. Failure reacquires the lock and atomically restores claimed bytes before any newly captured bytes, preserving both ordering and data. Tests prove concurrent post-claim samples survive successful retirement and failed training restoration produces old-then-new records with no residual claim directory. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "recover_orphaned_claims",
+        "ref": "symbol://recover_orphaned_claims"
+      },
+      "id": "EV-2022927-180",
+      "milestone": "RSI iteration 14/100: crash-stranded reflex training claims now recover deterministically. Automatic and forced training hold a workspace-wide cross-process training-cycle lease from recovery through claim retirement, preventing another process from mistaking a live claim for an orphan; the existing PID-aware FileLock reclaims the lease after process death. Before each cycle, SUSI finds only strictly named reflex-claim-<u128-generation>-<u32-pid> directories, orders them by generation, merges their complete bytes ahead of the current live staging buffer under the producer lock, atomically publishes the restored buffer, and removes recovered claim directories. Unrelated directories are untouched and read/write/removal failures surface. A regression test proves two out-of-order orphan directories recover oldest-first before live samples and are retired. Targeted fmt, tests, and clippy verification recorded by the producing commit.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
