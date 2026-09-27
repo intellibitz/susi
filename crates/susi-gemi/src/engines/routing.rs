@@ -43,12 +43,28 @@ pub struct ProviderCooldown {
     pub until_unix: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlacementContract {
+    pub schema: String,
+    pub decided_at_unix: u64,
+}
+
+impl PlacementContract {
+    fn now() -> Self {
+        Self {
+            schema: "susi/placement/v1".to_string(),
+            decided_at_unix: now_unix(),
+        }
+    }
+}
+
 /// Explainable local/cloud placement chosen by the inference router.
 ///
 /// This is the single operator-facing view of the same decision used by the
 /// live runtime; callers must not recreate routing policy from config fields.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlacementDecision {
+    pub contract: PlacementContract,
     pub target: String,
     pub provider: Option<String>,
     pub reason: String,
@@ -694,6 +710,7 @@ impl InferenceRouter {
 
         if requires.is_some_and(|value| !Self::supports_requirement(value)) {
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: "unavailable".to_string(),
                 provider: None,
                 reason: "required capability is not supported by the current routing contract"
@@ -719,6 +736,7 @@ impl InferenceRouter {
             let unsupported_local_capability = !Self::local_supports_requirement(requires);
             let local_eligible = local_ready && !unsupported_local_capability;
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: if local_eligible {
                     "local"
                 } else {
@@ -774,6 +792,7 @@ impl InferenceRouter {
 
         if clouds.is_empty() {
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: if local_ready { "local" } else { "unavailable" }.to_string(),
                 provider: None,
                 reason: Self::no_cloud_reason(local_ready, !cooled_candidates.is_empty())
@@ -798,6 +817,7 @@ impl InferenceRouter {
         if let Some((target, reason)) = forced_reason {
             let provider = (target == "cloud").then(|| Self::pick_cloud(&clouds, &pref, &cfg));
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: target.to_string(),
                 provider,
                 reason: reason.to_string(),
@@ -816,6 +836,7 @@ impl InferenceRouter {
         if policy == "local_only" {
             let capability_supported = Self::local_supports_requirement(requires);
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: if local_ready && capability_supported {
                     "local"
                 } else {
@@ -846,6 +867,7 @@ impl InferenceRouter {
         if requires.is_some_and(|value| value.eq_ignore_ascii_case("vision")) {
             let provider = Self::pick_cloud(&clouds, &pref, &cfg);
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: "cloud".to_string(),
                 provider: Some(provider),
                 reason: "vision capability requires a matching provider".to_string(),
@@ -864,6 +886,7 @@ impl InferenceRouter {
         if !local_ready {
             let provider = Self::pick_cloud(&clouds, &pref, &cfg);
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: "cloud".to_string(),
                 provider: Some(provider),
                 reason: "no ready local model is available".to_string(),
@@ -884,6 +907,7 @@ impl InferenceRouter {
 
         if !slow && !cpu_only {
             return PlacementDecision {
+                contract: PlacementContract::now(),
                 target: "local".to_string(),
                 provider: None,
                 reason: "local inference is within policy thresholds".to_string(),
@@ -910,6 +934,7 @@ impl InferenceRouter {
 
         let provider = Self::pick_cloud(&clouds, &pref, &cfg);
         PlacementDecision {
+            contract: PlacementContract::now(),
             target: "cloud".to_string(),
             provider: Some(provider),
             reason,
@@ -1492,6 +1517,15 @@ mod tests {
             InferenceRouter::no_cloud_reason(true, false),
             "no ready cloud provider is registered"
         );
+    }
+
+    #[test]
+    fn placement_contract_is_versioned_and_timestamped() {
+        let decision = InferenceRouter::plan_placement_for(&[], Some("text"), None, false);
+        assert_eq!(decision.contract.schema, "susi/placement/v1");
+        assert!(decision.contract.decided_at_unix > 0);
+        let encoded = serde_json::to_value(decision).unwrap();
+        assert_eq!(encoded["contract"]["schema"], "susi/placement/v1");
     }
 
     #[test]
