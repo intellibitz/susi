@@ -330,6 +330,20 @@ impl GawdAgent for ExternalPeerAgent {
             "goal": goal,
         });
 
+        // Network peers receive the mission goal; the privacy posture
+        // decides whether it may leave the host (this path never goes
+        // through authorize_tool).
+        if matches!(
+            protocol.as_str(),
+            "openai_chat" | "openai" | "chat" | "http" | "json" | "a2a"
+        ) && !crate::susi_core::mac_policy::egress_permitted(&self.spec.api_base)
+        {
+            return Err(EaiError::governance(format!(
+                "[PRIVACY] network egress to external peer `{}` blocked by the privacy posture",
+                self.spec.name
+            )));
+        }
+
         let result = match protocol.as_str() {
             "openai_chat" | "openai" | "chat" => {
                 EvidenceSession::capture_call(&tool, &arguments, workspace, || {

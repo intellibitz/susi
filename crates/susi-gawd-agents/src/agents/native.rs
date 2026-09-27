@@ -1057,6 +1057,12 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
             format!("{}/completions", self.api_base_url)
         };
 
+        if !crate::susi_core::mac_policy::egress_permitted(&endpoint_url) {
+            return Err(crate::susi_core::susi_error::EaiError::governance(format!(
+                "[PRIVACY] {} proxy endpoint at {} blocked by the privacy posture",
+                self.endpoint_name, self.api_base_url
+            )));
+        }
         let agent = crate::susi_sandbox::manager::http_agent();
         let key = resolve_inference_key(&self.api_key_env);
         let body = wire::post_json(
@@ -1135,11 +1141,18 @@ impl GawdAgent for LibraryScoutAgent {
         let url = format!("{}?q={}&per_page=5", api_base, query_term);
         let mut results = Vec::new();
 
-        if let Ok(resp) = crate::susi_sandbox::manager::http_agent()
-            .get(&url)
-            .header("User-Agent", "SUSI/0.1")
-            .call()
-        {
+        // Crate search sends the derived query off-host: under a posture that
+        // blocks egress, skip it and fall through to local reasoning below.
+        let live = if crate::susi_core::mac_policy::egress_permitted(&url) {
+            crate::susi_sandbox::manager::http_agent()
+                .get(&url)
+                .header("User-Agent", "SUSI/0.1")
+                .call()
+                .ok()
+        } else {
+            None
+        };
+        if let Some(resp) = live {
             if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
                 if let Some(crates) = json["crates"].as_array() {
                     for c in crates {

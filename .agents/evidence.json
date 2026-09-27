@@ -2230,6 +2230,16 @@
       "milestone": "RSI iteration 62/100: agent live search no longer sends the mission goal off-host under local_only. SearchAgent calls live_search::gather_live_evidence directly (not through authorize_tool), which fetched Open-Meteo and DuckDuckGo with the goal text and also invoked the brave_search/google_search MCP tools; requirements_for_tool classified those two names as local reads (only web_search/live_search, http, fetch, and similar substrings were egress), so under local_only the goal left the host through every path. fetch_open_meteo_weather and fetch_duckduckgo_instant now require mac_policy::egress_permitted for their API host and fail with a [PRIVACY] governance error otherwise (the attempt is reported in the search result, never faked), and brave_search/google_search are listed in EGRESS_TOOLS so authorize_tool gates them. The one local tool containing 'search', semantic_search, stays a local read; this was checked by listing every tool name containing 'search' in the tree and config before choosing explicit names over a broad substring. A test pins the three web-search tools to network.egress and semantic_search to filesystem.read. cargo test -p susi-core mac_policy (12 passed), -p susi-gawd-agents live_search (3 passed), and cargo clippy --workspace --all-targets -D warnings pass. Other direct HTTP clients that bypass authorize_tool (webhook dispatch, HF discovery, external-agent cloud APIs, benchmarks) remain unaudited for posture and are the next items.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "external_peers / native proxy endpoint / LibraryScoutAgent (egress)",
+        "ref": "file://crates/susi-gawd-agents/src/external_peers.rs"
+      },
+      "id": "EV-2022927-229",
+      "milestone": "RSI iteration 63/100: agent-to-remote calls outside authorize_tool respect the privacy posture. Three swarm paths sent mission data off-host with no MAC check: external peer agents over openai_chat/http/a2a (the POST body is the mission goal, and for http also the workspace path), the native proxy-endpoint agent (POSTs the goal to its configured completion endpoint), and LibraryScoutAgent's crates.io search (a model-derived query term). Each now asks mac_policy::egress_permitted for its target: the external peer dispatch refuses network protocols with a [PRIVACY] governance error (managed/process peers are local processes and unchanged), the proxy agent refuses before building the request, and LibraryScoutAgent skips the live crates.io query and falls through to its existing local-reasoning recommendation. Host/LAN targets and balanced/open postures are unaffected. Audit status stated: webhook_dispatcher was also checked and is not configured by any production path (set_webhook_dispatcher is only called from a test), so it cannot send today; HF discovery, external-agent cloud APIs (susi agents), MCP HTTP clients, and benchmark/eval clients remain unaudited for posture. cargo test -p susi-gawd-agents (258 passed) and cargo clippy --workspace --all-targets -D warnings pass.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

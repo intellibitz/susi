@@ -110,7 +110,8 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
    Under `local_only`, the HTTP inference provider itself refuses to send
    prompts or embedding text to any endpoint off the host/LAN, and model
    downloads (including zero-config auto-prime) and agent live search
-   (Open-Meteo, DuckDuckGo, Brave/Google search tools) need egress consent.
+   (Open-Meteo, DuckDuckGo, Brave/Google search tools), external peer agents,
+   proxy endpoints, and crates.io scouting need egress consent.
    Scoped capability grants stop at a path/host boundary: a grant on
    `/srv/ws` never authorizes `/srv/ws2`.
    Local agent messaging (`ipc_send`) is authorized by the default
