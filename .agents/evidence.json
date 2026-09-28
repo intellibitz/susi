@@ -2750,6 +2750,16 @@
       "milestone": "Dedup pass step 15: a fourth unreachable-daemon deletion batch removes six isolated sketches with zero inbound references: `ab_swarm`, `approval`, `cell_profile`, `compliance_map`, `playbook`, and `security_scan`. Each was exercised only by tests in its own file. A path-reference audit matching `unreachable_daemon_modules_only_decrease` found no caller outside the `lib.rs` module declaration. This removes 356 source lines and reduces the daemon surface from 96 to 90 modules while preserving the same 31 production-reachable modules. The compiled-only count and ratchet ceiling fall from 65 to 59. README, ARCHITECTURE, AGENTS.md, and identity report the reduced surface. Verification: cargo fmt --all --check and cargo clippy --workspace --all-targets --locked -- -D warnings; the test suite was NOT executed for this step, deferred by the user's direction.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "susi-builder workflow injection and trigger hardening",
+        "ref": "file://.github/workflows/susi-builder.yml"
+      },
+      "id": "EV-2022928-282",
+      "milestone": "Security fix for the SUSI Builder OS workflow. (1) Script injection: the `Execute SUSI Mission` step interpolated `${{ github.event.issue.title }}` and `${{ inputs.goal }}` directly into its bash `run:` block, so an issue title such as `\"; curl ... $ANTHROPIC_API_KEY` would execute with OPENAI/ANTHROPIC/GROQ secrets and a write-scoped GITHUB_TOKEN in env. Event data (event_name, goal, issue number/title, PR number) is now passed through step `env:` (EVENT_NAME, GOAL, ISSUE_NUMBER, ISSUE_TITLE, PR_NUMBER) and referenced as quoted shell variables; the commit step's issue-number uses and `$BRANCH_NAME` are likewise env-sourced and quoted. The only remaining `${{ }}` inside `run:` blocks are `github.workspace` and `secrets.GITHUB_TOKEN`, which are not attacker-controlled. (2) Trigger authorization: `startsWith(github.event.comment.body, '/susi build')` let any commenter start the job, and the unscoped label check also let any comment on a `susi-build`-labeled issue start it. The job `if:` now scopes each clause to its event (`issues`, `pull_request`, `issue_comment`) and requires `github.event.comment.author_association` in OWNER/MEMBER/COLLABORATOR for every comment trigger. Label triggers stay ungated because applying a label already requires triage access. workflow_dispatch and trusted-user behavior are unchanged. Verification: the workflow parses with PyYAML; `bash -n` passes on every `run:` block; the extracted mission script, run against a stub `susi` with ISSUE_TITLE containing `\"; touch PWNED; echo $ANTHROPIC_API_KEY`, backticks, and `$(...)`, and with GOAL containing `$(touch PWNED4); \"; id`, passed both strings literally as the solve argument and created no files. actionlint was NOT run because it is not installed and neither Go nor Docker is available on this host. Residual risk, not addressed here: the issue title still reaches the agent as prompt text, so prompt injection into `susi solve` (which has gh/exec tools and a write token) is a separate concern.",
+      "proof": "VERIFIED",
+      "type": "FIX"
     }
   ],
   "epistemic_score": 1.0,

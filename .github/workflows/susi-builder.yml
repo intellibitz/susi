@@ -21,12 +21,20 @@ permissions:
 
 jobs:
   susi-solve:
-    # Run if triggered manually, or if an issue/PR is labeled 'susi-build', or if a comment has '/susi build'
+    # Run if triggered manually, or if an issue/PR is labeled 'susi-build', or if a comment has '/susi build'.
+    # Comment triggers require a trusted author: anyone can comment, so the
+    # comment path is gated on author_association (label-carrying issues included).
+    # Labels themselves can only be applied by users with triage access or above.
     if: >
       github.event_name == 'workflow_dispatch' ||
-      contains(github.event.issue.labels.*.name, 'susi-build') ||
-      contains(github.event.pull_request.labels.*.name, 'susi-build') ||
-      startsWith(github.event.comment.body, '/susi build')
+      (github.event_name == 'issues' &&
+        contains(github.event.issue.labels.*.name, 'susi-build')) ||
+      (github.event_name == 'pull_request' &&
+        contains(github.event.pull_request.labels.*.name, 'susi-build')) ||
+      (github.event_name == 'issue_comment' &&
+        contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+        (startsWith(github.event.comment.body, '/susi build') ||
+          contains(github.event.issue.labels.*.name, 'susi-build')))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -55,16 +63,24 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUSI_ENVIRONMENT: ci
+          # Untrusted event data is passed via env and never interpolated into the script.
+          EVENT_NAME: ${{ github.event_name }}
+          GOAL: ${{ inputs.goal }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            susi solve "${{ inputs.goal }}"
-          elif [ -n "${{ github.event.issue.number }}" ]; then
-            susi solve "Resolve GitHub Issue #${{ github.event.issue.number }}: ${{ github.event.issue.title }} - use 'gh issue view ${{ github.event.issue.number }}' for details."
-          elif [ -n "${{ github.event.pull_request.number }}" ]; then
-            susi solve "Review and fix Pull Request #${{ github.event.pull_request.number }} - use 'gh pr view ${{ github.event.pull_request.number }}' for details."
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            susi solve "$GOAL"
+          elif [ -n "$ISSUE_NUMBER" ]; then
+            susi solve "Resolve GitHub Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE} - use 'gh issue view ${ISSUE_NUMBER}' for details."
+          elif [ -n "$PR_NUMBER" ]; then
+            susi solve "Review and fix Pull Request #${PR_NUMBER} - use 'gh pr view ${PR_NUMBER}' for details."
           fi
 
       - name: Commit and Push Changes (If any)
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
         run: |
           git config --global user.name "susi-builder-os[bot]"
           git config --global user.email "susi-builder-os[bot]@users.noreply.github.com"
@@ -76,11 +92,11 @@ jobs:
             Co-authored-by: SUSI Swarm OS <susi@intellibitz.com>"
             
             # If triggered from an issue, push to a new branch and open a PR
-            if [ -n "${{ github.event.issue.number }}" ]; then
-              BRANCH_NAME="susi-mission/issue-${{ github.event.issue.number }}"
-              git checkout -b $BRANCH_NAME
-              git push origin $BRANCH_NAME
-              gh pr create --title "Automated Fix for Issue #${{ github.event.issue.number }}" --body "SUSI has autonomously solved this issue. See traces for details." --base main --head $BRANCH_NAME
+            if [ -n "$ISSUE_NUMBER" ]; then
+              BRANCH_NAME="susi-mission/issue-${ISSUE_NUMBER}"
+              git checkout -b "$BRANCH_NAME"
+              git push origin "$BRANCH_NAME"
+              gh pr create --title "Automated Fix for Issue #${ISSUE_NUMBER}" --body "SUSI has autonomously solved this issue. See traces for details." --base main --head "$BRANCH_NAME"
             else
               # If PR or manual, push directly
               git push
