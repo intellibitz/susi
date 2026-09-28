@@ -6274,7 +6274,7 @@ name = "susi-adapters-llm"
 version = "0.1.0"
 dependencies = [
  "serde_json",
- "ureq 3.4.2",
+ "susi-http-transport",
 ]
 
 [[package]]
@@ -6346,7 +6346,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
- "ureq 3.4.2",
 ]
 
 [[package]]
@@ -6621,7 +6620,6 @@ dependencies = [
  "tokio-rustls",
  "tower-service",
  "tracing",
- "ureq 3.4.2",
  "url",
 ]
 

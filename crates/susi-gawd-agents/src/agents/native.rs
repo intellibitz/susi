@@ -1067,19 +1067,13 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
                 self.endpoint_name, self.api_base_url
             )));
         }
-        let agent = susi_http_transport::http_agent();
         let key = resolve_inference_key(&self.api_key_env);
-        let body = wire::post_json(
-            || {
-                let request = agent.post(&endpoint_url);
-                match &key {
-                    Some(key) => request.header("Authorization", format!("Bearer {key}")),
-                    None => request,
-                }
-            },
-            &payload,
-        )
-        .map_err(|e| {
+        let auth = key.as_ref().map(|k| format!("Bearer {k}"));
+        let mut headers = Vec::new();
+        if let Some(ref token) = auth {
+            headers.push(("Authorization", token.as_str()));
+        }
+        let body = wire::post_json(&endpoint_url, &headers, &payload).map_err(|e| {
             crate::susi_core::susi_error::EaiError::inference(format!(
                 "{} proxy endpoint at {}: {e}",
                 self.endpoint_name, self.api_base_url

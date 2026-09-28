@@ -82,6 +82,15 @@ impl TtlManager {
             ))
         }
     }
+
+    /// Remaining logical steps for `cell_id`, if registered.
+    pub fn remaining(&self, cell_id: &str) -> Option<u64> {
+        self.ttls
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(cell_id)
+            .map(CellTtl::remaining)
+    }
 }
 
 #[cfg(test)]

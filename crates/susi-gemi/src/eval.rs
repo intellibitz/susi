@@ -84,18 +84,16 @@ impl EvalRunner {
                     crate::susi_core::inference_wire::openai_chat_body(&model, q.prompt, 50);
 
                 let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
-                let agent = susi_http_transport::http_agent();
-                let reply = crate::susi_core::inference_wire::post_json(
-                    || {
-                        let req = agent.post(&url);
-                        if api_key.is_empty() {
-                            req
-                        } else {
-                            req.header("Authorization", format!("Bearer {}", api_key))
-                        }
-                    },
-                    &payload,
-                );
+                let auth = if api_key.is_empty() {
+                    None
+                } else {
+                    Some(format!("Bearer {api_key}"))
+                };
+                let mut headers = Vec::new();
+                if let Some(ref token) = auth {
+                    headers.push(("Authorization", token.as_str()));
+                }
+                let reply = crate::susi_core::inference_wire::post_json(&url, &headers, &payload);
 
                 if let Ok(body) = reply {
                     cloud_resp = crate::susi_core::inference_wire::openai_chat_text(&body)

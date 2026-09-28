@@ -122,7 +122,7 @@ fn post(
     bearer: Option<&str>,
     session: Option<&Session>,
     body: &Value,
-) -> Result<(ureq::http::Response<ureq::Body>, Option<String>), String> {
+) -> Result<(susi_http_transport::HttpCall, Option<String>), String> {
     // The one transport for remote MCP/GMCP calls, including the daemon's
     // zero-config scouting, which never passes authorize_tool: arguments
     // (and tool listings) leave the host only when the posture allows it.
@@ -131,16 +131,16 @@ fn post(
             "[PRIVACY] network egress to {url} blocked by the privacy posture"
         ));
     }
-    let mut req = susi_http_transport::http_agent()
-        .post(url)
-        .header("accept", "application/json, text/event-stream");
+    let mut headers: Vec<(String, String)> = vec![(
+        "accept".into(),
+        "application/json, text/event-stream".into(),
+    )];
     if let Some(token) = bearer {
-        req = req.header("authorization", format!("Bearer {token}"));
+        headers.push(("authorization".into(), format!("Bearer {token}")));
     }
     if let Some(session) = session {
-        req = req
-            .header("mcp-session-id", &session.id)
-            .header("mcp-protocol-version", &session.version);
+        headers.push(("mcp-session-id".into(), session.id.clone()));
+        headers.push(("mcp-protocol-version".into(), session.version.clone()));
     }
     // Serialize once so the request signature's body hash is guaranteed
     // byte-identical to the wire payload — the receiver re-hashes what
@@ -149,9 +149,7 @@ fn post(
     // Prove `node.key` possession on every POST — a member whose pubkey is
     // bound in the receiver's roster gets authorized by signature alone,
     // and its sniffable shared bearer is refused (see `net_guard`).
-    for (name, value) in signed_headers("POST", url, &body_bytes) {
-        req = req.header(&name, value);
-    }
+    headers.extend(signed_headers("POST", url, &body_bytes));
     // Seal the body for receivers whose pubkey is bound in our roster.
     // The signature binds the *plaintext* hash, so a relay that strips
     // the enc headers cannot make the ciphertext verify — confidentiality
@@ -168,26 +166,29 @@ fn post(
             crate::susi_config::cluster_key::member_seal(&peer_pk, &wire),
             crate::susi_config::cluster_key::node_pubkey_hex(),
         ) {
-            req = req
-                .header("x-susi-enc", "v1")
-                .header("x-susi-enc-nonce", nonce)
-                .header("x-susi-enc-accept", SEALED_STREAM)
-                // Our pubkey travels in the clear so the receiver can
-                // still open the body during asymmetric-roster windows
-                // (bound on our side, not yet committed on theirs);
-                // AEAD verification makes a swapped pubkey a hard
-                // failure, and auth still verifies the signature
-                // against the *roster-bound* key.
-                .header("x-susi-node-pub", our_pk);
+            headers.push(("x-susi-enc".into(), "v1".into()));
+            headers.push(("x-susi-enc-nonce".into(), nonce));
+            headers.push(("x-susi-enc-accept".into(), SEALED_STREAM.into()));
+            // Our pubkey travels in the clear so the receiver can
+            // still open the body during asymmetric-roster windows
+            // (bound on our side, not yet committed on theirs);
+            // AEAD verification makes a swapped pubkey a hard
+            // failure, and auth still verifies the signature
+            // against the *roster-bound* key.
+            headers.push(("x-susi-node-pub".into(), our_pk));
             wire = ct;
             content_type = "application/octet-stream";
             sealed_to = Some(peer_pk);
         }
     }
-    req.header("content-type", content_type)
-        .send(&wire)
-        .map(|r| (r, sealed_to))
-        .map_err(|e| format!("POST {url}: {e}"))
+    headers.push(("content-type".into(), content_type.into()));
+    let refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let call = susi_http_transport::http_call_with_body("POST", url, &refs, Some(&wire), 20, 0)
+        .map_err(|e| format!("POST {url}: {e}"))?;
+    Ok((call, sealed_to))
 }
 
 /// Best-effort `DELETE` of a finished session (spec: clients SHOULD
@@ -195,17 +196,19 @@ fn post(
 /// client-initiated termination — or a transport error only means the
 /// server reclaims the session on its own idle timeout.
 fn delete_session(url: &str, bearer: Option<&str>, session: &Session) {
-    let mut req = susi_http_transport::http_agent()
-        .delete(url)
-        .header("mcp-session-id", &session.id)
-        .header("mcp-protocol-version", &session.version);
+    let mut headers: Vec<(String, String)> = vec![
+        ("mcp-session-id".into(), session.id.clone()),
+        ("mcp-protocol-version".into(), session.version.clone()),
+    ];
     if let Some(token) = bearer {
-        req = req.header("authorization", format!("Bearer {token}"));
+        headers.push(("authorization".into(), format!("Bearer {token}")));
     }
-    for (name, value) in signed_headers("DELETE", url, &[]) {
-        req = req.header(&name, value);
-    }
-    let _ = req.call();
+    headers.extend(signed_headers("DELETE", url, &[]));
+    let refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let _ = susi_http_transport::http_call_with_body("DELETE", url, &refs, None, 20, 0);
 }
 
 /// `X-Susi-*` request-signature headers over
@@ -302,27 +305,16 @@ fn response_result(text: &str, id: u64) -> Result<Value, String> {
 /// Read a bounded response body, opening it when the request went out
 /// sealed — an unsealed reply to a sealed request means the channel was
 /// downgraded on-path and is refused.
-fn read_body(
-    resp: ureq::http::Response<ureq::Body>,
-    sealed: Option<&str>,
-) -> Result<String, String> {
-    let header = |name: &str| {
-        resp.headers()
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(str::to_string)
-    };
-    let enc_headers = (header("x-susi-enc"), header("x-susi-enc-nonce"));
-    let body = {
-        use std::io::Read;
-        let mut buf = Vec::new();
-        resp.into_body()
-            .as_reader()
-            .take(MAX_RESPONSE_BYTES + 1)
-            .read_to_end(&mut buf)
-            .map_err(|e| format!("read response body: {e}"))?;
-        buf
-    };
+fn read_body(resp: susi_http_transport::HttpCall, sealed: Option<&str>) -> Result<String, String> {
+    let enc = resp.header("x-susi-enc").map(str::to_string);
+    let nonce = resp.header("x-susi-enc-nonce").map(str::to_string);
+    let body = resp
+        .into_bytes(MAX_RESPONSE_BYTES)
+        .map_err(|e| format!("read response body: {e}"))?;
+    if (body.len() as u64) > MAX_RESPONSE_BYTES {
+        return Err("response body exceeds cap".to_string());
+    }
+    let enc_headers = (enc, nonce);
     let Some(pk) = sealed else {
         return String::from_utf8(body).map_err(|e| format!("response body not utf-8: {e}"));
     };
@@ -393,15 +385,13 @@ pub fn session_call(
     // A sealed request demands a sealed response — the session id in
     // this reply is a bearer-grade credential; plaintext carriage of
     // it to a sealed request means a relay is stripping the channel.
-    if sealed.is_some() && init.headers().get("x-susi-enc").is_none() {
+    if sealed.is_some() && init.header("x-susi-enc").is_none() {
         return Err(format!(
             "peer {addr} answered a sealed request in plaintext"
         ));
     }
     let id = init
-        .headers()
-        .get("mcp-session-id")
-        .and_then(|v| v.to_str().ok())
+        .header("mcp-session-id")
         .map(str::to_string)
         .ok_or_else(|| format!("peer {addr} returned no Mcp-Session-Id"))?;
     let init_result = response_result(&read_body(init, sealed.as_deref())?, 1);

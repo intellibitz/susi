@@ -2850,6 +2850,16 @@
       "milestone": "RSI OS isolation iterations 25-36: transport grows http_call_with_body (DELETE/POST/PUT/PATCH). OpenRouter live /models and susi-agents Devin/Manus cloud leave reqwest; susi-agents no longer declares an HTTP client. Daemon webhooks post through the transport crate and susi-daemon drops ureq. composition::SwarmHost wires orchestrator, watchdog, identity, scheduler, load balancer, and self-healing; susi os prints swarm_host; unreachable daemon-module ceiling 59→53. Ratchet core_os_crates_must_not_declare_http_clients now covers susi-agents and susi-daemon. Remaining: reqwest still in susi-gemi http_provider (async OpenAI/Anthropic/Gemini) and susi-tools MCP; ureq types still in susi-core mcp_client. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 37-48",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-291",
+      "milestone": "RSI OS isolation iterations 37-48: ureq leaves susi-core, susi-adapters-llm, and susi-gmcp. MCP session POST/DELETE and provider post_json go through http_call_with_body; a2a_delegate uses a 120s transport timeout instead of a private agent. SwarmHost adds task queue, TTL, metrics, inference fallback, HTTP gateway, and tool cards; unreachable daemon-module ceiling 53→47. Remaining: reqwest still in susi-gemi http_provider (async OpenAI/Anthropic/Gemini) and susi-tools MCP. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

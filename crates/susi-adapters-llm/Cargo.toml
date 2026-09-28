@@ -8,7 +8,7 @@ description = "SUSI-authored LLM provider wire: OpenAI, Anthropic, Gemini, Trito
 
 [dependencies]
 serde_json = { workspace = true }
-ureq = { version = "3.4.2", features = ["json"] }
+susi-http-transport = { workspace = true }
 
 [lints]
 workspace = true

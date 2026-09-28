@@ -970,20 +970,14 @@ impl CoreTools {
         let body = crate::susi_core::a2a_wire::message_send_request(message);
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: encode: {e}")))?;
-        // Dedicated agent: the shared http_agent's 20s body timeout cuts
-        // real fleet missions short. Connect stays tight — delegation to a
-        // dead peer should fail fast, but the response may take minutes.
-        let agent = ureq::Agent::config_builder()
-            .timeout_connect(Some(std::time::Duration::from_secs(10)))
-            .timeout_recv_body(Some(std::time::Duration::from_secs(120)))
-            .timeout_send_body(Some(std::time::Duration::from_secs(20)))
-            .build();
-        let agent = ureq::Agent::new_with_config(agent);
         let endpoint = format!("{url}/");
-        let mut req = agent
-            .post(&endpoint)
-            .header("content-type", "application/json")
-            .header("a2a-version", crate::susi_core::a2a_wire::A2A_VERSION);
+        let mut headers: Vec<(String, String)> = vec![
+            ("content-type".into(), "application/json".into()),
+            (
+                "a2a-version".into(),
+                crate::susi_core::a2a_wire::A2A_VERSION.to_string(),
+            ),
+        ];
         // The host token is for our own A2A surface (loopback) only; peers
         // authorize us by the member signature below, and a configured
         // third-party agent must never receive it.
@@ -999,21 +993,34 @@ impl CoreTools {
             String::new()
         };
         if !token.is_empty() {
-            req = req.header("authorization", format!("Bearer {token}"));
+            headers.push(("authorization".into(), format!("Bearer {token}")));
         }
         // Member signature over `susi-peer-req-v2:{node}:{ts}:{nonce}:POST:/:{sha256(body)}`
         // — a bound member's receiver authorizes us without the bearer.
-        for (name, value) in
-            crate::susi_core::mcp_client::signed_headers("POST", &endpoint, &body_bytes)
-        {
-            req = req.header(&name, value);
-        }
-        let mut resp = req
-            .send(&body_bytes)
-            .map_err(|e| EaiError::network(format!("a2a_delegate to {url}: {e}")))?;
-        let text = resp
-            .body_mut()
-            .read_to_string()
+        headers.extend(crate::susi_core::mcp_client::signed_headers(
+            "POST",
+            &endpoint,
+            &body_bytes,
+        ));
+        let refs: Vec<(&str, &str)> = headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        // 120s body timeout: fleet missions can take minutes; connect stays
+        // the transport default (15s min of timeout).
+        let call = susi_http_transport::http_call_with_body(
+            "POST",
+            &endpoint,
+            &refs,
+            Some(&body_bytes),
+            120,
+            0,
+        )
+        .map_err(|e| EaiError::network(format!("a2a_delegate to {url}: {e}")))?;
+        let bytes = call
+            .into_bytes(16 * 1024 * 1024)
+            .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
+        let text = String::from_utf8(bytes)
             .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
         let doc: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| EaiError::protocol(format!("a2a_delegate: bad JSON-RPC reply: {e}")))?;

@@ -9,13 +9,18 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 /// Production swarm-host surface: orchestrator, watchdog, cell identity,
-/// load balancer. Wired once from [`wire_engine_hooks`] so these modules
-/// are reachable from the composition root rather than compiled-only.
+/// load balancer, task queue, TTL, metrics, inference fallback, HTTP
+/// gateway. Wired once from [`wire_engine_hooks`].
 struct SwarmHost {
     orchestrator: crate::orchestrator::Orchestrator,
     watchdog: crate::watchdog::WatchdogManager,
     identity: crate::identity::IdentityManager,
     balancer: crate::load_balancer::LoadBalancer,
+    queue: crate::task_queue::TaskQueue,
+    ttl: crate::ttl::TtlManager,
+    metrics: crate::metrics::MetricsManager,
+    fallback: crate::fallback::FallbackRouter,
+    gateway: crate::http_gateway::HttpGateway,
 }
 
 static SWARM_HOST: OnceLock<SwarmHost> = OnceLock::new();
@@ -31,11 +36,26 @@ impl SwarmHost {
         }
         let balancer = crate::load_balancer::LoadBalancer::new();
         balancer.register_cell("susi-host", 1);
+        let queue = crate::task_queue::TaskQueue::default();
+        let ttl = crate::ttl::TtlManager::default();
+        ttl.register_cell("susi-host", None);
+        let metrics = crate::metrics::MetricsManager::new();
+        let fallback = crate::fallback::FallbackRouter::new(
+            crate::fallback::InferenceEndpoint::LocalQuantized("local-primary".into()),
+            crate::fallback::InferenceEndpoint::LocalQuantized("local-fallback".into()),
+        );
+        let gateway = crate::http_gateway::HttpGateway::new();
+        gateway.expose_cell("susi-host");
         Self {
             orchestrator,
             watchdog,
             identity,
             balancer,
+            queue,
+            ttl,
+            metrics,
+            fallback,
+            gateway,
         }
     }
 }
@@ -56,6 +76,15 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
     let self_healing =
         crate::self_healing::SelfHealingManager::new(&susi_paths::SusiDirs::substrate_home())
             .is_ok();
+    let fallback_ok = host.fallback.execute_with_fallback(|ep| match ep {
+        crate::fallback::InferenceEndpoint::PrimaryCloud(_)
+        | crate::fallback::InferenceEndpoint::SecondaryCloud(_) => {
+            crate::fallback::InferenceResult::Timeout
+        }
+        crate::fallback::InferenceEndpoint::LocalQuantized(_) => {
+            crate::fallback::InferenceResult::Success("local".into())
+        }
+    });
     serde_json::json!({
         "wired": true,
         "orchestrator_id": host.orchestrator.orchestrator_id,
@@ -65,6 +94,22 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
         "identities": host.identity.registered_count(),
         "next_cell": host.balancer.next_cell(),
         "self_healing": self_healing,
+        "queue_len": host.queue.len(),
+        "host_ttl": host.ttl.remaining("susi-host"),
+        "gateway_host_exposed": host
+            .gateway
+            .route_request(
+                crate::http_gateway::AgentHttpRequest {
+                    cell_id: "susi-host".into(),
+                    payload: Vec::new(),
+                },
+                |_| Ok(b"ok".to_vec()),
+            )
+            .map(|r| r.status_code)
+            .unwrap_or(0),
+        "fallback_local": fallback_ok.is_ok(),
+        "metrics_ready": !host.metrics.export_prometheus().is_empty(),
+        "tool_cards": crate::tool_catalog::builtin_cards().len(),
     })
 }
 

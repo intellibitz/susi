@@ -89,35 +89,34 @@ pub fn token_param_retry(body: &Value, error_body: &str) -> Option<Value> {
 /// Blocking JSON POST for provider calls: reads error bodies (so the
 /// provider's reason reaches the caller), retries once through
 /// [`token_param_retry`] on a 400, and returns the parsed 2xx reply.
-/// `build` makes a fresh request (URL + auth headers) for each attempt.
-pub fn post_json(
-    build: impl Fn() -> ureq::RequestBuilder<ureq::typestate::WithBody>,
-    body: &Value,
-) -> Result<Value, String> {
-    let send = |body: &Value| {
-        build()
-            .config()
-            .http_status_as_error(false)
-            .build()
-            .send_json(body)
-            .map_err(|e| format!("request failed: {e}"))
+pub fn post_json(url: &str, headers: &[(&str, &str)], body: &Value) -> Result<Value, String> {
+    let send = |body: &Value| -> Result<(u16, Vec<u8>), String> {
+        let bytes = serde_json::to_vec(body).map_err(|e| format!("request json: {e}"))?;
+        let call =
+            susi_http_transport::http_call_with_body("POST", url, headers, Some(&bytes), 30, 0)?;
+        let status = call.status;
+        let buf = call
+            .into_bytes(16 * 1024 * 1024)
+            .map_err(|e| format!("unreadable response body: {e}"))?;
+        Ok((status, buf))
     };
-    let mut resp = send(body)?;
-    if resp.status().as_u16() == 400 {
-        let text = resp.body_mut().read_to_string().unwrap_or_default();
+    let (mut status, mut buf) = send(body)?;
+    if status == 400 {
+        let text = String::from_utf8_lossy(&buf);
         match token_param_retry(body, &text) {
-            Some(retry) => resp = send(&retry)?,
+            Some(retry) => {
+                let next = send(&retry)?;
+                status = next.0;
+                buf = next.1;
+            }
             None => return Err(http_error(400, &text)),
         }
     }
-    let status = resp.status().as_u16();
     if !(200..300).contains(&status) {
-        let text = resp.body_mut().read_to_string().unwrap_or_default();
+        let text = String::from_utf8_lossy(&buf);
         return Err(http_error(status, &text));
     }
-    resp.body_mut()
-        .read_json()
-        .map_err(|e| format!("unreadable response body: {e}"))
+    serde_json::from_slice(&buf).map_err(|e| format!("unreadable response body: {e}"))
 }
 
 fn http_error(status: u16, body: &str) -> String {
@@ -320,8 +319,7 @@ mod tests {
             bodies
         });
         let url = format!("http://{addr}/v1/chat/completions");
-        let agent = ureq::Agent::new_with_defaults();
-        let reply = post_json(|| agent.post(&url), &openai_chat_body("o3", "p", 32)).unwrap();
+        let reply = post_json(&url, &[], &openai_chat_body("o3", "p", 32)).unwrap();
         assert_eq!(openai_chat_text(&reply).unwrap(), "ok");
         let bodies = server.join().unwrap();
         assert_eq!(bodies[1]["max_completion_tokens"], 32);

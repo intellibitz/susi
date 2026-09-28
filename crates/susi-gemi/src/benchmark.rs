@@ -119,19 +119,17 @@ impl BenchmarkRunner {
 
         let url = format!("{}/chat/completions", api_base.trim_end_matches('/'));
         let start = Instant::now();
-        let agent = susi_http_transport::http_agent();
-        let body = crate::susi_core::inference_wire::post_json(
-            || {
-                let req = agent.post(&url);
-                if api_key.is_empty() {
-                    req
-                } else {
-                    req.header("Authorization", format!("Bearer {}", api_key))
-                }
-            },
-            &payload,
-        )
-        .map_err(|e| EaiError::inference(format!("Cloud benchmark endpoint '{}': {e}", url)))?;
+        let auth = if api_key.is_empty() {
+            None
+        } else {
+            Some(format!("Bearer {api_key}"))
+        };
+        let mut headers = Vec::new();
+        if let Some(ref token) = auth {
+            headers.push(("Authorization", token.as_str()));
+        }
+        let body = crate::susi_core::inference_wire::post_json(&url, &headers, &payload)
+            .map_err(|e| EaiError::inference(format!("Cloud benchmark endpoint '{}': {e}", url)))?;
         // The response headers can arrive well before generation/body transfer
         // finishes. Include reading the full body in end-to-end latency.
         let elapsed = start.elapsed();
