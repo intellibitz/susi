@@ -122,6 +122,26 @@ impl ReflexSynthesizer {
     /// tested without requiring the wasm32-wasip1 toolchain to be installed.
     /// `intent` is embedded via `{:?}` (a proper escaped Rust string literal), so
     /// arbitrary intent text — including quotes — can never produce broken source.
+    /// The one user-facing report of a capability-gap attempt. The compiled
+    /// reflex is a probe — it proves the synthesize → compile → hot-load
+    /// path and echoes an input-dependent signature — and does **not**
+    /// implement the missing capability, so the gap is reported as still
+    /// open either way (Mandate 1).
+    pub fn gap_report(name: &str, outcome: &Result<String, impl std::fmt::Display>) -> String {
+        match outcome {
+            Ok(wasm_path) => format!(
+                "[HOT_PATCH] Compiled a probe WASI reflex for '{name}' at {wasm_path} \
+                 (callable as 'reflex_{name}'). It verifies the hot-load path and returns an \
+                 input signature only; it does not implement '{name}', so the capability \
+                 gap remains open."
+            ),
+            Err(e) => format!(
+                "[CAPABILITY_GAP] '{name}' unresolved: no registry match, no installable \
+                 package, and reflex synthesis failed ({e})."
+            ),
+        }
+    }
+
     fn generate_reflex_source(intent: &str) -> String {
         let intent_literal = format!("{:?}", intent);
         format!(

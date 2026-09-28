@@ -3060,6 +3060,16 @@
       "milestone": "RSI iterations 55-58 (Claude run): last discarded-probe wiring removed (duplicate `scheduler`); main's clippy gate repaired after the iterations 201-300 merge.",
       "proof": "`composition::swarm_host_snapshot` called `scheduler::schedule_cells(&[], \"\", Greedy)` and discarded the result — the only reference keeping the 211-line `scheduler` module reachable (added by an earlier swarm-host iteration). Its capability/trust ranking duplicates `SwarmBlackboard::find_capable_cells`, which the live blackboard already uses, so the probe and the module are removed. A workspace-wide scan for `let _ =` calls on empty/default inputs in non-test code finds none left. Replicated reachability: 59 modules, 0 unreachable (AGENTS.md / identity updated). Merged work from iterations 201-300 left two `collapsible_if` failures (`gossip.rs`, `nat.rs`) that turned `cargo clippy -D warnings` red on main; fixed via clippy's own suggestion. Note: the error-model entry committed as EV-2022928-309 was renumbered to EV-2022928-310 when a concurrent agent's entry took -309 during rebase (commit 14a4be10's message still says -309). Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "ReflexSynthesizer",
+        "ref": "file://crates/susi-gawd/src/reflex_synth.rs"
+      },
+      "id": "EV-2022928-312",
+      "milestone": "RSI iterations 59-62 (Claude run): capability-gap self-repair reports the truth — the hot-loaded WASI reflex is a probe, not an implementation; VC-200-002 and identity corrected.",
+      "proof": "`ReflexSynthesizer::generate_reflex_source` emits one fixed program for every intent: it FNV-hashes the runtime argument plus the intent string and prints `[REFLEX:<intent>] input=... signature=...`. Both capability-gap surfaces (`SusiEngineHooks::resolve_capability_gap` in susi-daemon and the `GAWD_CAPABILITY_GAP` plane handler in susi-gawd) replied \"[HOT_PATCH] Synthesized (and compiled) a WASI reflex for '<name>' ... Retry as 'reflex_<name>'\", which tells an agent the missing capability now exists; retrying returns only the signature line. Mandate 1 fix: one shared `ReflexSynthesizer::gap_report` now states that a probe reflex was compiled at <path>, that it verifies the hot-load path and returns an input signature only, and that it does not implement '<name>' so the gap remains open (the `[HOT_PATCH]`/`[CAPABILITY_GAP]` prefixes the e2e test matches are kept). The two duplicated message builders are gone. `roadmap.json` VC-200-002 said \"Delivered the real equivalent\"; it now says the mechanism was delivered, not yet the capability, and names model-generated, verified reflex source as the next real step. The identity `ReflexSynthesizer` component (\"Native Rust code distillation and reflex generation\") was rewritten to the same verified scope. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

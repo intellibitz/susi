@@ -248,7 +248,7 @@
           "tier": 0
         },
         {
-          "function": "Native Rust code distillation and reflex generation.",
+          "function": "Synthesizes, compiles (`rustc --target wasm32-wasip1`) and hot-loads a WASI *probe* reflex for a capability gap, without a daemon restart. The generated program is a fixed template that echoes an input-dependent FNV signature: it proves the synthesize → compile → hot-load path end to end but does not implement the missing capability, and every caller reports the gap as still open (`ReflexSynthesizer::gap_report`, EV-2022928-312). Generating functional reflex code (model-written, verified before load) is the open part of VC-200-002.",
           "symbol": "ReflexSynthesizer",
           "tier": 0
         },

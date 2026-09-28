@@ -152,17 +152,9 @@ impl PlaneHandler for GawdPlaneHandler {
             topics::GAWD_CAPABILITY_GAP => {
                 let name = payload.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let ws = workspace_path(&payload);
-                let text = match crate::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex(
-                    name, &ws,
-                )
-                {
-                    Ok(wasm_path) => format!(
-                        "[HOT_PATCH] Synthesized WASI reflex for '{name}' at {wasm_path}. Retry as 'reflex_{name}'."
-                    ),
-                    Err(e) => format!(
-                        "[CAPABILITY_GAP] '{name}' unresolved: reflex synthesis failed ({e})."
-                    ),
-                };
+                use crate::reflex_synth::ReflexSynthesizer;
+                let outcome = ReflexSynthesizer::synthesize_wasm_reflex(name, &ws);
+                let text = ReflexSynthesizer::gap_report(name, &outcome);
                 Ok(json!({ "text": text }))
             }
             topics::GAWD_LOCK_BROADCAST => {
