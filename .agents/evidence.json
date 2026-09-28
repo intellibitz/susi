@@ -3354,6 +3354,16 @@
       "milestone": "susi-* crates now declare zero external dependencies: 48 susi-vendor-* facade crates own every third-party crate.",
       "proof": "Generated one facade per external crate (susi-vendor-{serde,serde-json,tokio,tokio-rustls,hyper,axum,ra2a,bollard,ureq,clap,anyhow,dashmap,flume,parking-lot,rayon,regex,sha1,sha2,md-5,hex,getrandom,ed25519-dalek,x25519-dalek,chacha20poly1305,bytes,base64,http-body-util,hyper-util,tower,tower-service,tokio-stream,url,jsonschema,shlex,sysinfo,indicatif,libc,winapi,signal-hook,tracing,tracing-subscriber,tracing-appender,console-subscriber,futures,proptest,criterion,tempfile}); each facade owns the union of versions/features consumers declared (including dev-dep features like tokio/test-util) and does pub use <crate>::*. Consumers declare e.g. serde = { package = \"susi-vendor-serde\" } under the same dep key, so source is untouched and dep:/optional wiring is preserved. New architecture ratchet susi_crates_declare_zero_external_dependencies scans every non-vendor manifest section (normal/build/dev/target) and fails on any non-workspace dep; leaf-order test exempts facades (pure leaves). cargo check --workspace --all-targets and fmt pass; no tests run per operator instruction.",
       "type": "ARCHITECTURE"
+    },
+    {
+      "anchor": {
+        "label": "susi-vendor-agents: external agent integrations extracted to dedicated crate",
+        "ref": "file://crates/susi-vendor-agents/src/external/mod.rs"
+      },
+      "id": "EV-DEVIN-004",
+      "milestone": "All third-party agent integrations moved out of susi-agents into crates/susi-vendor-agents (aider, autogen, browser-use, crewai, deerflow, e2b, gemini-cli, haystack, langgraph, llamaindex, n8n, openai-agents, openclaw, openhands, openviking, smolagents, swe-agent, temporal + catalog/process/python bridge/cloud harness).",
+      "proof": "git-moved crates/susi-agents/src/external/ (24 files, ~4.3k lines) to crates/susi-vendor-agents/src/external/ unchanged; new crate root re-exports susi_{config,core,error,sandbox} so crate:: paths inside moved files resolve identically, and susi-agents re-exports it as pub use susi_vendor_agents::external so every caller (plane_handler, susi-daemon discovery_pipeline, root CLI) compiles untouched. susi-agents dropped getrandom/libc/serde/susi-http-transport deps only external/ used. LEAF_RANK: susi-vendor-agents=4, susi-agents=5 (its only dependents are susi-daemon@8 and root@9). cargo check --workspace --all-targets and fmt clean; CI vendor-cells shard covers susi-vendor-agents. No tests run per operator instruction.",
+      "type": "ARCHITECTURE"
     }
   ],
   "epistemic_score": 1.0,

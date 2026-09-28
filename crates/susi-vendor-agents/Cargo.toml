@@ -1,0 +1,21 @@
+[package]
+name = "susi-vendor-agents"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+susi-paths = { workspace = true }
+susi-error = { workspace = true }
+susi-config = { workspace = true }
+susi-core = { workspace = true }
+susi-sandbox-client = { workspace = true }
+susi-http-transport = { workspace = true }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+
+[lints]
+workspace = true

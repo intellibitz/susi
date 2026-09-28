@@ -6227,12 +6227,9 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
- "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "susi-vendor-getrandom",
- "susi-vendor-libc",
- "susi-vendor-serde",
+ "susi-vendor-agents",
  "susi-vendor-serde-json",
 ]
 
@@ -6611,6 +6608,22 @@ dependencies = [
  "susi-vendor-serde",
  "susi-vendor-serde-json",
  "susi-vendor-tokio",
+]
+
+[[package]]
+name = "susi-vendor-agents"
+version = "0.1.0"
+dependencies = [
+ "susi-config",
+ "susi-core",
+ "susi-error",
+ "susi-http-transport",
+ "susi-paths",
+ "susi-sandbox-client",
+ "susi-vendor-getrandom",
+ "susi-vendor-libc",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]

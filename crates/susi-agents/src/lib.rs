@@ -28,4 +28,4 @@ pub use susi_core::agent_types::{
     AgentProfile, DiscoverableAsset, GawdAgent, GawdAgentInfo, HighDensityContextStore,
     MissionBlackboard, SwarmBlackboard,
 };
-pub mod external;
+pub use susi_vendor_agents::external;

@@ -11,10 +11,7 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-susi-http-transport = { workspace = true }
-getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
-libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
-serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+susi-vendor-agents = { workspace = true }
 serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]

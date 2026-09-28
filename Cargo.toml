@@ -17,6 +17,7 @@ members = [
     "crates/susi-vendor-chrome",
     "crates/susi-vendor-syn",
     "crates/susi-vendor-cloud",
+    "crates/susi-vendor-agents",
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
@@ -148,6 +149,7 @@ susi-vendor-fastembed = { path = "crates/susi-vendor-fastembed" }
 susi-vendor-chrome = { path = "crates/susi-vendor-chrome" }
 susi-vendor-syn = { path = "crates/susi-vendor-syn" }
 susi-vendor-cloud = { path = "crates/susi-vendor-cloud" }
+susi-vendor-agents = { path = "crates/susi-vendor-agents" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
