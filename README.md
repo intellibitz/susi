@@ -292,6 +292,14 @@ latest; `--tag vX.Y.Z` pins; `--rollback` restores the previous binary. It
 builds locally instead of downloading the CI CUDA asset because that asset
 targets compute capability 7.5 and lacks candle's sm_80+ (bf16) kernels.
 
+Dev binaries run as their own instance. Any `susi` other than the installed
+one (e.g. `target/release/susi`) defaults to `SUSI_HOME=~/.susi-dev` and
+`SUSI_PORT_OFFSET=100`, so `target/release/susi start` brings up a dev daemon
+running the dev binary on 9190–9194 beside the release daemon on 9090–9094.
+The release instance's `models/` and `cloud.env` are symlinked in (shared,
+not copied); config, audit chain, locks, and ports are separate. An explicit
+`SUSI_HOME` overrides this.
+
 ### Windows PowerShell (native, not WSL)
 ```powershell
 irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex

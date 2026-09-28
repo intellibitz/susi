@@ -54,6 +54,8 @@ this for the panic-path lints.
 - The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds
   the next susi. Dev builds (`cargo xb`, `target/` binaries) must never
   install there; `scripts/susi-release-sync.sh` is the only path in.
+  Dev binaries run as their own instance (`~/.susi-dev`, ports 9190–9194;
+  `src/dev_instance.rs`) — verify dev features there, not on the release daemon.
 
 ## Test policy
 

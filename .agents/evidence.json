@@ -2780,6 +2780,16 @@
       "milestone": "Release-only local susi. Two dev paths used to overwrite ~/.susi/bin/susi, the binary the daemon always runs: the xtask post-build install (`cargo xb` / build-gpu.sh), and `auto_install::push_to_hardware_if_dev_build`, which copied any target/ binary over the install on every CLI run. Both are removed. `cargo xb` now only builds, and the auto_install module, its two call sites, and `build_identity` are deleted. The one path in is `scripts/susi-release-sync.sh`. It resolves the newest vX.Y.Z tag and builds it in a private checkout and target dir, targeting this GPU's compute capability; the CI CUDA asset is sm_75 and lacks candle's sm_80+ bf16 kernels. It checks `--version` against the tag, waits until no susi client process is running, and swaps atomically, keeping susi.prev. It then restarts susi.service or the daemon and rolls back if GEMI /health does not answer within 60s. An hourly systemd user timer runs it (`--install-timer`), and `susi release` starts it non-blocking after pushing a new tag. Verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked; the script's --check, busy-client detection, daemon detection, and /health probe were exercised against the live host.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "dev instance isolation",
+        "ref": "file://src/dev_instance.rs"
+      },
+      "id": "EV-2022928-284",
+      "milestone": "Dev binaries run their own instance. Before this, a target/ binary with default env talked to the release daemon: ensure_daemon_running prefers ~/.susi/bin/susi when it exists, and both shared ~/.susi and ports 9090–9094, so daemon-side dev changes never ran. Now `dev_instance::isolate_if_dev_build` runs first in main, while the process is single-threaded. Any binary other than the installed one (a `(deleted)` swapped-out release daemon still counts as installed) sets SUSI_HOME=~/.susi-dev and SUSI_PORT_OFFSET=100 unless they are already set. It symlinks the release instance's models/ and cloud.env into the dev root; config, audit chain, locks, and ports stay separate. The existing SUSI_HOME machinery does the rest: no ~/.susi-dev/bin/susi means the daemon re-execs the dev binary, the systemd transient unit name is hashed from the instance home, and systemd-run forwards SUSI_*. release-sync's --version probe pins SUSI_HOME so it never provisions ~/.susi-dev. Verified live: `target/debug/susi start` brought up a daemon whose /proc exe is target/debug/susi with SUSI_HOME=~/.susi-dev and SUSI_PORT_OFFSET=100. It served /health 200 on 9191, nothing listened on 9091, and ~/.susi/bin/susi mtime and size were unchanged. Also verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

@@ -268,7 +268,8 @@ sync_release() {
     built="${TARGET}/release/susi"
 
     local got
-    got="$("$built" --version 2>/dev/null | awk '{print $2}')"
+    # SUSI_HOME pins the release root so this probe never provisions ~/.susi-dev.
+    got="$(SUSI_HOME="$SUSI_HOME" "$built" --version 2>/dev/null | awk '{print $2}')"
     [ "$got" = "$want" ] || die "built binary reports version '${got}', expected '${want}'"
 
     wait_for_idle

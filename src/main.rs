@@ -23,6 +23,7 @@
 
 mod cli;
 mod cli_json;
+mod dev_instance;
 
 use cli::control_plane_cli::{dispatch, dispatch_mcp};
 use cli::defs::{command_requires_daemon, Cli};
@@ -123,6 +124,9 @@ fn get_home_dir() -> PathBuf {
 }
 
 fn main() -> std::process::ExitCode {
+    // First, while single-threaded: a non-installed binary is a dev build
+    // and runs as its own instance (see `dev_instance`).
+    dev_instance::isolate_if_dev_build(&get_home_dir());
     let cli = Cli::parse();
     // A hyphenated first intent token is a mistyped command, not a goal —
     // refuse before any substrate work (daemon ensure, auto-install) runs.
