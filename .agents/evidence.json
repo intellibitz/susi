@@ -3544,6 +3544,16 @@
    "milestone": "Tier-0 reflex training no longer forgets earlier batches. Before: each cycle loaded the active weights and trained 100 epochs on only the claimed batch plus vocabulary primes, so knowledge from earlier batches was overwritten (catastrophic forgetting). Now a bounded replay set sits beside the checkpoint (<weights>.replay.jsonl, REPLAY_CAPACITY 2048 most-recent distinct intents). Samples are stored by action name, so they survive vocabulary growth, and are dropped if their action leaves the vocabulary. The newest label wins when an intent is restaged with a different action. Every cycle trains, and gates, on claim plus replay. Because is_holdout is stable per intent, replayed held-out samples turn the EV-CLAUDE-002 gate into a forgetting check as well. The replay set is saved only after a checkpoint publishes, so a held-back cycle leaves it untouched. The merge is linear (reverse pass + HashSet). Tests: replay_merge_keeps_newest_label_and_bounded_recency; replay_load_tolerates_missing_and_torn_files; prior_cycles_are_replayed_into_later_training (cycle 1 teaches 'zorblat quux' -> reason; after cycle 2 trains only 'show the content' -> read_file, the report says 'Replayed 3 prior sample(s)' and the model still predicts reason for 'zorblat quux'). It and the gate test passed 8 of 8 repeated runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "SusiAlphaModel::reflex_features",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-006",
+   "milestone": "The Tier-0 reflex classifier no longer lets a leading category word hijack unrelated prompts. Measured before the change, after training on 12 everyday samples: 'write a poem about the ocean' was classified write_file at 0.84 confidence, above SusiPulse's 0.5 serve bar, so Tier-0 would answer a poem request with a file-write action. The cause was the input projection. semantic_centroid_projection lights a 10-dim band at 1.0 for a category word but one dim at 0.5 for any other word, and weights the first word most, so the poem prompt sat at cosine 0.992 to 'write notes to todo.md'. Now the classifier (training, held-out gate, prediction) uses SusiAlphaModel::reflex_features: stopwords dropped, every word equal norm and position-independent, category words spread over their band, other words over two seeded FNV-1a buckets. Fleet recruitment keeps semantic_centroid_projection, which its 0.35 threshold is tuned to; the hashing was factored into anchor_category and fnv1a. Measured after, same data: the poem prompt is at 0.40 (not served), all 7 out-of-distribution probes are below 0.5, and in-distribution prompts score 0.71-0.89. Tests: reflex_features_weigh_content_words_like_the_verb (deterministic: poem vs write-notes cosine < 0.6, stopword/order invariance, unit norm); leading_category_word_no_longer_hijacks_unrelated_prompts (4 out-of-distribution prompts refused, in-distribution served; alpha suite passed 10 of 10 runs). Existing checkpoints migrate through the EV-CLAUDE-002 gate, which scores active and candidate weights under the current features.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

@@ -34,6 +34,9 @@ One line per landed step, newest last.
 5. Replay set: every training cycle rehearses the last 2048 distinct
    trained intents, so a new batch no longer overwrites what earlier ones
    taught; the held-out gate now also catches forgetting (EV-CLAUDE-005).
+6. The classifier gets its own features (stopwords dropped, every word
+   equal weight): a leading "write" no longer turns "write a poem" into
+   `write_file` at 0.84 confidence; fleet keeps its projection (EV-CLAUDE-006).
 
 ## Devin's loop log
 

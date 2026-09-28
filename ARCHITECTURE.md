@@ -521,16 +521,21 @@ samples staged before the source guard and any future writer. Receipt
 samples carry no outcome (they come from successful tool calls) and stay
 trainable.
 
-Inputs are `semantic_centroid_projection`: a 128-dim, position-weighted,
-L2-normalized bag of words in which category words ("status", "read",
-"fix", ...) light a fixed 10-dim band and every other word lights one
-FNV-1a-hashed bucket. The hash was a byte *sum* until EV-CLAUDE-004, which
-made all anagrams and equal-sum words one feature. The same projection
-drives fleet recruitment's goal↔agent cosine, so the fix also removes
-spurious recruitment matches. Checkpoints trained under the old hash need
-no migration: the held-out gate below scores the active and candidate
-weights under the *current* projection, so stale weights are judged
-honestly and replaced on the next cycle.
+The classifier's inputs are `SusiAlphaModel::reflex_features`: a 128-dim,
+L2-normalized bag of words with stopwords dropped, in which every word
+contributes equal norm regardless of position — a category word ("status",
+"read", "fix", ...) spread over its fixed 10-dim band, any other word over
+two FNV-1a buckets. Fleet recruitment keeps its own
+`semantic_centroid_projection` (category band at 1.0, other words one
+bucket at 0.5, first word weighted most), which its 0.35 cosine threshold
+is tuned to. Under that projection a leading category word decided
+everything — "write a poem about the ocean" sat within 0.01 of "write
+notes to todo.md" and was served `write_file` at 0.84 confidence
+(EV-CLAUDE-006). Both projections hash with FNV-1a; until EV-CLAUDE-004
+the hash was a byte *sum* that made every anagram one feature. Feature
+changes need no checkpoint migration: the held-out gate below scores the
+active and candidate weights under the *current* features, so stale
+weights are judged honestly and replaced on the next cycle.
 
 Training is cumulative *and* rehearsed. Each cycle fine-tunes the active
 weights, and fine-tuning on only the claimed batch would overwrite what

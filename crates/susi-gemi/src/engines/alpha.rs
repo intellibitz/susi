@@ -539,7 +539,7 @@ fn projection_batch(
 ) -> Result<Tensor> {
     let mut flat = Vec::with_capacity(texts.len() * SusiAlphaModel::DIM);
     for text in texts {
-        flat.extend(SusiAlphaModel::semantic_centroid_projection(text, None)?);
+        flat.extend(SusiAlphaModel::reflex_features(text));
     }
     Tensor::from_vec(flat, (texts.len(), SusiAlphaModel::DIM), device)
         .map_err(crate::engines::candle_err::from_candle)
@@ -862,7 +862,7 @@ impl SusiAlphaModel {
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
         let device = crate::models::hardware::HardwareProfiler::get_candle_device();
-        let input_vec = Self::semantic_centroid_projection(prompt, None)?;
+        let input_vec = Self::reflex_features(prompt);
         let input_tensor = Tensor::from_vec(input_vec, (1, Self::DIM), &device)
             .map_err(crate::engines::candle_err::from_candle)?;
 
@@ -987,38 +987,86 @@ impl SusiAlphaModel {
             }
         }
 
-        // FNV-1a: an order-sensitive hash. The previous byte *sum* sent every
-        // anagram ("stop"/"post"/"pots"/"tops") and every equal-sum word to
-        // one bucket, making unrelated words indistinguishable to the reflex
-        // classifier and spuriously similar to fleet recruitment.
-        let mut h = 0x811c_9dc5u32;
-        for b in word.as_bytes() {
-            h ^= u32::from(*b);
-            h = h.wrapping_mul(0x0100_0193);
-        }
-
-        let category = match word {
-            "status" | "health" | "state" | "check" | "hardware" | "system" | "report" => 0,
-            "version" | "ver" | "build" | "engine" | "revision" => 1,
-            "write" | "save" | "create" | "file" | "update" | "put" => 2,
-            "read" | "get" | "fetch" | "cat" | "show" | "content" => 3,
-            "list" | "ls" | "dir" | "directory" | "folder" | "files" => 4,
-            "scout" | "search" | "find" | "look" | "discover" | "mcp" => 5,
-            "reason" | "think" | "solve" | "complex" | "calculate" => 6,
-            "fix" | "heal" | "repair" | "audit" | "compliance" => 7,
-            _ => 99,
-        };
-
-        if category < 10 {
-            let start = category * 10;
-            for val in anchor.iter_mut().skip(start).take(10) {
+        if let Some(category) = anchor_category(word) {
+            for val in anchor.iter_mut().skip(category * 10).take(10) {
                 *val = 1.0;
             }
         } else {
-            anchor[(h as usize) % Self::DIM] = 0.5;
+            anchor[(fnv1a(word, 0) as usize) % Self::DIM] = 0.5;
         }
         anchor
     }
+
+    /// The reflex classifier's input features. `semantic_centroid_projection`
+    /// is tuned for fleet recruitment (a category word lights a 10-dim band
+    /// at 1.0 while any other word lights one dim at 0.5, first word weighted
+    /// most), and under it a leading category word decides everything:
+    /// "write a poem about the ocean" projected within 0.01 of "write notes
+    /// to todo.md" and was served `write_file` at 0.84 confidence. Here
+    /// stopwords are dropped and every remaining word contributes equal
+    /// norm, position-independent — a category word spread over its band,
+    /// any other word over two FNV-1a buckets — so content words count as
+    /// much as the verb.
+    pub fn reflex_features(prompt: &str) -> Vec<f32> {
+        let mut vec = vec![0.0f32; Self::DIM];
+        let lower = prompt.to_lowercase();
+        for word in lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty() && !REFLEX_STOPWORDS.contains(w))
+        {
+            if let Some(category) = anchor_category(word) {
+                let weight = 1.0 / (10f32).sqrt();
+                for val in vec.iter_mut().skip(category * 10).take(10) {
+                    *val += weight;
+                }
+            } else {
+                let weight = std::f32::consts::FRAC_1_SQRT_2;
+                vec[(fnv1a(word, 0) as usize) % Self::DIM] += weight;
+                vec[(fnv1a(word, 1) as usize) % Self::DIM] += weight;
+            }
+        }
+        let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            vec.iter_mut().for_each(|x| *x /= norm);
+        }
+        vec
+    }
+}
+
+/// Function words that carry no intent; dropped from reflex features so a
+/// shared "the"/"a" never makes two unrelated prompts look alike.
+const REFLEX_STOPWORDS: &[&str] = &[
+    "a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "with", "about", "into",
+    "from", "by", "is", "are", "was", "be", "it", "this", "that", "these", "those", "me", "my",
+    "i", "you", "your", "please", "can", "could", "would", "what", "which", "who", "how", "do",
+    "does",
+];
+
+/// The 10-dim band a known intent word lights, if any.
+fn anchor_category(word: &str) -> Option<usize> {
+    match word {
+        "status" | "health" | "state" | "check" | "hardware" | "system" | "report" => Some(0),
+        "version" | "ver" | "build" | "engine" | "revision" => Some(1),
+        "write" | "save" | "create" | "file" | "update" | "put" => Some(2),
+        "read" | "get" | "fetch" | "cat" | "show" | "content" => Some(3),
+        "list" | "ls" | "dir" | "directory" | "folder" | "files" => Some(4),
+        "scout" | "search" | "find" | "look" | "discover" | "mcp" => Some(5),
+        "reason" | "think" | "solve" | "complex" | "calculate" => Some(6),
+        "fix" | "heal" | "repair" | "audit" | "compliance" => Some(7),
+        _ => None,
+    }
+}
+
+/// FNV-1a with a seed byte folded in first, so seeds 0 and 1 give two
+/// independent buckets. The word hash was a byte *sum* before EV-CLAUDE-004,
+/// which sent every anagram ("stop"/"post"/"pots"/"tops") to one bucket.
+fn fnv1a(word: &str, seed: u8) -> u32 {
+    let mut h = 0x811c_9dc5u32;
+    for b in std::iter::once(seed).chain(word.bytes()) {
+        h ^= u32::from(b);
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
 }
 
 #[cfg(test)]
@@ -1221,6 +1269,70 @@ mod tests {
         // Must be sorted and contain foundational intents
         assert!(intents.contains(&"status".to_string()));
         assert!(intents.contains(&"version".to_string()));
+    }
+
+    fn cosine(a: &[f32], b: &[f32]) -> f32 {
+        a.iter().zip(b).map(|(x, y)| x * y).sum()
+    }
+
+    /// Everyday training data shared by the out-of-distribution tests.
+    const EVERYDAY: &[(&str, &str)] = &[
+        ("check system status", "status"),
+        ("show health report", "status"),
+        ("what version is this", "version"),
+        ("engine build revision", "version"),
+        ("read the config file", "read_file"),
+        ("show content of main.rs", "read_file"),
+        ("list files in src", "list_directory"),
+        ("ls the folder", "list_directory"),
+        ("write notes to todo.md", "write_file"),
+        ("save output file", "write_file"),
+        ("fix the failing build", "self_heal_build"),
+        ("repair compliance audit", "self_heal_build"),
+    ];
+
+    #[test]
+    fn reflex_features_weigh_content_words_like_the_verb() {
+        let f = SusiAlphaModel::reflex_features;
+        // Under the fleet projection these were ~0.99 alike: "write" decided.
+        assert!(
+            cosine(
+                &f("write a poem about the ocean"),
+                &f("write notes to todo.md")
+            ) < 0.6
+        );
+        // Stopwords and word order do not matter; synonyms still coincide.
+        assert!(cosine(&f("check the system status"), &f("status system check")) > 0.999);
+        assert!(
+            cosine(&f("the"), &f("a")) == 0.0,
+            "stopword-only prompts are empty"
+        );
+        let v = f("zorblat quux");
+        assert!((v.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn leading_category_word_no_longer_hijacks_unrelated_prompts() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        for prompt in [
+            "write a poem about the ocean",
+            "what is the capital of france",
+            "tell me a joke",
+            "delete everything in production",
+        ] {
+            assert!(
+                model.predict_intent(prompt).is_err(),
+                "{prompt} served a reflex"
+            );
+        }
+        assert_eq!(
+            model.predict_intent("list files in src").unwrap(),
+            "ACTION: list_directory"
+        );
     }
 
     #[test]
