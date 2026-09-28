@@ -3030,6 +3030,16 @@
       "milestone": "Bound response reads in the shared std-only loopback client.",
       "proof": "The new shared loopback helper previously read each localhost HTTP response to EOF without a size limit. It now reads at most 16 MiB + 1 byte and returns no response when the cap is exceeded. Tests were not run per operator instruction; cargo check -p susi-paths, cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "susi-vendor-syn test-only cfg accounting",
+        "ref": "file://crates/susi-vendor-syn/src/lib.rs"
+      },
+      "id": "EV-2022928-309",
+      "milestone": "Distinguish test-only nested cfg expressions from mixed production cfg branches in Rust code metrics.",
+      "proof": "The previous visitor only inspected the first cfg token, so it missed `all(test, ...)`; a naïve token search would wrongly exempt `any(test, feature=...)`. The visitor now parses nested Meta expressions conservatively and the unrun regression test covers both forms. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

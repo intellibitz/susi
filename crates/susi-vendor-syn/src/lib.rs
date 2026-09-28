@@ -75,19 +75,36 @@ pub fn outline(src: &str) -> Option<Vec<(ItemKind, String)>> {
     )
 }
 
-/// `#[test]` / `#[cfg(test)]` (also `#[cfg(all(test, ..))]`-style lists that
-/// name `test`).
+/// Whether a cfg expression can only be enabled in a test build.
+fn cfg_requires_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) => {
+            let Some(operator) = list.path.get_ident().map(ToString::to_string) else {
+                return false;
+            };
+            let Ok(items) = list.parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            ) else {
+                return false;
+            };
+            match operator.as_str() {
+                "all" => items.iter().any(cfg_requires_test),
+                "any" => !items.is_empty() && items.iter().all(cfg_requires_test),
+                _ => false,
+            }
+        }
+        syn::Meta::NameValue(_) => false,
+    }
+}
+
 fn is_test_only(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         attr.path().is_ident("test")
             || (attr.path().is_ident("cfg")
-                && attr.meta.require_list().is_ok_and(|list| {
-                    list.tokens
-                        .to_string()
-                        .split(|c: char| !c.is_alphanumeric() && c != '_')
-                        .next()
-                        .is_some_and(|first| first == "test")
-                }))
+                && attr
+                    .parse_args::<syn::Meta>()
+                    .is_ok_and(|meta| cfg_requires_test(&meta)))
     })
 }
 
@@ -160,10 +177,13 @@ mod tests {
             fn prod() { x.unwrap(); }
             #[cfg(test)] mod t { fn f() { y.unwrap(); } }
             #[cfg(test)] impl S { fn g() { z.unwrap(); } }
+            #[cfg(all(test, feature = "audit-tests"))] impl S { fn j() { q.unwrap(); } }
+            #[cfg(any(test, feature = "audit-tests"))] fn maybe_prod() { m.unwrap(); }
+            #[cfg(not(test))] fn not_test() { n.unwrap(); }
             impl S { #[test] fn h() { w.unwrap(); } fn k() { v.expect("e"); } }
         "#;
         let m = analyze(src, 60).unwrap();
-        assert_eq!((m.functions, m.unwrap_calls, m.expect_calls), (2, 1, 1));
+        assert_eq!((m.functions, m.unwrap_calls, m.expect_calls), (4, 3, 1));
     }
 
     #[test]

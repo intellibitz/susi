@@ -535,3 +535,4 @@ the same commit as the code.
 | 108 | One leaf-service package pulled Wasmer and Bollard into every standalone service binary | optional per-service features gate vendor backends; standalone bins require their service feature |
 | 109 | README/architecture still claimed 43/90 wired daemon modules after deletion pass | counts corrected to 42/72 wired and a 30-module unwired ceiling |
 | 110 | Shared loopback client read HTTP responses without a size bound | read at most 16 MiB + 1 byte and reject overflow |
+| 111 | Rust bloat audit missed `cfg(all(test, ...))` but could misclassify mixed `cfg(any(...))` branches | recursively interpret test-only cfg expressions in `susi-vendor-syn` |
