@@ -468,7 +468,7 @@ pub fn bootstrap_registry(registry: &ToolRegistry) {
     ToolRegistry::register_meta_tool(
         registry,
         "ast_analyze",
-        "Structural AST code analysis via tree-sitter",
+        "Structural AST analysis of Rust source (syn); other languages report size only",
         MetaCategory::CodingSpecialist,
         adapt(CoreTools::ast_analyze),
     );

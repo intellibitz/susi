@@ -36,12 +36,12 @@ libc = "0.2"
 susi-vendor-chrome = { workspace = true, optional = true }
 susi-vendor-tantivy = { workspace = true, optional = true }
 susi-vendor-fastembed = { workspace = true, optional = true }
-syn = { version = "3.0.6", features = ["full", "visit"], optional = true }
+susi-vendor-syn = { workspace = true, optional = true }
 tokio-rustls = { workspace = true }
 
 [features]
 default = ["tools-rich"]
-tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:syn"]
+tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -2114,7 +2114,7 @@ impl CoreTools {
     #[cfg(feature = "tools-rich")]
     #[tool(
         name = "ast_analyze",
-        description = "Structural AST code analysis via tree-sitter"
+        description = "Structural AST analysis of Rust source (syn); other languages report size only"
     )]
     pub fn ast_analyze(arg: &serde_json::Value, workspace: &Path) -> EaiResult<String> {
         let path_s = arg.get("path").and_then(|v| v.as_str());
@@ -2137,31 +2137,32 @@ impl CoreTools {
             .unwrap_or("rs");
         let mut report = format!("AST Analysis ({}): {} bytes\n", ext, code.len());
 
-        // Attempt structural analysis
+        // Structural analysis: Rust only (susi-vendor-syn). Other languages
+        // get the size line and an explicit "not parsed" note — no parser
+        // for them is linked, so none is claimed.
         if ext == "rs" {
-            if let Ok(file) = syn::parse_file(&code) {
-                report.push_str(&format!(
-                    "Converged AST (syn): {} top-level items.\n",
-                    file.items.len()
-                ));
-                for item in file.items.iter().take(5) {
-                    // Only the headline item kinds are reported; every other
-                    // syn::Item variant is intentionally skipped.
-                    #[allow(clippy::wildcard_enum_match_arm)]
-                    match item {
-                        syn::Item::Fn(f) => {
-                            report.push_str(&format!("  - Function: {}\n", f.sig.ident))
-                        }
-                        syn::Item::Struct(s) => {
-                            report.push_str(&format!("  - Struct: {}\n", s.ident))
-                        }
-                        syn::Item::Enum(e) => report.push_str(&format!("  - Enum: {}\n", e.ident)),
-                        _ => {}
+            match susi_vendor_syn::outline(&code) {
+                Some(items) => {
+                    report.push_str(&format!(
+                        "Converged AST (syn): {} top-level items.\n",
+                        items.len()
+                    ));
+                    for (kind, name) in items.iter().take(5) {
+                        let label = match kind {
+                            susi_vendor_syn::ItemKind::Function => "Function",
+                            susi_vendor_syn::ItemKind::Struct => "Struct",
+                            susi_vendor_syn::ItemKind::Enum => "Enum",
+                            susi_vendor_syn::ItemKind::Other => continue,
+                        };
+                        report.push_str(&format!("  - {label}: {name}\n"));
                     }
                 }
+                None => report.push_str("Rust source did not parse.\n"),
             }
         } else {
-            report.push_str("Multi-language tree-sitter parsing active. [ROOT_NODE] identified.\n");
+            report.push_str(&format!(
+                "Structural parsing is available for Rust only; `.{ext}` was not parsed.\n"
+            ));
         }
 
         Ok(report)

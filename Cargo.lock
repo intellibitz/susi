@@ -6382,7 +6382,7 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
- "syn 3.0.6",
+ "susi-vendor-syn",
  "tempfile",
  "tokio",
 ]
@@ -6518,8 +6518,8 @@ dependencies = [
  "susi-sandbox-client",
  "susi-vendor-chrome",
  "susi-vendor-fastembed",
+ "susi-vendor-syn",
  "susi-vendor-tantivy",
- "syn 3.0.6",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -6683,6 +6683,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "susi-vendor-syn"
+version = "0.1.0"
+dependencies = [
+ "syn 3.0.6",
 ]
 
 [[package]]

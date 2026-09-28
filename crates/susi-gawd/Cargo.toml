@@ -15,7 +15,7 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-native-client = { workspace = true }
-syn = { version = "3.0.6", features = ["full", "visit"] }
+susi-vendor-syn = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

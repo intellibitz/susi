@@ -110,6 +110,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-tantivy", 2),
     ("susi-vendor-fastembed", 2),
     ("susi-vendor-chrome", 2),
+    ("susi-vendor-syn", 0),
     ("susi-sandbox", 4),
     ("susi-leaf-services", 5),
     ("susi-agents", 4),
