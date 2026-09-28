@@ -14,13 +14,26 @@ use std::path::Path;
 use std::sync::Once;
 use susi_gawd::agents::GawdAgent;
 
+fn test_home() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("susi_empirical_{}", std::process::id()))
+}
+
+/// Missions run in a scratch workspace, never the checkout: under the
+/// isolated HOME a recovery fallback once launched aider in the real repo,
+/// which wrote placeholder `Your Name` git identity into its `.git/config`.
+fn scratch_workspace() -> std::path::PathBuf {
+    let ws = test_home().join("workspace");
+    std::fs::create_dir_all(&ws).unwrap();
+    ws
+}
+
 fn wire_test_substrate() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         // Isolate HOME before any substrate wiring: the vendored MacPolicy /
         // EvidenceSession / cloud.env readers all resolve real ~/.susi state
         // otherwise, leaking host credentials and receipts into tests.
-        let tmp = std::env::temp_dir().join(format!("susi_empirical_{}", std::process::id()));
+        let tmp = test_home();
         let _ = std::fs::create_dir_all(&tmp);
         unsafe {
             std::env::set_var("HOME", &tmp);
@@ -43,7 +56,7 @@ fn wire_test_substrate() {
 #[test]
 fn test_empirical_reflex_classification() {
     wire_test_substrate();
-    let ws = std::env::current_dir().unwrap();
+    let ws = scratch_workspace();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
     let report = ama.solve_stream_report("identity", &ws, susi::SUSI_VERSION, &|_| {});
@@ -61,7 +74,7 @@ fn test_empirical_reflex_classification() {
 #[test]
 fn test_empirical_epistemic_integrity_fictitious() {
     wire_test_substrate();
-    let ws = std::env::current_dir().unwrap();
+    let ws = scratch_workspace();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
     let res = ama.solve_clean_generative(
         "inspect the status of cargo module non_existent_quantum_crank",
@@ -70,6 +83,11 @@ fn test_empirical_epistemic_integrity_fictitious() {
         None,
     );
     assert!(!res.contains("quantum_crank version 1.0.0 successfully deployed"));
+    // Mock inference must not fall through to external-agent delegation.
+    assert!(
+        !ws.join(".susi").join("execution-agents").exists(),
+        "mock-inference mission launched an external agent"
+    );
 }
 
 #[test]

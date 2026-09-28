@@ -9,6 +9,7 @@ mod crewai;
 mod deerflow;
 mod e2b;
 mod gemini_cli;
+mod git_identity;
 mod haystack;
 mod langgraph;
 mod llamaindex;

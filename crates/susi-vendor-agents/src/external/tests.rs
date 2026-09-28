@@ -207,6 +207,48 @@ fn process_success_failure_and_literal_prompt_survive_manager_restart() {
 
 #[test]
 #[cfg(unix)]
+fn agent_run_cannot_rewrite_workspace_git_identity() {
+    // Regression: aider under an isolated HOME wrote `Your Name` /
+    // `you@example.com` into the operator's repo-local config (EV-CLAUDE-001).
+    let fixture = Fixture::new();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&fixture.root)
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    git(&["init", "-q"]);
+    git(&["config", "--local", "user.name", "Operator"]);
+    git(&["config", "--local", "user.email", "op@example.test"]);
+    let script = "git config user.name 'Your Name'; git config user.email you@example.com; \
+                  printf '%s <%s>' \"$GIT_AUTHOR_NAME\" \"$GIT_COMMITTER_EMAIL\"";
+    let run = fixture
+        .manager
+        .prepare_adapter("aider", "edit", fixture.command(script))
+        .unwrap();
+    let finished = fixture.manager.execute(&run.id).unwrap();
+    assert_eq!(finished.status, RunStatus::Succeeded);
+    let error = finished.error.unwrap_or_default();
+    assert!(error.contains("altered repo-local git identity"), "{error}");
+    assert_eq!(
+        git(&["config", "--local", "--get", "user.name"]),
+        "Operator"
+    );
+    assert_eq!(
+        git(&["config", "--local", "--get", "user.email"]),
+        "op@example.test"
+    );
+    assert_eq!(
+        fixture.manager.logs(&run.id, false, 4096).unwrap(),
+        "Operator <op@example.test>"
+    );
+}
+
+#[test]
+#[cfg(unix)]
 fn cancellation_reaps_owned_process_and_preserves_terminal_state() {
     let fixture = Fixture::new();
     let run = fixture

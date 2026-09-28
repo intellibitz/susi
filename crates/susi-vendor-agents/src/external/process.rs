@@ -128,11 +128,24 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
         let path = std::env::var(config_env).context("framework config env missing")?;
         cmd.env("SUSI_FRAMEWORK_CONFIG", path);
     }
+    // Armed last so the probes see the agent's final env; refuses launch into
+    // a git work tree whose identity the agent could not see.
+    let identity = super::git_identity::GitIdentityGuard::arm(&run.workspace, &mut cmd)?;
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         cmd.process_group(0);
     }
+    let result = supervise(manager, run, &mut cmd);
+    if let Some(guard) = identity {
+        if let Some(note) = guard.restore()? {
+            run.error = Some(note);
+        }
+    }
+    result
+}
+
+fn supervise(manager: &AgentManager, run: &mut RunRecord, cmd: &mut Command) -> Result<()> {
     let mut child = OwnedChild(cmd.spawn().context("start agent process")?);
     run.pid = Some(child.0.id());
     manager.save(run)?;
