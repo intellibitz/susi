@@ -1,5 +1,5 @@
 [package]
-name = "susi-native"
+name = "susi-vendor-wasmer"
 version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
@@ -8,6 +8,11 @@ publish = false
 [dependencies]
 susi-error = { workspace = true }
 wasmer-types = "7.4.2"
+# In-process cell runtime (`cell.rs`): fuel metering and the memory-cap
+# rewrite of the module's memory section.
+wasmer-middlewares = "7.4.2"
+wasm-encoder = "0.259"
+tracing = { workspace = true }
 
 # wasmer-wasix `sys-minimal`, not `sys`: we only run a WASI module with a
 # stdout pipe (wasm.rs). `sys` adds journaling, a host network stack

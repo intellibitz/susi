@@ -80,7 +80,6 @@ pub mod registry;
 pub mod replay;
 pub mod root_cause;
 pub mod runtime_admin;
-pub mod sandbox_wasm;
 pub mod scaffold;
 pub mod scheduler;
 pub mod schema;

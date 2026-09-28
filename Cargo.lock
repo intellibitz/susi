@@ -6219,11 +6219,11 @@ dependencies = [
  "susi-gemi",
  "susi-gmcp",
  "susi-leaf-services",
- "susi-native",
  "susi-paths",
  "susi-sandbox",
  "susi-server",
  "susi-tools",
+ "susi-vendor-wasmer",
  "sysinfo",
  "tokio",
  "tracing",
@@ -6339,12 +6339,10 @@ dependencies = [
  "susi-sandbox-client",
  "susi-server",
  "susi-tools",
+ "susi-vendor-wasmer",
  "tokio",
  "tokio-rustls",
  "tracing",
- "wasm-encoder 0.259.0",
- "wasmer",
- "wasmer-middlewares",
  "winapi",
 ]
 
@@ -6548,21 +6546,11 @@ dependencies = [
  "susi-config",
  "susi-core",
  "susi-error",
- "susi-native",
  "susi-paths",
  "susi-sandbox",
  "susi-sandbox-client",
+ "susi-vendor-wasmer",
  "tokio",
-]
-
-[[package]]
-name = "susi-native"
-version = "0.1.0"
-dependencies = [
- "susi-error",
- "wasmer",
- "wasmer-types",
- "wasmer-wasix",
 ]
 
 [[package]]
@@ -6669,6 +6657,19 @@ dependencies = [
  "susi-paths",
  "tokenizers",
  "tracing",
+]
+
+[[package]]
+name = "susi-vendor-wasmer"
+version = "0.1.0"
+dependencies = [
+ "susi-error",
+ "tracing",
+ "wasm-encoder 0.259.0",
+ "wasmer",
+ "wasmer-middlewares",
+ "wasmer-types",
+ "wasmer-wasix",
 ]
 
 [[package]]

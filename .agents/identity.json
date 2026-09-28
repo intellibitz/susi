@@ -183,7 +183,7 @@
           "tier": 1
         },
         {
-          "function": "First-party typed loopback client for the `susi-native` Wasmer service. Feature planes compile this crate once and never source-mount or link the Wasmer implementation.",
+          "function": "First-party typed loopback client for the `susi-native` Wasmer service. Feature planes compile this crate once and never source-mount or link the Wasmer implementation. The Wasmer implementation itself is the vendor crate `susi-vendor-wasmer` (renamed from the `susi-native` crate once its HTTP shell moved to `susi-leaf-services`; the service keeps the name `susi-native`); it also owns the daemon's metered in-process cell runtime and plugin validation (EV-2022928-298), so wasmer is linked by exactly one crate.",
           "symbol": "susi-native-client / WasmHost",
           "tier": 1
         },

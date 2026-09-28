@@ -3,11 +3,11 @@
 
 use super::alpha::SusiAlphaModel;
 use anyhow::{anyhow, Result};
-use std::sync::LazyLock as Lazy;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::LazyLock as Lazy;
 
 pub struct SusiPulse;
 

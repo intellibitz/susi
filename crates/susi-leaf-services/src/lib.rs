@@ -4,7 +4,7 @@
 //! HTTP shells for the microkernel's leaf services.
 //!
 //! `susi-paths`, `susi-error` and `susi-config` are foundation libraries
-//! every crate links, and `susi-sandbox` (bollard) / `susi-native` (wasmer)
+//! every crate links, and `susi-sandbox` (bollard) / `susi-vendor-wasmer` (wasmer)
 //! are vendor integrations; none of them carries an HTTP framework. This
 //! crate is the one place the leaf services meet axum: one runtime/bind helper, one pair of
 //! bearer policies, one `service-run` dispatch. The service logic stays in

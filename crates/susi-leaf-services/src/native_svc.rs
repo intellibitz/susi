@@ -6,7 +6,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::json;
 use std::path::PathBuf;
-use susi_native::wasm::WasmHost;
+use susi_vendor_wasmer::wasm::WasmHost;
 
 #[derive(serde::Deserialize)]
 struct WasmExecReq {

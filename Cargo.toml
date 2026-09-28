@@ -6,7 +6,7 @@ members = [
     "crates/susi-paths",
     "crates/susi-error",
     "crates/susi-core",
-    "crates/susi-native",
+    "crates/susi-vendor-wasmer",
     "crates/susi-native-client",
     "crates/susi-config",
     "crates/susi-leaf-services",
@@ -85,7 +85,7 @@ complexity = { level = "warn", priority = -1 }
 [workspace.dependencies]
 susi-abi = { path = "crates/susi-abi" }
 susi-core = { path = "crates/susi-core" }
-susi-native = { path = "crates/susi-native" }
+susi-vendor-wasmer = { path = "crates/susi-vendor-wasmer" }
 susi-native-client = { path = "crates/susi-native-client" }
 susi-sandbox = { path = "crates/susi-sandbox" }
 susi-sandbox-client = { path = "crates/susi-sandbox-client" }
@@ -136,7 +136,7 @@ sha2 = { workspace = true }
 susi-daemon = { path = "crates/susi-daemon" }
 susi-server = { path = "crates/susi-server" }
 susi-core = { workspace = true }
-susi-native = { workspace = true }
+susi-vendor-wasmer = { workspace = true }
 susi-sandbox = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gmcp = { workspace = true }

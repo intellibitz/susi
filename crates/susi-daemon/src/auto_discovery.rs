@@ -107,7 +107,7 @@ pub fn spawn_all_cells(substrate: &Path) {
 ///
 /// * `susi-cell-*` / `*.cell` — executable cell, run directly
 /// * `*.json` — plugin manifest, hosted by `susi-universal-cell`
-/// * `*.wasm` — loaded in-process via [`crate::sandbox_wasm`]
+/// * `*.wasm` — loaded in-process via `susi_vendor_wasmer::cell`
 pub fn spawn_cell(path: &Path) -> bool {
     if !path.is_file() {
         return false;
@@ -154,7 +154,7 @@ pub fn spawn_cell(path: &Path) -> bool {
     } else if name.ends_with(".wasm") {
         // Load the cell in-process and run its `_start` entry point.
         std::thread::spawn(
-            move || match crate::sandbox_wasm::spawn_wasm_cell(path.clone()) {
+            move || match susi_vendor_wasmer::cell::spawn_wasm_cell(path.clone()) {
                 Ok(mut cell) => {
                     tracing::info!("[auto_discovery] Loaded WASM cell: {}", path.display());
                     if let Err(e) = cell.execute("_start") {
