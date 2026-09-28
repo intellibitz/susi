@@ -108,3 +108,31 @@ fn staged_successes_train_publish_and_serve_a_tier0_reflex() {
         "familiar prompt not served by Tier-0: {served}"
     );
 }
+
+#[test]
+fn an_untrainable_claim_is_retired_not_retried_forever() {
+    wire_test_substrate();
+    let workspace = test_home().join("workspace-untrainable");
+    std::fs::create_dir_all(&workspace).unwrap();
+    // Past the threshold, but no line can ever teach: the action is not a
+    // capability, so every record is skipped.
+    for i in 0..55 {
+        stage(
+            &workspace,
+            &format!("frobnicate the widget {i}"),
+            "no_such_capability",
+        );
+    }
+    let report =
+        susi_gawd::reflex_trainer::ReflexTrainer::audit_distillation_state(&workspace).unwrap();
+    assert!(report.contains("Retired 55 untrainable"), "{report}");
+
+    let staged = workspace.join(".susi/distillation_staged.jsonl");
+    assert!(
+        !staged.exists() || std::fs::read_to_string(&staged).unwrap().is_empty(),
+        "an untrainable claim must not be restored"
+    );
+    let summary = susi_gawd::reflex_trainer::distillation_summary(&workspace);
+    assert_eq!(summary["untrainable"], 1, "{summary}");
+    assert_eq!(summary["error"], 0, "{summary}");
+}

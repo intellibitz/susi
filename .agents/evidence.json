@@ -3654,6 +3654,16 @@
    "milestone": "The Tier-0 publication gate now measures the error that serving actually risks. Before, holdout_gate compared argmax accuracy only, so a candidate with equal held-out accuracy but more confident mistakes (wrong argmax with probability above the serve bar, which predict_intent would hand out as a reflex) passed. Now ReflexNet::evaluate returns Evaluation { correct, wrong_served }. Probabilities are the softmax over every output, as predict_intent computes them; the argmax is taken within the model's vocabulary; wrong_served counts wrong argmaxes above SERVE_CONFIDENCE (0.5, now a named constant that predict_intent also uses). The gate refuses publication when candidate.correct < active.correct or candidate.wrong_served > active.wrong_served, and the report and held-back error state both numbers for both models. The test-only correct() helper was removed in favour of evaluate(). Test: evaluation_counts_confident_mistakes_as_served (a confident prediction scored against its own label is correct; against another label it is a served mistake; with a vocabulary that cannot express it, it is a low-probability miss, not served). The alpha suite passed 5 of 5 runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "ReflexTrainer untrainable retirement",
+    "ref": "file://crates/susi-gawd/src/reflex_trainer.rs"
+   },
+   "id": "EV-CLAUDE-017",
+   "milestone": "Fixes a retrain livelock in the distill stage. Before: when a claimed batch held nothing trainable (every line a failed outcome, a label outside the vocabulary that is not a capability, or a blank intent), GEMI's parse_training_entries returned 'No trainable distillation records' and ReflexTrainer restored the claim like any other error. Only held_back cycles backed off, so every following mission (amas.rs runs the audit after each one) re-claimed, re-failed and restored the same lines, while distillation_staged.jsonl kept growing. Now train_claim matches UNTRAINABLE_MARKERS ('No trainable distillation records', 'Empty distillation dataset'; the producer side in alpha.rs is commented as a contract), retires the claim, logs the cycle as 'untrainable', and returns Ok with a 'Retired N untrainable staged sample(s)' report. held_back_wait now also backs off after an 'error' cycle (waits for claim size + threshold new samples) but not after 'untrainable'. distillation_summary counts 'untrainable'. Tests: held_back_cycle_defers_until_enough_new_samples (extended: an error cycle defers; an untrainable cycle does not); tests/distill_loop_tests.rs::an_untrainable_claim_is_retired_not_retried_forever (55 non-capability samples through the production writer, audit over the plane bus: report says 'Retired 55 untrainable', staging buffer consumed, summary untrainable=1, error=0). The integration file passed 3 of 3 runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

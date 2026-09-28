@@ -122,6 +122,9 @@ fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<T
     }
     let (entries, ambiguous) = resolve_label_conflicts(entries);
     skipped += ambiguous;
+    // "No trainable distillation records" / "Empty distillation dataset" are
+    // matched by `ReflexTrainer` (UNTRAINABLE_MARKERS) across the plane bus to
+    // retire the claim instead of restoring it; keep them stable.
     if entries.is_empty() {
         if skipped > 0 {
             return Err(anyhow!(

@@ -618,7 +618,12 @@ result used to be discarded, so a held-back checkpoint was invisible. The
 log is also back-off state: after `held_back`, the automatic audit defers
 until at least `reflex_training_threshold` new samples arrive beyond the
 held-back claim, instead of refitting and refusing the same restored claim
-on every mission. `force_train` (operator-requested) bypasses the back-off.
+on every mission. A failed (`error`) cycle backs off the same
+way, and a claim with *nothing* trainable (every line a failed outcome, a
+non-capability label, or blank) is retired and logged `untrainable` rather
+than restored: restoring it re-claimed and re-failed the same lines on
+every mission while the buffer grew — a retrain livelock (EV-CLAUDE-017).
+`force_train` (operator-requested) bypasses the back-off.
 `susi substrate status` shows the log under `reflexes.distillation` (cycle
 counts by outcome plus the last cycle). `tests/distill_loop_tests.rs` exercises the whole
 stage end to end across the plane bus — production staging writer →

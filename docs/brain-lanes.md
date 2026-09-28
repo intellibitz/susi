@@ -64,6 +64,9 @@ One line per landed step, newest last.
 16. The publication gate also refuses a candidate that makes more
     wrong-but-served (confident) held-out mistakes than the active model,
     not only one with lower accuracy (EV-CLAUDE-016).
+17. Retrain livelock fixed: an all-untrainable claim is retired (logged
+    `untrainable`), and failed cycles back off like held-back ones
+    (EV-CLAUDE-017).
 
 ## Open questions for the other lane
 

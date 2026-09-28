@@ -58,6 +58,18 @@ fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
             log_cycle(workspace, "published", claim.sample_count, &report);
             Ok(report)
         }
+        Err(error) if UNTRAINABLE_MARKERS.iter().any(|m| error.contains(m)) => {
+            // Nothing in the claim can ever teach (failed outcomes, labels
+            // that are not capabilities, blank intents). Restoring it would
+            // re-claim and re-fail the same lines on every mission while the
+            // buffer grew; retire it instead.
+            retire_claim(claim)?;
+            log_cycle(workspace, "untrainable", claim.sample_count, &error);
+            Ok(format!(
+                "Retired {} untrainable staged sample(s): {error}",
+                claim.sample_count
+            ))
+        }
         Err(error) => {
             restore_claim(claim)?;
             let outcome = if error.contains(HELD_BACK_MARKER) {
@@ -73,6 +85,13 @@ fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
     }
 }
 
+/// GEMI errors meaning the claim held nothing trainable
+/// (`parse_training_entries`); the claim is retired, not restored.
+const UNTRAINABLE_MARKERS: [&str; 2] = [
+    "No trainable distillation records",
+    "Empty distillation dataset",
+];
+
 /// Prefix of the GEMI plane's error when the held-out gate refuses a
 /// checkpoint (`SusiAlphaModel::holdout_gate`). The error crosses the plane
 /// bus as a string, so the marker is the contract.
@@ -80,7 +99,8 @@ const HELD_BACK_MARKER: &str = "reflex checkpoint held back";
 const DISTILLATION_LOG: &str = "distillation_log.jsonl";
 const DISTILLATION_LOG_KEEP: usize = 200;
 
-/// One training cycle's outcome: `published`, `held_back`, or `error`.
+/// One training cycle's outcome: `published`, `held_back`, `error`, or
+/// `untrainable` (claim retired).
 #[derive(serde::Serialize, serde::Deserialize)]
 struct CycleRecord {
     timestamp: u64,
@@ -133,6 +153,7 @@ pub fn distillation_summary(workspace: &Path) -> serde_json::Value {
         "published": count("published"),
         "held_back": count("held_back"),
         "error": count("error"),
+        "untrainable": count("untrainable"),
         "last": records.last(),
     })
 }
@@ -144,22 +165,24 @@ fn last_cycle(workspace: &Path) -> Option<CycleRecord> {
         .find_map(|line| serde_json::from_str(line).ok())
 }
 
-/// After a held-back cycle, retraining the same restored claim on every
-/// mission would only be refused again. Wait until at least `threshold`
-/// new samples arrive beyond the held-back claim.
+/// After a held-back or failed cycle the claim was restored, and retraining
+/// the same data on every mission would only be refused (or fail) again.
+/// Wait until at least `threshold` new samples arrive beyond that claim.
 fn held_back_wait(workspace: &Path, threshold: usize) -> EaiResult<Option<String>> {
     let Some(last) = last_cycle(workspace) else {
         return Ok(None);
     };
-    if last.outcome != "held_back" {
-        return Ok(None);
-    }
+    let reason = match last.outcome.as_str() {
+        "held_back" => "was held back",
+        "error" => "failed",
+        _ => return Ok(None),
+    };
     let staged =
         staged_sample_count(&workspace.join(".susi/distillation_staged.jsonl"))?.unwrap_or(0);
     let needed = last.claimed.saturating_add(threshold);
     Ok((staged < needed).then(|| {
         format!(
-            "Reflex training deferred: the last cycle was held back at {} samples; waiting for {needed} staged (have {staged}).",
+            "Reflex training deferred: the last cycle {reason} at {} samples; waiting for {needed} staged (have {staged}).",
             last.claimed
         )
     }))
@@ -433,6 +456,20 @@ mod tests {
         std::fs::write(&staged, lines(109)).unwrap();
         assert!(held_back_wait(dir.path(), 50).unwrap().is_some());
         std::fs::write(&staged, lines(110)).unwrap();
+        assert!(held_back_wait(dir.path(), 50).unwrap().is_none());
+
+        // A failed cycle backs off the same way; a retired untrainable
+        // claim does not (the lines left are all new).
+        std::fs::write(&staged, lines(60)).unwrap();
+        log_cycle(dir.path(), "error", 60, "boom");
+        let wait = held_back_wait(dir.path(), 50).unwrap().unwrap();
+        assert!(wait.contains("the last cycle failed at 60"), "{wait}");
+        log_cycle(
+            dir.path(),
+            "untrainable",
+            60,
+            "No trainable distillation records",
+        );
         assert!(held_back_wait(dir.path(), 50).unwrap().is_none());
     }
 
