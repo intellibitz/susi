@@ -92,7 +92,7 @@ never consume an unterminated source tail.
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; headless_chrome | workspace crates | Chrome/Chromium | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
-| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; production swarm host is wired from the live composition root (42 of 72 modules reachable; 30 remain self-tested-only) | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID | yes |
+| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; production swarm host is wired from the live composition root (38 of 72 modules reachable; 34 remain self-tested-only) | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
@@ -363,7 +363,7 @@ service crate, which every consumer depends on (IPC + local fallback).
 - Layer matrix from this document.
 - `ARCHITECTURE.md` documents `plane_bus`.
 - No new unwired `susi-daemon` module: modules unreachable from any production
-  path are a ratchet with ceiling **30** (`UNREACHABLE_DAEMON_MODULES_CEILING`).
+  path are a ratchet with ceiling **34** (`UNREACHABLE_DAEMON_MODULES_CEILING`).
   Wire from `composition` or remove; discarded probes and type-only references
   do not count as production wiring.
 - No new cross-crate `#[path]` mount: 159 existed on 2026-09-28; the count
@@ -505,9 +505,9 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 30 | Daemon `orchestrator` unreachable from production | constructed in `composition::SwarmHost` |
 | 31 | Daemon `watchdog` unreachable from production | host cell registered on the swarm host |
 | 32 | Daemon `identity` unreachable from production | host cell identity generated and counted |
-| 33 | Daemon `scheduler` unreachable from production | `schedule_cells` runs from `swarm_host_snapshot` |
+| 33 | Daemon `scheduler` unreachable from production | RETRACTED: empty-cell `schedule_cells` probe was removed; scheduler remains self-tested-only |
 | 34 | Daemon `load_balancer` unreachable from production | host cell registered; `next_cell` in snapshot |
-| 35 | Daemon `self_healing` unreachable from production | `SelfHealingManager` opened from snapshot |
+| 35 | Daemon `self_healing` unreachable from production | RETRACTED: opening a runbooks directory was not self-healing; module remains self-tested-only |
 | 36 | `susi os` had no swarm-host view; ceiling 59 unwired | `swarm_host` on `susi os`; ceiling 53; ratchet covers agents + daemon |
 | 37 | `susi-core` MCP `post` named `ureq` response types | returns `HttpCall` |
 | 38 | MCP `read_body` named `ureq` | reads via `HttpCall::header` / `into_bytes` |
@@ -519,9 +519,9 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 44 | GMCP `a2a_delegate` owned a private 120s `ureq` agent | `http_call_with_body` with 120s timeout |
 | 45 | `susi-gmcp` still declared `ureq` | dropped |
 | 46 | Daemon `task_queue`/`ttl`/`metrics` unreachable | held on `SwarmHost` |
-| 47 | Daemon `fallback`/`http_gateway`/`tool_catalog` unreachable | fallback + gateway + builtin cards on snapshot |
+| 47 | Daemon `fallback`/`http_gateway`/`tool_catalog` unreachable | RETRACTED: synthetic fallback/gateway probes removed; built-in tool-card listing remains live |
 | 48 | Ratchet still allowed ureq on core/adapters/gmcp; ceiling 53 | forbidden list includes core/adapters-llm/gmcp; ceiling 47 |
-| 49 | Reachability ratchet counted discarded probes and type-only references as production wiring | False anchors removed; ceiling remains 30 until modules are functionally integrated or removed |
+| 49 | Reachability ratchet counted discarded probes and type-only references as production wiring | False anchors removed; ceiling remains 34 until modules are functionally integrated or removed |
 | 96 | GEMI `HttpProvider` generate/health/embed used async reqwest | blocking `post_json_timeout` / `http_call` via `spawn_blocking` |
 | 97 | `/models` discovery used a reqwest client | `register_openai_compat_models` uses `http_call` |
 | 98 | `susi-gemi` still declared `reqwest` | dropped |
@@ -570,7 +570,7 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 141 | `signal` compiled-only | `SignalRouter` on the host |
 | 142 | `vfs` compiled-only | `VfsManager` on the host |
 | 143 | `workloads` compiled-only | `complete` gate from the daemon loop |
-| 144 | Unreachable daemon-module ceiling still 30 | RETRACTED: constructor probes/discarded calls were not functional integration; ceiling restored to 30 |
+| 144 | Unreachable daemon-module ceiling still 30 | RETRACTED: constructor probes/discarded calls were not functional integration; ceiling restored to 34 after the remaining snapshot probes were removed |
 | 145 | Gossip UDP never bound in production | RETRACTED: no gossip listener starts until peer authentication is implemented |
 | 146 | Gossip had no way to report the bound socket | `GossipManager::local_addr` |
 | 147 | `susi os` claimed gossip unbound | snapshot reports the loopback gossip address |
@@ -627,4 +627,5 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 198 | STUN DNS failure was untyped | `discover_default` errors when DNS yields no addresses |
 | 199 | First tick waited 30s | immediate tick inside `start_os_plane_ticks` |
 | 200 | Iteration ledger stopped at 154 | this table through 200 |
-| 201 | OS-plane reachability claims were built from probes and discarded results | retracted; no default gossip/STUN startup, ceiling remains 30, vendor MCP-server split retained |
+| 201 | OS-plane reachability claims were built from probes and discarded results | retracted; no default gossip/STUN startup, ceiling remains 34, vendor MCP-server split retained |
+| 202 | `swarm_host_snapshot` used empty scheduler input, synthetic fallback/gateway results, and a runbooks-directory check to claim four live modules | probes removed; 38/72 modules are production-reachable and 34 remain self-tested-only |

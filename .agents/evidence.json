@@ -3058,7 +3058,7 @@
       },
       "id": "EV-2022928-311",
       "milestone": "Reconcile public reachability counts with the post-deletion daemon module set.",
-      "proof": "The main README and ARCHITECTURE ratchet still stated 43/90 and ceiling 47 after 17 duplicate modules were removed. Updated docs and the ratchet narrative to the current 42/72 and ceiling 30. Tests were not run per operator instruction; non-test checks cover formatting, metadata, and JSON validity.",
+      "proof": "The main README and ARCHITECTURE ratchet still stated 43/90 and ceiling 47 after 17 duplicate modules were removed. Docs were first reconciled to 42/72 and ceiling 30; EV-2022928-317 later removes four snapshot-only probe references and corrects the count to 38/72 with ceiling 34. Tests were not run per operator instruction; non-test checks cover formatting, metadata, and JSON validity.",
       "type": "AUDIT"
     },
     {
@@ -3108,7 +3108,17 @@
       },
       "id": "EV-2022928-316",
       "milestone": "Retract false module-reachability claims and disable unauthenticated/unapproved network startup.",
-      "proof": "Cursor's OS-plane composition counted constructor probes, discarded results and empty/default tick calls as production wiring, set the unwired ceiling to zero, and started unauthenticated 0.0.0.0 gossip plus STUN without network-egress authorization. Those composition hooks, default listeners and STUN startup were removed; the 30-module ceiling is restored. The independent susi-vendor-mcp-server SDK split is retained. Tests were not run per operator instruction; cargo check/fmt/metadata/diff checks are the non-test verification.",
+      "proof": "Cursor's OS-plane composition counted constructor probes, discarded results and empty/default tick calls as production wiring, set the unwired ceiling to zero, and started unauthenticated 0.0.0.0 gossip plus STUN without network-egress authorization. Those composition hooks, default listeners and STUN startup were removed; the independent susi-vendor-mcp-server SDK split is retained. A later snapshot audit removed four additional empty/synthetic probes and raised the honest unwired ceiling to 34. Tests were not run per operator instruction; cargo check/fmt/metadata/diff checks are the non-test verification.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Production reachability audit of swarm_host_snapshot",
+        "ref": "file://crates/susi-daemon/src/composition.rs"
+      },
+      "id": "EV-2022928-317",
+      "milestone": "Remove four snapshot-only probes that overstated daemon feature reachability.",
+      "proof": "swarm_host_snapshot called the scheduler with an empty cell list and discarded the result, initialized SelfHealingManager only to check directory creation, executed FallbackRouter with synthetic endpoint outcomes, and routed an empty HTTP gateway request through a constant-success closure. Workspace source search found no other production references to scheduler, self_healing, fallback, or http_gateway. Removed those probes and status fields; the honest reachability record is now 38 of 72 modules reachable and 34 self-tested-only. Tests were not run per operator instruction; the architecture test ratchet was updated but not executed.",
       "type": "AUDIT"
     }
   ],
