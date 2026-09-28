@@ -553,11 +553,12 @@ fn susi_core_must_not_depend_on_infra_or_features() {
     }
 }
 
-/// Core/OS crates (paths/error/config/gawd host/swarm/agents/a2a) must not
-/// declare third-party HTTP client crates. Outbound JSON HTTP lives in
-/// `susi-http-transport`; vendor APIs live in `susi-adapters-*` /
-/// `susi-vendor-*`. `susi-core` still carries `ureq` types for the MCP
-/// session client (extraction is a later isolation iteration).
+/// Core/OS crates (paths/error/config/gawd host/swarm/agents/a2a) plus the
+/// agents plane and daemon host must not declare third-party HTTP client
+/// crates. Outbound JSON HTTP lives in `susi-http-transport`; vendor APIs
+/// live in `susi-adapters-*` / `susi-vendor-*`. `susi-core` still carries
+/// `ureq` types for the MCP session client (extraction is a later isolation
+/// iteration).
 #[test]
 fn core_os_crates_must_not_declare_http_clients() {
     let root = workspace_root();
@@ -569,6 +570,8 @@ fn core_os_crates_must_not_declare_http_clients() {
         "susi-gawd-swarm",
         "susi-gawd-agents",
         "susi-gawd-a2a",
+        "susi-agents",
+        "susi-daemon",
     ];
     for crate_name in forbidden_in {
         let text = std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
@@ -716,7 +719,7 @@ fn reachability_from_core_stays_downward() {
 // modules unreachable; later passes deleted isolated sketches that nothing
 // called. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 59;
+const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 53;
 
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])

@@ -57,40 +57,34 @@ pub fn list_live(limit: usize) -> Result<Vec<String>> {
     let manager = OpenRouterManager::new()?;
     manager.doctor()?;
     let key = manager.resolve_api_key();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("tokio runtime for OpenRouter models")?;
-    runtime.block_on(fetch_live_models(&key, limit))
+    fetch_live_models(&key, limit)
 }
 
-async fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .context("http client")?;
+fn fetch_live_models(api_key: &str, limit: usize) -> Result<Vec<String>> {
     let url = format!("{API_BASE}/models");
     let (referer, title) = attribution_headers();
-    let mut req = client.get(&url).bearer_auth(api_key);
+    let auth = format!("Bearer {api_key}");
+    let mut headers = vec![("Authorization", auth.as_str())];
     if is_openrouter_base(API_BASE) {
-        req = req
-            .header("HTTP-Referer", &referer)
-            .header("X-Title", &title);
+        headers.push(("HTTP-Referer", referer.as_str()));
+        headers.push(("X-Title", title.as_str()));
     }
-    let res = req.send().await.context("OpenRouter /models request")?;
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = crate::http_provider::text_capped(res).await;
+    let call = susi_http_transport::http_call("GET", &url, &headers, 30, 0)
+        .map_err(|e| anyhow::anyhow!("OpenRouter /models request: {e}"))?;
+    let status = call.status;
+    let bytes = call
+        .into_bytes(16 * 1024 * 1024)
+        .context("OpenRouter /models body")?;
+    if !(200..300).contains(&status) {
+        let body = String::from_utf8_lossy(&bytes);
         bail!(
             "OpenRouter /models HTTP {}: {}",
             status,
             body.chars().take(200).collect::<String>()
         );
     }
-    let json = crate::http_provider::json_capped(res)
-        .await
-        .map_err(anyhow::Error::msg)
-        .context("OpenRouter /models json")?;
+    let json: serde_json::Value =
+        serde_json::from_slice(&bytes).context("OpenRouter /models json")?;
     let mut ids = Vec::new();
     if let Some(arr) = json.get("data").and_then(|d| d.as_array()) {
         for item in arr {

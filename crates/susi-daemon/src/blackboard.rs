@@ -25,8 +25,8 @@ pub struct SwarmBlackboard {
     webhook_dispatcher: RwLock<Option<Arc<WebhookDispatcher>>>,
 }
 
-// `ureq::Agent` (inside `WebhookDispatcher`) doesn't implement `Debug`, so
-// this is written by hand rather than derived.
+// Broadcast sender is not exhaustive in Debug; written by hand rather
+// than derived so the blackboard snapshot stays readable.
 impl std::fmt::Debug for SwarmBlackboard {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SwarmBlackboard")

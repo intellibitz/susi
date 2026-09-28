@@ -2,16 +2,11 @@
 //!
 //! External systems register a URL and an optional topic filter;
 //! `dispatch` POSTs any blackboard pheromone matching that filter to it as
-//! JSON. Uses its own short-timeout `ureq::Agent` rather than the bare
-//! `ureq::post`/`get` free functions — those use a default agent with NO
-//! timeouts at all and can block a calling thread forever on a stalled
-//! remote, the same reasoning `susi_http_transport::http_agent` uses for
-//! the process-wide outbound agent. This dispatcher keeps a shorter
-//! timeout because webhook delivery must not stall the blackboard.
+//! JSON. Delivery uses `susi_http_transport::http_call_with_body` so the
+//! daemon does not declare its own HTTP client crate.
 
 use std::collections::HashMap;
 use std::sync::RwLock;
-use std::time::Duration;
 
 use crate::susi_abi::swarm::SwarmPheromone;
 
@@ -24,7 +19,6 @@ pub struct WebhookSubscription {
 
 pub struct WebhookDispatcher {
     subscriptions: RwLock<HashMap<String, WebhookSubscription>>,
-    agent: ureq::Agent,
 }
 
 impl Default for WebhookDispatcher {
@@ -35,14 +29,8 @@ impl Default for WebhookDispatcher {
 
 impl WebhookDispatcher {
     pub fn new() -> Self {
-        let config = ureq::Agent::config_builder()
-            .timeout_connect(Some(Duration::from_secs(5)))
-            .timeout_recv_body(Some(Duration::from_secs(10)))
-            .timeout_send_body(Some(Duration::from_secs(10)))
-            .build();
         Self {
             subscriptions: RwLock::new(HashMap::new()),
-            agent: ureq::Agent::new_with_config(config),
         }
     }
 
@@ -95,13 +83,26 @@ impl WebhookDispatcher {
             {
                 continue;
             }
-            if let Err(e) = self
-                .agent
-                .post(&sub.url)
-                .header("Content-Type", "application/json")
-                .send_json(pheromone)
-            {
-                tracing::warn!("[WebhookDispatcher] delivery to {} failed: {}", sub.url, e);
+            match serde_json::to_vec(pheromone) {
+                Ok(body) => {
+                    if let Err(e) = susi_http_transport::http_call_with_body(
+                        "POST",
+                        &sub.url,
+                        &[("Content-Type", "application/json")],
+                        Some(&body),
+                        10,
+                        0,
+                    ) {
+                        tracing::warn!("[WebhookDispatcher] delivery to {} failed: {}", sub.url, e);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[WebhookDispatcher] serialize pheromone for {} failed: {}",
+                        sub.url,
+                        e
+                    );
+                }
             }
         }
     }

@@ -6,6 +6,67 @@
 //! See `ARCHITECTURE.md` at the repo root.
 
 use std::path::Path;
+use std::sync::OnceLock;
+
+/// Production swarm-host surface: orchestrator, watchdog, cell identity,
+/// load balancer. Wired once from [`wire_engine_hooks`] so these modules
+/// are reachable from the composition root rather than compiled-only.
+struct SwarmHost {
+    orchestrator: crate::orchestrator::Orchestrator,
+    watchdog: crate::watchdog::WatchdogManager,
+    identity: crate::identity::IdentityManager,
+    balancer: crate::load_balancer::LoadBalancer,
+}
+
+static SWARM_HOST: OnceLock<SwarmHost> = OnceLock::new();
+
+impl SwarmHost {
+    fn new() -> Self {
+        let orchestrator = crate::orchestrator::Orchestrator::new("susi-host");
+        let watchdog = crate::watchdog::WatchdogManager::default();
+        watchdog.register_cell("susi-host");
+        let mut identity = crate::identity::IdentityManager::new();
+        if let Ok((cell, _)) = crate::identity::IdentityManager::generate_identity("susi-host") {
+            let _ = identity.register_identity(&cell);
+        }
+        let balancer = crate::load_balancer::LoadBalancer::new();
+        balancer.register_cell("susi-host", 1);
+        Self {
+            orchestrator,
+            watchdog,
+            identity,
+            balancer,
+        }
+    }
+}
+
+fn wire_swarm_host() {
+    let _ = SWARM_HOST.get_or_init(SwarmHost::new);
+}
+
+/// Snapshot of the in-process swarm host for `susi os`. Wires the host
+/// if the daemon/CLI composition root has not yet.
+pub fn swarm_host_snapshot() -> serde_json::Value {
+    wire_swarm_host();
+    let Some(host) = SWARM_HOST.get() else {
+        return serde_json::json!({ "wired": false });
+    };
+    let (workers, busy) = host.orchestrator.pool_summary();
+    let _ = crate::scheduler::schedule_cells(&[], "", crate::scheduler::SchedulingStrategy::Greedy);
+    let self_healing =
+        crate::self_healing::SelfHealingManager::new(&susi_paths::SusiDirs::substrate_home())
+            .is_ok();
+    serde_json::json!({
+        "wired": true,
+        "orchestrator_id": host.orchestrator.orchestrator_id,
+        "workers": workers,
+        "busy": busy,
+        "dead_cells": host.watchdog.find_dead_cells(),
+        "identities": host.identity.registered_count(),
+        "next_cell": host.balancer.next_cell(),
+        "self_healing": self_healing,
+    })
+}
 
 /// Register in-process plane-bus handlers for gemi / gawd / tools / agents.
 ///
@@ -29,6 +90,7 @@ pub fn wire_plane_bus() {
 /// are ignored by `OnceLock`.
 pub fn wire_engine_hooks() {
     wire_plane_bus();
+    wire_swarm_host();
     susi_tools::hooks::init(Box::new(crate::engine_hooks::SusiEngineHooks));
 }
 

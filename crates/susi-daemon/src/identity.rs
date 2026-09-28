@@ -56,6 +56,11 @@ impl IdentityManager {
         Ok(())
     }
 
+    /// Number of cell public keys registered with the swarm host.
+    pub fn registered_count(&self) -> usize {
+        self.keys.len()
+    }
+
     /// Verifies the cryptographic signature of a payload.
     pub fn verify_signature(&self, cell_id: &str, payload: &[u8], signature_hex: &str) -> bool {
         if let Some(vk) = self.keys.get(cell_id)

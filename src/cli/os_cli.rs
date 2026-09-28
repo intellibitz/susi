@@ -1,9 +1,10 @@
 //! `susi os` — the operating-system view of the substrate in one shot:
 //! consensus state (term / leader / decisions from the replicated
-//! ledger), the leaf-service process table, and the verified peer
+//! ledger), the in-process swarm host (orchestrator / workers /
+//! identities), the leaf-service process table, and the verified peer
 //! roster. This is the operator's answer to "is the OS for agents
-//! healthy right now?" — everything printed is derived from persisted
-//! kernel state, so it is accurate even when the daemon is down.
+//! healthy right now?" — ledger/peers are persisted kernel state (accurate
+//! even when the daemon is down); swarm host is the in-process composition.
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -767,9 +768,11 @@ fn status(json: bool) -> Result<()> {
     if json {
         let daemon =
             susi_daemon::SusiDaemon::find_running_daemon(&susi_paths::SusiDirs::config_dir());
+        let swarm_host = susi_daemon::composition::swarm_host_snapshot();
         let body = serde_json::json!({
             "node_id": susi_config::cluster_key::wire_node_id(),
             "evicted": evicted,
+            "swarm_host": swarm_host,
             "consensus": {
                 "term": state.term.max(term.term),
                 "leader": leader_display(&state, &term),
@@ -827,6 +830,33 @@ fn status(json: bool) -> Result<()> {
     }
 
     println!("SUSI OS — substrate status");
+    let swarm_host = susi_daemon::composition::swarm_host_snapshot();
+    println!(
+        "swarm host:  {} — {} worker(s), {} busy, {} identit{}",
+        swarm_host
+            .get("orchestrator_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unwired"),
+        swarm_host
+            .get("workers")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        swarm_host.get("busy").and_then(|v| v.as_u64()).unwrap_or(0),
+        swarm_host
+            .get("identities")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        if swarm_host
+            .get("identities")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            == 1
+        {
+            "y"
+        } else {
+            "ies"
+        },
+    );
     println!("node:        {}", susi_config::cluster_key::wire_node_id());
     // Key epoch: the current key's fingerprint prefix, plus any staged
     // next-epoch key awaiting its committed rekey record — operators

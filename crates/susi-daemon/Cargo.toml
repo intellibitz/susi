@@ -21,7 +21,7 @@ susi-server = { workspace = true }
 susi-tools = { workspace = true }
 susi-agents = { workspace = true }
 dashmap = { workspace = true }
-ureq = { version = "3.4.2", features = ["json"] }
+susi-http-transport = { workspace = true }
 # Cell sandbox + plugin validation run on wasmer, the same engine (and the same
 # feature set, so one compiled copy) susi-native already uses — a second WASM
 # runtime (wasmtime + its own cranelift) dominated the cold build's tail.

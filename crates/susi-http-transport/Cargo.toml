@@ -4,7 +4,7 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Shared TLS-sniffing HTTP accept loop, Hyper connection builder, and outbound ureq agent."
+description = "Shared TLS-sniffing HTTP accept loop, Hyper connection builder, and outbound ureq agent (GET/HEAD/DELETE/POST/PUT/PATCH)."
 
 [dependencies]
 tokio = { workspace = true, features = ["io-util", "net", "time"] }

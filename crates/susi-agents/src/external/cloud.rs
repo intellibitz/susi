@@ -1,13 +1,10 @@
 //! Native Devin v3 session and Manus v2 task lifecycles.
 use super::{Adapter, AgentManager, RunRecord, RunStatus};
 use anyhow::{bail, Context, Result};
-use reqwest::blocking::{Client, RequestBuilder};
 use serde_json::{json, Value};
-use std::io::Read;
 use std::time::Duration;
 
 struct Cloud {
-    client: Client,
     /// Full API root including version prefix, e.g. `https://api.devin.ai/v3`.
     base: String,
     key: String,
@@ -62,10 +59,6 @@ impl Cloud {
             String::new()
         };
         Ok(Self {
-            client: Client::builder()
-                .timeout(Duration::from_secs(30))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()?,
             base,
             key,
             manus,
@@ -73,17 +66,59 @@ impl Cloud {
         })
     }
 
-    fn request(&self, method: reqwest::Method, path: &str) -> RequestBuilder {
-        let req = self.client.request(method, format!("{}{path}", self.base));
+    fn headers(&self) -> Vec<(String, String)> {
+        let mut headers = vec![("Content-Type".into(), "application/json".into())];
         if self.manus {
-            req.header("x-manus-api-key", &self.key)
+            headers.push(("x-manus-api-key".into(), self.key.clone()));
         } else {
-            req.bearer_auth(&self.key)
+            headers.push(("Authorization".into(), format!("Bearer {}", self.key)));
         }
+        headers
+    }
+
+    fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value> {
+        let url = format!("{}{path}", self.base);
+        let owned = self.headers();
+        let refs: Vec<(&str, &str)> = owned
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        let bytes = match body {
+            Some(value) => Some(serde_json::to_vec(value).context("cloud request JSON")?),
+            None => None,
+        };
+        let call =
+            susi_http_transport::http_call_with_body(method, &url, &refs, bytes.as_deref(), 30, 0)
+                .map_err(|e| {
+                    anyhow::anyhow!("cloud request failed; outcome may be unknown: {e}")
+                })?;
+        let status = call.status;
+        let payload = call
+            .into_bytes(8 * 1024 * 1024)
+            .context("cloud response body")?;
+        decode_cloud_body(status, &payload)
+    }
+
+    fn get_query(&self, path: &str, params: &[(&str, &str)]) -> Result<Value> {
+        if params.is_empty() {
+            return self.call("GET", path, None);
+        }
+        let query = params
+            .iter()
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    susi_paths::percent_encode_query(k),
+                    susi_paths::percent_encode_query(v)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        self.call("GET", &format!("{path}?{query}"), None)
     }
 
     fn post(&self, path: &str, body: Value) -> Result<Value> {
-        response(self.request(reqwest::Method::POST, path).json(&body))
+        self.call("POST", path, Some(&body))
     }
 
     fn remote_path(&self, run: &RunRecord) -> Result<String> {
@@ -100,24 +135,18 @@ impl Cloud {
     }
 }
 
-fn response(req: RequestBuilder) -> Result<Value> {
-    let res = req
-        .send()
-        .context("cloud request failed; outcome may be unknown")?;
-    let status = res.status();
+fn decode_cloud_body(status: u16, bytes: &[u8]) -> Result<Value> {
     // Do not include provider error bodies, which can echo credentials or prompts.
-    if !status.is_success() {
+    if !(200..300).contains(&status) {
         bail!("cloud API returned HTTP {status}");
     }
-    let mut bytes = Vec::new();
-    res.take(8 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > 8 * 1024 * 1024 {
         bail!("cloud response exceeds 8 MiB");
     }
     if bytes.is_empty() {
         return Ok(Value::Null);
     }
-    let value: Value = serde_json::from_slice(&bytes).context("invalid cloud JSON response")?;
+    let value: Value = serde_json::from_slice(bytes).context("invalid cloud JSON response")?;
     if value.get("ok") == Some(&Value::Bool(false)) {
         bail!("cloud API rejected request");
     }
@@ -186,13 +215,9 @@ pub(super) fn refresh(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
 fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> Result<()> {
     let id = remote_id(run)?;
     let value = if cloud.manus {
-        response(
-            cloud
-                .request(reqwest::Method::GET, "/task.detail")
-                .query(&[("task_id", id)]),
-        )?
+        cloud.get_query("/task.detail", &[("task_id", id)])?
     } else {
-        response(cloud.request(reqwest::Method::GET, &cloud.remote_path(run)?))?
+        cloud.call("GET", &cloud.remote_path(run)?, None)?
     };
     let status = if cloud.manus {
         value.pointer("/task/status")
@@ -215,14 +240,13 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
         let mut seen = std::collections::HashSet::new();
         let mut pages = Vec::new();
         loop {
-            let page = response(
-                cloud
-                    .request(reqwest::Method::GET, "/task.listMessages")
-                    .query(&[
-                        ("task_id", remote_id(run)?),
-                        ("order", "asc"),
-                        ("cursor", &cursor),
-                    ]),
+            let page = cloud.get_query(
+                "/task.listMessages",
+                &[
+                    ("task_id", remote_id(run)?),
+                    ("order", "asc"),
+                    ("cursor", &cursor),
+                ],
             )?;
             let more = page
                 .get("has_more")
@@ -246,7 +270,7 @@ fn refresh_with(cloud: &Cloud, manager: &AgentManager, run: &mut RunRecord) -> R
     } else {
         // Snapshot messages when available; keep the session object as a fallback.
         let messages_path = format!("{}/messages", cloud.remote_path(run)?);
-        if let Ok(messages) = response(cloud.request(reqwest::Method::GET, &messages_path)) {
+        if let Ok(messages) = cloud.call("GET", &messages_path, None) {
             crate::susi_config::atomic_write_json_pretty(&dir.join("stdout.log"), &messages)?;
         } else {
             crate::susi_config::atomic_write_json_pretty(&dir.join("stdout.log"), &value)?;
@@ -289,7 +313,7 @@ pub(super) fn cancel(run: &RunRecord) -> Result<()> {
         match cloud.post(&stop, json!({})) {
             Ok(_) => {}
             Err(_) => {
-                response(cloud.request(reqwest::Method::DELETE, &cloud.remote_path(run)?))?;
+                cloud.call("DELETE", &cloud.remote_path(run)?, None)?;
             }
         }
     }
@@ -328,34 +352,17 @@ mod tests {
     }
     #[test]
     fn response_rejects_http_and_application_errors() {
-        use std::io::{Read, Write};
-        use std::net::TcpListener;
         for (status, body, success) in [
-            ("200 OK", "{\"ok\":true}", true),
-            ("200 OK", "{\"ok\":false}", false),
-            ("401 Unauthorized", "secret", false),
-            ("200 OK", "not JSON", false),
+            (200_u16, "{\"ok\":true}", true),
+            (200, "{\"ok\":false}", false),
+            (401, "secret", false),
+            (200, "not JSON", false),
         ] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let address = listener.local_addr().unwrap();
-            let worker = std::thread::spawn(move || {
-                let (mut stream, _) = listener.accept().unwrap();
-                let mut request = [0u8; 4096];
-                let n = stream.read(&mut request).unwrap();
-                assert!(n > 0);
-                write!(
-                    stream,
-                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .unwrap();
-            });
-            let result = response(Client::new().get(format!("http://{address}")));
+            let result = decode_cloud_body(status, body.as_bytes());
             assert_eq!(result.is_ok(), success);
             if let Err(e) = result {
                 assert!(!e.to_string().contains("secret"));
             }
-            worker.join().unwrap();
         }
     }
 }
