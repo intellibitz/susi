@@ -54,12 +54,15 @@ struct HostState {
 /// daemon's own memory without bound.
 pub const MAX_CELL_MEMORY_BYTES: usize = 256 * 1024 * 1024;
 
-/// Instruction budget (metering points, one per operator) per cell: an
-/// infinite loop traps instead of pinning a daemon thread forever.
+/// Instruction budget (metering points, one per operator) per cell or
+/// WASI reflex: an infinite loop traps instead of pinning a daemon thread
+/// forever.
 pub const CELL_FUEL: u64 = 10_000_000_000;
 
-/// Engine with metering compiled in; every instance starts with [`CELL_FUEL`].
-fn cell_engine() -> Engine {
+/// Engine with metering compiled in; every instance starts with
+/// [`CELL_FUEL`]. Shared by cells and the WASI reflex runner (`wasm.rs`),
+/// which executes model-written code on the same budget.
+pub(crate) fn metered_engine() -> Engine {
     let metering = Arc::new(Metering::new(CELL_FUEL, |_: &Operator| 1));
     #[cfg(not(windows))]
     let mut compiler = wasmer::sys::Cranelift::default();
@@ -76,8 +79,9 @@ fn cell_engine() -> Engine {
 /// required `unsafe fn`s this crate's `unsafe_code` policy reserves for FFI.
 /// Sections other than the memory section are copied through byte-for-byte.
 /// Imported memories need no clamp: the host provides none, so such a cell
-/// fails to instantiate.
-fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
+/// fails to instantiate. Shared with the WASI reflex runner (`wasm.rs`),
+/// whose model-written modules get the same cap.
+pub(crate) fn cap_memory(wasm: &[u8]) -> EaiResult<Vec<u8>> {
     let mut out = wasm_encoder::Module::new();
     for payload in Parser::new(0).parse_all(wasm) {
         let payload =
@@ -129,7 +133,7 @@ fn capped_memory_section(
         let cap_pages = MAX_CELL_MEMORY_BYTES as u64 / page_bytes;
         if memory.initial > cap_pages {
             return Err(EaiError::sandbox(format!(
-                "cell memory starts at {} page(s), above the {} MiB cap",
+                "module memory starts at {} page(s), above the {} MiB cap",
                 memory.initial,
                 MAX_CELL_MEMORY_BYTES / (1024 * 1024)
             )));
@@ -212,7 +216,7 @@ impl WasmCell {
         let wasm = wasmer::wat2wasm(bytes)
             .map_err(|e| EaiError::sandbox(format!("Failed to parse WASM text: {e}")))?;
         let wasm = cap_memory(&wasm)?;
-        let mut store = Store::new(cell_engine());
+        let mut store = Store::new(metered_engine());
         let module = Module::new(&store, &wasm).map_err(|e| {
             EaiError::sandbox(format!(
                 "Failed to compile WASM module {}: {e}",

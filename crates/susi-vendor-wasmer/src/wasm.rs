@@ -3,7 +3,7 @@
 
 use crate::susi_error::{EaiError, EaiResult};
 use std::path::Path;
-use wasmer::{Engine, Module};
+use wasmer::Module;
 use wasmer_types::ModuleHash;
 use wasmer_wasix::runners::wasi::{RuntimeOrEngine, WasiRunner};
 use wasmer_wasix::Pipe;
@@ -17,10 +17,35 @@ impl WasmHost {
     }
 
     /// Executes a distilled reflex from a Wasm file (Wasmer/WASI isolation).
+    ///
+    /// Reflexes are model-written code: the module is compiled on the shared
+    /// metered engine ([`crate::cell::CELL_FUEL`]) and its declared memory
+    /// maximum is clamped by [`crate::cell::cap_memory`], so an infinite loop
+    /// or runaway allocation traps instead of pinning the caller's thread.
+    /// No preopened directories or ambient host capabilities are granted.
     pub fn execute_reflex(wasm_path: &Path, arg: &str) -> EaiResult<String> {
-        let engine = Engine::default();
-        let module = Module::from_file(&engine, wasm_path)
-            .map_err(|e| EaiError::process(format!("Failed to load Wasm module: {}", e)))?;
+        let engine = crate::cell::metered_engine();
+        let bytes = std::fs::read(wasm_path).map_err(|e| {
+            EaiError::process(format!(
+                "Failed to read Wasm module {}: {e}",
+                wasm_path.display()
+            ))
+        })?;
+        // `wat2wasm` passes already-binary modules through, so reflexes built
+        // by rustc stay cheap and hand-written WAT probes still load.
+        let wasm = wasmer::wat2wasm(&bytes).map_err(|e| {
+            EaiError::process(format!(
+                "Failed to parse Wasm module {}: {e}",
+                wasm_path.display()
+            ))
+        })?;
+        let wasm = crate::cell::cap_memory(&wasm)?;
+        let module = Module::new(&engine, &wasm).map_err(|e| {
+            EaiError::process(format!(
+                "Failed to compile Wasm module {}: {e}",
+                wasm_path.display()
+            ))
+        })?;
 
         let (stdout_tx, stdout_rx) = Pipe::channel();
 
@@ -122,6 +147,25 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(result.unwrap(), "DENIED");
+    }
+
+    /// A reflex whose guest code never terminates must trap on the shared
+    /// fuel budget instead of pinning the calling thread forever.
+    const INFINITE_LOOP_WAT: &str = r#"
+        (module
+            (func (export "_start") (loop (br 0)))
+        )
+    "#;
+
+    #[test]
+    fn execute_reflex_traps_on_fuel_exhaustion() {
+        let path = std::env::temp_dir().join(format!("susi_wasm_fuel_{}.wat", std::process::id()));
+        std::fs::write(&path, INFINITE_LOOP_WAT).unwrap();
+
+        let result = WasmHost::execute_reflex(&path, "unused");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(result.is_err(), "infinite loop must trap, not hang");
     }
 
     #[test]

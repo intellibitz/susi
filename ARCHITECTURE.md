@@ -846,7 +846,7 @@ Cursor and Devin runs. Evidence: EV-2022928-296..302, 307, 308, 310-319.
 | Dependencies | 64 dead declarations removed; `directories`, `once_cell`, `md5`, `crossbeam` dropped; `susi-paths` depends only on `serde_json` |
 | Duplicates | one loopback client (`susi_paths::loopback`), one endpoint lookup, one override store, one port table (`ports::*_SERVICE`), one error model (no `anyhow` in any library crate), one path per module (susi-gemi alias layer removed), 30 unreachable daemon modules removed |
 | Honesty (Mandate 1) | no tree-sitter claim, real registry checksum and peer RTT, real health checks, no discarded-probe wiring, capability-gap replies state what a reflex does and does not do |
-| RSI loop | capability gaps and recurring mission intents get model-written WASI reflexes, published only after they parse, compile and run in the sandbox; probe fallback reports the gap as open |
+| RSI loop | capability gaps and recurring mission intents get model-written WASI reflexes, published only after they parse, compile and run in the sandbox — reflexes execute on the same metered engine + 256 MiB memory cap as cells (fuel exhaustion traps instead of hanging the caller; no preopened dirs); probe fallback reports the gap as open |
 | Instance isolation | every leaf-service client honours the port offset (dev instance never reaches the release services) |
 
 Open (not done in this run): tests were deferred by operator instruction;
