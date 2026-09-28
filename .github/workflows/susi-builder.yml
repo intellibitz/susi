@@ -36,22 +36,33 @@ jobs:
         (startsWith(github.event.comment.body, '/susi build') ||
           contains(github.event.issue.labels.*.name, 'susi-build')))
     runs-on: ubuntu-latest
+    # Mandate 48 (Self-Build Order): the *released* susi is the builder; the
+    # branch it changes is only ever built into target/ and verified. Work
+    # lands on a branch + PR — never a direct push to main, never a tag.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Same-repo PR: work on its head branch so the fix can be pushed
+          # back to it. Every other trigger starts from the default branch.
+          ref: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref || '' }}
 
       - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-      - name: Install SUSI (Bootstrap)
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install released SUSI (the builder)
+        env:
+          NONINTERACTIVE: "1"
+          SUSI_NO_DAEMON: "1"
         run: |
-          # Build SUSI from the current branch
-          chmod +x ./build-gpu.sh
-          ./build-gpu.sh || cargo build --release
-          echo "$HOME/.susi/bin" >> $GITHUB_PATH
-          echo "${{ github.workspace }}/target/release" >> $GITHUB_PATH
+          bash ./install.sh
+          echo "$HOME/.susi/bin" >> "$GITHUB_PATH"
 
       - name: Setup GitHub CLI
         run: echo "GH_TOKEN=${{ secrets.GITHUB_TOKEN }}" >> $GITHUB_ENV
@@ -70,6 +81,7 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          susi --version
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             susi solve "$GOAL"
           elif [ -n "$ISSUE_NUMBER" ]; then
@@ -78,29 +90,64 @@ jobs:
             susi solve "Review and fix Pull Request #${PR_NUMBER} - use 'gh pr view ${PR_NUMBER}' for details."
           fi
 
-      - name: Commit and Push Changes (If any)
-        env:
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+      - name: Verify gate (fmt, clippy, test)
+        id: verify
+        if: always()
         run: |
+          set -o pipefail
+          if cargo fmt --all --check \
+            && cargo clippy --workspace --all-targets --locked -- -D warnings \
+            && cargo test --workspace --locked 2>&1 | tail -n 200 > verify.log; then
+            echo "result=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit to a branch and open a PR (if anything changed)
+        # A failed mission or gate still surfaces its work — as a draft PR.
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          VERIFY: ${{ steps.verify.outputs.result }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          rm -f verify.log
+          if [[ -z $(git status --porcelain) ]]; then
+            echo "No changes were made by SUSI."
+            exit 0
+          fi
           git config --global user.name "susi-builder-os[bot]"
           git config --global user.email "susi-builder-os[bot]@users.noreply.github.com"
-          
-          if [[ -n $(git status --porcelain) ]]; then
-            git add .
-            git commit -m "chore(susi): autonomous mission resolution
+          git add -A
+          git commit -m "chore(susi): autonomous mission resolution
 
-            Co-authored-by: SUSI Swarm OS <susi@intellibitz.com>"
-            
-            # If triggered from an issue, push to a new branch and open a PR
-            if [ -n "$ISSUE_NUMBER" ]; then
-              BRANCH_NAME="susi-mission/issue-${ISSUE_NUMBER}"
-              git checkout -b "$BRANCH_NAME"
-              git push origin "$BRANCH_NAME"
-              gh pr create --title "Automated Fix for Issue #${ISSUE_NUMBER}" --body "SUSI has autonomously solved this issue. See traces for details." --base main --head "$BRANCH_NAME"
+          Verify gate: ${VERIFY}. Run ${RUN_ID}.
+
+          Co-authored-by: SUSI Swarm OS <susi@intellibitz.com>"
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if [ "$SAME_REPO" = "true" ]; then
+              git push origin "HEAD:${PR_HEAD}"
             else
-              # If PR or manual, push directly
-              git push
+              echo "Fork PR: not pushing to a fork's branch."
             fi
-          else
-            echo "No changes were made by SUSI."
+            exit 0
           fi
+
+          if [ -n "$ISSUE_NUMBER" ]; then
+            BRANCH="susi-mission/issue-${ISSUE_NUMBER}"
+            TITLE="susi: resolve issue #${ISSUE_NUMBER}"
+          else
+            BRANCH="susi-mission/run-${RUN_ID}"
+            TITLE="susi: autonomous mission (run ${RUN_ID})"
+          fi
+          git checkout -b "$BRANCH"
+          git push origin "$BRANCH"
+          DRAFT=""
+          [ "$VERIFY" = "pass" ] || DRAFT="--draft"
+          gh pr create $DRAFT --base main --head "$BRANCH" --title "$TITLE" \
+            --body "Built by the released susi (Mandate 48). Verify gate (fmt, clippy -D warnings, test): **${VERIFY}**. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${RUN_ID}"

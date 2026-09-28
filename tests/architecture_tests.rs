@@ -937,3 +937,47 @@ fn dev_builds_never_install_the_release_binary() {
         "release promotion script missing (Mandate 48)"
     );
 }
+
+/// Mandate 48 ("SUSI writes SUSI"): every code-writing path into a SUSI
+/// tree carries the self-build contract, and the CI builder is the released
+/// susi working on a branch. Targeted guard over the known paths, not a
+/// proof that no other path exists.
+#[test]
+fn self_build_contract_reaches_every_code_writing_path() {
+    let root = workspace_root();
+    let read = |rel: &str| std::fs::read_to_string(root.join(rel)).unwrap();
+
+    for (rel, needle) in [
+        (
+            "crates/susi-agents/src/external/mod.rs",
+            "self_build::brief_task",
+        ),
+        (
+            "crates/susi-gawd-swarm/src/dag.rs",
+            "self_build::brief_task",
+        ),
+        (
+            "crates/susi-gawd/src/patch_cycle.rs",
+            "self_build::VERIFY_COMMAND",
+        ),
+    ] {
+        assert!(
+            non_test(&read(rel)).contains(needle),
+            "{rel} must route through `{needle}` (Mandate 48)"
+        );
+    }
+
+    let builder = read(".github/workflows/susi-builder.yml");
+    assert!(
+        builder.contains("bash ./install.sh"),
+        "susi-builder must run the released susi, not a build of the branch it changes"
+    );
+    assert!(
+        !builder.contains("build-gpu.sh"),
+        "susi-builder must not bootstrap its builder from the dev tree"
+    );
+    assert!(
+        builder.contains("gh pr create"),
+        "susi-builder work must land as a PR"
+    );
+}

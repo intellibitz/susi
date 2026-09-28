@@ -120,6 +120,11 @@ pub struct AgentManager {
     shutdown: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
+/// Execution-catalog entries whose task text is a search query or browsing
+/// instruction, not a code change: prepending the self-build contract would
+/// corrupt their input.
+const NON_CODING_EXECUTORS: &[&str] = &["browser-use", "openviking", "deerflow"];
+
 impl AgentManager {
     pub fn new(workspace: &Path) -> Result<Self> {
         Self::for_kind(workspace, CatalogKind::Execution)
@@ -217,11 +222,19 @@ impl AgentManager {
         crate::susi_config::create_private_dir(&self.root)?;
         fs::create_dir(self.root.join(&id))?;
         let now = now();
+        let prompt =
+            if self.kind == CatalogKind::Execution && !NON_CODING_EXECUTORS.contains(&agent) {
+                // Mandate 48: a coding agent working on SUSI's own tree gets the
+                // self-build contract in its task, whether or not it reads AGENTS.md.
+                crate::susi_core::self_build::brief_task(&self.workspace, prompt)
+            } else {
+                prompt.to_string()
+            };
         let run = RunRecord {
             id,
             agent: agent.into(),
             workspace: self.workspace.clone(),
-            prompt: prompt.into(),
+            prompt,
             adapter,
             status: RunStatus::Queued,
             created_at: now,

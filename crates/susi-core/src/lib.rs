@@ -67,6 +67,7 @@ pub mod bounded_io;
 mod bounded_io_tests;
 pub mod registry;
 pub mod registry_ipc;
+pub mod self_build;
 pub mod service_table;
 pub mod task_manager;
 pub mod telemetry;

@@ -88,10 +88,12 @@ impl MissionDag {
                         agent_name: node.title.clone(),
                     });
 
-                    let prompt = format!(
+                    // Mandate 48: in SUSI's own tree the node that turns model
+                    // output into shell commands carries the self-build contract.
+                    let prompt = crate::susi_core::self_build::brief_task(&ws, &format!(
                         "Execute task node '{}': {}. If you need to execute a shell command, provide it in a ```bash codeblock. The command must perform every requested side effect: printing intended file content is not file creation. For file writes, write the named workspace path and then verify that exact path and its contents.",
                         node.title, node.goal
-                    );
+                    ));
                     let mut res = crate::susi_core::plane_bus::gemi::GemiEngine::generate_reasoning(
                         &prompt, &ws,
                     );

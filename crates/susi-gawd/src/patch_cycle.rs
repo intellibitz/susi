@@ -68,7 +68,11 @@ fn write_file(path: &Path, content: &str) -> EaiResult<()> {
 }
 
 fn detect_test_command(workspace: &Path) -> String {
-    if workspace.join("Cargo.toml").is_file() {
+    // A patch to SUSI itself must clear the full gate (Mandate 48), not
+    // just `cargo test`: fmt and `clippy -D warnings` failures block CI too.
+    if crate::susi_core::self_build::is_susi_repo(workspace) {
+        crate::susi_core::self_build::VERIFY_COMMAND.into()
+    } else if workspace.join("Cargo.toml").is_file() {
         "cargo test".into()
     } else if workspace.join("package.json").is_file() {
         "npm test".into()
