@@ -4,37 +4,13 @@
 //!
 //! Vendor SDKs and provider-specific wire shapes do **not** live here:
 //! OpenAI / Anthropic / Gemini bodies stay in `susi-adapters-llm`; Candle
-//! stays in `susi-vendor-candle`. This module is the one timeout-bounded
-//! `ureq` agent so core/config/orchestration crates do not each declare an
-//! HTTP client crate.
+//! stays in `susi-vendor-candle`. This module privately pools timeout- and
+//! redirect-profiled `ureq` agents so callers never depend on the vendor type.
 
+use std::collections::HashMap;
 use std::io::Read;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
-
-/// Shared ureq Agent with connect/read/write timeouts. `ureq::get` /
-/// `ureq::post` free functions use a default agent with NO timeouts at all
-/// — a stalled remote (or one that completes the handshake but then goes
-/// silent mid-response, e.g. during SSE body streaming) blocks the calling
-/// thread forever. Agent-level timeout_read/timeout_write bound every
-/// socket read and write, including streaming body reads after the initial
-/// response headers arrive, which a per-request `.timeout()` alone would
-/// not cover.
-static HTTP_AGENT: OnceLock<ureq::Agent> = OnceLock::new();
-
-/// Process-wide timeout-bounded HTTP agent.
-pub fn http_agent() -> ureq::Agent {
-    HTTP_AGENT
-        .get_or_init(|| {
-            let config = ureq::Agent::config_builder()
-                .timeout_connect(Some(Duration::from_secs(10)))
-                .timeout_recv_body(Some(Duration::from_secs(20)))
-                .timeout_send_body(Some(Duration::from_secs(20)))
-                .build();
-            ureq::Agent::new_with_config(config)
-        })
-        .clone()
-}
 
 /// One completed request: status, headers, and a `Read` body. Callers
 /// never name `ureq`. HTTP error statuses are returned, not turned into
@@ -75,6 +51,12 @@ impl HttpCall {
         }
         Ok(bytes)
     }
+
+    /// Consume the body as UTF-8 text, failing when the cap is exceeded.
+    pub fn into_utf8(self, max: u64) -> Result<String, String> {
+        let bytes = self.into_bytes(max).map_err(|e| e.to_string())?;
+        String::from_utf8(bytes).map_err(|e| e.to_string())
+    }
 }
 
 fn into_call(resp: ureq::http::Response<ureq::Body>) -> HttpCall {
@@ -89,6 +71,35 @@ fn into_call(resp: ureq::http::Response<ureq::Body>) -> HttpCall {
         headers,
         body: resp.into_body(),
     }
+}
+
+const MAX_AGENT_PROFILES: usize = 16;
+type AgentCache = Mutex<HashMap<(u64, u32), ureq::Agent>>;
+static HTTP_AGENTS: OnceLock<AgentCache> = OnceLock::new();
+
+fn agent_for(timeout_secs: u64, max_redirects: u32) -> ureq::Agent {
+    let timeout_secs = timeout_secs.max(1);
+    let key = (timeout_secs, max_redirects);
+    let mut agents = HTTP_AGENTS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(agent) = agents.get(&key) {
+        return agent.clone();
+    }
+    if agents.len() >= MAX_AGENT_PROFILES {
+        agents.clear();
+    }
+    let timeout = Duration::from_secs(timeout_secs);
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(Duration::from_secs(15).min(timeout)))
+        .timeout_recv_body(Some(timeout))
+        .timeout_send_body(Some(timeout))
+        .max_redirects(max_redirects)
+        .build();
+    let agent = ureq::Agent::new_with_config(config);
+    agents.insert(key, agent.clone());
+    agent
 }
 
 /// GET or HEAD with explicit timeouts and redirect cap. `max_redirects = 0`
@@ -114,14 +125,7 @@ pub fn http_call_with_body(
     timeout_secs: u64,
     max_redirects: u32,
 ) -> Result<HttpCall, String> {
-    let timeout = Duration::from_secs(timeout_secs.max(1));
-    let config = ureq::Agent::config_builder()
-        .timeout_connect(Some(Duration::from_secs(15).min(timeout)))
-        .timeout_recv_body(Some(timeout))
-        .timeout_send_body(Some(timeout))
-        .max_redirects(max_redirects)
-        .build();
-    let agent = ureq::Agent::new_with_config(config);
+    let agent = agent_for(timeout_secs, max_redirects);
     match method {
         "HEAD" | "GET" | "DELETE" => {
             let mut req = match method {

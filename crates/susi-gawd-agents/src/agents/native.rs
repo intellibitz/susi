@@ -1144,26 +1144,26 @@ impl GawdAgent for LibraryScoutAgent {
         // Crate search sends the derived query off-host: under a posture that
         // blocks egress, skip it and fall through to local reasoning below.
         let live = if crate::susi_core::mac_policy::egress_permitted(&url) {
-            susi_http_transport::http_agent()
-                .get(&url)
-                .header("User-Agent", "SUSI/0.1")
-                .call()
-                .ok()
+            susi_http_transport::http_call("GET", &url, &[("User-Agent", "SUSI/0.1")], 20, 0).ok()
         } else {
             None
         };
         if let Some(resp) = live {
-            if let Ok(json) = resp.into_body().read_json::<serde_json::Value>() {
-                if let Some(crates) = json["crates"].as_array() {
-                    for c in crates {
-                        let name = c["name"].as_str().unwrap_or_default();
-                        let desc = c["description"]
-                            .as_str()
-                            .unwrap_or("No description available.");
-                        results.push(format!(
-                            "- **{}**: {} (Reason: SOTA selection for '{}')",
-                            name, desc, query_term
-                        ));
+            if (200..300).contains(&resp.status) {
+                if let Ok(text) = resp.into_utf8(1_000_000) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if let Some(crates) = json["crates"].as_array() {
+                            for c in crates {
+                                let name = c["name"].as_str().unwrap_or_default();
+                                let desc = c["description"]
+                                    .as_str()
+                                    .unwrap_or("No description available.");
+                                results.push(format!(
+                                    "- **{}**: {} (Reason: SOTA selection for '{}')",
+                                    name, desc, query_term
+                                ));
+                            }
+                        }
                     }
                 }
             }

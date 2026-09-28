@@ -73,7 +73,7 @@ never consume an unterminated source tail.
 | `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
 | `susi-leaf-services` | One axum shell for five leaf services; root `service-run` enables all routers, standalone bins are service-feature-gated to isolate vendor backends | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-core`; optional per-service `susi-error`, `susi-config`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmer`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
-| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` agent and `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_agent`, `http_call` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
+| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_call`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; `susi-vendor-mcp` (MCP client; lease/handshake budgets from `SusiConfig` in `mcp_budget`) | workspace crates except core/sandbox/native clients; rmcp/reqwest; peers via `plane_bus` | tools | registry | yes |
@@ -153,8 +153,8 @@ remount a hard failure.
 
 **`susi-http-transport` is a Cargo dependency, not a mount.** GEMI REST,
 GMCP and A2A share one TLS-sniffing accept loop and one Hyper connection
-builder; MCP/peer/search callers share one timeout-bounded outbound `ureq`
-agent (`http_agent`). Vendor SDKs and provider wire shapes stay out.
+builder; MCP/peer/search callers share `http_call` / `http_call_with_body`
+and never name `ureq::Agent`. Vendor SDKs and provider wire shapes stay out.
 `susi_server_transport_is_never_source_mounted_into_a_consumer` makes a
 remount a hard failure. `core_os_crates_must_not_declare_http_clients`
 forbids `reqwest`/`ureq` on paths/error/config/gawd host/swarm/agents/a2a.
@@ -526,13 +526,22 @@ the same commit as the code.
 | 99 | live_search and MCP catalog fetch still named `http_agent().get` | `http_call` GET |
 | 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |
 | 101 | HTTP callers treated non-2xx as transport errors and accepted capped-plus-one bodies | explicitly check 2xx and reject overflow before parsing |
-| 102 | Root and GMCP repeated normal dependencies in dev scopes | removed redundant `serde_json` and `tokio` declarations |
-| 103 | Every HTTP caller reimplemented the `max + 1` response overflow check | `HttpCall::into_bytes` rejects overflow centrally |
-| 104 | MCP session and A2A callers ignored non-2xx statuses after transport migration | reject non-2xx before accepting the response body |
-| 105 | Five leaf-service crates each owned an axum runtime/server shell | `susi-leaf-services` centralizes service shells and auth middleware |
-| 106 | Dead dependency declarations inflated the workspace graph | removed audited unused deps, replaced `directories` with std-only XDG and `once_cell` with `LazyLock` |
-| 107 | Wasmer was linked by both native-service and daemon crates | consolidated WASI/cell runtime into `susi-vendor-wasmer` |
-| 108 | One leaf-service package pulled Wasmer and Bollard into every standalone service binary | optional per-service features gate vendor backends; standalone bins require their service feature |
-| 109 | README/architecture still claimed 43/90 wired daemon modules after deletion pass | counts corrected to 42/72 wired and a 30-module unwired ceiling |
-| 110 | Shared loopback client read HTTP responses without a size bound | read at most 16 MiB + 1 byte and reject overflow |
-| 111 | Rust bloat audit missed `cfg(all(test, ...))` but could misclassify mixed `cfg(any(...))` branches | recursively interpret test-only cfg expressions in `susi-vendor-syn` |
+| 102 | `http_agent()` still returned a public `ureq::Agent` | function removed; callers use `http_call` / `http_call_with_body` |
+| 103 | `HttpCall` had no UTF-8 helper | `into_utf8` bounds the body and decodes |
+| 104 | openai_chat peer POST named `http_agent().post` | `http_post_utf8` over transport |
+| 105 | http-json peer POST named `http_agent().post` | same helper |
+| 106 | A2A peer POST named `http_agent().post` plus signed headers | same helper with bearer + member sig headers |
+| 107 | crates.io scout GET named `http_agent().get` | `http_call` GET + `into_utf8` |
+| 108 | A2A round-trip test named `http_agent().post` | `http_call_with_body` |
+| 109 | Transport still exported `http_agent` from `lib.rs` | dropped from the public surface |
+| 110 | Shared `OnceLock<ureq::Agent>` unused after per-request timeouts | removed with `http_agent` |
+| 111 | No ratchet against naming `ureq::` outside transport | `ureq_types_stay_inside_http_transport` |
+| 112 | ARCHITECTURE crate table still listed `http_agent` | documents `http_call` / `into_utf8` |
+| 113 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |
+| 114 | Reachability docs retained the pre-deletion 43/90 count | corrected to 42/72 wired and 30 self-tested-only modules |
+| 115 | Leaf-service package linked all vendor runtimes into every standalone binary | per-service optional features isolate Wasmer/Bollard; root `service-run` enables all |
+| 116 | Shared loopback HTTP client read responses without a size bound | cap at 16 MiB and reject overflow |
+| 117 | Rust bloat metrics did not recognize nested test-only `cfg(all(test, ...))` | parse cfg meta recursively without exempting mixed `cfg(any(...))` branches |
+| 118 | Crates.io scout parsed non-2xx HTTP bodies as if they were successful data | check the status before parsing |
+| 119 | Every `http_call` allocated a fresh ureq agent and lost connection reuse | reuse a private timeout/redirect-profiled agent pool inside the transport |
+| 120 | `into_utf8` rechecked a cap already enforced by `into_bytes` | rely on the bounded byte reader once |
