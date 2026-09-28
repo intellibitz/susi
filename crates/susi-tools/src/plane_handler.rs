@@ -154,8 +154,21 @@ mod tests {
 
     #[test]
     fn leading_topics_resolve_against_workspace() {
+        // Enable/disable read-modify-write `mcp_config.json` under the
+        // HOME-derived config dir. Unisolated, this test rewrote the
+        // developer's real MCP config and raced `client::tests`' admit test
+        // (which repoints HOME under ENV_LOCK), erasing an admitted server.
+        let _env = crate::susi_core::commit_log::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let h = ToolsPlaneHandler;
         let dir = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var_os("HOME");
+        let prev_xdg = std::env::var_os("XDG_CONFIG_HOME");
+        unsafe {
+            std::env::set_var("HOME", dir.path());
+            std::env::set_var("XDG_CONFIG_HOME", dir.path().join("config"));
+        }
         let ws = json!({"workspace": dir.path().to_str().unwrap()});
         // Status on a fresh workspace returns rows or a typed error — never panic.
         let listed = h.handle(topics::TOOLS_LEADING_LIST, ws.clone());
@@ -170,6 +183,16 @@ mod tests {
             json!({"workspace": ws["workspace"], "name": "__nope__"}),
         ) {
             assert_eq!(disabled["removed"], json!(false));
+        }
+        unsafe {
+            match prev_home {
+                Some(h) => std::env::set_var("HOME", h),
+                None => std::env::remove_var("HOME"),
+            }
+            match prev_xdg {
+                Some(x) => std::env::set_var("XDG_CONFIG_HOME", x),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
         }
     }
 
