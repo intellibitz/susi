@@ -42,7 +42,10 @@ pub fn snapshot_from_tasks(tasks: &[susi_core::task_manager::TaskRecord]) -> Swa
         }
         snap.missions_completed += 1;
         let end = task.last_progress_secs.load(Ordering::Acquire);
-        total_ms = total_ms.saturating_add(end.saturating_sub(task.start_time_secs).saturating_mul(1000));
+        total_ms = total_ms.saturating_add(
+            end.saturating_sub(task.start_time_secs)
+                .saturating_mul(1000),
+        );
         if matches!(status, TaskStatus::Completed) {
             snap.missions_succeeded += 1;
             if let Some(result) = task.result.read().as_ref() {
