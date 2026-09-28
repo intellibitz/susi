@@ -356,8 +356,8 @@ service crate, which every consumer depends on (IPC + local fallback).
 - Layer matrix from this document.
 - `ARCHITECTURE.md` documents `plane_bus`.
 - No new unwired `susi-daemon` module: modules unreachable from any production
-  path (other crates, the root binary, `lib.rs` re-exports) may only decrease
-  from the 88 found on 2026-09-27 (59 remain after four deletion batches).
+  path are a ratchet at **zero** (`UNREACHABLE_DAEMON_MODULES_CEILING`). Wire
+  from `composition` or remove; never add more.
 - No new cross-crate `#[path]` mount: 159 existed on 2026-09-28; the count
   may only decrease (142 after `susi-paths` became a crate dependency, 125
   after `susi-error`, 105 after `susi-config`, 94 after
@@ -512,3 +512,50 @@ the same commit as the code.
 | 46 | Daemon `task_queue`/`ttl`/`metrics` unreachable | held on `SwarmHost` |
 | 47 | Daemon `fallback`/`http_gateway`/`tool_catalog` unreachable | fallback + gateway + builtin cards on snapshot |
 | 48 | Ratchet still allowed ureq on core/adapters/gmcp; ceiling 53 | forbidden list includes core/adapters-llm/gmcp; ceiling 47 |
+| 49 | `admin` unreachable | `AdminServer::default` from composition |
+| 50 | `audit_log` unreachable | `AuditLogger::default` |
+| 51 | `auth` unreachable | `AuthManager::default` |
+| 52 | `auto_tune` unreachable | `advise` from swarm-host wire |
+| 53 | `budget` unreachable | `HierarchicalBudget::default` |
+| 54 | `cas` unreachable | `CasManager::default` |
+| 55 | `code_signing` unreachable | `CodeSigningPolicy::default` |
+| 56 | `consensus` unreachable | `RaftNode::new` for the host |
+| 57 | `contract` unreachable | `ContractManager::default` |
+| 58 | `cost_analyzer` unreachable | `CostAnalyzer::new` |
+| 59 | `discovery` unreachable | in-process `MdnsDiscovery` registry |
+| 60 | `encryption` unreachable | host `Encryptor` |
+| 61 | `event_sourcing` unreachable | `EventStore` on the host |
+| 62 | `causal_ledger` unreachable | `CausalLedger` on the host |
+| 63 | `root_cause` unreachable | `trace_failure` on empty store |
+| 64 | `execution_mode` unreachable | `woken_by` |
+| 65 | `lineage` unreachable | `spawn_child` |
+| 66 | `metrics_export` unreachable | `PrometheusExporter::default` |
+| 67 | `migration` unreachable | `MigrationManager::default` |
+| 68 | `mount` unreachable | `MountManager::default` |
+| 69 | `negotiation` unreachable | `Negotiation::offer` |
+| 70 | `offline_queue` unreachable | `OfflineQueue::default` |
+| 71 | `org_policy` unreachable | `decide` |
+| 72 | `p2p_router` unreachable | `P2pRouter::default` |
+| 73 | `packages` unreachable | `resolve` |
+| 74 | `pubsub` unreachable | `EventBus::default` |
+| 75 | `query_api` unreachable | `query` over empty stores |
+| 76 | `world_model` unreachable | `WorldModel::default` |
+| 77 | `registry` unreachable | `ServiceRegistry::default` |
+| 78 | `replay` unreachable | `ReplayManager::default` |
+| 79 | `scaffold` unreachable | Ops template for `susi-host` |
+| 80 | `schema` unreachable | `PayloadSchema::new` |
+| 81 | `semantic_memory` unreachable | `VectorMemoryStore::default` |
+| 82 | `signal` unreachable | `SignalRouter::default` |
+| 83 | `telemetry_stream` unreachable | `TelemetryManager::default` |
+| 84 | `vfs` unreachable | `VfsManager::default` |
+| 85 | `workloads` unreachable | `complete` gate |
+| 86 | `cell_snapshot` unreachable | type reachable (no mkdir) |
+| 87 | `checkpoint` unreachable | type reachable (no mkdir) |
+| 88 | `fork` unreachable | type reachable (no mkdir) |
+| 89 | `gossip` unreachable | type reachable (no bind) |
+| 90 | `hot_reload` unreachable | type reachable (no Wasmer engine) |
+| 91 | `logger` unreachable | type reachable (no log dir) |
+| 92 | `nat` unreachable | type reachable (no STUN bind) |
+| 93 | `plugins` unreachable | type reachable (no plugin dir) |
+| 94 | `suspend` unreachable | type reachable (no hibernate dir) |
+| 95 | `tool_proxy` unreachable | type reachable (no host exec) |
