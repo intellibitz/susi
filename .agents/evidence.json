@@ -3854,6 +3854,16 @@
    "milestone": "Mission planning can no longer be answered by a reflex tier. ama::master::plan_steps sent the decomposition prompt ('Break the following goal into at most N concise, ordered steps... Goal: <goal> Steps:') through GemiEngine::generate_reasoning, which allows both reflex tiers. Measured with reflex_features: the template around the goal 'check system status health report' scores cosine 0.720 against the bare goal ('check system status' 0.566, 'list files in src' 0.497). So once Tier-0 had trained on such a goal, the planning request cleared the 0.6 support gate and could be served 'ACTION: status'. The step parser keeps only numbered lines, so it dropped that line, and the mission silently fell back to a single-step plan. Tier-1 could likewise answer planning with the 0.5B reflex model. plan_steps now calls generate_reasoning_deep (allow_reflex=false). This was posted as an open question on docs/brain-lanes.md for Devin's lane and applied here, flagged in the commit, while master.rs was clean on Devin's side. The board marks it resolved. susi-gawd-swarm tests pass (59/59).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "support rows for vocabulary primes",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-032",
+   "milestone": "Bare action names are served by Tier-0 instead of refused as unfamiliar. Every vocabulary action is trained on a synthetic prime, its own name, so the classifier knows 'scout' means scout. But the EV-CLAUDE-007 support set held only replayed intents, so a bare 'scout', 'version' or 'reason' was refused whenever that exact wording had never been staged: its features lit a band no replayed intent touched, giving support 0.0. Now support_matrix(weights_path, vocabulary) appends one support row per vocabulary action (the name, labelled with itself) to the replay rows. The rows exist only when a replay set exists, so pre-replay checkpoints keep the legacy gate. Measured after training on 6 samples covering status/list_directory/read_file/self_heal_build/run_test_harness: bare 'status', 'scout', 'version', 'reason', 'read file' and 'list directory' all had support 1.0 and served the matching action; 'hi' (support 0.0) and 'joke' (0.22) were refused. Test: bare_action_names_are_supported_by_their_primes (after EVERYDAY training, which never stages scout or reason: both have support > 0.99 and serve their action; 'tell me a joke' is refused). The alpha suite, including the Tier-0 benchmark, passed 5 of 5 runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

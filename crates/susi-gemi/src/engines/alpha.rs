@@ -801,7 +801,7 @@ const SUPPORT_MIN: f32 = 0.6;
 /// is no replay set *or it cannot be read*: the support set is a serving
 /// refinement, and an unreadable file must degrade Tier-0, never disable
 /// it — as an error here would fail the whole checkpoint load.
-fn support_matrix(weights_path: &Path) -> Option<SupportSet> {
+fn support_matrix(weights_path: &Path, vocabulary: &[String]) -> Option<SupportSet> {
     let replay = match load_replay(weights_path) {
         Ok(replay) => replay,
         Err(error) => {
@@ -812,12 +812,29 @@ fn support_matrix(weights_path: &Path) -> Option<SupportSet> {
             return None;
         }
     };
-    (!replay.is_empty()).then(|| SupportSet {
-        features: replay
+    // Every vocabulary action is also trained on its own name (the synthetic
+    // prime), so the bare name is supported too: "status" or "scout" alone
+    // was refused as unfamiliar unless that exact wording had been staged.
+    (!replay.is_empty()).then(|| {
+        let rows: Vec<(&str, &str)> = replay
             .iter()
-            .flat_map(|sample| SusiAlphaModel::reflex_features(&sample.intent))
-            .collect(),
-        actions: replay.into_iter().map(|sample| sample.action).collect(),
+            .map(|sample| (sample.intent.as_str(), sample.action.as_str()))
+            .chain(
+                vocabulary
+                    .iter()
+                    .map(|action| (action.as_str(), action.as_str())),
+            )
+            .collect();
+        SupportSet {
+            features: rows
+                .iter()
+                .flat_map(|(intent, _)| SusiAlphaModel::reflex_features(intent))
+                .collect(),
+            actions: rows
+                .iter()
+                .map(|(_, action)| (*action).to_string())
+                .collect(),
+        }
     })
 }
 
@@ -870,7 +887,7 @@ impl SusiAlphaModel {
                         .map_err(crate::engines::candle_err::from_candle)?;
                     let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
                         .map_err(crate::engines::candle_err::from_candle)?;
-                    let support = support_matrix(&weights_path);
+                    let support = support_matrix(&weights_path, &intents);
                     Ok(Self {
                         fc1,
                         fc2,
@@ -1805,6 +1822,21 @@ mod tests {
         "compose a haiku about autumn",
         "set a reminder for 5pm",
     ];
+
+    #[test]
+    fn bare_action_names_are_supported_by_their_primes() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, EVERYDAY);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        // EVERYDAY never stages "scout" or "reason": only their primes train.
+        for (name, action) in [("scout", "ACTION: scout"), ("reason", "ACTION: reason")] {
+            assert!(model.support(name).unwrap() > 0.99, "{name}");
+            assert_eq!(model.predict_intent(name).unwrap(), action);
+        }
+        assert!(model.predict_intent("tell me a joke").is_err());
+    }
 
     #[test]
     fn low_confidence_serves_only_with_an_agreeing_near_duplicate() {

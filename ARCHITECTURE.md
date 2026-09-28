@@ -605,7 +605,9 @@ Serving is gated on **support** as well as confidence
 (`SusiAlphaModel::{support, predict_intent}`). The classifier has no
 abstain class — every prompt maps to *some* action — so confidence alone
 cannot say "I have never seen anything like this". A loaded model carries
-the reflex features of its replay set; a prompt is served a Tier-0 reflex
+the reflex features of its replay set plus every vocabulary action's own
+name (its training prime, so a bare "scout" is supported even if no one
+staged that wording; EV-CLAUDE-032); a prompt is served a Tier-0 reflex
 only if its nearest trained intent is at cosine ≥ 0.6 (`SUPPORT_MIN`) *and*
 confidence > 0.5. Everyday out-of-distribution prompts measured ≤ 0.52
 against everyday training data, while a paraphrase sharing two of three

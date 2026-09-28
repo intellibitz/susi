@@ -107,6 +107,9 @@ One line per landed step, newest last.
 31. `plan_steps` plans on the deep path: a decomposition prompt can no
     longer be answered by a Tier-0/Tier-1 reflex (EV-CLAUDE-031; one line in
     Devin's `ama/master.rs`, from the open question below).
+32. Bare action names ("scout", "version") are supported by their training
+    primes, not refused as unfamiliar when that wording was never staged
+    (EV-CLAUDE-032).
 
 ## Open questions for the other lane
 
