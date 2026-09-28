@@ -1589,6 +1589,191 @@ mod tests {
         );
     }
 
+    const BENCH_TRAIN: &[(&str, &str)] = &[
+        ("check system status", "status"),
+        ("show system health", "status"),
+        ("what is the current state", "status"),
+        ("hardware status report", "status"),
+        ("health check please", "status"),
+        ("report system state", "status"),
+        ("is the system healthy", "status"),
+        ("status of the daemon", "status"),
+        ("check health", "status"),
+        ("give me a status report", "status"),
+        ("what version is running", "version"),
+        ("show the build version", "version"),
+        ("engine revision", "version"),
+        ("which version of susi", "version"),
+        ("print version", "version"),
+        ("current build number", "version"),
+        ("version info", "version"),
+        ("what revision is deployed", "version"),
+        ("show engine version", "version"),
+        ("build revision info", "version"),
+        ("fix the broken build", "self_heal_build"),
+        ("repair the build", "self_heal_build"),
+        ("heal compilation errors", "self_heal_build"),
+        ("fix compile failures", "self_heal_build"),
+        ("the build is broken fix it", "self_heal_build"),
+        ("repair failing build", "self_heal_build"),
+        ("auto heal build errors", "self_heal_build"),
+        ("fix build breakage", "self_heal_build"),
+        ("heal the build", "self_heal_build"),
+        ("repair compile errors", "self_heal_build"),
+        ("run the tests", "run_test_harness"),
+        ("execute test suite", "run_test_harness"),
+        ("run unit tests", "run_test_harness"),
+        ("launch the test harness", "run_test_harness"),
+        ("run all tests", "run_test_harness"),
+        ("execute the tests now", "run_test_harness"),
+        ("test everything", "run_test_harness"),
+        ("run integration tests", "run_test_harness"),
+        ("kick off the test run", "run_test_harness"),
+        ("run tests again", "run_test_harness"),
+        ("write notes to todo.md", "write_file"),
+        ("save this to a file", "write_file"),
+        ("create file config.toml", "write_file"),
+        ("put this text in notes.txt", "write_file"),
+        ("update the readme file", "write_file"),
+        ("save output to report.md", "write_file"),
+        ("create a new file", "write_file"),
+        ("write the summary to disk", "write_file"),
+        ("save the draft", "write_file"),
+        ("write file hello.txt", "write_file"),
+        ("read the config file", "read_file"),
+        ("show contents of main.rs", "read_file"),
+        ("cat the readme", "read_file"),
+        ("get file contents", "read_file"),
+        ("read notes.txt", "read_file"),
+        ("show me cargo.toml", "read_file"),
+        ("fetch the log content", "read_file"),
+        ("read the file", "read_file"),
+        ("show file content", "read_file"),
+        ("open and read todo.md", "read_file"),
+        ("list files in src", "list_directory"),
+        ("ls the folder", "list_directory"),
+        ("list the directory", "list_directory"),
+        ("show files here", "list_directory"),
+        ("what files are in this folder", "list_directory"),
+        ("list directory contents", "list_directory"),
+        ("ls", "list_directory"),
+        ("dir listing", "list_directory"),
+        ("list all files", "list_directory"),
+        ("show folder contents", "list_directory"),
+        ("scout for mcp servers", "scout"),
+        ("search for new tools", "scout"),
+        ("discover mcp tools", "scout"),
+        ("find available servers", "scout"),
+        ("look for plugins", "scout"),
+        ("scout the network", "scout"),
+        ("discover new capabilities", "scout"),
+        ("search mcp registry", "scout"),
+        ("find tools online", "scout"),
+        ("scout for agents", "scout"),
+        ("think about this problem", "reason"),
+        ("solve this complex task", "reason"),
+        ("reason through the design", "reason"),
+        ("calculate the total", "reason"),
+        ("think step by step", "reason"),
+        ("solve the equation", "reason"),
+        ("reason about tradeoffs", "reason"),
+        ("think it through", "reason"),
+        ("solve this puzzle", "reason"),
+        ("calculate the cost", "reason"),
+    ];
+    const BENCH_TEST: &[(&str, &str)] = &[
+        ("check the system health", "status"),
+        ("status report please", "status"),
+        ("system state check", "status"),
+        ("show version", "version"),
+        ("which build revision", "version"),
+        ("engine version info", "version"),
+        ("fix the build errors", "self_heal_build"),
+        ("repair the broken compile", "self_heal_build"),
+        ("heal build", "self_heal_build"),
+        ("run the test suite", "run_test_harness"),
+        ("execute all tests", "run_test_harness"),
+        ("run tests", "run_test_harness"),
+        ("write to notes.md", "write_file"),
+        ("save report file", "write_file"),
+        ("create config file", "write_file"),
+        ("read main.rs", "read_file"),
+        ("show me the file content", "read_file"),
+        ("cat config", "read_file"),
+        ("list files", "list_directory"),
+        ("ls src", "list_directory"),
+        ("show directory files", "list_directory"),
+        ("discover mcp servers", "scout"),
+        ("search for tools", "scout"),
+        ("scout for plugins", "scout"),
+        ("think about the problem", "reason"),
+        ("solve this", "reason"),
+        ("calculate the sum", "reason"),
+    ];
+    const BENCH_OOD: &[&str] = &[
+        "what is the capital of france",
+        "write a poem about the ocean",
+        "translate hello into german",
+        "who won the world cup in 2018",
+        "explain quantum entanglement simply",
+        "hi",
+        "tell me a joke",
+        "delete everything in production",
+        "book a flight to tokyo",
+        "what's the weather tomorrow",
+        "summarize this article",
+        "how do i bake bread",
+        "recommend a good movie",
+        "convert 5 miles to km",
+        "draft an email to my boss",
+        "what is love",
+        "play some music",
+        "order a pizza",
+        "compose a haiku about autumn",
+        "set a reminder for 5pm",
+    ];
+
+    /// Tier-0 quality benchmark: a fixed corpus of ~10 phrasings per
+    /// foundational intent, unseen paraphrases, and everyday prompts that
+    /// are not commands, run through the production publish and
+    /// `predict_intent` path (confidence + support gates). Baseline when
+    /// written (3 inits): recall 26-27/27, served precision 100%, 0/20
+    /// out-of-distribution prompts served. Bounds leave room for init noise
+    /// but fail on any real regression in features, loss or gating.
+    #[test]
+    fn tier0_benchmark_recall_precision_and_ood_refusal() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        stage(&staged, BENCH_TRAIN);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+
+        let (mut served, mut correct) = (0, 0);
+        for (prompt, action) in BENCH_TEST {
+            if let Ok(served_action) = model.predict_intent(prompt) {
+                served += 1;
+                if served_action == format!("ACTION: {action}") {
+                    correct += 1;
+                }
+            }
+        }
+        let ood_served: Vec<&str> = BENCH_OOD
+            .iter()
+            .copied()
+            .filter(|prompt| model.predict_intent(prompt).is_ok())
+            .collect();
+        assert!(correct >= 24, "recall {correct}/{}", BENCH_TEST.len());
+        assert!(
+            served - correct <= 1,
+            "wrong served {}/{served}",
+            served - correct
+        );
+        assert!(
+            ood_served.len() <= 1,
+            "out-of-distribution served: {ood_served:?}"
+        );
+    }
+
     #[test]
     fn replay_merge_keeps_newest_label_and_bounded_recency() {
         let merged = merge_replay(

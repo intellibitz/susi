@@ -3704,6 +3704,16 @@
    "milestone": "Tier 1 (the embedded qwen2.5-0.5b generative reflex behind Tier-0) no longer wastes a generation, and no longer serves an empty action. Before, in SusiPulse::reason: GenerativeReflexEngine::try_solve ran a greedy generation of up to 64 tokens and always returned format!(\"ACTION: {}\"). Pulse's starts_with(\"ACTION:\") check was therefore always true, so it immediately ran try_generate_answer (up to 256 tokens) and used the routing output only if that failed. If try_solve failed, a 'Tier 2' block called try_generate_answer again on the same model. The routing generation was wasted on every Tier-1 reflex that produced an answer, and a missing model was tried redundantly. Also, an empty routing decode returned Ok('ACTION: '), which was served and cached as a solve. Now pulse::generative_tiers runs the answer first and the ACTION routing only on failure, with the same outcomes in every case, and try_solve returns Err (task marked failed) when the decoded action is empty. Test: tier1_generates_an_answer_first_and_routes_only_on_failure (answer served with zero routing calls; routing used when the answer fails; both failing is Err). Latency saving: one greedy generation of up to 64 tokens per Tier-1 reflex; not benchmarked here because the reflex model is not provisioned in the test environment.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "Tier-0 benchmark",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-022",
+   "milestone": "Tier-0 reflex quality now has a standing regression benchmark instead of only per-change probes. alpha::tests::tier0_benchmark_recall_precision_and_ood_refusal trains through the production train_on_staged_file path on BENCH_TRAIN (90 phrasings, 10 per foundational intent: status, version, self_heal_build, run_test_harness, write_file, read_file, list_directory, scout, reason). It loads the published checkpoint and scores it through predict_intent, with both confidence and support gates, on BENCH_TEST (27 unseen paraphrases) and BENCH_OOD (20 everyday non-command prompts such as 'what is the capital of france', 'write a poem about the ocean', 'delete everything in production'). Baseline measured before the test was written, over 3 random inits: recall 26/27, 27/27 and 26/27; served precision 100% in every run; OOD served 0/20 in every run. The single miss was 'show version': support 0.95 but confidence 0.46-0.48, so it was refused rather than served wrong. Assertions: recall >= 24/27, wrong serves <= 1, OOD serves <= 1. The alpha suite passed 6 of 6 repeated runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

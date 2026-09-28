@@ -652,6 +652,14 @@ generation), and on failure retried the answer on the same model under a
 "Tier 2" label — one wasted generation on every Tier-1 reflex. An empty
 routing output is a failure, never a served `ACTION: ` (EV-CLAUDE-021).
 
+Tier-0 quality is pinned by a fixed benchmark
+(`alpha::tests::tier0_benchmark_recall_precision_and_ood_refusal`): ~10
+phrasings per foundational intent for training, 27 unseen paraphrases, and
+20 everyday prompts that are not commands, through the production
+publish/`predict_intent` path. Baseline when written (3 inits): recall
+26–27/27, served precision 100%, 0/20 out-of-distribution served; the test
+fails below 24/27 recall, above 1 wrong serve, or above 1 OOD serve.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is

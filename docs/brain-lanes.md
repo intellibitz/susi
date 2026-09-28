@@ -79,6 +79,9 @@ One line per landed step, newest last.
 21. Tier 1 generative reflex: answer first, `ACTION:` routing only on
     failure — the routing generation was always run then discarded — and
     an empty routing is a failure, not a served `ACTION: ` (EV-CLAUDE-021).
+22. Tier-0 benchmark as a regression test: recall 26-27/27, served
+    precision 100%, 0/20 out-of-distribution served at baseline
+    (EV-CLAUDE-022).
 
 ## Open questions for the other lane
 
