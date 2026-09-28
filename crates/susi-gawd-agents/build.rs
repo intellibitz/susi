@@ -130,9 +130,18 @@ fn validate_roadmap(doc: &Value) {
 fn validate_evidence(doc: &Value) {
     let entries = require_array(doc, "/entries");
     assert!(!entries.is_empty(), "evidence: entries empty");
+    // Multiple agents append entries in parallel; each owns a namespace
+    // (EV-DEVIN-*, EV-CURSOR-*, EV-CLAUDE-* — see AGENTS.md) so IDs never
+    // collide across branches. The uniqueness check below is the tripwire
+    // that keeps a violated namespace a build failure, not a silent merge.
+    let mut seen = std::collections::HashSet::new();
     for e in entries {
         let id = e["id"].as_str().unwrap_or("");
         assert!(id.starts_with("EV-"), "evidence id must start with EV-");
+        assert!(
+            seen.insert(id),
+            "evidence id {id} is duplicated — agents must mint IDs inside their own namespace"
+        );
         assert!(e.get("proof").and_then(|p| p.as_str()).is_some());
         assert!(e
             .pointer("/anchor/label")

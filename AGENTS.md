@@ -83,6 +83,29 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 ```
 
+## Multi-agent parallel work
+
+Several agents work concurrently in their own git worktrees on their own
+branches, then merge to local `main` and push. These rules keep that
+convergent:
+
+- **Evidence IDs are namespaced per agent.** Mint entries as
+  `EV-DEVIN-<n>`, `EV-CURSOR-<n>`, `EV-CLAUDE-<n>` (per-agent monotonic).
+  Date-stamped `EV-YYYYMMDD-NNN` IDs are the legacy scheme — do not mint
+  new ones, since independent counters collide on merge (this forced two
+  renumbering passes). A uniqueness check in
+  `crates/susi-gawd-agents/build.rs` makes a collision a build failure.
+- **On evidence/identity/README merge conflicts, union entries — never
+  delete or renumber another agent's entries.** Resolve JSON conflicts by
+  keeping both sides' entries, then validate with `jq empty`.
+- **Always `git fetch` + merge `origin/main` before pushing.** Pushes to
+  `main` must be fast-forward; compile (`cargo check --workspace`) before
+  pushing a merge so fixup commits never ship an uncompiled merge.
+- **CI is branch-scoped.** Feature-branch pushes run fmt + cargo deny +
+  `cargo check` only; the full nextest/clippy suite gates `main`, PRs,
+  and manual dispatch. The rolling dev release builds only on
+  `workflow_dispatch` or a `[release]` commit-message marker.
+
 ## Ratchet items (not yet at zero — do not regress)
 
 - `clippy::pedantic` + `clippy::nursery`: ~2.4k warnings baseline; new code

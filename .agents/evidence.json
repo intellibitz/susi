@@ -3324,6 +3324,16 @@
         "ref": "file://crates/susi-vendor-wasmer/src/wasm.rs"
       },
       "type": "SECURITY"
+    },
+    {
+      "anchor": {
+        "label": "Multi-agent merge safety: namespaced evidence + branch-scoped CI",
+        "ref": "file://.github/workflows/test.yml"
+      },
+      "id": "EV-DEVIN-001",
+      "milestone": "First namespaced evidence ID; per-agent namespaces adopted to end merge-time ID collisions, and CI scoped so branch pushes run only the compile gate.",
+      "proof": "evidence.json is a single append-only file every agent commits to; date-stamped sequential IDs collided twice on merge (320/321 renumbered both times). New entries use EV-DEVIN-*/EV-CURSOR-*/EV-CLAUDE-* namespaces documented in AGENTS.md, and validate_evidence now fails the build on a duplicate ID. test.yml adds a fmt+cargo-check Compile Check job for non-main pushes and restricts nextest+clippy+doc to main/PR/dispatch; dev-release.yml builds the multi-OS matrix only on [release] commits or manual dispatch. No tests run per operator instruction.",
+      "type": "PROCESS"
     }
   ],
   "epistemic_score": 1.0,
