@@ -270,6 +270,28 @@ By default a login-persistent daemon is registered (systemd user unit / launchd)
 curl -sSfL https://raw.githubusercontent.com/intellibitz/susi/main/install.sh | SUSI_NO_DAEMON=1 bash
 ```
 
+### Developing susi: the local susi tracks releases only
+
+The installed susi (`~/.susi/bin/susi` and the daemon it runs) is the
+toolchain that builds the next susi, so dev builds never replace it:
+`cargo xb` / `./build-gpu.sh` build into `target/` and stop there, and a
+`target/` binary no longer copies itself over the install. Releases are the
+only way in:
+
+```bash
+./scripts/susi-release-sync.sh --install-timer
+```
+
+The hourly systemd user timer (and `susi release`, right after it pushes a
+new `vX.Y.Z` tag) builds the newest tag natively for this host's GPU in a
+private checkout (`~/.susi/release-src`, target `~/.susi/build-cache/release-sync`),
+checks the binary reports the tag's version, waits until no susi client is
+mid-mission, swaps it in atomically, and restarts the daemon — rolling back
+to `susi.prev` if `/health` does not answer. `--check` reports installed vs
+latest; `--tag vX.Y.Z` pins; `--rollback` restores the previous binary. It
+builds locally instead of downloading the CI CUDA asset because that asset
+targets compute capability 7.5 and lacks candle's sm_80+ (bf16) kernels.
+
 ### Windows PowerShell (native, not WSL)
 ```powershell
 irm https://raw.githubusercontent.com/intellibitz/susi/main/install.ps1 | iex

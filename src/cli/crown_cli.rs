@@ -554,7 +554,7 @@ fn verify_all(workspace: &Path) -> Vec<UspCheck> {
             "cuda feature compiled in but Device::new_cuda did not become the inference device"
                 .to_string()
         } else if gpu_present {
-            "NVIDIA GPU present but binary is CPU-only — rebuild with ./build-gpu.sh".to_string()
+            "NVIDIA GPU present but binary is CPU-only — install a CUDA release with scripts/susi-release-sync.sh".to_string()
         } else {
             "no NVIDIA GPU; CPU inference only".to_string()
         },

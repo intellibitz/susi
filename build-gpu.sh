@@ -1,10 +1,8 @@
 #!/usr/bin/env sh
-# SUSI GPU-Aware Manual Build
+# SUSI GPU-aware dev build: `cargo xb --release` with the host's GPU backend
+# (cuda / metal) detected by xtask. Builds into target/ only — it never
+# installs. The local susi is updated from releases by
+# scripts/susi-release-sync.sh.
 
 set -eu
-echo "[build-gpu] Dispatching to cargo xtask..."
-
-# We execute cargo xb (which points to xtask) overriding the need for this script!
-# Wait, xtask ALREADY has the GPU logic.
-# So build-gpu.sh just becomes a seamless pass-through to cargo xb!
 exec cargo xb --release "$@"

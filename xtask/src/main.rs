@@ -11,16 +11,8 @@
 )]
 
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
-
-fn get_home_dir() -> PathBuf {
-    env::var_os("HOME")
-        .or_else(|| env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-}
 
 /// Appends detected GPU feature args unless the caller already chose a
 /// feature set (`--features`/`-F`, `--all-features`, `--no-default-features`):
@@ -95,9 +87,6 @@ fn main() {
     let is_build = args.first().map(|s| s.as_str()) == Some("build");
 
     let mut cmd = Command::new("cargo");
-    // Build args (incl. injected GPU features) for the install marker.
-    let mut final_features: Vec<String> = Vec::new();
-
     if is_build {
         println!("xtask: cargo build running GPU detection...");
         let (gpu_args, cudarc_ver) = detect_gpu_features();
@@ -112,9 +101,7 @@ fn main() {
             );
         }
 
-        let final_args = with_detected_features(&args, gpu_args);
-        cmd.args(&final_args);
-        final_features = final_args;
+        cmd.args(with_detected_features(&args, gpu_args));
 
         if let Some(cv) = cudarc_ver {
             cmd.env("CUDARC_CUDA_VERSION", cv);
@@ -135,119 +122,21 @@ fn main() {
     }
 
     if is_build {
-        println!("xtask: cargo build finished. Applying post-build hooks...");
-
-        let target_dir = Path::new("target");
-        let release = args.iter().any(|arg| arg == "--release");
-        let profile_dir = if release { "release" } else { "debug" };
-
-        let bin_name = if cfg!(target_os = "windows") {
-            "susi.exe"
+        // Dev builds never install: ~/.susi/bin/susi (and the daemon that
+        // runs it) belongs to tagged releases only, so the local susi stays
+        // a stable toolchain for building the next susi. Releases are
+        // promoted by scripts/susi-release-sync.sh.
+        let profile_dir = if args.iter().any(|arg| arg == "--release") {
+            "release"
         } else {
-            "susi"
+            "debug"
         };
-        let built_bin = target_dir.join(profile_dir).join(bin_name);
-
-        if !built_bin.exists() {
-            eprintln!(
-                "xtask: Expected binary at {} not found.",
-                built_bin.display()
-            );
-            exit(1);
-        }
-
-        let home = get_home_dir();
-        let bin_dir = home.join(".susi").join("bin");
-        fs::create_dir_all(&bin_dir).unwrap_or_else(|e| {
-            eprintln!("xtask: Failed to create ~/.susi/bin: {}", e);
-            exit(1);
-        });
-
-        let dest = bin_dir.join(bin_name);
+        let target_dir =
+            env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from);
         println!(
-            "xtask: Installing {} to {}",
-            built_bin.display(),
-            dest.display()
+            "xtask: built {} (not installed; the local susi is updated only by releases via scripts/susi-release-sync.sh).",
+            target_dir.join(profile_dir).join("susi").display()
         );
-
-        // Copy to a sibling temp file, then rename over the destination.
-        // Writing in place fails with ETXTBSY when the installed daemon is
-        // currently running; rename swaps the path atomically and the running
-        // process keeps its old inode.
-        let tmp_dest = bin_dir.join(format!("{}.new", bin_name));
-        let copy_result =
-            fs::copy(&built_bin, &tmp_dest).and_then(|_| fs::rename(&tmp_dest, &dest));
-        if copy_result.is_err() {
-            let _ = fs::remove_file(&tmp_dest);
-        }
-
-        match copy_result {
-            Ok(_) => {
-                let susi_name = if cfg!(target_os = "windows") {
-                    "susi.exe"
-                } else {
-                    "susi"
-                };
-                let susi_dest = bin_dir.join(susi_name);
-
-                // The engine binary is already named `susi`, so the alias
-                // target and destination are the same path - removing it
-                // here would delete the binary we just installed and leave a
-                // self-referencing symlink behind. Only create the alias when
-                // the names genuinely differ.
-                if susi_dest != dest {
-                    let _ = fs::remove_file(&susi_dest);
-
-                    #[cfg(windows)]
-                    {
-                        let _ = fs::copy(&dest, &susi_dest);
-                    }
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::symlink;
-                        let _ = symlink(bin_name, &susi_dest);
-                    }
-                }
-
-                println!("xtask: Successfully installed latest susi to your local system.");
-
-                // Record how the installed binary was built so a later dev
-                // self-install refuses to downgrade it (susi-sandbox
-                // `auto_install::BUILD_MARKER`).
-                let accelerator = ["cuda", "metal", "mkl"].into_iter().find(|accel| {
-                    final_features.iter().any(|arg| {
-                        arg.trim_start_matches("--features")
-                            .trim_start_matches('=')
-                            .split([',', ' '])
-                            .any(|feature| feature == *accel)
-                    })
-                });
-                let marker = format!(
-                    "{{\"profile\":\"{}\",\"accelerator\":{}}}",
-                    profile_dir,
-                    accelerator.map_or_else(|| "null".to_string(), |a| format!("\"{a}\""))
-                );
-                let _ = fs::write(bin_dir.join("susi.build.json"), marker);
-
-                // Seed the host trust anchor so the next `susi start` does not
-                // treat a fresh install as a binary-signature change.
-                let susi_home = home.join(".susi");
-                if let Ok(output) = std::process::Command::new("sha256sum").arg(&dest).output() {
-                    if output.status.success() {
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        if let Some(hash) = stdout.split_whitespace().next() {
-                            let _ = fs::write(susi_home.join("binary.hash"), hash);
-                            let _ = fs::remove_file(susi_home.join("binary.hash.cache"));
-                            println!("xtask: Updated ~/.susi/binary.hash trust anchor.");
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("xtask: Failed to copy binary: {}", e);
-                exit(1);
-            }
-        }
     }
 }
 

@@ -21,7 +21,7 @@
 pub use susi_config;
 pub use susi_error;
 pub use susi_sandbox_client::{
-    audit_chain, auto_install, daemon_state, extensions, manager, versioned_store, SandboxManager,
+    audit_chain, daemon_state, extensions, manager, versioned_store, SandboxManager,
     VersionedJsonStore,
 };
 

@@ -51,6 +51,9 @@ this for the panic-path lints.
   `paths → error → config → core/sandbox → services → daemon`.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
+- The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds
+  the next susi. Dev builds (`cargo xb`, `target/` binaries) must never
+  install there; `scripts/susi-release-sync.sh` is the only path in.
 
 ## Test policy
 

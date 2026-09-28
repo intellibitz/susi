@@ -328,11 +328,34 @@ impl SusiAdmin {
             return Ok(format!(
                 "Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, push, and \
                  tag all succeeded. Release {} is live - release.yml will build and publish its \
-                 binaries now.",
-                tag_name
+                 binaries now.\n{}",
+                tag_name,
+                Self::promote_release_locally()
             ));
         }
 
         Ok("Motion Rule complete: check, tests, audit, lints, smoke-tests, sync, and push all succeeded. Substrate deployed.".into())
+    }
+
+    /// Kicks the host's release-sync unit so the release just cut replaces
+    /// the local susi without waiting for the hourly timer. Non-blocking:
+    /// the unit builds the tag in its own checkout and swaps the binary only
+    /// once this `susi release` process (a busy client) has exited.
+    fn promote_release_locally() -> String {
+        const UNIT: &str = "susi-release-sync.service";
+        let started = Command::new("systemctl")
+            .args(["--user", "start", "--no-block", UNIT])
+            .output()
+            .is_ok_and(|out| out.status.success());
+        if started {
+            format!(
+                "Local promotion queued ({UNIT}): the release is built for this host and \
+                 installed once this command exits. Follow: journalctl --user -fu {UNIT}"
+            )
+        } else {
+            "Local susi not updated: the release-sync timer is not installed. Run \
+             scripts/susi-release-sync.sh (once) or --install-timer (always)."
+                .to_string()
+        }
     }
 }

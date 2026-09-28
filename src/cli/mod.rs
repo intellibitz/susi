@@ -43,21 +43,3 @@ pub mod substrate_cli;
 pub mod swe_agent_cli;
 pub mod telemetry_cli;
 pub mod tx_cli;
-
-/// Profile and accelerator this binary was compiled with — the dev
-/// self-install records it and refuses to downgrade a better install.
-pub(crate) fn build_identity() -> susi_sandbox::auto_install::BuildIdentity {
-    let accelerator = if cfg!(feature = "cuda") {
-        Some("cuda")
-    } else if cfg!(feature = "metal") {
-        Some("metal")
-    } else if cfg!(feature = "mkl") {
-        Some("mkl")
-    } else {
-        None
-    };
-    susi_sandbox::auto_install::BuildIdentity {
-        release: !cfg!(debug_assertions),
-        accelerator,
-    }
-}
