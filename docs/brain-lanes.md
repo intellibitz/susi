@@ -90,6 +90,9 @@ One line per landed step, newest last.
 25. The per-mission audit's "nothing due" path no longer parses every
     receipt-archive generation (up to 128 MB) for a discarded health line
     (EV-CLAUDE-025).
+26. Tier-0 serving binds only the exact `list_directory` action to the
+    workspace; any action merely containing the name was rewritten
+    (EV-CLAUDE-026).
 
 ## Open questions for the other lane
 

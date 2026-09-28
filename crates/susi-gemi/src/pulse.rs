@@ -54,6 +54,18 @@ fn cache_lookup(
         .then(|| value.clone())
 }
 
+/// `list_directory` needs a target, so the Tier-0 action is bound to the
+/// workspace. Exact match only: the old `contains("list_directory")` would
+/// rewrite any action merely containing the name (a `list_directory_tree`
+/// tool admitted by vocabulary reclamation) into a different action.
+fn bind_workspace(action: String, workspace: &Path) -> String {
+    if action == "ACTION: list_directory" {
+        format!("ACTION: list_directory {}", workspace.display())
+    } else {
+        action
+    }
+}
+
 /// Tier 1 order: a full answer first, the `ACTION:` routing generation only
 /// if that fails. `try_solve` always returns an `ACTION:`-prefixed string,
 /// so the old order ran its 64-token generation, saw the prefix, and threw
@@ -101,10 +113,7 @@ impl SusiPulse {
         // Neural Reflex Attempt (Tier 0 Classifier)
         if let Ok(model) = SusiAlphaModel::cached(&global_dir) {
             if let Ok(neural_action) = model.predict_intent(prompt_trimmed) {
-                let mut final_action = neural_action;
-                if final_action.contains("list_directory") {
-                    final_action = format!("ACTION: list_directory {}", workspace.display());
-                }
+                let final_action = bind_workspace(neural_action, workspace);
 
                 cache_insert(&mut REFLEX_CACHE.write(), key, (final_action.clone(), None));
                 return Ok(final_action);
@@ -161,6 +170,22 @@ mod tests {
         let routed = generative_tiers(fail, || ok("ACTION: status"));
         assert_eq!(routed.unwrap(), "ACTION: status");
         assert!(generative_tiers(fail, fail).is_err());
+    }
+
+    #[test]
+    fn only_the_list_directory_action_is_bound_to_the_workspace() {
+        let ws = Path::new("/w");
+        assert_eq!(
+            bind_workspace("ACTION: list_directory".into(), ws),
+            "ACTION: list_directory /w"
+        );
+        for other in [
+            "ACTION: list_directory_tree",
+            "ACTION: status",
+            "ACTION: my_list_directory",
+        ] {
+            assert_eq!(bind_workspace(other.into(), ws), other);
+        }
     }
 
     #[test]

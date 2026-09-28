@@ -3744,6 +3744,16 @@
    "milestone": "Removes a per-mission I/O cost from the learning loop. amas.rs runs ReflexTrainer::audit_distillation_state on a background thread after every supervised mission and discards the result. Its most common outcome, 'no training due' (below threshold) or 'deferred' (back-off), appended staging_health_line. That calls ReceiptArchive::staging_health_summary -> load_audit_lines, which reads and JSON-parses every receipt-archive generation (live plus KEEP_GENERATIONS rotated files, up to 8 x 16 MB per the roadmap's receipt-archive bound), all to build a string nobody reads. Now the not-due and back-off decisions go through due_claim(workspace, threshold), which does only the cheap checks: the distillation log tail and the staging file. The not-due report is one line with no archive scan. Cycles that actually train, and force_train, still report staging health. Test: nothing_due_claims_nothing_and_backs_off (below threshold: no claim and the buffer untouched; after a held_back at 6 with threshold 5: no claim at 6 staged; at 11 staged: claims all 11).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "pulse::bind_workspace exact match",
+    "ref": "file://crates/susi-gemi/src/pulse.rs"
+   },
+   "id": "EV-CLAUDE-026",
+   "milestone": "Tier-0 serving no longer rewrites actions that merely contain 'list_directory'. SusiPulse::reason rewrote any served Tier-0 action whose text contained the substring 'list_directory' into 'ACTION: list_directory <workspace>'. With EV-CLAUDE-012 vocabulary reclamation, arbitrary installed tools can become Tier-0 labels, so a tool named e.g. list_directory_tree, or anything containing that name, would have been served as a different action. Now pulse::bind_workspace rewrites only the exact 'ACTION: list_directory' and passes every other action through unchanged. Test: only_the_list_directory_action_is_bound_to_the_workspace (exact action bound to /w; list_directory_tree, status and my_list_directory unchanged). The end-to-end distill-loop test, which asserts the served 'ACTION: list_directory ...', still passes.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
