@@ -428,6 +428,27 @@ evidence-gated, not a kernel IPC or power-management daemon:
 | **Ambient context sync** | `susi ambient`, daemon ambient indexer | FS mtime poll → ContextGraph + SemanticIndex refresh |
 | **Multi-agent transactions** | `susi tx`, MCP `tx_*`, patch/plan loops | File (+ optional blackboard) snapshots with commit/abort restore |
 
+## The learning loop
+
+The substrate's intelligence is a loop — `perceive → retrieve → deliberate →
+act → verify → distill → promote` — not a single model. The loop's unit of
+experience is the **mission trace** (`susi_core::mission_trace::MissionTrace`,
+schema v1): goal (bounded + credential-redacted), outcome verdict, the route
+that produced it (`swarm` / `fast-path` / `governance-block`), tools and
+agents consumed, evidence count, and wall-clock seconds from the evidence
+session. `SusiMissionReport::persist_inspectable_trace` is the terminal
+choke point — every mission that reports an outcome emits one trace to three
+sinks:
+
+- `<workspace>/.susi/mission_traces.jsonl` — append-only, `FileLock`-guarded;
+- `ContextGraph` — an outcome observation linked to the mission node;
+- `<workspace>/.susi/distillation_staged.jsonl` — via
+  `ProtocolKnowledgeBase::stage_distillation_pair`, feeding Tier-0
+  (`SusiAlphaModel`) training and `reflex_trainer`.
+
+`mission_trace::read_all` tolerates older-schema and partial lines, so trace
+consumers never break on a rolled-forward file.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is

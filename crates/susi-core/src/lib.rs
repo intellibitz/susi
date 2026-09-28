@@ -50,6 +50,7 @@ pub mod intent_bus;
 pub mod mac_policy;
 pub mod manifold;
 pub mod mcp_client;
+pub mod mission_trace;
 pub mod net_guard;
 pub mod plane_bus;
 pub mod plane_bus_ipc;

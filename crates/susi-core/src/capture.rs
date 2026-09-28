@@ -60,6 +60,7 @@ fn publish_rendezvous(workspace: &Path, session: Option<&EvidenceSession>) {
                 "id": session.id,
                 "goal": session.goal,
                 "workspace": session.workspace,
+                "created_at": session.created_at_secs,
             });
             if let Ok(bytes) = serde_json::to_vec(&meta) {
                 let _ = crate::susi_config::atomic_write_bytes(&dir.join("session.json"), &bytes);
@@ -149,6 +150,9 @@ pub struct EvidenceSession {
     id: String,
     goal: String,
     workspace: PathBuf,
+    /// Epoch seconds at construction — mission traces read it for wall-clock
+    /// duration without a second clock call at emission time.
+    created_at_secs: u64,
     next: AtomicU64,
     receipts: DashMap<String, ToolReceipt>,
     redact: fn(&str) -> String,
@@ -237,6 +241,7 @@ impl EvidenceSession {
             ),
             goal: goal.into(),
             workspace,
+            created_at_secs: now.as_secs(),
             next: AtomicU64::new(0),
             receipts: DashMap::new(),
             redact,
@@ -315,10 +320,20 @@ impl EvidenceSession {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
+            let created_at_secs = meta
+                .get("created_at")
+                .and_then(|v| v.as_u64())
+                .unwrap_or_else(|| {
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0)
+                });
             return Some(Self {
                 id: id.to_string(),
                 goal,
                 workspace: canonical.to_path_buf(),
+                created_at_secs,
                 next: AtomicU64::new(0),
                 receipts: DashMap::new(),
                 redact: Self::default_redact,
@@ -748,6 +763,14 @@ impl EvidenceSession {
 
     pub fn workspace(&self) -> &Path {
         &self.workspace
+    }
+
+    /// Seconds since the session opened — the mission's wall-clock cost.
+    pub fn age_secs(&self) -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs().saturating_sub(self.created_at_secs))
+            .unwrap_or(0)
     }
 }
 

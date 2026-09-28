@@ -115,6 +115,58 @@ impl SusiMissionReport {
             &path,
             crate::susi_config::redact_credentials(&text).as_bytes(),
         );
+
+        self.emit_mission_trace(workspace);
+    }
+
+    /// The mission's schema'd learning record: same terminal choke point as
+    /// the inspectable trace, so every persisted mission — success, failure,
+    /// or governance block — also lands in `mission_traces.jsonl`, the context
+    /// graph, and distillation staging.
+    fn emit_mission_trace(&self, workspace: &Path) {
+        let session = crate::susi_core::capture::EvidenceSession::current();
+        // The route label is what Tier-0 distillation learns to predict, so
+        // it reflects how the mission actually resolved, not the goal text.
+        let route = if self.status == "BLOCKED" {
+            "governance-block"
+        } else if self.agents.is_empty() {
+            "fast-path"
+        } else {
+            "swarm"
+        };
+        let tools: std::collections::BTreeSet<String> = self
+            .interactions
+            .iter()
+            .map(|msg| msg.action.clone())
+            .collect();
+        let mut trace = crate::susi_core::mission_trace::MissionTrace::new(
+            session
+                .as_ref()
+                .map(|s| s.id().to_string())
+                .unwrap_or_else(|| format!("mission-{}", std::process::id())),
+            &self.goal,
+            &self.status,
+            route,
+        );
+        trace.tools = crate::susi_core::mission_trace::bounded_list(tools);
+        trace.agents = crate::susi_core::mission_trace::bounded_list(
+            self.agents.iter().map(|a| a.name.clone()),
+        );
+        trace.evidence_entries = self.interactions.len();
+        trace.duration_secs = session.as_ref().map(|s| s.age_secs());
+        let _ = trace.emit(workspace);
+        let _ = susi_gawd_agents::pkb::ProtocolKnowledgeBase::stage_distillation_pair(
+            &trace.goal,
+            &trace.route,
+            workspace,
+            Some(serde_json::json!({
+                "mission_id": trace.mission_id,
+                "outcome": trace.outcome,
+                "tool_count": trace.tools.len(),
+                "evidence_entries": trace.evidence_entries,
+                "duration_secs": trace.duration_secs,
+            })),
+        );
     }
 }
 
