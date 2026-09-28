@@ -1,12 +1,18 @@
 //! Gossip Protocol for Peer-to-Peer Capability Propagation
 //!
-//! Implements a built-in gossip protocol (epidemic routing) for propagating
-//! capability discovery and swarm routing table information over UDP.
+//! Epidemic capability routing over UDP. Datagrams are HMAC-SHA256 sealed
+//! with a cluster-key-derived `susi-gossip-v1` key (process-local fallback
+//! when no `cluster.key` exists) so a spoofed packet cannot enter the table.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::net::UdpSocket;
-use std::sync::{Arc, RwLock};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
+
+const GOSSIP_LABEL: &[u8] = b"susi-gossip-v1";
+const MAC_LEN: usize = 32;
 
 /// A gossip message exchanged between Swarm OS nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +34,9 @@ pub struct GossipManager {
     pub peer_capabilities: Arc<RwLock<HashMap<String, HashSet<String>>>>,
     /// UDP socket for broadcasting / receiving.
     socket: Option<Arc<UdpSocket>>,
+    mac_key: Arc<[u8; 32]>,
+    store: Option<PathBuf>,
+    rejected: Arc<AtomicU64>,
 }
 
 impl Default for GossipManager {
@@ -36,11 +45,118 @@ impl Default for GossipManager {
     }
 }
 
+fn process_mac_key() -> [u8; 32] {
+    static KEY: OnceLock<[u8; 32]> = OnceLock::new();
+    *KEY.get_or_init(|| {
+        if let Some(cluster) = crate::susi_config::cluster_key::cluster_key() {
+            crate::susi_config::cluster_key::hmac_sha256(&cluster, GOSSIP_LABEL)
+        } else {
+            let mut key = [0u8; 32];
+            let _ = getrandom::fill(&mut key);
+            key
+        }
+    })
+}
+
 impl GossipManager {
     pub fn new() -> Self {
         Self {
             peer_capabilities: Arc::new(RwLock::new(HashMap::new())),
             socket: None,
+            mac_key: Arc::new(process_mac_key()),
+            store: None,
+            rejected: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// Load persisted capabilities from `path` (created on first persist).
+    pub fn with_store(path: PathBuf) -> Self {
+        let mut manager = Self::new();
+        manager.store = Some(path.clone());
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&text) {
+                let mut caps = manager
+                    .peer_capabilities
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner());
+                for (cell, list) in map {
+                    caps.insert(cell, list.into_iter().collect());
+                }
+            }
+        }
+        manager
+    }
+
+    /// `cluster` when `cluster.key` sealed the MAC; `local` for the process fallback.
+    #[must_use]
+    pub fn auth_mode() -> &'static str {
+        if crate::susi_config::cluster_key::cluster_key().is_some() {
+            "cluster"
+        } else {
+            "local"
+        }
+    }
+
+    /// Unsigned or MAC-mismatched datagrams rejected since bind.
+    #[must_use]
+    pub fn rejected_count(&self) -> u64 {
+        self.rejected.load(Ordering::Relaxed)
+    }
+
+    /// Known cell count in the in-memory (and persisted) table.
+    #[must_use]
+    pub fn peer_count(&self) -> usize {
+        self.peer_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
+    }
+
+    /// HMAC-SHA256 seal: 32-byte MAC then body.
+    #[must_use]
+    pub fn seal(&self, body: &[u8]) -> Vec<u8> {
+        let mac = crate::susi_config::cluster_key::hmac_sha256(&self.mac_key, body);
+        let mut out = Vec::with_capacity(MAC_LEN + body.len());
+        out.extend_from_slice(&mac);
+        out.extend_from_slice(body);
+        out
+    }
+
+    fn open<'a>(&self, payload: &'a [u8]) -> Result<&'a [u8], String> {
+        let mac = payload.get(..MAC_LEN).ok_or("unsigned gossip datagram")?;
+        let body = payload.get(MAC_LEN..).ok_or("truncated gossip datagram")?;
+        let expected = crate::susi_config::cluster_key::hmac_sha256(&self.mac_key, body);
+        let mut diff = 0u8;
+        for (a, b) in mac.iter().zip(expected.iter()) {
+            diff |= a ^ b;
+        }
+        if diff != 0 || mac.len() != MAC_LEN {
+            return Err("gossip HMAC mismatch".to_string());
+        }
+        Ok(body)
+    }
+
+    fn persist(&self) {
+        let Some(path) = &self.store else {
+            return;
+        };
+        let map = self
+            .peer_capabilities
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let json: HashMap<String, Vec<String>> = map
+            .iter()
+            .map(|(k, v)| {
+                let mut caps: Vec<String> = v.iter().cloned().collect();
+                caps.sort();
+                (k.clone(), caps)
+            })
+            .collect();
+        if let Ok(text) = serde_json::to_string_pretty(&json) {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(path, text);
         }
     }
 
@@ -60,14 +176,21 @@ impl GossipManager {
             .map(|a| a.to_string())
     }
 
-    /// Handles an incoming gossip payload.
+    /// Handles an incoming sealed gossip payload.
     pub fn handle_gossip(&self, payload: &[u8]) -> Result<(), String> {
         self.ingest(payload, None)
     }
 
-    /// Ingest a payload, optionally advertising back to `from` on discovery.
+    /// Ingest a sealed payload, optionally advertising back to `from` on discovery.
     pub fn ingest(&self, payload: &[u8], from: Option<&str>) -> Result<(), String> {
-        let msg: GossipMessage = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
+        let body = match self.open(payload) {
+            Ok(b) => b,
+            Err(e) => {
+                self.rejected.fetch_add(1, Ordering::Relaxed);
+                return Err(e);
+            }
+        };
+        let msg: GossipMessage = serde_json::from_slice(body).map_err(|e| e.to_string())?;
 
         match msg {
             GossipMessage::AdvertiseCapabilities {
@@ -83,6 +206,8 @@ impl GossipManager {
                 for cap in capabilities {
                     entry.insert(cap);
                 }
+                drop(map);
+                self.persist();
             }
             GossipMessage::PeerDiscovery { .. } => {
                 if let Some(addr) = from {
@@ -162,11 +287,13 @@ impl GossipManager {
                 let msg = GossipMessage::PeerDiscovery {
                     from_ip: from_ip.clone(),
                 };
-                if let Ok(payload) = serde_json::to_vec(&msg) {
+                if let Ok(body) = serde_json::to_vec(&msg) {
+                    let payload = self.seal(&body);
                     let _ = socket.send_to(&payload, &target);
                 }
             }
         }
+        self.persist();
     }
 
     /// Advertises this node's capabilities to a known peer.
@@ -182,10 +309,11 @@ impl GossipManager {
                 capabilities,
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs(),
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
             };
-            let payload = serde_json::to_vec(&msg)?;
+            let body = serde_json::to_vec(&msg)?;
+            let payload = self.seal(&body);
             socket.send_to(&payload, target_addr)?;
         }
         Ok(())
@@ -213,19 +341,32 @@ mod tests {
     fn test_gossip_capability_propagation() {
         let manager = GossipManager::new();
 
-        // Simulate receiving a gossip packet
         let msg = GossipMessage::AdvertiseCapabilities {
             cell_id: "remote-cell-1".to_string(),
             capabilities: vec!["infer".to_string(), "tool:git".to_string()],
             timestamp: 1600000000,
         };
-        let payload = serde_json::to_vec(&msg).unwrap();
+        let body = serde_json::to_vec(&msg).unwrap();
+        let payload = manager.seal(&body);
 
         manager.handle_gossip(&payload).unwrap();
 
-        // Verify capability is recorded
         assert!(manager.peer_has_capability("remote-cell-1", "infer"));
         assert!(manager.peer_has_capability("remote-cell-1", "tool:git"));
         assert!(!manager.peer_has_capability("remote-cell-1", "audit:seal"));
+    }
+
+    #[test]
+    fn unsigned_datagrams_are_rejected() {
+        let manager = GossipManager::new();
+        let msg = GossipMessage::AdvertiseCapabilities {
+            cell_id: "spoof".to_string(),
+            capabilities: vec!["infer".to_string()],
+            timestamp: 1,
+        };
+        let body = serde_json::to_vec(&msg).unwrap();
+        assert!(manager.handle_gossip(&body).is_err());
+        assert!(!manager.peer_has_capability("spoof", "infer"));
+        assert_eq!(manager.rejected_count(), 1);
     }
 }

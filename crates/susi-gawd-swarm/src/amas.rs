@@ -315,10 +315,8 @@ impl SusiSupervisor {
                         std::collections::VecDeque::new();
                     // Send time per pending nonce: a signed pong that echoes
                     // it yields a real round-trip time for `latency_ms`.
-                    let mut nonce_sent_at: std::collections::HashMap<
-                        String,
-                        std::time::Instant,
-                    > = std::collections::HashMap::new();
+                    let mut nonce_sent_at: std::collections::HashMap<String, std::time::Instant> =
+                        std::collections::HashMap::new();
                     // Roster write throttle — see the persist call below.
                     let mut last_persist = std::time::Instant::now();
                     // Ban-list re-read throttle — see the sweep below.

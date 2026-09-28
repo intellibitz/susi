@@ -6339,6 +6339,7 @@ dependencies = [
  "susi-sandbox-client",
  "susi-server",
  "susi-tools",
+ "susi-vendor-cloud",
  "susi-vendor-wasmer",
  "tokio",
  "tokio-rustls",
@@ -6664,6 +6665,10 @@ dependencies = [
  "headless_chrome",
  "susi-error",
 ]
+
+[[package]]
+name = "susi-vendor-cloud"
+version = "0.1.0"
 
 [[package]]
 name = "susi-vendor-fastembed"

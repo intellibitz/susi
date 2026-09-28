@@ -23,6 +23,7 @@ susi-agents = { workspace = true }
 dashmap = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-vendor-wasmer = { workspace = true }
+susi-vendor-cloud = { workspace = true }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 getrandom = { workspace = true }

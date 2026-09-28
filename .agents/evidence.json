@@ -3020,6 +3020,16 @@
       "milestone": "RSI iterations 33-38 (Claude run): honesty sweep — real peer RTT, real health checks, discarded-probe wiring removed and the daemon ratchet restored to its honest count (13); main's clippy gate repaired.",
       "proof": "(1) `ClusterPeerNode.latency_ms`/`uptime_secs` were 0 in every one of the 12 places peer records are built and never updated, yet serialized to peers and dashboards: AMAS now records each signed-ping nonce's send time and sets `latency_ms` to the measured ping→signed-pong round trip (new and updated Explicit rows); `uptime_secs` is documented as unknown when 0 because the wire does not carry it. (2) Health checks that returned `Ok(true)` unconditionally: `CandleProvider::is_healthy` (comment said it checked hardware/candle status) now reports whether a local model is selectable; the `susi-fastembed` provider reports unhealthy once the cached model load has failed (`susi_vendor_fastembed::load_failed`). (3) `origin/main` at 10aa1e39 set `UNREACHABLE_DAEMON_MODULES_CEILING` to 0, but 13 of the modules counted as reached were touched only by discarded probes — `let _ = X::default()` / `let _ = f(&[] ...)` constructions dropped immediately in `activate_host_control_planes`, and four pure functions (`auto_tune::advise`, `org_policy::decide`, `packages::resolve`, `workloads::complete`) called every 30s on default/empty inputs with the result thrown away — contrary to the AGENTS.md / identity rule that discarded probes and type-only references do not count as wiring. Those probes (no side effects) are removed; every side-effecting part of that wiring is kept (gossip bind + fanout on 9095, STUN/NAT, audit grant, checkpoint/log/plugin/fork/hibernate dirs, P2P peer table, `os_planes.json`). Replicated reachability: 13 unreachable (auto_tune, contract, execution_mode, lineage, migration, mount, negotiation, offline_queue, org_policy, packages, scaffold, vfs, workloads); ceiling 0 → 13 (which also clears clippy's `absurd_extreme_comparisons` on `len() <= 0`), AGENTS.md and identity (previously still saying 30) now agree. Also fixed `collapsible_if` and two `default_constructed_unit_structs` failures that left main's clippy gate red. Verified: cargo clippy --workspace --all-targets -D warnings clean. Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 201-300",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-308",
+      "milestone": "RSI OS isolation iterations 201-300: HMAC-sealed swarm gossip with persisted capabilities; honest STUN errors plus TURN (Allocate or SUSI_TURN_RELAY); remaining host planes held and driven on the 30s tick (not discarded probes); susi-vendor-cloud command-only k8s/docker/aws/gcloud/az inventory; unwired daemon ratchet 13→0. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

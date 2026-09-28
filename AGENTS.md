@@ -9,7 +9,7 @@ are enforced mechanically where possible; the rest are reviewed in CI.
   - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-vendor-wasmer,
     susi-leaf-services, susi-core,
     susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
-    susi-http-transport, susi-vendor-candle, susi-vendor-mcp-server, susi-adapters-llm, xtask,
+    susi-http-transport, susi-vendor-candle, susi-vendor-mcp-server, susi-vendor-cloud, susi-adapters-llm, xtask,
     root package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,
@@ -81,9 +81,9 @@ cargo test --workspace --locked
   should be pedantic-clean even though the lint isn't denied workspace-wide.
 - `Mutex`/`RwLock` in hot paths: prefer bounded `flume`/tokio channels for new
   work; existing locks are being migrated incrementally.
-- Unwired `susi-daemon` modules: 13 of 72 are compiled and self-tested only
-  (`tests/architecture_tests.rs` `unreachable_daemon_modules_only_decrease`).
-  Wire or remove; discarded probes and type-only references do not count.
+- Unwired `susi-daemon` modules: 0 of 72 (`tests/architecture_tests.rs`
+  `unreachable_daemon_modules_only_decrease`). Wire or remove new ones;
+  discarded probes and type-only references do not count.
 - Formal verification (`kani`) and `cargo-geiger` unsafe-tree auditing are
   roadmap items — see `.agents/roadmap.json`.
 
