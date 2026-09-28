@@ -613,15 +613,32 @@ impl ReflexNet {
             .map_err(crate::engines::candle_err::from_candle)
     }
 
-    /// Returns the epochs run and the last measured loss.
-    fn fit(&self, x: &Tensor, y: &Tensor) -> Result<(usize, f32)> {
+    /// Class-balanced fit: each sample's loss is weighted `n / (K · n_c)`
+    /// so every class contributes equally however skewed the data. Plain
+    /// mean NLL, measured with one action at 400 samples and nine at 6,
+    /// reached the loss target by fitting the majority alone and served
+    /// the *majority* action for every minority prompt at 0.55–0.83
+    /// confidence. Returns the epochs run and the last measured loss.
+    fn fit(&self, x: &Tensor, y: &Tensor, weights: &[f32]) -> Result<(usize, f32)> {
+        let weights = Tensor::from_vec(weights.to_vec(), weights.len(), x.device())
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let targets = y
+            .unsqueeze(1)
+            .map_err(crate::engines::candle_err::from_candle)?;
         let mut opt = AdamW::new(self.varmap.all_vars(), ParamsAdamW::default())
             .map_err(crate::engines::candle_err::from_candle)?;
         let mut last = f32::INFINITY;
         for epoch in 1..=MAX_EPOCHS {
             let log_sm = candle_nn::ops::log_softmax(&self.logits(x)?, 1)
                 .map_err(crate::engines::candle_err::from_candle)?;
-            let loss = candle_nn::loss::nll(&log_sm, y)
+            // Weighted mean of -log p(label); weights sum to n.
+            let picked = log_sm
+                .gather(&targets, 1)
+                .and_then(|t| t.squeeze(1))
+                .map_err(crate::engines::candle_err::from_candle)?;
+            let loss = (picked * &weights)
+                .and_then(|t| t.mean_all())
+                .and_then(|t| t.neg())
                 .map_err(crate::engines::candle_err::from_candle)?;
             last = loss
                 .to_scalar::<f32>()
@@ -660,6 +677,33 @@ impl ReflexNet {
 
 /// A staged or primed training sample: intent text and its action label.
 type Labeled<'a> = (&'a str, u32);
+
+/// Weights for a fit over `staged` then `primes` (in that order): staged
+/// samples are class-balanced; each synthetic prime weighs 1. A prime is a
+/// seed so an unused action stays reachable, not evidence — balanced as a
+/// class of one it would outweigh every real sample of a contradicting
+/// label that shares its features.
+fn fit_weights(staged: &[(&str, u32)], primes: usize) -> Vec<f32> {
+    let labels: Vec<u32> = staged.iter().map(|(_, label)| *label).collect();
+    let mut weights = class_balance_weights(&labels);
+    weights.extend(std::iter::repeat_n(1.0, primes));
+    weights
+}
+
+/// Per-sample weights `n / (K · n_c)` (K = distinct labels): each class's
+/// weights sum to `n / K`, and all weights sum to `n`.
+fn class_balance_weights(labels: &[u32]) -> Vec<f32> {
+    let mut counts: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
+    for label in labels {
+        *counts.entry(*label).or_default() += 1;
+    }
+    let n = labels.len() as f32;
+    let k = counts.len().max(1) as f32;
+    labels
+        .iter()
+        .map(|label| n / (k * counts.get(label).copied().unwrap_or(1) as f32))
+        .collect()
+}
 
 /// Projects `texts` into one `(n, DIM)` batch.
 fn projection_batch(
@@ -930,7 +974,7 @@ impl SusiAlphaModel {
         let net = ReflexNet::init(active.map(|(path, _)| path), &device)?;
         let all: Vec<(&str, u32)> = staged.iter().chain(&primes).copied().collect();
         let (x, y) = labeled_batch(&all, &device)?;
-        let (epochs, loss) = net.fit(&x, &y)?;
+        let (epochs, loss) = net.fit(&x, &y, &fit_weights(&staged, primes.len()))?;
         let samples = all.len();
 
         // Before publication: the published bundle's mtime is the model
@@ -1005,7 +1049,7 @@ impl SusiAlphaModel {
         let candidate = ReflexNet::init(Some(checkpoint), device)?;
         let fit: Vec<(&str, u32)> = train.iter().chain(primes).copied().collect();
         let (x, y) = labeled_batch(&fit, device)?;
-        let _ = candidate.fit(&x, &y)?;
+        let _ = candidate.fit(&x, &y, &fit_weights(&train, primes.len()))?;
         let scored = candidate.correct(&hx, &held_labels, vocabulary.len())?;
         let n = holdout.len();
         if scored < baseline {
@@ -1379,7 +1423,7 @@ mod tests {
         let labels: Vec<u32> = samples.iter().map(|(_, l)| *l).collect();
         let (x, y) = labeled_batch(&samples, &device).unwrap();
         let net = ReflexNet::init(None, &device).unwrap();
-        let (epochs, loss) = net.fit(&x, &y).unwrap();
+        let (epochs, loss) = net.fit(&x, &y, &class_balance_weights(&labels)).unwrap();
         assert!(epochs > 100, "900 samples cannot converge in 100 steps");
         assert!(loss <= TARGET_LOSS || epochs == MAX_EPOCHS);
         let probs = candle_nn::ops::softmax(&net.logits(&x).unwrap(), 1)
@@ -1403,6 +1447,120 @@ mod tests {
             served * 10 >= samples.len() * 8,
             "only {served}/{} correct and above the serve bar",
             samples.len()
+        );
+    }
+
+    #[test]
+    fn class_balance_weights_equalize_class_mass() {
+        let w = class_balance_weights(&[0, 0, 0, 1]);
+        assert_eq!(w, [4.0 / 6.0, 4.0 / 6.0, 4.0 / 6.0, 2.0]);
+        assert!((w.iter().sum::<f32>() - 4.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_majority_action_does_not_swallow_minority_actions() {
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let verbs = [
+            "deploy",
+            "restart",
+            "backup",
+            "migrate",
+            "compile",
+            "lint",
+            "benchmark",
+            "profile",
+            "translate",
+            "summarize",
+        ];
+        let nouns = [
+            "api",
+            "database",
+            "cluster",
+            "cache",
+            "frontend",
+            "worker",
+            "queue",
+            "gateway",
+            "logs",
+            "metrics",
+            "keys",
+            "service",
+            "bucket",
+            "schema",
+            "pipeline",
+            "ledger",
+            "mailer",
+            "scheduler",
+            "indexer",
+            "router",
+        ];
+        let mods = [
+            "now",
+            "today",
+            "safely",
+            "quickly",
+            "again",
+            "tonight",
+            "carefully",
+            "first",
+            "later",
+            "soon",
+        ];
+        // Label 0 has 400 samples; labels 1..9 have 6 each (all "<verb> the
+        // api <mod>"), so a minority verb has never been seen with nouns 10+.
+        let mut texts: Vec<(String, u32)> = Vec::new();
+        for (verb, label) in verbs.iter().zip(0u32..) {
+            let per = if label == 0 { 400 } else { 6 };
+            let phrases = nouns
+                .iter()
+                .flat_map(|noun| mods.iter().map(move |m| format!("{verb} the {noun} {m}")));
+            texts.extend(phrases.take(per).map(|t| (t, label)));
+        }
+        let train: Vec<(&str, u32)> = texts.iter().map(|(t, l)| (t.as_str(), *l)).collect();
+        let labels: Vec<u32> = train.iter().map(|(_, l)| *l).collect();
+        let (x, y) = labeled_batch(&train, &device).unwrap();
+        let net = ReflexNet::init(None, &device).unwrap();
+        net.fit(&x, &y, &class_balance_weights(&labels)).unwrap();
+
+        // Unseen combinations of seen words for each minority verb.
+        let probes: Vec<(String, u32)> = verbs[1..]
+            .iter()
+            .zip(1u32..)
+            .flat_map(|(verb, label)| {
+                nouns[10..14]
+                    .iter()
+                    .map(move |noun| (format!("{verb} the {noun} now"), label))
+            })
+            .collect();
+        let texts: Vec<&str> = probes.iter().map(|(t, _)| t.as_str()).collect();
+        let probs = candle_nn::ops::softmax(
+            &net.logits(&projection_batch(&texts, &device).unwrap())
+                .unwrap(),
+            1,
+        )
+        .unwrap()
+        .to_vec2::<f32>()
+        .unwrap();
+        let (mut correct, mut wrong_and_served) = (0, 0);
+        for (row, (_, label)) in probs.iter().zip(&probes) {
+            let (index, p) = row
+                .iter()
+                .take(verbs.len())
+                .enumerate()
+                .max_by(|a, b| a.1.total_cmp(b.1))
+                .unwrap();
+            if index as u32 == *label {
+                correct += 1;
+            } else if *p > 0.5 {
+                wrong_and_served += 1;
+            }
+        }
+        // Measured over 5 inits each: uniform loss 1-11/36 correct with
+        // 13-28 wrong-but-served; balanced 34-36/36 with 0-2.
+        assert!(correct >= 30, "minority correct {correct}/36");
+        assert!(
+            wrong_and_served <= 4,
+            "wrong-but-served {wrong_and_served}/36"
         );
     }
 

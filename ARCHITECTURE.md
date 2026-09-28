@@ -561,7 +561,13 @@ mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the
 report states both. The old fixed 100 steps, measured on 962 samples over
 20 actions, reached 95% argmax accuracy with loss still 1.6 — 0% of samples
 cleared the 0.5 serve confidence, so a grown Tier-0 was right and silent
-(EV-CLAUDE-011).
+(EV-CLAUDE-011). The loss is **class-balanced**: each staged sample
+weighs `n / (K · n_c)`, so every action contributes equally however skewed
+usage is; synthetic primes weigh 1 (a seed, not evidence). With one action
+at 400 samples and nine at 6, plain mean loss met its target by fitting the
+majority alone — over five inits, 1–11 of 36 unseen minority phrasings
+were classified correctly and 13–28 were confidently served the *majority*
+action; balanced, 34–36 correct and 0–2 wrong-but-served (EV-CLAUDE-015).
 
 Training is cumulative *and* rehearsed. Each cycle fine-tunes the active
 weights, and fine-tuning on only the claimed batch would overwrite what

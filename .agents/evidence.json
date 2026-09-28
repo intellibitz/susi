@@ -3634,6 +3634,16 @@
    "milestone": "Fixes a Tier-0 availability regression introduced by EV-CLAUDE-007: support_matrix propagated a replay-file read error with '?', so a replay set that existed but could not be read (permissions, a directory in its place, I/O fault) failed the checkpoint load for every candidate generation and disabled Tier-0 entirely. Now support_matrix returns Option: no replay set or an unreadable one both yield None, which is the confidence-only gate, and the unreadable case constructs an EaiError::io so the degradation reaches the error-metrics sink. Training still errors on an unreadable replay set, which is visible in the distillation log. Test extension in unfamiliar_prompts_are_refused_even_when_confident: the replay file is replaced by a directory, the trained checkpoint still loads, support() is None, and predict_intent still serves 'ACTION: list_directory' for the familiar prompt.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "class-balanced reflex loss",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-015",
+   "milestone": "Tier-0 training is class-balanced, so a dominant action no longer swallows rare ones. Measured with ReflexNet on 454 samples (one action with 400 samples, nine with 6 each) and 36 unseen combinations of seen words for the minority actions, over 5 random inits each. Plain mean NLL: 1-11 of 36 correct, 0 correct-and-served, and 13-28 confidently (>0.5) served the majority action. Class-balanced: 34-36 of 36 correct, 29-35 correct-and-served, and 0-2 wrong-but-served. Now ReflexNet::fit takes per-sample weights and minimizes the weighted mean of -log p(label), computed with gather over log-softmax. Training and the held-out candidate use fit_weights: staged samples weigh n/(K*n_c) (class_balance_weights; weights sum to n), and each synthetic prime weighs 1. A prime balanced as a class of one would outweigh every real sample of a contradicting label sharing its features; this was caught by regressing_checkpoint_is_held_back_and_improving_one_publishes failing 8/8 before primes were excluded. Tests: class_balance_weights_equalize_class_mass; a_majority_action_does_not_swallow_minority_actions (asserts >= 30/36 correct and <= 4 wrong-but-served). The alpha suite passed 8 of 8 repeated runs. An earlier variant of the probe, with two unseen words out of three, was too noisy to gate on (1-7/9 correct balanced) and was replaced by this one.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
