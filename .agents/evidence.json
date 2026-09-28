@@ -2920,6 +2920,16 @@
       "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
       "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 21-30",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-298",
+      "milestone": "Audit every shared HTTP transport call for status handling.",
+      "proof": "MCP initialize/notification/session requests and GMCP A2A delegation now reject non-2xx statuses before parsing response bodies, restoring the prior status-as-error contract after migration to http_call*. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

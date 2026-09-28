@@ -379,6 +379,12 @@ pub fn session_call(
             }
         }),
     )?;
+    if !(200..300).contains(&init.status) {
+        return Err(format!(
+            "peer {addr} initialize returned HTTP {}",
+            init.status
+        ));
+    }
     // A sealed request demands a sealed response — the session id in
     // this reply is a bearer-grade credential; plaintext carriage of
     // it to a sealed request means a relay is stripping the channel.
@@ -413,7 +419,15 @@ pub fn session_call(
         Some(&session),
         &json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
     )
-    .and_then(|_| session_request(&url, bearer, &session, method, params));
+    .and_then(|(response, _)| {
+        if !(200..300).contains(&response.status) {
+            return Err(format!(
+                "peer {addr} initialized notification returned HTTP {}",
+                response.status
+            ));
+        }
+        session_request(&url, bearer, &session, method, params)
+    });
     delete_session(&url, bearer, &session);
     result
 }
@@ -452,6 +466,9 @@ fn session_request(
             "params": params
         }),
     )?;
+    if !(200..300).contains(&resp.status) {
+        return Err(format!("peer request returned HTTP {}", resp.status));
+    }
     response_result(&read_body(resp, sealed.as_deref())?, 2)
 }
 

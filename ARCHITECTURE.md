@@ -522,3 +522,4 @@ the same commit as the code.
 | 101 | HTTP callers treated non-2xx as transport errors and accepted capped-plus-one bodies | explicitly check 2xx and reject overflow before parsing |
 | 102 | Root and GMCP repeated normal dependencies in dev scopes | removed redundant `serde_json` and `tokio` declarations |
 | 103 | Every HTTP caller reimplemented the `max + 1` response overflow check | `HttpCall::into_bytes` rejects overflow centrally |
+| 104 | MCP session and A2A callers ignored non-2xx statuses after transport migration | reject non-2xx before accepting the response body |

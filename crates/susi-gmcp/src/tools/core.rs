@@ -1017,6 +1017,12 @@ impl CoreTools {
             0,
         )
         .map_err(|e| EaiError::network(format!("a2a_delegate to {url}: {e}")))?;
+        if !(200..300).contains(&call.status) {
+            return Err(EaiError::network(format!(
+                "a2a_delegate to {url}: HTTP {}",
+                call.status
+            )));
+        }
         let bytes = call
             .into_bytes(16 * 1024 * 1024)
             .map_err(|e| EaiError::network(format!("a2a_delegate read {url}: {e}")))?;
