@@ -9,6 +9,8 @@ pub const GEMI: u16 = 9091;
 pub const UDP_DISCOVERY: u16 = 9092;
 pub const GMCP_HTTP: u16 = 9093;
 pub const A2A_HTTP: u16 = 9094;
+/// Swarm-wide capability gossip. Not in [`ALL`]: 9092 stays A2A discovery.
+pub const GOSSIP: u16 = 9095;
 
 /// Leaf-service default ports (before the instance offset). `LEAF_SERVICES`
 /// and every service client name these, so no two copies can drift.

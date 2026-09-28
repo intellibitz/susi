@@ -168,8 +168,7 @@ fn spawn_nat_discovery() {
     // operator explicitly configured a relay path.
     let explicit_relay = std::env::var("SUSI_TURN_SERVER").is_ok_and(|v| !v.trim().is_empty())
         || std::env::var("SUSI_TURN_RELAY").is_ok_and(|v| !v.trim().is_empty());
-    if !explicit_relay
-        && !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302")
+    if !explicit_relay && !susi_core::mac_policy::egress_permitted("stun://stun.l.google.com:19302")
     {
         return;
     }
