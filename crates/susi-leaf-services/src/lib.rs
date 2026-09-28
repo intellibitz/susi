@@ -7,14 +7,20 @@
 //! every crate links, and `susi-sandbox` (bollard) / `susi-vendor-wasmer` (wasmer)
 //! are vendor integrations; none of them carries an HTTP framework. This
 //! crate is the one place the leaf services meet axum: one runtime/bind helper, one pair of
-//! bearer policies, one `service-run` dispatch. The service logic stays in
-//! each library as plain functions, so a shell is only routing.
+//! bearer policies, one `service-run` dispatch. Standalone service bins enable
+//! only their own feature so Wasmer and Bollard stay out of unrelated binaries.
+//! The service logic stays in each library as plain functions, so a shell is only routing.
 
 mod auth;
+#[cfg(feature = "service-config")]
 mod config_svc;
+#[cfg(feature = "service-error")]
 mod error_svc;
+#[cfg(feature = "service-native")]
 mod native_svc;
+#[cfg(feature = "service-paths")]
 mod paths_svc;
+#[cfg(feature = "service-sandbox")]
 mod sandbox_svc;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -26,19 +32,24 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 /// Unknown service name, or the listener cannot bind/serve.
 pub fn serve(name: &str, port: u16) -> std::io::Result<()> {
     match name {
+        #[cfg(feature = "service-paths")]
         "susi-paths" => run(name, port, paths_svc::router()),
+        #[cfg(feature = "service-error")]
         "susi-error" => {
             susi_error::enter_service_mode();
             run(name, port, error_svc::router())
         }
+        #[cfg(feature = "service-config")]
         "susi-config" => {
             susi_config::enter_service_mode();
             run(name, port, config_svc::router())
         }
+        #[cfg(feature = "service-sandbox")]
         "susi-sandbox" => {
             susi_sandbox_client::enter_service_mode();
             run(name, port, sandbox_svc::router())
         }
+        #[cfg(feature = "service-native")]
         "susi-native" => run(name, port, native_svc::router()),
         _ => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,

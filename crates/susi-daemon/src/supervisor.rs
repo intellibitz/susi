@@ -99,7 +99,8 @@ pub fn reexec_path() -> Option<PathBuf> {
 /// Resolution order: a sibling standalone `susi-<name>` binary (dev
 /// layout, staged installs), then self-reexec — the running `susi`
 /// binary's `service-run <name>` mode, which is always present and
-/// version-matched wherever the daemon was installed.
+/// version-matched wherever the daemon was installed. Standalone bins require
+/// `standalone-service-bins` and only their matching `service-*` feature.
 fn spawn_service(svc: &LeafService) -> Option<u32> {
     let mut cmd = if let Some(bin) = locate_binary(svc.binary) {
         Command::new(bin)

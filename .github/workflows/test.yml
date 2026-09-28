@@ -91,7 +91,7 @@ jobs:
       # The capability-gap e2e executes a synthesized WASI reflex through the
       # susi-native leaf service; without it the test reports a skip.
       - name: Build susi-native service
-        run: cargo build -p susi-leaf-services --bin susi-native --locked
+        run: cargo build -p susi-leaf-services --bin susi-native --no-default-features --features service-native,standalone-service-bins --locked
 
       - name: Start susi-native on 127.0.0.1:18084
         run: |

@@ -4,20 +4,56 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
+autobins = false
 description = "HTTP shells (axum) for the microkernel's leaf services; the foundation crates stay framework-free"
 
 [dependencies]
 susi-paths = { workspace = true }
-susi-error = { workspace = true }
-susi-config = { workspace = true }
 susi-core = { workspace = true }
-susi-sandbox = { workspace = true }
-susi-sandbox-client = { workspace = true }
-susi-vendor-wasmer = { workspace = true }
+susi-error = { workspace = true, optional = true }
+susi-config = { workspace = true, optional = true }
+susi-sandbox = { workspace = true, optional = true }
+susi-sandbox-client = { workspace = true, optional = true }
+susi-vendor-wasmer = { workspace = true, optional = true }
 axum = "0.8.9"
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net"] }
+
+[features]
+default = []
+service-paths = []
+service-error = ["dep:susi-error"]
+service-config = ["dep:susi-config"]
+service-sandbox = ["dep:susi-sandbox", "dep:susi-sandbox-client"]
+service-native = ["dep:susi-vendor-wasmer"]
+all-services = ["service-paths", "service-error", "service-config", "service-sandbox", "service-native"]
+standalone-service-bins = []
+
+[[bin]]
+name = "susi-paths"
+path = "src/bin/susi-paths.rs"
+required-features = ["service-paths", "standalone-service-bins"]
+
+[[bin]]
+name = "susi-error"
+path = "src/bin/susi-error.rs"
+required-features = ["service-error", "standalone-service-bins"]
+
+[[bin]]
+name = "susi-config"
+path = "src/bin/susi-config.rs"
+required-features = ["service-config", "standalone-service-bins"]
+
+[[bin]]
+name = "susi-sandbox"
+path = "src/bin/susi-sandbox.rs"
+required-features = ["service-sandbox", "standalone-service-bins"]
+
+[[bin]]
+name = "susi-native"
+path = "src/bin/susi-native.rs"
+required-features = ["service-native", "standalone-service-bins"]
 
 [lints]
 workspace = true

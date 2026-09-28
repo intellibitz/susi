@@ -54,6 +54,8 @@ this for the panic-path lints.
   check status. `HttpCall::into_bytes(max)` reads `max + 1` and rejects overflow.
 - Do not redeclare normal dependencies under dev/build scopes unless extra
   test-only or build-only features are required.
+- Standalone leaf-service binaries enable only their `service-*` feature;
+  root `service-run` may enable `all-services`.
 - No stubs: no `todo!()`, `unimplemented!()`, or dead `pub` surfaces left
   "for later".
 - **Mandate 48 (Self-Build Order).** The local susi (`~/.susi/bin/susi` + its daemon) is release-only: it builds

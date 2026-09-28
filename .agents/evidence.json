@@ -2960,6 +2960,16 @@
       "milestone": "Audit every shared HTTP transport call for status handling.",
       "proof": "MCP initialize/notification/session requests and GMCP A2A delegation now reject non-2xx statuses before parsing response bodies, restoring the prior status-as-error contract after migration to http_call*. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 31-40",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-302",
+      "milestone": "Isolate leaf-service standalone binaries from unrelated vendor runtimes.",
+      "proof": "cargo tree showed the shared package's unconditional dependency graph pulled Wasmer and Bollard into paths/config/error bins. Per-service optional features and required-feature bin gates now isolate those backends; root service-run enables all adapters. Tests were not run per operator instruction; cargo metadata/tree/fmt/diff checks are the non-test verification.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
