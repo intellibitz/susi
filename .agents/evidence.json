@@ -2990,6 +2990,16 @@
       "milestone": "RSI OS isolation iterations 114-148: the daemon loop constructs real OS planes via composition::wire_daemon_os_planes (checkpoint, rolling cell logs, plugins, fork, hibernation, plugin reloader, gossip UDP on 127.0.0.1:0, in-memory snapshots, NAT manager, deny-by-default tool proxy, capability audit TSV) and unique host control planes (admin through workloads). Unreachable daemon-module ceiling 30→0. GMCP drops the unused rmcp client feature. CLI wire_engine_hooks still skips those constructors. susi os reports os_planes when the daemon has wired them. Verification: cargo check -p susi-daemon -p susi-gmcp / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 149-154",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-305",
+      "milestone": "RSI OS isolation iterations 149-154: susi-tools drops leftover tokio after MCP moved to susi-vendor-mcp; susi-gawd-a2a drops unused ra2a client; peer UTF-8 POSTs go through susi_http_transport::http_post_utf8; NAT manager exposes status/public_ip and seeds Open from SUSI_PUBLIC_IP; susi os reports nat_status. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

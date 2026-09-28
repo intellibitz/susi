@@ -135,14 +135,7 @@ fn http_post_utf8(
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<(u16, String), String> {
-    let refs: Vec<(&str, &str)> = headers
-        .iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
-    let call = susi_http_transport::http_call_with_body("POST", url, &refs, Some(body), 20, 0)?;
-    let status = call.status;
-    let text = call.into_utf8(8 * 1024 * 1024)?;
-    Ok((status, text))
+    susi_http_transport::http_post_utf8(url, headers, body, 20, 8 * 1024 * 1024)
 }
 
 fn invoke_openai_chat(spec: &ExternalPeerAgentSpec, goal: &str) -> EaiResult<String> {

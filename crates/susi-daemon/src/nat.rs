@@ -100,6 +100,22 @@ impl NatManager {
         Ok(status)
     }
 
+    /// Last classified NAT behaviour (`Unknown` until discovery).
+    pub fn status(&self) -> NatStatus {
+        self.status
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Last discovered public IP, if any.
+    pub fn public_ip(&self) -> Option<String> {
+        self.public_ip
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Generates a valid multiaddr for external peers to reach this daemon,
     /// factoring in the discovered NAT rules.
     ///

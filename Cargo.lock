@@ -6633,7 +6633,6 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-mcp",
- "tokio",
 ]
 
 [[package]]

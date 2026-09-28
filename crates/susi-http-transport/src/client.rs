@@ -139,3 +139,21 @@ pub fn http_call_with_body(
         other => Err(format!("unsupported HTTP method {other}")),
     }
 }
+
+/// POST a body and read a bounded UTF-8 response. Callers never name `ureq`.
+pub fn http_post_utf8(
+    url: &str,
+    headers: &[(String, String)],
+    body: &[u8],
+    timeout_secs: u64,
+    max_bytes: u64,
+) -> Result<(u16, String), String> {
+    let refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let call = http_call_with_body("POST", url, &refs, Some(body), timeout_secs, 0)?;
+    let status = call.status;
+    let text = call.into_utf8(max_bytes)?;
+    Ok((status, text))
+}

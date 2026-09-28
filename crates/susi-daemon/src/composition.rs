@@ -104,7 +104,17 @@ pub fn wire_daemon_os_planes(workspace: &Path) {
             reloader: crate::hot_reload::PluginReloader::new(),
             gossip,
             snapshots: crate::cell_snapshot::SnapshotManager::new(),
-            nat: crate::nat::NatManager::new(),
+            nat: {
+                let nat = crate::nat::NatManager::new();
+                // Operator-advertised public IP (no STUN). Empty/unset stays Unknown.
+                if let Ok(ip) = std::env::var("SUSI_PUBLIC_IP") {
+                    let ip = ip.trim();
+                    if !ip.is_empty() {
+                        nat.perform_discovery(ip, crate::nat::NatStatus::Open);
+                    }
+                }
+                nat
+            },
             proxy: crate::tool_proxy::ToolProxy::new(crate::security::CapabilityPolicy::new(
                 "susi-host",
                 Vec::new(),
@@ -206,7 +216,13 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
                 "reloader": true,
                 "gossip_bound": p.gossip.local_addr(),
                 "snapshots": true,
-                "nat": true,
+                "nat_status": match p.nat.status() {
+                    crate::nat::NatStatus::Open => "open",
+                    crate::nat::NatStatus::Symmetric => "symmetric",
+                    crate::nat::NatStatus::PortRestricted => "port_restricted",
+                    crate::nat::NatStatus::Unknown => "unknown",
+                },
+                "nat_public_ip": p.nat.public_ip(),
                 "tool_proxy": true,
                 "audit": true,
             })
