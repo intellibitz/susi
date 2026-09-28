@@ -392,7 +392,6 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
         return serde_json::json!({ "wired": false });
     };
     let (workers, busy) = host.orchestrator.pool_summary();
-    let _ = crate::scheduler::schedule_cells(&[], "", crate::scheduler::SchedulingStrategy::Greedy);
     let self_healing =
         crate::self_healing::SelfHealingManager::new(&susi_paths::SusiDirs::substrate_home())
             .is_ok();

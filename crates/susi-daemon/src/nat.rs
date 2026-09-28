@@ -248,8 +248,8 @@ impl NatManager {
             return Err("Symmetric NAT detected. Direct P2P requires a TURN relay.".to_string());
         }
 
-        if *status == NatStatus::TurnRelayed {
-            if let Some(relay) = self
+        if *status == NatStatus::TurnRelayed
+            && let Some(relay) = self
                 .turn_relay
                 .read()
                 .unwrap_or_else(|e| e.into_inner())
@@ -257,7 +257,6 @@ impl NatManager {
             {
                 return Ok(format!("/ip4/{relay}/udp/turn"));
             }
-        }
 
         match ip.as_ref() {
             Some(pub_ip) if pub_ip.contains(':') => Ok(format!("/ip6/{pub_ip}/tcp/{local_port}")),

@@ -73,8 +73,8 @@ impl GossipManager {
     pub fn with_store(path: PathBuf) -> Self {
         let mut manager = Self::new();
         manager.store = Some(path.clone());
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            if let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&text) {
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Ok(map) = serde_json::from_str::<HashMap<String, Vec<String>>>(&text) {
                 let mut caps = manager
                     .peer_capabilities
                     .write()
@@ -83,7 +83,6 @@ impl GossipManager {
                     caps.insert(cell, list.into_iter().collect());
                 }
             }
-        }
         manager
     }
 
