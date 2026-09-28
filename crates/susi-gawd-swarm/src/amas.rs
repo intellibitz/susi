@@ -248,7 +248,8 @@ impl SusiSupervisor {
                     "INFERENCE".to_string(),
                     "TOOLING".to_string(),
                 ],
-                registry_checksum: 0, // susi_gawd_agents::agents::AgentMetaRegistry::global().get_checksum(),
+                registry_checksum: susi_gawd_agents::agents::AgentMetaRegistry::global()
+                    .get_checksum(),
                 latency_ms: 0,
                 uptime_secs: 0,
                 trust_score: 1.0,

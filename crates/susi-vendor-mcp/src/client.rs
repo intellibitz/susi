@@ -19,7 +19,7 @@ use std::{
 
 /// Connect with any host handler, exposing all SDK methods (resources, prompts,
 /// tools, subscriptions, tasks and automatic MRTR fulfillment).
-pub async fn connect<H: ClientHandler>(
+async fn connect<H: ClientHandler>(
     config: &McpServerConfig,
     handler: H,
 ) -> Result<RunningService<RoleClient, H>, String> {
@@ -107,18 +107,25 @@ static CONNECT_FAILURES: OnceLock<tokio::sync::Mutex<HashMap<String, std::time::
     OnceLock::new();
 const CONNECT_COOLDOWN: Duration = Duration::from_secs(300);
 
-pub(crate) fn call_blocking_result(
+/// Call `name` on the server with object `arguments`, bounded by `lease`
+/// (whole call) and `handshake` (cold connect). Returns the SDK's full
+/// serialized `CallToolResult` (images, resources, structured content);
+/// a tool-reported error comes back as `Err` with the same serialization.
+///
+/// # Errors
+/// Runtime start, connect/handshake failure or cooldown, lease expiry,
+/// non-object arguments, or the tool's own error result.
+pub fn call_blocking_result(
     config: McpServerConfig,
     name: String,
     arguments: Value,
+    lease: Duration,
+    handshake: Duration,
 ) -> Result<String, String> {
     let runtime = match RUNTIME.get_or_init(tokio::runtime::Runtime::new) {
         Ok(rt) => rt,
         Err(e) => return Err(format!("MCP runtime: {e}")),
     };
-    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-    let lease = Duration::from_secs(cfg.execution_lease_secs());
-    let handshake = Duration::from_secs(cfg.cloud_scout_timeout_secs());
     let (send, receive) = std::sync::mpsc::sync_channel(1);
     runtime.spawn(async move {
         let result = tokio::time::timeout(lease, call(config, name, arguments, handshake))
@@ -133,17 +140,20 @@ pub(crate) fn call_blocking_result(
     }
 }
 
-/// Probe a configured MCP server for its live tool catalog (name + description).
-pub(crate) fn list_tools_blocking(
+/// Probe a configured MCP server for its live tool catalog (name +
+/// description), bounded by `lease` and `handshake`.
+///
+/// # Errors
+/// Runtime start, connect/handshake failure or cooldown, or lease expiry.
+pub fn list_tools_blocking(
     config: McpServerConfig,
+    lease: Duration,
+    handshake: Duration,
 ) -> Result<Vec<(String, String)>, String> {
     let runtime = match RUNTIME.get_or_init(tokio::runtime::Runtime::new) {
         Ok(rt) => rt,
         Err(e) => return Err(format!("MCP runtime: {e}")),
     };
-    let cfg = crate::susi_sandbox::manager::SusiConfig::load_global().unwrap_or_default();
-    let lease = Duration::from_secs(cfg.execution_lease_secs().min(30));
-    let handshake = Duration::from_secs(cfg.cloud_scout_timeout_secs().min(10));
     let (send, receive) = std::sync::mpsc::sync_channel(1);
     runtime.spawn(async move {
         let result = tokio::time::timeout(lease, list_tools(config, handshake))

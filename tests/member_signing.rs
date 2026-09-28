@@ -18,63 +18,11 @@
 //! against other env-seamed tests.
 
 use ed25519_dalek::{Signer, SigningKey};
-use std::path::PathBuf;
 use susi_config::cluster_key;
 use susi_core::commit_log::{self, CommitInput, CommitRecord};
 
-/// Env-seamed HOME/XDG; restores prior values on drop.
-struct HomeGuard {
-    tmp: PathBuf,
-    prev_home: Option<std::ffi::OsString>,
-    prev_userprofile: Option<std::ffi::OsString>,
-    prev_xdg: Option<std::ffi::OsString>,
-}
-
-impl HomeGuard {
-    fn new() -> Self {
-        let tmp = std::env::temp_dir().join(format!(
-            "susi_msig_it_{}_{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)
-        ));
-        let _ = std::fs::remove_dir_all(&tmp);
-        std::fs::create_dir_all(tmp.join(".susi")).unwrap();
-        let g = Self {
-            prev_home: std::env::var_os("HOME"),
-            prev_userprofile: std::env::var_os("USERPROFILE"),
-            prev_xdg: std::env::var_os("XDG_CONFIG_HOME"),
-            tmp,
-        };
-        std::env::set_var("HOME", &g.tmp);
-        std::env::set_var("USERPROFILE", &g.tmp);
-        std::env::set_var("XDG_CONFIG_HOME", g.tmp.join("xdg"));
-        g
-    }
-    fn config(&self) -> PathBuf {
-        self.tmp.join(".susi")
-    }
-}
-
-impl Drop for HomeGuard {
-    fn drop(&mut self) {
-        match &self.prev_home {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
-        }
-        match &self.prev_userprofile {
-            Some(v) => std::env::set_var("USERPROFILE", v),
-            None => std::env::remove_var("USERPROFILE"),
-        }
-        match &self.prev_xdg {
-            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        let _ = std::fs::remove_dir_all(&self.tmp);
-    }
-}
+mod common;
+use common::HomeGuard;
 
 fn decision_as(coordinator: &str, value: &str) -> CommitRecord {
     CommitRecord::seal(CommitInput {
@@ -122,7 +70,7 @@ fn sealed_records_carry_member_sig_and_bound_coordinators_are_enforced() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("msig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xAAu8; 32])).unwrap();
 
@@ -185,7 +133,7 @@ fn seq_floor_binding_refuses_backdated_forgeries() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("msig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xBBu8; 32])).unwrap();
 
@@ -249,7 +197,7 @@ fn member_add_commits_the_subjects_pubkey_binding() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("msig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xBBu8; 32])).unwrap();
     let self_id = cluster_key::wire_node_id();
@@ -337,7 +285,7 @@ fn member_add_pubkey_requires_subject_attestation() {
     let _g = commit_log::ENV_LOCK
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    let home = HomeGuard::new();
+    let home = HomeGuard::new("msig");
     let dir = home.config();
     std::fs::write(dir.join("cluster.key"), hex::encode([0xCCu8; 32])).unwrap();
     let self_id = cluster_key::wire_node_id();

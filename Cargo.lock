@@ -6382,7 +6382,7 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
- "syn 3.0.6",
+ "susi-vendor-syn",
  "tempfile",
  "tokio",
 ]
@@ -6498,8 +6498,6 @@ version = "0.15.2"
 dependencies = [
  "bytes",
  "dashmap",
- "fastembed",
- "headless_chrome",
  "hex",
  "http-body-util",
  "hyper",
@@ -6518,8 +6516,10 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
- "syn 3.0.6",
- "tantivy",
+ "susi-vendor-chrome",
+ "susi-vendor-fastembed",
+ "susi-vendor-syn",
+ "susi-vendor-tantivy",
  "tokio",
  "tokio-rustls",
  "tower-service",
@@ -6623,8 +6623,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dashmap",
- "reqwest",
- "rmcp",
  "serde",
  "serde_json",
  "susi-config",
@@ -6634,6 +6632,7 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-mcp",
  "tokio",
 ]
 
@@ -6657,6 +6656,48 @@ dependencies = [
  "susi-paths",
  "tokenizers",
  "tracing",
+]
+
+[[package]]
+name = "susi-vendor-chrome"
+version = "0.1.0"
+dependencies = [
+ "headless_chrome",
+ "susi-error",
+]
+
+[[package]]
+name = "susi-vendor-fastembed"
+version = "0.1.0"
+dependencies = [
+ "fastembed",
+ "susi-error",
+]
+
+[[package]]
+name = "susi-vendor-mcp"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "susi-vendor-syn"
+version = "0.1.0"
+dependencies = [
+ "syn 3.0.6",
+]
+
+[[package]]
+name = "susi-vendor-tantivy"
+version = "0.1.0"
+dependencies = [
+ "susi-error",
+ "tantivy",
 ]
 
 [[package]]

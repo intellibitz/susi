@@ -30,21 +30,18 @@ http-body-util = "0.1"
 url = { workspace = true }
 libc = "0.2"
 
-# Heavy specialist tools (browser / tantivy / syn AST). Default-on for
+# Heavy specialist tools (browser / full-text index / embeddings / syn AST),
+# each behind its own `susi-vendor-*` crate. Default-on for
 # shipped parity; disable with `--no-default-features` for faster local checks.
-headless_chrome = { version = "1.0.22", optional = true }
-tantivy = { version = "0.26.2", optional = true }
-# Text embeddings only. fastembed's defaults add image models (image/ravif/
-# rav1e/exr: ~350s of cold build) and native-tls downloaders (reqwest 0.12 +
-# OpenSSL, a second TLS stack). `hf-hub` is the blocking ureq API fastembed
-# actually calls; ONNX Runtime binaries download over rustls (ring).
-fastembed = { version = "7.0.1", optional = true, default-features = false, features = ["hf-hub", "ort-download-binaries-rustls-tls"] }
-syn = { version = "3.0.6", features = ["full", "visit"], optional = true }
+susi-vendor-chrome = { workspace = true, optional = true }
+susi-vendor-tantivy = { workspace = true, optional = true }
+susi-vendor-fastembed = { workspace = true, optional = true }
+susi-vendor-syn = { workspace = true, optional = true }
 tokio-rustls = { workspace = true }
 
 [features]
 default = ["tools-rich"]
-tools-rich = ["dep:headless_chrome", "dep:tantivy", "dep:fastembed", "dep:syn"]
+tools-rich = ["dep:susi-vendor-chrome", "dep:susi-vendor-tantivy", "dep:susi-vendor-fastembed", "dep:susi-vendor-syn"]
 
 [lints]
 workspace = true

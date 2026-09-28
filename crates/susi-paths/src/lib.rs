@@ -18,8 +18,6 @@
 //! The service itself answers from the same local resolver.
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -51,18 +49,14 @@ impl SusiDirs {
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or_else(|| ports::effective(18080));
-        let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
         let fetch = || -> Option<HashMap<String, PathBuf>> {
-            let mut stream = TcpStream::connect_timeout(&addr, SERVICE_TIMEOUT).ok()?;
-            let _ = stream.set_read_timeout(Some(SERVICE_TIMEOUT));
-            let _ = stream.set_write_timeout(Some(SERVICE_TIMEOUT));
-            stream
-                .write_all(b"GET /paths HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")
-                .ok()?;
-            let mut buf = String::new();
-            stream.read_to_string(&mut buf).ok()?;
-            let (_, body) = buf.split_once("\r\n\r\n")?;
-            serde_json::from_str::<HashMap<String, PathBuf>>(body).ok()
+            let ep = loopback::Endpoint {
+                port,
+                timeout: SERVICE_TIMEOUT,
+                auth: loopback::Auth::None,
+            };
+            let resp = loopback::request(&ep, "GET", "/paths", None)?;
+            serde_json::from_str::<HashMap<String, PathBuf>>(resp.ok_body()?).ok()
         };
         let map = fetch().unwrap_or_default();
         // The service answers for whichever user/HOME started it. Only trust
@@ -142,18 +136,6 @@ pub fn host_token() -> Option<String> {
         .ok()
         .map(|t| t.trim().to_string())
         .filter(|t| !t.is_empty())
-}
-
-/// Insert the host bearer header after the request line of a raw loopback
-/// HTTP/1.0 request. Unchanged when no token is seeded.
-#[must_use]
-pub fn with_bearer(raw: &str) -> String {
-    match (host_token(), raw.split_once("\r\n")) {
-        (Some(token), Some((line, rest))) => {
-            format!("{line}\r\nAuthorization: Bearer {token}\r\n{rest}")
-        }
-        _ => raw.to_string(),
-    }
 }
 
 /// Constant-time check of an `Authorization` header value against the host
@@ -274,6 +256,7 @@ impl LocalDirs {
     }
 }
 
+pub mod loopback;
 pub mod ports;
 mod xdg;
 

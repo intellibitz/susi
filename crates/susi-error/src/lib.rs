@@ -23,8 +23,6 @@ pub mod redact;
 #[path = "redact_tests.rs"]
 mod redact_test_suite;
 
-use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -124,23 +122,21 @@ fn record_event(entry: &serde_json::Value) {
     }
 }
 
-/// Best-effort `POST /log_error` against the `susi-error` service.
+/// Best-effort `POST /log_error` against the `susi-error` service; `true`
+/// only when the service accepted the event (2xx), so a rejected or
+/// unanswered post still falls back to the local metrics file.
 fn post_event(entry: &serde_json::Value) -> bool {
-    let port = service_port();
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    let timeout = Duration::from_millis(200);
-    let Ok(mut stream) = TcpStream::connect_timeout(&addr, timeout) else {
-        return false;
-    };
-    let _ = stream.set_read_timeout(Some(timeout));
-    let _ = stream.set_write_timeout(Some(timeout));
-    let body = entry.to_string();
-    let req = format!(
-        "POST /log_error HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    stream.write_all(req.as_bytes()).is_ok()
+    susi_paths::loopback::request(
+        &susi_paths::loopback::Endpoint {
+            port: service_port(),
+            timeout: Duration::from_millis(200),
+            auth: susi_paths::loopback::Auth::None,
+        },
+        "POST",
+        "/log_error",
+        Some(&entry.to_string()),
+    )
+    .is_some_and(|resp| resp.is_success())
 }
 
 /// Rebuilds an error from another boundary's rendered text, preserving its

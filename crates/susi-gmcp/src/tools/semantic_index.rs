@@ -13,9 +13,11 @@
 //!   workspace root (skips `.git`, `target`, `.susi`; ≤256 KiB each)
 //!
 //! Two recall paths:
-//! - [`SemanticIndex::search`] — tantivy BM25 full-text with source/snippets.
-//! - [`SemanticIndex::vector_recall`] — fastembed cosine similarity over
-//!   embeddings persisted to `.susi/vectors.jsonl` (no external vector DB).
+//! - [`SemanticIndex::search`] — BM25 full-text (`susi-vendor-tantivy`)
+//!   with source/snippets.
+//! - [`SemanticIndex::vector_recall`] — cosine similarity over embeddings
+//!   (`susi-vendor-fastembed`, one process-wide model) persisted to
+//!   `.susi/vectors.jsonl` (no external vector DB).
 //!
 //! JSONL sources are append-only, so indexing is incremental via a line-count
 //! watermark in `.susi/index/watermark.json`. Files are re-indexed when their
@@ -27,9 +29,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tantivy::{
-    collector::TopDocs, doc, query::QueryParser, schema::*, Index, TantivyDocument, Term,
-};
+use susi_vendor_tantivy::DocIndex;
 
 use crate::susi_error::{EaiError, EaiResult};
 
@@ -80,25 +80,8 @@ impl SemanticIndex {
             .map_err(|e| EaiError::filesystem(format!("persist semantic watermark: {e}")))
     }
 
-    fn build_schema() -> (Schema, Field, Field, Field) {
-        let mut b = Schema::builder();
-        let doc_id = b.add_text_field("doc_id", STRING | STORED);
-        let source = b.add_text_field("source", STRING | STORED);
-        let content = b.add_text_field("content", TEXT | STORED);
-        (b.build(), doc_id, source, content)
-    }
-
-    fn open(workspace: &Path) -> EaiResult<(Index, Field, Field, Field)> {
-        let dir = Self::index_dir(workspace);
-        fs::create_dir_all(&dir).map_err(|e| EaiError::filesystem(e.to_string()))?;
-        let (schema, doc_id, source, content) = Self::build_schema();
-        let index = Index::open_or_create(
-            tantivy::directory::MmapDirectory::open(&dir)
-                .map_err(|e| EaiError::filesystem(e.to_string()))?,
-            schema,
-        )
-        .map_err(|e| EaiError::filesystem(e.to_string()))?;
-        Ok((index, doc_id, source, content))
+    fn open(workspace: &Path) -> EaiResult<DocIndex> {
+        DocIndex::open_or_create(&Self::index_dir(workspace))
     }
 
     /// Index new content from all known `.susi/` stores and workspace files.
@@ -109,11 +92,9 @@ impl SemanticIndex {
         let _refresh_lock =
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "semantic_index")
                 .ok_or_else(|| EaiError::filesystem("semantic index refresh is busy"))?;
-        let (index, doc_id, source, content) = Self::open(workspace)?;
+        let index = Self::open(workspace)?;
         let mut wm = Self::load_watermark(workspace);
-        let mut writer = index
-            .writer(50_000_000)
-            .map_err(|e| EaiError::process(e.to_string()))?;
+        let mut writer = index.writer(50_000_000)?;
         let mut added = 0usize;
 
         // Append-only JSONL stores — index lines beyond the watermark.
@@ -167,13 +148,7 @@ impl SemanticIndex {
                 if text.is_empty() {
                     continue;
                 }
-                writer
-                    .add_document(doc!(
-                        doc_id => format!("{}:{}", name, count),
-                        source => name,
-                        content => text,
-                    ))
-                    .map_err(|e| EaiError::process(e.to_string()))?;
+                writer.add(&format!("{}:{}", name, count), name, &text)?;
                 added += 1;
             }
             wm.jsonl_lines.insert(name.to_string(), count);
@@ -234,22 +209,13 @@ impl SemanticIndex {
                     Ok(t) => t,
                     Err(_) => continue,
                 };
-                writer.delete_term(Term::from_field_text(doc_id, &id));
-                writer
-                    .add_document(doc!(
-                        doc_id => id,
-                        source => "file",
-                        content => text,
-                    ))
-                    .map_err(|e| EaiError::process(e.to_string()))?;
+                writer.replace(&id, "file", &text)?;
                 wm.file_mtimes.insert(rel, mtime);
                 added += 1;
             }
         }
 
-        writer
-            .commit()
-            .map_err(|e| EaiError::process(e.to_string()))?;
+        writer.commit()?;
         Self::save_watermark(workspace, &wm)?;
         Ok(added)
     }
@@ -259,39 +225,16 @@ impl SemanticIndex {
     /// repeat queries.
     pub fn search(workspace: &Path, query_str: &str, limit: usize) -> EaiResult<Vec<Hit>> {
         Self::refresh(workspace)?;
-        let (index, doc_id, source, content) = Self::open(workspace)?;
-        let reader = index
-            .reader()
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let searcher = reader.searcher();
-        let parser = QueryParser::for_index(&index, vec![content]);
-        let query = parser
-            .parse_query(query_str)
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let top = searcher
-            .search(&query, &TopDocs::with_limit(limit).order_by_score())
-            .map_err(|e| EaiError::process(e.to_string()))?;
-
-        let mut hits = Vec::new();
-        for (score, addr) in top {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| EaiError::process(e.to_string()))?;
-            let get = |f: Field| {
-                doc.get_first(f)
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string()
-            };
-            let text = get(content);
-            hits.push(Hit {
-                doc_id: get(doc_id),
-                source: get(source),
+        Ok(Self::open(workspace)?
+            .search(query_str, limit)?
+            .into_iter()
+            .map(|(score, doc)| Hit {
+                doc_id: doc.doc_id,
+                source: doc.source,
                 score,
-                snippet: text.chars().take(SNIPPET_LEN).collect(),
-            });
-        }
-        Ok(hits)
+                snippet: doc.content.chars().take(SNIPPET_LEN).collect(),
+            })
+            .collect())
     }
 
     /// Ensure every indexed doc has a stored embedding; embeds only docs not
@@ -305,53 +248,23 @@ impl SemanticIndex {
         let mut wm = Self::load_watermark(workspace);
         let embedded: HashMap<String, ()> = wm.embedded.iter().cloned().map(|d| (d, ())).collect();
 
-        let (index, doc_id, _source, content) = Self::open(workspace)?;
-        let reader = index
-            .reader()
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let searcher = reader.searcher();
-
         // Collect unembedded docs (bounded — the index only grows with real data).
-        let all = searcher
-            .search(
-                &tantivy::query::AllQuery,
-                &TopDocs::with_limit(10_000).order_by_score(),
-            )
-            .map_err(|e| EaiError::process(e.to_string()))?;
         let mut pending: Vec<(String, String)> = Vec::new();
-        for (_s, addr) in all {
-            let doc: TantivyDocument = searcher
-                .doc(addr)
-                .map_err(|e| EaiError::process(e.to_string()))?;
-            let id = doc
-                .get_first(doc_id)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if id.is_empty() || embedded.contains_key(&id) {
+        for doc in Self::open(workspace)?.all_docs(10_000)? {
+            if doc.doc_id.is_empty() || embedded.contains_key(&doc.doc_id) {
                 continue;
             }
-            let text = doc
-                .get_first(content)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .chars()
-                .take(2000)
-                .collect::<String>();
+            let text = doc.content.chars().take(2000).collect::<String>();
             if !text.is_empty() {
-                pending.push((id, text));
+                pending.push((doc.doc_id, text));
             }
         }
         if pending.is_empty() {
             return Ok(());
         }
 
-        let mut model = fastembed::TextEmbedding::try_new(Default::default())
-            .map_err(|e| EaiError::inference(format!("embedder unavailable: {}", e)))?;
         let texts: Vec<String> = pending.iter().map(|(_, t)| t.clone()).collect();
-        let vectors = model
-            .embed(texts, None)
-            .map_err(|e| EaiError::inference(e.to_string()))?;
+        let vectors = susi_vendor_fastembed::embed(texts)?;
 
         let vec_path = workspace.join(".susi/vectors.jsonl");
         let mut f = fs::OpenOptions::new()
@@ -378,14 +291,7 @@ impl SemanticIndex {
         Self::refresh(workspace)?;
         Self::ensure_embeddings(workspace)?;
 
-        let mut model = fastembed::TextEmbedding::try_new(Default::default())
-            .map_err(|e| EaiError::inference(format!("embedder unavailable: {}", e)))?;
-        let qv = model
-            .embed(vec![query], None)
-            .map_err(|e| EaiError::inference(e.to_string()))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| EaiError::inference("query embedding failed"))?;
+        let qv = susi_vendor_fastembed::embed_one(query)?;
 
         let vec_path = workspace.join(".susi/vectors.jsonl");
         let mut scored: Vec<(String, f32)> = Vec::new();
@@ -419,33 +325,16 @@ impl SemanticIndex {
         scored.truncate(limit);
 
         // Resolve doc_ids back to stored docs for snippets.
-        let (index, doc_id_f, source_f, content_f) = Self::open(workspace)?;
-        let reader = index
-            .reader()
-            .map_err(|e| EaiError::process(e.to_string()))?;
-        let searcher = reader.searcher();
+        let index = Self::open(workspace)?;
         let mut hits = Vec::new();
         for (id, score) in scored {
-            let term = Term::from_field_text(doc_id_f, &id);
-            let tq =
-                tantivy::query::TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic);
-            if let Ok(top) = searcher.search(&tq, &TopDocs::with_limit(1).order_by_score()) {
-                if let Some((_, addr)) = top.into_iter().next() {
-                    if let Ok(doc) = searcher.doc::<TantivyDocument>(addr) {
-                        let get = |f: Field| {
-                            doc.get_first(f)
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string()
-                        };
-                        hits.push(Hit {
-                            doc_id: id,
-                            source: get(source_f),
-                            score,
-                            snippet: get(content_f).chars().take(SNIPPET_LEN).collect(),
-                        });
-                    }
-                }
+            if let Ok(Some(doc)) = index.get(&id) {
+                hits.push(Hit {
+                    doc_id: id,
+                    source: doc.source,
+                    score,
+                    snippet: doc.content.chars().take(SNIPPET_LEN).collect(),
+                });
             }
         }
         Ok(hits)

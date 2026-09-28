@@ -1,5 +1,5 @@
 // SUSI Bloat & Security Auditor
-// Deterministic, AST-driven (syn), rayon-parallel static analysis over the
+// Deterministic, AST-driven (`susi-vendor-syn`), rayon-parallel static analysis over the
 // substrate's own Rust source tree. Backs Mandate 3 (100% Bloat Rejection)
 // and the recursive src/+target/ audit missions with real evidence instead
 // of LLM narration (Mandate 8: Epistemic Chain of Truth).
@@ -8,7 +8,6 @@ use crate::susi_error::EaiResult;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use syn::visit::{self, Visit};
 
 const MAX_STATEMENTS_PER_FN: usize = 60;
 
@@ -56,70 +55,6 @@ pub struct BloatAuditReport {
     pub threads_used: usize,
     pub elapsed_ms: u128,
     pub worst_offenders: Vec<FileFinding>,
-}
-
-#[derive(Default)]
-struct BloatVisitor {
-    functions: usize,
-    oversized_functions: usize,
-    unwrap_calls: usize,
-    expect_calls: usize,
-    clone_calls: usize,
-    unsafe_blocks: usize,
-}
-
-/// `#[cfg(test)]` / `#[test]` items: the mandates exempt test code from the
-/// unwrap/expect rules, so counting it inflated every production figure.
-fn is_test_only(attrs: &[syn::Attribute]) -> bool {
-    attrs.iter().any(|attr| {
-        attr.path().is_ident("test")
-            || (attr.path().is_ident("cfg")
-                && attr
-                    .parse_args::<syn::Ident>()
-                    .is_ok_and(|ident| ident == "test"))
-    })
-}
-
-impl<'ast> Visit<'ast> for BloatVisitor {
-    fn visit_item_mod(&mut self, node: &'ast syn::ItemMod) {
-        if !is_test_only(&node.attrs) {
-            visit::visit_item_mod(self, node);
-        }
-    }
-
-    fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
-        if is_test_only(&node.attrs) {
-            return;
-        }
-        self.functions += 1;
-        if node.block.stmts.len() > MAX_STATEMENTS_PER_FN {
-            self.oversized_functions += 1;
-        }
-        visit::visit_item_fn(self, node);
-    }
-
-    fn visit_impl_item_fn(&mut self, node: &'ast syn::ImplItemFn) {
-        self.functions += 1;
-        if node.block.stmts.len() > MAX_STATEMENTS_PER_FN {
-            self.oversized_functions += 1;
-        }
-        visit::visit_impl_item_fn(self, node);
-    }
-
-    fn visit_expr_method_call(&mut self, node: &'ast syn::ExprMethodCall) {
-        match node.method.to_string().as_str() {
-            "unwrap" => self.unwrap_calls += 1,
-            "expect" => self.expect_calls += 1,
-            "clone" => self.clone_calls += 1,
-            _ => {}
-        }
-        visit::visit_expr_method_call(self, node);
-    }
-
-    fn visit_expr_unsafe(&mut self, node: &'ast syn::ExprUnsafe) {
-        self.unsafe_blocks += 1;
-        visit::visit_expr_unsafe(self, node);
-    }
 }
 
 pub struct BloatAuditor;
@@ -331,24 +266,20 @@ impl BloatAuditor {
             }
         }
 
-        match syn::parse_file(&content).ok().filter(|_| !read_failed) {
-            Some(ast) => {
-                let mut visitor = BloatVisitor::default();
-                visitor.visit_file(&ast);
-                FileFinding {
-                    path: rel,
-                    lines,
-                    functions: visitor.functions,
-                    oversized_functions: visitor.oversized_functions,
-                    unwrap_calls: visitor.unwrap_calls,
-                    expect_calls: visitor.expect_calls,
-                    clone_calls: visitor.clone_calls,
-                    unsafe_blocks: visitor.unsafe_blocks,
-                    todo_markers,
-                    secret_pattern_hits,
-                    parse_failed: false,
-                }
-            }
+        match susi_vendor_syn::analyze(&content, MAX_STATEMENTS_PER_FN).filter(|_| !read_failed) {
+            Some(m) => FileFinding {
+                path: rel,
+                lines,
+                functions: m.functions,
+                oversized_functions: m.oversized_functions,
+                unwrap_calls: m.unwrap_calls,
+                expect_calls: m.expect_calls,
+                clone_calls: m.clone_calls,
+                unsafe_blocks: m.unsafe_blocks,
+                todo_markers,
+                secret_pattern_hits,
+                parse_failed: false,
+            },
             None => FileFinding {
                 path: rel,
                 lines,
@@ -439,9 +370,7 @@ mod tests {
                 let _ = y.clone();
             }
         "#;
-        let ast = syn::parse_file(src).unwrap();
-        let mut visitor = BloatVisitor::default();
-        visitor.visit_file(&ast);
+        let visitor = susi_vendor_syn::analyze(src, MAX_STATEMENTS_PER_FN).unwrap();
         assert_eq!(visitor.unwrap_calls, 1);
         assert_eq!(visitor.clone_calls, 2);
         assert_eq!(visitor.functions, 1);
@@ -455,9 +384,7 @@ mod tests {
         }
         body.push_str("unsafe { std::ptr::null::<u8>(); }\n}\n");
 
-        let ast = syn::parse_file(&body).unwrap();
-        let mut visitor = BloatVisitor::default();
-        visitor.visit_file(&ast);
+        let visitor = susi_vendor_syn::analyze(&body, MAX_STATEMENTS_PER_FN).unwrap();
         assert_eq!(visitor.oversized_functions, 1);
         assert_eq!(visitor.unsafe_blocks, 1);
     }
@@ -471,9 +398,7 @@ mod tests {
             #[test]
             fn t() { let _ = Some(3).unwrap(); }
         "#;
-        let ast = syn::parse_file(src).unwrap();
-        let mut visitor = BloatVisitor::default();
-        visitor.visit_file(&ast);
+        let visitor = susi_vendor_syn::analyze(src, MAX_STATEMENTS_PER_FN).unwrap();
         assert_eq!(visitor.unwrap_calls, 1);
         assert_eq!(visitor.expect_calls, 0);
         assert_eq!(visitor.functions, 1);

@@ -225,14 +225,9 @@ pub(crate) fn daemon_request(
     let mut stream = std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3))
         .map_err(|e| format!("GEMI unreachable on {addr}: {e}"))?;
     let _ = stream.set_read_timeout(Some(timeout));
-    let token = std::fs::read_to_string(susi_paths::SusiDirs::config_dir().join("api_token"))
-        .map(|t| t.trim().to_string())
+    let auth = susi_paths::host_token()
+        .map(|token| format!("Authorization: Bearer {token}\r\n"))
         .unwrap_or_default();
-    let auth = if token.is_empty() {
-        String::new()
-    } else {
-        format!("Authorization: Bearer {token}\r\n")
-    };
     let payload = body.map(serde_json::Value::to_string).unwrap_or_default();
     let content = if body.is_some() {
         format!(

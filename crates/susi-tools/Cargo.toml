@@ -19,8 +19,7 @@ serde_json = { workspace = true }
 dashmap = { workspace = true }
 
 tokio = { workspace = true }
-rmcp = { version = "3.4.0", features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest", "elicitation"] }
-reqwest = { workspace = true }
+susi-vendor-mcp = { workspace = true }
 
 [lints]
 workspace = true

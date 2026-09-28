@@ -273,9 +273,8 @@ impl Provider for HttpProvider {
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
 // depend on engines). Re-export for existing `susi_gemi::http_provider::…` callers.
 pub use susi_gemi_models::cloud::{
-    cloud_env_path, effective_inference_endpoints, effective_inference_endpoints_pub,
-    known_cloud_vendors, list_api_key_status, parse_env_file, remove_api_key,
-    resolve_vendor_env_name,
+    cloud_env_path, effective_inference_endpoints, known_cloud_vendors, list_api_key_status,
+    parse_env_file, remove_api_key, resolve_vendor_env_name,
 };
 
 /// Upsert `KEY=value` in `~/.susi/cloud.env`, apply into the process, then

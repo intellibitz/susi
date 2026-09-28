@@ -1,0 +1,18 @@
+[package]
+name = "susi-vendor-fastembed"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "Local text embeddings (fastembed / ONNX Runtime): one process-wide model"
+
+[dependencies]
+susi-error = { workspace = true }
+# Text embeddings only. fastembed's defaults add image models (image/ravif/
+# rav1e/exr: ~350s of cold build) and native-tls downloaders (reqwest 0.12 +
+# OpenSSL, a second TLS stack). `hf-hub` is the blocking ureq API fastembed
+# actually calls; ONNX Runtime binaries download over rustls (ring).
+fastembed = { version = "7.0.1", default-features = false, features = ["hf-hub", "ort-download-binaries-rustls-tls"] }
+
+[lints]
+workspace = true
