@@ -10,6 +10,8 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
+const MAX_RESPONSE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// A parsed loopback response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {
@@ -65,8 +67,8 @@ pub struct Endpoint {
     pub auth: Auth,
 }
 
-/// One request: `method path` with an optional JSON body. `None` on any
-/// transport failure or an unparseable response.
+/// One request: `method path` with an optional JSON body. `None` on transport
+/// failure, response overflow, or an unparseable response.
 #[must_use]
 pub fn request(ep: &Endpoint, method: &str, path: &str, json: Option<&str>) -> Option<Response> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), ep.port);
@@ -89,7 +91,13 @@ pub fn request(ep: &Endpoint, method: &str, path: &str, json: Option<&str>) -> O
     let req = format!("{method} {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n{bearer}{body}{head_end}");
     stream.write_all(req.as_bytes()).ok()?;
     let mut raw = String::new();
-    stream.read_to_string(&mut raw).ok()?;
+    stream
+        .take(MAX_RESPONSE_BYTES.saturating_add(1))
+        .read_to_string(&mut raw)
+        .ok()?;
+    if u64::try_from(raw.len()).ok()? > MAX_RESPONSE_BYTES {
+        return None;
+    }
     Response::parse(&raw)
 }
 

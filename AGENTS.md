@@ -52,6 +52,7 @@ this for the panic-path lints.
   `paths → error → config → core/sandbox → services → daemon`.
 - `susi_http_transport::http_call*` returns non-2xx responses; callers must
   check status. `HttpCall::into_bytes(max)` reads `max + 1` and rejects overflow.
+  The std-only `susi_paths::loopback` client caps complete responses at 16 MiB.
 - Do not redeclare normal dependencies under dev/build scopes unless extra
   test-only or build-only features are required.
 - Standalone leaf-service binaries enable only their `service-*` feature;
