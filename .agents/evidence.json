@@ -2868,8 +2868,18 @@
       },
       "id": "EV-2022928-292",
       "milestone": "RSI OS isolation iterations 49-95: every remaining unreachable susi-daemon module is named from composition::activate_remaining_os_planes. In-memory OS planes (admin, auth, budget, CAS, consensus, discovery, encryption, event sourcing, causal ledger, root cause, scheduler siblings, query, world model, VFS, workloads, …) construct; bind/mkdir/Wasmer constructors are type-reachable only. Unreachable daemon-module ceiling 47→0. Remaining: reqwest still in susi-gemi http_provider and susi-tools MCP. Verification: cargo check -p susi-daemon / cargo fmt; tests deferred by operator.",
-      "proof": "VERIFIED",
-      "type": "MISSION"
+      "proof": "RETRACTED: references were discarded probes or type-only mentions, not functional production wiring; the 47-module ceiling is restored until these modules are integrated or removed.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Review of RSI OS iterations 49-95",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-293",
+      "milestone": "Reachability ratchet correction: only modules used by a live production path count as wired.",
+      "proof": "Fixed by removing discarded probe calls and type-only anchors from composition; restoring the 47-module ceiling and correcting README/identity/architecture claims. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,
