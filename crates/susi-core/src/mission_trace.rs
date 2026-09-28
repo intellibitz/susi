@@ -389,6 +389,18 @@ pub fn proven_tools(
     succeeded.difference(&failed).cloned().collect()
 }
 
+/// Fraction of similar missions that succeeded: `None` when nothing
+/// similar exists (novel intent — callers should not treat absence as 0).
+/// The single number routing and promotion want instead of recounting.
+pub fn success_rate(goal: &str, traces: &[MissionTrace], limit: usize) -> Option<f32> {
+    let neighbors = similar(goal, traces, limit);
+    if neighbors.is_empty() {
+        return None;
+    }
+    let wins = neighbors.iter().filter(|t| t.succeeded()).count();
+    Some(wins as f32 / neighbors.len() as f32)
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
@@ -501,6 +513,8 @@ mod tests {
         assert!(!d.novel);
         assert!((d.failure_rate - 2.0 / 3.0).abs() < 0.01);
         assert!(d.score > 0.2);
+        assert!((success_rate("deploy api service", &traces, 5).unwrap() - 1.0 / 3.0).abs() < 0.01);
+        assert!(success_rate("unrelated xyz", &traces, 5).is_none());
 
         // A novel intent reads as novel and difficult enough to widen search.
         let novel = difficulty(
