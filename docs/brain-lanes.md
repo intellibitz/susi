@@ -110,6 +110,9 @@ One line per landed step, newest last.
 32. Bare action names ("scout", "version") are supported by their training
     primes, not refused as unfamiliar when that wording was never staged
     (EV-CLAUDE-032).
+33. Veto words: negated/destructive prompts ("delete the config file" ->
+    write_file, "do not run the tests" -> run_test_harness, measured) are
+    refused unless the action was trained with that word (EV-CLAUDE-033).
 
 ## Open questions for the other lane
 

@@ -765,6 +765,62 @@ pub struct SusiAlphaModel {
 struct SupportSet {
     features: Vec<f32>,
     actions: Vec<String>,
+    /// Lowercased words each action was trained with (replay intents plus
+    /// its own name), for the veto-word guard.
+    action_words: std::collections::HashMap<String, std::collections::HashSet<String>>,
+}
+
+/// Words that negate or reverse a request, or name a destructive/control
+/// operation. The reflex features are a bag of words, so they cannot see
+/// that "don't read the file" is not "read the file" — measured on the
+/// Tier-0 benchmark model: "delete the config file" was served
+/// `write_file`, "remove all files" `list_directory`, "don't read the
+/// file" `read_file`, "do not run the tests" `run_test_harness`, "shutdown
+/// the system" `status`, "stop the build" `version`. A prompt containing
+/// one of these is served only if the predicted action was trained with
+/// that very word (a reflex truly taught "delete temp files" still works).
+const VETO_WORDS: &[&str] = &[
+    // negation / reversal ("don't" splits to "don" + "t")
+    "not",
+    "no",
+    "never",
+    "don",
+    "dont",
+    "doesn",
+    "didn",
+    "isn",
+    "without",
+    "except",
+    "stop",
+    "cancel",
+    "avoid",
+    "skip",
+    "undo",
+    "revert",
+    "rollback",
+    // destructive / control operations
+    "delete",
+    "remove",
+    "rm",
+    "erase",
+    "wipe",
+    "drop",
+    "destroy",
+    "purge",
+    "truncate",
+    "kill",
+    "shutdown",
+    "reboot",
+    "uninstall",
+    "format",
+    "reset",
+    "overwrite",
+];
+
+fn words(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_lowercase)
 }
 
 /// Below `SERVE_CONFIDENCE`, a prediction is still served when the prompt is
@@ -825,6 +881,14 @@ fn support_matrix(weights_path: &Path, vocabulary: &[String]) -> Option<SupportS
                     .map(|action| (action.as_str(), action.as_str())),
             )
             .collect();
+        let mut action_words: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        for (intent, action) in &rows {
+            action_words
+                .entry(action.to_lowercase())
+                .or_default()
+                .extend(words(intent));
+        }
         SupportSet {
             features: rows
                 .iter()
@@ -834,6 +898,7 @@ fn support_matrix(weights_path: &Path, vocabulary: &[String]) -> Option<SupportS
                 .iter()
                 .map(|(_, action)| (*action).to_string())
                 .collect(),
+            action_words,
         }
     })
 }
@@ -1199,6 +1264,11 @@ impl SusiAlphaModel {
             }
         }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
+        if let Some(word) = self.vetoed_word(prompt, &action) {
+            return Err(anyhow!(
+                "Vetoed: '{word}' negates or reverses the request, and Tier-0 never learned it with {action}."
+            ));
+        }
         if serves(&action, confidence, nearest) {
             return Ok(action);
         }
@@ -1213,6 +1283,21 @@ impl SusiAlphaModel {
     /// vectors, so the dot product is the cosine.
     pub fn support(&self, prompt: &str) -> Option<f32> {
         self.nearest(prompt).map(|(cosine, _)| cosine)
+    }
+
+    /// The first veto word in `prompt` that the predicted action was never
+    /// trained with. `None` without a support set (legacy checkpoints keep
+    /// the confidence-only gate) or when every veto word was learned.
+    fn vetoed_word(&self, prompt: &str, action: &str) -> Option<String> {
+        let set = self.support.as_ref()?;
+        let predicted = action
+            .strip_prefix("ACTION: ")
+            .unwrap_or(action)
+            .to_lowercase();
+        let learned = set.action_words.get(&predicted);
+        words(prompt).find(|w| {
+            VETO_WORDS.contains(&w.as_str()) && !learned.is_some_and(|known| known.contains(w))
+        })
     }
 
     /// The nearest replayed intent: its cosine and its action.
@@ -1836,6 +1921,42 @@ mod tests {
             assert_eq!(model.predict_intent(name).unwrap(), action);
         }
         assert!(model.predict_intent("tell me a joke").is_err());
+    }
+
+    #[test]
+    fn negated_and_destructive_prompts_are_vetoed_unless_learned() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        // The benchmark corpus plus one action genuinely taught a veto word.
+        let mut corpus = BENCH_TRAIN.to_vec();
+        corpus.extend([
+            ("delete the build cache", "self_heal_build"),
+            ("delete stale build artifacts", "self_heal_build"),
+        ]);
+        stage(&staged, &corpus);
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        let model = SusiAlphaModel::load(dir.path()).unwrap();
+        // Each was served as the wrong action before the guard (measured).
+        for prompt in [
+            "delete the config file",
+            "remove all files",
+            "don't read the file",
+            "never list files",
+            "do not run the tests",
+            "shutdown the system",
+            "stop the build",
+        ] {
+            assert!(model.predict_intent(prompt).is_err(), "{prompt} was served");
+        }
+        // A veto word the predicted action was trained with does not block it.
+        assert_eq!(
+            model.vetoed_word("delete the build cache", "ACTION: self_heal_build"),
+            None
+        );
+        assert_eq!(
+            model.vetoed_word("delete the config file", "ACTION: write_file"),
+            Some("delete".to_string())
+        );
     }
 
     #[test]

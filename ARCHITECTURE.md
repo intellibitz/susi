@@ -621,7 +621,16 @@ cache and a cached model must not carry a stale support set. Below the 0.5 bar
 a prediction is still served when the prompt is a near-duplicate (cosine ≥
 0.9) of a trained intent carrying the *predicted* action and confidence
 exceeds 0.35 — the classifier and the nearest trained example agree
-(`alpha::serves`, EV-CLAUDE-023).
+(`alpha::serves`, EV-CLAUDE-023). Negation and destructive verbs are vetoed: the features are
+a bag of words and cannot tell "don't read the file" from "read the file",
+and on the benchmark model "delete the config file" was served
+`write_file`, "remove all files" `list_directory`, "do not run the tests"
+`run_test_harness`, "shutdown the system" `status`. A prompt containing a
+`VETO_WORDS` entry (not/never/don't/stop/…, delete/remove/wipe/kill/
+shutdown/…) is served only if the predicted action was trained with that
+very word — a reflex genuinely taught "delete the build cache" still
+fires — and otherwise escalates to tiers that read language
+(EV-CLAUDE-033).
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the
