@@ -6188,7 +6188,6 @@ dependencies = [
  "susi-vendor-console-subscriber",
  "susi-vendor-ed25519-dalek",
  "susi-vendor-hex",
- "susi-vendor-parking-lot",
  "susi-vendor-rayon",
  "susi-vendor-serde",
  "susi-vendor-serde-json",
@@ -6434,7 +6433,6 @@ dependencies = [
  "susi-vendor-tempfile",
  "susi-vendor-tokio",
  "susi-vendor-tracing",
- "susi-vendor-url",
 ]
 
 [[package]]

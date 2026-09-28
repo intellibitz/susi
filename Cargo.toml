@@ -229,7 +229,6 @@ tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 # from cold release builds.
 console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
 rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
-parking_lot = { package = "susi-vendor-parking-lot", path = "crates/susi-vendor-parking-lot" }
 hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
 

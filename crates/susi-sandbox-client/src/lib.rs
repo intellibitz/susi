@@ -28,15 +28,10 @@
 pub use susi_config;
 pub use susi_error;
 
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// Set by the service process so no call routes back to itself over IPC.
-static SERVICE_MODE: AtomicBool = AtomicBool::new(false);
-
 /// Marks this process as the `susi-sandbox` service: every client call
 /// resolves against the local helpers from now on.
 pub fn enter_service_mode() {
-    SERVICE_MODE.store(true, Ordering::Relaxed);
+    susi_paths::enter_service_mode();
 }
 
 /// IPC client for the standalone `susi-sandbox` service.
@@ -54,7 +49,7 @@ pub(crate) mod service {
     /// `XDG_*_HOME`), resolves locally — a swapped HOME in tests must not
     /// read or write the host substrate's real sandbox state.
     fn local_override() -> bool {
-        super::SERVICE_MODE.load(super::Ordering::Relaxed) || loopback::local_env_override()
+        susi_paths::is_service_mode() || loopback::local_env_override()
     }
 
     fn call(
@@ -166,7 +161,6 @@ mod audit_chain_tests {
     use crate::audit_chain::*;
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
     fn append_waits_for_the_cross_process_chain_lock() {
@@ -281,6 +275,7 @@ mod audit_chain_tests {
     }
 
     fn temp_audit() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
         let n = N.fetch_add(1, Ordering::SeqCst);
         let dir =

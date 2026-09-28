@@ -21,7 +21,6 @@ tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
 tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
 flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
-url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
 sysinfo = { package = "susi-vendor-sysinfo", path = "../susi-vendor-sysinfo" }
 hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }

@@ -24,7 +24,6 @@ pub mod redact;
 mod redact_test_suite;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// Substrate data dir, through the same `SusiDirs` contract as every crate.
@@ -110,13 +109,10 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
 mod contract;
 pub use contract::{EaiError, EaiResult, ResultExt};
 
-/// Set by [`enter_service_mode`]: the service must not post events to itself.
-static SERVICE_MODE: AtomicBool = AtomicBool::new(false);
-
 /// Error-event sink for the contract: the `susi-error` service when
 /// reachable, else the local metrics file.
 fn record_event(entry: &serde_json::Value) {
-    if SERVICE_MODE.load(Ordering::Relaxed) || !post_event(entry) {
+    if susi_paths::is_service_mode() || !post_event(entry) {
         // Best effort: nowhere left to report a failed error report.
         let _ = sink::append_metrics_line(&error_metrics_path(), entry);
     }
@@ -205,7 +201,7 @@ pub fn service_port() -> u16 {
 /// Marks this process as the `susi-error` service: its own events go
 /// straight to the metrics file instead of being posted back to itself.
 pub fn enter_service_mode() {
-    SERVICE_MODE.store(true, Ordering::Relaxed);
+    susi_paths::enter_service_mode();
 }
 
 /// An error event as posted to `POST /log_error` by any local client.

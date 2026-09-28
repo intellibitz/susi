@@ -317,6 +317,23 @@ pub fn ports_json() -> serde_json::Value {
     })
 }
 
+/// `true` while this process IS the substrate service (daemon or a leaf
+/// service): local client surfaces resolve locally and never post back to
+/// themselves. One flag in the leaf crate — `susi-error`, `susi-config`,
+/// and `susi-sandbox-client` delegate their `enter_service_mode` here.
+static SERVICE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Marks this process as the substrate service.
+pub fn enter_service_mode() {
+    SERVICE_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `true` when running as the substrate service.
+#[must_use]
+pub fn is_service_mode() -> bool {
+    SERVICE_MODE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

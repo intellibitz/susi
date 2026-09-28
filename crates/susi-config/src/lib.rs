@@ -37,15 +37,10 @@ mod json_util;
 mod types;
 pub mod versioned_store;
 
-/// Set by [`enter_service_mode`]: the service is the canonical writer of the global
-/// config file and must never route through an IPC hop back to itself.
-static SERVICE_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// IPC client for the standalone `susi-config` service. Only the global
 /// config path is routed here; per-directory loads and `cluster_key` stay
 /// local by construction.
 mod service {
-    use std::sync::atomic::Ordering;
     use std::time::Duration;
     use susi_paths::loopback::{self, Auth};
 
@@ -62,7 +57,7 @@ mod service {
     /// `XDG_*_HOME`), resolves locally — a swapped HOME in tests must not
     /// read or write the host substrate's real `config.json`.
     fn local_only() -> bool {
-        super::SERVICE_MODE.load(Ordering::Relaxed) || loopback::local_env_override()
+        susi_paths::is_service_mode() || loopback::local_env_override()
     }
 
     /// `GET /config` — healed global config from the running substrate.
@@ -146,5 +141,5 @@ pub(crate) fn env_test_lock() -> std::sync::MutexGuard<'static, ()> {
 /// `susi-leaf-services`): it is the canonical writer, so config reads and
 /// writes resolve locally instead of calling back into the service.
 pub fn enter_service_mode() {
-    SERVICE_MODE.store(true, std::sync::atomic::Ordering::Relaxed);
+    susi_paths::enter_service_mode();
 }
