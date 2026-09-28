@@ -3564,6 +3564,16 @@
    "milestone": "Tier-0 reflexes are served only for prompts the model has support for. The classifier has no abstain class: every prompt maps to some action, and confidence was the only guard against serving a canned action for something it never trained on. Now a loaded SusiAlphaModel carries the reflex features of its replay set (n x 128, flattened). predict_intent refuses when the nearest trained intent is below cosine SUPPORT_MIN (0.6), before it consults confidence (still > 0.5). Calibration from measurements on everyday training data: out-of-distribution probes are <= 0.52, and a paraphrase sharing two of three content words is about 0.67. Checkpoints without a replay set (bootstrap, pre-replay) keep the confidence-only gate; support() returns None for them. The replay file is now written before the bundle publishes, because the bundle mtime keys SusiAlphaModel::cached and a cached model must not hold a stale support set. Cost: at most 2048 x 128 multiply-adds per uncached prompt. Test: unfamiliar_prompts_are_refused_even_when_confident (paraphrase support > 0.9; the poem prompt below 0.6 is refused with 'Unfamiliar prompt'; no replay gives None). The alpha suite passed 5 of 5 repeated runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "ReflexTrainer distillation log + back-off",
+    "ref": "file://crates/susi-gawd/src/reflex_trainer.rs"
+   },
+   "id": "EV-CLAUDE-008",
+   "milestone": "Reflex training outcomes are now visible, and a held-back claim backs off. Before: amas.rs runs ReflexTrainer::audit_distillation_state on a background thread after every supervised mission and discards the result. Once the EV-CLAUDE-002 gate could refuse a checkpoint, that meant (a) held-back and failed cycles were invisible, and (b) the restored claim was refit and refused again on every following mission. Now train_claim (shared by audit and force_train) logs each cycle to <ws>/.susi/distillation_log.jsonl: timestamp, outcome published/held_back/error, claim size, credential-redacted report; bounded to 200 entries and written under the training-cycle lock. A log-write failure never fails the cycle. held_back_wait makes the automatic audit defer after a held_back until the staged count reaches the held-back claim size + reflex_training_threshold; force_train bypasses it. Held-back detection matches the GEMI error prefix 'reflex checkpoint held back' (HELD_BACK_MARKER) because the error crosses the plane bus as a string; the producer side is commented and its test asserts the marker. Tests: cycle_log_is_bounded_and_newest_last; held_back_cycle_defers_until_enough_new_samples (threshold 50, held back at 60: 60 and 109 staged defer, 110 trains; published or absent history never defers).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

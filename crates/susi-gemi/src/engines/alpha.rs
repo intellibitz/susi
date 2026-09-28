@@ -861,6 +861,9 @@ impl SusiAlphaModel {
         let scored = candidate.correct(&hx, &held_labels, vocabulary.len())?;
         let n = holdout.len();
         if scored < baseline {
+            // "reflex checkpoint held back" is matched by `ReflexTrainer`
+            // (HELD_BACK_MARKER) across the plane bus to log the cycle and
+            // back off; keep the prefix stable.
             return Err(anyhow!(
                 "reflex checkpoint held back: held-out accuracy would regress from {baseline}/{n} (active) to {scored}/{n}; active checkpoint kept"
             ));
@@ -1292,7 +1295,11 @@ mod tests {
             .collect();
         stage(&staged, &contradict);
         let error = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap_err();
-        assert!(error.to_string().contains("held back"), "{error}");
+        assert!(
+            // ReflexTrainer's HELD_BACK_MARKER; Display adds a category prefix.
+            error.to_string().contains("reflex checkpoint held back"),
+            "{error}"
+        );
         assert_eq!(
             active_weights(dir.path()),
             first,

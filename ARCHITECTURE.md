@@ -570,7 +570,17 @@ nothing and returns an error, so `ReflexTrainer` restores the claim and the
 samples are retried with more data instead of being dropped. When the gate
 passes, the published checkpoint is refit on *all* staged samples. The gate
 is skipped — and the report says so — with no active checkpoint or fewer
-than 3 held-out samples. Lane ownership for concurrent brain work is in
+than 3 held-out samples.
+
+Every cycle is logged to `<workspace>/.susi/distillation_log.jsonl` (last
+200: `published` / `held_back` / `error`, claim size, redacted report).
+Training runs in the background after every supervised mission and its
+result used to be discarded, so a held-back checkpoint was invisible. The
+log is also back-off state: after `held_back`, the automatic audit defers
+until at least `reflex_training_threshold` new samples arrive beyond the
+held-back claim, instead of refitting and refusing the same restored claim
+on every mission. `force_train` (operator-requested) bypasses the back-off.
+Lane ownership for concurrent brain work is in
 `docs/brain-lanes.md`.
 
 ## Federation & consensus

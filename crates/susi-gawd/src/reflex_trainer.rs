@@ -16,7 +16,11 @@ impl ReflexTrainer {
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
         recover_orphaned_claims(workspace)?;
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global()?;
-        let Some(claim) = claim_staged_samples(workspace, cfg.reflex_training_threshold())? else {
+        let threshold = cfg.reflex_training_threshold();
+        if let Some(wait) = held_back_wait(workspace, threshold)? {
+            return Ok(format!("{wait}\n{}", staging_health_line(workspace)));
+        }
+        let Some(claim) = claim_staged_samples(workspace, threshold)? else {
             return Ok(format!(
                 "No reflex training due: fewer than {} valid staged samples.\n{}",
                 cfg.reflex_training_threshold(),
@@ -27,16 +31,7 @@ impl ReflexTrainer {
             "[Reflex Trainer] Wisdom buffer saturated ({} samples). Triggering native distillation...",
             claim.sample_count
         );
-        let report = match SusiAlphaModel::train_on_staged_data(&claim.root) {
-            Ok(report) => report,
-            Err(error) => {
-                restore_claim(&claim)?;
-                return Err(EaiError::inference(format!(
-                    "reflex distillation failed: {error}"
-                )));
-            }
-        };
-        retire_claim(&claim)?;
+        let report = train_claim(workspace, &claim)?;
         Ok(format!("{report}\n{}", staging_health_line(workspace)))
     }
 
@@ -46,19 +41,109 @@ impl ReflexTrainer {
             crate::susi_config::file_lock::FileLock::acquire(&susi_dir, "reflex_claim_training")
                 .ok_or_else(|| EaiError::io("acquire reflex training-cycle lock"))?;
         recover_orphaned_claims(workspace)?;
+        // Operator-requested: no held-back back-off.
         let claim = claim_staged_samples(workspace, 1)?
             .ok_or_else(|| EaiError::inference("No staged distillation data found."))?;
-        match SusiAlphaModel::train_on_staged_data(&claim.root) {
-            Ok(report) => {
-                retire_claim(&claim)?;
-                Ok(format!("{report}\n{}", staging_health_line(workspace)))
-            }
-            Err(error) => {
-                restore_claim(&claim)?;
-                Err(EaiError::inference(error.to_string()))
-            }
+        let report = train_claim(workspace, &claim)?;
+        Ok(format!("{report}\n{}", staging_health_line(workspace)))
+    }
+}
+
+/// Train one claim, retire or restore it, and log the cycle. A held-back or
+/// failed cycle restores the claim so its samples are retried later.
+fn train_claim(workspace: &Path, claim: &TrainingClaim) -> EaiResult<String> {
+    match SusiAlphaModel::train_on_staged_data(&claim.root) {
+        Ok(report) => {
+            retire_claim(claim)?;
+            log_cycle(workspace, "published", claim.sample_count, &report);
+            Ok(report)
+        }
+        Err(error) => {
+            restore_claim(claim)?;
+            let outcome = if error.contains(HELD_BACK_MARKER) {
+                "held_back"
+            } else {
+                "error"
+            };
+            log_cycle(workspace, outcome, claim.sample_count, &error);
+            Err(EaiError::inference(format!(
+                "reflex distillation failed: {error}"
+            )))
         }
     }
+}
+
+/// Prefix of the GEMI plane's error when the held-out gate refuses a
+/// checkpoint (`SusiAlphaModel::holdout_gate`). The error crosses the plane
+/// bus as a string, so the marker is the contract.
+const HELD_BACK_MARKER: &str = "reflex checkpoint held back";
+const DISTILLATION_LOG: &str = "distillation_log.jsonl";
+const DISTILLATION_LOG_KEEP: usize = 200;
+
+/// One training cycle's outcome: `published`, `held_back`, or `error`.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CycleRecord {
+    timestamp: u64,
+    outcome: String,
+    claimed: usize,
+    report: String,
+}
+
+/// Append a cycle to `<ws>/.susi/distillation_log.jsonl`, keeping the last
+/// `DISTILLATION_LOG_KEEP`. Called under the training-cycle lock. The log is
+/// operator visibility and back-off state; a write failure never fails the
+/// cycle it describes.
+fn log_cycle(workspace: &Path, outcome: &str, claimed: usize, report: &str) {
+    let path = workspace.join(".susi").join(DISTILLATION_LOG);
+    let record = CycleRecord {
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        outcome: outcome.into(),
+        claimed,
+        report: crate::susi_config::redact_credentials(report),
+    };
+    let Ok(line) = serde_json::to_string(&record) else {
+        return;
+    };
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let mut lines: Vec<&str> = existing.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines.push(&line);
+    let start = lines.len().saturating_sub(DISTILLATION_LOG_KEEP);
+    let mut body = lines[start..].join("\n");
+    body.push('\n');
+    if let Err(error) = crate::susi_config::atomic_write_bytes(&path, body.as_bytes()) {
+        let _emit = EaiError::io(format!("distillation log write failed: {error}"));
+    }
+}
+
+fn last_cycle(workspace: &Path) -> Option<CycleRecord> {
+    let text = std::fs::read_to_string(workspace.join(".susi").join(DISTILLATION_LOG)).ok()?;
+    text.lines()
+        .rev()
+        .find_map(|line| serde_json::from_str(line).ok())
+}
+
+/// After a held-back cycle, retraining the same restored claim on every
+/// mission would only be refused again. Wait until at least `threshold`
+/// new samples arrive beyond the held-back claim.
+fn held_back_wait(workspace: &Path, threshold: usize) -> EaiResult<Option<String>> {
+    let Some(last) = last_cycle(workspace) else {
+        return Ok(None);
+    };
+    if last.outcome != "held_back" {
+        return Ok(None);
+    }
+    let staged =
+        staged_sample_count(&workspace.join(".susi/distillation_staged.jsonl"))?.unwrap_or(0);
+    let needed = last.claimed.saturating_add(threshold);
+    Ok((staged < needed).then(|| {
+        format!(
+            "Reflex training deferred: the last cycle was held back at {} samples; waiting for {needed} staged (have {staged}).",
+            last.claimed
+        )
+    }))
 }
 
 fn staging_health_line(workspace: &Path) -> String {
@@ -265,9 +350,56 @@ fn staged_sample_count(path: &Path) -> EaiResult<Option<usize>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        claim_staged_samples, recover_orphaned_claims, restore_claim, retire_claim,
-        sanitize_claimed_buffer, staged_sample_count,
+        claim_staged_samples, held_back_wait, last_cycle, log_cycle, recover_orphaned_claims,
+        restore_claim, retire_claim, sanitize_claimed_buffer, staged_sample_count,
+        DISTILLATION_LOG_KEEP,
     };
+
+    #[test]
+    fn cycle_log_is_bounded_and_newest_last() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".susi")).unwrap();
+        assert!(last_cycle(dir.path()).is_none());
+        for i in 0..DISTILLATION_LOG_KEEP + 5 {
+            log_cycle(dir.path(), "published", i, "ok");
+        }
+        let text =
+            std::fs::read_to_string(dir.path().join(".susi/distillation_log.jsonl")).unwrap();
+        assert_eq!(text.lines().count(), DISTILLATION_LOG_KEEP);
+        assert_eq!(
+            last_cycle(dir.path()).unwrap().claimed,
+            DISTILLATION_LOG_KEEP + 4
+        );
+    }
+
+    #[test]
+    fn held_back_cycle_defers_until_enough_new_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        let staged = susi_dir.join("distillation_staged.jsonl");
+        let lines = |n: usize| "{\"intent\":\"i\",\"action\":\"a\",\"timestamp\":1}\n".repeat(n);
+
+        // No history, or a published last cycle: never deferred.
+        std::fs::write(&staged, lines(60)).unwrap();
+        assert!(held_back_wait(dir.path(), 50).unwrap().is_none());
+        log_cycle(dir.path(), "published", 60, "ok");
+        assert!(held_back_wait(dir.path(), 50).unwrap().is_none());
+
+        // Held back at 60: the restored 60 alone must not retrain.
+        log_cycle(
+            dir.path(),
+            "held_back",
+            60,
+            "reflex checkpoint held back: ...",
+        );
+        let wait = held_back_wait(dir.path(), 50).unwrap().unwrap();
+        assert!(wait.contains("waiting for 110 staged (have 60)"), "{wait}");
+        std::fs::write(&staged, lines(109)).unwrap();
+        assert!(held_back_wait(dir.path(), 50).unwrap().is_some());
+        std::fs::write(&staged, lines(110)).unwrap();
+        assert!(held_back_wait(dir.path(), 50).unwrap().is_none());
+    }
 
     #[test]
     fn missing_staging_is_idle() {

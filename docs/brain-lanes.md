@@ -40,6 +40,9 @@ One line per landed step, newest last.
 7. Support gate: a reflex is served only when the prompt is near (cosine
    >= 0.6) something the model trained on — the classifier has no abstain
    class, so confidence alone cannot refuse the unfamiliar (EV-CLAUDE-007).
+8. Distillation log + back-off: every training cycle's outcome lands in
+   `.susi/distillation_log.jsonl`; a held-back claim waits for `threshold`
+   new samples instead of being refit on every mission (EV-CLAUDE-008).
 
 ## Devin's loop log
 
