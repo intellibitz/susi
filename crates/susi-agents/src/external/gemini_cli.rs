@@ -6,10 +6,10 @@
 //! Antigravity), workers isolate via `GEMINI_CLI_HOME` so headless runs use
 //! API-key auth.
 
-use anyhow::{bail, Context, Result};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 

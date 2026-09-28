@@ -23,13 +23,12 @@ susi-agents = { workspace = true }
 dashmap = { workspace = true }
 susi-http-transport = { workspace = true }
 susi-vendor-wasmer = { workspace = true }
+susi-vendor-cloud = { workspace = true }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 getrandom = { workspace = true }
 ed25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
 sha2 = { workspace = true }
-anyhow = { workspace = true }
 
 tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"

@@ -2,7 +2,7 @@
 
 use super::runtime_substrate::{apply_repeat_penalty, InferenceHost};
 use super::GemiEngine;
-use crate::hardware::HardwareProfiler;
+use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_core::registry::DynamicServiceRegistry;
 use crate::susi_error::{EaiError, EaiResult};
@@ -164,7 +164,7 @@ impl SusiGgufEngine {
         // when it isn't applicable (disabled, no suitable draft model,
         // tokenizer mismatch), leaving the classic loop below untouched.
         if let Some(target_weights) = substrate.weights.as_qwen2_mut() {
-            if let Some(result) = crate::speculative::SpeculativeDecoder::try_generate(
+            if let Some(result) = crate::engines::speculative::SpeculativeDecoder::try_generate(
                 target_weights,
                 &model_path,
                 &tokenizer_path_for_speculative,
@@ -187,7 +187,7 @@ impl SusiGgufEngine {
         );
         let _ = std::io::stdout().flush();
 
-        let mut text_stream = crate::token_stream::TokenStream::new(&tokenizer);
+        let mut text_stream = crate::engines::token_stream::TokenStream::new(&tokenizer);
 
         // Universal Generative Loop: Fluid Context Expansion
         for i in 0..max_tokens {
@@ -312,7 +312,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
 
         // Prefer CapabilityRegistry cloud/local HTTP providers (keys + protocols
         // already resolved by zero-config / config registration).
-        crate::http_provider::register_configured_cloud_endpoints(
+        crate::engines::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),
         );
         if let Some(text) = GemiEngine::try_discovered_providers(prompt, None, callback, &|_| {}) {
@@ -326,8 +326,10 @@ impl NativeInferenceEngine for SusiFederatedEngine {
             .endpoints
             .iter()
             .find(|e| {
-                let key =
-                    crate::http_provider::HttpProvider::resolve_api_key(&e.api_key_env, &e.name);
+                let key = crate::engines::http_provider::HttpProvider::resolve_api_key(
+                    &e.api_key_env,
+                    &e.name,
+                );
                 !key.is_empty()
                     || e.api_base.contains("localhost")
                     || e.api_base.contains("127.0.0.1")
@@ -340,8 +342,8 @@ impl NativeInferenceEngine for SusiFederatedEngine {
             })?;
 
         let protocol =
-            crate::http_provider::InferenceProtocol::from_config(&endpoint.protocol_type);
-        let api_key = crate::http_provider::HttpProvider::resolve_api_key(
+            crate::engines::http_provider::InferenceProtocol::from_config(&endpoint.protocol_type);
+        let api_key = crate::engines::http_provider::HttpProvider::resolve_api_key(
             &endpoint.api_key_env,
             &endpoint.name,
         );
@@ -357,7 +359,7 @@ impl NativeInferenceEngine for SusiFederatedEngine {
         );
         let _ = std::io::stdout().flush();
 
-        let provider = crate::http_provider::HttpProvider {
+        let provider = crate::engines::http_provider::HttpProvider {
             name: format!("federated-{}", endpoint.name.to_ascii_lowercase()),
             api_base: endpoint.api_base.clone(),
             model,

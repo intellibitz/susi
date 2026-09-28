@@ -108,7 +108,7 @@ fn is_signed_audit_chain(path: &std::path::Path) -> bool {
 }
 
 mod contract;
-pub use contract::{EaiError, EaiResult};
+pub use contract::{EaiError, EaiResult, ResultExt};
 
 /// Set by [`enter_service_mode`]: the service must not post events to itself.
 static SERVICE_MODE: AtomicBool = AtomicBool::new(false);
@@ -189,7 +189,7 @@ pub fn rewrap(kind_name: &str, msg: String) -> EaiError {
 }
 
 /// Default `susi-error` service port before the instance port offset.
-pub const DEFAULT_SERVICE_PORT: u16 = 18081;
+pub const DEFAULT_SERVICE_PORT: u16 = susi_paths::ports::ERROR_SERVICE;
 
 /// Port the error-event client posts to: `SUSI_ERROR_PORT` wins, else the
 /// default shifted by the instance offset — a dev instance (offset 100)

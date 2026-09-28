@@ -3,10 +3,10 @@
 //! Task lifecycle reuses [`super::AgentManager`]. Headless retrieval uses
 //! `ov find "{prompt}" -o json` against a configured OpenViking endpoint.
 
-use anyhow::{bail, Result};
 use serde_json::json;
 use std::path::PathBuf;
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 

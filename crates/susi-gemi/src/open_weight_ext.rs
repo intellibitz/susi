@@ -1,10 +1,10 @@
 //! Engines-side open-weight helpers (prefer local routing, live probe).
 use crate::susi_core::provider::Provider;
-use anyhow::{bail, Context, Result};
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 use susi_gemi_models::open_weight::OpenWeightManager;
 
-use crate::http_provider::{HttpProvider, InferenceProtocol};
-use crate::routing::InferenceRouter;
+use crate::engines::http_provider::{HttpProvider, InferenceProtocol};
+use crate::engines::routing::InferenceRouter;
 
 /// Build an [`HttpProvider`] for a curated open-weight model (Ollama/vLLM).
 pub fn provider(manager: &OpenWeightManager, id: &str) -> Result<HttpProvider> {
@@ -29,7 +29,7 @@ pub fn prefer(model: &str, clear: bool) -> Result<String> {
     let pin = manager.prefer(model)?;
     let def = manager.effective(model)?;
     let cloud =
-        InferenceRouter::set_preferred_cloud(&def.engine).map_err(|e| anyhow::anyhow!(e))?;
+        InferenceRouter::set_preferred_cloud(&def.engine).map_err(|e| susi_error::eai_err!(e))?;
     Ok(format!("{pin} | {cloud}"))
 }
 
@@ -46,6 +46,6 @@ pub fn probe(id: &str, prompt: &str) -> Result<String> {
         .context("tokio runtime for open-weight probe")?;
     let text = runtime
         .block_on(provider.generate(prompt))
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        .map_err(|e| susi_error::eai_err!(e.to_string()))?;
     Ok(crate::susi_config::redact_credentials(&text))
 }

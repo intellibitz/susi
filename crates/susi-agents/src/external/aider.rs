@@ -3,8 +3,8 @@
 //! Task lifecycle reuses [`super::AgentManager`]; this module owns doctor/setup
 //! checks for provider API keys that the generic command adapter cannot express.
 
-use anyhow::{bail, Result};
 use serde_json::json;
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 

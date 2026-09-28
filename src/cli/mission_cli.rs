@@ -241,7 +241,7 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
                 // The vendored global is the same catalog as susi_core's —
                 // both ride the shared bus rendezvous.
                 susi_gmcp::mcp_wrapper::auto_discover_mcp();
-                susi_gemi::mcp_provider::register_mcp_inference_providers(
+                susi_gemi::engines::mcp_provider::register_mcp_inference_providers(
                     susi_gemi::susi_core::registry::CapabilityRegistry::global(),
                 );
             } else {
@@ -485,7 +485,7 @@ fn uninstall(global_dir: &Path) {
 }
 
 fn print_golden_rule_summary(workspace: &Path, global_dir: &Path) {
-    use susi_gemi::hardware::HardwareProfiler;
+    use susi_gemi::models::hardware::HardwareProfiler;
 
     println!("=== SUSI SUBSTRATE SUMMARY ===");
     let os_report = HardwareProfiler::audit_os_environment_care();

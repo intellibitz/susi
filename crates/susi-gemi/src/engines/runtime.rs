@@ -48,7 +48,7 @@ impl GemiEngine {
     pub fn generate_reasoning_deep_with_min_complexity(
         prompt: &str,
         workspace: &Path,
-        min_complexity: Option<crate::intent::TaskComplexity>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
     ) -> String {
         Self::reason_internal(
             prompt,
@@ -125,7 +125,7 @@ impl GemiEngine {
         workspace: &Path,
         allow_reflex: bool,
         callback: &dyn Fn(String),
-        min_complexity: Option<crate::intent::TaskComplexity>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
         requested_model: Option<&str>,
         meta: &dyn Fn(&str),
     ) -> String {
@@ -138,7 +138,7 @@ impl GemiEngine {
         }
 
         // Ensure configured cloud endpoints are registered before routing.
-        crate::http_provider::register_configured_cloud_endpoints(
+        crate::engines::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),
         );
 
@@ -151,8 +151,10 @@ impl GemiEngine {
             requested_model.is_some() && !Self::model_names_a_provider(requested_model);
         if !explicit_local_request {
             let names = crate::susi_core::registry::CapabilityRegistry::global().list_providers();
-            if let Some(esc) = crate::routing::InferenceRouter::maybe_escalate_to_cloud(&names) {
-                crate::routing::InferenceRouter::announce(&esc);
+            if let Some(esc) =
+                crate::engines::routing::InferenceRouter::maybe_escalate_to_cloud(&names)
+            {
+                crate::engines::routing::InferenceRouter::announce(&esc);
                 callback(format!(
                     "[SUSI ROUTING] Escalating to cloud `{}` ({})\n",
                     esc.provider, esc.reason
@@ -238,7 +240,7 @@ impl GemiEngine {
             Ok(res) if !res.trim().is_empty() => {
                 // Feed the latency gate so the next request can escalate if slow.
                 if engine_key == "llamacpp" {
-                    crate::routing::InferenceRouter::record_local_sample(
+                    crate::engines::routing::InferenceRouter::record_local_sample(
                         selected_model.as_deref().unwrap_or(""),
                         local_started.elapsed(),
                         res.len(),
@@ -293,7 +295,7 @@ impl GemiEngine {
     /// embeddings. `model_hint` names a preferred provider — it is tried
     /// first, and every other provider still tries in order after it.
     pub fn embed_text(text: &str, model_hint: Option<&str>) -> Result<Vec<f32>, String> {
-        crate::http_provider::register_configured_cloud_endpoints(
+        crate::engines::http_provider::register_configured_cloud_endpoints(
             crate::susi_core::registry::CapabilityRegistry::global(),
         );
         let registry = crate::susi_core::registry::CapabilityRegistry::global();
@@ -414,10 +416,12 @@ impl GemiEngine {
         let mut names: Vec<String> = registry
             .list_providers()
             .into_iter()
-            .filter(|n| n != "Candle (Local)" && !crate::http_provider::is_non_chat_model_id(n))
+            .filter(|n| {
+                n != "Candle (Local)" && !crate::engines::http_provider::is_non_chat_model_id(n)
+            })
             .collect();
         if crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference() {
-            names.retain(|n| !crate::routing::InferenceRouter::is_cloud_provider_name(n));
+            names.retain(|n| !crate::engines::routing::InferenceRouter::is_cloud_provider_name(n));
         }
         if names.is_empty() {
             return None;
@@ -438,12 +442,14 @@ impl GemiEngine {
             }
             names.sort_by_key(|n| {
                 let hit = n.to_ascii_lowercase().contains(&model_l);
-                let preferred = crate::routing::InferenceRouter::matches_preferred_cloud(n);
+                let preferred =
+                    crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (!hit, !preferred, Self::rank_provider_name(n), n.clone())
             });
         } else {
             names.sort_by_key(|n| {
-                let preferred = crate::routing::InferenceRouter::matches_preferred_cloud(n);
+                let preferred =
+                    crate::engines::routing::InferenceRouter::matches_preferred_cloud(n);
                 (!preferred, Self::rank_provider_name(n), n.clone())
             });
         }
@@ -451,7 +457,7 @@ impl GemiEngine {
         let runtime = Self::provider_runtime()?;
         let mut errors: Vec<String> = Vec::new();
         for name in names {
-            if crate::routing::InferenceRouter::provider_cooled(&name) {
+            if crate::engines::routing::InferenceRouter::provider_cooled(&name) {
                 continue;
             }
             let Some(provider) = registry.get_provider(&name) else {
@@ -459,7 +465,7 @@ impl GemiEngine {
             };
             match runtime.block_on(provider.generate(prompt)) {
                 Ok(text) if !text.trim().is_empty() => {
-                    crate::routing::InferenceRouter::record_provider_success(&name);
+                    crate::engines::routing::InferenceRouter::record_provider_success(&name);
                     if !errors.is_empty() {
                         eprintln!(
                             "[INFERENCE FAILOVER] Succeeded via {} after {} prior failure(s)",
@@ -474,14 +480,14 @@ impl GemiEngine {
                     return Some(text);
                 }
                 Ok(_) => {
-                    crate::routing::InferenceRouter::record_provider_failure(&name);
+                    crate::engines::routing::InferenceRouter::record_provider_failure(&name);
                     let detail = format!("{name}: empty response");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
                     errors.push(detail);
                 }
                 Err(e) => {
                     let msg = e.to_string();
-                    crate::routing::InferenceRouter::record_failure(&name, &msg);
+                    crate::engines::routing::InferenceRouter::record_failure(&name, &msg);
                     let detail = format!("{name}: {e}");
                     eprintln!("[INFERENCE FAILOVER] {detail}");
                     errors.push(detail);
@@ -512,7 +518,7 @@ impl GemiEngine {
         prompt: &str,
         workspace: &Path,
         callback: &dyn Fn(String),
-        min_complexity: Option<crate::intent::TaskComplexity>,
+        min_complexity: Option<crate::models::intent::TaskComplexity>,
     ) -> Option<String> {
         callback(
             "[SUSI] No local model provisioned yet - fetching a hardware-fit model to solve this intent...\n".to_string(),

@@ -51,7 +51,7 @@ mod service {
 
     use super::SusiConfig;
 
-    const DEFAULT_PORT: u16 = 18082;
+    const DEFAULT_PORT: u16 = susi_paths::ports::CONFIG_SERVICE;
     const TIMEOUT: Duration = Duration::from_millis(200);
 
     fn port() -> u16 {

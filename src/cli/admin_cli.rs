@@ -84,7 +84,7 @@ pub(crate) fn run(subcommand: AdminCommands, host: &MissionHost) {
                         .unwrap_or_default();
                 println!(
                     "- Model Ladder Steps: {}",
-                    susi_gemi::hf_discovery::resolve_model_ladder(&ladder_cfg).len()
+                    susi_gemi::models::hf_discovery::resolve_model_ladder(&ladder_cfg).len()
                 );
                 println!(
                     "- MCP Bootstrap Servers: {}",

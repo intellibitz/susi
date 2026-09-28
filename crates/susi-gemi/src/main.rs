@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use susi_gemi::engine::GemiEngine;
+use susi_gemi::engines::runtime::GemiEngine;
 use susi_gemi::susi_abi::cell::{cell_bind_addr, cell_ports, SwarmCell};
 use susi_gemi::susi_abi::swarm::SwarmRole;
 use susi_gemi::susi_abi::syscall::{

@@ -2,7 +2,7 @@
 // 100% Rust implementation for Native Intelligence Substrate
 // Competitive Inference Racing (unrelated to the release Motion Rule, identity.json Pillar IV item 3 — this file predates that name and reused it for a different concept)
 
-use crate::hardware::HardwareProfiler;
+use crate::models::hardware::HardwareProfiler;
 use crate::models::ModelManager;
 use crate::susi_error::{EaiError, EaiResult};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -239,8 +239,9 @@ pub(super) fn release_on_device<T>(
 }
 
 impl InferenceHost {
-    pub(super) fn cache() -> &'static crate::model_cache::ModelCache<ModelSubstrate> {
-        static CACHE: OnceLock<crate::model_cache::ModelCache<ModelSubstrate>> = OnceLock::new();
+    pub(super) fn cache() -> &'static crate::models::model_cache::ModelCache<ModelSubstrate> {
+        static CACHE: OnceLock<crate::models::model_cache::ModelCache<ModelSubstrate>> =
+            OnceLock::new();
         CACHE.get_or_init(|| {
             // Only processes that actually load models run the sweeper.
             let spawned = std::thread::Builder::new()
@@ -249,7 +250,7 @@ impl InferenceHost {
             if let Err(error) = spawned {
                 tracing::warn!(%error, "model idle sweeper did not start; idle models stay loaded");
             }
-            crate::model_cache::ModelCache::default()
+            crate::models::model_cache::ModelCache::default()
         })
     }
 
@@ -348,7 +349,7 @@ impl InferenceHost {
         let file_size = std::fs::metadata(&path)
             .map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX))
             .unwrap_or(0);
-        let device = crate::hardware::HardwareProfiler::get_dynamic_device(file_size);
+        let device = crate::models::hardware::HardwareProfiler::get_dynamic_device(file_size);
         let task = crate::susi_core::task_manager::SwarmTaskManager::global()
             .register_task("model_preload", &path.to_string_lossy());
         match Self::get_model(&path, &device, &task) {

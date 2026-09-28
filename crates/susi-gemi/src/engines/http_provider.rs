@@ -271,7 +271,7 @@ impl Provider for HttpProvider {
 }
 
 // Cloud env / endpoint metadata lives in susi-gemi-models (models must not
-// depend on engines). Re-export for existing `susi_gemi::http_provider::…` callers.
+// depend on engines). Re-export for existing `susi_gemi::engines::http_provider::…` callers.
 pub use susi_gemi_models::cloud::{
     cloud_env_path, effective_inference_endpoints, known_cloud_vendors, list_api_key_status,
     parse_env_file, remove_api_key, resolve_vendor_env_name,
@@ -284,9 +284,9 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     register_configured_cloud_endpoints(crate::susi_core::registry::CapabilityRegistry::global());
     // Zero-config sticky pick: first registered vendor becomes preferred unless
     // the user already chose one (so a single `keys set` / env key is enough).
-    let pref = crate::routing::InferenceRouter::load_preference();
+    let pref = crate::engines::routing::InferenceRouter::load_preference();
     if pref.preferred_cloud.is_none() {
-        let _ = crate::routing::InferenceRouter::set_preferred_cloud(vendor);
+        let _ = crate::engines::routing::InferenceRouter::set_preferred_cloud(vendor);
     }
     let registered: Vec<String> = crate::susi_core::registry::CapabilityRegistry::global()
         .list_providers()
@@ -304,10 +304,11 @@ pub fn register_api_key(vendor: &str, api_key: &str) -> Result<String, String> {
     } else {
         format!("Registered provider(s): {}", registered.join(", "))
     };
-    let prefer_note = match crate::routing::InferenceRouter::load_preference().preferred_cloud {
-        Some(p) => format!("\nPreferred cloud: {p}"),
-        None => String::new(),
-    };
+    let prefer_note =
+        match crate::engines::routing::InferenceRouter::load_preference().preferred_cloud {
+            Some(p) => format!("\nPreferred cloud: {p}"),
+            None => String::new(),
+        };
     Ok(format!(
         "Saved {} to {} (mode 600).\n{}{}",
         env_name,
@@ -433,11 +434,11 @@ pub fn register_configured_cloud_endpoints(
     let openrouter_key =
         crate::susi_config::env_or_cloud_env("OPENROUTER_API_KEY").unwrap_or_default();
     if !openrouter_key.is_empty()
-        && crate::routing::InferenceRouter::load_preference()
+        && crate::engines::routing::InferenceRouter::load_preference()
             .preferred_cloud
             .is_none()
     {
-        let _ = crate::routing::InferenceRouter::set_preferred_cloud("openrouter");
+        let _ = crate::engines::routing::InferenceRouter::set_preferred_cloud("openrouter");
     }
 
     register_model_catalog(registry);

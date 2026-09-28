@@ -13,6 +13,8 @@ pub enum NatStatus {
     Open,
     Symmetric,
     PortRestricted,
+    /// Public path is a TURN relay (XOR-RELAYED-ADDRESS or operator `SUSI_TURN_RELAY`).
+    TurnRelayed,
     Unknown,
 }
 
@@ -21,12 +23,17 @@ const BINDING_REQUEST: u16 = 0x0001;
 const BINDING_SUCCESS: u16 = 0x0101;
 const ATTR_MAPPED_ADDRESS: u16 = 0x0001;
 const ATTR_XOR_MAPPED_ADDRESS: u16 = 0x0020;
+const ATTR_XOR_RELAYED_ADDRESS: u16 = 0x0016;
+const TURN_ALLOCATE: u16 = 0x0003;
+const TURN_ALLOCATE_SUCCESS: u16 = 0x0103;
 const STUN_HEADER_LEN: usize = 20;
 
 /// Tracks the discovered public address and NAT classification.
 pub struct NatManager {
     status: RwLock<NatStatus>,
     public_ip: RwLock<Option<String>>,
+    last_error: RwLock<Option<String>>,
+    turn_relay: RwLock<Option<String>>,
 }
 
 impl Default for NatManager {
@@ -41,6 +48,8 @@ impl NatManager {
         Self {
             status: RwLock::new(NatStatus::Unknown),
             public_ip: RwLock::new(None),
+            last_error: RwLock::new(None),
+            turn_relay: RwLock::new(None),
         }
     }
 
@@ -48,6 +57,35 @@ impl NatManager {
     pub fn perform_discovery(&self, public_ip: &str, status: NatStatus) {
         *self.status.write().unwrap_or_else(|e| e.into_inner()) = status;
         *self.public_ip.write().unwrap_or_else(|e| e.into_inner()) = Some(public_ip.to_string());
+        *self.last_error.write().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    /// Record a STUN/TURN failure without pretending the mapping is Open.
+    pub fn record_error(&self, error: impl Into<String>) {
+        *self.last_error.write().unwrap_or_else(|e| e.into_inner()) = Some(error.into());
+    }
+
+    /// Last STUN/TURN error, if discovery failed or stayed Unknown.
+    pub fn last_error(&self) -> Option<String> {
+        self.last_error
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Relayed host:port advertised when STUN classified Symmetric or failed.
+    pub fn turn_relay(&self) -> Option<String> {
+        self.turn_relay
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn set_turn_relay(&self, relay: SocketAddr) {
+        *self.turn_relay.write().unwrap_or_else(|e| e.into_inner()) = Some(relay.to_string());
+        *self.status.write().unwrap_or_else(|e| e.into_inner()) = NatStatus::TurnRelayed;
+        *self.public_ip.write().unwrap_or_else(|e| e.into_inner()) = Some(relay.ip().to_string());
+        *self.last_error.write().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// Discover the public address and NAT type by sending STUN Binding
@@ -100,6 +138,95 @@ impl NatManager {
         Ok(status)
     }
 
+    /// Resolve public STUN servers and classify this host (2s per server).
+    ///
+    /// # Errors
+    /// Fails when DNS yields no addresses or no server answers.
+    pub fn discover_default(&self) -> Result<NatStatus, String> {
+        use std::net::ToSocketAddrs;
+        const SERVERS: [&str; 2] = ["stun.l.google.com:19302", "stun.cloudflare.com:3478"];
+        let mut addrs = Vec::new();
+        for host in SERVERS {
+            if let Ok(iter) = host.to_socket_addrs() {
+                addrs.extend(iter.take(1));
+            }
+        }
+        if addrs.is_empty() {
+            let err = "STUN DNS produced no addresses".to_string();
+            self.record_error(&err);
+            return Err(err);
+        }
+        match self.discover(&addrs, Duration::from_secs(2)) {
+            Ok(status) => Ok(status),
+            Err(e) => {
+                self.record_error(&e);
+                Err(e)
+            }
+        }
+    }
+
+    /// TURN Allocate (RFC 5766) against `SUSI_TURN_SERVER`, or adopt
+    /// `SUSI_TURN_RELAY` as an already-allocated relay. Does not invent a
+    /// mapping when neither is set.
+    ///
+    /// # Errors
+    /// Fails when no TURN config is present, DNS fails, or Allocate does not
+    /// return XOR-RELAYED-ADDRESS (typical for servers that require
+    /// MESSAGE-INTEGRITY long-term credentials).
+    pub fn allocate_turn_from_env(&self) -> Result<SocketAddr, String> {
+        if let Ok(relay) = std::env::var("SUSI_TURN_RELAY") {
+            let relay = relay.trim();
+            if !relay.is_empty() {
+                let addr: SocketAddr = relay
+                    .parse()
+                    .map_err(|e| format!("SUSI_TURN_RELAY parse: {e}"))?;
+                self.set_turn_relay(addr);
+                return Ok(addr);
+            }
+        }
+        let server = std::env::var("SUSI_TURN_SERVER").map_err(|_| {
+            "no TURN path: set SUSI_TURN_SERVER=host:port or SUSI_TURN_RELAY=ip:port".to_string()
+        })?;
+        let server = server.trim();
+        if server.is_empty() {
+            return Err("SUSI_TURN_SERVER is empty".to_string());
+        }
+        use std::net::ToSocketAddrs;
+        let addr = server
+            .to_socket_addrs()
+            .map_err(|e| format!("TURN DNS: {e}"))?
+            .next()
+            .ok_or_else(|| "TURN DNS produced no addresses".to_string())?;
+        match turn_allocate(addr, Duration::from_secs(2)) {
+            Ok(relayed) => {
+                self.set_turn_relay(relayed);
+                Ok(relayed)
+            }
+            Err(e) => {
+                self.record_error(format!(
+                    "TURN Allocate failed ({e}); long-term MESSAGE-INTEGRITY is not implemented — set SUSI_TURN_RELAY to an allocated relay"
+                ));
+                Err(e)
+            }
+        }
+    }
+
+    /// Last classified NAT behaviour (`Unknown` until discovery).
+    pub fn status(&self) -> NatStatus {
+        self.status
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Last discovered public IP, if any.
+    pub fn public_ip(&self) -> Option<String> {
+        self.public_ip
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     /// Generates a valid multiaddr for external peers to reach this daemon,
     /// factoring in the discovered NAT rules.
     ///
@@ -110,7 +237,25 @@ impl NatManager {
         let ip = self.public_ip.read().unwrap_or_else(|e| e.into_inner());
 
         if *status == NatStatus::Symmetric {
+            if let Some(relay) = self
+                .turn_relay
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+            {
+                return Ok(format!("/ip4/{relay}/udp/turn"));
+            }
             return Err("Symmetric NAT detected. Direct P2P requires a TURN relay.".to_string());
+        }
+
+        if *status == NatStatus::TurnRelayed
+            && let Some(relay) = self
+                .turn_relay
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+        {
+            return Ok(format!("/ip4/{relay}/udp/turn"));
         }
 
         match ip.as_ref() {
@@ -146,7 +291,13 @@ pub fn stun_binding(socket: &UdpSocket, server: SocketAddr) -> Result<SocketAddr
         if from != server {
             continue;
         }
-        match parse_binding_response(buf.get(..n).unwrap_or_default(), &txid) {
+        match parse_stun_success(
+            buf.get(..n).unwrap_or_default(),
+            &txid,
+            BINDING_SUCCESS,
+            ATTR_XOR_MAPPED_ADDRESS,
+            ATTR_MAPPED_ADDRESS,
+        ) {
             Some(addr) => return Ok(addr),
             None => return Err(format!("malformed STUN response from {server}")),
         }
@@ -157,9 +308,26 @@ fn be_u16(bytes: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes([*bytes.get(at)?, *bytes.get(at + 1)?]))
 }
 
-/// Parse a Binding success response, preferring XOR-MAPPED-ADDRESS.
+/// Parse a STUN/TURN success response, preferring `xor_attr` then `plain_attr`.
+#[cfg(test)]
 fn parse_binding_response(msg: &[u8], txid: &[u8; 12]) -> Option<SocketAddr> {
-    if be_u16(msg, 0)? != BINDING_SUCCESS
+    parse_stun_success(
+        msg,
+        txid,
+        BINDING_SUCCESS,
+        ATTR_XOR_MAPPED_ADDRESS,
+        ATTR_MAPPED_ADDRESS,
+    )
+}
+
+fn parse_stun_success(
+    msg: &[u8],
+    txid: &[u8; 12],
+    success_type: u16,
+    xor_attr: u16,
+    plain_attr: u16,
+) -> Option<SocketAddr> {
+    if be_u16(msg, 0)? != success_type
         || msg.get(4..8)? != STUN_MAGIC_COOKIE.to_be_bytes()
         || msg.get(8..20)? != txid
     {
@@ -174,15 +342,62 @@ fn parse_binding_response(msg: &[u8], txid: &[u8; 12]) -> Option<SocketAddr> {
         let attr = be_u16(body, at)?;
         let len = usize::from(be_u16(body, at + 2)?);
         let value = body.get(at + 4..at + 4 + len)?;
-        match attr {
-            ATTR_XOR_MAPPED_ADDRESS => return decode_address(value, Some(txid)),
-            ATTR_MAPPED_ADDRESS => plain = decode_address(value, None),
-            _ => {}
+        if attr == xor_attr {
+            return decode_address(value, Some(txid));
+        }
+        if attr == plain_attr {
+            plain = decode_address(value, None);
         }
         // Attributes are padded to 4-byte boundaries.
         at += 4 + len.div_ceil(4) * 4;
     }
     plain
+}
+
+/// RFC 5766 Allocate without MESSAGE-INTEGRITY (open relays only).
+fn turn_allocate(server: SocketAddr, timeout: Duration) -> Result<SocketAddr, String> {
+    let bind: SocketAddr = if server.is_ipv4() {
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
+    } else {
+        SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+    };
+    let socket = UdpSocket::bind(bind).map_err(|e| format!("bind TURN socket: {e}"))?;
+    socket
+        .set_read_timeout(Some(timeout))
+        .map_err(|e| format!("set TURN timeout: {e}"))?;
+    let mut txid = [0u8; 12];
+    getrandom::fill(&mut txid).map_err(|e| format!("TURN transaction id: {e}"))?;
+    let mut request = Vec::with_capacity(STUN_HEADER_LEN);
+    request.extend_from_slice(&TURN_ALLOCATE.to_be_bytes());
+    request.extend_from_slice(&0u16.to_be_bytes());
+    request.extend_from_slice(&STUN_MAGIC_COOKIE.to_be_bytes());
+    request.extend_from_slice(&txid);
+    socket
+        .send_to(&request, server)
+        .map_err(|e| format!("TURN send to {server}: {e}"))?;
+    let mut buf = [0u8; 576];
+    loop {
+        let (n, from) = socket
+            .recv_from(&mut buf)
+            .map_err(|e| format!("TURN recv from {server}: {e}"))?;
+        if from != server {
+            continue;
+        }
+        match parse_stun_success(
+            buf.get(..n).unwrap_or_default(),
+            &txid,
+            TURN_ALLOCATE_SUCCESS,
+            ATTR_XOR_RELAYED_ADDRESS,
+            ATTR_XOR_RELAYED_ADDRESS,
+        ) {
+            Some(addr) => return Ok(addr),
+            None => {
+                return Err(format!(
+                    "TURN Allocate rejected or unauthenticated at {server}"
+                ));
+            }
+        }
+    }
 }
 
 /// Decode a (XOR-)MAPPED-ADDRESS value; `xor_txid` set means XOR-encoded.

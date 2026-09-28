@@ -64,13 +64,15 @@ never consume an unterminated source tail.
 | Crate | Responsibility | Public API (shape) | May import | Must not import | Replaceable at runtime | Owns state | I/O |
 |-------|----------------|--------------------|------------|-----------------|------------------------|------------|-----|
 | `susi-abi` | Swarm OS ABI: AI syscalls, stigmergic pheromones, evidence receipts, wire framing; optional `cell-server` TCP loop | `SyscallOp`, `SwarmPheromone`, `ToolReceipt`, `WireFrame`, `cell_server` (feature) | std, serde, serde_json; tokio behind `cell-server` | all workspace crates | no | no | cell TCP when featured |
-| `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports`, `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
-| `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
+| `susi-paths` | Host path/port contract and its service-backed client (served on `:18080` by `susi-leaf-services`); XDG / substrate paths + host-contract ports, both host bearer policies | `SusiDirs` (service with local fallback), `ports` (host contract 9090–9094, gossip 9095, and the leaf-service defaults `PATHS_SERVICE`…`NATIVE_SERVICE` 18080–18084), `loopback` (the one std-only loopback HTTP/1.0 client every leaf-service client uses: `Endpoint`, `request`, `service_port`, `local_env_override`), `local_paths_json`/`ports_json`, `host_token`/`with_bearer`/`bearer_authorized`/`supervisor_bearer_authorized` | std, serde_json (per-OS user dirs are a std-only `xdg` module) | everything else | no | no | reads env for XDG |
+| `susi-error` | Stable error model + metrics sink (served on `:18081` by `susi-leaf-services`) | `EaiError`, `EaiResult`, `rewrap`, `ResultExt` (`context`/`with_context`, kind-preserving), `eai_err!`/`eai_bail!`, metrics sink, offset-aware service-backed event reporter (`service_port`), `append_posted_event`/`recent_error_entries` | `susi-paths`, std, serde, serde_json | candle, HTTP, feature crates | no | append-only metrics file | yes (metrics) |
 | `susi-core` | Domain + ports (kernel ABI): Evidence, Truth, Provider, Tool, CapabilityRegistry, **`plane_bus`** facades + `plane_bus_ipc` rendezvous | traits + ledger types + `plane_bus::{gemi,gawd,tools,agents}` | `susi-abi`; `susi-paths`, `susi-error`, `susi-config`; `susi-adapters-llm` (re-export `inference_wire`); `susi-http-transport` (MCP session client); std, serde, concurrency libs | feature planes; HTTP client crates | providers/tools via registry | process registry | receipt archive paths |
 | `susi-vendor-wasmer` | The one wasmer crate: WASI reflex host for the `susi-native` leaf service (`:18084`, HTTP shell in `susi-leaf-services`) + the metered, memory-capped in-process cell runtime and plugin-module validation the daemon uses | `wasm::WasmHost`, `cell::{WasmCell, spawn_wasm_cell, validate_module}` | `susi-error`; wasmer, wasmer-wasix, wasmer-middlewares, wasm-encoder | feature planes (they use `susi-native-client`) | Wasm modules | instance | yes |
 | `susi-native-client` | First-party typed IPC client for `susi-native` | client `WasmHost` | `susi-error`, `susi-paths`, serde_json | Wasmer, feature planes | no | no | loopback HTTP |
 | `susi-config` | `SusiConfig` + extension packs + versioned JSON store (served on `:18082` by `susi-leaf-services`) | `SusiConfig`, `extensions`, `VersionedJsonStore`, `enter_service_mode` | `susi-paths`, `susi-error`; serde, cluster-key crypto | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Docker (bollard) integration for the `:18083` leaf service (HTTP shell in `susi-leaf-services`); re-exports the client's helpers | `execute_in_docker`, re-exported `SandboxManager`, `manager` | `susi-error`, `susi-config`, `susi-sandbox-client`; bollard, tokio (time) | feature crates | Docker optional | config files | yes |
+| `susi-dsh-cell` | Swarm cell binary wrapping the DeepSeek Harness CLI (`dsh --prompt`) as `inference`/`dsh` capabilities on the shared `susi-abi` cell loop; every syscall requires `SUSI_CELL_TOKEN` | binary only | `susi-abi` (`cell-server`); tokio | workspace crates | no | no | yes (spawns `dsh`) |
+| `susi-universal-cell` | Swarm cell binary that serves any ecosystem plugin described by a JSON manifest (role → `SwarmRole`, capabilities, command) on the shared cell loop; spawned by daemon auto-discovery for executable plugins | binary only | `susi-abi` (`cell-server`); serde, tokio | workspace crates | no | no | yes (spawns the plugin) |
 | `susi-leaf-services` | The one axum crate for the five leaf services: runtime/bind helper, both bearer policies as middleware, per-service routers, `service-run` dispatch, and the `susi-{paths,error,config,sandbox,native}` binaries (ports from `LEAF_SERVICES`) | `serve(name, port)`, `run_standalone(name)` | `susi-paths`, `susi-error`, `susi-config`, `susi-core`, `susi-sandbox`, `susi-sandbox-client`, `susi-vendor-wasmer`; axum, tokio | feature planes | no | no | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` / `http_post_utf8` | `dual_transport`, `http_conn`, `http_call`, `http_post_utf8`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
@@ -91,8 +93,9 @@ never consume an unterminated source tail.
 | `susi-vendor-fastembed` | One process-wide fastembed model (ONNX) behind `embed` / `embed_one`; cached load failure is visible to provider health | `embed`, `embed_one`, `load_failed` | `susi-error`; fastembed (hf-hub + rustls ORT download) | workspace crates | no | model cache | no |
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; headless_chrome | workspace crates | Chrome/Chromium | no | no |
+| `susi-vendor-cloud` | Provision/manage local+cloud hosts via operator CLIs (no AWS/GCP/K8s SDK) | `probe_all`, `list_nodes`, `apply_manifest` | std `Command` | `susi-daemon` | kubectl/docker/aws/gcloud/az | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
-| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; production swarm host is wired from the live composition root (38 of 72 modules reachable; 34 remain self-tested-only) | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID | yes |
+| `susi-daemon` | Persistent host: HMAC gossip 9095 + persisted caps, egress-gated STUN / env-TURN, live OS-plane ticks including cloud CLI inventory, `os_planes.json` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-vendor-cloud` + `susi-abi` + server + tools + agents; `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
@@ -627,8 +630,133 @@ unauthenticated gossip plus ungated STUN. Docs (this file, `README.md`,
 | 198 | STUN DNS failure was untyped | `discover_default` errors when DNS yields no addresses |
 | 199 | First tick waited 30s | immediate tick inside `start_os_plane_ticks` |
 | 200 | Iteration ledger stopped at 154 | this table through 200 |
-| 201 | OS-plane reachability claims were built from probes and discarded results | retracted; no default gossip/STUN startup, ceiling remains 34, vendor MCP-server split retained |
-| 202 | `swarm_host_snapshot` used empty scheduler input, synthetic fallback/gateway results, and a runbooks-directory check to claim four live modules | probes removed; 38/72 modules are production-reachable and 34 remain self-tested-only |
-| 203 | Cluster peer RTT/uptime fields were serialized as measured zeros | RTT comes from signed ping/pong; each nonce is accepted once per node within a bounded window; uptime remains unknown until the wire carries it |
-| 204 | Candle and fastembed providers reported healthy unconditionally | Candle checks for a selectable local model via `spawn_blocking`; fastembed health reflects a cached load failure |
-| 205 | Host-token seeding swallowed every failure: a weak pid/time fallback could mint the token, a losing seed race overwrote the winner's file, and callers discarded errors | `ensure_api_auth_token_seeded` now returns `EaiResult`: CSPRNG failure is an error, symlink/empty/unreadable token paths abort, `O_EXCL` install keeps the winner's token; the daemon refuses to bind ports or spawn leaf services/cells, and leaf mains propagate the failure |
+| 201 | Gossip UDP was plaintext | HMAC-SHA256 seal (`susi-gossip-v1` over cluster key) |
+| 202 | No cluster key meant unsigned gossip | process-local MAC fallback; `auth_mode` is `cluster`, `local`, or `none` (entropy failure → sealing/ingress fail closed, no known zero key) |
+| 203 | Spoofed AdvertiseCapabilities entered the table | `open` rejects unsigned and MAC-mismatch; `rejected_count` |
+| 204 | Advertise/PeerDiscovery sent raw JSON | `advertise` and fanout send sealed datagrams |
+| 205 | Recv path did not verify | `ingest` / `poll_recv` only parse after MAC check |
+| 206 | Gossip tests used unsigned payloads | tests seal; unsigned test asserts reject |
+| 207 | Capabilities died on daemon restart | `GossipManager::with_store(gossip_caps.json)` loads/saves |
+| 208 | Persist had no parent dir | `create_dir_all` before write |
+| 209 | Fanout did not persist | `fanout_to_cluster` persists after send |
+| 210 | Snapshot omitted gossip auth | `gossip_auth`, `gossip_peers`, `gossip_rejected` on `os_planes.json` |
+| 211 | STUN DNS/timeout left status Unknown with no reason | `record_error` / `last_error` |
+| 212 | `discover_default` swallowed the error string | stores it then returns Err |
+| 213 | Symmetric NAT had no relay path | `allocate_turn_from_env` |
+| 214 | TURN required inventing an SDK | std UDP Allocate (RFC 5766) in `nat.rs` |
+| 215 | Authenticated TURN (MESSAGE-INTEGRITY) not implemented | honest error; operator sets `SUSI_TURN_RELAY` |
+| 216 | Operator-allocated relay unused | `SUSI_TURN_RELAY=ip:port` adopted as `TurnRelayed` |
+| 217 | `SUSI_TURN_SERVER` unused | DNS + Allocate; XOR-RELAYED-ADDRESS on success |
+| 218 | `NatStatus` had no relayed class | `TurnRelayed` |
+| 219 | `generate_external_multiaddr` failed on Symmetric even with a relay | uses turn relay when present |
+| 220 | Snapshot omitted TURN/STUN error | `nat_stun_error`, `nat_turn_relay` |
+| 221 | NAT thread only ran STUN | `spawn_nat_discovery`: STUN then TURN on Symmetric/error |
+| 222 | Honesty sweep dropped 13 planes as discarded probes | held on `HostControlPlanes` with real host grants/state |
+| 223 | `contract` construct-only | register Json contract; tick `validate_input` |
+| 224 | `mount` construct-only | host `mount` grant; mount workspace at `/workspace` |
+| 225 | `vfs` construct-only | tick `open /dev/llm` under `infer` |
+| 226 | `offline_queue` construct-only | Mutex queue; online when NAT is not Unknown |
+| 227 | `negotiation` construct-only | offer → accept → commit across ticks |
+| 228 | `migration` construct-only | `prepare_migration` / `receive_migration` of tick bytes |
+| 229 | `lineage` construct-only | `spawn_child` for `susi-host/child` held |
+| 230 | `execution_mode` construct-only | Reactive binding; tick `woken_by(Event)` |
+| 231 | `scaffold` construct-only | Ops manifest; tick updates `last_heartbeat` |
+| 232 | `auto_tune` empty-input probe | `apply_tune` on live `SwarmMetrics` + `ElasticScheduler` |
+| 233 | `org_policy` empty-input probe | stored Allow rule; tick `decide(tool:git)` |
+| 234 | `packages` empty-input probe | catalog has `susi@0`; tick `resolve` |
+| 235 | `workloads` empty-input probe | Engineering complete with tick evidence id |
+| 236 | Policy was root-only | grants include mount/infer/net:peers/blackboard/tool:* |
+| 237 | Unwired ceiling restored to 13 | ceiling 0; assert `dead.is_empty()` (clippy forbids `len()<=0`) |
+| 238 | Identity still listed 13 compiled-only modules | all 72 reachable |
+| 239 | AGENTS.md ratchet still said 13 of 72 | 0 of 72 |
+| 240 | No cloud VM/k8s provision crate | `susi-vendor-cloud` (Command only) |
+| 241 | Cloud APIs in core would violate isolation | vendor crate; daemon depends on it |
+| 242 | Kubernetes SDK would pull HTTP into OS | `kubectl` subprocess |
+| 243 | Docker SDK would pull HTTP into OS | `docker` subprocess |
+| 244 | AWS SDK would pull HTTP into OS | `aws` CLI |
+| 245 | GCP SDK would pull HTTP into OS | `gcloud` CLI |
+| 246 | Azure SDK would pull HTTP into OS | `az` CLI |
+| 247 | Tick must not hit cloud APIs unsolicited | tick `probe_all` (version only) |
+| 248 | List/apply stay explicit | `list_nodes` / `apply_manifest` (kubectl apply -f -) |
+| 249 | Inventory not in `susi os` | `cloud` array on `os_planes.json` |
+| 250 | Leaf rank omitted vendor-cloud | `("susi-vendor-cloud", 0)` |
+| 251 | AGENTS forbid(unsafe) omitted it | added |
+| 252 | Workspace members omitted it | member + workspace.dep |
+| 253 | Daemon Cargo.toml omitted it | `susi-vendor-cloud` dependency |
+| 254 | README vendor list omitted it | vendor-cloud row |
+| 255 | ARCHITECTURE crate table omitted it | vendor-cloud + daemon cloud inventory |
+| 256 | Elastic scheduler unused by the tick | held; `target_concurrency` in report |
+| 257 | Child cell unused after spawn | `child_cell` in report |
+| 258 | Negotiation phase invisible | `negotiation_phase` in report |
+| 259 | Gossip bind still used `GossipManager::new` | `with_store` at daemon wire |
+| 260 | Timestamp in advertise used `unwrap_or_default` on duration | `map(as_secs).unwrap_or(0)` |
+| 261 | TURN parse duplicated Binding parser | `parse_stun_success` shared |
+| 262 | Binding test helper vanished | `#[cfg(test)] parse_binding_response` |
+| 263 | Cloud probe summaries unbounded | truncated to 240 chars |
+| 264 | `apply_manifest` on non-k8s would lie | explicit kubectl-only error |
+| 265 | Mutex poison on offline/negotiation/cloud | `into_inner` on tick |
+| 266 | Host tick did not mention `elastic_scheduler` | `crate::elastic_scheduler` held |
+| 267 | Host tick did not mention `swarm_metrics` | live `SwarmMetrics` snapshot |
+| 268 | Host tick did not mention `sla_monitor` | `SlaTargets::default` into `apply_tune` |
+| 269 | `os_planes` omitted driven cloud/gossip auth | fields above |
+| 270 | Mandate 45 still described unsigned gossip / STUN-only NAT | HMAC gossip, TURN, vendor-cloud |
+| 271 | STUN Unknown was indistinguishable from “not tried” | `nat_stun_error` |
+| 272 | Relayed multiaddr unused in P2P table | existing tick `add_peer` uses `generate_external_multiaddr` |
+| 273 | Gossip MAC compared with `==` only | XOR-fold mismatch |
+| 274 | Persist JSON maps unsorted | capabilities sorted per cell |
+| 275 | Offline queue ignored NAT | `set_online` when NAT is known |
+| 276 | Mount had no host path | substrate workspace at `/workspace` readonly |
+| 277 | VFS open had no infer grant | grant added at activate |
+| 278 | Contract deny-by-default with no registration | Json in/out registered for `susi-host` |
+| 279 | Workload complete with empty evidence would always refuse | tick evidence id `os-tick-{n}` |
+| 280 | Package resolve of missing name would error every tick | catalog contains `susi@0` |
+| 281 | Auto-tune Hold on empty swarm is honest | no fake missions_completed |
+| 282 | CloudKind exhaustive match for apply | Docker/Aws/Gcp/Azure error arm |
+| 283 | Gossip `handle_gossip` still accepted raw JSON | sealed-only |
+| 284 | Recv buffer 2048 could truncate | unchanged (UDP MTU); MAC covers received bytes |
+| 285 | `GOSSIP` still not in `ALL` | 9092 remains A2A discovery |
+| 286 | Identity design principle 7 unchanged | still RSI swarm AI OS |
+| 287 | Evidence id after honesty 307 | EV-2022928-308 |
+| 288 | Fast-forward merge of origin/main honesty commit | started 201 from `004b2312` |
+| 289 | Duplicate HMAC vs audit log | gossip uses same `cluster_key::hmac_sha256` |
+| 290 | No new HTTP client in daemon | vendor-cloud is Command-only |
+| 291 | `probe_all` order stable | Kubernetes, Docker, Aws, Gcp, Azure |
+| 292 | `list_nodes` kubectl uses `--request-timeout=3s` | bounded |
+| 293 | Azure/AWS list not called from tick | version probe only |
+| 294 | Scaffold heartbeat 0 at start | tick writes unix_secs |
+| 295 | Lineage child caps intersect parent | requested `infer` held by parent |
+| 296 | Execution trigger Event matches Reactive | host binding is Reactive |
+| 297 | Migration checkpoint is tick counter bytes | not a fake WASM heap |
+| 298 | Negotiation cannot commit before accept | tick advances one phase per 30s |
+| 299 | Unwired ratchet documentation vs code | AGENTS/identity/architecture agree at 0 |
+| 300 | Iteration ledger stopped at 200 | this table through 300 |
+| 301 | Devin branch: OS-plane reachability claims were built from probes and discarded results | retracted on the Devin branch in parallel; main later kept the planes with real held managers + tick side effects — merged keeping main's structure plus egress gating and fail-closed gossip key |
+| 302 | `swarm_host_snapshot` used empty scheduler input, synthetic fallback/gateway results, and a runbooks-directory check to claim four live modules | scheduler probe already removed on main; the remaining three probes (fallback, self_healing, http_gateway) were the only references to their modules — probes and modules deleted together, keeping the zero-unreachable ratchet honest |
+| 303 | Cluster peer RTT/uptime fields were serialized as measured zeros | RTT comes from signed ping/pong; each nonce is accepted once per node within a bounded window; uptime remains unknown until the wire carries it (convergent with main's honesty pass) |
+| 304 | Candle and fastembed providers reported healthy unconditionally | Candle checks for a selectable local model via `spawn_blocking`; fastembed health reflects a cached load failure (convergent with main) |
+| 305 | Host-token seeding swallowed every failure: a weak pid/time fallback could mint the token, a losing seed race overwrote the winner's file, and callers discarded errors | `ensure_api_auth_token_seeded` now returns `EaiResult`: CSPRNG failure is an error, symlink/empty/unreadable token paths abort, `O_EXCL` install keeps the winner's token; the daemon refuses to bind ports or spawn leaf services/cells, and leaf mains propagate the failure |
+| 306 | Boot audit recorded only the `root` host grant; cloud CLIs re-probed every 30s; STUN ran without an egress check | all three real grants logged; cloud re-probe every 20th tick; STUN/TURN gated on `egress_permitted` or explicit `SUSI_TURN_*` |
+
+## Claude RSI run (2026-09-28, iterations 1-100)
+
+Worked on branch `rsi/claude-100-iterations` in its own worktree, landed on
+`main` at every macro step (19 commits, +3282/-6396 lines), alongside the
+Cursor and Devin runs. Evidence: EV-2022928-296..302, 307, 308, 310-319.
+
+| Area | Result |
+|---|---|
+| Leaf services | one axum crate (`susi-leaf-services`) for paths/error/config/sandbox/native; foundation crates carry no HTTP framework or tokio; `/healthz` on every service |
+| Vendor isolation | `susi-vendor-{wasmer,mcp,tantivy,fastembed,chrome,syn}`: each third-party SDK in one crate exposing SUSI-shaped calls; HTTP-client rule is an allow-list over `crates/` |
+| Dependencies | 64 dead declarations removed; `directories`, `once_cell`, `md5`, `crossbeam` dropped; `susi-paths` depends only on `serde_json` |
+| Duplicates | one loopback client (`susi_paths::loopback`), one endpoint lookup, one override store, one port table (`ports::*_SERVICE`), one error model (no `anyhow` in any library crate), one path per module (susi-gemi alias layer removed), 30 unreachable daemon modules removed |
+| Honesty (Mandate 1) | no tree-sitter claim, real registry checksum and peer RTT, real health checks, no discarded-probe wiring, capability-gap replies state what a reflex does and does not do |
+| RSI loop | capability gaps and recurring mission intents get model-written WASI reflexes, published only after they parse, compile and run in the sandbox; probe fallback reports the gap as open |
+| Instance isolation | every leaf-service client honours the port offset (dev instance never reaches the release services) |
+
+Open (not done in this run): tests were deferred by operator instruction;
+reflex output correctness is not verified (only execution); the
+`audit_log`/`logger` daemon modules duplicate the signed audit chain and
+the tracing sink (removal was blocked by the session's permission
+classifier and needs an operator decision); `MacPolicy` vs the daemon's
+`CapabilityPolicy` are two capability models at different layers.
+

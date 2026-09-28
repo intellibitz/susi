@@ -1,7 +1,7 @@
-use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result, ResultExt as Context};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CatalogKind {

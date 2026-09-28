@@ -3,9 +3,9 @@
 //! Task lifecycle reuses [`super::AgentManager`]. Headless local runs use
 //! `--problem_statement.text` + `--env.repo.path` + `--actions.apply_patch_locally`.
 
-use anyhow::{bail, Result};
 use serde_json::json;
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 

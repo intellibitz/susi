@@ -518,9 +518,9 @@ impl InferenceRouter {
             };
             if let Some(http) = provider
                 .as_any()
-                .downcast_ref::<crate::http_provider::HttpProvider>()
+                .downcast_ref::<crate::engines::http_provider::HttpProvider>()
             {
-                if crate::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
+                if crate::engines::http_provider::HttpProvider::is_remote_cloud(&http.api_base) {
                     clouds.push(name);
                     continue;
                 }
@@ -662,7 +662,7 @@ impl InferenceRouter {
     }
 
     fn cpu_only_host() -> bool {
-        let profile = crate::hardware::HardwareProfiler::get_profile();
+        let profile = crate::models::hardware::HardwareProfiler::get_profile();
         profile.gpu_vram_gb == 0
             && !profile.gpu_info.to_ascii_lowercase().contains("cuda")
             && !profile.gpu_info.to_ascii_lowercase().contains("metal")
@@ -1347,21 +1347,21 @@ mod tests {
         }
 
         let registry = CapabilityRegistry::new();
-        registry.register_provider(crate::http_provider::HttpProvider {
+        registry.register_provider(crate::engines::http_provider::HttpProvider {
             name: "openai-gpt-4o-mini".into(),
             api_base: "https://api.openai.com/v1".into(),
             model: "gpt-4o-mini".into(),
-            protocol: crate::http_provider::InferenceProtocol::OpenAiChat,
+            protocol: crate::engines::http_provider::InferenceProtocol::OpenAiChat,
             api_key: String::new(),
         });
-        registry.register_provider(crate::http_provider::HttpProvider {
+        registry.register_provider(crate::engines::http_provider::HttpProvider {
             name: "deepseek-deepseek-chat".into(),
             api_base: "https://api.deepseek.com/v1".into(),
             model: "deepseek-chat".into(),
-            protocol: crate::http_provider::InferenceProtocol::OpenAiChat,
+            protocol: crate::engines::http_provider::InferenceProtocol::OpenAiChat,
             api_key: String::new(),
         });
-        registry.register_provider(crate::http_provider::HttpProvider::openai_local(
+        registry.register_provider(crate::engines::http_provider::HttpProvider::openai_local(
             "ollama-llama3",
             "http://127.0.0.1:11434/v1",
             "llama3",

@@ -37,9 +37,12 @@ impl SusiRuntimeAdmin {
             let _ = Self::perform_host_readiness(&home);
 
             let mut last_pulse = std::time::Instant::now();
+            let mut tuned_at_completed = 0usize;
             loop {
                 // 1. Hardware Load Watchdog (High-Resolution)
                 Self::perform_hardware_watchdog_audit(&home, &blackboard, &elastic_scheduler);
+                // 1b. SLA-driven auto-tune over the live task table.
+                Self::perform_auto_tune(&blackboard, &elastic_scheduler, &mut tuned_at_completed);
 
                 // 2. Periodic host readiness (hourly) — not project work.
                 // Each pulse runs a full 23-agent security-sweep mission;
@@ -122,6 +125,58 @@ impl SusiRuntimeAdmin {
             ttl_ms: 60_000,
             deposited_at: now_secs(),
         });
+    }
+
+    /// SLA-driven concurrency tuning (auto_tune, Bullet 74) from the live
+    /// task table: checks the SLA (depositing `sla.violation` on a miss),
+    /// then applies one tune step to the same scheduler the stress signal
+    /// drives — but only when new missions completed since the last step, so
+    /// one stale sample cannot ratchet concurrency every cycle. The SLA's
+    /// only target is the system's own bound on a mission, the execution
+    /// lease; no success-rate target is invented.
+    fn perform_auto_tune(
+        blackboard: &SwarmBlackboard,
+        elastic_scheduler: &ElasticScheduler,
+        tuned_at_completed: &mut usize,
+    ) {
+        let tasks = susi_core::task_manager::SwarmTaskManager::global().list_tasks();
+        let snapshot = crate::swarm_metrics::snapshot_from_tasks(&tasks);
+        if snapshot.missions_completed <= *tuned_at_completed {
+            // Also re-arm after the bounded task table evicts old records.
+            *tuned_at_completed = (*tuned_at_completed).min(snapshot.missions_completed);
+            return;
+        }
+        *tuned_at_completed = snapshot.missions_completed;
+        let lease_secs = susi_config::SusiConfig::load_global()
+            .unwrap_or_default()
+            .execution_lease_secs();
+        let targets = crate::sla_monitor::SlaTargets {
+            max_avg_resolution_ms: Some(lease_secs.saturating_mul(1000)),
+            min_success_rate: None,
+        };
+        blackboard.check_sla_and_alert(&snapshot, &targets);
+        let before = elastic_scheduler.target_concurrency();
+        let advice = crate::auto_tune::advise(&snapshot, &targets);
+        let after = crate::auto_tune::apply_tune(elastic_scheduler, &snapshot, &targets);
+        if after != before {
+            blackboard.deposit_pheromone(SwarmPheromone {
+                id: format!("scheduler-autotune-{}", now_secs()),
+                topic: "scheduler.target_concurrency".to_string(),
+                emitter_id: "susi-auto-tune".to_string(),
+                kind: PheromoneKind::Observation,
+                intensity: 1.0,
+                payload: serde_json::json!({
+                    "target_concurrency": after,
+                    "previous": before,
+                    "reason": advice.reason,
+                    "missions_completed": snapshot.missions_completed,
+                    "missions_succeeded": snapshot.missions_succeeded,
+                    "avg_time_to_resolution_ms": snapshot.avg_time_to_resolution_ms,
+                }),
+                ttl_ms: 60_000,
+                deposited_at: now_secs(),
+            });
+        }
     }
 
     /// Best-effort local scan of `substrate_home` for exfiltration risk:
@@ -221,7 +276,7 @@ impl SusiRuntimeAdmin {
 
     /// Hardware saturation audit, drift detection, and model substrate tuning.
     pub fn perform_substrate_audit(workspace: &Path) -> EaiResult<()> {
-        let profile = susi_gemi::hardware::HardwareProfiler::get_profile();
+        let profile = susi_gemi::models::hardware::HardwareProfiler::get_profile();
 
         // 1. Hardware Saturation Audit
         if profile.acceleration_active {
@@ -234,8 +289,14 @@ impl SusiRuntimeAdmin {
             );
         }
 
-        // 2. Autonomous Drift Detection
-        let _ = susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace);
+        // 2. Autonomous Drift Detection -- recorded, then acted on: a
+        // recurring intent without a reflex gets one synthesized (rate-limited
+        // to one attempt per intent per 24h inside the evolution manager).
+        match susi_gawd::evolution::EvolutionManager::perform_autonomous_drift_audit(workspace) {
+            Ok(report) => SusiAuditLogger::log_event(workspace, "DRIFT_AUDIT", &report),
+            Err(e) => SusiAuditLogger::log_event(workspace, "DRIFT_AUDIT_FAILED", &e.to_string()),
+        }
+        let _ = susi_gawd::evolution::EvolutionManager::evolve_recurring_intent(workspace);
 
         // 3. Model Substrate Tuning
         let _ = susi_gemi::models::ModelManager::ensure_hardware_optimal_models(workspace);

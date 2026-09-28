@@ -1,10 +1,10 @@
 // SUSI-Alpha: Native Neural Intelligence Substrate
 // 100% Rust implementation using Candle for Tier 0 Reflex Distillation
 
-use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use susi_error::{eai_err as anyhow, EaiResult as Result};
 use susi_vendor_candle::candle_core::{DType, Tensor};
 use susi_vendor_candle::candle_nn;
 use susi_vendor_candle::candle_nn::{
@@ -240,7 +240,9 @@ fn publish_checkpoint(
     let previous = usable_checkpoint(configured_weights)?.map(|(path, _)| path);
     let filename = format!("{stem}.{generation}.{}.safetensors", std::process::id());
     let weights = parent.join(&filename);
-    varmap.save(&weights)?;
+    varmap
+        .save(&weights)
+        .map_err(crate::engines::candle_err::from_candle)?;
     if let Err(error) = save_vocabulary(&weights, intents) {
         let _ = std::fs::remove_file(&weights);
         return Err(error);
@@ -391,7 +393,7 @@ impl SusiAlphaModel {
         let alpha_filename =
             crate::susi_sandbox::manager::SusiConfig::load(global_dir)?.alpha_weights_filename();
         let weights_path = global_dir.join("models").join(&alpha_filename);
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
 
         let candidates = resolve_checkpoint_candidates(&weights_path)?;
         if !candidates.is_empty() {
@@ -402,9 +404,12 @@ impl SusiAlphaModel {
                     // SAFETY: mmap of an immutable generation owned by the substrate.
                     let vb = unsafe {
                         VarBuilder::from_mmaped_safetensors(&[&active_weights], DType::F32, &device)
-                    }?;
-                    let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
-                    let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+                    }
+                    .map_err(crate::engines::candle_err::from_candle)?;
+                    let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))
+                        .map_err(crate::engines::candle_err::from_candle)?;
+                    let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
+                        .map_err(crate::engines::candle_err::from_candle)?;
                     Ok(Self { fc1, fc2, intents })
                 })();
                 match attempt {
@@ -418,8 +423,10 @@ impl SusiAlphaModel {
         // Initialize default weights only when no published model exists.
         let varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
-        let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
-        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+        let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
+            .map_err(crate::engines::candle_err::from_candle)?;
 
         let models_dir = global_dir.join("models");
         std::fs::create_dir_all(&models_dir)?;
@@ -496,17 +503,22 @@ impl SusiAlphaModel {
             validate_vocabulary(discovered_intents)?
         };
 
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let mut varmap = VarMap::new();
         let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
 
-        let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))?;
-        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))?;
+        let fc1 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex"))
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let fc2 = candle_nn::linear(Self::DIM, Self::DIM, vb.pp("reflex_out"))
+            .map_err(crate::engines::candle_err::from_candle)?;
         if let Some((active, _)) = active_checkpoint {
-            varmap.load(active)?;
+            varmap
+                .load(active)
+                .map_err(crate::engines::candle_err::from_candle)?;
         }
 
-        let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())?;
+        let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())
+            .map_err(crate::engines::candle_err::from_candle)?;
 
         // Load Data and Map to Dynamic Surface
         let content = std::fs::read_to_string(staged_file)?;
@@ -517,27 +529,43 @@ impl SusiAlphaModel {
 
         for (entry, label) in batch.entries {
             let vec = Self::semantic_centroid_projection(&entry.intent, None)?;
-            samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
+            samples.push(
+                Tensor::from_vec(vec, (1, Self::DIM), &device)
+                    .map_err(crate::engines::candle_err::from_candle)?,
+            );
             labels.push(label);
         }
 
         // Neural Seeding (Synthetic Priming): Ensure new tools have at least one sample
         for (idx, intent) in dynamic_intents.iter().enumerate() {
             let vec = Self::semantic_centroid_projection(intent, None)?;
-            samples.push(Tensor::from_vec(vec, (1, Self::DIM), &device)?);
+            samples.push(
+                Tensor::from_vec(vec, (1, Self::DIM), &device)
+                    .map_err(crate::engines::candle_err::from_candle)?,
+            );
             labels.push(idx as u32);
         }
 
-        let x = Tensor::cat(&samples, 0)?;
-        let y = Tensor::from_vec(labels, samples.len(), &device)?;
+        let x = Tensor::cat(&samples, 0).map_err(crate::engines::candle_err::from_candle)?;
+        let y = Tensor::from_vec(labels, samples.len(), &device)
+            .map_err(crate::engines::candle_err::from_candle)?;
 
         // Training Loop
         for _epoch in 1..=100 {
-            let logits = fc1.forward(&x)?.relu()?;
-            let logits = fc2.forward(&logits)?;
-            let log_sm = candle_nn::ops::log_softmax(&logits, 1)?;
-            let loss = candle_nn::loss::nll(&log_sm, &y)?;
-            opt.backward_step(&loss)?;
+            let logits = fc1
+                .forward(&x)
+                .map_err(crate::engines::candle_err::from_candle)?
+                .relu()
+                .map_err(crate::engines::candle_err::from_candle)?;
+            let logits = fc2
+                .forward(&logits)
+                .map_err(crate::engines::candle_err::from_candle)?;
+            let log_sm = candle_nn::ops::log_softmax(&logits, 1)
+                .map_err(crate::engines::candle_err::from_candle)?;
+            let loss = candle_nn::loss::nll(&log_sm, &y)
+                .map_err(crate::engines::candle_err::from_candle)?;
+            opt.backward_step(&loss)
+                .map_err(crate::engines::candle_err::from_candle)?;
         }
 
         let publication = publish_checkpoint(&varmap, &weights_path, &dynamic_intents)?;
@@ -588,26 +616,40 @@ impl SusiAlphaModel {
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
-        let device = crate::hardware::HardwareProfiler::get_candle_device();
+        let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let input_vec = Self::semantic_centroid_projection(prompt, None)?;
-        let input_tensor = Tensor::from_vec(input_vec, (1, Self::DIM), &device)?;
+        let input_tensor = Tensor::from_vec(input_vec, (1, Self::DIM), &device)
+            .map_err(crate::engines::candle_err::from_candle)?;
 
-        let output = self.fc1.forward(&input_tensor)?;
-        let output = output.relu()?;
-        let output = self.fc2.forward(&output)?;
+        let output = self
+            .fc1
+            .forward(&input_tensor)
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let output = output
+            .relu()
+            .map_err(crate::engines::candle_err::from_candle)?;
+        let output = self
+            .fc2
+            .forward(&output)
+            .map_err(crate::engines::candle_err::from_candle)?;
 
-        let probs = candle_nn::ops::softmax(&output, 1)?;
+        let probs =
+            candle_nn::ops::softmax(&output, 1).map_err(crate::engines::candle_err::from_candle)?;
 
         // Absolute Rank Hardening
         let mut p = probs;
         while p.rank() > 1 {
             let dims = p.dims();
-            p = p.get(dims[0] - 1)?;
+            p = p
+                .get(dims[0] - 1)
+                .map_err(crate::engines::candle_err::from_candle)?;
         }
 
         if p.rank() == 0 {
             // Convert scalar to vector of 1
-            let val = p.to_vec0::<f32>()?;
+            let val = p
+                .to_vec0::<f32>()
+                .map_err(crate::engines::candle_err::from_candle)?;
             let results = [val];
 
             let mut max_idx = 0;
@@ -624,7 +666,9 @@ impl SusiAlphaModel {
             return Err(anyhow!("Logic failure in rank-0 handling"));
         }
 
-        let results = p.to_vec1::<f32>()?;
+        let results = p
+            .to_vec1::<f32>()
+            .map_err(crate::engines::candle_err::from_candle)?;
 
         let mut max_idx = 0;
         let mut max_val = 0.0;

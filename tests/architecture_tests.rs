@@ -112,6 +112,7 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-vendor-fastembed", 2),
     ("susi-vendor-chrome", 2),
     ("susi-vendor-syn", 0),
+    ("susi-vendor-cloud", 0),
     ("susi-sandbox", 4),
     ("susi-leaf-services", 5),
     ("susi-agents", 4),
@@ -800,8 +801,6 @@ fn reachability_from_core_stays_downward() {
 // modules unreachable; later passes deleted isolated sketches and wired
 // modules used by the live composition root. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 34;
-
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
 }
@@ -925,14 +924,11 @@ fn unreachable_daemon_modules() -> Vec<String> {
 #[test]
 fn unreachable_daemon_modules_only_decrease() {
     let dead = unreachable_daemon_modules();
+    // Ceiling is 0: `len() <= 0` trips clippy::absurd_extreme_comparisons.
     assert!(
-        dead.len() <= UNREACHABLE_DAEMON_MODULES_CEILING,
-        "{} susi-daemon modules are unreachable from any production path \
-         (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING}); wire or remove new ones: {dead:?}",
-        dead.len()
-    );
-    eprintln!(
-        "unreachable susi-daemon modules: {} (ceiling {UNREACHABLE_DAEMON_MODULES_CEILING})",
+        dead.is_empty(),
+        "{} susi-daemon modules are unreachable from any production path; \
+         wire (a discarded probe does not count) or remove them: {dead:?}",
         dead.len()
     );
 }

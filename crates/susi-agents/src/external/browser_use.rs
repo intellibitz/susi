@@ -3,10 +3,10 @@
 //! Task lifecycle reuses [`super::AgentManager`]. Headless one-shot runs use
 //! `browser-use --prompt … --headless`.
 
-use anyhow::{bail, Result};
 use serde_json::json;
 use std::path::PathBuf;
 use std::process::Command;
+use susi_error::{eai_bail as bail, EaiResult as Result};
 
 use super::catalog::{definition, resolve_program, CatalogKind};
 

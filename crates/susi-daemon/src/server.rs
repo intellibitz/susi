@@ -647,6 +647,7 @@ impl SusiDaemon {
             workspace.join("context_graph.jsonl"),
         );
         crate::privacy::wire_mac_policy(&workspace);
+        crate::composition::wire_daemon_os_planes(&workspace);
         crate::ambient::start_ambient_indexer(&workspace);
         // Zero-config cloud keys for always-on / systemd spawns (no shell env).
         let lock_file_path = Self::get_lock_file(&global_dir);

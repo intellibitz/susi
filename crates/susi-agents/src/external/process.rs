@@ -1,8 +1,8 @@
 use super::{Adapter, AgentManager, RunRecord, RunStatus};
-use anyhow::{Context, Result};
 use std::fs::OpenOptions;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
+use susi_error::{EaiResult as Result, ResultExt as Context};
 
 /// Resolve `{model}` for adapters that need an LM id (e.g. SWE-agent).
 fn resolve_model_placeholder() -> String {
@@ -73,7 +73,7 @@ pub(super) fn execute(manager: &AgentManager, run: &mut RunRecord) -> Result<()>
                 super::python_bridge::FRAMEWORK_BRIDGE.trim_start().into(),
             ],
         ),
-        _ => anyhow::bail!("not a process adapter"),
+        _ => susi_error::eai_bail!("not a process adapter"),
     };
     let program = super::catalog::resolve_program(&program).context("agent executable missing")?;
     let output = OpenOptions::new()

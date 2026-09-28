@@ -54,21 +54,21 @@ pub async fn bootstrap_zero_config_substrate() {
 
     // 1. Probe for Local Model Inference Engines (Ollama, vLLM, llama.cpp, etc.)
     //    plus any configured OpenAI-compat inference_endpoints bases (open admission).
-    susi_gemi::http_provider::auto_discover_local_engines(registry).await;
+    susi_gemi::engines::http_provider::auto_discover_local_engines(registry).await;
 
     // 1b. Register configured cloud + local-with-model endpoints when keys/models present.
-    susi_gemi::http_provider::register_configured_cloud_endpoints(registry);
+    susi_gemi::engines::http_provider::register_configured_cloud_endpoints(registry);
 
     // 2. Discover and Provision MCP Tools (any entry in ~/.susi/mcp_config.json).
     susi_gmcp::mcp_wrapper::auto_discover_mcp();
 
     // 2b. MCP servers that expose chat/LLM tools → inference Providers so they
     // join cloud prefer / slow-local escalation (not tools-only).
-    susi_gemi::mcp_provider::register_mcp_inference_providers(registry);
+    susi_gemi::engines::mcp_provider::register_mcp_inference_providers(registry);
 
     // 3. Fallback: Ensure Candle (Local Edge) is always provisioned
     if registry.get_provider("Candle (Local)").is_none() {
-        registry.register_provider(susi_gemi::candle_provider::CandleProvider);
+        registry.register_provider(susi_gemi::engines::candle_provider::CandleProvider);
     }
 
     // 3b. Local embedder: susi-gmcp self-registers through
@@ -115,7 +115,7 @@ pub fn prime_catalogs(substrate: &Path) -> serde_json::Value {
         }
     }
 
-    match susi_gemi::coding_models::CodingModelManager::new() {
+    match susi_gemi::models::coding_models::CodingModelManager::new() {
         Ok(models) => match models.auto_prefer_best_ready() {
             Ok(Some(id)) => {
                 if std::env::var("SUSI_VERBOSE").is_ok() {
@@ -365,7 +365,7 @@ mod tests {
         let registry = CapabilityRegistry::new();
         registry.register_provider(Unhealthy { hang: false });
         registry.register_provider(Unhealthy { hang: true });
-        registry.register_provider(susi_gemi::candle_provider::CandleProvider);
+        registry.register_provider(susi_gemi::engines::candle_provider::CandleProvider);
         tokio::time::timeout(Duration::from_secs(7), prune_unhealthy_providers(&registry))
             .await
             .expect("discovery must recover from a hanging provider");

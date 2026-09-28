@@ -22,8 +22,8 @@
 //!
 //! Engines depends on models. Models must not depend on this crate.
 //!
-//! Flat module paths (`engine`, `http_provider`, `hardware`, …) remain as
-//! compatibility re-exports for existing call sites.
+//! Every module has one path: engines under [`engines`], model selection /
+//! provisioning under [`models`] (the old flat aliases were migrated away).
 
 pub use susi_abi;
 
@@ -49,19 +49,3 @@ pub mod frontier_ext;
 pub mod open_weight_ext;
 pub mod openrouter_ext;
 pub mod pulse;
-pub use crate::susi_core::telemetry;
-
-// ── Flat compatibility re-exports (do not remove without a migration) ─────
-pub use engines::runtime as engine;
-pub(crate) use engines::token_stream;
-pub use engines::{
-    alpha, candle_provider, http_provider, mcp_provider, reflex, routing, speculative,
-};
-pub use susi_vendor_candle::qwen2_split;
-
-pub use models::cloud;
-pub use models::model_cache;
-pub use models::ModelManager;
-pub use models::{
-    coding_models, frontier, hardware, hf_discovery, intent, open_weight, openrouter,
-};

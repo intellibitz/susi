@@ -6,7 +6,7 @@
 //! [`crate::composition::wire_engine_hooks`].
 
 use std::path::Path;
-use susi_gemi::hardware::HardwareProfiler;
+use susi_gemi::models::hardware::HardwareProfiler;
 
 /// Host implementation of [`susi_tools::EngineHooks`].
 pub struct SusiEngineHooks;
@@ -29,20 +29,9 @@ impl susi_tools::EngineHooks for SusiEngineHooks {
         server_name: &str,
         workspace: &Path,
     ) -> susi_tools::susi_error::EaiResult<String> {
-        match susi_gawd::reflex_synth::ReflexSynthesizer::synthesize_wasm_reflex(
-            server_name,
-            workspace,
-        ) {
-            Ok(wasm_path) => Ok(format!(
-                "[HOT_PATCH] Synthesized and compiled a WASI reflex for '{}' at {}. Retry as 'reflex_{}'.",
-                server_name, wasm_path, server_name
-            )),
-            Err(e) => Ok(format!(
-                "[CAPABILITY_GAP] '{}' unresolved: no registry match, no installable package, \
-                 and reflex synthesis failed ({}).",
-                server_name, e
-            )),
-        }
+        use susi_gawd::reflex_synth::ReflexSynthesizer;
+        let outcome = ReflexSynthesizer::synthesize_capability(server_name, workspace);
+        Ok(ReflexSynthesizer::gap_report(server_name, &outcome))
     }
 
     fn broadcast_lock_request(&self, resource_id: &str) -> bool {

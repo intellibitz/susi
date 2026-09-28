@@ -2,7 +2,7 @@
 use crate::cli_json::print_json;
 use anyhow::Result;
 use clap::Subcommand;
-use susi_gemi::openrouter::OpenRouterManager;
+use susi_gemi::models::openrouter::OpenRouterManager;
 
 #[derive(Debug, Subcommand)]
 pub enum OpenRouterCommands {

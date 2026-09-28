@@ -2220,7 +2220,7 @@ impl CoreTools {
             .map_err(|e| {
                 EaiError::process(format!(
                     "[CAPABILITY_GAP] Docker execution failed: {e}. \
-                 Start the susi-sandbox service (127.0.0.1:18083) and ensure Docker is running."
+                 Start the susi-sandbox service and ensure Docker is running."
                 ))
             })
     }
