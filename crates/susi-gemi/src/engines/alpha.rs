@@ -371,6 +371,65 @@ fn save_vocabulary(weights_path: &Path, intents: &[String]) -> Result<()> {
         .map_err(|error| anyhow!("persist reflex action vocabulary: {error}"))
 }
 
+/// Prior samples replayed into every cycle, newest kept. Fine-tuning on only
+/// the claimed batch would overwrite what earlier batches taught.
+const REPLAY_CAPACITY: usize = 2048;
+
+/// One trained sample, stored by action *name* so it survives vocabulary
+/// growth; it is dropped on load if its action has left the vocabulary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ReplaySample {
+    intent: String,
+    action: String,
+}
+
+fn replay_path(weights_path: &Path) -> PathBuf {
+    weights_path.with_extension("replay.jsonl")
+}
+
+/// Missing file = empty history; torn or foreign lines are skipped, since
+/// the replay set is advisory training data, not a ledger.
+fn load_replay(weights_path: &Path) -> Result<Vec<ReplaySample>> {
+    match std::fs::read_to_string(replay_path(weights_path)) {
+        Ok(text) => Ok(text
+            .lines()
+            .filter_map(|line| serde_json::from_str(line).ok())
+            .collect()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(error) => Err(anyhow!("read reflex replay set: {error}")),
+    }
+}
+
+/// Newer samples win: an intent restaged with a different action replaces
+/// the old label (the operator's latest verified behavior). Keeps the most
+/// recent `REPLAY_CAPACITY` distinct intents, oldest first.
+fn merge_replay(prior: Vec<ReplaySample>, newer: Vec<ReplaySample>) -> Vec<ReplaySample> {
+    let mut seen = std::collections::HashSet::new();
+    let mut merged: Vec<ReplaySample> = prior
+        .into_iter()
+        .chain(newer)
+        .rev()
+        .filter(|sample| seen.insert(replay_key(&sample.intent)))
+        .take(REPLAY_CAPACITY)
+        .collect();
+    merged.reverse();
+    merged
+}
+
+fn replay_key(intent: &str) -> String {
+    intent.trim().to_lowercase()
+}
+
+fn save_replay(weights_path: &Path, samples: &[ReplaySample]) -> Result<()> {
+    let mut body = Vec::new();
+    for sample in samples {
+        body.extend(serde_json::to_vec(sample)?);
+        body.push(b'\n');
+    }
+    crate::susi_config::atomic_write_bytes(&replay_path(weights_path), &body)
+        .map_err(|error| anyhow!("persist reflex replay set: {error}"))
+}
+
 /// One in `HOLDOUT_BUCKETS` staged intents is held out of the candidate fit
 /// and used to judge it against the active checkpoint.
 const HOLDOUT_BUCKETS: u64 = 5;
@@ -379,7 +438,10 @@ const MIN_HOLDOUT: usize = 3;
 const TRAINING_EPOCHS: usize = 100;
 
 /// Stable across cycles (hash of the normalized intent, not of its position
-/// in a batch), so a sample is never judged by a model that trained on it.
+/// in a batch): a held-out sample is always held out, so the candidate fit
+/// never sees it, while the published refit does. Replayed held-out samples
+/// therefore measure whether a candidate *forgets* what the active model
+/// learned.
 fn is_holdout(intent: &str) -> bool {
     let digest = Sha256::digest(intent.trim().to_lowercase().as_bytes());
     let mut head = [0u8; 8];
@@ -647,11 +709,38 @@ impl SusiAlphaModel {
         let device = crate::models::hardware::HardwareProfiler::get_candle_device();
         let content = std::fs::read_to_string(staged_file)?;
         let batch = parse_training_entries(&content, &dynamic_intents)?;
-        let staged: Vec<(&str, u32)> = batch
+        let fresh: Vec<ReplaySample> = batch
             .entries
             .iter()
-            .map(|(entry, label)| (entry.intent.as_str(), *label))
+            .map(|(entry, label)| ReplaySample {
+                intent: entry.intent.clone(),
+                action: dynamic_intents
+                    .get(*label as usize)
+                    .cloned()
+                    .unwrap_or_else(|| entry.action.clone()),
+            })
             .collect();
+        let prior = load_replay(&weights_path)?;
+        let replayed = merge_replay(prior, fresh);
+        let label_of = |action: &str| {
+            dynamic_intents
+                .iter()
+                .position(|candidate| candidate.eq_ignore_ascii_case(action))
+                .and_then(|index| u32::try_from(index).ok())
+        };
+        let staged: Vec<(&str, u32)> = replayed
+            .iter()
+            .filter_map(|sample| Some((sample.intent.as_str(), label_of(&sample.action)?)))
+            .collect();
+        let fresh_keys: std::collections::HashSet<String> = batch
+            .entries
+            .iter()
+            .map(|(entry, _)| replay_key(&entry.intent))
+            .collect();
+        let replay_count = staged
+            .iter()
+            .filter(|(intent, _)| !fresh_keys.contains(&replay_key(intent)))
+            .count();
         // Synthetic priming: every vocabulary action gets at least one sample,
         // so a newly installed tool is reachable before anyone has used it.
         let mut primes = Vec::with_capacity(dynamic_intents.len());
@@ -672,6 +761,12 @@ impl SusiAlphaModel {
         let samples = all.len();
 
         let publication = publish_checkpoint(&net.varmap, &weights_path, &dynamic_intents)?;
+        // After publication: a failed write loses only this cycle's additions
+        // to the replay set, never the checkpoint.
+        let replay_note = match save_replay(&weights_path, &replayed) {
+            Ok(()) => format!(" Replayed {replay_count} prior sample(s)."),
+            Err(error) => format!(" Replayed {replay_count} prior sample(s); {error}."),
+        };
 
         let cleanup = if publication.cleanup_failures.is_empty() {
             String::new()
@@ -689,7 +784,7 @@ impl SusiAlphaModel {
                 batch.skipped
             )
         };
-        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface.{gate}{skipped}{cleanup}"))
+        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface.{replay_note}{gate}{skipped}{cleanup}"))
     }
 
     /// Publication gate. A candidate fit from the active weights on the
@@ -975,6 +1070,76 @@ mod tests {
             .unwrap()
             .unwrap()
             .0
+    }
+
+    fn sample(intent: &str, action: &str) -> ReplaySample {
+        ReplaySample {
+            intent: intent.into(),
+            action: action.into(),
+        }
+    }
+
+    #[test]
+    fn replay_merge_keeps_newest_label_and_bounded_recency() {
+        let merged = merge_replay(
+            vec![sample("check status", "status"), sample("why", "reason")],
+            vec![sample("  CHECK Status ", "reason"), sample("new", "status")],
+        );
+        assert_eq!(
+            merged,
+            [
+                sample("why", "reason"),
+                sample("  CHECK Status ", "reason"),
+                sample("new", "status")
+            ]
+        );
+
+        let many: Vec<ReplaySample> = (0..REPLAY_CAPACITY + 10)
+            .map(|i| sample(&format!("intent {i}"), "status"))
+            .collect();
+        let capped = merge_replay(many, Vec::new());
+        assert_eq!(capped.len(), REPLAY_CAPACITY);
+        assert_eq!(capped[0].intent, "intent 10", "oldest are evicted first");
+    }
+
+    #[test]
+    fn replay_load_tolerates_missing_and_torn_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let weights = dir.path().join("alpha.safetensors");
+        assert!(load_replay(&weights).unwrap().is_empty());
+        save_replay(&weights, &[sample("a", "status")]).unwrap();
+        let mut body = std::fs::read(replay_path(&weights)).unwrap();
+        body.extend_from_slice(b"{\"intent\":\"torn");
+        std::fs::write(replay_path(&weights), body).unwrap();
+        assert_eq!(load_replay(&weights).unwrap(), [sample("a", "status")]);
+    }
+
+    #[test]
+    fn prior_cycles_are_replayed_into_later_training() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = dir.path().join("staged.jsonl");
+        let first = ["zorblat quux", "zorblat flim", "quux flim zorblat"];
+        stage(&staged, &first.map(|intent| (intent, "reason")));
+        SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+
+        stage(&staged, &[("show the content", "read_file")]);
+        let report = SusiAlphaModel::train_on_staged_file(dir.path(), &staged).unwrap();
+        assert!(report.contains("Replayed 3 prior sample(s)"), "{report}");
+
+        let filename = crate::susi_sandbox::manager::SusiConfig::load(dir.path())
+            .unwrap()
+            .alpha_weights_filename();
+        let replay = load_replay(&dir.path().join("models").join(filename)).unwrap();
+        let intents: Vec<&str> = replay.iter().map(|s| s.intent.as_str()).collect();
+        assert_eq!(intents, [first[0], first[1], first[2], "show the content"]);
+        let (action, _) = SusiAlphaModel::load(dir.path())
+            .unwrap()
+            .predict_intent_with_confidence("zorblat quux")
+            .unwrap();
+        assert_eq!(
+            action, "ACTION: reason",
+            "cycle-1 knowledge survives cycle 2"
+        );
     }
 
     #[test]

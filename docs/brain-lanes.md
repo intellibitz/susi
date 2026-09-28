@@ -31,6 +31,9 @@ One line per landed step, newest last.
    staging failures (`alpha.rs`, EV-CLAUDE-003; one guard in Devin's `ama/report.rs`).
 4. Unknown words hash with FNV-1a, not a byte sum that made every anagram
    one feature (reflex classifier and fleet recruitment; EV-CLAUDE-004).
+5. Replay set: every training cycle rehearses the last 2048 distinct
+   trained intents, so a new batch no longer overwrites what earlier ones
+   taught; the held-out gate now also catches forgetting (EV-CLAUDE-005).
 
 ## Devin's loop log
 

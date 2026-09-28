@@ -532,9 +532,19 @@ no migration: the held-out gate below scores the active and candidate
 weights under the *current* projection, so stale weights are judged
 honestly and replaced on the next cycle.
 
+Training is cumulative *and* rehearsed. Each cycle fine-tunes the active
+weights, and fine-tuning on only the claimed batch would overwrite what
+earlier batches taught (catastrophic forgetting). So every cycle trains on
+the claim plus the **replay set** — `<weights>.replay.jsonl`, the most
+recent 2048 distinct intents (stored by action *name*, so they survive
+vocabulary growth; newest label wins when an intent is restaged with a
+different action). The replay set is rewritten only after a checkpoint
+publishes, so a held-back cycle leaves it untouched.
+
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
-One in five staged intents — chosen by a hash of the normalized intent, so
-a sample lands in the same split every cycle — is held out. A candidate fit
+One in five staged-or-replayed intents — chosen by a hash of the
+normalized intent, so a sample lands in the same split every cycle — is
+held out; replayed held-out samples make the gate a forgetting check too. A candidate fit
 from the active weights on the rest must predict the held-out samples at
 least as well as the active checkpoint does (the active model can only
 score labels inside its own, older vocabulary). A regression publishes

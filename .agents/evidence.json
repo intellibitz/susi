@@ -3534,6 +3534,16 @@
    "milestone": "The Tier-0 input projection no longer merges unrelated words. Before: SusiAlphaModel::get_semantic_anchor hashed each non-category word by summing its bytes, so every anagram (stop/post/pots/tops/spot/opts) and every equal-sum word lit the same bucket and was one feature to the reflex classifier. The same projection feeds fleet recruitment's goal-vs-agent cosine (susi-gawd-agents agents/fleet.rs, threshold 0.35), so those collisions also inflated recruitment similarity. Now the bucket comes from order-sensitive FNV-1a. Category anchors and the bucket weight are unchanged. No checkpoint migration is needed: the EV-CLAUDE-002 held-out gate scores both the active and the candidate weights under the current projection, so a stale checkpoint is judged honestly and replaced on the next training cycle. Test: anagrams_project_to_distinct_features (at least 5 distinct buckets for 6 anagrams; category synonyms still coincide).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "reflex replay set",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-005",
+   "milestone": "Tier-0 reflex training no longer forgets earlier batches. Before: each cycle loaded the active weights and trained 100 epochs on only the claimed batch plus vocabulary primes, so knowledge from earlier batches was overwritten (catastrophic forgetting). Now a bounded replay set sits beside the checkpoint (<weights>.replay.jsonl, REPLAY_CAPACITY 2048 most-recent distinct intents). Samples are stored by action name, so they survive vocabulary growth, and are dropped if their action leaves the vocabulary. The newest label wins when an intent is restaged with a different action. Every cycle trains, and gates, on claim plus replay. Because is_holdout is stable per intent, replayed held-out samples turn the EV-CLAUDE-002 gate into a forgetting check as well. The replay set is saved only after a checkpoint publishes, so a held-back cycle leaves it untouched. The merge is linear (reverse pass + HashSet). Tests: replay_merge_keeps_newest_label_and_bounded_recency; replay_load_tolerates_missing_and_torn_files; prior_cycles_are_replayed_into_later_training (cycle 1 teaches 'zorblat quux' -> reason; after cycle 2 trains only 'show the content' -> read_file, the report says 'Replayed 3 prior sample(s)' and the model still predicts reason for 'zorblat quux'). It and the gate test passed 8 of 8 repeated runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,
