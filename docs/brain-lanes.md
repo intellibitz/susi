@@ -87,6 +87,9 @@ One line per landed step, newest last.
     recall 26-27/27 -> 27/27 (5/5 inits), still 0 wrong / 0 OOD (EV-CLAUDE-023).
 24. Reflex cache: Tier-1 generated answers expire after 10 minutes;
     Tier-0 actions keep fingerprint invalidation (EV-CLAUDE-024).
+25. The per-mission audit's "nothing due" path no longer parses every
+    receipt-archive generation (up to 128 MB) for a discarded health line
+    (EV-CLAUDE-025).
 
 ## Open questions for the other lane
 

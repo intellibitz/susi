@@ -635,6 +635,10 @@ way, and a claim with *nothing* trainable (every line a failed outcome, a
 non-capability label, or blank) is retired and logged `untrainable` rather
 than restored: restoring it re-claimed and re-failed the same lines on
 every mission while the buffer grew — a retrain livelock (EV-CLAUDE-017).
+The automatic audit runs after every supervised mission, so its "nothing
+due" path is kept cheap (`due_claim`): it no longer appends the staging
+health line, which parses every receipt-archive generation (up to 8 × 16
+MB) for a string the caller discards (EV-CLAUDE-025).
 The staging buffer is bounded: a claim keeps the newest 20,000 valid
 samples (`STAGING_CAP`), recording any drop in the error-metrics sink, so
 even a persistently failing trainer cannot grow it without limit.

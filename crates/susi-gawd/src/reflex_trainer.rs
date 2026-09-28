@@ -17,14 +17,9 @@ impl ReflexTrainer {
         recover_orphaned_claims(workspace)?;
         let cfg = crate::susi_sandbox::manager::SusiConfig::load_global()?;
         let threshold = cfg.reflex_training_threshold();
-        if let Some(wait) = held_back_wait(workspace, threshold)? {
-            return Ok(format!("{wait}\n{}", staging_health_line(workspace)));
-        }
-        let Some(claim) = claim_staged_samples(workspace, threshold)? else {
+        let Some(claim) = due_claim(workspace, threshold)? else {
             return Ok(format!(
-                "No reflex training due: fewer than {} valid staged samples.\n{}",
-                cfg.reflex_training_threshold(),
-                staging_health_line(workspace)
+                "No reflex training due: fewer than {threshold} valid staged samples, or backing off after an unpublished cycle."
             ));
         };
         eprintln!(
@@ -47,6 +42,18 @@ impl ReflexTrainer {
         let report = train_claim(workspace, &claim)?;
         Ok(format!("{report}\n{}", staging_health_line(workspace)))
     }
+}
+
+/// The claim to train now, or `None` when nothing is due (below threshold,
+/// or backing off). This is the path taken after *every* supervised mission
+/// (`amas.rs` discards the result), so it must stay cheap: it no longer
+/// appends `staging_health_line`, which parses every receipt-archive
+/// generation — up to 8 × 16 MB — only for the string to be dropped.
+fn due_claim(workspace: &Path, threshold: usize) -> EaiResult<Option<TrainingClaim>> {
+    if held_back_wait(workspace, threshold)?.is_some() {
+        return Ok(None);
+    }
+    claim_staged_samples(workspace, threshold)
 }
 
 /// Train one claim, retire or restore it, and log the cycle. A held-back or
@@ -419,7 +426,7 @@ fn staged_sample_count(path: &Path) -> EaiResult<Option<usize>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        cap_claimed_buffer, claim_staged_samples, held_back_wait, last_cycle, log_cycle,
+        cap_claimed_buffer, claim_staged_samples, due_claim, held_back_wait, last_cycle, log_cycle,
         recover_orphaned_claims, restore_claim, retire_claim, sanitize_claimed_buffer,
         staged_sample_count, DISTILLATION_LOG_KEEP,
     };
@@ -437,6 +444,30 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             "{\"n\":7}\n{\"n\":8}\n{\"n\":9}\n"
         );
+    }
+
+    #[test]
+    fn nothing_due_claims_nothing_and_backs_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let susi_dir = dir.path().join(".susi");
+        std::fs::create_dir_all(&susi_dir).unwrap();
+        let staged = susi_dir.join("distillation_staged.jsonl");
+        let line = "{\"intent\":\"i\",\"action\":\"a\",\"timestamp\":1}\n";
+        std::fs::write(&staged, line.repeat(3)).unwrap();
+        assert!(
+            due_claim(dir.path(), 5).unwrap().is_none(),
+            "below threshold"
+        );
+        assert_eq!(std::fs::read_to_string(&staged).unwrap(), line.repeat(3));
+
+        std::fs::write(&staged, line.repeat(6)).unwrap();
+        log_cycle(dir.path(), "held_back", 6, "reflex checkpoint held back");
+        assert!(due_claim(dir.path(), 5).unwrap().is_none(), "backing off");
+
+        std::fs::write(&staged, line.repeat(11)).unwrap();
+        let claim = due_claim(dir.path(), 5).unwrap().unwrap();
+        assert_eq!(claim.sample_count, 11);
+        retire_claim(&claim).unwrap();
     }
 
     #[test]
