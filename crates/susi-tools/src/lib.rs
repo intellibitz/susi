@@ -26,13 +26,13 @@ pub mod plane_handler;
 
 pub mod client;
 pub mod config;
-pub mod connection;
 pub mod hooks;
 pub mod leading_mcp;
 pub mod registry;
 pub mod types;
 
 pub use client::GmcpClient;
+mod mcp_budget;
 pub use config::{GlobalMcpEntry, McpConfig, McpServerConfig};
 pub use hooks::{EngineHooks, HardwareSnapshot};
 pub use leading_mcp::{LeadingMcpDefinition, LeadingMcpManager, LeadingMcpOverride};

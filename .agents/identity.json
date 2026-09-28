@@ -331,6 +331,11 @@
           "function": "Append-only provenance graph (`susi-core::context_graph`) of workspaces, missions, tool calls, patch cycles, and observations; bounded at 32k resident nodes (ephemeral evicted first, in batches down to a 30k low-water mark), compacted by atomic rename, and folded incrementally across processes with the replay cursor bound to the log file's identity. Observation text, labels, and payload strings are credential-redacted on record.",
           "symbol": "ContextGraph",
           "tier": 1
+        },
+        {
+          "function": "Every third-party SDK is isolated in its own `susi-vendor-*` crate exposing SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle, tokenizers, CUDA/Metal/MKL, device probe), `susi-vendor-wasmer` (Wasmer/WASI reflexes + metered, memory-capped in-process cells + plugin validation), `susi-vendor-mcp` (rmcp MCP client + reqwest streamable-HTTP transport, pooled, lease-bounded), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model shared by the capability provider and the semantic index), `susi-vendor-chrome` (headless Chrome page capture). Policy stays with SUSI callers (URL/SSRF checks, lease budgets from `SusiConfig`, index watermarks). `core_os_crates_must_not_declare_http_clients` is an allow-list: only `susi-http-transport` and `susi-vendor-*`/`susi-adapters-*` may declare reqwest/ureq.",
+          "symbol": "Vendor crates",
+          "tier": 1
         }
       ],
       "id": 2,

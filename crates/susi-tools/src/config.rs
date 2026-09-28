@@ -16,18 +16,8 @@ pub struct GlobalMcpEntry {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct McpServerConfig {
-    pub command: String,
-    pub args: Vec<String>,
-    pub env: Option<HashMap<String, String>>,
-    // Mandate 35: mcp_config.json is read, mutated (auto_configure_server),
-    // and rewritten whole - without this, a field a user hand-added ahead
-    // of susi support for it (e.g. a future `cwd` or `transport`) would be
-    // silently deleted on the next write-back rather than round-tripped.
-    #[serde(flatten)]
-    pub extra: HashMap<String, serde_json::Value>,
-}
+/// Re-exported from the MCP vendor crate so `mcp_config.json` keeps one shape.
+pub use susi_vendor_mcp::McpServerConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpConfig {

@@ -106,6 +106,10 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi-core", 3),
     ("susi-sandbox-client", 3),
     ("susi-vendor-wasmer", 2),
+    ("susi-vendor-mcp", 0),
+    ("susi-vendor-tantivy", 2),
+    ("susi-vendor-fastembed", 2),
+    ("susi-vendor-chrome", 2),
     ("susi-sandbox", 4),
     ("susi-leaf-services", 5),
     ("susi-agents", 4),
@@ -554,31 +558,31 @@ fn susi_core_must_not_depend_on_infra_or_features() {
     }
 }
 
-/// Core/OS crates plus agents, daemon, adapters-llm, gmcp, and gemi must not
-/// declare third-party HTTP client crates. Outbound JSON HTTP lives in
-/// `susi-http-transport`; vendor APIs live in `susi-adapters-*` /
-/// `susi-vendor-*`. Remaining exception: `susi-tools` (rmcp reqwest transport).
+/// No workspace crate may declare a third-party HTTP client crate except the
+/// transport and the vendor/adapter crates: outbound JSON HTTP lives in
+/// `susi-http-transport`; vendor SDKs (e.g. rmcp's reqwest transport in
+/// `susi-vendor-mcp`) live in `susi-vendor-*` / `susi-adapters-*`. An
+/// allow-list, so a new crate is covered without editing this test.
 #[test]
 fn core_os_crates_must_not_declare_http_clients() {
     let root = workspace_root();
-    let forbidden_in = [
-        "susi-paths",
-        "susi-error",
-        "susi-config",
-        "susi-core",
-        "susi-gawd",
-        "susi-gawd-swarm",
-        "susi-gawd-agents",
-        "susi-gawd-a2a",
-        "susi-agents",
-        "susi-daemon",
-        "susi-adapters-llm",
-        "susi-gmcp",
-        "susi-gemi",
-    ];
+    let mut forbidden_in: Vec<String> = std::fs::read_dir(root.join("crates"))
+        .expect("crates dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| {
+            name != "susi-http-transport"
+                && !name.starts_with("susi-vendor-")
+                && !name.starts_with("susi-adapters-")
+        })
+        .collect();
+    forbidden_in.sort();
     for crate_name in forbidden_in {
-        let text = std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
-            .unwrap_or_else(|_| panic!("{crate_name} Cargo.toml"));
+        let Ok(text) =
+            std::fs::read_to_string(root.join(format!("crates/{crate_name}/Cargo.toml")))
+        else {
+            continue;
+        };
         let mut in_deps = false;
         for line in text.lines() {
             let trimmed = line.trim();
