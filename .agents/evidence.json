@@ -3534,6 +3534,16 @@
     "label": "Pre-dedup consensus + tie-break",
     "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-022",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 4 \u2014 unverified-mutation penalty. When the intent demands consensus (Mutate/SelfExtend scope or High+ risk), a candidate carrying zero verifiable steps loses 0.20 on its score with a rationale marker; read-scope plans are exempt. A blind mutation is now outscored by one that checks its own work.",
+   "proof": "deliberation tests now 10: mutating_intents_penalize_plans_without_verification, read_scope_plans_skip_the_unverified_penalty. susi-gawd-swarm 58 pass; clippy clean.",
+   "anchor": {
+    "label": "Unverified-mutation penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

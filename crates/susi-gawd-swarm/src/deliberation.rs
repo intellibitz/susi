@@ -198,12 +198,26 @@ pub fn deliberate(
     history: &HistorySignals,
     mut generate: impl FnMut(u32) -> Vec<String>,
 ) -> Deliberation {
+    let gated = consensus_required(manifold);
     let mut candidates: Vec<CandidatePlan> = budgets
         .iter()
         .map(|&budget| {
             let steps = generate(budget);
-            let (score, rationale) =
+            let (mut score, mut rationale) =
                 score_plan_with_history(goal, &steps, budget, &history.failed, &history.proven);
+            // A mutating/high-risk plan with zero verifiable steps asks to
+            // be trusted blind — real cost on the score, not just a flag.
+            if gated
+                && !steps.is_empty()
+                && !steps.iter().any(|s| {
+                    s.split_whitespace().map(|t| t.to_lowercase()).any(|t| {
+                        VERIFIABLE_TOKENS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric()))
+                    })
+                })
+            {
+                score = (score - 0.2).max(0.0);
+                rationale.push_str(" unverified_mutation_penalty=-0.20");
+            }
             CandidatePlan {
                 steps,
                 score,
@@ -314,6 +328,51 @@ mod tests {
         let empty = deliberate("x", &m, &[3], &Default::default(), |_| Vec::new());
         assert_eq!(empty.candidates.len(), 1);
         assert_eq!(empty.candidates[0].steps, vec!["x".to_string()]);
+    }
+
+    #[test]
+    fn mutating_intents_penalize_plans_without_verification() {
+        let m = manifold_for("audit the substrate");
+        assert!(consensus_required(&m));
+        // Two identical plans except one adds a verify step.
+        let plans = |with_verify: bool| {
+            deliberate(
+                "audit the substrate",
+                &m,
+                &[4],
+                &Default::default(),
+                move |_| {
+                    let mut s = vec!["scan files".into(), "rewrite config".into()];
+                    if with_verify {
+                        s.push("cargo test verify changes".into());
+                    }
+                    s
+                },
+            )
+        };
+        let blind = plans(false);
+        let checked = plans(true);
+        assert!(
+            checked.candidates[0].score > blind.candidates[0].score,
+            "blind={} checked={}",
+            blind.candidates[0].score,
+            checked.candidates[0].score
+        );
+        assert!(blind.candidates[0]
+            .rationale
+            .contains("unverified_mutation_penalty"));
+    }
+
+    #[test]
+    fn read_scope_plans_skip_the_unverified_penalty() {
+        let m = manifold_for("read Cargo.toml");
+        assert!(!consensus_required(&m));
+        let d = deliberate("read Cargo.toml", &m, &[3], &Default::default(), |_| {
+            vec!["read Cargo.toml".into()]
+        });
+        assert!(!d.candidates[0]
+            .rationale
+            .contains("unverified_mutation_penalty"));
     }
 
     #[test]

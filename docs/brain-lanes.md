@@ -58,3 +58,5 @@ One line per landed step, newest last.
 9. Candidate dedup + deterministic tie-break; consensus is measured
    pre-dedup because identical plans from two budgets are maximal
    agreement (hiding them blocked mutating approvals).
+10. Unverified-mutation penalty: consensus-gated intents lose -0.20 when a
+    candidate has zero verifiable steps; reads exempt.
