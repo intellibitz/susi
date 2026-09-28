@@ -23,3 +23,29 @@ One line per landed step, newest last.
 1. Staging appends take the `distillation_staged` lock that the trainer's
    claim/restore/recover already hold; an unlocked append could land on the
    inode the trainer was replacing and be lost (`pkb.rs`).
+
+## Devin's loop log
+
+One line per landed step, newest last.
+
+1. Mandatory mission-trace schema: `MissionTrace` v1 emitted at the terminal
+   choke point to `mission_traces.jsonl` + ContextGraph outcome observation +
+   `distillation_staged.jsonl` (wires the previously dead
+   `stage_distillation_pair`).
+2. Verification contract registry replaces existence checks:
+   `susi_core::verification` contracts (exists/absent/contains/hash/cmd-exit
+   via `bounded_cmd`), `truth.rs` mines goals+results into contracts —
+   delete and containing-claims verified for the first time.
+3. Plan search in `susi_gawd_swarm::deliberation`: N candidates at distinct
+   budgets, pure scoring, best-first execution; Mutate/SelfExtend/High-risk
+   need top-two step-Jaccard >= 0.35 consensus; Read-scope retries fall
+   through candidates, mutating scopes abort.
+4. Retrieval + difficulty-aware routing: `similar`/`history_brief`/
+   `difficulty` consult traces before planning; demanding intents widen the
+   search and raise the model min-complexity floor on attempt 0.
+5. Governed reflex promotion: `promotion_status` requires >=2 verified
+   successes and a clean 3-trace window — frequency alone no longer earns a
+   reflex; vetoed intents become anti-patterns that force consensus.
+6. Failure history penalizes scoring: `failing_tools` feeds
+   `score_plan_weighted` (-0.10 per tainted mention); plus susi-tools
+   plane-handler coverage (40% -> 90%) and honest baseline floors.
