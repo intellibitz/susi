@@ -1,6 +1,6 @@
 //! Incremental text decoding shared by standard and speculative generation.
 use crate::susi_error::{EaiError, EaiResult};
-use tokenizers::Tokenizer;
+use susi_vendor_candle::tokenizers::Tokenizer;
 
 pub(crate) struct TokenStream<'a> {
     tokenizer: &'a Tokenizer,
@@ -22,7 +22,7 @@ impl<'a> TokenStream<'a> {
     }
 
     pub(crate) fn push(&mut self, token: u32, callback: &dyn Fn(String)) -> EaiResult<()> {
-        let piece = tokenizers::tokenizer::step_decode_stream(
+        let piece = susi_vendor_candle::tokenizers::tokenizer::step_decode_stream(
             self.tokenizer,
             vec![token],
             true,
@@ -53,7 +53,7 @@ impl<'a> TokenStream<'a> {
 mod tests {
     use super::*;
     use std::cell::RefCell;
-    use tokenizers::{decoders::byte_fallback::ByteFallback, models::bpe::BPE};
+    use susi_vendor_candle::tokenizers::{decoders::byte_fallback::ByteFallback, models::bpe::BPE};
 
     fn tokenizer() -> Tokenizer {
         let vocab = [

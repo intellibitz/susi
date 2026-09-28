@@ -4,10 +4,11 @@ version = "0.1.0"
 license = "Apache-2.0"
 edition = "2021"
 publish = false
-description = "Candle/CUDA/Metal vendor substrate: device probe and Qwen2 GGUF split."
+description = "Candle/CUDA/Metal vendor substrate: device probe, Qwen2 GGUF split, and Hugging Face tokenizers."
 
 [dependencies]
 tracing = { workspace = true }
+tokenizers = "0.23.2"
 
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 candle-core = { version = "0.11.0" }

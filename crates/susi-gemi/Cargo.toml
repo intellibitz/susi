@@ -19,7 +19,6 @@ regex = "1.13"
 dashmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokenizers = "0.23.2"
 indicatif = "0.18.6"
 reqwest = { workspace = true }
 tracing = { workspace = true }

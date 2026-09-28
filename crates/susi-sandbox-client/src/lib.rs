@@ -144,8 +144,8 @@ pub(crate) mod service {
         if local_override() {
             return None;
         }
-        let ws = urlencoding_encode(&workspace.to_string_lossy());
-        let gd = urlencoding_encode(&global_dir.to_string_lossy());
+        let ws = susi_paths::percent_encode_path(&workspace.to_string_lossy());
+        let gd = susi_paths::percent_encode_path(&global_dir.to_string_lossy());
         let path = format!("/daemon/status?workspace={ws}&global_dir={gd}");
         let resp = request(&format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"))?;
         serde_json::from_str(body(&resp)?).ok()
@@ -179,20 +179,6 @@ pub(crate) mod service {
         };
         let resp = json_post("/daemon/hash_cached", &payload)?;
         serde_json::from_str(body(&resp)?).ok()
-    }
-
-    /// Minimal query-string encode (paths may contain spaces / non-ASCII).
-    fn urlencoding_encode(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for b in s.bytes() {
-            match b {
-                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
-                    out.push(b as char);
-                }
-                _ => out.push_str(&format!("%{b:02X}")),
-            }
-        }
-        out
     }
 }
 

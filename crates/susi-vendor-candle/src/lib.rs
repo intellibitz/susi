@@ -21,6 +21,7 @@
 pub use candle_core;
 pub use candle_nn;
 pub use candle_transformers;
+pub use tokenizers;
 
 pub mod device;
 pub mod qwen2_split;

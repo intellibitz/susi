@@ -268,6 +268,38 @@ impl LocalDirs {
 
 pub mod ports;
 
+/// Percent-encode a string for a query component (RFC 3986 unreserved
+/// plus the extra bytes in `keep`). Used by live search and sandbox IPC
+/// so those callers do not each keep a forked encoder.
+#[must_use]
+pub fn percent_encode(s: &str, keep: &[u8]) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        let unreserved = matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~')
+            || keep.contains(&b);
+        if unreserved {
+            out.push(b as char);
+        } else if b == b' ' {
+            out.push_str("%20");
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Query-string component encoding (spaces and commas encoded).
+#[must_use]
+pub fn percent_encode_query(s: &str) -> String {
+    percent_encode(s, &[])
+}
+
+/// Path encoding that leaves `/` intact (sandbox IPC workspace paths).
+#[must_use]
+pub fn percent_encode_path(s: &str) -> String {
+    percent_encode(s, &[b'/'])
+}
+
 /// Embedded REST service mode: serves the host path/port contract over
 /// HTTP. Shared by the standalone `susi-paths` binary and the root `susi`
 /// binary's `service-run` dispatch — the daemon spawns the staged `susi`
@@ -361,5 +393,11 @@ mod tests {
             "{}",
             home.display()
         );
+    }
+
+    #[test]
+    fn percent_encode_query_and_path() {
+        assert_eq!(percent_encode_query("Chennai, India"), "Chennai%2C%20India");
+        assert_eq!(percent_encode_path("/tmp/my ws"), "/tmp/my%20ws");
     }
 }

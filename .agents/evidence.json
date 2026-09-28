@@ -2830,6 +2830,16 @@
       "milestone": "RSI OS isolation iterations 1-12: outbound HTTP leaves core/OS crates. Unused reqwest dropped from susi-gawd, susi-gawd-swarm, susi-gawd-a2a, and susi-gawd-agents; unused ra2a/axum/tower/tokio-rustls dropped from the gawd host (protocol stays in susi-gawd-a2a). The timeout-bounded ureq agent moved from susi-config to susi-http-transport::http_agent; MCP, eval, benchmark, tools, native proxy, peer HTTP, live search, and the A2A round-trip test now share that agent. susi-config no longer declares ureq. live_search no longer uses reqwest. Architecture ratchet core_os_crates_must_not_declare_http_clients forbids reqwest/ureq on paths/error/config/gawd host/swarm/agents/a2a. Identity Mandate 45 and README now name SUSI as an RSI swarm AI OS for hosting, provisioning, and managing any local/cloud AI ecosystem (scoped: not a host OS, not a chatbot wrapper, not unattended source rewrite). Remaining: ureq types still in susi-core mcp_client; reqwest still in susi-gemi http_provider, susi-gemi-models HF download, susi-agents cloud, susi-tools MCP. Verification: cargo check / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 13-24",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-289",
+      "milestone": "RSI OS isolation iterations 13-24: Hugging Face vendor crates leave the model plane. tokenizers is re-exported only from susi-vendor-candle; InferenceProtocol lives in susi-adapters-llm. susi-http-transport::http_call is the GET/HEAD surface (status, headers, Read body) used by resumable model download, HF catalog discovery, Ollama tags, and the HF probe — susi-gemi-models no longer declares reqwest. Twin URL encoders collapsed into susi_paths::percent_encode_query/path. Ratchet gemi_models_must_not_declare_vendor_http_or_tokenizers. Remaining: reqwest still in susi-gemi http_provider (async OpenAI/Anthropic/Gemini), susi-agents cloud, susi-tools MCP; ureq types still in susi-core mcp_client. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

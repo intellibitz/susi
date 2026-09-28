@@ -32,7 +32,7 @@ use susi_vendor_candle::candle_core;
 #[cfg(test)]
 use susi_vendor_candle::candle_core::quantized::gguf_file;
 #[cfg(test)]
-use tokenizers::Tokenizer;
+use susi_vendor_candle::tokenizers::Tokenizer;
 
 pub struct GemiEngine;
 

@@ -3,33 +3,7 @@ use std::any::Any;
 use crate::susi_core::inference_wire as wire;
 use crate::susi_core::provider::{BoxFuture, Provider};
 
-/// Wire protocol for an HTTP inference backend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InferenceProtocol {
-    /// OpenAI-compatible `/chat/completions` (+ optional Bearer auth).
-    OpenAiChat,
-    /// OpenAI-compatible `/completions`.
-    OpenAiCompletions,
-    /// Anthropic Messages API (`/messages`, `x-api-key`).
-    Anthropic,
-    /// Google Gemini `generateContent`.
-    Gemini,
-    /// NVIDIA Triton generate endpoint (raw URL).
-    Triton,
-}
-
-impl InferenceProtocol {
-    pub fn from_config(protocol_type: &str) -> Self {
-        match protocol_type.to_ascii_lowercase().as_str() {
-            "anthropic" => Self::Anthropic,
-            "gemini" => Self::Gemini,
-            "triton" => Self::Triton,
-            "completions" => Self::OpenAiCompletions,
-            // "chat" and unknown OpenAI-shaped defaults
-            _ => Self::OpenAiChat,
-        }
-    }
-}
+pub use crate::susi_core::inference_wire::InferenceProtocol;
 
 pub struct HttpProvider {
     pub name: String,

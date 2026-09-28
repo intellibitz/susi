@@ -445,7 +445,7 @@ impl ModelManager {
                 return entry.2;
             }
         }
-        let valid = tokenizers::Tokenizer::from_file(path).is_ok();
+        let valid = susi_vendor_candle::tokenizers::Tokenizer::from_file(path).is_ok();
         if cache.len() > 256 {
             cache.clear();
         }

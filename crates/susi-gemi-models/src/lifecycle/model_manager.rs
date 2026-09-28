@@ -268,7 +268,7 @@ impl ModelManager {
                     if file_name.ends_with(".gguf") {
                         Self::valid_gguf_payload(p)
                     } else if file_name.ends_with(".json") {
-                        tokenizers::Tokenizer::from_file(p).is_ok()
+                        susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok()
                     } else {
                         p.metadata().is_ok_and(|m| m.len() > 0)
                     }

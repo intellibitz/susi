@@ -112,7 +112,7 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
     require_egress("https://geocoding-api.open-meteo.com")?;
     let geo_url = format!(
         "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&language=en&format=json",
-        urlencoding_lite(place)
+        susi_paths::percent_encode_query(place)
     );
     let geo: serde_json::Value = get_json(&geo_url)
         .map_err(|e| EaiError::process(format!("Open-Meteo geocoding failed: {e}")))?;
@@ -145,7 +145,7 @@ pub fn fetch_open_meteo_weather(place: &str) -> EaiResult<String> {
 
     let wx_url = format!(
         "https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone={}",
-        urlencoding_lite(tz)
+        susi_paths::percent_encode_query(tz)
     );
     let wx: serde_json::Value = get_json(&wx_url)
         .map_err(|e| EaiError::process(format!("Open-Meteo forecast failed: {e}")))?;
@@ -201,7 +201,7 @@ pub fn fetch_duckduckgo_instant(query: &str) -> EaiResult<String> {
     require_egress("https://api.duckduckgo.com")?;
     let url = format!(
         "https://api.duckduckgo.com/?q={}&format=json&no_html=1&skip_disambig=1",
-        urlencoding_lite(query)
+        susi_paths::percent_encode_query(query)
     );
     let body: serde_json::Value =
         get_json(&url).map_err(|e| EaiError::process(format!("DuckDuckGo lookup failed: {e}")))?;
@@ -320,22 +320,6 @@ pub fn gather_live_evidence(goal: &str, workspace: &std::path::Path) -> String {
             .collect::<Vec<_>>()
             .join("\n")
     )
-}
-
-/// Minimal URL-encoding for query components (space → %20, reserve ASCII).
-fn urlencoding_lite(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() * 3);
-    for b in s.as_bytes() {
-        match *b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*b as char)
-            }
-            b' ' => out.push_str("%20"),
-            b',' => out.push_str("%2C"),
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

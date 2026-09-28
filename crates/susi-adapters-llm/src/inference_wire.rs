@@ -12,6 +12,36 @@ use serde_json::{json, Value};
 /// A reply-text extractor, for callers that pick the protocol at runtime.
 pub type Extractor = fn(&Value) -> Result<String, String>;
 
+/// Wire protocol for an HTTP inference backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InferenceProtocol {
+    /// OpenAI-compatible `/chat/completions` (+ optional Bearer auth).
+    OpenAiChat,
+    /// OpenAI-compatible `/completions`.
+    OpenAiCompletions,
+    /// Anthropic Messages API (`/messages`, `x-api-key`).
+    Anthropic,
+    /// Google Gemini `generateContent`.
+    Gemini,
+    /// NVIDIA Triton generate endpoint (raw URL).
+    Triton,
+}
+
+impl InferenceProtocol {
+    /// Map a config `protocol_type` string onto a wire protocol.
+    /// Unknown values default to OpenAI chat (the OpenAI-compat majority).
+    pub fn from_config(protocol_type: &str) -> Self {
+        match protocol_type.to_ascii_lowercase().as_str() {
+            "anthropic" => Self::Anthropic,
+            "gemini" => Self::Gemini,
+            "triton" => Self::Triton,
+            "completions" => Self::OpenAiCompletions,
+            // "chat" and unknown OpenAI-shaped defaults
+            _ => Self::OpenAiChat,
+        }
+    }
+}
+
 /// OpenAI `/chat/completions` body with one user message.
 pub fn openai_chat_body(model: &str, prompt: &str, max_tokens: u32) -> Value {
     json!({

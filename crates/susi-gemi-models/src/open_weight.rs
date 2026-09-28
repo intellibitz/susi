@@ -314,19 +314,14 @@ impl OpenWeightManager {
         } else {
             format!("{base}/api/tags")
         };
-        let client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(3))
-            .build()
-            .context("http client for ollama tags")?;
-        let res = client.get(&tags_url).send();
-        let Ok(res) = res else {
+        let Ok(call) = susi_http_transport::http_call("GET", &tags_url, &[], 3, 10) else {
             return Ok(false);
         };
-        if !res.status().is_success() {
+        if !(200..300).contains(&call.status) {
             return Ok(false);
         }
         let json: serde_json::Value = crate::susi_core::bounded_io::json_capped(
-            res,
+            call.into_reader(),
             crate::susi_core::bounded_io::JSON_BODY_CAP,
         )
         .unwrap_or_default();

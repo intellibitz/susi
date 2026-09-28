@@ -61,7 +61,7 @@ impl BenchmarkRunner {
         let memory_used_mb = ((mem_after.saturating_sub(mem_before)) as f32) / (1024.0 * 1024.0);
 
         let token_count = crate::models::ModelManager::get_tokenizer_path(&model_id)
-            .and_then(|p| tokenizers::Tokenizer::from_file(p).ok())
+            .and_then(|p| susi_vendor_candle::tokenizers::Tokenizer::from_file(p).ok())
             .and_then(|t| t.encode(output.as_str(), false).ok())
             .map(|enc| enc.get_ids().len())
             .unwrap_or(0);

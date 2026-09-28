@@ -57,7 +57,7 @@ use std::sync::Arc;
 use susi_vendor_candle::candle_core::quantized::gguf_file;
 use susi_vendor_candle::candle_core::{Device, IndexOp, Tensor};
 use susi_vendor_candle::qwen2_split::ModelWeights as Qwen2Weights;
-use tokenizers::Tokenizer;
+use susi_vendor_candle::tokenizers::Tokenizer;
 
 /// Rules out llama.cpp's KB-scale `ggml-vocab-*.gguf` test fixtures (found
 /// stray on this host under an IDE tool's data directory during discovery)

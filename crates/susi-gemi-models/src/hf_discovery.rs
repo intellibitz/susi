@@ -1,9 +1,7 @@
 use crate::susi_sandbox::manager::ModelLadderConfigStep;
 use rayon::prelude::*;
-use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
-use std::time::Duration;
 
 #[derive(Deserialize)]
 struct HfModel {
@@ -43,6 +41,38 @@ impl HfBaseModel {
             _ => None,
         }
     }
+}
+
+fn hf_auth_headers() -> Vec<(String, String)> {
+    crate::susi_config::env_or_cloud_env("HF_TOKEN")
+        .ok()
+        .filter(|t| !t.is_empty())
+        .map(|token| vec![("Authorization".into(), format!("Bearer {token}"))])
+        .unwrap_or_default()
+}
+
+fn hf_header_refs(owned: &[(String, String)]) -> Vec<(&str, &str)> {
+    owned
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect()
+}
+
+fn hf_get_json<T: serde::de::DeserializeOwned>(url: &str, headers: &[(&str, &str)]) -> Option<T> {
+    let call = susi_http_transport::http_call("GET", url, headers, 8, 10).ok()?;
+    if !(200..300).contains(&call.status) {
+        return None;
+    }
+    crate::susi_core::bounded_io::json_capped(
+        call.into_reader(),
+        crate::susi_core::bounded_io::JSON_BODY_CAP,
+    )
+    .ok()
+}
+
+fn hf_head_ok(url: &str, headers: &[(&str, &str)]) -> bool {
+    susi_http_transport::http_call("HEAD", url, headers, 8, 10)
+        .is_ok_and(|c| (200..300).contains(&c.status))
 }
 
 fn declared_base_model(card_data: Option<HfCardData>, tags: &[String]) -> Option<String> {
@@ -203,19 +233,8 @@ fn fetch_dynamic_ladder(
     cfg: &crate::susi_sandbox::manager::SusiConfig,
 ) -> Vec<ModelLadderConfigStep> {
     let policy = cfg.model_lifecycle();
-    let mut headers = reqwest::header::HeaderMap::new();
-    if let Ok(token) = crate::susi_config::env_or_cloud_env("HF_TOKEN") {
-        if let Ok(value) = format!("Bearer {token}").parse() {
-            headers.insert(reqwest::header::AUTHORIZATION, value);
-        }
-    }
-    let Ok(client) = Client::builder()
-        .timeout(Duration::from_secs(8))
-        .default_headers(headers)
-        .build()
-    else {
-        return Vec::new();
-    };
+    let auth = hf_auth_headers();
+    let hdr = hf_header_refs(&auth);
     let base = cfg.hf_base_url();
     // Catalog discovery is still network egress: under a posture that
     // blocks it, return no dynamic steps (the same as being offline).
@@ -223,18 +242,7 @@ fn fetch_dynamic_ladder(
         return Vec::new();
     }
     let url = format!("{base}/api/models?search=Instruct&filter=gguf&sort=downloads&direction=-1&limit={}&full=true&cardData=true", policy.discovery_limit.clamp(1, 50));
-    let Ok(mut models) = client
-        .get(url)
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| e.to_string())
-        .and_then(|r| {
-            crate::susi_core::bounded_io::json_capped::<Vec<HfModel>>(
-                r,
-                crate::susi_core::bounded_io::JSON_BODY_CAP,
-            )
-        })
-    else {
+    let Some(mut models) = hf_get_json::<Vec<HfModel>>(&url, &hdr) else {
         return Vec::new();
     };
     let fallback = cfg.default_fallback_model();
@@ -256,16 +264,10 @@ fn fetch_dynamic_ladder(
             .filter_map(|model| {
                 let repo = model.id;
                 let base_repo = declared_base_model(model.card_data, &model.tags);
-                let files = crate::susi_core::bounded_io::json_capped::<Vec<HfTreeEntry>>(
-                    client
-                        .get(format!("{base}/api/models/{repo}/tree/main?limit=1000"))
-                        .send()
-                        .ok()?
-                        .error_for_status()
-                        .ok()?,
-                    crate::susi_core::bounded_io::JSON_BODY_CAP,
-                )
-                .ok()?;
+                let files = hf_get_json::<Vec<HfTreeEntry>>(
+                    &format!("{base}/api/models/{repo}/tree/main?limit=1000"),
+                    &hf_header_refs(&auth),
+                )?;
                 let tokenizer_repo = if files
                     .iter()
                     .any(|f| f.path == cfg.tokenizer_filename() && f.size > 0)
@@ -278,25 +280,15 @@ fn fetch_dynamic_ladder(
                     "{base}/{tokenizer_repo}/resolve/main/{}",
                     cfg.tokenizer_filename()
                 );
-                if !client
-                    .head(tokenizer_url)
-                    .send()
-                    .is_ok_and(|r| r.status().is_success())
-                {
+                if !hf_head_ok(&tokenizer_url, &hf_header_refs(&auth)) {
                     return None;
                 }
                 // Discovery must stay within the backends actually implemented here.
                 let config_repo = base_repo.as_deref().unwrap_or(&tokenizer_repo);
-                let config = crate::susi_core::bounded_io::json_capped::<serde_json::Value>(
-                    client
-                        .get(format!("{base}/{config_repo}/resolve/main/config.json"))
-                        .send()
-                        .ok()?
-                        .error_for_status()
-                        .ok()?,
-                    crate::susi_core::bounded_io::JSON_BODY_CAP,
-                )
-                .ok()?;
+                let config = hf_get_json::<serde_json::Value>(
+                    &format!("{base}/{config_repo}/resolve/main/config.json"),
+                    &hf_header_refs(&auth),
+                )?;
                 if !matches!(
                     config.get("model_type").and_then(|v| v.as_str()),
                     Some("qwen2" | "llama")

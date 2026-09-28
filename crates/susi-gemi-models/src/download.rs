@@ -1,11 +1,8 @@
 //! Resumable artifact transfer. A model becomes visible only after validation.
-use reqwest::blocking::Client;
-use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, ETAG, IF_RANGE, RANGE};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 #[derive(Default, Serialize, Deserialize)]
 struct Checkpoint {
@@ -43,18 +40,13 @@ pub(crate) fn published_sha256(url: &str, token: Option<&str>) -> Option<String>
     if !crate::susi_core::mac_policy::egress_permitted(url) {
         return None;
     }
-    let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(30))
-        .build()
-        .ok()?;
-    let mut request = client.head(url);
+    let mut headers: Vec<(&str, String)> = Vec::new();
     if let Some(token) = token {
-        request = request.bearer_auth(token);
+        headers.push(("Authorization", format!("Bearer {token}")));
     }
-    let response = request.send().ok()?;
-    linked_etag_digest(response.headers().get("x-linked-etag")?.to_str().ok()?)
+    let header_refs: Vec<(&str, &str)> = headers.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let call = susi_http_transport::http_call("HEAD", url, &header_refs, 30, 0).ok()?;
+    linked_etag_digest(call.header("x-linked-etag")?)
 }
 
 /// Move a validated `part` into place. With a published digest, the bytes
@@ -162,30 +154,28 @@ pub(crate) fn transfer(
             .map_err(|e| e.to_string())?;
         offset = 0;
     }
-    let client = Client::builder()
-        .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(timeout_secs.max(1)))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut request = client.get(url).header("Accept-Encoding", "identity");
+    let mut headers: Vec<(String, String)> = vec![("Accept-Encoding".into(), "identity".into())];
     if let Some(token) = token {
-        request = request.bearer_auth(token);
+        headers.push(("Authorization".into(), format!("Bearer {token}")));
     }
     if offset > 0 {
-        request = request.header(RANGE, format!("bytes={offset}-"));
+        headers.push(("Range".into(), format!("bytes={offset}-")));
         if let Some(v) = &checkpoint.validator {
-            request = request.header(IF_RANGE, v);
+            headers.push(("If-Range".into(), v.clone()));
         }
     }
     if cancelled() {
         return Err("Download cancelled".into());
     }
-    let mut response = request.send().map_err(|e| format!("Transfer: {e}"))?;
-    if response.status().as_u16() == 416 {
+    let header_refs: Vec<(&str, &str)> = headers
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let response = susi_http_transport::http_call("GET", url, &header_refs, timeout_secs, 10)
+        .map_err(|e| format!("Transfer: {e}"))?;
+    if response.status == 416 {
         let remote_len = response
-            .headers()
-            .get(CONTENT_RANGE)
-            .and_then(|h| h.to_str().ok())
+            .header("content-range")
             .and_then(|s| s.strip_prefix("bytes */"))
             .and_then(|n| n.parse::<u64>().ok());
         if remote_len == Some(offset) && validate(&part) {
@@ -201,41 +191,32 @@ pub(crate) fn transfer(
             .map_err(|e| e.to_string())?;
         return Err("Remote artifact changed or incomplete payload; restarting".into());
     }
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status().as_u16()));
+    if !(200..300).contains(&response.status) {
+        return Err(format!("HTTP {}", response.status));
     }
-    let partial = response.status().as_u16() == 206;
+    let partial = response.status == 206;
+    let content_length = response
+        .header("content-length")
+        .and_then(|v| v.parse::<u64>().ok());
     let (start, total) = if partial {
         let (start, end, total) = response
-            .headers()
-            .get(CONTENT_RANGE)
-            .and_then(|h| h.to_str().ok())
+            .header("content-range")
             .and_then(range_bounds)
             .ok_or("Missing or invalid Content-Range")?;
         if start != offset {
             return Err("Server returned the wrong resume offset".into());
         }
-        if let Some(length) = response.content_length() {
+        if let Some(length) = content_length {
             if length != end - start + 1 {
                 return Err("Inconsistent range length".into());
             }
         }
         (start, total)
     } else {
-        (
-            0,
-            response
-                .headers()
-                .get(CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(0),
-        )
+        (0, content_length.unwrap_or(0))
     };
     let validator = response
-        .headers()
-        .get(ETAG)
-        .and_then(|v| v.to_str().ok())
+        .header("etag")
         .filter(|v| !v.starts_with("W/"))
         .map(str::to_owned);
     if partial
@@ -274,13 +255,12 @@ pub(crate) fn transfer(
     let mut downloaded = start;
     let mut buffer = vec![0; 1024 * 1024];
     progress(downloaded, total);
+    let mut body = response.into_reader();
     loop {
         if cancelled() {
             return Err("Download cancelled".into());
         }
-        let count = response
-            .read(&mut buffer)
-            .map_err(|e| format!("Read: {e}"))?;
+        let count = body.read(&mut buffer).map_err(|e| format!("Read: {e}"))?;
         if count == 0 {
             break;
         }
@@ -305,6 +285,7 @@ pub(crate) fn transfer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     fn workspace(label: &str) -> PathBuf {
         let path =
             std::env::temp_dir().join(format!("susi_transfer_{label}_{}", std::process::id()));

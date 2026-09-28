@@ -72,12 +72,12 @@ never consume an unterminated source tail.
 | `susi-config` | Leaf REST (`:18082`): `SusiConfig` + extension packs + versioned JSON store | `SusiConfig`, `extensions`, `VersionedJsonStore` | `susi-paths`, `susi-error`; serde | HTTP clients, everything above paths/error | no | config files | yes |
 | `susi-sandbox` | Leaf REST (`:18083`): Docker exec (bollard) + ensure/daemon-integrity endpoints; re-exports the client's helpers | `serve`, re-exported `SandboxManager`, `manager` | `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`; bollard | feature crates | Docker optional | config files | yes |
 | `susi-sandbox-client` | Sandbox IPC client + shared helpers: signed audit chain, daemon-state integrity, `SandboxManager` | `SandboxManager`, `audit_chain`, `daemon_state`, `manager` | `susi-paths`, `susi-error`, `susi-config` | bollard, feature crates | no | audit log, daemon state | loopback HTTP |
-| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` agent | `dual_transport`, `http_conn`, `http_agent` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
-| `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split (forked from candle-transformers) | `device`, `qwen2_split`, re-exported `candle_core` / `candle_nn` / `candle_transformers` | candle-core, candle-nn, candle-transformers | all workspace crates | no | process device cache | GPU FFI via Candle |
-| `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies and extractors | `inference_wire` | serde_json, ureq | all workspace crates | no | no | HTTP via callers |
+| `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` agent and `http_call` GET/HEAD | `dual_transport`, `http_conn`, `http_agent`, `http_call` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
+| `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
+| `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, and `InferenceProtocol` | `inference_wire` | serde_json, ureq | all workspace crates | no | no | HTTP via callers |
 | `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; rmcp/reqwest | workspace crates except core/sandbox/native clients; peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client` | feature planes; peers via `plane_bus` | peers | registries | yes |
-| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect) | gemi engines crate; peer feature crates | catalogs | cache dirs | yes |
+| `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect / tokenizers); `susi-http-transport` (HF download/discovery) | gemi engines crate; peer feature crates; reqwest/tokenizers | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
 | `susi-gawd-agents` | Fleet, safety/security, peers | agents, detectors, `plane_handler` topics via agents crate | `susi-core`; `susi-config`; `susi-sandbox-client`; `susi-http-transport` (live search / peer HTTP) | peer feature planes; reqwest/ureq | agents | mission-local | yes |
 | `susi-gawd-swarm` | AMA / DAG / cloud recovery | swarm dispatch | `susi-gawd-agents` + `susi-core`, `susi-config`; `susi-sandbox-client` | peer feature planes; HTTP clients | no | blackboard | yes |
@@ -476,3 +476,15 @@ the same commit as the code.
 | 10 | A2A round-trip test used a second `ureq::post` | uses shared `http_agent` |
 | 11 | `susi-gawd-agents` live_search used `reqwest` against Open-Meteo/DDG | rewritten onto transport `ureq`; `reqwest` dropped from agents |
 | 12 | No ratchet against HTTP-client relapse in OS crates | `core_os_crates_must_not_declare_http_clients` |
+| 13 | `tokenizers` declared in both `susi-gemi` and `susi-gemi-models` | re-exported from `susi-vendor-candle` only |
+| 14 | `InferenceProtocol` duplicated in GEMI `http_provider` | canonical enum lives in `susi-adapters-llm::inference_wire` |
+| 15 | Model downloads named `reqwest` types | `susi-http-transport::http_call` returns status/headers/`Read` |
+| 16 | `download.rs` resumable GET/HEAD used `reqwest` | rewritten onto `http_call` |
+| 17 | `hf_discovery` Hugging Face catalog used `reqwest` | rewritten onto `http_call` |
+| 18 | `open_weight` Ollama `/api/tags` used `reqwest` | rewritten onto `http_call` |
+| 19 | `provision` HF probe used `reqwest` | rewritten onto `http_call` |
+| 20 | `susi-gemi-models` still declared `reqwest` | dropped |
+| 21 | Twin URL encoders in live_search and sandbox-client | `susi_paths::{percent_encode_query, percent_encode_path}` |
+| 22 | live_search kept a private encoder | uses `percent_encode_query` |
+| 23 | sandbox-client kept a private encoder | uses `percent_encode_path` |
+| 24 | No ratchet against tokenizer/HF HTTP relapse in models | `gemi_models_must_not_declare_vendor_http_or_tokenizers` |

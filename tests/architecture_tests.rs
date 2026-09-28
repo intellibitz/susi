@@ -599,6 +599,39 @@ fn core_os_crates_must_not_declare_http_clients() {
     }
 }
 
+/// Model-plane crates (gemi-models) must not declare Hugging Face HTTP or
+/// tokenizer vendor crates: downloads go through `susi-http-transport`,
+/// tokenizers through `susi-vendor-candle`.
+#[test]
+fn gemi_models_must_not_declare_vendor_http_or_tokenizers() {
+    let root = workspace_root();
+    let text = std::fs::read_to_string(root.join("crates/susi-gemi-models/Cargo.toml"))
+        .expect("susi-gemi-models Cargo.toml");
+    let mut in_deps = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_deps = trimmed == "[dependencies]"
+                || trimmed.starts_with("[dependencies.")
+                || (trimmed.starts_with("[target.")
+                    && trimmed.contains("dependencies]")
+                    && !trimmed.contains("dev-dependencies]"));
+            continue;
+        }
+        if !in_deps {
+            continue;
+        }
+        for banned in ["reqwest", "tokenizers"] {
+            let declared = trimmed.starts_with(&format!("{banned} "))
+                || trimmed.starts_with(&format!("{banned}="));
+            assert!(
+                !declared,
+                "susi-gemi-models must not declare `{banned}` (HF HTTP via susi-http-transport, tokenizers via susi-vendor-candle)"
+            );
+        }
+    }
+}
+
 #[test]
 fn architecture_md_exists() {
     let path = workspace_root().join("ARCHITECTURE.md");

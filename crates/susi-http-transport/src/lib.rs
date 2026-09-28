@@ -19,4 +19,4 @@ pub mod client;
 pub mod dual_transport;
 pub mod http_conn;
 
-pub use client::http_agent;
+pub use client::{http_agent, http_call, HttpCall};

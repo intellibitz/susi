@@ -43,26 +43,20 @@ impl ModelManager {
         let hf_base_url = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()
             .hf_base_url();
-        let client = match reqwest::blocking::Client::builder()
-            .connect_timeout(std::time::Duration::from_secs(10))
-            .timeout(std::time::Duration::from_secs(15))
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => return (true, format!("Client build fallback: {}", e), 0),
-        };
-
-        match client
-            .get(format!("{}/api/models", hf_base_url))
-            .header("User-Agent", format!("SUSI/{}", env!("CARGO_PKG_VERSION")))
-            .send()
-        {
+        let url = format!("{}/api/models", hf_base_url);
+        let ua_val = format!("SUSI/{}", env!("CARGO_PKG_VERSION"));
+        match susi_http_transport::http_call(
+            "GET",
+            &url,
+            &[("User-Agent", ua_val.as_str())],
+            15,
+            10,
+        ) {
             Ok(resp) => {
                 let latency = start.elapsed().as_millis();
-                let status = resp.status();
                 (
                     true,
-                    format!("Network reachable. HF API Status: {}", status),
+                    format!("Network reachable. HF API Status: {}", resp.status),
                     latency,
                 )
             }
@@ -168,7 +162,7 @@ impl ModelManager {
         let path = models_dir
             .join(&step.hf_file)
             .with_extension("tokenizer.json");
-        if tokenizers::Tokenizer::from_file(&path).is_ok() {
+        if susi_vendor_candle::tokenizers::Tokenizer::from_file(&path).is_ok() {
             return Ok(());
         }
         let repo = if step.tokenizer_repo.is_empty() {
@@ -195,7 +189,7 @@ impl ModelManager {
                 token.as_deref(),
                 &|| false,
                 &|_, _| {},
-                &|p| tokenizers::Tokenizer::from_file(p).is_ok(),
+                &|p| susi_vendor_candle::tokenizers::Tokenizer::from_file(p).is_ok(),
                 expected_sha256.as_deref(),
             ) {
                 Ok(()) => return Ok(()),
