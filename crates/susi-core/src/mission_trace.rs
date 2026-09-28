@@ -19,7 +19,10 @@ use crate::context_graph::ContextGraph;
 
 /// Bumped when fields are added or reinterpreted; readers must tolerate
 /// unknown fields so newer traces never break older trainers.
-pub const SCHEMA_VERSION: u32 = 1;
+/// v2: `tools` now carries real dispatched-tool names from evidence
+/// receipts (was: interaction action labels); interaction actions moved to
+/// `signals`.
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// The trace is a learning record, not a transcript — goals bound at this
 /// length so a pasted document cannot dominate the file.
@@ -40,8 +43,17 @@ pub struct MissionTrace {
     /// Which path produced the answer — the label Tier-0 distillation learns
     /// to predict (`swarm`, `fast-path`, `governance-block`, ...).
     pub route: String,
-    /// Distinct tool/action names observed in the mission's interactions.
+    /// Distinct dispatched-tool names from the evidence session's receipts
+    /// (falls back to capability-named interactions when no session bound
+    /// the mission). Lifecycle actions like `MISSION_FLUX` or `PLAN_SEARCH`
+    /// are not tools — they land in `signals`.
     pub tools: Vec<String>,
+    /// Lifecycle/supervision actions observed in the mission's
+    /// interactions (`PLAN_SEARCH`, `CLOUD_ATTEMPT_*`, `MISSION_FLUX`, ...).
+    /// Kept for audit, kept out of `tools` so failure-history retrieval and
+    /// briefs describe real capabilities only.
+    #[serde(default)]
+    pub signals: Vec<String>,
     /// Recruited agent names.
     pub agents: Vec<String>,
     /// Count of interaction/evidence entries the report carried.
@@ -60,6 +72,7 @@ impl MissionTrace {
             outcome: bound_chars(outcome, MAX_FIELD_CHARS),
             route: bound_chars(route, MAX_FIELD_CHARS),
             tools: Vec::new(),
+            signals: Vec::new(),
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,
@@ -306,11 +319,50 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     }
 }
 
-/// Tools that appeared in failed missions similar to `goal` — the
-/// anti-pattern signal plan search penalizes against. Successes using the
-/// same tool don't clear it here (the scorer weighs it, the gate may still
-/// pass); a tool only on failed runs is a real signal.
+/// Tools that appeared in failed missions similar to `goal`, with the
+/// number of failed missions each appeared on — repeated failures weigh
+/// more than one-offs. Successes using the same tool don't clear it here
+/// (the scorer weighs it); a tool only on failed runs is a real signal.
+pub fn failing_tool_counts(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeMap<String, u32> {
+    let (mut failed, mut succeeded) = (
+        std::collections::BTreeMap::<String, u32>::new(),
+        std::collections::BTreeSet::<String>::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        if t.succeeded() {
+            succeeded.extend(t.tools.iter().cloned());
+        } else {
+            for tool in &t.tools {
+                *failed.entry(tool.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    // A tool that also appears on successful similar missions is ambiguous —
+    // only unambiguous failure carries the penalty.
+    failed.retain(|tool, _| !succeeded.contains(tool));
+    failed
+}
+
+/// The set view of `failing_tool_counts` — every tool with ≥1 unambiguous
+/// failure on similar missions.
 pub fn failing_tools(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeSet<String> {
+    failing_tool_counts(goal, traces, limit)
+        .into_keys()
+        .collect()
+}
+
+/// The positive counterpart of `failing_tools`: tools that appear only on
+/// *successful* similar missions — the planner's "what worked here before"
+/// signal. A tool that also failed is ambiguous and earns nothing.
+pub fn proven_tools(
     goal: &str,
     traces: &[MissionTrace],
     limit: usize,
@@ -327,9 +379,7 @@ pub fn failing_tools(
         };
         target.extend(t.tools.iter().cloned());
     }
-    // A tool that also appears on successful similar missions is ambiguous —
-    // only unambiguous failure carries the veto penalty.
-    failed.difference(&succeeded).cloned().collect()
+    succeeded.difference(&failed).cloned().collect()
 }
 
 /// One-line history brief for prompt injection: what similar missions did
@@ -522,6 +572,48 @@ mod tests {
         let failed = failing_tools("deploy api service", &traces, 8);
         assert!(failed.contains("broken_tool"), "{failed:?}");
         assert!(!failed.contains("exec_command"), "{failed:?}");
+        // Counts scale with repeated failures for penalty weighting.
+        let counts = failing_tool_counts("deploy api service", &traces, 8);
+        assert_eq!(counts.get("broken_tool"), Some(&2));
+        assert!(!counts.contains_key("exec_command"));
+    }
+
+    #[test]
+    fn proven_tools_flags_only_unambiguous_successes() {
+        let ws = workspace();
+        for (outcome, tools) in [
+            ("COMPLETE", vec!["exec_command", "cargo_build"]),
+            ("COMPLETE", vec!["cargo_build"]),
+            ("FAILED", vec!["exec_command", "flaky_tool"]),
+        ] {
+            let mut t = MissionTrace::new("m", "build rust crate", outcome, "swarm");
+            t.tools = tools.into_iter().map(String::from).collect();
+            t.emit(ws.path()).unwrap();
+        }
+        let traces = read_all(ws.path());
+        let proven = proven_tools("build rust crate", &traces, 8);
+        // cargo_build only ever succeeded; exec_command also failed once.
+        assert!(proven.contains("cargo_build"), "{proven:?}");
+        assert!(!proven.contains("exec_command"), "{proven:?}");
+        assert!(!proven.contains("flaky_tool"));
+    }
+
+    #[test]
+    fn v1_lines_without_signals_still_parse() {
+        let ws = workspace();
+        let susi = ws.path().join(".susi");
+        std::fs::create_dir_all(&susi).unwrap();
+        // A schema-1 record: no `signals` field at all.
+        std::fs::write(
+            susi.join("mission_traces.jsonl"),
+            r#"{"schema_version":1,"mission_id":"old","goal":"deploy api","outcome":"COMPLETE","route":"swarm","tools":["exec_command"],"agents":[],"evidence_entries":2,"duration_secs":null,"timestamp":1}
+"#,
+        )
+        .unwrap();
+        let parsed = read_all(ws.path());
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed[0].signals.is_empty());
+        assert_eq!(parsed[0].tools, vec!["exec_command".to_string()]);
     }
 
     #[test]

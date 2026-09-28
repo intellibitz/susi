@@ -465,7 +465,11 @@ spawns, never `Verified`. Until EV-CLAUDE-019, `sh`, `bash`, `git` and
 valid "probe". `verify_mission_reality`
 mines goal and result text into contracts: write *and* delete claims are
 checked, and a goal's `containing <text>` clause upgrades existence to a
-content assertion.
+content assertion. Trace schema v2 records `tools` as the evidence
+session's real dispatched-tool names (interaction actions — `PLAN_SEARCH`,
+`CLOUD_ATTEMPT_*`, `MISSION_FLUX` — are supervision signals kept in
+`signals`), so failure-history and briefs describe capabilities, not
+control flow.
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces

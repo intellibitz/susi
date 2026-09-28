@@ -134,11 +134,29 @@ impl SusiMissionReport {
         } else {
             "swarm"
         };
-        let tools: std::collections::BTreeSet<String> = self
+        // Tools are real dispatched capabilities from the evidence session's
+        // receipts; interaction actions are lifecycle signals, not tools —
+        // mixing them taught failing_tools() to veto supervision events.
+        let receipt_tools: std::collections::BTreeSet<String> = session
+            .as_ref()
+            .map(|s| s.receipts().iter().map(|r| r.tool.clone()).collect())
+            .unwrap_or_default();
+        let caps: std::collections::BTreeSet<String> =
+            crate::susi_core::registry::CapabilityRegistry::global()
+                .list_tools()
+                .into_iter()
+                .collect();
+        let interactions_tools: std::collections::BTreeSet<String> = self
             .interactions
             .iter()
             .map(|msg| msg.action.clone())
+            .filter(|a| caps.contains(a))
             .collect();
+        let tools = if receipt_tools.is_empty() {
+            interactions_tools
+        } else {
+            receipt_tools
+        };
         let mut trace = crate::susi_core::mission_trace::MissionTrace::new(
             session
                 .as_ref()
@@ -149,10 +167,16 @@ impl SusiMissionReport {
             route,
         );
         trace.tools = crate::susi_core::mission_trace::bounded_list(tools);
+        trace.signals = crate::susi_core::mission_trace::bounded_list(
+            self.interactions.iter().map(|msg| msg.action.clone()),
+        );
         trace.agents = crate::susi_core::mission_trace::bounded_list(
             self.agents.iter().map(|a| a.name.clone()),
         );
-        trace.evidence_entries = self.interactions.len();
+        trace.evidence_entries = session
+            .as_ref()
+            .map(|s| s.receipts().len())
+            .unwrap_or_else(|| self.interactions.len());
         trace.duration_secs = session.as_ref().map(|s| s.age_secs());
         let _ = trace.emit(workspace);
 
