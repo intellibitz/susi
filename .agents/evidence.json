@@ -3694,6 +3694,16 @@
    "milestone": "Deletion claims can no longer be verified about paths outside the workspace. Before: Contract::FileAbsent computed root.join(path). An absolute path replaces the root under Path::join, and '..' climbs out of it, so a claim like 'deleted /nonexistent/x' or 'deleted ../x' whose target did not exist fell through canonicalize()'s error arm and returned Verified ('no filesystem entry'). That is a verified claim about state the registry does not govern. An existing escaped path was already Violated; only nonexistent escapes slipped through. Now FileAbsent returns Unverifiable ('not workspace-relative') for any absolute path or any path with a ParentDir component, before touching the filesystem. Test: file_absent_never_vouches_for_paths_outside_the_workspace (/nonexistent/..., ../sibling, sub/../../escape are all Unverifiable); the existing file_absent_distinguishes_gone_present_and_escaped still passes (9/9 verification tests).",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "pulse::generative_tiers",
+    "ref": "file://crates/susi-gemi/src/pulse.rs"
+   },
+   "id": "EV-CLAUDE-021",
+   "milestone": "Tier 1 (the embedded qwen2.5-0.5b generative reflex behind Tier-0) no longer wastes a generation, and no longer serves an empty action. Before, in SusiPulse::reason: GenerativeReflexEngine::try_solve ran a greedy generation of up to 64 tokens and always returned format!(\"ACTION: {}\"). Pulse's starts_with(\"ACTION:\") check was therefore always true, so it immediately ran try_generate_answer (up to 256 tokens) and used the routing output only if that failed. If try_solve failed, a 'Tier 2' block called try_generate_answer again on the same model. The routing generation was wasted on every Tier-1 reflex that produced an answer, and a missing model was tried redundantly. Also, an empty routing decode returned Ok('ACTION: '), which was served and cached as a solve. Now pulse::generative_tiers runs the answer first and the ACTION routing only on failure, with the same outcomes in every case, and try_solve returns Err (task marked failed) when the decoded action is empty. Test: tier1_generates_an_answer_first_and_routes_only_on_failure (answer served with zero routing calls; routing used when the answer fails; both failing is Err). Latency saving: one greedy generation of up to 64 tokens per Tier-1 reflex; not benchmarked here because the reflex model is not provisioned in the test environment.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

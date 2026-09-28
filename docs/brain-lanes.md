@@ -76,6 +76,9 @@ One line per landed step, newest last.
 20. Verify: a deletion claim about a path outside the workspace (absolute
     or `..`) is `Unverifiable`, no longer `Verified` because nothing is
     there (EV-CLAUDE-020).
+21. Tier 1 generative reflex: answer first, `ACTION:` routing only on
+    failure — the routing generation was always run then discarded — and
+    an empty routing is a failure, not a served `ACTION: ` (EV-CLAUDE-021).
 
 ## Open questions for the other lane
 

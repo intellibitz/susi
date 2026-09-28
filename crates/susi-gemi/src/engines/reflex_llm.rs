@@ -129,8 +129,15 @@ impl GenerativeReflexEngine {
             .decode(&all_tokens, true)
             .map_err(|e| anyhow!("Decoding Error: {}", e))?;
 
+        // An empty action is a failed routing, not a solve: `ACTION: ` would
+        // otherwise be served (and cached) as Tier 1's answer.
+        let action = output.trim();
+        if action.is_empty() {
+            task_handle.mark_failed("Reflex routing produced no action.");
+            return Err(anyhow!("reflex routing produced no action"));
+        }
         task_handle.mark_completed("Reflex routing successful.");
-        Ok(format!("ACTION: {}", output.trim()))
+        Ok(format!("ACTION: {action}"))
     }
 
     /// Generates a full answer for the given intent using the Reflex model.

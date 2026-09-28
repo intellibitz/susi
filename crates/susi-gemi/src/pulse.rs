@@ -33,6 +33,19 @@ fn cache_insert(cache: &mut HashMap<ReflexKey, String>, key: ReflexKey, value: S
     cache.insert(key, value);
 }
 
+/// Tier 1 order: a full answer first, the `ACTION:` routing generation only
+/// if that fails. `try_solve` always returns an `ACTION:`-prefixed string,
+/// so the old order ran its 64-token generation, saw the prefix, and threw
+/// the result away to run the 256-token answer generation — and when both
+/// failed it tried the answer again under a "Tier 2" label on the *same*
+/// model. Same outcomes, one generation fewer on the common path.
+fn generative_tiers(
+    answer: impl FnOnce() -> Result<String>,
+    action: impl FnOnce() -> Result<String>,
+) -> Result<String> {
+    answer().or_else(|_| action())
+}
+
 impl SusiPulse {
     /// Pure Neural Intent Resolution.
     ///
@@ -81,29 +94,13 @@ impl SusiPulse {
         }
 
         // Generative Reflex Attempt (Tier 1 LLM)
-        if let Ok(generative_action) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
-            .try_solve(prompt_trimmed, workspace)
-        {
-            // If the reflex returns an ACTION placeholder, attempt full answer generation.
-            if generative_action.trim_start().starts_with("ACTION:") {
-                if let Ok(full_answer) =
-                    crate::engines::reflex_llm::GenerativeReflexEngine::global()
-                        .try_generate_answer(prompt_trimmed, workspace)
-                {
-                    cache_insert(&mut REFLEX_CACHE.write(), key, full_answer.clone());
-                    return Ok(full_answer);
-                }
-            }
-            cache_insert(&mut REFLEX_CACHE.write(), key, generative_action.clone());
-            return Ok(generative_action);
-        }
-
-        // Tier 2 Local Generation Fallback (full answer)
-        if let Ok(full_answer) = crate::engines::reflex_llm::GenerativeReflexEngine::global()
-            .try_generate_answer(prompt_trimmed, workspace)
-        {
-            cache_insert(&mut REFLEX_CACHE.write(), key, full_answer.clone());
-            return Ok(full_answer);
+        let engine = crate::engines::reflex_llm::GenerativeReflexEngine::global();
+        if let Ok(answer) = generative_tiers(
+            || engine.try_generate_answer(prompt_trimmed, workspace),
+            || engine.try_solve(prompt_trimmed, workspace),
+        ) {
+            cache_insert(&mut REFLEX_CACHE.write(), key, answer.clone());
+            return Ok(answer);
         }
 
         Err(anyhow!("no reflex tier produced an answer"))
@@ -113,6 +110,35 @@ impl SusiPulse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tier1_generates_an_answer_first_and_routes_only_on_failure() {
+        use std::cell::Cell;
+        let (answers, actions) = (Cell::new(0), Cell::new(0));
+        let ok = |text: &str| -> Result<String> { Ok(text.to_string()) };
+        let fail = || -> Result<String> { Err(anyhow!("no model")) };
+
+        let served = generative_tiers(
+            || {
+                answers.set(answers.get() + 1);
+                ok("the answer")
+            },
+            || {
+                actions.set(actions.get() + 1);
+                ok("ACTION: status")
+            },
+        );
+        assert_eq!(served.unwrap(), "the answer");
+        assert_eq!(
+            (answers.get(), actions.get()),
+            (1, 0),
+            "no wasted action generation"
+        );
+
+        let routed = generative_tiers(fail, || ok("ACTION: status"));
+        assert_eq!(routed.unwrap(), "ACTION: status");
+        assert!(generative_tiers(fail, fail).is_err());
+    }
 
     #[test]
     fn reflex_cache_is_bounded() {

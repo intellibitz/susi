@@ -643,6 +643,15 @@ serving through `SusiPulse` — under an isolated HOME/XDG root.
 Lane ownership for concurrent brain work is in
 `docs/brain-lanes.md`.
 
+When Tier-0 declines, `SusiPulse` falls to Tier 1, the embedded sub-1B
+generative reflex (`GenerativeReflexEngine`): a full answer first, the
+`ACTION:`-routing generation only if that fails (`pulse::generative_tiers`).
+The old order ran the 64-token routing generation, discarded it (its
+output always carries the `ACTION:` prefix that triggered answer
+generation), and on failure retried the answer on the same model under a
+"Tier 2" label — one wasted generation on every Tier-1 reflex. An empty
+routing output is a failure, never a served `ACTION: ` (EV-CLAUDE-021).
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is
