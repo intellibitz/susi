@@ -40,9 +40,53 @@ struct TrainingBatch {
     skipped: usize,
 }
 
+/// An intent staged with more than one action in a batch keeps only the
+/// strict-majority label; with no majority every sample of it is dropped.
+/// Tool receipts stage `mission goal → tool` once per tool call, so one
+/// multi-tool mission stages its goal under several labels, and without
+/// this the replay merge's newest-wins rule would crown whichever tool ran
+/// last. Returns the kept entries (batch order) and the dropped count.
+fn resolve_label_conflicts(
+    entries: Vec<(DistillationStaged, u32)>,
+) -> (Vec<(DistillationStaged, u32)>, usize) {
+    let mut votes: std::collections::HashMap<String, std::collections::HashMap<u32, usize>> =
+        std::collections::HashMap::new();
+    for (entry, label) in &entries {
+        *votes
+            .entry(entry.intent.trim().to_lowercase())
+            .or_default()
+            .entry(*label)
+            .or_default() += 1;
+    }
+    let winner: std::collections::HashMap<String, Option<u32>> = votes
+        .into_iter()
+        .map(|(intent, tally)| {
+            let total: usize = tally.values().sum();
+            let majority = tally
+                .into_iter()
+                .find(|(_, count)| count * 2 > total)
+                .map(|(label, _)| label);
+            (intent, majority)
+        })
+        .collect();
+    let before = entries.len();
+    let kept: Vec<(DistillationStaged, u32)> = entries
+        .into_iter()
+        .filter(|(entry, label)| {
+            winner
+                .get(&entry.intent.trim().to_lowercase())
+                .copied()
+                .flatten()
+                == Some(*label)
+        })
+        .collect();
+    let dropped = before - kept.len();
+    (kept, dropped)
+}
+
 /// Malformed or blank lines fail the batch. Well-formed records that cannot
 /// be labeled (blank intent, failed mission outcome, action outside the
-/// vocabulary) are skipped and counted: a restored claim would otherwise
+/// vocabulary, no majority label for the intent) are skipped and counted: a restored claim would otherwise
 /// fail on them every cycle, and once the vocabulary is full an unknown
 /// action never becomes trainable.
 fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<TrainingBatch> {
@@ -76,10 +120,12 @@ fn parse_training_entries(content: &str, dynamic_intents: &[String]) -> Result<T
         let label = u32::try_from(label).map_err(|_| anyhow!("intent label exceeds u32"))?;
         entries.push((entry, label));
     }
+    let (entries, ambiguous) = resolve_label_conflicts(entries);
+    skipped += ambiguous;
     if entries.is_empty() {
         if skipped > 0 {
             return Err(anyhow!(
-                "No trainable distillation records: {skipped} skipped (blank intent, failed mission outcome, or action outside the reflex vocabulary)."
+                "No trainable distillation records: {skipped} skipped (blank intent, failed mission outcome, action outside the reflex vocabulary, or no majority label)."
             ));
         }
         return Err(anyhow!("Empty distillation dataset."));
@@ -816,7 +862,7 @@ impl SusiAlphaModel {
             String::new()
         } else {
             format!(
-                " Skipped {} untrainable record(s) (blank intent, failed mission outcome, or action outside the reflex vocabulary).",
+                " Skipped {} untrainable record(s) (blank intent, failed mission outcome, action outside the reflex vocabulary, or no majority label).",
                 batch.skipped
             )
         };
@@ -1497,6 +1543,37 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("line 5"));
+    }
+
+    #[test]
+    fn conflicting_labels_keep_only_a_strict_majority() {
+        let line = |intent: &str, action: &str| {
+            format!(
+                r#"{{"intent":"{intent}","action":"{action}","timestamp":1,"performance_metadata":{{"source":"tool_receipt"}}}}"#
+            )
+        };
+        let content = [
+            // One multi-tool mission: no label has a majority.
+            line("fix the build", "status"),
+            line("fix the build", "reason"),
+            // Repeated single-tool missions: 2 of 3 is a strict majority.
+            line("Why so slow", "reason"),
+            line("why so slow", "reason"),
+            line("why so slow", "status"),
+            line("check it", "status"),
+        ]
+        .join("\n");
+        let parsed = parse_training_entries(&content, &intents()).unwrap();
+        let kept: Vec<(&str, u32)> = parsed
+            .entries
+            .iter()
+            .map(|(entry, label)| (entry.intent.as_str(), *label))
+            .collect();
+        assert_eq!(
+            kept,
+            [("Why so slow", 0), ("why so slow", 0), ("check it", 1)]
+        );
+        assert_eq!(parsed.skipped, 3);
     }
 
     #[test]

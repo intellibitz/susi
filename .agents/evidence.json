@@ -3584,6 +3584,16 @@
    "milestone": "Operators can see Tier-0 distillation health. susi substrate status now includes reflexes.distillation, from susi_gawd::reflex_trainer::distillation_summary, which reads <ws>/.susi/distillation_log.jsonl (EV-CLAUDE-008): cycle counts by outcome (published / held_back / error) and the most recent cycle record. Before, held-back or failed training cycles were visible only in the log file. Verified on a dev build (target/debug/susi, isolated HOME resolving to .susi-dev, release ~/.susi untouched): with a scratch workspace holding one published and one held_back cycle, the command printed cycles=2, published=1, held_back=1, and last.outcome=held_back with its report. Test: summary_counts_outcomes_and_shows_the_last_cycle. The lanes board also records an open question for Devin's mission layer: a reflex_served field on traces would let distill suppress and unlearn reflexes that led to failed missions, which is not joinable today.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "resolve_label_conflicts",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-010",
+   "milestone": "Tier-0 no longer trains on contradictory labels. Before: ReceiptArchive stages mission goal -> tool name for every successful tool call (capture.rs passes the session goal as training_intent). So one multi-tool mission staged the same intent under several labels (read_file, write_file, run_test_harness, ...), and the classifier was fit toward all of them at once. After EV-CLAUDE-005 the replay merge's newest-wins rule would have crowned whichever tool ran last. Now parse_training_entries runs resolve_label_conflicts over each batch: per normalized intent, the samples are kept only for a label holding a strict majority of that intent's samples, and all are dropped (counted as skipped, 'no majority label') when none does. Repeated single-tool missions still teach; multi-tool goals, which no single reflex action could serve, do not. Test: conflicting_labels_keep_only_a_strict_majority (a 1-1 split is dropped; 2-of-3 keeps the majority samples and drops the minority; the unique intent is kept; skipped=3).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

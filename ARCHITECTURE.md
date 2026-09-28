@@ -521,6 +521,13 @@ samples staged before the source guard and any future writer. Receipt
 samples carry no outcome (they come from successful tool calls) and stay
 trainable.
 
+Labels must agree. Receipts stage `mission goal → tool` once per tool call,
+so a multi-tool mission stages one goal under several labels.
+`resolve_label_conflicts` keeps an intent's samples only for the label
+holding a strict majority of that intent's samples in the batch, and drops
+them all when no label does. Repeated single-tool missions still teach;
+multi-tool goals — which no single reflex action could serve — do not.
+
 The classifier's inputs are `SusiAlphaModel::reflex_features`: a 128-dim,
 L2-normalized bag of words with stopwords dropped, in which every word
 contributes equal norm regardless of position — a category word ("status",

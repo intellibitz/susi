@@ -45,6 +45,9 @@ One line per landed step, newest last.
    new samples instead of being refit on every mission (EV-CLAUDE-008).
 9. `susi substrate status` → `reflexes.distillation` shows cycle counts
    (published / held_back / error) and the last cycle (EV-CLAUDE-009).
+10. Conflicting labels: an intent staged under several actions in one
+    batch (a multi-tool mission's receipts) keeps only a strict-majority
+    label, else is dropped — no more "whichever tool ran last" (EV-CLAUDE-010).
 
 ## Open questions for the other lane
 
