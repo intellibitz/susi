@@ -156,7 +156,9 @@ mod router_tests {
     use axum::http::{header::AUTHORIZATION, Request, StatusCode};
     use tower::ServiceExt;
 
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Serialises the env-mutating tests. Async-aware because the guard must
+    /// span the `.await`s that read the env it protects.
+    static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     fn get(uri: &str) -> Request<Body> {
         Request::get(uri).body(Body::empty()).unwrap()
@@ -195,7 +197,7 @@ mod router_tests {
 
     #[tokio::test]
     async fn paths_router_answers_the_contract_without_auth() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().await;
         let _home = isolated_home();
         assert_eq!(
             status(super::paths_svc::router(), get("/paths")).await,
@@ -209,7 +211,7 @@ mod router_tests {
 
     #[tokio::test]
     async fn config_router_fails_closed_until_the_host_token_matches() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().await;
         let home = isolated_home();
         // No api_token seeded: the write/read policy must fail closed.
         assert_eq!(
@@ -233,7 +235,7 @@ mod router_tests {
 
     #[tokio::test]
     async fn error_router_logs_events_and_gates_history() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().await;
         let _home = isolated_home();
         // SUSI_HOST_TOKEN unset: supervisor policy is open by contract.
         std::env::remove_var("SUSI_HOST_TOKEN");
@@ -273,7 +275,7 @@ mod router_tests {
 
     #[tokio::test]
     async fn sandbox_router_gates_everything_on_the_host_token() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().await;
         let home = isolated_home();
         assert_eq!(
             status(
@@ -317,7 +319,7 @@ mod router_tests {
 
     #[tokio::test]
     async fn native_router_executes_reflexes_and_surfaces_errors() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().await;
         let _home = isolated_home();
         std::env::set_var("SUSI_HOST_TOKEN", "sup-token");
         assert_eq!(
