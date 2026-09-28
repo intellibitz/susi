@@ -449,6 +449,18 @@ sinks:
 `mission_trace::read_all` tolerates older-schema and partial lines, so trace
 consumers never break on a rolled-forward file.
 
+The `verify` stage runs through the **contract registry**
+(`susi_core::verification`): `Contract::{FileExists, FileAbsent,
+FileContains, FileHash, CommandExit}` evaluate against physical workspace
+state and return evidence (observed path, hash, exit code), not bare
+booleans. `CommandExit` runs through `bounded_cmd::output_within` with a
+workspace cwd, a ≤60s deadline, and a `VERIFIER_BINARIES` allowlist — a
+verifier is a probe, and programs outside the allowlist (or unresolvable
+claims) return `Unverifiable`, never `Verified`. `verify_mission_reality`
+mines goal and result text into contracts: write *and* delete claims are
+checked, and a goal's `containing <text>` clause upgrades existence to a
+content assertion.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is

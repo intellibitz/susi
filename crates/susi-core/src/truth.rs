@@ -1,6 +1,6 @@
 use crate::susi_core::evidence::{EvidenceAssessment, EvidenceRecord, EvidenceSource};
 use crate::susi_core::registry::CapabilityRegistry;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::susi_error::{EaiError, EaiResult};
@@ -21,10 +21,12 @@ impl SusiTruthAgent {
             return Err(EaiError::governance("TRUTH_UNVERIFIED: empty result"));
         }
         let mut violations = Vec::new();
+        let mut contracts = Vec::new();
 
         // A write mission must leave its named target in the workspace. Tool
         // stdout alone (for example `echo hello` without a redirect) is not
-        // evidence that the requested file was created.
+        // evidence that the requested file was created. A "containing <text>"
+        // clause upgrades the contract from existence to content.
         static GOAL_FILE_WRITES: OnceLock<regex::Regex> = OnceLock::new();
         let goal_file_writes = GOAL_FILE_WRITES.get_or_init(|| {
             regex::Regex::new(
@@ -32,48 +34,62 @@ impl SusiTruthAgent {
             )
             .expect("static goal write pattern")
         });
+        static GOAL_CONTENT: OnceLock<regex::Regex> = OnceLock::new();
+        let goal_content = GOAL_CONTENT.get_or_init(|| {
+            regex::Regex::new(r#"(?i)\bcontaining(?:\s+exactly)?:\s*(.+)$"#)
+                .expect("static goal-content pattern")
+        });
         for capture in goal_file_writes.captures_iter(goal) {
             let path = (1..=4)
                 .find_map(|index| capture.get(index))
                 .map(|value| value.as_str())
                 .unwrap_or_default();
-            if crate::susi_core::evidence::confined_file(workspace, Path::new(path)).is_none() {
-                violations.push(format!(
-                    "Reality Mismatch: requested file '{}' was not created as a regular workspace file.",
-                    path
-                ));
+            match goal_content
+                .captures(goal)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().trim().to_string())
+            {
+                Some(needle) if !needle.is_empty() => {
+                    contracts.push(crate::verification::Contract::FileContains {
+                        path: PathBuf::from(path),
+                        needle,
+                    });
+                }
+                _ => contracts.push(crate::verification::Contract::FileExists {
+                    path: PathBuf::from(path),
+                }),
             }
         }
 
-        // Inspect every explicit write claim, rather than the first path-looking
-        // word anywhere in the result. Quoting supports paths containing spaces.
-        static WRITES: OnceLock<regex::Regex> = OnceLock::new();
-        // Mandate 42: safe - the pattern is a compile-time string literal,
-        // not runtime input; its validity doesn't depend on any value that
-        // varies between calls, so a failure here would be caught by any
-        // test run, never a runtime condition.
-        let writes = WRITES.get_or_init(|| {
-            regex::Regex::new(
-                r#"(?i)\b(?:wrote to|saved to)(?:[ \t]+(?:`([^`]+)`|"([^"]+)"|'([^']+)'|([^\s]+)))?"#,
-            )
-            .expect("static write-claim pattern")
-        });
-        for capture in writes.captures_iter(result) {
-            let candidate = (1..=4).find_map(|index| capture.get(index));
-            let Some(candidate) = candidate else {
-                violations.push("Reality Mismatch: write claim has no verifiable path".to_string());
-                continue;
-            };
-            let path = if capture.get(4).is_some() {
-                candidate.as_str().trim_end_matches(['.', ',', ';'])
-            } else {
-                candidate.as_str()
-            };
-            match crate::susi_core::evidence::confined_file(workspace, Path::new(path)) {
-                Some(_) => {}
-                _ => violations.push(format!(
-                    "Reality Mismatch: Resource '{}' reported as written but is not an existing regular file.", path
-                )),
+        // Claims in the result — writes *and* deletions — become contracts
+        // evaluated against the workspace with evidence, rather than
+        // existence-only spot checks.
+        let claim_count = {
+            static CLAIM_VERBS: OnceLock<regex::Regex> = OnceLock::new();
+            CLAIM_VERBS
+                .get_or_init(|| {
+                    regex::Regex::new(r#"(?i)\b(?:wrote to|saved to)\b"#)
+                        .expect("static claim-verb pattern")
+                })
+                .find_iter(result)
+                .count()
+        };
+        let mined = crate::verification::contracts_from_text(result);
+        if claim_count
+            > mined
+                .iter()
+                .filter(|c| matches!(c, crate::verification::Contract::FileExists { .. }))
+                .count()
+        {
+            violations.push("Reality Mismatch: write claim has no verifiable path".to_string());
+        }
+        contracts.extend(mined);
+
+        for contract in &contracts {
+            if let Some(violation) =
+                crate::verification::verify_contract(contract, workspace).violation()
+            {
+                violations.push(violation);
             }
         }
 
@@ -361,6 +377,36 @@ mod tests {
         .is_err());
         assert!(SusiTruthAgent::verify_mission_reality("", "", "Wrote to ", &tmp).is_err());
         std::fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[test]
+    fn delete_and_content_claims_route_through_contracts() {
+        let ws = TempWorkspace::new();
+        // A claimed deletion whose target still exists is a violation —
+        // existence checks alone could never see this.
+        std::fs::write(ws.0.join("stale.txt"), "x").unwrap();
+        let err = SusiTruthAgent::verify_mission_reality(
+            "remove stale.txt",
+            "exec_command",
+            "Deleted stale.txt",
+            &ws.0,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("stale.txt"));
+
+        // A "containing" goal upgrades existence to a content contract.
+        let goal = "Create a file named sealed.txt containing exactly: payload-42";
+        let err = SusiTruthAgent::verify_mission_reality(goal, "exec_command", "done", &ws.0)
+            .unwrap_err();
+        assert!(err.to_string().contains("sealed.txt"));
+        std::fs::write(ws.0.join("sealed.txt"), "payload-42").unwrap();
+        assert!(
+            SusiTruthAgent::verify_mission_reality(goal, "exec_command", "done", &ws.0).is_ok()
+        );
+        std::fs::write(ws.0.join("sealed.txt"), "wrong").unwrap();
+        assert!(
+            SusiTruthAgent::verify_mission_reality(goal, "exec_command", "done", &ws.0).is_err()
+        );
     }
 
     #[test]

@@ -3434,6 +3434,16 @@
     "label": "Mission trace schema + emission",
     "ref": "file://crates/susi-core/src/mission_trace.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-013",
+   "type": "ARCHITECTURE",
+   "milestone": "Brain step 2 \u2014 verification contract registry. susi_core::verification: typed Contract {FileExists, FileAbsent, FileContains, FileHash, CommandExit} evaluated against physical workspace state with evidence-bearing verdicts (Verified/Violated/Unverifiable \u2014 never a silent pass). CommandExit runs allowlisted probe binaries through bounded_cmd with a <=60s deadline and workspace cwd; disallowed programs fail closed to Unverifiable. verify_mission_reality now mines goal+result into contracts: deletion claims checked (previously invisible), 'containing <text>' goals upgrade existence to content assertions.",
+   "proof": "7 new verification tests green (confinement escapes, absent/present/escape discrimination, byte-content and sha256 mismatch, allowlist refusal, claim mining, full-verdict retention); truth gate tests 15 pass incl. new contract-routing test; existing write-claim and bare-claim behavior preserved.",
+   "anchor": {
+    "label": "Verification contract registry",
+    "ref": "file://crates/susi-core/src/verification.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,

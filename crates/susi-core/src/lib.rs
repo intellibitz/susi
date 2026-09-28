@@ -76,6 +76,7 @@ pub mod telemetry;
 #[path = "tests/telemetry.rs"]
 mod telemetry_tests;
 pub mod truth;
+pub mod verification;
 
 // Top-level exports for the fundamental susi-core types
 pub use agent_tx::{AgentTransaction, TxManager, TxStatus};
