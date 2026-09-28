@@ -472,7 +472,11 @@ registry can vouch for (it used to come back `Verified`). Bare
 (unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,
 closing brackets and quotes as well as `.,;` — so "I saved to notes.txt:"
 checks `notes.txt`, and "removed old.log)" can no longer "verify" the
-always-absent `old.log)` while `old.log` still exists (EV-CLAUDE-030).
+always-absent `old.log)` while `old.log` still exists (EV-CLAUDE-030). Trace schema v2 records `tools` as the evidence
+session's real dispatched-tool names (interaction actions — `PLAN_SEARCH`,
+`CLOUD_ATTEMPT_*`, `MISSION_FLUX` — are supervision signals kept in
+`signals`), so failure-history and briefs describe capabilities, not
+control flow.
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces

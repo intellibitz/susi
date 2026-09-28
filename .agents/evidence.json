@@ -3491,7 +3491,7 @@
     "ref": "file://crates/susi-vendor-agents/src/external/git_identity.rs"
    },
    "id": "EV-CLAUDE-001",
-   "milestone": "External agent runs can no longer rewrite the workspace's git identity. Incident: 99 commits from 2026-09-27 were authored as \"Your Name <you@example.com>\" because the repo-local .git/config gained placeholder user.name/user.email. Root cause (read from aider 0.86.2 aider/main.py setup_git): aider runs `git config --get user.name/user.email` and writes those placeholders into the repo-local config when either is missing. The launch path was tests/empirical_validation_tests.rs test_empirical_epistemic_integrity_fictitious. It isolated HOME to a temp dir but used the checkout as the workspace, and before 8c66b337 cloud_recovery::recover fell through to its ultimate external-agent fallback. That fallback launched aider in the real repo 12 times (.susi/execution-agents/a30910b6…, prompt \"inspect the status of cargo module non_existent_quantum_crank\", 2026-09-27 21:38 onward). Fix: process::execute arms GitIdentityGuard for every local process adapter. Its probes use the agent's exact env. In a git work tree with no visible identity it refuses to launch. Otherwise it pins GIT_AUTHOR_*/GIT_COMMITTER_* to the visible identity, and after the run (success, failure or cancel) it restores any repo-local user.name/user.email the agent changed, flagging the run's error field. GIT_AUTHOR_* alone was rejected because `git config --get` ignores it. aider --no-git (the only flag that skips setup_git) was rejected as the default because it also disables aider's repo map and commits; --no-auto-commits and --git-commit-verify do not prevent the write. The empirical test now runs missions in a scratch workspace and asserts no execution-agents run was created. Regression tests: git_identity::tests (isolated-HOME refusal writes nothing; aider-style placeholder write restored plus author env pinned; non-repo unguarded) and external::tests::agent_run_cannot_rewrite_workspace_git_identity (end-to-end through AgentManager). Dev-instance check (target/debug/susi, isolated HOME → .susi-dev, ~/.susi/bin untouched) with real aider 0.86.2 in scratch repos: raw aider as a control wrote the placeholders; susi refused the same launch and left .git/config clean; with identity present aider ran (exit 0) and identity was unchanged. Verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked --no-fail-fast (1048 passed, 0 failed; a first fail-fast run hit 2 susi-gawd-a2a failures that passed in isolation and on rerun, and that crate does not depend on susi-agents). Scope: guards repo-local user.name/user.email only; aider still adds .aider* to .gitignore unless --no-gitignore.",
+   "milestone": "External agent runs can no longer rewrite the workspace's git identity. Incident: 99 commits from 2026-09-27 were authored as \"Your Name <you@example.com>\" because the repo-local .git/config gained placeholder user.name/user.email. Root cause (read from aider 0.86.2 aider/main.py setup_git): aider runs `git config --get user.name/user.email` and writes those placeholders into the repo-local config when either is missing. The launch path was tests/empirical_validation_tests.rs test_empirical_epistemic_integrity_fictitious. It isolated HOME to a temp dir but used the checkout as the workspace, and before 8c66b337 cloud_recovery::recover fell through to its ultimate external-agent fallback. That fallback launched aider in the real repo 12 times (.susi/execution-agents/a30910b6\u2026, prompt \"inspect the status of cargo module non_existent_quantum_crank\", 2026-09-27 21:38 onward). Fix: process::execute arms GitIdentityGuard for every local process adapter. Its probes use the agent's exact env. In a git work tree with no visible identity it refuses to launch. Otherwise it pins GIT_AUTHOR_*/GIT_COMMITTER_* to the visible identity, and after the run (success, failure or cancel) it restores any repo-local user.name/user.email the agent changed, flagging the run's error field. GIT_AUTHOR_* alone was rejected because `git config --get` ignores it. aider --no-git (the only flag that skips setup_git) was rejected as the default because it also disables aider's repo map and commits; --no-auto-commits and --git-commit-verify do not prevent the write. The empirical test now runs missions in a scratch workspace and asserts no execution-agents run was created. Regression tests: git_identity::tests (isolated-HOME refusal writes nothing; aider-style placeholder write restored plus author env pinned; non-repo unguarded) and external::tests::agent_run_cannot_rewrite_workspace_git_identity (end-to-end through AgentManager). Dev-instance check (target/debug/susi, isolated HOME \u2192 .susi-dev, ~/.susi/bin untouched) with real aider 0.86.2 in scratch repos: raw aider as a control wrote the placeholders; susi refused the same launch and left .git/config clean; with identity present aider ran (exit 0) and identity was unchanged. Verified: cargo fmt --all --check; cargo clippy --workspace --all-targets --locked -- -D warnings; cargo test --workspace --locked --no-fail-fast (1048 passed, 0 failed; a first fail-fast run hit 2 susi-gawd-a2a failures that passed in isolation and on rerun, and that crate does not depend on susi-agents). Scope: guards repo-local user.name/user.email only; aider still adds .aider* to .gitignore unless --no-gitignore.",
    "proof": "VERIFIED",
    "type": "MISSION"
   },
@@ -3794,6 +3794,56 @@
    "milestone": "Claim mining no longer carries prose punctuation into verified paths, which caused errors in both directions. contracts_from_text takes the token after 'wrote to'/'saved to'/'deleted'/'removed' as a bare path and trimmed only trailing '.,;'. Measured before the fix: 'I saved to notes.txt: done' mined notes.txt:, '(saved to out/report.md)' mined out/report.md), 'I wrote to report.md!' mined report.md!, and 'wrote to data.json)' mined data.json). Each FileExists then failed, so truthful write claims became TRUTH_VIOLATION governance errors. On the deletion side, 'removed old.log)' mined FileAbsent{old.log)}, a path that never exists, so the deletion verified while old.log was still present. Now trim_bare_path strips leading ([{ and trailing .,;:!?)]}\"'` from bare paths; quoted and backticked paths are still taken verbatim. Test: bare_claim_paths_shed_surrounding_prose_punctuation (5 write phrasings mine the clean path; 'Done (removed old.log)' mines old.log and is Violated while old.log exists; a backticked path with a space is kept). Verification 10/10 and truth 16/16 tests pass.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "id": "EV-DEVIN-019",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 1 \u2014 trace schema v2: tools are real tools. emit_mission_trace now populates MissionTrace.tools from the EvidenceSession's ToolReceipts (falling back to capability-registered interaction actions when no session bound the mission); interaction actions moved to a bounded signals field. Previously tools collected supervision labels (MISSION_FLUX, PLAN_SEARCH, CLOUD_ATTEMPT_*), so failing_tools() could veto control-flow tokens and briefs described control flow, not capabilities. evidence_entries now counts receipts when a session exists.",
+   "proof": "mission_trace tests now 8 (v1-without-signals parse regression). susi-core 206, susi-gawd-swarm 54 pass; clippy -D warnings clean.",
+   "anchor": {
+    "label": "Trace tools from evidence receipts",
+    "ref": "file://crates/susi-gawd-swarm/src/ama/report.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-020",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 2 \u2014 proven-tool steering in plan scoring. mission_trace::proven_tools returns tools that appear only on successful similar missions (ambiguous = also-failed earns nothing); deliberation::score_plan_with_history rewards each mention +0.05 (capped at 4 so keyword stuffing cannot win). HistorySignals bundles failed+proven into one scoring input \u2014 deliberate() now takes five args again (clippy too_many_arguments). The planner now steers toward what worked, not only away from what failed.",
+   "proof": "Tests: proven_tools_flags_only_unambiguous_successes (ambiguous exclusion), proven_history_tools_reward_but_stay_capped (bonus + cap). susi-core 207, susi-gawd-swarm 55 pass; clippy clean.",
+   "anchor": {
+    "label": "Proven-tool plan bonus",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-021",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 3 \u2014 candidate dedup with consensus-ordering fix. Identical decompositions from different budgets dedup to one execution candidate (post-sort, keeping the best-scored variant). Consensus is measured pre-dedup: two budgets independently producing the same plan is the strongest agreement signal and collapsing it first would silently withhold approval from mutating intents. Score ties deterministically prefer the shorter plan.",
+   "proof": "deliberation::tests now 8 \u2014 duplicate_plans_dedup_and_ties_prefer_fewer_steps plus the consensus regression both covered. susi-gawd-swarm 56 pass; clippy clean.",
+   "anchor": {
+    "label": "Pre-dedup consensus + tie-break",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-022",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 4 \u2014 unverified-mutation penalty. When the intent demands consensus (Mutate/SelfExtend scope or High+ risk), a candidate carrying zero verifiable steps loses 0.20 on its score with a rationale marker; read-scope plans are exempt. A blind mutation is now outscored by one that checks its own work.",
+   "proof": "deliberation tests now 10: mutating_intents_penalize_plans_without_verification, read_scope_plans_skip_the_unverified_penalty. susi-gawd-swarm 58 pass; clippy clean.",
+   "anchor": {
+    "label": "Unverified-mutation penalty",
+    "ref": "file://crates/susi-gawd-swarm/src/deliberation.rs"
+   }
+  },
+  {
+   "id": "EV-DEVIN-023",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 5 \u2014 repetition-scaled failure penalties. mission_trace::failing_tool_counts returns tool\u2192failed-mission-count maps (ambiguous still excluded); score_plan_with_history docks each mention 0.10 per past failure, capped at 3 occurrences (max -0.30/mention). A tool that failed three similar missions now visibly outranks a one-off flake. failing_tools() kept as the set view for existing callers.",
+   "proof": "Tests: repeated_failures_dock_harder_than_one_offs (monotonic + cap), counts asserted in failing_tools test. susi-core 207, susi-gawd-swarm 59 pass; clippy clean.",
+   "anchor": {
+    "label": "Count-scaled failure penalty",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
