@@ -166,6 +166,12 @@ impl SusiMissionReport {
             &self.status,
             route,
         );
+        trace.reflex_served = crate::susi_core::mission_trace::bounded_list(
+            tools
+                .iter()
+                .filter(|t| t.starts_with("reflex:"))
+                .map(|t| t.trim_start_matches("reflex:").to_string()),
+        );
         trace.tools = crate::susi_core::mission_trace::bounded_list(tools);
         trace.signals = crate::susi_core::mission_trace::bounded_list(
             self.interactions.iter().map(|msg| msg.action.clone()),

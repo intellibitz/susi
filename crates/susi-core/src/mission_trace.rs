@@ -54,6 +54,12 @@ pub struct MissionTrace {
     /// briefs describe real capabilities only.
     #[serde(default)]
     pub signals: Vec<String>,
+    /// Tier-0/1 action labels served during the mission (`reflex:*`
+    /// receipts, non-citable). Lets the distill stage join served reflexes
+    /// to outcomes — a reflex repeatedly on failed missions gets suppressed,
+    /// not celebrated.
+    #[serde(default)]
+    pub reflex_served: Vec<String>,
     /// Recruited agent names.
     pub agents: Vec<String>,
     /// Count of interaction/evidence entries the report carried.
@@ -73,6 +79,7 @@ impl MissionTrace {
             route: bound_chars(route, MAX_FIELD_CHARS),
             tools: Vec::new(),
             signals: Vec::new(),
+            reflex_served: Vec::new(),
             agents: Vec::new(),
             evidence_entries: 0,
             duration_secs: None,

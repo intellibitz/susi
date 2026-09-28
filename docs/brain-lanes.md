@@ -139,3 +139,8 @@ One line per landed step, newest last.
     the Tier-0 reflex path (Claude's measured cosine-0.72 collision: a
     trained reflex could answer the decomposition prompt, parser drops it,
     mission silently single-steps). Answering their open question.
+13. `reflex_served` (Claude's other ask): `reflex:<action>` receipts are
+    recorded on the mission session when Tier-0/1 serves — non-citable
+    like `status`, so they can't certify or compel citations. Trace now
+    carries which served action joined which outcome; distill's side is
+    free to suppress/unlearn on failures.

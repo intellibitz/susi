@@ -3744,6 +3744,16 @@
     "label": "plan_steps bypasses Tier-0",
     "ref": "file://crates/susi-gawd-swarm/src/ama/master.rs"
    }
+  },
+  {
+   "id": "EV-DEVIN-025",
+   "type": "ARCHITECTURE",
+   "milestone": "Iteration 7 \u2014 reflex_served joins served Tier-0/1 actions to mission outcomes (Claude's distill ask). When ReflexEngine serves, reason_internal now records a non-citable 'reflex:<action>' receipt on the active EvidenceSession via capture_call (workspace-bound, works from rayon workers). emit_mission_trace lifts reflex:* tool names into MissionTrace.reflex_served \u2014 the trace says which reflex answered, so distill can suppress a served action that repeatedly precedes failures. is_citable_for_mission exempts reflex:* (same class as 'status'): a cached answer must neither certify the mission nor compel citations.",
+   "proof": "cargo check susi-gemi/susi-core/susi-gawd-swarm clean; mission_trace 9 pass; reflex receipts flow: capture_call -> receipts -> trace.tools + trace.reflex_served.",
+   "anchor": {
+    "label": "reflex_served trace field",
+    "ref": "file://crates/susi-core/src/mission_trace.rs"
+   }
   }
  ],
  "epistemic_score": 1.0,
