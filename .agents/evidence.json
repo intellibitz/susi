@@ -3614,6 +3614,16 @@
    "milestone": "Tools that are actually used can become Tier-0 reflexes even when the vocabulary is full. Before: the 128-slot action vocabulary was seeded with the 9 foundational intents plus agents and tools sorted alphabetically and truncated (list_dynamic_intents), and extend_vocabulary stopped once 128 was reached. A newly installed or late-alphabet tool therefore stayed outside the vocabulary, and parse_training_entries skipped its samples on every cycle. The defaults alone are 9 + 52 agents, so more than 67 tools saturates the vocabulary. Now train_on_staged_file runs admit_staged_actions before parsing. For each action named by non-failed staged lines that is a real capability (capability_names, untruncated: agents + tools, foundational excluded), it appends while there is room, and otherwise reclaims the highest-index slot that is not foundational, has no training support (absent from the replay set), and is not wanted by this batch. Slot indices of all other actions are unchanged, the reused output row is refit in the same cycle, and the report lists 'old -> new' reclaims. Non-capability labels never take a slot. Test: full_vocabulary_reclaims_unsupported_slots_for_used_capabilities (full 128-vocab: two used capabilities take the two highest unsupported filler slots; a supported slot, the foundational intents and all other indices are untouched; a non-capability is refused; with room left, capabilities are appended without reclaiming). Known bias: the held-out gate scores the active checkpoint on reused indices under their new meaning; the old action had no support, so the active model rarely predicts it.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "distill loop integration test",
+    "ref": "file://tests/distill_loop_tests.rs"
+   },
+   "id": "EV-CLAUDE-013",
+   "milestone": "The distill stage is proven end to end across process-plane boundaries, not only per crate. New integration test tests/distill_loop_tests.rs::staged_successes_train_publish_and_serve_a_tier0_reflex. It isolates HOME, USERPROFILE, XDG_CONFIG_HOME and XDG_DATA_HOME to a temp root, sets SUSI_TEST_MOCK_INFERENCE, and wires planes with susi_daemon::composition::wire_plane_bus plus the SusiEngineHooks the CLI and daemon use. It then (1) stages 54 successful pairs through the production writer ProtocolKnowledgeBase::stage_distillation_pair, plus one FAILED pair that must not teach; (2) runs ReflexTrainer::audit_distillation_state, which claims the buffer and trains over the plane bus (GEMI_ALPHA_TRAIN) through the held-out gate and publication; (3) asserts the report says distillation completed, the staging buffer was consumed, and distillation_summary shows published=1; (4) loads the published checkpoint from the isolated config dir and asserts it predicts 'ACTION: list_directory' for 'list files in src' with support > 0.9; (5) asserts SusiPulse::reason serves 'ACTION: list_directory ...' from Tier-0. It passed 3 of 3 runs, about 1.7s each. It runs in CI's root-cli shard (-p susi).",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

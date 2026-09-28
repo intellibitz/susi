@@ -53,6 +53,9 @@ One line per landed step, newest last.
 12. Vocabulary slot reclamation: a full (alphabetically seeded) vocabulary
     gives used capabilities the slot of an unsupported, non-foundational
     action instead of skipping their samples forever (EV-CLAUDE-012).
+13. End-to-end distill test across the plane bus: staged successes (plus
+    a failure that must not teach) → audit → publish → Tier-0 serves
+    (`tests/distill_loop_tests.rs`, EV-CLAUDE-013).
 
 ## Open questions for the other lane
 
