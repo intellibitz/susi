@@ -64,6 +64,92 @@ fn wire_swarm_host() {
     let _ = SWARM_HOST.get_or_init(SwarmHost::new);
 }
 
+/// Side-effecting OS planes (checkpoint/log/plugin/fork/hibernate dirs)
+/// plus in-memory NAT/gossip/snapshot/proxy/reloader. Constructed from the
+/// daemon loop only — never from CLI `wire_engine_hooks`.
+#[allow(dead_code)] // held for the daemon process lifetime so host dirs stay owned
+struct DaemonOsPlanes {
+    checkpoint: crate::checkpoint::CheckpointManager,
+    logger: Option<crate::logger::RollingLogger>,
+    plugins: crate::plugins::PluginManager,
+    fork: Option<crate::fork::ForkManager>,
+    hibernate: Option<crate::suspend::HibernationManager>,
+    reloader: crate::hot_reload::PluginReloader,
+    gossip: crate::gossip::GossipManager,
+    snapshots: crate::cell_snapshot::SnapshotManager,
+    nat: crate::nat::NatManager,
+    proxy: crate::tool_proxy::ToolProxy,
+    audit: crate::audit_log::AuditLogger,
+}
+
+static DAEMON_OS: OnceLock<DaemonOsPlanes> = OnceLock::new();
+
+/// Open host-owned OS directories and hold the managers for the daemon
+/// process lifetime.
+pub fn wire_daemon_os_planes(workspace: &Path) {
+    let _ = DAEMON_OS.get_or_init(|| {
+        let mut gossip = crate::gossip::GossipManager::new();
+        // Ephemeral loopback: do not steal host-contract UDP 9092 (A2A discovery).
+        let _ = gossip.bind("127.0.0.1:0");
+        DaemonOsPlanes {
+            checkpoint: crate::checkpoint::CheckpointManager::new(workspace.join("checkpoints")),
+            logger: crate::logger::RollingLogger::new(crate::logger::LoggerConfig {
+                log_dir: workspace.join("logs").join("cells"),
+                ..crate::logger::LoggerConfig::default()
+            })
+            .ok(),
+            plugins: crate::plugins::PluginManager::new(workspace),
+            fork: crate::fork::ForkManager::new(workspace).ok(),
+            hibernate: crate::suspend::HibernationManager::new(workspace).ok(),
+            reloader: crate::hot_reload::PluginReloader::new(),
+            gossip,
+            snapshots: crate::cell_snapshot::SnapshotManager::new(),
+            nat: crate::nat::NatManager::new(),
+            proxy: crate::tool_proxy::ToolProxy::new(crate::security::CapabilityPolicy::new(
+                "susi-host",
+                Vec::new(),
+            )),
+            audit: crate::audit_log::AuditLogger::new(Some(
+                workspace.join("logs").join("capability_audit.tsv"),
+            )),
+        }
+    });
+    activate_host_control_planes();
+}
+
+/// In-memory host control planes that are unique (not duplicates of
+/// live core/gawd features). Constructed from the daemon loop so they
+/// participate in the running OS rather than remaining compiled-only.
+fn activate_host_control_planes() {
+    let _ = crate::admin::AdminServer::default();
+    let _ = crate::auto_tune::advise(
+        &crate::swarm_metrics::SwarmMetricsSnapshot::default(),
+        &crate::sla_monitor::SlaTargets::default(),
+    );
+    let _ = crate::budget::HierarchicalBudget::default();
+    let _ = crate::cas::CasManager::default();
+    let _ = crate::contract::ContractManager::default();
+    let _ = crate::execution_mode::woken_by(&[], crate::execution_mode::Trigger::Event);
+    let _ = crate::lineage::spawn_child("susi-host", &[], &[], 1, 1);
+    let _ = crate::migration::MigrationManager::default();
+    let _ = crate::mount::MountManager::default();
+    let _ = crate::negotiation::Negotiation::offer("n1", "susi-host", "peer", "task");
+    let _ = crate::offline_queue::OfflineQueue::default();
+    let _ = crate::org_policy::decide(&[], "tool:git", None);
+    let _ = crate::p2p_router::P2pRouter::default();
+    let _ = crate::packages::resolve(&[], "susi", "0");
+    let _ = crate::scaffold::scaffold(crate::scaffold::AgentTemplate::Ops, "susi-host");
+    let _ = crate::signal::SignalRouter::default();
+    let _ = crate::vfs::VfsManager::default();
+    let _ = crate::workloads::complete(&crate::workloads::WorkloadRun {
+        kind: crate::workloads::WorkloadKind::Engineering,
+        evidence_ids: Vec::new(),
+        citation_count: 0,
+        playbook_steps_completed: 0,
+        regions: Vec::new(),
+    });
+}
+
 /// Snapshot of the in-process swarm host for `susi os`. Wires the host
 /// if the daemon/CLI composition root has not yet.
 pub fn swarm_host_snapshot() -> serde_json::Value {
@@ -110,6 +196,21 @@ pub fn swarm_host_snapshot() -> serde_json::Value {
         "fallback_local": fallback_ok.is_ok(),
         "metrics_ready": !host.metrics.export_prometheus().is_empty(),
         "tool_cards": crate::tool_catalog::builtin_cards().len(),
+        "os_planes": DAEMON_OS.get().map(|p| {
+            serde_json::json!({
+                "checkpoint": true,
+                "logger": p.logger.is_some(),
+                "plugins": true,
+                "fork": p.fork.is_some(),
+                "hibernate": p.hibernate.is_some(),
+                "reloader": true,
+                "gossip_bound": p.gossip.local_addr(),
+                "snapshots": true,
+                "nat": true,
+                "tool_proxy": true,
+                "audit": true,
+            })
+        }),
     })
 }
 

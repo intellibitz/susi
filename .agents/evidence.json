@@ -2980,6 +2980,16 @@
       "milestone": "RSI OS isolation iterations 102-113 (cooperative with origin/main): the public ureq Agent is gone. Peer openai_chat/http/A2A POSTs, crates.io GET, and the A2A round-trip test use http_call / http_call_with_body plus HttpCall::into_utf8. http_agent is no longer exported. Architecture ratchet ureq_types_stay_inside_http_transport forbids ureq:: and http_agent( outside susi-http-transport. Ledger numbers 102-113 follow origin/main's iteration 101 (HTTP 2xx/overflow). Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 114-148",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-304",
+      "milestone": "RSI OS isolation iterations 114-148: the daemon loop constructs real OS planes via composition::wire_daemon_os_planes (checkpoint, rolling cell logs, plugins, fork, hibernation, plugin reloader, gossip UDP on 127.0.0.1:0, in-memory snapshots, NAT manager, deny-by-default tool proxy, capability audit TSV) and unique host control planes (admin through workloads). Unreachable daemon-module ceiling 30→0. GMCP drops the unused rmcp client feature. CLI wire_engine_hooks still skips those constructors. susi os reports os_planes when the daemon has wired them. Verification: cargo check -p susi-daemon -p susi-gmcp / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,

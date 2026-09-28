@@ -76,7 +76,7 @@ never consume an unterminated source tail.
 | `susi-http-transport` | Shared TLS-sniffing HTTP accept + Hyper connection builder + outbound timeout-bounded `ureq` (crate-private) via `http_call` / `http_call_with_body` (GET/HEAD/DELETE/POST/PUT/PATCH) | `dual_transport`, `http_conn`, `http_call`, `HttpCall::into_utf8` | tokio, tokio-rustls, hyper-util, ureq | all workspace crates; vendor SDKs | no | no | sockets |
 | `susi-vendor-candle` | Candle / CUDA / Metal vendor substrate: device probe + Qwen2 GGUF split + Hugging Face tokenizers | `device`, `qwen2_split`, re-exported `candle_*` / `tokenizers` | candle-core, candle-nn, candle-transformers, tokenizers | all workspace crates | no | process device cache | GPU FFI via Candle |
 | `susi-adapters-llm` | SUSI-authored LLM provider wire (not vendored SDKs): OpenAI / Anthropic / Gemini / Triton bodies, extractors, `InferenceProtocol`, and `post_json` | `inference_wire` | serde_json, `susi-http-transport` | all workspace crates; ureq/reqwest | no | no | HTTP via transport |
-| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; `susi-vendor-mcp` (MCP client; lease/handshake budgets from `SusiConfig` in `mcp_budget`) | workspace crates except core/sandbox/native clients; rmcp/reqwest; peers via `plane_bus` | tools | registry | yes |
+| `susi-tools` | Tool registry + MCP client adapters + `plane_handler` | `ToolRegistry`, `EngineHooks`, bus handler | `susi-core` (registry/capture/mac_policy over the bus rendezvous); `susi-sandbox-client`; `susi-native-client`; `susi-vendor-mcp` (MCP client; lease/handshake budgets from `SusiConfig` in `mcp_budget`) | workspace crates except core/sandbox/native clients; rmcp/reqwest (owned by `susi-vendor-mcp`); peers via `plane_bus` | tools | registry | yes |
 | `susi-agents` | External peer adapters + meta registry (`plane_handler`); domain types live in core | external managers, registry | `susi-core` (registry/task_manager/agent_types over the bus rendezvous); `susi-config`; `susi-sandbox-client`; `susi-http-transport` (Devin/Manus) | feature planes; peers via `plane_bus`; reqwest/ureq | peers | registries | yes |
 | `susi-gemi-models` | Model select / provision / catalogs | lifecycle, catalogs | `susi-core` (task_manager only); `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` (device / GGUF inspect / tokenizers); `susi-http-transport` (HF download/discovery) | gemi engines crate; peer feature crates; reqwest/tokenizers | catalogs | cache dirs | yes |
 | `susi-gemi` | Inference adapters (HTTP, MCP-as-provider) + SUSI InferenceHost | providers, engines, `plane_handler` | `susi-gemi-models` + `susi-abi`, `susi-core`, `susi-config`; `susi-sandbox-client`; `susi-vendor-candle` | peer feature planes | providers | model weights | yes |
@@ -91,7 +91,7 @@ never consume an unterminated source tail.
 | `susi-vendor-syn` | Rust source analysis for the bloat auditor, reflex validation and the `ast_analyze` tool | `is_valid_rust`, `analyze` → `RustMetrics`, `outline` → `(ItemKind, name)` | syn | workspace crates | no | no | no |
 | `susi-vendor-chrome` | Headless Chrome page capture (PNG + DOM) for an already-validated URL | `capture_page`, `PageCapture` | `susi-error`; headless_chrome | workspace crates | Chrome/Chromium | no | no |
 | `susi-server` | Hyper HTTP adapters for GEMI REST | bind helpers | `susi-core` (plane_bus facades over `IpcPlaneBus`, file-backed broker, context graph bound to the shared workspace JSONL); `susi-paths`, `susi-error`, `susi-config`; `susi-sandbox-client`; `susi-http-transport` | peer feature planes; GAWD/GEMI via `plane_bus` | no | — | yes |
-| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; swarm host (orchestrator / watchdog / identity / scheduler / load balancer / self-healing / queue / TTL / metrics / fallback / gateway / tool cards) wired from `composition` | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID | yes |
+| `susi-daemon` | Persistent host: lock, ports, composition, rediscovery; swarm host plus `wire_daemon_os_planes` (checkpoint/logs/plugins/fork/hibernate/gossip/NAT/audit) | `SusiDaemon`, `composition`, `gmcp_bootstrap`, `swarm_host_snapshot`, `wire_daemon_os_planes` | **all** feature crates + `susi-abi` + server + tools + agents (composition root); `susi-http-transport` (webhooks) | HTTP client crates | no | lock/PID + host dirs | yes |
 | `susi` (root) | CLI + composition entry for workspace intents | `main`, CLI modules | daemon + feature crates + `susi-leaf-services` (`service-run`) + leaf `susi-paths`/`susi-error` (real Cargo deps) | — | — | cwd workspace | yes |
 
 Workspace crate cycles must remain **zero**. Feature planes have **zero Cargo
@@ -538,3 +538,38 @@ the same commit as the code.
 | 111 | No ratchet against naming `ureq::` outside transport | `ureq_types_stay_inside_http_transport` |
 | 112 | ARCHITECTURE crate table still listed `http_agent` | documents `http_call` / `into_utf8` |
 | 113 | Identity/README still described a public agent | Mandate 45 and README say callers never name `ureq::Agent` |
+| 114 | Daemon checkpoint only type-reachable | `CheckpointManager` constructed under substrate `checkpoints/` from `wire_daemon_os_planes` |
+| 115 | Daemon rolling logger only type-reachable | `RollingLogger` owns `logs/cells` from the daemon loop |
+| 116 | Daemon plugin dir only type-reachable | `PluginManager::new(workspace)` from the daemon loop |
+| 117 | Daemon fork dir only type-reachable | `ForkManager` opened from the daemon loop |
+| 118 | Daemon hibernation dir only type-reachable | `HibernationManager` opened from the daemon loop |
+| 119 | Daemon plugin reloader unused in production | `PluginReloader` held on `DaemonOsPlanes` |
+| 120 | Gossip manager never constructed | `GossipManager::new()` held (UDP bind still off — 9092 is A2A discovery) |
+| 121 | Cell snapshot manager never constructed | in-memory `SnapshotManager` on the daemon planes |
+| 122 | NAT manager never constructed | `NatManager::new()` held (STUN bind is on demand) |
+| 123 | Tool proxy never constructed | deny-by-default `ToolProxy` for `susi-host` |
+| 124 | Capability audit log unused in production | `AuditLogger` mirrors to `logs/capability_audit.tsv` |
+| 125 | CLI still the only composition root | `run_daemon_loop` calls `wire_daemon_os_planes`; `susi os` reports `os_planes` when the daemon wired them |
+| 126 | `admin` compiled-only | `AdminServer` constructed from the daemon loop |
+| 127 | `auto_tune` compiled-only | `advise` on empty swarm metrics from the daemon loop |
+| 128 | `budget` compiled-only | `HierarchicalBudget` on the host |
+| 129 | `cas` compiled-only | `CasManager` on the host |
+| 130 | `contract` compiled-only | `ContractManager` on the host |
+| 131 | `execution_mode` compiled-only | `woken_by` Event from the daemon loop |
+| 132 | `lineage` compiled-only | host `spawn_child` |
+| 133 | `migration` compiled-only | `MigrationManager` on the host |
+| 134 | `mount` compiled-only | `MountManager` on the host |
+| 135 | `negotiation` compiled-only | host `Negotiation::offer` |
+| 136 | `offline_queue` compiled-only | `OfflineQueue` on the host |
+| 137 | `org_policy` compiled-only | `decide` from the daemon loop |
+| 138 | `p2p_router` compiled-only | `P2pRouter` on the host |
+| 139 | `packages` compiled-only | `resolve` from the daemon loop |
+| 140 | `scaffold` compiled-only | Ops template for `susi-host` |
+| 141 | `signal` compiled-only | `SignalRouter` on the host |
+| 142 | `vfs` compiled-only | `VfsManager` on the host |
+| 143 | `workloads` compiled-only | `complete` gate from the daemon loop |
+| 144 | Unreachable daemon-module ceiling still 30 | ceiling 30→0; every remaining module is named from the daemon loop |
+| 145 | Gossip UDP never bound in production | daemon binds `127.0.0.1:0` (does not steal A2A discovery 9092) |
+| 146 | Gossip had no way to report the bound socket | `GossipManager::local_addr` |
+| 147 | `susi os` claimed gossip unbound | snapshot reports the loopback gossip address |
+| 148 | GMCP declared unused rmcp `client` feature | dropped; GMCP is the MCP *server* plane |

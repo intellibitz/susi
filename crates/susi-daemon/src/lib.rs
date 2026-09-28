@@ -92,7 +92,9 @@ pub mod what_if;
 pub mod workflows;
 pub mod workloads;
 
-pub use composition::{swarm_host_snapshot, wire_cli_substrate, wire_engine_hooks};
+pub use composition::{
+    swarm_host_snapshot, wire_cli_substrate, wire_daemon_os_planes, wire_engine_hooks,
+};
 pub use engine_hooks::SusiEngineHooks;
 pub use server::SusiDaemon;
 // SusiAdmin and EvolutionManager are used via fully qualified names in tools.rs

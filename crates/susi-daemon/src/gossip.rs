@@ -51,6 +51,14 @@ impl GossipManager {
         Ok(())
     }
 
+    /// Bound socket address, if `bind` succeeded.
+    pub fn local_addr(&self) -> Option<String> {
+        self.socket
+            .as_ref()
+            .and_then(|s| s.local_addr().ok())
+            .map(|a| a.to_string())
+    }
+
     /// Handles an incoming gossip payload.
     pub fn handle_gossip(&self, payload: &[u8]) -> Result<(), String> {
         let msg: GossipMessage = serde_json::from_slice(payload).map_err(|e| e.to_string())?;

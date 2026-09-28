@@ -636,6 +636,7 @@ impl SusiDaemon {
         let _ = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
         // Composition root: EngineHooks before any ToolRegistry / MCP dispatch.
         crate::composition::wire_engine_hooks();
+        crate::composition::wire_daemon_os_planes(&workspace);
         susi_core::context_graph::ContextGraph::init_global_storage(
             workspace.join("context_graph.jsonl"),
         );

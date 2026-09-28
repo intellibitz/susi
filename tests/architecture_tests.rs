@@ -758,7 +758,7 @@ fn reachability_from_core_stays_downward() {
 // modules unreachable; later passes deleted isolated sketches and wired
 // modules used by the live composition root. The count may only go down.
 
-const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 30;
+const UNREACHABLE_DAEMON_MODULES_CEILING: usize = 0;
 
 fn non_test(text: &str) -> &str {
     text.find("#[cfg(test)]").map_or(text, |i| &text[..i])
