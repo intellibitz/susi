@@ -160,6 +160,7 @@ susi-tools = { workspace = true }
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
+susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -63,6 +63,8 @@ External clients can trust these ports — the daemon never silently drifts them
 | **9093** | GMCP HTTP alias (streamable / SSE) |
 | **9094** | A2A HTTP (`/` JSON-RPC, `/stream` SSE, `/.well-known/agent-card.json`) |
 
+Swarm gossip UDP **9095** uses the same `port_offset` but is **not** in this table (`ports::SWARM_UDP`, `host_contract: false` on `susi os --json`). External MCP/A2A clients hard-code 9090–9094; **9092 stays A2A discovery**. Gossip is cluster-member traffic.
+
 - **`global susi`** — background daemon bound to the host substrate (`~/.susi`), not to a project folder.
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
@@ -174,7 +176,7 @@ Every pillar below is a **Tier S** crown USP — must hold in source and pass `s
     an unused whole-workspace copy routine was removed). Transaction ids are reserved on disk
     so concurrent processes never overwrite each other's rollback snapshots,
     and a transaction can only be closed against the workspace it snapshotted.
-11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`.
+11. **Host contract** — canonical ports 9090–9094, uniformly shiftable via `port_offset` / `SUSI_PORT_OFFSET`. Swarm gossip 9095 uses the same offset but is swarm-internal (`ports::SWARM_UDP`), not part of the published five-tuple (9092 remains A2A UDP discovery).
     HTTP rate limits bucket IPv6 clients per /64, so rotating addresses
     within one allocation does not reset the budget.
     The daemon's binary trust anchor hashes the whole binary (a read error
@@ -252,7 +254,7 @@ These are the claims that hold in source (not marketing unbounded “any protoco
 | Configuration | every key in the bundled `config.default.json` is read by code (orphan keys such as `beacon_interval_secs` were removed) |
 | Intent memory | `susi` natural-intent ingestion types entries with the config-driven `intent_classify` lists (whole words), dedupes only exact repeats, redacts credentials, and writes the ledger atomically |
 | Compliance | `susi admin` audits real source/governance state; no self-certifying capability checklist ships (a hard-coded 'AGI compliance certificate' module was removed) |
-| Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: HMAC-sealed gossip UDP 9095 (persisted caps), STUN with honest DNS/timeout errors, TURN when Symmetric or STUN fails (`SUSI_TURN_SERVER` / `SUSI_TURN_RELAY`), held contract/mount/vfs/offline/scaffold/cloud inventory on the 30s tick, and `os_planes.json` for `susi os`. Unwired daemon-module ratchet is 0. Discarded probes and type-only references do not count as wiring. |
+| Daemon feature surface | live swarm-host components are wired from `composition`. The daemon loop constructs host OS planes and drives them: per-peer HMAC gossip UDP 9095 (HMAC-sealed `gossip_caps.json`), STUN with honest DNS/timeout errors, TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (`SUSI_TURN_USER`/`SUSI_TURN_PASS`, or `SUSI_TURN_RELAY`), cloud CLI **version-probe** on the 30s tick, and `os_planes.json` for `susi os`. `susi os provision probe\|list\|apply` is the explicit list/apply surface. Deleted cell-OS sketches are not resurrected; `live_planes` maps those needs onto policy/task/sandbox/checkpoint. Unwired daemon-module ratchet is 0. |
 | Shared foundation | shared code is reached through Cargo edges that point down the leaf order (`paths → error → config → core/sandbox → services → daemon`, enforced by an architecture test). `susi-paths`, `susi-error`, `susi-config`, `susi-sandbox-client`, `susi-core`, `susi-abi`, `susi-http-transport` (the one crate that declares `ureq`; callers use `http_call` and never name `ureq::Agent`), `susi-vendor-candle` (Candle + tokenizers) and `susi-adapters-llm` (wire shapes + `post_json` over transport) are single crates — no crate except `susi-http-transport` and the `susi-vendor-*`/`susi-adapters-*` crates declares `reqwest` or `ureq` (an allow-list test, so new crates are covered automatically); `susi-gemi-models` declares neither `reqwest` nor `tokenizers`. Remaining cross-crate `#[path]` mounts are counted by a ratchet that only decreases (159 → 0) |
 | Vendor crates | every third-party SDK lives in its own `susi-vendor-*` crate that exposes SUSI-shaped calls and no vendor types: `susi-vendor-candle` (Candle/tokenizers), `susi-vendor-wasmer` (Wasmer/WASI + metered cells), `susi-vendor-mcp` (rmcp MCP client + its reqwest transport), `susi-vendor-mcp-server` (rmcp MCP server + `#[tool]`; GMCP never declares `rmcp`), `susi-vendor-cloud` (kubectl/docker/aws/gcloud/az CLIs — no cloud SDKs), `susi-vendor-tantivy` (full-text `DocIndex`), `susi-vendor-fastembed` (one process-wide embedding model), `susi-vendor-chrome` (headless Chrome page capture), `susi-vendor-syn` (Rust AST: validity, bloat metrics, outline); the A2A SDK (`ra2a`) is confined to its own plane crate, `susi-gawd-a2a` |
 | One loopback client | the paths, config, sandbox, native and error-event clients share `susi_paths::loopback` (std-only request / status / body / bearer / instance-offset port) instead of five hand-rolled HTTP/1.0 clients; every leaf-service client now honours the instance port offset, so a dev instance never reaches the release instance's services |
@@ -336,6 +338,9 @@ susi os route
 susi os route --requires vision --max-cost 0.01
 susi os route --no-cloud
 susi os route-reset openai-gpt-4o-mini # after repairing credentials/connectivity
+susi os provision probe
+susi os provision list kubernetes
+susi os provision apply kubernetes ./cell.yaml
 
 # Cloud keys (peer of models) — env or ~/.susi/cloud.env
 susi keys set openai          # prompts, or pipe the key on stdin

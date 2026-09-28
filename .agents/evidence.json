@@ -3050,6 +3050,16 @@
       "milestone": "RSI iterations 47-54 (Claude run): one error model — `anyhow` removed from every library crate; susi-error gains kind-preserving `ResultExt`, `eai_err!`, `eai_bail!`.",
       "proof": "AGENTS.md requires `Result<T, EaiError>` from anything touching I/O, agent state or IPC, but susi-agents (13 files), susi-gemi (7 files, 73 refs), susi-gemi-models (4) and susi-tools (1) returned `anyhow::Result`, and susi-daemon declared `anyhow` without using it. susi-error now provides `EaiError::context` (prefixes the message in place, keeping the kind — building a fresh error would post a second metrics event for the same failure), `ResultExt::{context, with_context}` for `Result<T, E: Into<EaiError>>` (so an I/O error stays `Io`, JSON stays `Config`) and `Option<T>` (→ `Internal`), `eai_err!` (format literal or any Display expression) and `eai_bail!`, plus `From` for `VarError` (Config), `TryLockError` (Io), `String`/`&str` (Internal). All four crates switched imports to these (source-compatible aliases: `EaiResult as Result`, `ResultExt as Context`, `eai_err as anyhow`, `eai_bail as bail`); 28 Candle `?` sites in `engines/alpha.rs` now convert explicitly through the existing `engines::candle_err::from_candle` (susi-error stays Candle-free by design); `set_selected_model`'s String errors use `?` directly. The root CLI (application code) keeps anyhow; its `ExecutionAgent::doctor` fn-pointer field now names `EaiResult`. No crate under `crates/` declares anyhow. Verified: cargo check + clippy --workspace --all-targets -D warnings clean (clippy --fix removed 4 now-needless `Ok(..?)` wrappers). Tests not run per operator instruction.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 301-400",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-311",
+      "milestone": "RSI OS isolation iterations 301-400: TURN Allocate with RFC 5389 MESSAGE-INTEGRITY (HMAC-SHA1, MD5 long-term key, 401/438 retry); per-peer gossip MAC plus HMAC-sealed gossip_caps.json; susi os provision probe/list/apply (tick stays version-probe); 9095 stays outside ports::ALL as SWARM_UDP; deleted cell-OS sketches stay deleted and map onto live planes. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
     }
   ],
   "epistemic_score": 1.0,
