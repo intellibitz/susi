@@ -34,7 +34,7 @@ anyhow = { workspace = true }
 tokio = { version = "1.53", features = ["full"] }
 tracing = "0.1"
 signal-hook = "0.4.4"
-tokio-rustls = "0.26"
+tokio-rustls = { workspace = true }
 rcgen = "0.14.10"
 
 [features]

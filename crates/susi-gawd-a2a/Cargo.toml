@@ -17,7 +17,7 @@ ra2a = { version = "0.10.1", features = ["server", "client"] }
 axum = "0.8.9"
 tower = { version = "0.5", features = ["limit"] }
 tokio = { version = "1.53", features = ["rt-multi-thread", "net", "sync"] }
-tokio-rustls = "0.26"
+tokio-rustls = { workspace = true }
 crossbeam = "0.8"
 regex = "1.13"
 dashmap = { workspace = true }

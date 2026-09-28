@@ -8,7 +8,7 @@ description = "Shared TLS-sniffing HTTP accept loop and Hyper connection builder
 
 [dependencies]
 tokio = { workspace = true, features = ["io-util", "net", "time"] }
-tokio-rustls = "0.26"
+tokio-rustls = { workspace = true }
 hyper-util = { version = "0.1", features = ["full"] }
 
 [lints]

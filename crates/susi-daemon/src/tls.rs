@@ -70,7 +70,7 @@ fn build_acceptor(cert_path: &Path, key_path: &Path) -> std::io::Result<TlsAccep
     })?;
     // Exactly one provider may be feature-unified across the workspace —
     // install it explicitly so `builder()` never panics on ambiguity.
-    let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
     let mut config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
