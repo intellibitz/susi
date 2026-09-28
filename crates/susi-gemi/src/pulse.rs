@@ -20,17 +20,38 @@ type ReflexKey = (PathBuf, String);
 /// distinct prompt used to add an entry forever.
 const REFLEX_CACHE_CAP: usize = 1024;
 
-static REFLEX_CACHE: Lazy<Arc<RwLock<HashMap<ReflexKey, String>>>> =
+/// A cached reflex and when it stops being servable. Tier-0 actions are a
+/// deterministic mapping, valid until the model fingerprint changes (`None`);
+/// Tier-1 answers are generated *content* — "what's the weather" — and
+/// expire after `TIER1_CACHE_TTL` so they are not served stale for as long
+/// as the Tier-0 model happens to stay unchanged.
+type CachedReflex = (String, Option<std::time::Instant>);
+
+const TIER1_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+static REFLEX_CACHE: Lazy<Arc<RwLock<HashMap<ReflexKey, CachedReflex>>>> =
     Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 static CURRENT_FINGERPRINT: Lazy<Arc<RwLock<String>>> =
     Lazy::new(|| Arc::new(RwLock::new(String::new())));
 
-fn cache_insert(cache: &mut HashMap<ReflexKey, String>, key: ReflexKey, value: String) {
+fn cache_insert(cache: &mut HashMap<ReflexKey, CachedReflex>, key: ReflexKey, value: CachedReflex) {
     if cache.len() >= REFLEX_CACHE_CAP && !cache.contains_key(&key) {
         cache.clear();
     }
     cache.insert(key, value);
+}
+
+/// The cached reflex for `key` if it has not expired at `now`.
+fn cache_lookup(
+    cache: &HashMap<ReflexKey, CachedReflex>,
+    key: &ReflexKey,
+    now: std::time::Instant,
+) -> Option<String> {
+    let (value, expires) = cache.get(key)?;
+    expires
+        .is_none_or(|deadline| now < deadline)
+        .then(|| value.clone())
 }
 
 /// Tier 1 order: a full answer first, the `ACTION:` routing generation only
@@ -73,11 +94,8 @@ impl SusiPulse {
         }
 
         // Sub-100us Reflex Cache
-        {
-            let cache = REFLEX_CACHE.read();
-            if let Some(cached_action) = cache.get(&key) {
-                return Ok(cached_action.clone());
-            }
+        if let Some(cached) = cache_lookup(&REFLEX_CACHE.read(), &key, std::time::Instant::now()) {
+            return Ok(cached);
         }
 
         // Neural Reflex Attempt (Tier 0 Classifier)
@@ -88,7 +106,7 @@ impl SusiPulse {
                     final_action = format!("ACTION: list_directory {}", workspace.display());
                 }
 
-                cache_insert(&mut REFLEX_CACHE.write(), key, final_action.clone());
+                cache_insert(&mut REFLEX_CACHE.write(), key, (final_action.clone(), None));
                 return Ok(final_action);
             }
         }
@@ -99,7 +117,12 @@ impl SusiPulse {
             || engine.try_generate_answer(prompt_trimmed, workspace),
             || engine.try_solve(prompt_trimmed, workspace),
         ) {
-            cache_insert(&mut REFLEX_CACHE.write(), key, answer.clone());
+            let expires = std::time::Instant::now() + TIER1_CACHE_TTL;
+            cache_insert(
+                &mut REFLEX_CACHE.write(),
+                key,
+                (answer.clone(), Some(expires)),
+            );
             return Ok(answer);
         }
 
@@ -141,27 +164,74 @@ mod tests {
     }
 
     #[test]
+    fn generated_answers_expire_but_model_actions_do_not() {
+        let mut cache = HashMap::new();
+        let now = std::time::Instant::now();
+        let key = |p: &str| (PathBuf::from("/w"), p.to_string());
+        cache_insert(&mut cache, key("status"), ("ACTION: status".into(), None));
+        cache_insert(
+            &mut cache,
+            key("weather"),
+            ("Sunny.".into(), Some(now + TIER1_CACHE_TTL)),
+        );
+        let later = now + TIER1_CACHE_TTL + std::time::Duration::from_secs(1);
+        assert_eq!(
+            cache_lookup(&cache, &key("weather"), now).as_deref(),
+            Some("Sunny.")
+        );
+        assert_eq!(cache_lookup(&cache, &key("weather"), later), None);
+        assert_eq!(
+            cache_lookup(&cache, &key("status"), later).as_deref(),
+            Some("ACTION: status")
+        );
+    }
+
+    #[test]
     fn reflex_cache_is_bounded() {
         let mut cache = HashMap::new();
         for i in 0..REFLEX_CACHE_CAP {
-            cache_insert(&mut cache, (PathBuf::from("/w"), i.to_string()), "a".into());
+            cache_insert(
+                &mut cache,
+                (PathBuf::from("/w"), i.to_string()),
+                ("a".into(), None),
+            );
         }
         assert_eq!(cache.len(), REFLEX_CACHE_CAP);
         // Overwriting an existing key never flushes.
-        cache_insert(&mut cache, (PathBuf::from("/w"), "0".into()), "b".into());
+        cache_insert(
+            &mut cache,
+            (PathBuf::from("/w"), "0".into()),
+            ("b".into(), None),
+        );
         assert_eq!(cache.len(), REFLEX_CACHE_CAP);
-        cache_insert(&mut cache, (PathBuf::from("/w"), "new".into()), "c".into());
+        cache_insert(
+            &mut cache,
+            (PathBuf::from("/w"), "new".into()),
+            ("c".into(), None),
+        );
         assert_eq!(cache.len(), 1);
     }
 
     #[test]
     fn reflex_cache_separates_workspaces() {
         let mut cache = HashMap::new();
-        cache_insert(&mut cache, (PathBuf::from("/a"), "ls".into()), "A".into());
-        cache_insert(&mut cache, (PathBuf::from("/b"), "ls".into()), "B".into());
+        cache_insert(
+            &mut cache,
+            (PathBuf::from("/a"), "ls".into()),
+            ("A".into(), None),
+        );
+        cache_insert(
+            &mut cache,
+            (PathBuf::from("/b"), "ls".into()),
+            ("B".into(), None),
+        );
         assert_eq!(
-            cache.get(&(PathBuf::from("/a"), "ls".to_string())),
-            Some(&"A".to_string())
+            cache_lookup(
+                &cache,
+                &(PathBuf::from("/a"), "ls".to_string()),
+                std::time::Instant::now()
+            ),
+            Some("A".to_string())
         );
         assert_eq!(cache.len(), 2);
     }

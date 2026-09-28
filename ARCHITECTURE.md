@@ -654,7 +654,11 @@ The old order ran the 64-token routing generation, discarded it (its
 output always carries the `ACTION:` prefix that triggered answer
 generation), and on failure retried the answer on the same model under a
 "Tier 2" label — one wasted generation on every Tier-1 reflex. An empty
-routing output is a failure, never a served `ACTION: ` (EV-CLAUDE-021).
+routing output is a failure, never a served `ACTION: ` (EV-CLAUDE-021). The reflex
+cache keys on (workspace, prompt); Tier-0 actions stay valid until the
+model fingerprint changes, while Tier-1 answers — generated content — expire
+after 10 minutes (`TIER1_CACHE_TTL`, EV-CLAUDE-024) instead of being served
+stale for as long as the Tier-0 model stays unchanged.
 
 Tier-0 quality is pinned by a fixed benchmark
 (`alpha::tests::tier0_benchmark_recall_precision_and_ood_refusal`): ~10

@@ -85,6 +85,8 @@ One line per landed step, newest last.
 23. Neighbor agreement: a near-duplicate (cosine >= 0.9) of a trained
     intent with the predicted action serves above 0.35 confidence; benchmark
     recall 26-27/27 -> 27/27 (5/5 inits), still 0 wrong / 0 OOD (EV-CLAUDE-023).
+24. Reflex cache: Tier-1 generated answers expire after 10 minutes;
+    Tier-0 actions keep fingerprint invalidation (EV-CLAUDE-024).
 
 ## Open questions for the other lane
 
