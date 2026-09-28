@@ -306,6 +306,32 @@ pub fn promotion_status(traces: &[MissionTrace], intent: &str) -> PromotionStatu
     }
 }
 
+/// Tools that appeared in failed missions similar to `goal` — the
+/// anti-pattern signal plan search penalizes against. Successes using the
+/// same tool don't clear it here (the scorer weighs it, the gate may still
+/// pass); a tool only on failed runs is a real signal.
+pub fn failing_tools(
+    goal: &str,
+    traces: &[MissionTrace],
+    limit: usize,
+) -> std::collections::BTreeSet<String> {
+    let (mut failed, mut succeeded) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    for t in similar(goal, traces, limit) {
+        let target = if t.succeeded() {
+            &mut succeeded
+        } else {
+            &mut failed
+        };
+        target.extend(t.tools.iter().cloned());
+    }
+    // A tool that also appears on successful similar missions is ambiguous —
+    // only unambiguous failure carries the veto penalty.
+    failed.difference(&succeeded).cloned().collect()
+}
+
 /// One-line history brief for prompt injection: what similar missions did
 /// and how they ended. Empty when nothing similar exists.
 pub fn history_brief(goal: &str, traces: &[MissionTrace], limit: usize) -> String {
@@ -476,6 +502,26 @@ mod tests {
             promotion_status(&recovered, "deploy the api"),
             PromotionStatus::Promotable { .. }
         ));
+    }
+
+    #[test]
+    fn failing_tools_flags_only_unambiguous_failures() {
+        let ws = workspace();
+        // exec_command failed on deploys but also succeeded — ambiguous,
+        // must not carry the veto. broken_tool only ever failed — it does.
+        for (outcome, tools) in [
+            ("FAILED", vec!["exec_command", "broken_tool"]),
+            ("FAILED", vec!["exec_command", "broken_tool"]),
+            ("COMPLETE", vec!["exec_command"]),
+        ] {
+            let mut t = MissionTrace::new("m", "deploy api service", outcome, "swarm");
+            t.tools = tools.into_iter().map(String::from).collect();
+            t.emit(ws.path()).unwrap();
+        }
+        let traces = read_all(ws.path());
+        let failed = failing_tools("deploy api service", &traces, 8);
+        assert!(failed.contains("broken_tool"), "{failed:?}");
+        assert!(!failed.contains("exec_command"), "{failed:?}");
     }
 
     #[test]

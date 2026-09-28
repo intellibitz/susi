@@ -483,7 +483,11 @@ printed omni-trace. Mutate/SelfExtend intents and High+ risk demand
 0.35 or the mission declines multi-step autonomy in favor of the
 single-step goal. On step failure, Read-scope goals fall through to the
 next candidate (reads mutate nothing); mutating scopes abort rather than
-re-run a guess over changed state.
+re-run a guess over changed state. Retrieval also feeds scoring, not only
+the prompt: `mission_trace::failing_tools` extracts tool tokens that only
+ever appeared on *failed* similar traces, and `score_plan_weighted` docks
+each mention −0.10 (`failed_history_tools` in the rationale) — a plan that
+repeats a known-failing tool is outscored, not merely flagged.
 
 The `promote` stage is governed reflex synthesis
 (`susi_core::mission_trace::promotion_status` gating

@@ -77,10 +77,22 @@ pub fn plan_similarity(a: &[String], b: &[String]) -> f32 {
     ta.intersection(&tb).count() as f32 / union as f32
 }
 
-/// Score a candidate plan: goal-token coverage earns, risk vocabulary costs,
-/// verifiable steps earn a bonus, and overshooting the step budget costs.
-/// Pure — no model calls — so scores are reproducible and testable.
+/// Score a candidate plan: goal-token coverage earns, risk vocabulary and
+/// historically-failed tool mentions cost, verifiable steps earn a bonus,
+/// and overshooting the step budget costs. Pure — no model calls — so
+/// scores are reproducible and testable.
 pub fn score_plan(goal: &str, steps: &[String], max_steps: u32) -> (f32, String) {
+    score_plan_weighted(goal, steps, max_steps, &std::collections::BTreeSet::new())
+}
+
+/// `score_plan` plus an anti-pattern penalty: every step-token that names a
+/// tool that only ever appeared on failed similar missions costs extra.
+pub fn score_plan_weighted(
+    goal: &str,
+    steps: &[String],
+    max_steps: u32,
+    failed_tools: &std::collections::BTreeSet<String>,
+) -> (f32, String) {
     if steps.is_empty() {
         return (0.0, "empty plan".into());
     }
@@ -107,14 +119,21 @@ pub fn score_plan(goal: &str, steps: &[String], max_steps: u32) -> (f32, String)
         .filter(|t| VERIFIABLE_TOKENS.contains(&t.trim_matches(|c: char| !c.is_alphanumeric())))
         .count();
     let over_budget = steps.len().saturating_sub(max_steps as usize);
+    let history_hits = steps
+        .iter()
+        .flat_map(|s| s.split_whitespace().map(|t| t.to_lowercase()))
+        .map(|t| t.trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .filter(|t| failed_tools.contains(t))
+        .count();
 
     let score = (0.4 + 0.5 * coverage + 0.05 * verifiable.min(4) as f32
         - 0.15 * risk_hits as f32
+        - 0.1 * history_hits as f32
         - 0.1 * over_budget as f32)
         .clamp(0.0, 1.0);
     let rationale = format!(
-        "coverage={coverage:.2} risk_tokens={risk_hits} verifiable_steps={verifiable} \
-         steps={} over_budget={over_budget}",
+        "coverage={coverage:.2} risk_tokens={risk_hits} failed_history_tools={history_hits} \
+         verifiable_steps={verifiable} steps={} over_budget={over_budget}",
         steps.len()
     );
     (score, rationale)
@@ -133,17 +152,20 @@ pub fn consensus_required(manifold: &IntentManifold) -> bool {
 /// each, sort best-first, and measure consensus between the top two.
 /// `generate` is injected so the search is testable without inference —
 /// production passes `SusiMasterAgent::plan_steps` with a budget.
+/// `failed_tools` penalizes candidates that reach for tools whose similar
+/// missions only ever failed.
 pub fn deliberate(
     goal: &str,
     manifold: &IntentManifold,
     budgets: &[u32],
+    failed_tools: &std::collections::BTreeSet<String>,
     mut generate: impl FnMut(u32) -> Vec<String>,
 ) -> Deliberation {
     let mut candidates: Vec<CandidatePlan> = budgets
         .iter()
         .map(|&budget| {
             let steps = generate(budget);
-            let (score, rationale) = score_plan(goal, &steps, budget);
+            let (score, rationale) = score_plan_weighted(goal, &steps, budget, failed_tools);
             CandidatePlan {
                 steps,
                 score,
@@ -224,17 +246,23 @@ mod tests {
     #[test]
     fn deliberation_sorts_and_never_returns_empty() {
         let m = manifold_for("summarize the readme");
-        let d = deliberate("summarize the readme", &m, &[3, 1], |budget| {
-            if budget == 3 {
-                vec!["read readme".into(), "summarize contents".into()]
-            } else {
-                vec!["nuke the filesystem".into()]
-            }
-        });
+        let d = deliberate(
+            "summarize the readme",
+            &m,
+            &[3, 1],
+            &Default::default(),
+            |budget| {
+                if budget == 3 {
+                    vec!["read readme".into(), "summarize contents".into()]
+                } else {
+                    vec!["nuke the filesystem".into()]
+                }
+            },
+        );
         assert_eq!(d.candidates.len(), 2);
         assert!(d.candidates[0].score >= d.candidates[1].score);
 
-        let empty = deliberate("x", &m, &[3], |_| Vec::new());
+        let empty = deliberate("x", &m, &[3], &Default::default(), |_| Vec::new());
         assert_eq!(empty.candidates.len(), 1);
         assert_eq!(empty.candidates[0].steps, vec!["x".to_string()]);
     }
@@ -253,23 +281,49 @@ mod tests {
     #[test]
     fn consensus_blocks_divergent_plans_on_mutations() {
         let m = manifold_for("audit the substrate");
-        let divergent = deliberate("audit the substrate", &m, &[4, 2], |budget| {
-            if budget == 4 {
-                vec!["scan all files".into(), "audit findings".into()]
-            } else {
-                vec!["wipe directory".into()]
-            }
-        });
+        let divergent = deliberate(
+            "audit the substrate",
+            &m,
+            &[4, 2],
+            &Default::default(),
+            |budget| {
+                if budget == 4 {
+                    vec!["scan all files".into(), "audit findings".into()]
+                } else {
+                    vec!["wipe directory".into()]
+                }
+            },
+        );
         assert!(divergent.consensus_required);
         assert!(divergent.consensus.is_none());
         assert!(!approved(&divergent));
 
-        let agreeing = deliberate("audit the substrate", &m, &[4, 2], |_| {
-            vec!["scan files".into(), "audit scan results".into()]
-        });
+        let agreeing = deliberate(
+            "audit the substrate",
+            &m,
+            &[4, 2],
+            &Default::default(),
+            |_| vec!["scan files".into(), "audit scan results".into()],
+        );
         // Identical plans from two budgets is maximal agreement.
         assert_eq!(agreeing.consensus, Some(1.0));
         assert!(approved(&agreeing));
+    }
+
+    #[test]
+    fn failed_history_tools_penalize_but_do_not_veto() {
+        let failed: std::collections::BTreeSet<String> =
+            ["broken_tool".to_string()].into_iter().collect();
+        let (clean, _) = score_plan_weighted("deploy api", &["deploy api".into()], 5, &failed);
+        let (tainted, r) = score_plan_weighted(
+            "deploy api",
+            &["run broken_tool deploy api".into()],
+            5,
+            &failed,
+        );
+        assert!(tainted < clean, "{r}");
+        assert!(tainted > 0.0);
+        assert!(r.contains("failed_history_tools=1"), "{r}");
     }
 
     #[test]
