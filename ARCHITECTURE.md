@@ -498,6 +498,17 @@ the 24h synthesis budget and are audit-logged (`EVOLUTION_REFLEX_VETO` /
 `_DEFER`); promoted reflexes still compile-and-run in the WASI sandbox
 before publishing.
 
+The `distill` stage turns staged pairs into Tier-0 weights
+(`susi_gawd::reflex_trainer` → `SusiAlphaModel::train_on_staged_file`).
+Every writer of `distillation_staged.jsonl` — mission traces via
+`ProtocolKnowledgeBase::stage_distillation_pair`, verified receipts via
+`ReceiptArchive` — appends under the `distillation_staged` `FileLock`, the
+same lock the trainer holds while it claims (renames) the buffer, restores a
+failed claim, or recovers orphaned claims. Those three read the buffer and
+atomically replace it, so an unlocked append in between would be written to
+the replaced inode and lost. Lane ownership for concurrent brain work is in
+`docs/brain-lanes.md`.
+
 ## Federation & consensus
 
 Cross-node quorum decisions are durable, signed, and replicated — but this is
