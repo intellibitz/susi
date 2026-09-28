@@ -755,10 +755,40 @@ pub struct SusiAlphaModel {
     fc1: Linear,
     fc2: Linear,
     intents: Vec<String>,
-    /// Reflex features of every replayed training intent, flattened
-    /// `n × DIM`. `None` when the checkpoint has no replay set (bootstrap or
-    /// pre-replay checkpoints), which keeps the confidence-only legacy gate.
-    support: Option<Vec<f32>>,
+    /// Reflex features of every replayed training intent (flattened
+    /// `n × DIM`) and each row's action. `None` when the checkpoint has no
+    /// readable replay set (bootstrap or pre-replay checkpoints), which keeps
+    /// the confidence-only legacy gate.
+    support: Option<SupportSet>,
+}
+
+struct SupportSet {
+    features: Vec<f32>,
+    actions: Vec<String>,
+}
+
+/// Below `SERVE_CONFIDENCE`, a prediction is still served when the prompt is
+/// a near-duplicate (cosine ≥ `NEIGHBOR_AGREEMENT`) of a trained intent
+/// whose action is the one predicted, and confidence clears
+/// `AGREED_CONFIDENCE`: two independent signals — the classifier and the
+/// nearest trained example — agree. Motivated by the Tier-0 benchmark's only
+/// miss, "show version": support 0.95, confidence 0.46–0.48, refused.
+const NEIGHBOR_AGREEMENT: f32 = 0.9;
+const AGREED_CONFIDENCE: f32 = 0.35;
+
+/// The confidence half of the serve decision (support is checked first):
+/// confident, or near-duplicate agreement with a trained example.
+fn serves(action: &str, confidence: f32, nearest: Option<(f32, &str)>) -> bool {
+    if confidence > SERVE_CONFIDENCE {
+        return true;
+    }
+    confidence > AGREED_CONFIDENCE
+        && nearest.is_some_and(|(cosine, neighbor)| {
+            cosine >= NEIGHBOR_AGREEMENT
+                && action
+                    .strip_prefix("ACTION: ")
+                    .is_some_and(|predicted| predicted.eq_ignore_ascii_case(neighbor))
+        })
 }
 
 /// A prompt is served a Tier-0 reflex only when its features sit at least
@@ -771,7 +801,7 @@ const SUPPORT_MIN: f32 = 0.6;
 /// is no replay set *or it cannot be read*: the support set is a serving
 /// refinement, and an unreadable file must degrade Tier-0, never disable
 /// it — as an error here would fail the whole checkpoint load.
-fn support_matrix(weights_path: &Path) -> Option<Vec<f32>> {
+fn support_matrix(weights_path: &Path) -> Option<SupportSet> {
     let replay = match load_replay(weights_path) {
         Ok(replay) => replay,
         Err(error) => {
@@ -782,11 +812,12 @@ fn support_matrix(weights_path: &Path) -> Option<Vec<f32>> {
             return None;
         }
     };
-    (!replay.is_empty()).then(|| {
-        replay
+    (!replay.is_empty()).then(|| SupportSet {
+        features: replay
             .iter()
             .flat_map(|sample| SusiAlphaModel::reflex_features(&sample.intent))
-            .collect()
+            .collect(),
+        actions: replay.into_iter().map(|sample| sample.action).collect(),
     })
 }
 
@@ -1106,7 +1137,8 @@ impl SusiAlphaModel {
     }
 
     pub fn predict_intent(&self, prompt: &str) -> Result<String> {
-        if let Some(support) = self.support(prompt) {
+        let nearest = self.nearest(prompt);
+        if let Some((support, _)) = nearest {
             if support < SUPPORT_MIN {
                 return Err(anyhow!(
                     "Unfamiliar prompt: nearest trained intent at cosine {support:.2} (< {SUPPORT_MIN})."
@@ -1114,7 +1146,7 @@ impl SusiAlphaModel {
             }
         }
         let (action, confidence) = self.predict_intent_with_confidence(prompt)?;
-        if confidence > SERVE_CONFIDENCE {
+        if serves(&action, confidence, nearest) {
             return Ok(action);
         }
         Err(anyhow!(
@@ -1127,16 +1159,21 @@ impl SusiAlphaModel {
     /// `None` when this checkpoint carries no replay set. Features are unit
     /// vectors, so the dot product is the cosine.
     pub fn support(&self, prompt: &str) -> Option<f32> {
-        let matrix = self.support.as_ref()?;
+        self.nearest(prompt).map(|(cosine, _)| cosine)
+    }
+
+    /// The nearest replayed intent: its cosine and its action.
+    fn nearest(&self, prompt: &str) -> Option<(f32, &str)> {
+        let set = self.support.as_ref()?;
         let query = Self::reflex_features(prompt);
-        Some(
-            matrix
-                .as_chunks::<{ Self::DIM }>()
-                .0
-                .iter()
-                .map(|row| row.iter().zip(&query).map(|(a, b)| a * b).sum::<f32>())
-                .fold(0.0, f32::max),
-        )
+        set.features
+            .as_chunks::<{ Self::DIM }>()
+            .0
+            .iter()
+            .map(|row| row.iter().zip(&query).map(|(a, b)| a * b).sum::<f32>())
+            .zip(&set.actions)
+            .max_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(cosine, action)| (cosine, action.as_str()))
     }
 
     pub fn predict_intent_with_confidence(&self, prompt: &str) -> Result<(String, f32)> {
@@ -1733,12 +1770,34 @@ mod tests {
         "set a reminder for 5pm",
     ];
 
+    #[test]
+    fn low_confidence_serves_only_with_an_agreeing_near_duplicate() {
+        let a = "ACTION: version";
+        assert!(serves(a, 0.51, None), "confident enough on its own");
+        assert!(!serves(a, 0.48, None), "no support set: confidence only");
+        assert!(serves(a, 0.48, Some((0.95, "version"))));
+        assert!(serves(a, 0.48, Some((0.95, "VERSION"))));
+        assert!(
+            !serves(a, 0.48, Some((0.95, "status"))),
+            "neighbor disagrees"
+        );
+        assert!(
+            !serves(a, 0.48, Some((0.85, "version"))),
+            "not a near-duplicate"
+        );
+        assert!(
+            !serves(a, 0.30, Some((0.99, "version"))),
+            "too unsure even so"
+        );
+    }
+
     /// Tier-0 quality benchmark: a fixed corpus of ~10 phrasings per
     /// foundational intent, unseen paraphrases, and everyday prompts that
     /// are not commands, run through the production publish and
     /// `predict_intent` path (confidence + support gates). Baseline when
     /// written (3 inits): recall 26-27/27, served precision 100%, 0/20
-    /// out-of-distribution prompts served. Bounds leave room for init noise
+    /// out-of-distribution prompts served; with neighbor agreement
+    /// (EV-CLAUDE-023) 27/27 in 5 of 5 inits. Bounds leave room for init noise
     /// but fail on any real regression in features, loss or gating.
     #[test]
     fn tier0_benchmark_recall_precision_and_ood_refusal() {
@@ -1762,7 +1821,7 @@ mod tests {
             .copied()
             .filter(|prompt| model.predict_intent(prompt).is_ok())
             .collect();
-        assert!(correct >= 24, "recall {correct}/{}", BENCH_TEST.len());
+        assert!(correct >= 25, "recall {correct}/{}", BENCH_TEST.len());
         assert!(
             served - correct <= 1,
             "wrong served {}/{served}",

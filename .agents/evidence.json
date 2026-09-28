@@ -3714,6 +3714,16 @@
    "milestone": "Tier-0 reflex quality now has a standing regression benchmark instead of only per-change probes. alpha::tests::tier0_benchmark_recall_precision_and_ood_refusal trains through the production train_on_staged_file path on BENCH_TRAIN (90 phrasings, 10 per foundational intent: status, version, self_heal_build, run_test_harness, write_file, read_file, list_directory, scout, reason). It loads the published checkpoint and scores it through predict_intent, with both confidence and support gates, on BENCH_TEST (27 unseen paraphrases) and BENCH_OOD (20 everyday non-command prompts such as 'what is the capital of france', 'write a poem about the ocean', 'delete everything in production'). Baseline measured before the test was written, over 3 random inits: recall 26/27, 27/27 and 26/27; served precision 100% in every run; OOD served 0/20 in every run. The single miss was 'show version': support 0.95 but confidence 0.46-0.48, so it was refused rather than served wrong. Assertions: recall >= 24/27, wrong serves <= 1, OOD serves <= 1. The alpha suite passed 6 of 6 repeated runs.",
    "proof": "VERIFIED",
    "type": "MISSION"
+  },
+  {
+   "anchor": {
+    "label": "alpha::serves neighbor agreement",
+    "ref": "file://crates/susi-gemi/src/engines/alpha.rs"
+   },
+   "id": "EV-CLAUDE-023",
+   "milestone": "Tier-0 recall improves without giving up precision or out-of-distribution refusal. The EV-CLAUDE-022 benchmark's only miss was 'show version': support 0.95, meaning a near-duplicate of a trained intent, but confidence 0.46-0.48, just under the 0.5 serve bar, so it was refused. Now the support set remembers each replayed row's action (SupportSet { features, actions }), and SusiAlphaModel::nearest returns the nearest trained intent's cosine and action. predict_intent keeps the support gate (cosine >= 0.6), then serves when alpha::serves holds: confidence > SERVE_CONFIDENCE (0.5), or confidence > AGREED_CONFIDENCE (0.35) with the nearest trained intent at cosine >= NEIGHBOR_AGREEMENT (0.9) and carrying the predicted action (case-insensitive). The two independent signals, classifier and nearest example, must agree. Measured on the benchmark over 5 random inits: recall 27/27 in 5 of 5 (was 26-27/27), 0 wrong serves, 0/20 OOD served. The benchmark's recall bound was raised from 24 to 25. Test: low_confidence_serves_only_with_an_agreeing_near_duplicate (confident alone; no support set -> confidence only; agreeing near-duplicate serves; disagreeing neighbor, cosine 0.85, or confidence 0.30 do not). The alpha suite passed 5 of 5 runs.",
+   "proof": "VERIFIED",
+   "type": "MISSION"
   }
  ],
  "epistemic_score": 1.0,

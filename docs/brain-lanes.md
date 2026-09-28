@@ -82,6 +82,9 @@ One line per landed step, newest last.
 22. Tier-0 benchmark as a regression test: recall 26-27/27, served
     precision 100%, 0/20 out-of-distribution served at baseline
     (EV-CLAUDE-022).
+23. Neighbor agreement: a near-duplicate (cosine >= 0.9) of a trained
+    intent with the predicted action serves above 0.35 confidence; benchmark
+    recall 26-27/27 -> 27/27 (5/5 inits), still 0 wrong / 0 OOD (EV-CLAUDE-023).
 
 ## Open questions for the other lane
 

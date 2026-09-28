@@ -600,7 +600,11 @@ replay set cannot be read: support is a serving refinement, so an I/O
 fault degrades Tier-0 (recorded in the error-metrics sink) instead of
 failing the checkpoint load and disabling it. The replay file is written
 *before* the bundle publishes, because the bundle's mtime keys the model
-cache and a cached model must not carry a stale support set.
+cache and a cached model must not carry a stale support set. Below the 0.5 bar
+a prediction is still served when the prompt is a near-duplicate (cosine ≥
+0.9) of a trained intent carrying the *predicted* action and confidence
+exceeds 0.35 — the classifier and the nearest trained example agree
+(`alpha::serves`, EV-CLAUDE-023).
 
 Publication is gated on held-out accuracy (`SusiAlphaModel::holdout_gate`).
 One in five staged-or-replayed intents — chosen by a hash of the
@@ -657,8 +661,9 @@ Tier-0 quality is pinned by a fixed benchmark
 phrasings per foundational intent for training, 27 unseen paraphrases, and
 20 everyday prompts that are not commands, through the production
 publish/`predict_intent` path. Baseline when written (3 inits): recall
-26–27/27, served precision 100%, 0/20 out-of-distribution served; the test
-fails below 24/27 recall, above 1 wrong serve, or above 1 OOD serve.
+26–27/27, served precision 100%, 0/20 out-of-distribution served (27/27
+in 5 of 5 inits after neighbor agreement); the test fails below 25/27
+recall, above 1 wrong serve, or above 1 OOD serve.
 
 ## Federation & consensus
 
