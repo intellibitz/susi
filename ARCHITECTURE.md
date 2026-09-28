@@ -544,6 +544,13 @@ changes need no checkpoint migration: the held-out gate below scores the
 active and candidate weights under the *current* features, so stale
 weights are judged honestly and replaced on the next cycle.
 
+Fits run to convergence, not a fixed step count: full-batch AdamW until
+mean loss ≤ 0.15 (correct class ≈ 0.86 probability) or 600 epochs, and the
+report states both. The old fixed 100 steps, measured on 962 samples over
+20 actions, reached 95% argmax accuracy with loss still 1.6 — 0% of samples
+cleared the 0.5 serve confidence, so a grown Tier-0 was right and silent
+(EV-CLAUDE-011).
+
 Training is cumulative *and* rehearsed. Each cycle fine-tunes the active
 weights, and fine-tuning on only the claimed batch would overwrite what
 earlier batches taught (catastrophic forgetting). So every cycle trains on

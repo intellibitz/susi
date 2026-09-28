@@ -481,7 +481,13 @@ fn save_replay(weights_path: &Path, samples: &[ReplaySample]) -> Result<()> {
 const HOLDOUT_BUCKETS: u64 = 5;
 /// Fewer held-out samples than this is too noisy to gate publication on.
 const MIN_HOLDOUT: usize = 3;
-const TRAINING_EPOCHS: usize = 100;
+/// Full-batch steps stop once the mean loss reaches `TARGET_LOSS` (correct
+/// class at ~0.86 probability) or at `MAX_EPOCHS`. A fixed 100 steps looked
+/// fine on small batches but, measured on 962 samples over 20 actions, left
+/// loss at 1.6: 95% argmax accuracy yet 0% of samples above the 0.5 serve
+/// confidence — Tier-0 was right and silent. By 200 steps 92% served.
+const TARGET_LOSS: f32 = 0.15;
+const MAX_EPOCHS: usize = 600;
 
 /// Stable across cycles (hash of the normalized intent, not of its position
 /// in a batch): a held-out sample is always held out, so the candidate fit
@@ -538,18 +544,26 @@ impl ReflexNet {
             .map_err(crate::engines::candle_err::from_candle)
     }
 
-    fn fit(&self, x: &Tensor, y: &Tensor) -> Result<()> {
+    /// Returns the epochs run and the last measured loss.
+    fn fit(&self, x: &Tensor, y: &Tensor) -> Result<(usize, f32)> {
         let mut opt = AdamW::new(self.varmap.all_vars(), ParamsAdamW::default())
             .map_err(crate::engines::candle_err::from_candle)?;
-        for _epoch in 0..TRAINING_EPOCHS {
+        let mut last = f32::INFINITY;
+        for epoch in 1..=MAX_EPOCHS {
             let log_sm = candle_nn::ops::log_softmax(&self.logits(x)?, 1)
                 .map_err(crate::engines::candle_err::from_candle)?;
             let loss = candle_nn::loss::nll(&log_sm, y)
                 .map_err(crate::engines::candle_err::from_candle)?;
+            last = loss
+                .to_scalar::<f32>()
+                .map_err(crate::engines::candle_err::from_candle)?;
+            if last <= TARGET_LOSS {
+                return Ok((epoch - 1, last));
+            }
             opt.backward_step(&loss)
                 .map_err(crate::engines::candle_err::from_candle)?;
         }
-        Ok(())
+        Ok((MAX_EPOCHS, last))
     }
 
     /// Samples whose argmax over the first `vocabulary` outputs equals the
@@ -837,7 +851,7 @@ impl SusiAlphaModel {
         let net = ReflexNet::init(active.map(|(path, _)| path), &device)?;
         let all: Vec<(&str, u32)> = staged.iter().chain(&primes).copied().collect();
         let (x, y) = labeled_batch(&all, &device)?;
-        net.fit(&x, &y)?;
+        let (epochs, loss) = net.fit(&x, &y)?;
         let samples = all.len();
 
         // Before publication: the published bundle's mtime is the model
@@ -866,7 +880,7 @@ impl SusiAlphaModel {
                 batch.skipped
             )
         };
-        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface.{replay_note}{gate}{skipped}{cleanup}"))
+        Ok(format!("Native distillation complete. Trained cumulatively on {samples} samples with the dynamic intent surface ({epochs} epochs, loss {loss:.3}).{replay_note}{gate}{skipped}{cleanup}"))
     }
 
     /// Publication gate. A candidate fit from the active weights on the
@@ -903,7 +917,7 @@ impl SusiAlphaModel {
         let candidate = ReflexNet::init(Some(checkpoint), device)?;
         let fit: Vec<(&str, u32)> = train.iter().chain(primes).copied().collect();
         let (x, y) = labeled_batch(&fit, device)?;
-        candidate.fit(&x, &y)?;
+        let _ = candidate.fit(&x, &y)?;
         let scored = candidate.correct(&hx, &held_labels, vocabulary.len())?;
         let n = holdout.len();
         if scored < baseline {
@@ -1233,6 +1247,75 @@ mod tests {
             intent: intent.into(),
             action: action.into(),
         }
+    }
+
+    #[test]
+    fn fit_trains_to_serving_confidence_at_realistic_scale() {
+        let device = susi_vendor_candle::candle_core::Device::Cpu;
+        let verbs = [
+            "deploy",
+            "restart",
+            "backup",
+            "migrate",
+            "compile",
+            "lint",
+            "benchmark",
+            "profile",
+            "translate",
+            "summarize",
+            "index",
+            "archive",
+            "encrypt",
+            "rotate",
+            "scale",
+            "monitor",
+            "trace",
+            "vacuum",
+            "snapshot",
+            "rollback",
+        ];
+        let nouns = [
+            "api", "database", "cluster", "cache", "frontend", "worker", "queue", "gateway",
+            "logs", "metrics", "keys", "service", "bucket", "schema", "pipeline",
+        ];
+        let texts: Vec<(String, u32)> = verbs
+            .iter()
+            .zip(0u32..)
+            .flat_map(|(verb, label)| {
+                nouns.iter().flat_map(move |noun| {
+                    ["now", "today", "safely"].map(|m| (format!("{verb} the {noun} {m}"), label))
+                })
+            })
+            .collect();
+        let samples: Vec<(&str, u32)> = texts.iter().map(|(t, l)| (t.as_str(), *l)).collect();
+        let labels: Vec<u32> = samples.iter().map(|(_, l)| *l).collect();
+        let (x, y) = labeled_batch(&samples, &device).unwrap();
+        let net = ReflexNet::init(None, &device).unwrap();
+        let (epochs, loss) = net.fit(&x, &y).unwrap();
+        assert!(epochs > 100, "900 samples cannot converge in 100 steps");
+        assert!(loss <= TARGET_LOSS || epochs == MAX_EPOCHS);
+        let probs = candle_nn::ops::softmax(&net.logits(&x).unwrap(), 1)
+            .unwrap()
+            .to_vec2::<f32>()
+            .unwrap();
+        let served = probs
+            .iter()
+            .zip(&labels)
+            .filter(|(row, &label)| {
+                let (index, p) = row
+                    .iter()
+                    .take(verbs.len())
+                    .enumerate()
+                    .max_by(|a, b| a.1.total_cmp(b.1))
+                    .unwrap();
+                index as u32 == label && *p > 0.5
+            })
+            .count();
+        assert!(
+            served * 10 >= samples.len() * 8,
+            "only {served}/{} correct and above the serve bar",
+            samples.len()
+        );
     }
 
     #[test]
