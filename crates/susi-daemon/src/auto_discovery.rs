@@ -83,7 +83,7 @@ pub fn stop_cell(path: &Path) -> bool {
 }
 
 /// Token spawned Swarm Cells require on every syscall: the host API token.
-fn cell_token() -> String {
+fn cell_token() -> crate::susi_error::EaiResult<String> {
     crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded()
 }
 
@@ -117,9 +117,19 @@ pub fn spawn_cell(path: &Path) -> bool {
     };
     let path = path.to_path_buf();
     if name.starts_with("susi-cell-") || name.ends_with(".cell") {
+        let token = match cell_token() {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::warn!(
+                    "[auto_discovery] Refusing to spawn {} without a host token: {error}",
+                    path.display()
+                );
+                return false;
+            }
+        };
         std::thread::spawn(move || {
             let spawned = std::process::Command::new(&path)
-                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
+                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
                 .spawn();
             track(path, spawned);
         });
@@ -138,6 +148,16 @@ pub fn spawn_cell(path: &Path) -> bool {
             );
             return false;
         };
+        let token = match cell_token() {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::warn!(
+                    "[auto_discovery] Refusing to spawn {} without a host token: {error}",
+                    path.display()
+                );
+                return false;
+            }
+        };
         // Sibling of the running binary; bare name (PATH lookup) otherwise.
         let universal_cell_path = std::env::current_exe()
             .ok()
@@ -145,7 +165,7 @@ pub fn spawn_cell(path: &Path) -> bool {
             .unwrap_or_else(|| "susi-universal-cell".into());
         std::thread::spawn(move || {
             let spawned = std::process::Command::new(universal_cell_path)
-                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, cell_token())
+                .env(crate::susi_abi::syscall::CELL_TOKEN_ENV, token)
                 .arg(bind_addr)
                 .arg(&path)
                 .spawn();

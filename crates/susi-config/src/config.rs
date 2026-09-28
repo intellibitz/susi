@@ -233,17 +233,15 @@ impl SusiConfig {
     /// Ensure `api_auth_token` is non-empty on the host substrate. Generates a
     /// 32-byte hex secret on first run, persists it **only** to
     /// `~/.susi/api_token` (0600) — never into world-readable `config.json`.
-    pub fn ensure_api_auth_token_seeded() -> String {
+    ///
+    /// # Errors
+    /// Fails closed if the token cannot be read, secured, installed, or migrated
+    /// out of `config.json`.
+    pub fn ensure_api_auth_token_seeded() -> EaiResult<String> {
         let global_dir = susi_paths::SusiDirs::config_dir();
+        super::json_util::create_private_dir(&global_dir)?;
         let token_path = global_dir.join("api_token");
-        if let Ok(existing) = fs::read_to_string(&token_path) {
-            let trimmed = existing.trim().to_string();
-            if !trimmed.is_empty() {
-                return trimmed;
-            }
-        }
-        // Migrate a legacy config.json copy into the private file, then strip it.
-        let mut cfg = Self::load_global().unwrap_or_default();
+        let mut cfg = Self::load(&global_dir)?;
         let legacy = cfg
             .settings
             .get("api_auth_token")
@@ -251,59 +249,83 @@ impl SusiConfig {
             .unwrap_or("")
             .trim()
             .to_string();
-        let token = if !legacy.is_empty() {
-            legacy
-        } else {
-            let mut raw = [0u8; 32];
-            if getrandom::fill(&mut raw).is_err() {
-                // Extremely unlikely; fall back to a process-unique but weaker seed.
-                let fallback = format!(
-                    "{}:{}:{}",
-                    std::process::id(),
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_nanos())
-                        .unwrap_or(0),
-                    global_dir.display()
-                );
-                use sha2::{Digest, Sha256};
-                let digest = Sha256::digest(fallback.as_bytes());
-                raw.copy_from_slice(&digest[..32]);
+        let metadata = match fs::symlink_metadata(&token_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(crate::susi_error::EaiError::io(format!(
+                    "inspect host API token file: {error}"
+                )));
             }
-            hex::encode(raw)
         };
-        // Install without replacement: the daemon and CLI both seed on
-        // first run, and a last-writer-wins race would hand clients a token
-        // that is no longer the one on disk. The loser adopts the winner's.
-        let _ = super::json_util::create_private_dir(&global_dir);
-        let installed = super::json_util::install_private_file(&token_path, token.as_bytes());
-        let token = match installed {
-            Ok(true) => token,
-            Ok(false) => match fs::read_to_string(&token_path) {
-                Ok(existing) if !existing.trim().is_empty() => return existing.trim().to_string(),
-                // An empty leftover file is not a token — replace it.
-                Ok(_) | Err(_) => {
-                    let _ = super::json_util::atomic_write_bytes(&token_path, token.as_bytes());
-                    token
+        let token = if let Some(metadata) = metadata {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                return Err(crate::susi_error::EaiError::authentication(
+                    "host API token path must be a regular file",
+                ));
+            }
+            let token = fs::read_to_string(&token_path)?;
+            let token = token.trim().to_string();
+            if token.is_empty() {
+                return Err(crate::susi_error::EaiError::authentication(
+                    "host API token file exists but is empty",
+                ));
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600))?;
+            }
+            token
+        } else {
+            let token = if !legacy.is_empty() {
+                legacy
+            } else {
+                let mut raw = [0u8; 32];
+                getrandom::fill(&mut raw).map_err(|error| {
+                    crate::susi_error::EaiError::authentication(format!(
+                        "generate host API bearer token: {error}"
+                    ))
+                })?;
+                hex::encode(raw)
+            };
+            match super::json_util::install_private_file(&token_path, token.as_bytes())? {
+                true => token,
+                false => {
+                    let metadata = fs::symlink_metadata(&token_path)?;
+                    if metadata.file_type().is_symlink() || !metadata.is_file() {
+                        return Err(crate::susi_error::EaiError::authentication(
+                            "host API token path must be a regular file",
+                        ));
+                    }
+                    let winner = fs::read_to_string(&token_path)?;
+                    let winner = winner.trim().to_string();
+                    if winner.is_empty() {
+                        return Err(crate::susi_error::EaiError::authentication(
+                            "concurrent host API token installation left an empty file",
+                        ));
+                    }
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600))?;
+                    }
+                    winner
                 }
-            },
-            Err(_) => {
-                let _ = super::json_util::atomic_write_bytes(&token_path, token.as_bytes());
-                token
             }
         };
         if cfg.settings.remove("api_auth_token").is_some() {
-            let _ = cfg.save(&global_dir);
+            cfg.save(&global_dir)?;
         }
         eprintln!(
-            "[Zero-Trust] Seeded host API bearer token → {} (required on HTTP {}/{}/{}/{})",
+            "[Zero-Trust] Host API bearer token ready at {} (required on HTTP {}/{}/{}/{})",
             token_path.display(),
             cfg.gmcp_port(),
             cfg.gemi_port(),
             cfg.gmcp_http_port(),
             cfg.a2a_http_port()
         );
-        token
+        Ok(token)
     }
 
     /// Max requests per IP per 60s window on world-facing HTTP surfaces. 0

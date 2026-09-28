@@ -125,14 +125,22 @@ fn spawn_service(svc: &LeafService) -> Option<u32> {
     let offset = crate::susi_sandbox::manager::SusiConfig::load_global()
         .map(|c| c.port_offset())
         .unwrap_or_else(|_| susi_paths::ports::env_port_offset());
+    let host_token = match crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded()
+    {
+        Ok(token) => token,
+        Err(error) => {
+            eprintln!(
+                "[supervisor] Refusing to spawn {} without a persisted host token: {error}",
+                svc.name
+            );
+            return None;
+        }
+    };
     cmd.env(svc.port_env, resolved_port.to_string())
         .env("SUSI_PORT_OFFSET", offset.to_string())
         // Dependency-free leaves (susi-native, susi-error) cannot locate the
         // token file themselves; they enforce the bearer they are handed.
-        .env(
-            "SUSI_HOST_TOKEN",
-            crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded(),
-        );
+        .env("SUSI_HOST_TOKEN", host_token);
     let log_dir = susi_paths::SusiDirs::substrate_home().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let log_path = log_dir.join(format!("{}.log", svc.name));

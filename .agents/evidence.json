@@ -2987,7 +2987,7 @@
         "ref": "file://ARCHITECTURE.md"
       },
       "id": "EV-2022928-304",
-      "milestone": "RSI OS isolation iterations 114-148: the daemon loop constructs real OS planes via composition::wire_daemon_os_planes (checkpoint, rolling cell logs, plugins, fork, hibernation, plugin reloader, gossip UDP on 127.0.0.1:0, in-memory snapshots, NAT manager, deny-by-default tool proxy, capability audit TSV) and unique host control planes (admin through workloads). Unreachable daemon-module ceiling 30→0. GMCP drops the unused rmcp client feature. CLI wire_engine_hooks still skips those constructors. susi os reports os_planes when the daemon has wired them. Verification: cargo check -p susi-daemon -p susi-gmcp / cargo fmt; tests deferred by operator.",
+      "milestone": "RSI OS isolation iterations 114-148: the daemon loop constructs real OS planes via composition::wire_daemon_os_planes (checkpoint, rolling cell logs, plugins, fork, hibernation, plugin reloader, gossip UDP on 127.0.0.1:0, in-memory snapshots, NAT manager, deny-by-default tool proxy, capability audit TSV) and unique host control planes (admin through workloads). Unreachable daemon-module ceiling 30\u21920. GMCP drops the unused rmcp client feature. CLI wire_engine_hooks still skips those constructors. susi os reports os_planes when the daemon has wired them. Verification: cargo check -p susi-daemon -p susi-gmcp / cargo fmt; tests deferred by operator.",
       "proof": "VERIFIED",
       "type": "MISSION"
     },
@@ -3078,7 +3078,7 @@
       },
       "id": "EV-2022928-313",
       "milestone": "Distinguish test-only nested cfg expressions from mixed production cfg branches in Rust code metrics.",
-      "proof": "The previous visitor only inspected the first cfg token, so it missed all(test, ...); a naïve token search would wrongly exempt any(test, feature=...). The visitor now parses nested Meta expressions conservatively and the unrun regression test covers both forms. Tests were not run per operator instruction; cargo check, cargo fmt, metadata, and diff checks are the non-test verification.",
+      "proof": "The previous visitor only inspected the first cfg token, so it missed all(test, ...); a na\u00efve token search would wrongly exempt any(test, feature=...). The visitor now parses nested Meta expressions conservatively and the unrun regression test covers both forms. Tests were not run per operator instruction; cargo check, cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
     },
     {
@@ -3130,6 +3130,16 @@
       "milestone": "Measure cluster-peer RTT and stop reporting failed local providers as healthy.",
       "proof": "AMAS now measures elapsed time from signed-ping nonce creation to the corresponding verified pong, accepts each (nonce, node_id) at most once within a bounded 8-nonce/64-pong window, preventing replays from refreshing trust/latency while allowing a broadcast nonce to receive responses from multiple peers, and keeps peer uptime marked unknown because the wire has no uptime field. Candle checks for a selectable local model via spawn_blocking so filesystem discovery does not block an async worker; fastembed health becomes false after its cached model-load failure. The separate daemon OS-plane probe/wiring claims remain retracted (EV-2022928-316/317). Tests were not run per operator instruction; verification is limited to cargo check, fmt, metadata, and diff checks.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Fail-closed host bearer token seeding",
+        "ref": "file://crates/susi-config/src/config.rs"
+      },
+      "id": "EV-2022928-319",
+      "milestone": "Make host API token seeding fail closed end to end.",
+      "proof": "SusiConfig::ensure_api_auth_token_seeded returned String and hid every failure mode: a pid+time SHA-256 fallback minted a guessable token when the CSPRNG failed, a losing install race overwrote the winner's token via atomic_write_bytes, an empty or non-regular token file was silently replaced, and every caller discarded the result. The function now returns EaiResult<String>: getrandom failure is an Authentication error, symlink/non-regular/empty/unreadable token paths abort, O_EXCL install_private_file keeps the winner's token (re-validated on the adopt path), and the legacy config.json migration still strips the inline key. SusiDaemon returns before binding host-contract ports when seeding fails; the supervisor refuses to spawn a leaf service and auto_discovery refuses to spawn a cell without the persisted token; susi-gmcp/susi-gemi/susi-gawd mains propagate the error; `susi start`/status report token presence via susi_paths::host_token instead of re-seeding. Tests were not run per operator instruction; verification is cargo check (all touched crates green), cargo fmt, and JSON validation.",
+      "type": "SECURITY"
     }
   ],
   "epistemic_score": 1.0,

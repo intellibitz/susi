@@ -301,13 +301,7 @@ pub(crate) fn control_plane_start(cwd: &Path, global_dir: &Path) {
         Some(pid) if SusiDaemon::host_contract_ready() => {
             println!("[SUSI Daemon] Running (PID: {}).", pid);
             println!("{}", SusiDaemon::host_contract_endpoints_report());
-            let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
-            println!(
-                "Auth: Bearer token in {} (required for HTTP clients)",
-                susi_paths::SusiDirs::config_dir()
-                    .join("api_token")
-                    .display()
-            );
+            report_auth_token();
         }
         Some(pid) => report_running(pid),
         None => {
@@ -344,19 +338,27 @@ fn report_running(pid: u32) {
     if SusiDaemon::wait_for_host_contract(std::time::Duration::from_secs(60)) {
         println!("[SUSI Daemon] Running (PID: {}).", pid);
         println!("{}", SusiDaemon::host_contract_endpoints_report());
-        let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
-        println!(
-            "Auth: Bearer token in {} (required for HTTP clients)",
-            susi_paths::SusiDirs::config_dir()
-                .join("api_token")
-                .display()
-        );
+        report_auth_token();
     } else {
         eprintln!(
             "[SUSI Daemon] Process {} is up but host-contract ports are not ready.",
             pid
         );
         std::process::exit(1);
+    }
+}
+
+fn report_auth_token() {
+    let path = susi_paths::SusiDirs::config_dir().join("api_token");
+    if susi_paths::host_token().is_some() {
+        println!(
+            "Auth: Bearer token in {} (required for HTTP clients)",
+            path.display()
+        );
+    } else {
+        eprintln!(
+            "[SUSI Daemon] Host API token is unavailable; authenticated endpoints fail closed."
+        );
     }
 }
 

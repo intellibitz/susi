@@ -67,7 +67,7 @@ External clients can trust these ports — the daemon never silently drifts them
 - **`susi` CLI** — jailed to the caller's cwd; intents run against that workspace while the daemon owns ports, models, and lock state.
 - **Canonical binary** — `~/.susi/bin/susi` (hot-reloads when the binary hash changes).
 - **Control plane** — `susi start` / `susi stop` / `susi restart` are deterministic host commands (never missions). `start`/`restart` wait until the host-contract ports are ready and print the endpoints.
-- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token`; clients must send `Authorization: Bearer <token>` on every HTTP contract port (except `/health` / CORS preflight).
+- **Zero-trust HTTP** — daemon seeds `~/.susi/api_token` (0600, regular file, `O_EXCL` install — a symlink, empty file, or unreadable path aborts startup before any port binds); clients must send `Authorization: Bearer <token>` on every HTTP contract port (except `/health` / CORS preflight). Leaf services and spawned cells are never started without the persisted token.
 
 **Port layout (`port_offset`)** — the five contract ports shift together, never
 individually (per-port overrides caused a real scramble once, so the relative

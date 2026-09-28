@@ -631,9 +631,16 @@ impl SusiDaemon {
         // Daemon is always bound to substrate home — ignore any stale
         // project-cwd passed via --workspace for backwards compatibility.
         let workspace = susi_paths::SusiDirs::substrate_home();
-        let _ = std::fs::create_dir_all(&workspace);
+        if let Err(error) = std::fs::create_dir_all(&workspace) {
+            eprintln!("[SusiDaemon] Failed to create substrate directory: {error}");
+            return;
+        }
         // Zero-trust: seed host bearer token before opening world-facing ports.
-        let _ = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+        if let Err(error) = crate::susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded()
+        {
+            eprintln!("[SusiDaemon] Failed to secure host API token: {error}");
+            return;
+        }
         // Composition root: EngineHooks before any ToolRegistry / MCP dispatch.
         crate::composition::wire_engine_hooks();
         susi_core::context_graph::ContextGraph::init_global_storage(
@@ -691,7 +698,9 @@ impl SusiDaemon {
         // Mandate: config may have been polluted by older "port randomization"
         // self-healing — always restore the public port contract before bind.
         Self::force_canonical_ports(&mut cfg);
-        let _ = cfg.save(&global_dir);
+        if let Err(error) = cfg.save(&global_dir) {
+            warn!("[SusiDaemon] Failed to persist canonical host ports: {error}");
+        }
 
         let bind_address = crate::susi_sandbox::manager::SusiConfig::load_global()
             .unwrap_or_default()

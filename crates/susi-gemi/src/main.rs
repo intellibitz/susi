@@ -28,11 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Every syscall must present the host API token (or an explicit
     // SUSI_CELL_TOKEN override); heartbeats stay open for liveness.
-    let expected_token: Arc<str> = std::env::var(CELL_TOKEN_ENV)
+    let expected_token: Arc<str> = match std::env::var(CELL_TOKEN_ENV)
         .ok()
         .filter(|t| !t.trim().is_empty())
-        .unwrap_or_else(susi_gemi::susi_config::SusiConfig::ensure_api_auth_token_seeded)
-        .into();
+    {
+        Some(token) => token.into(),
+        None => susi_gemi::susi_config::SusiConfig::ensure_api_auth_token_seeded()?.into(),
+    };
 
     susi_abi::cell_server::serve(
         cell,

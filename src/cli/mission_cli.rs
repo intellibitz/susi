@@ -131,7 +131,10 @@ pub(crate) fn dispatch(command: Commands, host: &MissionHost) -> std::process::E
         Commands::Gemi => {
             // Seed bearer before binding so empty-token loopback is not an
             // unauthenticated open door on the GEMI CLI path.
-            let _ = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded();
+            if let Err(error) = susi_sandbox::manager::SusiConfig::ensure_api_auth_token_seeded() {
+                eprintln!("[GEMI] Failed to secure host API token: {error}");
+                return std::process::ExitCode::FAILURE;
+            }
             // Degrade to bundled defaults rather than panic if
             // config.json is torn by a concurrent writer.
             let gemi_cfg = susi_sandbox::manager::SusiConfig::load(global_dir).unwrap_or_default();
