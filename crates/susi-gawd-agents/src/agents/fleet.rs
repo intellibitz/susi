@@ -412,9 +412,17 @@ impl GawdAgentFleet {
         // when the endpoint declares `api_key_env`, is pure data egress that
         // can never produce a completion. Loopback engines (Ollama, vLLM, …)
         // are exempt: they are local substrates.
+        let mock_inference =
+            std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true";
         let cloud_blocked =
             crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference();
         for endpoint in &cfg.inference_endpoints().endpoints {
+            // The mock-inference seam must exclude loopback bridges too: a
+            // test host may have a real Ollama/vLLM service listening, and
+            // contacting it would make the suite non-hermetic.
+            if mock_inference {
+                continue;
+            }
             if endpoint.api_base.trim().is_empty() {
                 continue;
             }

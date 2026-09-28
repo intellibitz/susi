@@ -959,6 +959,12 @@ impl InferenceRouter {
     /// Decide whether to escalate to cloud before local inference.
     /// Returns `None` when local path should proceed as usual.
     pub fn maybe_escalate_to_cloud(available_providers: &[String]) -> Option<CloudEscalation> {
+        // Tests using the mock seam must never prompt, persist a routing
+        // choice, or contact a provider. The native runtime handles the same
+        // flag and returns its deterministic mock failure locally.
+        if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
+            return None;
+        }
         let decision = Self::plan_placement(available_providers);
         decision.provider.map(|provider| CloudEscalation {
             provider,

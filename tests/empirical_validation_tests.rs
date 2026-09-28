@@ -26,6 +26,11 @@ fn wire_test_substrate() {
             std::env::set_var("HOME", &tmp);
             std::env::set_var("USERPROFILE", &tmp);
             std::env::set_var("XDG_CONFIG_HOME", tmp.join("xdg"));
+            // Set the inference seam before any global registry or engine is
+            // initialized.  The tests run in parallel, so setting it only in
+            // the two inference tests leaves a race where another test can
+            // bootstrap real cloud/MCP providers first.
+            std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
         }
         // Feature planes talk only via plane_bus; integration tests must
         // register handlers the same way CLI/daemon composition does.
@@ -38,7 +43,6 @@ fn wire_test_substrate() {
 #[test]
 fn test_empirical_reflex_classification() {
     wire_test_substrate();
-    std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
     let start = std::time::Instant::now();
@@ -57,13 +61,13 @@ fn test_empirical_reflex_classification() {
 #[test]
 fn test_empirical_epistemic_integrity_fictitious() {
     wire_test_substrate();
-    std::env::set_var("SUSI_TEST_MOCK_INFERENCE", "true");
     let ws = std::env::current_dir().unwrap();
     let ama = susi_gawd::ama::SusiMasterAgent::new();
-    let res = ama.solve_clean(
+    let res = ama.solve_clean_generative(
         "inspect the status of cargo module non_existent_quantum_crank",
         &ws,
         susi::SUSI_VERSION,
+        None,
     );
     assert!(!res.contains("quantum_crank version 1.0.0 successfully deployed"));
 }

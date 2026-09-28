@@ -225,13 +225,20 @@ pub(crate) fn recover(
     {
         return;
     }
+    // The test seam promises deterministic, offline inference. Entering the
+    // normal recovery loop here used to spend its full 60-second budget on
+    // a deliberately disabled local runtime after cloud providers were
+    // removed, making workspace tests interactive and non-hermetic.
+    if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
+        report.status = "FAILED".into();
+        report.final_answer =
+            "Mock inference is enabled; no recovery provider was invoked.".to_string();
+        return;
+    }
     let registry = CapabilityRegistry::global();
-    // Cloud recovery egresses mission context, so it must honor the same
-    // gates as primary routing: MAC cloud block (LocalOnly / revoked grant)
-    // and the mock-inference test seam honored by runtime_native. Either
-    // drops the provider list to empty; the local fallback still runs.
-    let cloud_blocked = crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference()
-        || std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true";
+    // Cloud recovery egresses mission context, so it must honor the same MAC
+    // cloud block (LocalOnly / revoked grant) as primary routing.
+    let cloud_blocked = crate::susi_core::mac_policy::MacPolicy::global().blocks_cloud_inference();
     let providers: Vec<String> = if cloud_blocked {
         Vec::new()
     } else {

@@ -1010,6 +1010,11 @@ impl GawdAgent for DynamicInferenceEndpointAgent {
         _workspace: &Path,
         _blackboard: &MissionBlackboard,
     ) -> crate::susi_core::susi_error::EaiResult<String> {
+        if std::env::var("SUSI_TEST_MOCK_INFERENCE").unwrap_or_default() == "true" {
+            return Err(crate::susi_core::susi_error::EaiError::inference(
+                "dynamic inference endpoint disabled by SUSI_TEST_MOCK_INFERENCE".to_string(),
+            ));
+        }
         let client = crate::susi_core::plane_bus::tools::scout_reasoning_remotes();
         if let Some(remotes) = client.get("remotes").and_then(|v| v.as_array()) {
             for remote_name in remotes.iter().filter_map(|v| v.as_str()) {
