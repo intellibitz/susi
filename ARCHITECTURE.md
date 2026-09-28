@@ -492,7 +492,7 @@ the same commit as the code.
 | 26 | OpenRouter live `/models` used async reqwest | rewritten onto `http_call` |
 | 27 | `susi-agents` cloud (Devin/Manus) used reqwest blocking | rewritten onto `http_call_with_body` |
 | 28 | `susi-agents` still declared `reqwest` | dropped |
-| 29 | Daemon webhook dispatcher owned a private `ureq::Agent` | posts via transport; `ureq` dropped from `susi-daemon` |
+| 29 | Daemon webhook dispatcher owned a private `ureq::Agent` and did not surface HTTP error statuses | posts via transport; checks 2xx status and logs non-2xx; `ureq` dropped from `susi-daemon` |
 | 30 | Daemon `orchestrator` unreachable from production | constructed in `composition::SwarmHost` |
 | 31 | Daemon `watchdog` unreachable from production | host cell registered on the swarm host |
 | 32 | Daemon `identity` unreachable from production | host cell identity generated and counted |

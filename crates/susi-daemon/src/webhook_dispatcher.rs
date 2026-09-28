@@ -85,7 +85,7 @@ impl WebhookDispatcher {
             }
             match serde_json::to_vec(pheromone) {
                 Ok(body) => {
-                    if let Err(e) = susi_http_transport::http_call_with_body(
+                    match susi_http_transport::http_call_with_body(
                         "POST",
                         &sub.url,
                         &[("Content-Type", "application/json")],
@@ -93,7 +93,21 @@ impl WebhookDispatcher {
                         10,
                         0,
                     ) {
-                        tracing::warn!("[WebhookDispatcher] delivery to {} failed: {}", sub.url, e);
+                        Ok(response) if !(200..300).contains(&response.status) => {
+                            tracing::warn!(
+                                "[WebhookDispatcher] delivery to {} returned HTTP {}",
+                                sub.url,
+                                response.status
+                            );
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            tracing::warn!(
+                                "[WebhookDispatcher] delivery to {} failed: {}",
+                                sub.url,
+                                e
+                            );
+                        }
                     }
                 }
                 Err(e) => {
