@@ -13,15 +13,15 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-dashmap = { workspace = true }
-parking_lot = { workspace = true }
-sha2 = { workspace = true }
-hex = { workspace = true }
-url = { workspace = true }
-rayon = "1.12"
-libc = "0.2"
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
+rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 [features]
 default = []

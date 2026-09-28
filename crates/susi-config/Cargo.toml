@@ -8,15 +8,15 @@ publish = false
 [dependencies]
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-parking_lot = { workspace = true }
-hex = { workspace = true }
-sha2 = { workspace = true }
-getrandom = { workspace = true }
-ed25519-dalek = { workspace = true }
-x25519-dalek = { workspace = true }
-chacha20poly1305 = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
+x25519-dalek = { package = "susi-vendor-x25519-dalek", path = "../susi-vendor-x25519-dalek" }
+chacha20poly1305 = { package = "susi-vendor-chacha20poly1305", path = "../susi-vendor-chacha20poly1305" }
 
 [lints]
 workspace = true

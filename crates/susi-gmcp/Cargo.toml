@@ -12,23 +12,23 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-dashmap = { workspace = true }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-vendor-mcp-server = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-parking_lot = { workspace = true }
-tower-service = "0.3"
-jsonschema = { version = "0.56", default-features = false }
-tokio = { workspace = true }
-hex = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+tower-service = { package = "susi-vendor-tower-service", path = "../susi-vendor-tower-service" }
+jsonschema = { package = "susi-vendor-jsonschema", path = "../susi-vendor-jsonschema" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
 
-shlex = "2.0"
-bytes = "1.12"
-hyper = { version = "1", features = ["full"] }
-hyper-util = { version = "0.1", features = ["full"] }
-http-body-util = "0.1"
-url = { workspace = true }
-libc = "0.2"
+shlex = { package = "susi-vendor-shlex", path = "../susi-vendor-shlex" }
+bytes = { package = "susi-vendor-bytes", path = "../susi-vendor-bytes" }
+hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
+hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
+http-body-util = { package = "susi-vendor-http-body-util", path = "../susi-vendor-http-body-util" }
+url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
 
 # Heavy specialist tools (browser / full-text index / embeddings / syn AST),
 # each behind its own `susi-vendor-*` crate. Default-on for
@@ -37,7 +37,7 @@ susi-vendor-chrome = { workspace = true, optional = true }
 susi-vendor-tantivy = { workspace = true, optional = true }
 susi-vendor-fastembed = { workspace = true, optional = true }
 susi-vendor-syn = { workspace = true, optional = true }
-tokio-rustls = { workspace = true }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 
 [features]
 default = ["tools-rich"]

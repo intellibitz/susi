@@ -12,13 +12,13 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-rayon = "1.12"
-tokio = { workspace = true }
-parking_lot = { workspace = true }
-flume = { workspace = true }
-dashmap = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 
 [lints]
 workspace = true

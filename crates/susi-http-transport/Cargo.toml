@@ -7,10 +7,10 @@ publish = false
 description = "Shared TLS-sniffing HTTP accept loop, Hyper connection builder, and outbound http_call over crate-private ureq (GET/HEAD/DELETE/POST/PUT/PATCH)."
 
 [dependencies]
-tokio = { workspace = true, features = ["io-util", "net", "time"] }
-tokio-rustls = { workspace = true }
-hyper-util = { version = "0.1", features = ["full"] }
-ureq = { version = "3.4.2", features = ["json"] }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
+ureq = { package = "susi-vendor-ureq", path = "../susi-vendor-ureq" }
 
 [lints]
 workspace = true

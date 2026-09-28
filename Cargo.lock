@@ -350,12 +350,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
-name = "base64ct"
-version = "1.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
-
-[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1079,12 +1073,6 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
-
-[[package]]
-name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
@@ -1728,16 +1716,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "der"
-version = "0.7.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
-dependencies = [
- "const-oid 0.9.6",
- "zeroize",
-]
-
-[[package]]
 name = "der-parser"
 version = "10.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1831,7 +1809,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer 0.12.1",
- "const-oid 0.10.2",
+ "const-oid",
  "crypto-common 0.2.2",
  "ctutils",
 ]
@@ -1975,7 +1953,6 @@ version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
 dependencies = [
- "pkcs8",
  "signature",
 ]
 
@@ -1987,10 +1964,8 @@ checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
- "serde",
  "sha2 0.10.9",
  "subtle",
- "zeroize",
 ]
 
 [[package]]
@@ -4609,16 +4584,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
-name = "pkcs8"
-version = "0.10.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
-dependencies = [
- "der",
- "spki",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5062,9 +5027,6 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
-dependencies = [
- "getrandom 0.2.17",
-]
 
 [[package]]
 name = "rand_core"
@@ -6005,9 +5967,6 @@ name = "signature"
 version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
-dependencies = [
- "rand_core 0.6.4",
-]
 
 [[package]]
 name = "simd-adler32"
@@ -6106,16 +6065,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
 dependencies = [
  "lock_api",
-]
-
-[[package]]
-name = "spki"
-version = "0.7.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
-dependencies = [
- "base64ct",
- "der",
 ]
 
 [[package]]
@@ -6220,17 +6169,6 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 name = "susi"
 version = "0.15.2"
 dependencies = [
- "anyhow",
- "clap",
- "console-subscriber",
- "ed25519-dalek",
- "hex",
- "parking_lot",
- "rayon",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "signal-hook",
  "susi-agents",
  "susi-config",
  "susi-core",
@@ -6244,109 +6182,107 @@ dependencies = [
  "susi-sandbox",
  "susi-server",
  "susi-tools",
+ "susi-vendor-anyhow",
+ "susi-vendor-clap",
  "susi-vendor-cloud",
+ "susi-vendor-console-subscriber",
+ "susi-vendor-ed25519-dalek",
+ "susi-vendor-hex",
+ "susi-vendor-parking-lot",
+ "susi-vendor-rayon",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-signal-hook",
+ "susi-vendor-sysinfo",
+ "susi-vendor-tokio",
+ "susi-vendor-tracing",
+ "susi-vendor-tracing-appender",
+ "susi-vendor-tracing-subscriber",
  "susi-vendor-wasmer",
- "sysinfo",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
 ]
 
 [[package]]
 name = "susi-abi"
 version = "0.14.1"
 dependencies = [
- "proptest",
- "serde",
- "serde_json",
- "tokio",
+ "susi-vendor-proptest",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
 name = "susi-adapters-llm"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "susi-http-transport",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-agents"
 version = "0.1.0"
 dependencies = [
- "getrandom 0.4.3",
- "libc",
- "serde",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-getrandom",
+ "susi-vendor-libc",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-config"
 version = "0.1.0"
 dependencies = [
- "chacha20poly1305",
- "ed25519-dalek",
- "getrandom 0.4.3",
- "hex",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2 0.11.0",
  "susi-error",
  "susi-paths",
- "x25519-dalek",
+ "susi-vendor-chacha20poly1305",
+ "susi-vendor-ed25519-dalek",
+ "susi-vendor-getrandom",
+ "susi-vendor-hex",
+ "susi-vendor-parking-lot",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-x25519-dalek",
 ]
 
 [[package]]
 name = "susi-core"
 version = "0.1.0"
 dependencies = [
- "criterion",
- "dashmap",
- "flume",
- "getrandom 0.4.3",
- "hex",
- "parking_lot",
- "proptest",
- "regex",
- "serde",
- "serde_json",
- "sha2 0.11.0",
  "susi-abi",
  "susi-adapters-llm",
  "susi-config",
  "susi-error",
  "susi-http-transport",
  "susi-paths",
- "tempfile",
- "tokio",
- "tracing",
+ "susi-vendor-criterion",
+ "susi-vendor-dashmap",
+ "susi-vendor-flume",
+ "susi-vendor-getrandom",
+ "susi-vendor-hex",
+ "susi-vendor-parking-lot",
+ "susi-vendor-proptest",
+ "susi-vendor-regex",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-tempfile",
+ "susi-vendor-tokio",
+ "susi-vendor-tracing",
 ]
 
 [[package]]
 name = "susi-daemon"
 version = "0.15.2"
 dependencies = [
- "dashmap",
- "ed25519-dalek",
- "getrandom 0.4.3",
- "hex",
- "libc",
- "md-5",
- "parking_lot",
- "rcgen",
- "serde",
- "serde_json",
- "sha1 0.11.0",
- "sha2 0.11.0",
- "signal-hook",
  "susi-abi",
  "susi-agents",
  "susi-config",
@@ -6361,39 +6297,49 @@ dependencies = [
  "susi-server",
  "susi-tools",
  "susi-vendor-cloud",
+ "susi-vendor-dashmap",
+ "susi-vendor-ed25519-dalek",
+ "susi-vendor-getrandom",
+ "susi-vendor-hex",
+ "susi-vendor-libc",
+ "susi-vendor-md-5",
+ "susi-vendor-parking-lot",
+ "susi-vendor-rcgen",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha1",
+ "susi-vendor-sha2",
+ "susi-vendor-signal-hook",
+ "susi-vendor-tokio",
+ "susi-vendor-tokio-rustls",
+ "susi-vendor-tracing",
  "susi-vendor-wasmer",
- "tokio",
- "tokio-rustls",
- "tracing",
- "winapi",
+ "susi-vendor-winapi",
 ]
 
 [[package]]
 name = "susi-dsh-cell"
 version = "0.14.1"
 dependencies = [
- "serde_json",
  "susi-abi",
- "tokio",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
 name = "susi-error"
 version = "0.1.0"
 dependencies = [
- "proptest",
- "serde",
- "serde_json",
  "susi-paths",
+ "susi-vendor-proptest",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-gawd"
 version = "0.15.2"
 dependencies = [
- "rayon",
- "serde",
- "serde_json",
  "susi-abi",
  "susi-config",
  "susi-core",
@@ -6404,76 +6350,72 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-rayon",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
  "susi-vendor-syn",
- "tempfile",
- "tokio",
+ "susi-vendor-tempfile",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
 name = "susi-gawd-a2a"
 version = "0.1.0"
 dependencies = [
- "axum",
- "ra2a",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-gawd-agents",
  "susi-http-transport",
  "susi-sandbox-client",
- "tokio",
- "tokio-rustls",
- "tower",
+ "susi-vendor-axum",
+ "susi-vendor-ra2a",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
+ "susi-vendor-tokio-rustls",
+ "susi-vendor-tower",
 ]
 
 [[package]]
 name = "susi-gawd-agents"
 version = "0.1.0"
 dependencies = [
- "rayon",
- "regex",
- "serde",
- "serde_json",
- "shlex 2.0.1",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-rayon",
+ "susi-vendor-regex",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-shlex",
 ]
 
 [[package]]
 name = "susi-gawd-swarm"
 version = "0.1.0"
 dependencies = [
- "dashmap",
- "flume",
- "parking_lot",
- "rayon",
- "serde",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-gawd-agents",
  "susi-paths",
  "susi-sandbox-client",
- "tokio",
+ "susi-vendor-dashmap",
+ "susi-vendor-flume",
+ "susi-vendor-parking-lot",
+ "susi-vendor-rayon",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
 name = "susi-gemi"
 version = "0.15.2"
 dependencies = [
- "flume",
- "hex",
- "indicatif",
- "parking_lot",
- "serde",
- "serde_json",
- "sha2 0.11.0",
  "susi-abi",
  "susi-config",
  "susi-core",
@@ -6483,25 +6425,24 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-candle",
- "sysinfo",
- "tempfile",
- "tokio",
- "tracing",
- "url",
+ "susi-vendor-flume",
+ "susi-vendor-hex",
+ "susi-vendor-indicatif",
+ "susi-vendor-parking-lot",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-sysinfo",
+ "susi-vendor-tempfile",
+ "susi-vendor-tokio",
+ "susi-vendor-tracing",
+ "susi-vendor-url",
 ]
 
 [[package]]
 name = "susi-gemi-models"
 version = "0.1.0"
 dependencies = [
- "dashmap",
- "hex",
- "libc",
- "parking_lot",
- "rayon",
- "serde",
- "serde_json",
- "sha2 0.11.0",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -6509,25 +6450,21 @@ dependencies = [
  "susi-paths",
  "susi-sandbox-client",
  "susi-vendor-candle",
- "url",
+ "susi-vendor-dashmap",
+ "susi-vendor-hex",
+ "susi-vendor-libc",
+ "susi-vendor-parking-lot",
+ "susi-vendor-rayon",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-url",
 ]
 
 [[package]]
 name = "susi-gmcp"
 version = "0.15.2"
 dependencies = [
- "bytes",
- "dashmap",
- "hex",
- "http-body-util",
- "hyper",
- "hyper-util",
- "jsonschema",
- "libc",
- "parking_lot",
- "serde",
- "serde_json",
- "shlex 2.0.1",
  "susi-abi",
  "susi-config",
  "susi-core",
@@ -6535,115 +6472,124 @@ dependencies = [
  "susi-http-transport",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-bytes",
  "susi-vendor-chrome",
+ "susi-vendor-dashmap",
  "susi-vendor-fastembed",
+ "susi-vendor-hex",
+ "susi-vendor-http-body-util",
+ "susi-vendor-hyper",
+ "susi-vendor-hyper-util",
+ "susi-vendor-jsonschema",
+ "susi-vendor-libc",
  "susi-vendor-mcp-server",
+ "susi-vendor-parking-lot",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-shlex",
  "susi-vendor-syn",
  "susi-vendor-tantivy",
- "tokio",
- "tokio-rustls",
- "tower-service",
- "url",
+ "susi-vendor-tokio",
+ "susi-vendor-tokio-rustls",
+ "susi-vendor-tower-service",
+ "susi-vendor-url",
 ]
 
 [[package]]
 name = "susi-http-transport"
 version = "0.1.0"
 dependencies = [
- "hyper-util",
- "tokio",
- "tokio-rustls",
- "ureq 3.4.2",
+ "susi-vendor-hyper-util",
+ "susi-vendor-tokio",
+ "susi-vendor-tokio-rustls",
+ "susi-vendor-ureq",
 ]
 
 [[package]]
 name = "susi-leaf-services"
 version = "0.1.0"
 dependencies = [
- "axum",
- "serde",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-paths",
  "susi-sandbox",
  "susi-sandbox-client",
+ "susi-vendor-axum",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
  "susi-vendor-wasmer",
- "tokio",
 ]
 
 [[package]]
 name = "susi-native-client"
 version = "0.1.0"
 dependencies = [
- "serde_json",
  "susi-error",
  "susi-paths",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-paths"
 version = "0.1.0"
 dependencies = [
- "serde_json",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-sandbox"
 version = "0.1.0"
 dependencies = [
- "bollard",
- "futures",
  "susi-config",
  "susi-error",
  "susi-sandbox-client",
- "tokio",
+ "susi-vendor-bollard",
+ "susi-vendor-futures",
+ "susi-vendor-tokio",
 ]
 
 [[package]]
 name = "susi-sandbox-client"
 version = "0.1.0"
 dependencies = [
- "hex",
- "serde",
- "serde_json",
- "sha2 0.11.0",
  "susi-config",
  "susi-error",
  "susi-paths",
- "tracing",
+ "susi-vendor-hex",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-sha2",
+ "susi-vendor-tracing",
 ]
 
 [[package]]
 name = "susi-server"
 version = "0.15.2"
 dependencies = [
- "base64 0.22.1",
- "bytes",
- "http-body-util",
- "hyper",
- "hyper-util",
- "serde",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
  "susi-http-transport",
  "susi-sandbox-client",
- "tokio",
- "tokio-rustls",
- "tokio-stream",
- "tracing",
+ "susi-vendor-base64",
+ "susi-vendor-bytes",
+ "susi-vendor-http-body-util",
+ "susi-vendor-hyper",
+ "susi-vendor-hyper-util",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
+ "susi-vendor-tokio-rustls",
+ "susi-vendor-tokio-stream",
+ "susi-vendor-tracing",
 ]
 
 [[package]]
 name = "susi-tools"
 version = "0.1.0"
 dependencies = [
- "dashmap",
- "serde",
- "serde_json",
  "susi-config",
  "susi-core",
  "susi-error",
@@ -6651,17 +6597,55 @@ dependencies = [
  "susi-native-client",
  "susi-paths",
  "susi-sandbox-client",
+ "susi-vendor-dashmap",
  "susi-vendor-mcp",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
 ]
 
 [[package]]
 name = "susi-universal-cell"
 version = "0.14.1"
 dependencies = [
- "serde",
- "serde_json",
  "susi-abi",
- "tokio",
+ "susi-vendor-serde",
+ "susi-vendor-serde-json",
+ "susi-vendor-tokio",
+]
+
+[[package]]
+name = "susi-vendor-anyhow"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
+name = "susi-vendor-axum"
+version = "0.1.0"
+dependencies = [
+ "axum",
+]
+
+[[package]]
+name = "susi-vendor-base64"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+]
+
+[[package]]
+name = "susi-vendor-bollard"
+version = "0.1.0"
+dependencies = [
+ "bollard",
+]
+
+[[package]]
+name = "susi-vendor-bytes"
+version = "0.1.0"
+dependencies = [
+ "bytes",
 ]
 
 [[package]]
@@ -6677,6 +6661,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-vendor-chacha20poly1305"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+]
+
+[[package]]
 name = "susi-vendor-chrome"
 version = "0.1.0"
 dependencies = [
@@ -6685,8 +6676,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-vendor-clap"
+version = "0.1.0"
+dependencies = [
+ "clap",
+]
+
+[[package]]
 name = "susi-vendor-cloud"
 version = "0.1.0"
+
+[[package]]
+name = "susi-vendor-console-subscriber"
+version = "0.1.0"
+dependencies = [
+ "console-subscriber",
+]
+
+[[package]]
+name = "susi-vendor-criterion"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+]
+
+[[package]]
+name = "susi-vendor-dashmap"
+version = "0.1.0"
+dependencies = [
+ "dashmap",
+]
+
+[[package]]
+name = "susi-vendor-ed25519-dalek"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+]
 
 [[package]]
 name = "susi-vendor-fastembed"
@@ -6694,6 +6720,76 @@ version = "0.1.0"
 dependencies = [
  "fastembed",
  "susi-error",
+]
+
+[[package]]
+name = "susi-vendor-flume"
+version = "0.1.0"
+dependencies = [
+ "flume",
+]
+
+[[package]]
+name = "susi-vendor-futures"
+version = "0.1.0"
+dependencies = [
+ "futures",
+]
+
+[[package]]
+name = "susi-vendor-getrandom"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+]
+
+[[package]]
+name = "susi-vendor-hex"
+version = "0.1.0"
+dependencies = [
+ "hex",
+]
+
+[[package]]
+name = "susi-vendor-http-body-util"
+version = "0.1.0"
+dependencies = [
+ "http-body-util",
+]
+
+[[package]]
+name = "susi-vendor-hyper"
+version = "0.1.0"
+dependencies = [
+ "hyper",
+]
+
+[[package]]
+name = "susi-vendor-hyper-util"
+version = "0.1.0"
+dependencies = [
+ "hyper-util",
+]
+
+[[package]]
+name = "susi-vendor-indicatif"
+version = "0.1.0"
+dependencies = [
+ "indicatif",
+]
+
+[[package]]
+name = "susi-vendor-jsonschema"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+]
+
+[[package]]
+name = "susi-vendor-libc"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -6715,10 +6811,108 @@ dependencies = [
 ]
 
 [[package]]
+name = "susi-vendor-md-5"
+version = "0.1.0"
+dependencies = [
+ "md-5",
+]
+
+[[package]]
+name = "susi-vendor-parking-lot"
+version = "0.1.0"
+dependencies = [
+ "parking_lot",
+]
+
+[[package]]
+name = "susi-vendor-proptest"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "susi-vendor-ra2a"
+version = "0.1.0"
+dependencies = [
+ "ra2a",
+]
+
+[[package]]
+name = "susi-vendor-rayon"
+version = "0.1.0"
+dependencies = [
+ "rayon",
+]
+
+[[package]]
+name = "susi-vendor-rcgen"
+version = "0.1.0"
+dependencies = [
+ "rcgen",
+]
+
+[[package]]
+name = "susi-vendor-regex"
+version = "0.1.0"
+dependencies = [
+ "regex",
+]
+
+[[package]]
+name = "susi-vendor-serde"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "susi-vendor-serde-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "susi-vendor-sha1"
+version = "0.1.0"
+dependencies = [
+ "sha1 0.11.0",
+]
+
+[[package]]
+name = "susi-vendor-sha2"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "susi-vendor-shlex"
+version = "0.1.0"
+dependencies = [
+ "shlex 2.0.1",
+]
+
+[[package]]
+name = "susi-vendor-signal-hook"
+version = "0.1.0"
+dependencies = [
+ "signal-hook",
+]
+
+[[package]]
 name = "susi-vendor-syn"
 version = "0.1.0"
 dependencies = [
  "syn 3.0.6",
+]
+
+[[package]]
+name = "susi-vendor-sysinfo"
+version = "0.1.0"
+dependencies = [
+ "sysinfo",
 ]
 
 [[package]]
@@ -6727,6 +6921,83 @@ version = "0.1.0"
 dependencies = [
  "susi-error",
  "tantivy",
+]
+
+[[package]]
+name = "susi-vendor-tempfile"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
+name = "susi-vendor-tokio"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "susi-vendor-tokio-rustls"
+version = "0.1.0"
+dependencies = [
+ "tokio-rustls",
+]
+
+[[package]]
+name = "susi-vendor-tokio-stream"
+version = "0.1.0"
+dependencies = [
+ "tokio-stream",
+]
+
+[[package]]
+name = "susi-vendor-tower"
+version = "0.1.0"
+dependencies = [
+ "tower",
+]
+
+[[package]]
+name = "susi-vendor-tower-service"
+version = "0.1.0"
+dependencies = [
+ "tower-service",
+]
+
+[[package]]
+name = "susi-vendor-tracing"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
+name = "susi-vendor-tracing-appender"
+version = "0.1.0"
+dependencies = [
+ "tracing-appender",
+]
+
+[[package]]
+name = "susi-vendor-tracing-subscriber"
+version = "0.1.0"
+dependencies = [
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "susi-vendor-ureq"
+version = "0.1.0"
+dependencies = [
+ "ureq 3.4.2",
+]
+
+[[package]]
+name = "susi-vendor-url"
+version = "0.1.0"
+dependencies = [
+ "url",
 ]
 
 [[package]]
@@ -6740,6 +7011,20 @@ dependencies = [
  "wasmer-middlewares",
  "wasmer-types",
  "wasmer-wasix",
+]
+
+[[package]]
+name = "susi-vendor-winapi"
+version = "0.1.0"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
+name = "susi-vendor-x25519-dalek"
+version = "0.1.0"
+dependencies = [
+ "x25519-dalek",
 ]
 
 [[package]]

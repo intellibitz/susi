@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-url"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI vendor facade: sole workspace owner of `url`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+
+[dependencies]
+url = { version = "2.5" }
+
+[lints]
+workspace = true

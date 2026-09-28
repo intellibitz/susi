@@ -10,17 +10,17 @@ susi-http-transport = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
-base64 = "0.22"
-hyper = { version = "1.0", features = ["full"] }
-http-body-util = "0.1"
-hyper-util = { version = "0.1", features = ["full"] }
-serde = { workspace = true }
-serde_json = "1.0"
-tokio = { version = "1.53", features = ["full"] }
-tokio-stream = "0.1"
-bytes = "1.12"
-tracing = "0.1"
-tokio-rustls = { workspace = true }
+base64 = { package = "susi-vendor-base64", path = "../susi-vendor-base64" }
+hyper = { package = "susi-vendor-hyper", path = "../susi-vendor-hyper" }
+http-body-util = { package = "susi-vendor-http-body-util", path = "../susi-vendor-http-body-util" }
+hyper-util = { package = "susi-vendor-hyper-util", path = "../susi-vendor-hyper-util" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tokio-stream = { package = "susi-vendor-tokio-stream", path = "../susi-vendor-tokio-stream" }
+bytes = { package = "susi-vendor-bytes", path = "../susi-vendor-bytes" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
 
 [lints]
 workspace = true

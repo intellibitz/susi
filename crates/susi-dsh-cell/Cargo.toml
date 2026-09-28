@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 susi-abi = { workspace = true, features = ["cell-server"] }
-tokio = { workspace = true }
-serde_json = { workspace = true }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true

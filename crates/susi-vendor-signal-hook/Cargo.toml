@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-signal-hook"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI vendor facade: sole workspace owner of `signal-hook`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+
+[dependencies]
+signal-hook = { version = "0.4.4" }
+
+[lints]
+workspace = true

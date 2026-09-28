@@ -10,9 +10,9 @@ susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
-libc = "0.2"
-serde = { workspace = true }
-serde_json = { workspace = true }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 susi-core = { workspace = true }
 susi-gemi = { workspace = true }
 susi-gawd = { workspace = true }
@@ -20,25 +20,25 @@ susi-gmcp = { workspace = true }
 susi-server = { workspace = true }
 susi-tools = { workspace = true }
 susi-agents = { workspace = true }
-dashmap = { workspace = true }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 susi-http-transport = { workspace = true }
 susi-vendor-wasmer = { workspace = true }
 susi-vendor-cloud = { workspace = true }
-parking_lot = { workspace = true }
-hex = { workspace = true }
-getrandom = { workspace = true }
-ed25519-dalek = { workspace = true }
-sha2 = { workspace = true }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "../susi-vendor-ed25519-dalek" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 # RFC 5389 long-term TURN credentials: MD5(user:realm:pass) then HMAC-SHA1
 # MESSAGE-INTEGRITY. Crypto primitives, not vendor SDKs / HTTP clients.
-sha1 = "0.11"
-md-5 = "0.11"
+sha1 = { package = "susi-vendor-sha1", path = "../susi-vendor-sha1" }
+md5 = { package = "susi-vendor-md-5", path = "../susi-vendor-md-5" }
 
-tokio = { version = "1.53", features = ["full"] }
-tracing = "0.1"
-signal-hook = "0.4.4"
-tokio-rustls = { workspace = true }
-rcgen = "0.14.10"
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+signal-hook = { package = "susi-vendor-signal-hook", path = "../susi-vendor-signal-hook" }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+rcgen = { package = "susi-vendor-rcgen", path = "../susi-vendor-rcgen" }
 
 [features]
 default = ["tools-rich"]
@@ -46,10 +46,10 @@ tools-rich = []
 
 [dev-dependencies]
 # test-util enables #[tokio::test(start_paused)] for virtual-clock tests.
-tokio = { version = "1.53", features = ["test-util"] }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 
 [target."cfg(windows)".dependencies]
-winapi = { version = "0.3", features = ["fileapi", "minwinbase"] }
+winapi = { package = "susi-vendor-winapi", path = "../susi-vendor-winapi" }
 
 [lints]
 workspace = true

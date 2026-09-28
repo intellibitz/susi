@@ -9,11 +9,11 @@ publish = false
 susi-paths = { workspace = true }
 susi-error = { workspace = true }
 susi-config = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tracing = { workspace = true }
-hex = { workspace = true }
-sha2 = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [lints]
 workspace = true

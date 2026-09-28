@@ -3344,6 +3344,16 @@
       "milestone": "Affected-crate compile gate for branch pushes and six-way sharded main test suite.",
       "proof": "scripts/ci-changed-crates.sh maps the merge-base diff to workspace packages via cargo metadata (workspace-wide inputs \u2014 lockfile, root build.rs which compiles .agents/*.json, root src/tests, toolchain config \u2014 fall back to ALL; docs/CI-only diffs skip cargo entirely). Verified locally: a susi-paths-only commit resolves to '-p susi-paths'. The branch check job now checks only affected crates (seconds on a warm cache) while fmt+deny still run on every push. The main gate splits nextest into six parallel shards covering all 35 workspace packages exactly once (verified against cargo metadata) plus a lint job and the live susi-native e2e job, so the gate is the slowest shard rather than one serial ~9min build. Dev release remains [dev-release]-gated. No tests run per operator instruction; YAML validated.",
       "type": "PROCESS"
+    },
+    {
+      "anchor": {
+        "label": "Zero third-party deps in susi crates via vendor facades",
+        "ref": "file://tests/architecture_tests.rs"
+      },
+      "id": "EV-DEVIN-003",
+      "milestone": "susi-* crates now declare zero external dependencies: 48 susi-vendor-* facade crates own every third-party crate.",
+      "proof": "Generated one facade per external crate (susi-vendor-{serde,serde-json,tokio,tokio-rustls,hyper,axum,ra2a,bollard,ureq,clap,anyhow,dashmap,flume,parking-lot,rayon,regex,sha1,sha2,md-5,hex,getrandom,ed25519-dalek,x25519-dalek,chacha20poly1305,bytes,base64,http-body-util,hyper-util,tower,tower-service,tokio-stream,url,jsonschema,shlex,sysinfo,indicatif,libc,winapi,signal-hook,tracing,tracing-subscriber,tracing-appender,console-subscriber,futures,proptest,criterion,tempfile}); each facade owns the union of versions/features consumers declared (including dev-dep features like tokio/test-util) and does pub use <crate>::*. Consumers declare e.g. serde = { package = \"susi-vendor-serde\" } under the same dep key, so source is untouched and dep:/optional wiring is preserved. New architecture ratchet susi_crates_declare_zero_external_dependencies scans every non-vendor manifest section (normal/build/dev/target) and fails on any non-workspace dep; leaf-order test exempts facades (pure leaves). cargo check --workspace --all-targets and fmt pass; no tests run per operator instruction.",
+      "type": "ARCHITECTURE"
     }
   ],
   "epistemic_score": 1.0,

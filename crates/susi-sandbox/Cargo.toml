@@ -9,9 +9,9 @@ publish = false
 susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-sandbox-client = { workspace = true }
-bollard = "0.21.1"
-futures = "0.3"
-tokio = { workspace = true, features = ["time"] }
+bollard = { package = "susi-vendor-bollard", path = "../susi-vendor-bollard" }
+futures = { package = "susi-vendor-futures", path = "../susi-vendor-futures" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
 
 [lints]
 workspace = true

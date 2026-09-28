@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-serde_json = { workspace = true }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true

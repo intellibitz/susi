@@ -13,9 +13,9 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-native-client = { workspace = true }
 susi-http-transport = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-dashmap = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+dashmap = { package = "susi-vendor-dashmap", path = "../susi-vendor-dashmap" }
 
 susi-vendor-mcp = { workspace = true }
 

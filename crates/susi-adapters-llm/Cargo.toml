@@ -7,7 +7,7 @@ publish = false
 description = "SUSI-authored LLM provider wire: OpenAI, Anthropic, Gemini, Triton."
 
 [dependencies]
-serde_json = { workspace = true }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 susi-http-transport = { workspace = true }
 
 [lints]

@@ -12,14 +12,14 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-regex = "1.13"
-serde = { workspace = true }
-serde_json = { workspace = true }
-rayon = "1.12"
-shlex = "2.0"
+regex = { package = "susi-vendor-regex", path = "../susi-vendor-regex" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
+shlex = { package = "susi-vendor-shlex", path = "../susi-vendor-shlex" }
 
 [build-dependencies]
-serde_json = { workspace = true }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true

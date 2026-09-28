@@ -132,15 +132,78 @@ const LEAF_RANK: &[(&str, u8)] = &[
     ("susi", 9),
 ];
 
+/// Pure re-export facades (`susi-vendor-*` crates whose only dependency is
+/// the third-party crate they wrap). They are leaves by construction —
+/// they depend on no SUSI crate — and are exempt from the leaf-order check:
+/// a rank-0 crate like susi-paths legitimately depends on a facade.
+/// The zero-external-deps ratchet below is what actually constrains them.
+const VENDOR_FACADES: &[&str] = &[
+    "susi-vendor-anyhow",
+    "susi-vendor-axum",
+    "susi-vendor-base64",
+    "susi-vendor-bollard",
+    "susi-vendor-bytes",
+    "susi-vendor-chacha20poly1305",
+    "susi-vendor-clap",
+    "susi-vendor-console-subscriber",
+    "susi-vendor-criterion",
+    "susi-vendor-dashmap",
+    "susi-vendor-ed25519-dalek",
+    "susi-vendor-flume",
+    "susi-vendor-futures",
+    "susi-vendor-getrandom",
+    "susi-vendor-hex",
+    "susi-vendor-http-body-util",
+    "susi-vendor-hyper",
+    "susi-vendor-hyper-util",
+    "susi-vendor-indicatif",
+    "susi-vendor-jsonschema",
+    "susi-vendor-libc",
+    "susi-vendor-md-5",
+    "susi-vendor-parking-lot",
+    "susi-vendor-proptest",
+    "susi-vendor-ra2a",
+    "susi-vendor-rayon",
+    "susi-vendor-rcgen",
+    "susi-vendor-regex",
+    "susi-vendor-serde",
+    "susi-vendor-serde-json",
+    "susi-vendor-sha1",
+    "susi-vendor-sha2",
+    "susi-vendor-shlex",
+    "susi-vendor-signal-hook",
+    "susi-vendor-sysinfo",
+    "susi-vendor-tempfile",
+    "susi-vendor-tokio",
+    "susi-vendor-tokio-rustls",
+    "susi-vendor-tokio-stream",
+    "susi-vendor-tower",
+    "susi-vendor-tower-service",
+    "susi-vendor-tracing",
+    "susi-vendor-tracing-appender",
+    "susi-vendor-tracing-subscriber",
+    "susi-vendor-ureq",
+    "susi-vendor-url",
+    "susi-vendor-winapi",
+    "susi-vendor-x25519-dalek",
+];
+
 #[test]
 fn workspace_edges_follow_the_leaf_order() {
     let rank: HashMap<&str, u8> = LEAF_RANK.iter().copied().collect();
+    let facades: HashSet<&str> = VENDOR_FACADES.iter().copied().collect();
     let graph = workspace_graph();
     for (package, dependencies) in &graph {
+        if facades.contains(package.as_str()) {
+            continue; // leaves: they own a third-party crate, depend on no SUSI crate
+        }
         let own = *rank
             .get(package.as_str())
             .unwrap_or_else(|| panic!("{package} has no leaf rank in LEAF_RANK"));
         for dependency in dependencies {
+            if facades.contains(dependency.as_str()) {
+                continue; // facade edge: permitted from every rank
+            }
             let theirs = *rank
                 .get(dependency.as_str())
                 .unwrap_or_else(|| panic!("{dependency} has no leaf rank in LEAF_RANK"));
@@ -148,6 +211,88 @@ fn workspace_edges_follow_the_leaf_order() {
                 theirs < own,
                 "{package} (rank {own}) must not depend on {dependency} (rank {theirs}); \
                  edges point down the leaf order only"
+            );
+        }
+    }
+}
+
+/// Mandate: susi-* crates declare zero third-party dependencies — every
+/// external crate is owned by exactly one `susi-vendor-*` crate (implementation
+/// vendors like wasmer/candle, or pure re-export facades in VENDOR_FACADES).
+/// This ratchet scans each non-vendor member's `[dependencies]`,
+/// `[build-dependencies]` and `[target.*.dependencies]`/`dev-dependencies`
+/// sections and requires every declared package to be a workspace member.
+#[test]
+fn susi_crates_declare_zero_external_dependencies() {
+    let root = workspace_root();
+    let root_toml = std::fs::read_to_string(root.join("Cargo.toml")).expect("root Cargo.toml");
+
+    // Workspace member names = root package + every members[] dir + xtask.
+    let mut members: HashSet<String> = ["susi".to_string(), "xtask".to_string()].into();
+    let mut in_members = false;
+    for line in root_toml.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_members = t == "[workspace]";
+        }
+        if in_members && t.starts_with('"') {
+            if let Some(end) = t[1..].find('"') {
+                let entry = &t[1..1 + end];
+                if let Some(name) = entry.strip_prefix("crates/") {
+                    members.insert(name.to_string());
+                } else if entry == "xtask" {
+                    members.insert("xtask".to_string());
+                }
+            }
+        }
+    }
+
+    let mut manifests: Vec<std::path::PathBuf> = vec![root.join("Cargo.toml")];
+    manifests.push(root.join("xtask/Cargo.toml"));
+    for entry in std::fs::read_dir(root.join("crates")).expect("crates/") {
+        let entry = entry.expect("entry");
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with("susi-vendor-") {
+            continue; // vendor crates are where external deps belong
+        }
+        let p = entry.path().join("Cargo.toml");
+        if p.is_file() {
+            manifests.push(p);
+        }
+    }
+    for path in manifests {
+        let text = std::fs::read_to_string(&path).expect("crate Cargo.toml");
+        let mut in_deps = false;
+        for line in text.lines() {
+            let t = line.trim();
+            if t.starts_with('[') {
+                in_deps = t == "[dependencies]"
+                    || t == "[build-dependencies]"
+                    || t == "[dev-dependencies]"
+                    || (t.starts_with("[target.") && t.contains("dependencies]"));
+                continue;
+            }
+            if !in_deps || t.is_empty() || t.starts_with('#') {
+                continue;
+            }
+            let Some((key, rhs)) = t.split_once('=') else {
+                continue;
+            };
+            let declared = if let Some(i) = rhs.find("package = \"") {
+                let rest = &rhs[i + 10..];
+                rest.split('"').next().unwrap_or("").to_string()
+            } else {
+                key.trim().to_string()
+            };
+            if declared.is_empty() {
+                continue;
+            }
+            assert!(
+                members.contains(&declared),
+                "{} declares third-party dependency `{declared}` — susi crates \
+                 must declare zero external deps; route it through a \
+                 susi-vendor-* crate",
+                path.display()
             );
         }
     }

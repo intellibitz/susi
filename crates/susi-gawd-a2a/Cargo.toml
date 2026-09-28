@@ -12,12 +12,12 @@ susi-http-transport = { workspace = true }
 susi-sandbox-client = { workspace = true }
 susi-config = { workspace = true }
 susi-error = { workspace = true }
-ra2a = { version = "0.10.1", features = ["server"] }
-axum = "0.8.9"
-tower = { version = "0.5", features = ["limit"] }
-tokio = { version = "1.53", features = ["rt-multi-thread", "net", "sync"] }
-tokio-rustls = { workspace = true }
-serde_json = { workspace = true }
+ra2a = { package = "susi-vendor-ra2a", path = "../susi-vendor-ra2a" }
+axum = { package = "susi-vendor-axum", path = "../susi-vendor-axum" }
+tower = { package = "susi-vendor-tower", path = "../susi-vendor-tower" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+tokio-rustls = { package = "susi-vendor-tokio-rustls", path = "../susi-vendor-tokio-rustls" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true

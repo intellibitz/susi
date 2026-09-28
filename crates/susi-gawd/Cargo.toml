@@ -16,13 +16,13 @@ susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-native-client = { workspace = true }
 susi-vendor-syn = { workspace = true }
-tokio = { workspace = true, features = ["rt"] }
-serde = { workspace = true }
-serde_json = { workspace = true }
-rayon = "1.12"
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+rayon = { package = "susi-vendor-rayon", path = "../susi-vendor-rayon" }
 
 [dev-dependencies]
-tempfile = "3.27.0"
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }
 # Test-only: reflex_synth's end-to-end test exercises the in-process Wasmer
 # host. Production `susi-gawd` reaches `susi-native` over IPC only.
 

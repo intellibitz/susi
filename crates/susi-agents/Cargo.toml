@@ -12,10 +12,10 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-getrandom = { workspace = true }
-libc = "0.2"
-serde = { workspace = true }
-serde_json = { workspace = true }
+getrandom = { package = "susi-vendor-getrandom", path = "../susi-vendor-getrandom" }
+libc = { package = "susi-vendor-libc", path = "../susi-vendor-libc" }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true

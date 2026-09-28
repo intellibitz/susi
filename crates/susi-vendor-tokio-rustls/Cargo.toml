@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-tokio-rustls"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI vendor facade: sole workspace owner of `tokio-rustls`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+
+[dependencies]
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+
+[lints]
+workspace = true

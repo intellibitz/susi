@@ -7,11 +7,11 @@ publish = false
 
 [dependencies]
 susi-paths = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
 
 [lints]
 workspace = true
 
 [dev-dependencies]
-proptest = "1.11.0"
+proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }

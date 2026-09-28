@@ -842,8 +842,8 @@ Cursor and Devin runs. Evidence: EV-2022928-296..302, 307, 308, 310-319.
 | Area | Result |
 |---|---|
 | Leaf services | one axum crate (`susi-leaf-services`) for paths/error/config/sandbox/native; foundation crates carry no HTTP framework or tokio; `/healthz` on every service |
-| Vendor isolation | `susi-vendor-{wasmer,mcp,tantivy,fastembed,chrome,syn}`: each third-party SDK in one crate exposing SUSI-shaped calls; HTTP-client rule is an allow-list over `crates/` |
-| Dependencies | 64 dead declarations removed; `directories`, `once_cell`, `md5`, `crossbeam` dropped; `susi-paths` depends only on `serde_json` |
+| Vendor isolation | `susi-vendor-{wasmer,mcp,mcp-server,tantivy,fastembed,chrome,syn,cloud,candle}` hold the third-party SDKs; **every** remaining external crate is owned by a pure re-export facade (`susi-vendor-{serde,serde-json,tokio,hyper,axum,…}` — 48 crates) so non-vendor susi-* crates declare zero third-party deps while `use serde::…` paths stay unchanged; HTTP-client rule is an allow-list over `crates/` |
+| Dependencies | every susi-* crate's `[dependencies]`/`[build-dependencies]`/`[dev-dependencies]`/`[target.*]` sections resolve to workspace members only (`susi_crates_declare_zero_external_dependencies` ratchet); `directories`, `once_cell`, `md5`, `crossbeam` dropped earlier |
 | Duplicates | one loopback client (`susi_paths::loopback`), one endpoint lookup, one override store, one port table (`ports::*_SERVICE`), one error model (no `anyhow` in any library crate), one path per module (susi-gemi alias layer removed), 30 unreachable daemon modules removed |
 | Honesty (Mandate 1) | no tree-sitter claim, real registry checksum and peer RTT, real health checks, no discarded-probe wiring, capability-gap replies state what a reflex does and does not do |
 | RSI loop | capability gaps and recurring mission intents get model-written WASI reflexes, published only after they parse, compile and run in the sandbox — reflexes execute on the same metered engine + 256 MiB memory cap as cells (fuel exhaustion traps instead of hanging the caller; no preopened dirs); probe fallback reports the gap as open |

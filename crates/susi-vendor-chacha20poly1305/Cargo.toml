@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-chacha20poly1305"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "SUSI vendor facade: sole workspace owner of `chacha20poly1305`; susi-* crates declare zero third-party dependencies and consume it through this facade (AGENTS.md)."
+
+[dependencies]
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"] }
+
+[lints]
+workspace = true

@@ -14,17 +14,17 @@ susi-config = { workspace = true }
 susi-error = { workspace = true }
 susi-paths = { workspace = true }
 susi-http-transport = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-indicatif = "0.18.6"
-tracing = { workspace = true }
-tokio = { workspace = true }
-parking_lot = { workspace = true }
-flume = { workspace = true }
-url = { workspace = true }
-sysinfo = "0.39.6"
-hex = { workspace = true }
-sha2 = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+indicatif = { package = "susi-vendor-indicatif", path = "../susi-vendor-indicatif" }
+tracing = { package = "susi-vendor-tracing", path = "../susi-vendor-tracing" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "../susi-vendor-parking-lot" }
+flume = { package = "susi-vendor-flume", path = "../susi-vendor-flume" }
+url = { package = "susi-vendor-url", path = "../susi-vendor-url" }
+sysinfo = { package = "susi-vendor-sysinfo", path = "../susi-vendor-sysinfo" }
+hex = { package = "susi-vendor-hex", path = "../susi-vendor-hex" }
+sha2 = { package = "susi-vendor-sha2", path = "../susi-vendor-sha2" }
 
 [features]
 default = []
@@ -36,4 +36,4 @@ metal = ["susi-vendor-candle/metal", "susi-gemi-models/metal"]
 workspace = true
 
 [dev-dependencies]
-tempfile = "3.27.0"
+tempfile = { package = "susi-vendor-tempfile", path = "../susi-vendor-tempfile" }

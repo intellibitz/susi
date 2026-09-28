@@ -15,12 +15,12 @@ default = []
 cell-server = ["dep:tokio"]
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-tokio = { workspace = true, optional = true }
+serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "../susi-vendor-serde-json" }
+tokio = { package = "susi-vendor-tokio", path = "../susi-vendor-tokio" , optional = true }
 
 [dev-dependencies]
-proptest = "1.11.0"
+proptest = { package = "susi-vendor-proptest", path = "../susi-vendor-proptest" }
 
 [lints]
 workspace = true

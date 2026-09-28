@@ -53,6 +53,15 @@ this for the panic-path lints.
   (e.g. `SocketAddr::new(...)` not `"127.0.0.1:80".parse().unwrap()`).
 - No new inter-crate edges without necessity; leaf order is
   `paths → error → config → core/sandbox → services → daemon`.
+- **susi-* crates declare zero third-party dependencies** — normal, build,
+  dev, and target-scoped sections alike. Every crates.io/git crate is owned
+  by exactly one `susi-vendor-*` crate: an implementation vendor
+  (`susi-vendor-candle`, `susi-vendor-wasmer`, `susi-vendor-mcp*`, …) or a
+  pure re-export facade (`susi-vendor-serde`, `susi-vendor-tokio`, …).
+  Consumers write `serde = { package = "susi-vendor-serde", path = "../susi-vendor-serde" }`
+  so `use serde::…` is unchanged. A new external crate means a new facade —
+  `susi_crates_declare_zero_external_dependencies` (architecture_tests)
+  enforces it.
 - `susi_http_transport::http_call*` returns non-2xx responses; callers must
   check status. `HttpCall::into_bytes(max)` reads `max + 1` and rejects overflow.
   The std-only `susi_paths::loopback` client caps complete responses at 16 MiB.

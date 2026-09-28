@@ -6,6 +6,9 @@ members = [
     "crates/susi-paths",
     "crates/susi-error",
     "crates/susi-core",
+    "crates/susi-vendor-criterion",
+    "crates/susi-vendor-proptest",
+    "crates/susi-vendor-tempfile",
     "crates/susi-vendor-wasmer",
     "crates/susi-vendor-mcp",
     "crates/susi-vendor-mcp-server",
@@ -32,7 +35,52 @@ members = [
     "crates/susi-gawd-a2a",
     "crates/susi-gawd", "crates/susi-daemon", "crates/susi-server",
     "crates/susi-dsh-cell"
-, "crates/susi-universal-cell"]
+, "crates/susi-universal-cell",
+    "crates/susi-vendor-anyhow",
+    "crates/susi-vendor-axum",
+    "crates/susi-vendor-base64",
+    "crates/susi-vendor-bollard",
+    "crates/susi-vendor-bytes",
+    "crates/susi-vendor-chacha20poly1305",
+    "crates/susi-vendor-clap",
+    "crates/susi-vendor-console-subscriber",
+    "crates/susi-vendor-dashmap",
+    "crates/susi-vendor-ed25519-dalek",
+    "crates/susi-vendor-flume",
+    "crates/susi-vendor-futures",
+    "crates/susi-vendor-getrandom",
+    "crates/susi-vendor-hex",
+    "crates/susi-vendor-http-body-util",
+    "crates/susi-vendor-hyper",
+    "crates/susi-vendor-hyper-util",
+    "crates/susi-vendor-indicatif",
+    "crates/susi-vendor-jsonschema",
+    "crates/susi-vendor-libc",
+    "crates/susi-vendor-md-5",
+    "crates/susi-vendor-parking-lot",
+    "crates/susi-vendor-ra2a",
+    "crates/susi-vendor-rayon",
+    "crates/susi-vendor-rcgen",
+    "crates/susi-vendor-regex",
+    "crates/susi-vendor-serde",
+    "crates/susi-vendor-serde-json",
+    "crates/susi-vendor-sha1",
+    "crates/susi-vendor-sha2",
+    "crates/susi-vendor-shlex",
+    "crates/susi-vendor-signal-hook",
+    "crates/susi-vendor-sysinfo",
+    "crates/susi-vendor-tokio",
+    "crates/susi-vendor-tokio-rustls",
+    "crates/susi-vendor-tokio-stream",
+    "crates/susi-vendor-tower",
+    "crates/susi-vendor-tower-service",
+    "crates/susi-vendor-tracing",
+    "crates/susi-vendor-tracing-appender",
+    "crates/susi-vendor-tracing-subscriber",
+    "crates/susi-vendor-ureq",
+    "crates/susi-vendor-url",
+    "crates/susi-vendor-winapi",
+    "crates/susi-vendor-x25519-dalek"]
 # Vendored, patched third-party crates (see vendor/README.md): not workspace
 # members, so workspace lints/clippy gates do not apply to upstream code.
 exclude = ["vendor"]
@@ -142,8 +190,8 @@ url = "2.5"
 criterion = "0.5"
 
 [dev-dependencies]
-ed25519-dalek = "2.2"
-sha2 = { workspace = true }
+ed25519-dalek = { package = "susi-vendor-ed25519-dalek", path = "crates/susi-vendor-ed25519-dalek" }
+sha2 = { package = "susi-vendor-sha2", path = "crates/susi-vendor-sha2" }
 
 [dependencies]
 susi-daemon = { path = "crates/susi-daemon" }
@@ -161,26 +209,26 @@ susi-error = { workspace = true }
 susi-config = { workspace = true }
 susi-vendor-cloud = { workspace = true }
 susi-leaf-services = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-anyhow = { workspace = true }
-clap = { version = "4.6", features = ["derive", "env"] }
-signal-hook = "0.4.4"
-tracing = { workspace = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-appender = "0.2"
-tokio = { workspace = true }
+serde = { package = "susi-vendor-serde", path = "crates/susi-vendor-serde" }
+serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
+anyhow = { package = "susi-vendor-anyhow", path = "crates/susi-vendor-anyhow" }
+clap = { package = "susi-vendor-clap", path = "crates/susi-vendor-clap" }
+signal-hook = { package = "susi-vendor-signal-hook", path = "crates/susi-vendor-signal-hook" }
+tracing = { package = "susi-vendor-tracing", path = "crates/susi-vendor-tracing" }
+tracing-subscriber = { package = "susi-vendor-tracing-subscriber", path = "crates/susi-vendor-tracing-subscriber" }
+tracing-appender = { package = "susi-vendor-tracing-appender", path = "crates/susi-vendor-tracing-appender" }
+tokio = { package = "susi-vendor-tokio", path = "crates/susi-vendor-tokio" }
 # Optional: only needed for tokio-console / RUSTFLAGS='--cfg tokio_unstable'.
 # Keeping it off the default graph drops console-subscriber (+ its tonic path)
 # from cold release builds.
-console-subscriber = { version = "0.5.0", optional = true }
-rayon = "1.12"
-parking_lot = { workspace = true }
-hex = { workspace = true }
-sysinfo = "0.39.6"
+console-subscriber = { package = "susi-vendor-console-subscriber", path = "crates/susi-vendor-console-subscriber" , optional = true }
+rayon = { package = "susi-vendor-rayon", path = "crates/susi-vendor-rayon" }
+parking_lot = { package = "susi-vendor-parking-lot", path = "crates/susi-vendor-parking-lot" }
+hex = { package = "susi-vendor-hex", path = "crates/susi-vendor-hex" }
+sysinfo = { package = "susi-vendor-sysinfo", path = "crates/susi-vendor-sysinfo" }
 
 [build-dependencies]
-serde_json = { workspace = true }
+serde_json = { package = "susi-vendor-serde-json", path = "crates/susi-vendor-serde-json" }
 
 # crates.io candle-core 0.11.0 still depends on tokenizers ^0.22, which pulls a
 # second copy alongside tokenizers 0.23.x used elsewhere. Patch to candle main
