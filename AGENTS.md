@@ -9,7 +9,7 @@ are enforced mechanically where possible; the rest are reviewed in CI.
   - `#![forbid(unsafe_code)]`: susi-paths, susi-error, susi-vendor-wasmer,
     susi-leaf-services, susi-core,
     susi-sandbox, susi-gmcp, susi-server, susi-gawd, susi-gawd-agents,
-    susi-http-transport, susi-vendor-candle, susi-adapters-llm, xtask,
+    susi-http-transport, susi-vendor-candle, susi-vendor-mcp-server, susi-adapters-llm, xtask,
     root package.
   - `#![deny(unsafe_code)]` + per-function `#[allow(unsafe_code)]` with a
     `// SAFETY:` justification: susi-agents, susi-config, susi-daemon,

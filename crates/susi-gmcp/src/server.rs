@@ -20,6 +20,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use susi_vendor_mcp_server as rmcp;
 use tokio_rustls::TlsAcceptor;
 use tower_service::Service;
 

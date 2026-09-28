@@ -3,6 +3,7 @@ use crate::protocol::GmcpService;
 use rmcp::{model::*, ServiceExt};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
+use susi_vendor_mcp_server as rmcp;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
 type Wire = BufReader<DuplexStream>;

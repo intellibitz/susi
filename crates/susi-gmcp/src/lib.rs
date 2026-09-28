@@ -10,6 +10,8 @@
     )
 )]
 
+extern crate susi_vendor_mcp_server as rmcp;
+
 pub use susi_abi;
 
 pub use susi_error;

@@ -18,6 +18,7 @@ use std::{
     pin::Pin,
     sync::Arc,
 };
+use susi_vendor_mcp_server as rmcp;
 use tokio::sync::broadcast;
 
 pub type ProtocolFuture<T> = Pin<Box<dyn Future<Output = Result<T, ErrorData>> + Send>>;

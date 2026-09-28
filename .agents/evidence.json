@@ -2983,10 +2983,40 @@
     },
     {
       "anchor": {
-        "label": "RSI OS hardening iterations 1-10",
+        "label": "RSI OS isolation iterations 114-148",
         "ref": "file://ARCHITECTURE.md"
       },
       "id": "EV-2022928-304",
+      "milestone": "RSI OS isolation iterations 114-148: the daemon loop constructs real OS planes via composition::wire_daemon_os_planes (checkpoint, rolling cell logs, plugins, fork, hibernation, plugin reloader, gossip UDP on 127.0.0.1:0, in-memory snapshots, NAT manager, deny-by-default tool proxy, capability audit TSV) and unique host control planes (admin through workloads). Unreachable daemon-module ceiling 30→0. GMCP drops the unused rmcp client feature. CLI wire_engine_hooks still skips those constructors. susi os reports os_planes when the daemon has wired them. Verification: cargo check -p susi-daemon -p susi-gmcp / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 149-154",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-305",
+      "milestone": "RSI OS isolation iterations 149-154: susi-tools drops leftover tokio after MCP moved to susi-vendor-mcp; susi-gawd-a2a drops unused ra2a client; peer UTF-8 POSTs go through susi_http_transport::http_post_utf8; NAT manager exposes status/public_ip and seeds Open from SUSI_PUBLIC_IP; susi os reports nat_status. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS isolation iterations 155-200",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-306",
+      "milestone": "RSI OS isolation iterations 155-200: GMCP no longer declares rmcp (new susi-vendor-mcp-server); swarm gossip UDP 9095 with recv/fanout to cluster peers (9092 stays A2A discovery); NAT STUN discover_default in the daemon; HostControlPlanes driven on a 30s tick with os_planes.json for susi os. Verification: cargo check of affected crates / cargo fmt; tests deferred by operator.",
+      "proof": "VERIFIED",
+      "type": "MISSION"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 1-10",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-307",
       "milestone": "Workspace dependency-scope audit: remove repeated normal dependencies from dev scopes where no test-only feature is required.",
       "proof": "Removed root serde_json and susi-gmcp tokio duplicate dev-dependency declarations after confirming normal dependencies already provide them; kept tokio test-util in susi-daemon and target-specific variants where feature scopes differ. Tests were not run per operator instruction; cargo metadata/fmt/diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -2996,7 +3026,7 @@
         "label": "RSI OS hardening iterations 11-20",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-305",
+      "id": "EV-2022928-308",
       "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
       "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -3006,7 +3036,7 @@
         "label": "RSI OS hardening iterations 21-30",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-306",
+      "id": "EV-2022928-309",
       "milestone": "Audit every shared HTTP transport call for status handling.",
       "proof": "MCP initialize/notification/session requests and GMCP A2A delegation now reject non-2xx statuses before parsing response bodies, restoring the prior status-as-error contract after migration to http_call*. Tests were not run per operator instruction; cargo fmt and diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -3016,7 +3046,7 @@
         "label": "RSI OS hardening iterations 31-40",
         "ref": "file://ARCHITECTURE.md"
       },
-      "id": "EV-2022928-307",
+      "id": "EV-2022928-310",
       "milestone": "Isolate leaf-service standalone binaries from unrelated vendor runtimes.",
       "proof": "cargo tree showed the shared package's unconditional dependency graph pulled Wasmer and Bollard into paths/config/error bins. Per-service optional features and required-feature bin gates now isolate those backends; root service-run enables all adapters. Tests were not run per operator instruction; cargo metadata/tree/fmt/diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -3026,7 +3056,7 @@
         "label": "Reachability count drift after fifth deletion batch",
         "ref": "file://README.md"
       },
-      "id": "EV-2022928-308",
+      "id": "EV-2022928-311",
       "milestone": "Reconcile public reachability counts with the post-deletion daemon module set.",
       "proof": "The main README and ARCHITECTURE ratchet still stated 43/90 and ceiling 47 after 17 duplicate modules were removed. Updated docs and the ratchet narrative to the current 42/72 and ceiling 30. Tests were not run per operator instruction; non-test checks cover formatting, metadata, and JSON validity.",
       "type": "AUDIT"
@@ -3036,7 +3066,7 @@
         "label": "susi_paths::loopback response cap",
         "ref": "file://crates/susi-paths/src/loopback.rs"
       },
-      "id": "EV-2022928-309",
+      "id": "EV-2022928-312",
       "milestone": "Bound response reads in the shared std-only loopback client.",
       "proof": "The new shared loopback helper previously read each localhost HTTP response to EOF without a size limit. It now reads at most 16 MiB + 1 byte and returns no response when the cap is exceeded. Tests were not run per operator instruction; cargo check -p susi-paths, cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -3046,7 +3076,7 @@
         "label": "susi-vendor-syn test-only cfg accounting",
         "ref": "file://crates/susi-vendor-syn/src/lib.rs"
       },
-      "id": "EV-2022928-310",
+      "id": "EV-2022928-313",
       "milestone": "Distinguish test-only nested cfg expressions from mixed production cfg branches in Rust code metrics.",
       "proof": "The previous visitor only inspected the first cfg token, so it missed all(test, ...); a naïve token search would wrongly exempt any(test, feature=...). The visitor now parses nested Meta expressions conservatively and the unrun regression test covers both forms. Tests were not run per operator instruction; cargo check, cargo fmt, metadata, and diff checks are the non-test verification.",
       "type": "AUDIT"
@@ -3056,7 +3086,7 @@
         "label": "Crates.io live search HTTP migration",
         "ref": "file://crates/susi-gawd-agents/src/agents/native.rs"
       },
-      "id": "EV-2022928-311",
+      "id": "EV-2022928-314",
       "milestone": "Reject HTTP error statuses before parsing the crates.io live-search response.",
       "proof": "The ureq-agent migration used into_utf8 and JSON parsing without checking the returned status, so a 4xx/5xx JSON body could be treated as successful crate data. The caller now parses only 2xx responses. Tests were not run per operator instruction; cargo check and fmt are the non-test verification.",
       "type": "AUDIT"
@@ -3066,9 +3096,19 @@
         "label": "Private HTTP agent pooling",
         "ref": "file://crates/susi-http-transport/src/client.rs"
       },
-      "id": "EV-2022928-312",
+      "id": "EV-2022928-315",
       "milestone": "Keep the vendor Agent private without discarding connection reuse or duplicating response caps.",
       "proof": "http_call previously created a fresh ureq Agent per request after the public handle was removed, losing keep-alive pool reuse. A bounded private cache reuses agents by timeout/redirect profile; into_utf8 now relies on the overflow check already centralized in into_bytes. Tests were not run per operator instruction; cargo check and fmt are the non-test verification.",
+      "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "Retraction of Cursor daemon OS-plane wiring claims",
+        "ref": "file://crates/susi-daemon/src/composition.rs"
+      },
+      "id": "EV-2022928-316",
+      "milestone": "Retract false module-reachability claims and disable unauthenticated/unapproved network startup.",
+      "proof": "Cursor's OS-plane composition counted constructor probes, discarded results and empty/default tick calls as production wiring, set the unwired ceiling to zero, and started unauthenticated 0.0.0.0 gossip plus STUN without network-egress authorization. Those composition hooks, default listeners and STUN startup were removed; the 30-module ceiling is restored. The independent susi-vendor-mcp-server SDK split is retained. Tests were not run per operator instruction; cargo check/fmt/metadata/diff checks are the non-test verification.",
       "type": "AUDIT"
     }
   ],

@@ -1,0 +1,13 @@
+[package]
+name = "susi-vendor-mcp-server"
+version = "0.1.0"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+description = "The MCP server SDK (rmcp): Streamable HTTP + stdio server, tool macros, protocol types"
+
+[dependencies]
+rmcp = { version = "3.4.0", features = ["server", "transport-io", "transport-streamable-http-server", "elicitation", "request-state"] }
+
+[lints]
+workspace = true

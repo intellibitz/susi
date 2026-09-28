@@ -6,6 +6,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 use std::sync::OnceLock;
+use susi_vendor_mcp_server as rmcp;
 
 use crate::susi_core::broker::{IpcBroker, PermissionScope};
 use crate::susi_core::context_graph::ContextGraph;
