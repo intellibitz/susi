@@ -1,6 +1,6 @@
 //! Hot-Reloading of WASM Plugins
 //!
-//! Validates a candidate module with `wasmtime` before it replaces the
+//! Validates a candidate module with `wasmer` before it replaces the
 //! live one, so a malformed or incompatible binary can never take down a
 //! running plugin slot — the swap only happens once compilation proves
 //! the bytes are a loadable module.
@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use wasmtime::{Engine, Module};
+use wasmer::{Engine, Module};
 
 use crate::code_signing::CodeSigningPolicy;
 

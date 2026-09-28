@@ -264,7 +264,6 @@ thiserror-impl = { opt-level = 0 }
 tokio-macros = { opt-level = 0 }
 tracing-attributes = { opt-level = 0 }
 typetag-impl = { opt-level = 0 }
-wasmtime-internal-component-macro = { opt-level = 0 }
 yoke-derive = { opt-level = 0 }
 zerocopy-derive = { opt-level = 0 }
 zerofrom-derive = { opt-level = 0 }

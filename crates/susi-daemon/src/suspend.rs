@@ -31,7 +31,7 @@ impl HibernationManager {
     }
 
     /// Suspends a cell by writing its linear memory / state to disk.
-    /// In a full implementation for WASM, this serializes the Wasmtime Store.
+    /// In a full implementation for WASM, this serializes the Wasmer Store.
     pub fn suspend_cell(
         &self,
         cell_id: &str,
