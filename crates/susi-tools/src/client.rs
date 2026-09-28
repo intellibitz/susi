@@ -178,9 +178,6 @@ impl GmcpClient {
                     let Ok(bytes) = call.into_bytes(16 * 1024 * 1024) else {
                         return;
                     };
-                    if bytes.len() > 16 * 1024 * 1024 {
-                        return;
-                    }
                     let Ok(remote_entries) = serde_json::from_slice::<Vec<GlobalMcpEntry>>(&bytes)
                     else {
                         return;

@@ -592,9 +592,6 @@ pub fn register_openai_compat_models(
     let Ok(bytes) = call.into_bytes(32 * 1024 * 1024) else {
         return 0;
     };
-    if bytes.len() > 32 * 1024 * 1024 {
-        return 0;
-    }
     let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
         return 0;
     };

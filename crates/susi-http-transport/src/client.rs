@@ -60,13 +60,19 @@ impl HttpCall {
         self.body.into_reader()
     }
 
-    /// Consume the body into a bounded byte buffer. `max` is the largest
-    /// payload kept; one extra byte is read so callers can detect overflow.
+    /// Consume the body into a bounded byte buffer, rejecting payloads over
+    /// `max`. One extra byte is read to detect overflow.
     pub fn into_bytes(self, max: u64) -> Result<Vec<u8>, std::io::Error> {
         let mut bytes = Vec::new();
         self.into_reader()
             .take(max.saturating_add(1))
             .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > max {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "response body exceeds configured limit",
+            ));
+        }
         Ok(bytes)
     }
 }

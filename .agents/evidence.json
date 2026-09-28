@@ -2910,6 +2910,16 @@
       "milestone": "Workspace dependency-scope audit: remove repeated normal dependencies from dev scopes where no test-only feature is required.",
       "proof": "Removed root serde_json and susi-gmcp tokio duplicate dev-dependency declarations after confirming normal dependencies already provide them; kept tokio test-util in susi-daemon and target-specific variants where feature scopes differ. Tests were not run per operator instruction; cargo metadata/fmt/diff checks are the non-test verification.",
       "type": "AUDIT"
+    },
+    {
+      "anchor": {
+        "label": "RSI OS hardening iterations 11-20",
+        "ref": "file://ARCHITECTURE.md"
+      },
+      "id": "EV-2022928-297",
+      "milestone": "Centralize bounded HTTP response ownership in susi-http-transport.",
+      "proof": "HttpCall::into_bytes now rejects payloads over the requested cap after reading at most one overflow byte; duplicate overflow checks were removed from transport consumers. Tests were not run per operator instruction; cargo fmt, metadata, and diff checks are the non-test verification.",
+      "type": "AUDIT"
     }
   ],
   "epistemic_score": 1.0,

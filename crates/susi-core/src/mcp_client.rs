@@ -311,9 +311,6 @@ fn read_body(resp: susi_http_transport::HttpCall, sealed: Option<&str>) -> Resul
     let body = resp
         .into_bytes(MAX_RESPONSE_BYTES)
         .map_err(|e| format!("read response body: {e}"))?;
-    if (body.len() as u64) > MAX_RESPONSE_BYTES {
-        return Err("response body exceeds cap".to_string());
-    }
     let enc_headers = (enc, nonce);
     let Some(pk) = sealed else {
         return String::from_utf8(body).map_err(|e| format!("response body not utf-8: {e}"));

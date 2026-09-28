@@ -521,3 +521,4 @@ the same commit as the code.
 | 100 | Ratchet still allowed gemi reqwest | `susi-gemi` on the HTTP-client forbidden list; remaining `reqwest` is `susi-tools` rmcp |
 | 101 | HTTP callers treated non-2xx as transport errors and accepted capped-plus-one bodies | explicitly check 2xx and reject overflow before parsing |
 | 102 | Root and GMCP repeated normal dependencies in dev scopes | removed redundant `serde_json` and `tokio` declarations |
+| 103 | Every HTTP caller reimplemented the `max + 1` response overflow check | `HttpCall::into_bytes` rejects overflow centrally |
