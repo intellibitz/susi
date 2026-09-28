@@ -297,6 +297,17 @@ fn tail(text: &str) -> String {
     }
 }
 
+/// A bare (unquoted) path is the token after the claim verb, so it carries
+/// whatever prose punctuation follows it. Only `.,;` used to be trimmed:
+/// "I saved to notes.txt:" mined `notes.txt:` (a truthful claim failed
+/// verification) and "removed old.log)" mined `old.log)` — a path that is
+/// always absent, so the deletion "verified" even with `old.log` present.
+fn trim_bare_path(path: &str) -> String {
+    path.trim_start_matches(['(', '[', '{'])
+        .trim_end_matches(['.', ',', ';', ':', '!', '?', ')', ']', '}', '"', '\'', '`'])
+        .to_string()
+}
+
 /// Mine checkable contracts from mission text (goal or result). Claims we
 /// recognize become contracts; everything else produces nothing — absence of
 /// a contract is not a pass.
@@ -319,7 +330,7 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     for capture in writes.captures_iter(text) {
         if let Some(path) = (1..=4).find_map(|i| capture.get(i)).map(|v| v.as_str()) {
             let path = if capture.get(4).is_some() {
-                path.trim_end_matches(['.', ',', ';']).to_string()
+                trim_bare_path(path)
             } else {
                 path.to_string()
             };
@@ -342,7 +353,7 @@ pub fn contracts_from_text(text: &str) -> Vec<Contract> {
     for capture in deletes.captures_iter(text) {
         if let Some(path) = (1..=4).find_map(|i| capture.get(i)).map(|v| v.as_str()) {
             let path = if capture.get(4).is_some() {
-                path.trim_end_matches(['.', ',', ';']).to_string()
+                trim_bare_path(path)
             } else {
                 path.to_string()
             };
@@ -578,6 +589,37 @@ mod tests {
         );
         assert!(matches!(verdict, ContractVerdict::Unverifiable { .. }));
         assert!(!marker.exists(), "a refused verifier must never run");
+    }
+
+    #[test]
+    fn bare_claim_paths_shed_surrounding_prose_punctuation() {
+        let exists = |p: &str| Contract::FileExists { path: p.into() };
+        for (text, path) in [
+            ("I saved to notes.txt: done", "notes.txt"),
+            ("(saved to out/report.md)", "out/report.md"),
+            ("I wrote to report.md!", "report.md"),
+            ("wrote to data.json), then stopped", "data.json"),
+            ("saved to x.md?", "x.md"),
+        ] {
+            assert_eq!(contracts_from_text(text), [exists(path)], "{text}");
+        }
+        // The deletion side: a trailing ')' must not turn a present file
+        // into an always-absent path that "verifies".
+        let dir = ws();
+        std::fs::write(dir.path().join("old.log"), "x").unwrap();
+        let mined = contracts_from_text("Done (removed old.log)");
+        assert_eq!(
+            mined,
+            [Contract::FileAbsent {
+                path: "old.log".into()
+            }]
+        );
+        assert!(verify_contract(&mined[0], dir.path()).violation().is_some());
+        // Quoted paths are taken verbatim.
+        assert_eq!(
+            contracts_from_text("wrote to `a b.txt`."),
+            [exists("a b.txt")]
+        );
     }
 
     #[test]

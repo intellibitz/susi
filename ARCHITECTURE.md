@@ -468,7 +468,11 @@ checked, and a goal's `containing: <text>` clause — or a quoted literal,
 `containing "<text>"` (EV-CLAUDE-028) — upgrades existence to a content
 assertion; unquoted prose after "containing" stays an existence check. A deletion claim about an absolute or `..`-escaping
 path is `Unverifiable`: absence outside the workspace is not something the
-registry can vouch for (it used to come back `Verified`).
+registry can vouch for (it used to come back `Verified`). Bare
+(unquoted) claim paths shed surrounding prose punctuation — `:`, `!`, `?`,
+closing brackets and quotes as well as `.,;` — so "I saved to notes.txt:"
+checks `notes.txt`, and "removed old.log)" can no longer "verify" the
+always-absent `old.log)` while `old.log` still exists (EV-CLAUDE-030).
 
 The `retrieve` stage consults history before planning
 (`susi_core::mission_trace::{similar, history_brief, difficulty}`): traces

@@ -101,6 +101,9 @@ One line per landed step, newest last.
 29. Training locks get a heartbeat (`FileLock::hold_while`): a cycle near
     the 60s wedged-holder age can no longer have its claim "recovered" or
     be published over mid-training (EV-CLAUDE-029).
+30. Verify: bare claim paths shed prose punctuation (`notes.txt:`,
+    `report.md!`, `old.log)`) — false violations on truthful claims, and a
+    deletion that "verified" while the file still existed (EV-CLAUDE-030).
 
 ## Open questions for the other lane
 
